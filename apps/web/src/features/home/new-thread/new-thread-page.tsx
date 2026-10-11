@@ -11,7 +11,6 @@ import {
   rememberAttachments,
   readDraft,
   writeDraft,
-  discardDraft,
   useDraftScope,
   usePermissionModes,
   type Draft,
@@ -53,12 +52,15 @@ import {
   preparation,
   preparationSaveFailed,
   legacyDraftScope,
+  retirePreparationScope,
+  retainPromotedPreparation,
   preparationKey,
   savePreparation,
   type Preparation,
   usePreparationsChanged,
 } from "./preparations.ts";
 import { UnavailablePreparation } from "./unavailable-preparation.tsx";
+import { discardPreparation } from "./discard-preparation.ts";
 import { SignInNotice } from "@/features/sign-in/index.ts";
 
 /** Where the thread runs, below the composer. */
@@ -287,6 +289,7 @@ function PreparationPage(props: {
       scopeEpoch: previous?.scopeEpoch,
       attachmentsUnavailable: previous?.attachmentsUnavailable && !!content?.attachments.length,
       discardRecovery: previous?.discardRecovery,
+      handoffCleanupPending: previous?.handoffCleanupPending,
       draftId:
         previous?.draftId && previous.draftId !== scopeId.current && content?.attachments.length
           ? previous.draftId
@@ -341,13 +344,23 @@ function PreparationPage(props: {
           saved.draftId === id ||
           !readDraft(storage, draftKey)?.attachments.length)
       )
-        savePreparation(storage, props.host, draftKey, { ...saved, draftId: id });
+        if (!savePreparation(storage, props.host, draftKey, { ...saved, draftId: id })) setSaveFailed(true);
     },
     owns: (id) => preparation(storage, props.host, draftKey)?.draftId === id,
+    consumed(id) {
+      if (!retirePreparationScope(storage, props.host, draftKey, id)) setSaveFailed(true);
+    },
   });
   const { create, error, recovering } = useCreateThread((payload) => {
-    if (payload.context?.draftId) scope.retire(payload.context.draftId);
-    if (payload.workspaceId === project) composer.current?.discardIfSubmitted(payload);
+    const matched = payload.workspaceId === project && composer.current?.discardIfSubmitted(payload);
+    if (payload.context?.draftId) {
+      scope.retire(payload.context.draftId);
+      if (payload.workspaceId === project) {
+        if (matched && !discardPreparation(storage, props.host, draftKey)) {
+          if (!retainPromotedPreparation(storage, props.host, draftKey, payload.context.draftId)) setSaveFailed(true);
+        } else if (!matched && !retirePreparationScope(storage, props.host, draftKey, payload.context.draftId)) setSaveFailed(true);
+      }
+    }
   });
   const settlePreparation = useEffectEvent(() => {
     const saved = preparation(storage, props.host, draftKey);
@@ -481,27 +494,30 @@ function PreparationPage(props: {
     });
     submitting.current = false;
     const current = preparation(storage, props.host, draftKey);
+    const content = readDraft(storage, draftKey);
     const unchanged =
       current?.owner === editorOwner &&
       current.revision === submittedRevision &&
-      JSON.stringify(readDraft(storage, draftKey)) === submittedContent;
+      (JSON.stringify(content) === submittedContent || !content);
     if (
       sent &&
       unchanged &&
       (!mounted.current ||
         (!latestContent.current?.text.trim() && !latestContent.current?.attachments.length))
     ) {
-      if (!mounted.current) discardDraft(storage, draftKey);
-      savePreparation(storage, props.host, draftKey, undefined);
+      scope.retire(draftId);
+      if (!discardPreparation(storage, props.host, draftKey)) {
+        const retired = retainPromotedPreparation(storage, props.host, draftKey, draftId);
+        if (mounted.current) setSaveFailed(!retired || preparation(storage, props.host, draftKey)?.handoffCleanupPending === true);
+      }
     } else if (sent && current?.draftId === draftId) {
       // The handoff consumed this scope. Retained content now owns a new preparation.
-      savePreparation(storage, props.host, draftKey, {
-        ...current,
-        draftId: undefined,
-        scopeEpoch: (current.scopeEpoch ?? 0) + 1,
-        attachmentsUnavailable: !!readDraft(storage, draftKey)?.attachments.length,
-      });
+      scope.retire(draftId);
+      const retired = retirePreparationScope(storage, props.host, draftKey, draftId);
+      if (mounted.current) setSaveFailed(!retired);
       if (mounted.current) scopeId.current = undefined;
+    } else if (sent) {
+      scope.retire(draftId);
     }
     return sent;
   };
@@ -527,21 +543,24 @@ function PreparationPage(props: {
       </Screen>
     );
   const recoverable =
+    readDraft(storage, draftKey) ??
     readDraft(storage, `new:${project}${props.skill ? `:skill:${props.skill}` : ""}`) ??
     preparation(storage, props.host, draftKey)?.discardRecovery;
-  if (recoverable && !readDraft(storage, draftKey))
+  const promoted = preparation(storage, props.host, draftKey)?.handoffCleanupPending;
+  if (promoted || (recoverable && !readDraft(storage, draftKey)))
     return (
       <Screen title="Saved preparation">
         <div className="px-5 py-6">
           <p role="alert" className="text-ui text-status-failed">
-            Couldn't restore this saved preparation in the editor. Free space or discard an older
-            draft, then reopen it.
+            {promoted
+              ? "The thread was saved, but its preparation couldn't be removed. Discard this recovery copy when this device has free space."
+              : "Couldn't restore this saved preparation in the editor. Free space or discard an older draft, then reopen it."}
           </p>
           <pre aria-label="Saved message" className="mt-4 whitespace-pre-wrap text-ui">
-            {recoverable.text}
+            {recoverable?.text ?? ""}
           </pre>
           <ul aria-label="Saved attachments" className="mt-3 text-ui">
-            {recoverable.attachments.map((file) => (
+            {recoverable?.attachments.map((file) => (
               <li key={`${file.sha256}:${file.name}`}>{file.name}</li>
             ))}
           </ul>
