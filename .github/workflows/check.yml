@@ -67,6 +67,18 @@ jobs:
       - name: File size limit
         run: bun run check:size
 
+      - name: Cache incremental typechecks
+        uses: actions/cache@v6
+        with:
+          path: |
+            .cache/typecheck
+            packages/*/.cache/typecheck
+            apps/*/.cache/typecheck
+            tools/*/.cache/typecheck
+          key: ${{ runner.os }}-${{ runner.arch }}-typecheck-v1-${{ hashFiles('bun.lock', 'package.json', 'packages/*/package.json', 'apps/*/package.json', 'tools/*/package.json', 'tsconfig*.json', 'packages/*/tsconfig*.json', 'apps/*/tsconfig*.json', 'tools/*/tsconfig*.json', 'scripts/typecheck*.ts') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-typecheck-v1-${{ hashFiles('bun.lock', 'package.json', 'packages/*/package.json', 'apps/*/package.json', 'tools/*/package.json', 'tsconfig*.json', 'packages/*/tsconfig*.json', 'apps/*/tsconfig*.json', 'tools/*/tsconfig*.json', 'scripts/typecheck*.ts') }}-
+
       - name: Typecheck
         run: bun run typecheck
 

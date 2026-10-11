@@ -109,6 +109,13 @@ has no prebuilds: run `bun run desktop:rebuild-native` before `desktop:build` th
 - **Screen helper skipped during a build:** the Swift (macOS) or Rust (Windows, Linux) toolchain
   is missing. The app works without it; screen and computer use stay off.
 
+`bun run typecheck` uses incremental declaration builds and checks the original
+package programs, root test tooling, and browser-only client runtime. One native
+compiler runs at a time, with at most two project builders and two CPU threads.
+`bun run --filter @ace/protocol typecheck` checks a workspace and its dependencies.
+Use `bun run typecheck:clean` to remove the caches. See
+[incremental typechecking](docs/build/typecheck.md) for the design and cache rules.
+
 Tests run in separate unit and process projects with bounded concurrency. See
 [process test reliability](docs/testing/process-tests.md) for the real-I/O suite
 inventory, shared fixtures and validation record. The owner requires tests to

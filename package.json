@@ -12,7 +12,7 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint --deny-warnings",
-    "typecheck": "bun run --filter '*' typecheck && tsc -p tsconfig.tests.json",
+    "typecheck": "node scripts/typecheck.ts",
     "test": "vitest run",
     "check": "bun run fmt:check && bun run docs:protocol --check && bun run lint && bun run check:size && bun run check:ui && bun run check:deps && bun run typecheck && bun run test && bun run check:perf",
     "record": "bun run --filter @ace/recorder record",
@@ -42,7 +42,8 @@
     "desktop:package": "node apps/desktop/scripts/package.ts --full",
     "desktop:rebuild-native": "node apps/desktop/scripts/rebuild-native.ts",
     "desktop:e2e": "node apps/desktop/scripts/e2e.ts",
-    "smoke:real": "node tools/real-smoke/src/cli.ts"
+    "smoke:real": "node tools/real-smoke/src/cli.ts",
+    "typecheck:clean": "node scripts/typecheck.ts --clean"
   },
   "devDependencies": {
     "@ace/provider-kit": "workspace:*",
@@ -54,7 +55,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
-    "typescript": "^7.0.2",
+    "typescript": "7.0.2",
     "vitest": "^5.0.3",
     "zod": "^4.6.5"
   },
