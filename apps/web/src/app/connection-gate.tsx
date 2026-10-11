@@ -307,6 +307,7 @@ export function ConnectionGate(props: {
       url: state.url,
       remembered: state.remembered,
       token: state.target?.token,
+      pairedDeviceId: state.target?.pairedDeviceId,
       status,
       desktop: props.desktop,
       pairingLink: props.pairingLink,

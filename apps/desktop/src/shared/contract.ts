@@ -17,7 +17,12 @@ export const AbsolutePath = z
 
 /** How the renderer reaches its daemon. The token never travels in a URL. */
 export const DaemonConnection = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("daemon"), url: SocketUrl, token: Hex64 }),
+  z.object({
+    mode: z.literal("daemon"),
+    url: SocketUrl,
+    token: Hex64,
+    pairedDeviceId: z.string().min(1).max(256).optional(),
+  }),
   /** `dev:desktop:fake`: the renderer runs the in-page fake daemon. */
   z.object({ mode: z.literal("fake") }),
 ]);

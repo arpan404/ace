@@ -160,7 +160,12 @@ export class DaemonRuntime {
     if (this.target.kind === "remote-only" || this.target.kind === "refused")
       throw new Error(this.target.reason);
     if (this.target.kind === "remote")
-      return { mode: "daemon", url: this.target.url, token: this.target.token };
+      return {
+        mode: "daemon",
+        url: this.target.url,
+        token: this.target.token,
+        ...(this.target.pairedDeviceId ? { pairedDeviceId: this.target.pairedDeviceId } : {}),
+      };
     if (!this.supervisor) throw new Error("No local daemon for this target");
     const daemon = await this.supervisor.reachable();
     return { mode: "daemon", url: daemon.url, token: daemon.token };
