@@ -1,4 +1,6 @@
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
+import { useCopy } from "../use-copy.ts";
+export { useCopy } from "../use-copy.ts";
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { useMemo, useState, type ReactNode } from "react";
 import type { CodeToken } from "./highlight.ts";
@@ -7,23 +9,6 @@ import { useCodeLines } from "./use-code-lines.ts";
 import { LongRows } from "@/components/virtual-rows.tsx";
 import { CodeTokens } from "./code-tokens.tsx";
 export { tokenTone } from "./code-tokens.tsx";
-
-/** Copy to the clipboard with a short "Copied" confirmation. */
-export function useCopy(): { copied: boolean; copy(text: string): void } {
-  const [copied, setCopied] = useState(false);
-  return {
-    copied,
-    copy(text) {
-      void navigator.clipboard?.writeText(text).then(
-        () => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        },
-        () => setCopied(false),
-      );
-    },
-  };
-}
 
 /** A fenced code block: language and Copy in a quiet header, syntax highlighting below. */
 export function CodeBlock(props: {

@@ -2,7 +2,13 @@ import { useItem } from "@ace/client-react";
 import { useNavigate } from "@tanstack/react-router";
 import { CheckIcon, XIcon } from "@phosphor-icons/react";
 import type { Agent, BackgroundTask } from "@ace/protocol";
-import { agentName, backgroundCommand, describeActivity, formatElapsed } from "@ace/ui-core";
+import {
+  agentName,
+  agentStatusLabel,
+  backgroundCommand,
+  describeActivity,
+  formatElapsed,
+} from "@ace/ui-core";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -75,14 +81,18 @@ function AgentLine(props: { threadId: string; agent: Agent; onClose(): void }) {
     !live.fresh && running
       ? "Last seen"
       : needsYou
-        ? state === "failed"
-          ? "Failed"
-          : "Needs you"
-        : running
-          ? formatElapsed(Math.max(0, now - agent.createdAt))
-          : state === "interrupted"
-            ? "Stopped"
-            : "done";
+        ? state === "unresponsive"
+          ? "Unresponsive"
+          : state === "failed"
+            ? "Failed"
+            : "Needs you"
+        : state === "blocked"
+          ? agentStatusLabel(agent.status).label
+          : running
+            ? formatElapsed(Math.max(0, now - agent.createdAt))
+            : state === "interrupted"
+              ? "Stopped"
+              : "done";
   return (
     <Tip label={`${name} · ${activity}`}>
       <RowButton
@@ -94,10 +104,12 @@ function AgentLine(props: { threadId: string; agent: Agent; onClose(): void }) {
           props.onClose();
         }}
       >
-        {state === "failed" ? (
+        {state === "failed" || state === "unresponsive" ? (
           <XIcon aria-hidden size={12} className="shrink-0 text-status-failed" />
         ) : needsYou ? (
           <Dot tone="needs-you" />
+        ) : state === "blocked" ? (
+          <Dot tone="limited" />
         ) : running ? (
           <Spinner className="text-status-working" />
         ) : (
@@ -107,7 +119,7 @@ function AgentLine(props: { threadId: string; agent: Agent; onClose(): void }) {
           {name}
         </TruncatedText>
         <StatusLabel
-          tone={needsYou ? (state === "failed" ? "failed" : "needs-you") : "idle"}
+          tone={agentStatusLabel(agent.status).tone}
           label={status}
           mark={<></>}
           className="text-2xs font-normal"

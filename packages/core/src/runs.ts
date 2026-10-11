@@ -79,6 +79,7 @@ export function endTurn(
   const active = record.activeRun ? get(state.runs, record.activeRun) : undefined;
   let run =
     fact.nativeTurnId === undefined ? active : matchingRun(state, record, fact.nativeTurnId);
+  const recoveredPast = fact.historical && !run && record.lastRun !== undefined;
   if (run && run.state !== "active") {
     if (fact.trigger !== undefined && run.trigger !== fact.trigger) {
       run.trigger = fact.trigger;
@@ -119,7 +120,9 @@ export function endTurn(
     ...(fact.trigger === undefined ? {} : { trigger: fact.trigger }),
   });
   // A delayed end for an older native turn cannot terminate the current turn.
-  if (active && active.id !== run.id) return;
+  if (recoveredPast || (active && active.id !== run.id)) return;
+  if (!fact.historical && fact.error?.kind === "quota")
+    record.limited = { message: fact.error.message };
   delete record.processSettledStatus;
   delete record.activeRun;
   delete record.retry;

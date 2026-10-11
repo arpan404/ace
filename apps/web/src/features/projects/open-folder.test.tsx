@@ -1,12 +1,24 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
+import { fallback } from "@/boot/connection.tsx";
 import { harness } from "@/test/harness.tsx";
 
 const home = "/home/dev";
 
-function host() {
-  const made = harness();
+const localTarget = { url: "ws://127.0.0.1:4242/", token: "a".repeat(64) };
+function host(remote = false) {
+  const made = harness({
+    connection: {
+      ...fallback,
+      mode: "daemon",
+      endpoint: {
+        kind: "daemon",
+        target: remote ? { ...localTarget, url: "wss://remote.example/" } : localTarget,
+        deviceId: "test-device",
+      },
+    },
+  });
   made.daemon.projects.seedFolders(home, [
     { path: `${home}/code/weather`, git: true },
     { path: `${home}/code/mono`, git: true },
@@ -21,7 +33,10 @@ const registered = (made: ReturnType<typeof harness>) =>
 function desktopBridge(paths: { chosen?: string | null; dropped?: string }) {
   Object.assign(globalThis, {
     ace: {
-      daemon: { status: async () => ({ source: "app" }) },
+      daemon: {
+        status: async () => ({ state: "running", source: "app" }),
+        connection: async () => ({ mode: "daemon", ...localTarget }),
+      },
       dialogs: { openFolder: async () => paths.chosen ?? null },
       files: { pathForFile: () => paths.dropped ?? "" },
     },
@@ -146,4 +161,27 @@ test("a refused native folder pick shows its exact path and allows that folder",
   await userEvent.click(await screen.findByRole("button", { name: "Allow folder" }));
   await screen.findByRole("button", { name: "Project: project" });
   expect(registered(made)).toEqual([path]);
+});
+
+test("dropping a local folder on a remote primary offers remote browsing without registering its same-path folder", async () => {
+  desktopBridge({ dropped: `${home}/code/weather` });
+  const made = host(true);
+  await made.open("/new");
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
+  dropFolder("weather");
+  expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
+  expect(registered(made)).toEqual([]);
+  expect(screen.queryByRole("button", { name: "Choose a folder…" })).toBeNull();
+});
+
+test("a desktop folder link cannot register its local path on a selected remote daemon", async () => {
+  desktopBridge({});
+  const made = host(true);
+  await made.open(`/new?folder=${encodeURIComponent(`${home}/code/weather`)}`);
+  expect(
+    await screen.findByText(
+      "This folder is on this computer. Choose a folder on the connected machine instead.",
+    ),
+  ).toBeTruthy();
+  expect(registered(made)).not.toContain(`${home}/code/weather`);
 });

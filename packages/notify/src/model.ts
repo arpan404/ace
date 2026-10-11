@@ -12,6 +12,7 @@ export const InteractionLink = z.object({
 });
 export const CompactThread = z.object({
   archived: z.boolean().default(false),
+  deleted: z.boolean().default(false),
   generation: z.number().int().nonnegative().default(0),
   title: z.string().max(200),
   status: ThreadStatus,
@@ -52,6 +53,8 @@ export function advance(
   const p = event.payload;
   let changed = false;
   let background = 0;
+  if (p.type === "thread.client.updated" && p.deletedAt !== undefined)
+    state.deleted = p.deletedAt !== null;
   if (p.type === "thread.updated") {
     if (p.title !== undefined) state.title = p.title.slice(0, 200);
     if (p.archivedAt !== undefined) state.archived = p.archivedAt !== null;
@@ -76,7 +79,7 @@ export function advance(
     pending.backgroundCount = Math.min(1_000_000, pending.backgroundCount + background);
     if (changed && status) pending.status = status;
   }
-  return state.archived ? undefined : pending;
+  return state.archived || state.deleted ? undefined : pending;
 }
 export function content(
   threadId: Event["threadId"],

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useDaemonConnection } from "@/boot/connection.tsx";
 import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { AddProjectDialog } from "./add-project-dialog.tsx";
 import { useLandInProject } from "./land.ts";
@@ -22,6 +23,8 @@ export default function ProjectDialogs(props: {
   onRequest(request: ProjectRequest): void;
 }) {
   const { request, open, onOpenChange, onRequest } = props;
+  const endpoint = useDaemonConnection().endpoint;
+  const target = endpoint?.kind === "daemon" ? endpoint.target : undefined;
   const land = useLandInProject();
   const commands = useProjectCommands();
   const [tab, setTab] = useState<AddTab>("open");
@@ -49,9 +52,18 @@ export default function ProjectDialogs(props: {
   // doesn't share it, so there Add project opens to pick it from the daemon's side.
   useEffect(() => {
     if (request.kind !== "dropped") return;
-    const path = desktopFolders()?.pathOf(request.file);
-    onRequest(path ? { kind: "folder", path } : { kind: "add", tab: "open" });
-  }, [request, onRequest]);
+    const picker = desktopFolders();
+    let current = true;
+    void (async () => {
+      const local = await picker?.local(target);
+      if (!current) return;
+      const path = local && target ? picker?.pathOf(request.file) : undefined;
+      onRequest(path && target ? { kind: "folder", path, target } : { kind: "add", tab: "open" });
+    })();
+    return () => {
+      current = false;
+    };
+  }, [request, onRequest, target]);
 
   // A folder request is added here and never shows a dialog unless it fails. Once per request:
   // the latest callbacks, without adding again when they change.
@@ -63,6 +75,10 @@ export default function ProjectDialogs(props: {
     if (request.kind !== "folder") return;
     let current = true;
     const run = latest.current;
+    if (request.target !== target) {
+      run.onRequest({ kind: "add", tab: "open" });
+      return;
+    }
     run.onOpenChange(false);
     run.commands.add(request.path).then(
       (result) => {
@@ -84,7 +100,7 @@ export default function ProjectDialogs(props: {
     return () => {
       current = false;
     };
-  }, [request]);
+  }, [request, target]);
 
   if (request.kind === "permissions")
     return (

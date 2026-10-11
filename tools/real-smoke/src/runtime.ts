@@ -33,7 +33,8 @@ const Log = z.object({
 export async function readLogs(home: string): Promise<Finding[]> {
   const failures: Finding[] = [];
   for (const name of await readdir(join(home, "logs"))) {
-    if (!/^ace\.\d+\.jsonl$/.test(name)) continue;
+    // Same current/rotated naming contract as diagnostics support bundles.
+    if (!/^ace(?:\.\d+)?\.jsonl$/.test(name)) continue;
     const lines = createInterface({
       input: createReadStream(join(home, "logs", name)),
       crlfDelay: Infinity,

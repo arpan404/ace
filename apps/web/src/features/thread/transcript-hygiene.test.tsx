@@ -407,3 +407,41 @@ test("returning to the live end with the scrollbar resumes following output", as
   await within(feed).findByText("New output");
   await waitFor(() => expect(viewport.scrollTop).toBeGreaterThan(400));
 });
+
+test("Copy on a sent message preserves all visible multiline text and confirms success", async () => {
+  const user = userEvent.setup();
+  const text = "First line\nSecond line\n\nKeep the blank line.";
+  const { feed } = await open([facts.message("root", "multiline", "user", text)]);
+  await within(feed).findByText(/Keep the blank line/);
+  const copy = within(feed).getAllByRole("button", { name: "Copy message" }).at(-1);
+  if (!copy) throw new Error("Missing sent message copy action");
+  await user.click(copy);
+  expect(await navigator.clipboard.readText()).toBe(text);
+  expect(await within(feed).findByText("Copied")).toBeTruthy();
+});
+
+test("Copy includes visible mention names and omits injected provider text", async () => {
+  const user = userEvent.setup();
+  const { feed } = await open([
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "references",
+      draft: {
+        type: "message",
+        role: "user",
+        complete: true,
+        parts: [
+          { type: "text", text: "<system-reminder>private setup</system-reminder>Read " },
+          mention("README.md"),
+          { type: "text", text: "\nand report back." },
+        ],
+      },
+    },
+  ]);
+  await within(feed).findByText("README.md");
+  const copy = within(feed).getAllByRole("button", { name: "Copy message" }).at(-1);
+  if (!copy) throw new Error("Missing message copy action");
+  await user.click(copy);
+  expect(await navigator.clipboard.readText()).toBe("Read README.md\nand report back.");
+});

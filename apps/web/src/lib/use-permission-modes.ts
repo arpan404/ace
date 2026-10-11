@@ -1,4 +1,3 @@
-import { resolvePermissionMode } from "@ace/ui-core";
 import { useState } from "react";
 import { PermissionClient } from "@ace/client";
 import type {
@@ -39,7 +38,7 @@ export function usePermissionCapabilities(
   };
 }
 
-/** Native selections for the composer redesign. Invalid ids reset to this provider's default. */
+/** Keep requested native selections visible until the person replaces or resets them. */
 export function usePermissionModes(
   provider: ProviderKind | undefined,
   options: {
@@ -50,23 +49,14 @@ export function usePermissionModes(
   } = {},
 ) {
   const query = usePermissionCapabilities(provider, options.live, options.instanceId);
-  const [choice, setChoice] = useState<{
-    provider: ProviderKind | undefined;
-    id: PermissionMode | null;
-  }>({ provider, id: null });
+  const [choice, setChoice] = useState<PermissionMode | null>(null);
   const modes = query.capabilities?.permissionModes ?? emptyModes;
-  const requested =
-    options.currentId !== undefined
-      ? options.currentId
-      : choice.provider === provider
-        ? choice.id
-        : null;
-  const resolved = provider ? resolvePermissionMode(provider, requested, query.capabilities) : null;
-  const currentId = resolved && modes.some((mode) => mode.id === resolved) ? resolved : null;
+  // Catalog selections are opaque native IDs, even when they resemble old ace presets.
+  // Deprecated stored settings are migrated by the settings boundary before reaching the UI.
+  const currentId = options.currentId !== undefined ? options.currentId : choice;
   const setCurrentId = (id: PermissionMode | null) => {
-    const next = id && modes.some((mode) => mode.id === id) ? id : null;
-    if (options.setCurrentId) options.setCurrentId(next);
-    else setChoice({ provider, id: next });
+    if (options.setCurrentId) options.setCurrentId(id);
+    else setChoice(id);
   };
   return { ...query, modes, currentId, setCurrentId };
 }

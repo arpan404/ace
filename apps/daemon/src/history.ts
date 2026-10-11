@@ -14,7 +14,7 @@ import {
 import { HistoryScanStatus } from "@ace/protocol/history";
 import { ThreadId, AgentId, type ClientMessage, type ServerMessage } from "@ace/protocol";
 import { HistoryContinuation, type HistoryAdapterPort } from "./history-continuation.ts";
-import { publishHistory } from "./history-publisher.ts";
+import { publishHistory, type HistoryPublicationWorkerFactory } from "./history-publisher.ts";
 import type { Store } from "./store.ts";
 
 export type HistoryRequest = Extract<
@@ -26,6 +26,7 @@ export interface DaemonHistoryOptions {
   onError?(error: unknown, operation: string): void;
   signal?: AbortSignal;
   spawnWorker?: Parameters<typeof openHistory>[1];
+  spawnPublicationWorker?: HistoryPublicationWorkerFactory;
   historyRuntime?: HistoryRuntime;
   scheduleScan?: (run: () => void, milliseconds: number) => () => void;
   instances: HistoryOptions["instances"];
@@ -103,6 +104,7 @@ export class DaemonHistory {
   private now: () => number;
   private onError: DaemonHistoryOptions["onError"];
   private nextId: () => string;
+  private spawnPublicationWorker: HistoryPublicationWorkerFactory | undefined;
   private lifetime = new AbortController();
   private externalSignal: AbortSignal | undefined;
   private active: Promise<ServerMessage> | undefined;
@@ -238,6 +240,7 @@ export class DaemonHistory {
         return () => clearTimeout(timer);
       });
     this.nextId = options.nextId ?? randomUUID;
+    this.spawnPublicationWorker = options.spawnPublicationWorker;
     this.unsubscribeRecovery = service.subscribeRecovery((retrying) => {
       this.retrying = retrying;
       if (retrying) this.publishScan({ ...this.scanState, state: "retrying", error: undefined });
@@ -361,7 +364,22 @@ export class DaemonHistory {
     if (source.support.status === "unsupported")
       return { type: "history.import", status: "unsupported", reason: source.support.reason };
     const existing = this.store.importedSource(source.id);
-    if (existing) return { type: "history.import", status: "imported", threadId: existing.id };
+    if (existing) {
+      const resumePersistence = await this.continuation.pausePersistence(signal);
+      try {
+        signal.throwIfAborted();
+        this.store.setHistoryWriting(true);
+        try {
+          await this.store.notifyHistory();
+        } finally {
+          this.store.setHistoryWriting(false);
+        }
+      } finally {
+        await resumePersistence();
+      }
+      await this.service.deleteImported(existing.id);
+      return { type: "history.import", status: "imported", threadId: existing.id };
+    }
     let archived = await this.service.findImported(source.id);
     if (!archived) {
       const threadId = ThreadId.parse(this.nextId());
@@ -394,6 +412,7 @@ export class DaemonHistory {
         archived.id,
         this.now(),
         signal,
+        this.spawnPublicationWorker,
       );
     } finally {
       // publishHistory releases its Store lease even on rollback or worker failure.

@@ -1,0 +1,77 @@
+{
+  "$id": "https://ace.local/protocol/v1/SourceControlContext.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "base": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "conventions": {
+      "items": {
+        "properties": {
+          "path": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string",
+            "x-ace-constraint": "Path without NUL bytes."
+          },
+          "text": {
+            "maxLength": 16384,
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "text"
+        ],
+        "type": "object"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "fingerprint": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "head": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "patch": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "paths": {
+      "items": {
+        "maxLength": 4096,
+        "minLength": 1,
+        "type": "string",
+        "x-ace-constraint": "Path without NUL bytes."
+      },
+      "maxItems": 1000,
+      "type": "array"
+    },
+    "recentCommits": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "fingerprint",
+    "head",
+    "base",
+    "paths",
+    "patch",
+    "truncated",
+    "conventions",
+    "recentCommits"
+  ],
+  "type": "object"
+}

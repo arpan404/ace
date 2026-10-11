@@ -166,12 +166,12 @@ test("the work card carries checkout details and refreshes them after a commit",
   });
   await userEvent.click(strip);
   let card = await screen.findByRole("complementary", { name: "Work card" });
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("· Local");
+  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("Local");
   expect(within(card).getByText("fix/replay-cursor")).toBeTruthy();
   expect(within(card).queryByText(/ahead/)).toBeNull();
 
   // The branch row opens the commit form; pushing stays optional.
-  await userEvent.click(await screen.findByRole("button", { name: "Git actions" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Commit & push…" }));
   const dialog = await screen.findByRole("dialog", { name: /^Commit to / });
   await userEvent.click(within(dialog).getByRole("checkbox", { name: "Push after committing" }));

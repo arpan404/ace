@@ -7,6 +7,7 @@ const Environment = z
   .record(z.string().max(256), z.string().max(32768).optional())
   .refine((env) => Object.keys(env).length <= 512);
 type Entry = {
+  accountKey: string;
   server: OpenCodeServer;
   env: NodeJS.ProcessEnv | undefined;
   users: number;
@@ -49,11 +50,24 @@ export class ServerPool {
     if (ctx.executable) key += `:binary:${ctx.executable}`;
     // Native MCP config is process-wide. Never share its bearer between sessions.
     if (connection) key = `mcp:${++this.serial}`;
+    const accountKey = key;
+    const selectGeneration = () => {
+      const matching = [...this.entries].find(
+        ([, candidate]) =>
+          candidate.accountKey === accountKey && sameEnvironment(candidate.env, env),
+      );
+      return (
+        matching?.[0] ??
+        (this.entries.has(accountKey) ? `${accountKey}:environment:${++this.serial}` : accountKey)
+      );
+    };
+    key = selectGeneration();
     // A last-user release owns shutdown. Reopening the same account waits for confirmed
     // exit, so it cannot borrow a closing server or accumulate retired native processes.
     while (this.entries.get(key)?.closing) {
       await this.entries.get(key)?.closing;
       this.assertOpen();
+      key = selectGeneration();
     }
     const serverOptions: ServerOptions = {
       ...this.options,
@@ -72,10 +86,6 @@ export class ServerPool {
         : {}),
     };
     let entry = this.entries.get(key);
-    if (entry && !sameEnvironment(entry.env, env)) {
-      key = `${key}:environment:${++this.serial}`;
-      entry = undefined;
-    }
     if (!entry) {
       if (this.entries.size >= 128) {
         const idle = [...this.entries].find(
@@ -85,6 +95,7 @@ export class ServerPool {
         this.entries.delete(idle[0]);
         // Reserve the replacement before awaiting shutdown, keeping concurrent opens bounded.
         entry = {
+          accountKey,
           server: new OpenCodeServer(serverOptions),
           env,
           users: 1,
@@ -94,6 +105,7 @@ export class ServerPool {
         await idle[1].server.close();
       } else {
         entry = {
+          accountKey,
           server: new OpenCodeServer(serverOptions),
           env,
           users: 1,

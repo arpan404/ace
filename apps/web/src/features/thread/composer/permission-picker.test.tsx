@@ -1,9 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { configure, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { permissionOption, permissionOptions } from "@ace/ui-core";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import { PermissionPicker } from "./permission-picker.tsx";
+
+configure({ asyncUtilTimeout: 10_000 });
 
 const native = {
   modes: ["inspect", "execute"],
@@ -87,4 +89,38 @@ test("a failed capability read keeps the reason out of the compact label", async
   expect(trigger.textContent).toBe("Approvals");
   await userEvent.hover(trigger);
   expect(await screen.findByRole("tooltip")).toHaveProperty("textContent", reason);
+});
+
+test("Full access selects the unchanged native id and switching catalogs removes unsupported choices", async () => {
+  const full = {
+    ...native,
+    permissionModes: [
+      {
+        id: "yolo",
+        label: "YOLO",
+        description: "Native tool auto-approval",
+        risk: "high" as const,
+        presentation: "full-access" as const,
+      },
+    ],
+  };
+  const selected: (string | null)[] = [];
+  const view = (catalog: typeof native | typeof full, id: string) => (
+    <TooltipProvider delay={0}>
+      <PermissionPicker
+        current={permissionOption(id, catalog)}
+        menu={{ options: permissionOptions(catalog), value: id, loading: false }}
+        onChange={(next) => selected.push(next)}
+      />
+    </TooltipProvider>
+  );
+  const rendered = render(view(full, "yolo"));
+  await userEvent.click(screen.getByRole("button", { name: "Approvals: Full access" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Full access" }));
+  expect(selected).toEqual(["yolo"]);
+  rendered.rerender(view(native, "yolo"));
+  await userEvent.click(screen.getByRole("button", { name: "Approvals: Unavailable mode: yolo" }));
+  expect(screen.queryByRole("menuitemradio", { name: "Full access" })).toBeNull();
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Execute plan" }));
+  expect(selected).toEqual(["yolo", "execute"]);
 });

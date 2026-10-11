@@ -1,0 +1,59 @@
+{
+  "$id": "https://ace.local/protocol/v1/SourceControlSelection.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "commit",
+          "type": "string"
+        },
+        "paths": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string",
+            "x-ace-constraint": "Path without NUL bytes."
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "paths"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "base": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "baseRef": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "branch": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "pr",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "branch",
+        "base"
+      ],
+      "type": "object"
+    }
+  ]
+}

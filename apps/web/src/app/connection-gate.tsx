@@ -2,7 +2,7 @@ import type { ClientApi, ClientError } from "@ace/client";
 import { bindTerminalEndDelivery } from "@/features/panels/index.ts";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { desktopDaemon } from "@/boot/desktop.ts";
+import { desktopDaemon, watchDesktopTarget } from "@/boot/desktop.ts";
 import { StartingScreen, ConnectionScreen } from "@/features/connect/index.ts";
 import { deviceId } from "@/boot/device-id.ts";
 import {
@@ -108,6 +108,40 @@ export function ConnectionGate(props: {
       shown: !stored.target || handoff.kind === "confirm",
     };
   });
+  // Only the app-managed handoff follows the supervisor. Manual selection owns its target.
+  const managed = useRef(props.handed !== undefined);
+  const adoptDesktop = useCallback(
+    (target: DaemonTarget) => {
+      if (!managed.current) return;
+      saveTarget(stores, target, false);
+      setState((previous) => {
+        const current = previous.target;
+        if (
+          current?.url === target.url &&
+          current.token === target.token &&
+          current.pairedDeviceId === target.pairedDeviceId
+        )
+          return previous;
+        return {
+          ...previous,
+          target,
+          url: target.url,
+          remembered: false,
+          editing: false,
+          problem: undefined,
+          attempt: previous.attempt + 1,
+        };
+      });
+    },
+    [stores],
+  );
+  useEffect(() => {
+    if (props.handed) adoptDesktop(props.handed);
+  }, [props.handed, adoptDesktop]);
+  useEffect(
+    () => (props.desktop ? watchDesktopTarget(adoptDesktop) : undefined),
+    [props.desktop, adoptDesktop],
+  );
   // Nothing connects while a link waits for an answer or the person edits the target.
   const active = state.pending || state.editing ? undefined : state.target;
   useEffect(() => {
@@ -215,6 +249,7 @@ export function ConnectionGate(props: {
 
   const connect = useCallback(
     (target: DaemonTarget, remember: boolean) => {
+      managed.current = false;
       saveTarget(stores, target, remember);
       setState((previous) => ({
         target,
@@ -238,11 +273,12 @@ export function ConnectionGate(props: {
       })),
     [],
   );
-  const edit = useCallback(
-    () => setState((previous) => ({ ...previous, editing: true, problem: undefined, shown: true })),
-    [],
-  );
+  const edit = useCallback(() => {
+    managed.current = false;
+    setState((previous) => ({ ...previous, editing: true, problem: undefined, shown: true }));
+  }, []);
   const disconnect = useCallback(() => {
+    managed.current = false;
     forgetToken(stores);
     setState((previous) => ({
       target: undefined,
@@ -276,6 +312,7 @@ export function ConnectionGate(props: {
       url: state.url,
       remembered: state.remembered,
       token: state.target?.token,
+      pairedDeviceId: state.target?.pairedDeviceId,
       status,
       desktop: props.desktop,
       pairingLink: props.pairingLink,

@@ -65,8 +65,13 @@ export function resolve(schema: JsonSchema, schemas: Record<string, JsonSchema>)
     const [id, fragment] = current.$ref.split("#");
     let target: unknown = Object.values(schemas).find((entry) => entry.$id === id);
     if (!target) throw new Error(`Unknown reference ${current.$ref}`);
-    for (const key of (fragment ?? "").split("/").slice(1))
-      target = object(target)[decodeURIComponent(key).replace(/~1/g, "/").replace(/~0/g, "~")];
+    for (const key of (fragment ?? "").split("/").slice(1)) {
+      const token = decodeURIComponent(key).replace(/~1/g, "/").replace(/~0/g, "~");
+      target =
+        Array.isArray(target) && /^(?:0|[1-9]\d*)$/.test(token)
+          ? target[Number(token)]
+          : object(target)[token];
+    }
     if (!isObject(target)) throw new Error(`Invalid reference ${current.$ref}`);
     const { $ref: _, ...siblings } = current;
     const validationKeys = Object.keys(siblings).filter(

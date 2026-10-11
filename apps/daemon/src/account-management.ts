@@ -1,3 +1,7 @@
+import {
+  configuredProviderDiscovery,
+  sameProviderExecutableConfiguration,
+} from "./provider-discovery.ts";
 import { inspectAccountSupport, reportedAuthMethod } from "./provider-account-support.ts";
 import type { SdkDiscoveryOptions } from "@ace/provider-kit/sdk";
 import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
@@ -62,7 +66,10 @@ export interface AccountManagementOptions {
       }
     | undefined;
   authChanged?(): Promise<void>;
-  configuration?(provider: ProviderInstance["provider"]): {
+  configuration?(
+    provider: ProviderInstance["provider"],
+    instance?: string,
+  ): {
     enabled?: boolean | undefined;
     binaryPath?: string | undefined;
   };
@@ -98,6 +105,8 @@ export class AccountManagement {
     for (const { instance, quota } of this.options.registry.list())
       if (instance.managed && !quota.blockers.homeUnavailable) {
         this.options.signal?.throwIfAborted();
+        if (this.options.configuration?.(instance.provider, instance.id).enabled === false)
+          continue;
         await assertManagedHome(this.options.dataDir, instance);
         const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
         if (instance.provider === "cursor" && !sdk) continue;
@@ -110,10 +119,15 @@ export class AccountManagement {
           this.options.registry.get(instance.id)?.quota.auth !== "logged_out" &&
           instance.provider !== "acp"
         ) {
+          const discovery = configuredProviderDiscovery(
+            instance.provider,
+            this.options.configuration?.(instance.provider, instance.id).binaryPath,
+            this.options.discovery,
+          );
           const executable =
             instance.provider === "pi"
-              ? defaultProviderExecutable(instance.provider)
-              : (this.options.discovery?.overrides?.[instance.provider] ??
+              ? (discovery.executable ?? defaultProviderExecutable(instance.provider))
+              : (discovery.overrides?.[instance.provider] ??
                 defaultProviderExecutable(instance.provider));
           this.registerCatalog(instance, sdk !== undefined, executable, env);
         }
@@ -360,16 +374,28 @@ export class AccountManagement {
     if (instance.provider === "cursor" && !sdk) throw new Error("Cursor SDK is unavailable");
     entry.sdk = !!sdk;
     const env = instanceEnv(instance, sdk?.env ?? this.options.env, sdk ? "cursor-sdk" : undefined);
+    const configuration = { ...this.options.configuration?.(instance.provider, instance.id) };
+    if (configuration.enabled === false) throw new Error("Provider is disabled");
+    const revision = this.options.registry.get(instance.id)?.instance.loginRevision;
+    const discovery = configuredProviderDiscovery(
+      instance.provider,
+      configuration.binaryPath,
+      this.options.discovery,
+    );
     const status = sdk
       ? { path: process.execPath, error: undefined }
       : await loginStatus(instance, {
-          ...this.options.discovery,
+          ...discovery,
           env,
           signal,
         });
+    if (!this.currentConfiguration(instance, configuration, revision))
+      throw new Error("Provider configuration changed");
     if (sdk) await sdk.fence(instance.id);
     if (!instance.implicit) await assertManagedHome(this.options.dataDir, instance);
     signal.throwIfAborted();
+    if (!this.currentConfiguration(instance, configuration, revision))
+      throw new Error("Provider configuration changed");
     if (!status.path || (instance.provider === "cursor" && !instance.implicit && status.error))
       throw new Error("Provider unavailable or isolation unverified");
     const args = sdk
@@ -467,16 +493,25 @@ export class AccountManagement {
     if (!instance.implicit) await assertManagedHome(this.options.dataDir, instance);
     if (instance.provider === "acp") return;
     const { registry, models, now } = this.options;
+    const configuration = { ...this.options.configuration?.(instance.provider, instance.id) };
+    if (configuration.enabled === false) return;
+    const revision = registry.get(instance.id)?.instance.loginRevision;
+    const discovery = configuredProviderDiscovery(
+      instance.provider,
+      configuration.binaryPath,
+      this.options.discovery,
+    );
     const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
     if (instance.provider === "cursor" && !sdk) return;
     const env = instanceEnv(instance, sdk?.env ?? this.options.env, sdk ? "cursor-sdk" : undefined);
     const status = sdk
       ? { auth: await sdk.status(instance), path: "" }
       : await loginStatus(instance, {
-          ...this.options.discovery,
+          ...discovery,
           env,
           ...(this.options.signal ? { signal: this.options.signal } : {}),
         });
+    if (!sdk && !this.currentConfiguration(instance, configuration, revision)) return;
     if (status.auth === "logged_in" && "authDetail" in status)
       registry.recordAuth(
         instance.id,
@@ -507,6 +542,17 @@ export class AccountManagement {
       env,
     );
     await catalog.refresh({ instance: instance.id });
+  }
+  private currentConfiguration(
+    instance: ProviderInstance,
+    observed: { enabled?: boolean | undefined; binaryPath?: string | undefined },
+    revision: string | undefined,
+  ): boolean {
+    const current = this.options.configuration?.(instance.provider, instance.id);
+    return (
+      sameProviderExecutableConfiguration(observed, current) &&
+      this.options.registry.get(instance.id)?.instance.loginRevision === revision
+    );
   }
   private registerCatalog(
     instance: ProviderInstance,

@@ -4,6 +4,47 @@ import type { ProviderLoginProgress } from "@ace/protocol";
 
 const start = { type: "provider.login.start", requestId: "start", provider: "codex" } as const;
 
+test.each([true, false])(
+  "login success respects admission freshness %s after final cleanup",
+  async (unchanged) => {
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let verified = false;
+    let fresh = true;
+    const sessions = new ProviderLoginSessions({
+      now: () => 100,
+      id: () => "completion",
+      schedule: () => () => {},
+      prepare: async () => ({
+        run: async () => ({ success: true }),
+        changed: async () => {
+          verified = true;
+        },
+        async drain() {
+          if (verified) {
+            entered.resolve();
+            await release.promise;
+          }
+        },
+        isCurrent: () => fresh,
+      }),
+    });
+    try {
+      await sessions.handle("owner", start);
+      await entered.promise;
+      fresh = unchanged;
+      release.resolve();
+      expect((await sessions.completed("owner", "completion")).state).toBe(
+        unchanged ? "succeeded" : "failed",
+      );
+      expect(sessions.busy("codex")).toBe(false);
+    } finally {
+      release.resolve();
+      await sessions.close();
+    }
+  },
+);
+
 test("a CLI whose cleanup failed cannot be reported successful or replaced until cancellation drains it", async () => {
   let canDrain = false;
   let sequence = 0;

@@ -202,6 +202,10 @@ export interface PreviewSource {
   /** Take control; `private` also hides the page from agents until you hand it back. */
   takeover(threadId: string, mode?: "shared" | "private"): Promise<void>;
   handback(threadId: string): Promise<void>;
+  /** Release this window's shared hold, including a pending or ambiguous takeover. */
+  releaseSharedControl(threadId: string): Promise<void>;
+  /** A scoped temporary acquisition; release cannot affect a later or preexisting hold. */
+  temporaryControl(threadId: string): { ready: Promise<void>; release(): Promise<void> };
   /**
    * The daemon connection through which this client holds the thread's page, while the page's
    * current owner is that connection; undefined when it doesn't hold it (another device may).

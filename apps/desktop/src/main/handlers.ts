@@ -31,6 +31,7 @@ export function createHandlers(options: {
   env: NodeJS.ProcessEnv;
   /** The renderer's daemon hand-off; may reject while the daemon is still starting. */
   connection(): Promise<DaemonConnection>;
+  authorizeDaemon(url: string): void;
   quit(): void;
   updateKeymap?(bindings: Record<string, string>): void;
   /** Opens the daemon's logs in the file manager; false when there is nothing to show. */
@@ -64,6 +65,10 @@ export function createHandlers(options: {
       return undefined;
     },
     "daemon.connection": () => options.connection(),
+    "daemon.authorize": (url) => {
+      options.authorizeDaemon(url);
+      return undefined;
+    },
     "daemon.status": () => runtime.current(),
     "daemon.restart": () => runtime.restart(),
     "daemon.diagnose": () => runtime.diagnose(),
