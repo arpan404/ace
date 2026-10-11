@@ -30,6 +30,8 @@ pub struct Node {
 }
 pub struct Accessibility {
     conn: Connection,
+    lifecycle: crate::accessibility_lifecycle::Lifecycle,
+    lifecycle_generation: u64,
     pub(crate) refs: crate::references::References<Object>,
     pub(crate) scope: Option<Object>,
 }
@@ -45,12 +47,34 @@ impl Accessibility {
             .build()
             .await
             .map_err(internal)?;
+        let result = Self::from_connection(conn).await?;
+        let registry = Proxy::new(&result.conn, "org.a11y.atspi.Registry", "/org/a11y/atspi/registry", "org.a11y.atspi.Registry").await.map_err(internal)?;
+        for event in ["object:children-changed", "object:state-changed:defunct"] {
+            registry.call::<_, _, ()>("RegisterEvent", &(event,)).await.map_err(internal)?;
+        }
+        Ok(result)
+    }
+    async fn from_connection(conn: Connection) -> Result<Self> {
+        let lifecycle = crate::accessibility_lifecycle::Lifecycle::observe(&conn).await?;
         Ok(Self {
-            conn,
-            refs: crate::references::References::new(4096),
-            scope: None,
+            conn, lifecycle, lifecycle_generation: 0,
+            refs: crate::references::References::new(4096), scope: None,
         })
     }
+    fn synchronize_refs(&mut self) {
+        let generation = self.lifecycle.generation();
+        if self.lifecycle_generation != generation {
+            self.refs.clear();
+            self.lifecycle_generation = generation;
+        }
+    }
+    pub(crate) async fn fence_refs(&mut self, object: &Object) -> Result<()> {
+        let result = self.lifecycle.fence(&self.conn, object).await;
+        self.synchronize_refs();
+        if result.is_err() { self.refs.remove(&format!("{}{}", object.0, object.1)); }
+        result
+    }
+
     pub async fn scope_application(&mut self, identity: &str) -> Result<()> {
         self.clear();
         let registry = (
@@ -186,6 +210,15 @@ impl Accessibility {
             .retain(format!("{}{}", object.0, object.1), object.clone())
     }
     pub(crate) async fn node(&mut self, object: &Object) -> Result<(Node, i32, bool)> {
+        self.fence_refs(object).await?;
+        let result = self.read_node(object).await;
+        // A disappeared object may fail before it can return a Defunct state.
+        // Retire on lost continuity, including a failed fresh property read.
+        if result.is_err() { self.refs.remove(&format!("{}{}", object.0, object.1)); }
+        result
+    }
+    async fn read_node(&mut self, object: &Object) -> Result<(Node, i32, bool)> {
+        let generation = self.lifecycle_generation;
         let a = self.proxy(object, "Accessible").await?;
         let name: String = a
             .get_property("Name")
@@ -269,6 +302,8 @@ impl Accessibility {
         if !states.contains(State::Showing) {
             mapped.push("offscreen".into());
         }
+        self.fence_refs(object).await?;
+        if generation != self.lifecycle_generation { return Err(Fault::new("busy", "Accessibility element changed during observation")); }
         let reference = self.remember(object);
         let mut node = Node {
             reference,
@@ -290,11 +325,15 @@ impl Accessibility {
             .scope
             .clone()
             .ok_or_else(|| Fault::new("target_gone", "No accessibility target"))?;
+        self.fence_refs(&root).await?;
+        let generation = self.lifecycle_generation;
         let mut seen = HashSet::new();
         let tree = self
-            .branch(root, 0, &mut budget, &mut seen)
+            .branch(root.clone(), 0, &mut budget, &mut seen)
             .await?
             .ok_or_else(|| Fault::new("bounds", "Root exceeds reply byte cap"))?;
+        self.fence_refs(&root).await?;
+        if generation != self.lifecycle_generation { return Err(Fault::new("busy", "Accessibility tree changed during observation")); }
         Ok(json!({"tree":tree,"truncated":budget.truncated}))
     }
     fn branch<'a>(
@@ -341,7 +380,9 @@ impl Accessibility {
             .scope
             .clone()
             .ok_or_else(|| Fault::new("target_gone", "No accessibility target"))?;
-        let mut stack = vec![(root, 0usize)];
+        self.fence_refs(&root).await?;
+        let generation = self.lifecycle_generation;
+        let mut stack = vec![(root.clone(), 0usize)];
         let mut visited = HashSet::new();
         let mut found = Vec::new();
         let mut reply_bytes = 0usize;
@@ -385,6 +426,8 @@ impl Accessibility {
                 stack.push((child, depth + 1));
             }
         }
+        self.fence_refs(&root).await?;
+        if generation != self.lifecycle_generation { return Err(Fault::new("busy", "Accessibility tree changed during observation")); }
         Ok(json!({"nodes":found,"truncated":truncated}))
     }
 }
@@ -429,3 +472,7 @@ pub fn matches(q: &Query, n: &Node) -> bool {
                 .contains(&s.to_lowercase())
         })
 }
+
+#[cfg(test)]
+#[path = "accessibility_tests.rs"]
+mod tests;

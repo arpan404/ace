@@ -14,7 +14,15 @@ impl Accessibility {
             .get(reference)
             .cloned()
             .ok_or_else(|| Fault::new("target_gone", "Unknown or evicted accessibility ref"))?;
+        self.fence_refs(&object).await?;
+        if self.refs.get(reference).is_none() {
+            return Err(Fault::new("target_gone", "Accessibility lifecycle invalidated the saved ref"));
+        }
         let (node, _, _) = self.node(&object).await?;
+        self.fence_refs(&object).await?;
+        if self.refs.get(reference).is_none() {
+            return Err(Fault::new("target_gone", "Accessibility element changed before dispatch"));
+        }
         if node
             .states
             .iter()
