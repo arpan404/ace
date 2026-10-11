@@ -107,7 +107,7 @@ export function QueuedTray(props: {
               setCollapsed(next);
               writeJson(storage, key, next);
             }}
-            className="focus-ring-inset flex h-9 w-full items-center gap-2 rounded-t-xl px-3 hover:bg-accent/50"
+            className="focus-ring-inset flex h-(--row-height) w-full items-center gap-2 rounded-t-xl px-3 hover:bg-accent/50"
           >
             <Icon icon={ListNumbersIcon} size={14} />
             <span>Queued</span>
