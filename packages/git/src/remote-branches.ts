@@ -207,6 +207,8 @@ async function fetchOneRef(
     result = await repository.cli.call(
       root,
       [
+        "-c",
+        "core.hooksPath=/dev/null",
         "fetch",
         "--progress",
         "--no-tags",

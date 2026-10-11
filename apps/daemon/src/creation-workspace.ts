@@ -165,7 +165,11 @@ export class WorkspaceCreations {
       this.journal.head(id, head);
       resource.cleanup_head = head;
       resource.uncertain = 0;
-      const scripts = (await listScripts(path)).filter((script) => script.name === "setup");
+      // PR contents are untrusted. Preparation never executes repository-defined setup.
+      const scripts =
+        requested.kind === "pull-request"
+          ? []
+          : (await listScripts(path)).filter((script) => script.name === "setup");
       for (const script of scripts) {
         progress?.controller.signal.throwIfAborted();
         progress?.update("setup");

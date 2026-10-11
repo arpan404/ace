@@ -23,6 +23,8 @@ export const run = async (cwd: string, ...args: string[]) =>
 export async function prDaemon(
   options: {
     fork?: boolean;
+    content?: (root: string, scratch: string) => Promise<void>;
+    configureGit?: (root: string) => Promise<void>;
     configure?: (fixtures: Fixtures, value: { head: string; base: string; source: string }) => void;
     matchRepository?: boolean;
   } = {},
@@ -39,11 +41,13 @@ export async function prDaemon(
   const base = await run(h.home, "rev-parse", "HEAD");
   await run(h.home, "switch", "-c", "feat/fix");
   await writeFile(join(h.home, "pr.txt"), "PR-only content\n");
-  await run(h.home, "add", "pr.txt");
+  await options.content?.(h.home, scratch);
+  await run(h.home, "add", ".");
   await run(h.home, "commit", "-m", "PR work");
   const head = await run(h.home, "rev-parse", "HEAD");
   await run(h.home, "push", "origin", "HEAD:refs/pull/7/head");
   await run(h.home, "switch", "main");
+  await options.configureGit?.(h.home);
   await writeFile(join(h.home, "file.txt"), "Personal dirty edit\n");
   const owner = options.fork ? "contributor" : "octo";
   const source = `repos/${owner}/ace/git/ref/heads/feat%2Ffix`;
