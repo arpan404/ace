@@ -1,3 +1,4 @@
+import { hasNextTurnSelection } from "./input-delivery.ts";
 import { handleQueue } from "./queue-commands.ts";
 import { lostWork } from "./lost-work.ts";
 import { z } from "zod";
@@ -100,17 +101,13 @@ export class Recovery {
     )
       return undefined;
     const p = command.payload;
-    return p.type === "thread.send" &&
-      (p.delivery === undefined || p.model !== undefined || p.options !== undefined)
+    return p.type === "thread.send" && (p.delivery === undefined || hasNextTurnSelection(p))
       ? Command.parse({
           ...command,
           payload: {
             ...p,
             // A selection belongs to the next turn, never a steer into the active run.
-            delivery:
-              p.model !== undefined || p.options !== undefined
-                ? "queue"
-                : this.preferences(id).followUpBehavior,
+            delivery: hasNextTurnSelection(p) ? "queue" : this.preferences(id).followUpBehavior,
           },
         })
       : command;

@@ -1,3 +1,4 @@
+import { hasNextTurnSelection } from "./input-delivery.ts";
 import { z } from "zod";
 import type { StatementSync } from "node:sqlite";
 import { Command, CommandId, ThreadId, RunTrigger, InteractionId } from "@ace/protocol";
@@ -253,6 +254,15 @@ export class IntentStore {
         .all(id)
         .map((row) => InteractionId.parse(row.resolution_id)),
     );
+  }
+  hasSelection(id: number): boolean {
+    const row = this.sql(
+      "SELECT json_type(payload,'$.payload.model') AS model,json_type(payload,'$.payload.options') AS options FROM intents WHERE id=?",
+    ).get(id);
+    return hasNextTurnSelection({
+      model: row?.model ?? undefined,
+      options: row?.options ?? undefined,
+    });
   }
   acknowledged(id: number): boolean {
     return this.sql("SELECT acknowledged FROM intents WHERE id=?").get(id)?.acknowledged === 1;

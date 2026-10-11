@@ -1,3 +1,4 @@
+import { hasNextTurnSelection } from "./input-delivery.ts";
 import { Command, type CommandResult, type ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
@@ -39,7 +40,9 @@ export function handleQueue(
         ...rest,
         input: p.input,
         ...(p.context ? { context: p.context } : {}),
-        ...(old.type === "thread.send" && p.delivery ? { delivery: p.delivery } : {}),
+        ...(old.type === "thread.send"
+          ? { delivery: hasNextTurnSelection(old) ? "queue" : (p.delivery ?? old.delivery) }
+          : {}),
       };
       const edited = Command.parse({ ...entry.command, payload });
       dependencies.repo.queue.edit(entry.id, edited);

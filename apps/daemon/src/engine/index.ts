@@ -1021,7 +1021,12 @@ export class Engine {
     actor.schedule();
   }
   private isSteer(intent: IntentHeader): boolean {
-    if (intent.kind !== "thread.send" || intent.delivery !== "steer") return false;
+    if (
+      intent.kind !== "thread.send" ||
+      intent.delivery !== "steer" ||
+      this.repo.pending.hasSelection(intent.id)
+    )
+      return false;
     if (this.repo.transitions.guarded(intent.threadId)) return false;
     const state = this.repo.requireState(intent.threadId);
     if (
