@@ -63,7 +63,7 @@ export interface AccountManagementOptions {
       }
     | undefined;
   authChanged?(): Promise<void>;
-  configuration?(provider: ProviderInstance["provider"]): {
+  configuration?(provider: ProviderInstance["provider"], instance?: string): {
     enabled?: boolean | undefined;
     binaryPath?: string | undefined;
   };
@@ -99,7 +99,7 @@ export class AccountManagement {
     for (const { instance, quota } of this.options.registry.list())
       if (instance.managed && !quota.blockers.homeUnavailable) {
         this.options.signal?.throwIfAborted();
-        if (this.options.configuration?.(instance.provider).enabled === false) continue;
+        if (this.options.configuration?.(instance.provider, instance.id).enabled === false) continue;
         await assertManagedHome(this.options.dataDir, instance);
         const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
         if (instance.provider === "cursor" && !sdk) continue;
@@ -114,7 +114,7 @@ export class AccountManagement {
         ) {
           const discovery = configuredProviderDiscovery(
             instance.provider,
-            this.options.configuration?.(instance.provider).binaryPath,
+            this.options.configuration?.(instance.provider, instance.id).binaryPath,
             this.options.discovery,
           );
           const executable =
@@ -367,7 +367,7 @@ export class AccountManagement {
     if (instance.provider === "cursor" && !sdk) throw new Error("Cursor SDK is unavailable");
     entry.sdk = !!sdk;
     const env = instanceEnv(instance, sdk?.env ?? this.options.env, sdk ? "cursor-sdk" : undefined);
-    const configuration = { ...this.options.configuration?.(instance.provider) };
+    const configuration = { ...this.options.configuration?.(instance.provider, instance.id) };
     if (configuration.enabled === false) throw new Error("Provider is disabled");
     const revision = this.options.registry.get(instance.id)?.instance.loginRevision;
     const discovery = configuredProviderDiscovery(
@@ -486,7 +486,7 @@ export class AccountManagement {
     if (!instance.implicit) await assertManagedHome(this.options.dataDir, instance);
     if (instance.provider === "acp") return;
     const { registry, models, now } = this.options;
-    const configuration = { ...this.options.configuration?.(instance.provider) };
+    const configuration = { ...this.options.configuration?.(instance.provider, instance.id) };
     if (configuration.enabled === false) return;
     const revision = registry.get(instance.id)?.instance.loginRevision;
     const discovery = configuredProviderDiscovery(
@@ -541,7 +541,7 @@ export class AccountManagement {
     observed: { enabled?: boolean | undefined; binaryPath?: string | undefined },
     revision: string | undefined,
   ): boolean {
-    const current = this.options.configuration?.(instance.provider);
+    const current = this.options.configuration?.(instance.provider, instance.id);
     return (
       current?.binaryPath === observed.binaryPath &&
       (current?.enabled !== false) === (observed.enabled !== false) &&
