@@ -15,6 +15,8 @@ import { nativeAgentKey } from "./keys.ts";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import type { SessionRuntime } from "./index.ts";
 import { object } from "./data.ts";
+import { harness } from "./test-helper.ts";
+import { setTimeout as waitDelay } from "node:timers/promises";
 const fake = fileURLToPath(new URL("./testing/acp-server.ts", import.meta.url));
 const homes: string[] = [];
 afterEach(async () => {
@@ -82,6 +84,22 @@ async function setup(
 }
 const input = (text: string) => [{ type: "text" as const, text }];
 const method = (f: Frame, name: string) => object(f.data)["method"] === name;
+it("passive completed child tool refreshes leave the next root prompt deliverable", async () => {
+  const h = await setup();
+  try {
+    await h.session.send(input("terminal-refresh"), "queue");
+    const projection = harness();
+    for (const frame of h.frames) projection.replay(frame);
+    expect(projection.state.status.state).toBe("done");
+    const next = h.session.send(input("next"), "queue");
+    void next.catch(() => {});
+    const delivered = await Promise.race([next.then(() => true), waitDelay(1000).then(() => false)]);
+    expect(delivered).toBe(true);
+    expect(h.frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(2);
+  } finally {
+    await h.session.close("user");
+  }
+});
 it("ACP fallback correlates ace input before the native prompt is logged", async () => {
   const h = await setup(genericQuirks);
   try {

@@ -116,6 +116,37 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     } else if (text === "child") {
       update({ sessionUpdate: "subagent_spawned", subagentSessionId: "native-child" });
       result(message["id"], { stopReason: "end_turn" });
+    } else if (text === "terminal-refresh") {
+      update({ sessionUpdate: "subagent_spawned", subagentSessionId: "native-child" });
+      const childTool = (value: unknown) =>
+        send({ method: "session/update", params: { sessionId: "native-child", update: value } });
+      childTool({
+        sessionUpdate: "tool_call",
+        toolCallId: "child-read",
+        kind: "read",
+        status: "in_progress",
+      });
+      childTool({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "child-read",
+        status: "completed",
+      });
+      update({
+        sessionUpdate: "subagent_state_update",
+        subagentSessionId: "native-child",
+        state: "idle",
+      });
+      childTool({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "child-read",
+        rawOutput: { content: "late read output" },
+      });
+      childTool({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "child-read",
+        status: "completed",
+      });
+      result(message["id"], { stopReason: "end_turn" });
     } else if (text === "late") {
       send({
         method: "session/update",
