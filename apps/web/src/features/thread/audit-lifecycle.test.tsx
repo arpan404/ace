@@ -301,7 +301,7 @@ test("a provider that keeps working after acknowledging Stop can be stopped agai
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });
 
-test("a provider without steering does not offer Send now for a queued follow-up", async () => {
+test("a provider without steering explains why a queued follow-up cannot steer", async () => {
   const made = harness();
   const scenario = replayCursor();
   made
@@ -313,8 +313,11 @@ test("a provider without steering does not offer Send now for a queued follow-up
     "Follow up later{Enter}",
   );
   const queue = await screen.findByRole("list", { name: "Queued messages" });
-  expect(within(queue).queryByRole("button", { name: "Send now" })).toBeNull();
-  expect(within(queue).getByRole("button", { name: "Take back to composer" })).toBeTruthy();
+  const steer = within(queue).getByRole("button", { name: "Steer" });
+  await waitFor(() => expect(steer.getAttribute("aria-disabled")).toBe("true"));
+  expect(steer.getAttribute("aria-description")).toBe("This provider doesn't support steering.");
+  await userEvent.click(steer);
+  expect(within(queue).getByText("Follow up later")).toBeTruthy();
 });
 
 test("Resume sending works before the first queue page has arrived", async () => {
