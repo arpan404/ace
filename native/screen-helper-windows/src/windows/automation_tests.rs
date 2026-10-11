@@ -104,3 +104,65 @@ fn unsupported_invoke_on_an_edit_uses_a_reported_input_fallback() {
     assert!(result["boundsCentre"]["x"].as_f64().unwrap() > 0.0);
     assert!(result["boundsCentre"]["y"].as_f64().unwrap() > 0.0);
 }
+
+#[test]
+#[ignore = "requires an interactive Windows desktop; run during the Windows manual plan"]
+fn a_destroyed_native_control_cannot_inherit_a_ref_when_its_runtime_cache_key_is_recycled() {
+    use super::uia::same_live_control;
+    use crate::references::References;
+    use windows::Win32::{System::Com::*, UI::Accessibility::*};
+    let _apartment = Apartment::new().unwrap();
+    let api: IUIAutomation =
+        unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).unwrap() };
+    fn edit(text: &windows::core::HSTRING) -> Window {
+        Window(unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("EDIT"),
+                text,
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                100,
+                100,
+                400,
+                200,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        })
+    }
+    let first = edit(&"first".into());
+    let old = unsafe { api.ElementFromHandle(first.0).unwrap() };
+    let mut refs = References::new(4);
+    let original = refs.retain("recycled-runtime-key".into(), old.clone());
+    assert_eq!(
+        refs.retain_if_same("recycled-runtime-key".into(), old.clone(), |a, b| {
+            same_live_control(&api, a, b)
+        }),
+        original
+    );
+    drop(first);
+    // Keep the old COM element but destroy the actual control before creating the replacement.
+    assert!(unsafe { old.CurrentProcessId() }.is_err());
+    let second = edit(&"replacement".into());
+    let current = unsafe { api.ElementFromHandle(second.0).unwrap() };
+    let replacement = refs.retain_if_same("recycled-runtime-key".into(), current, |a, b| {
+        same_live_control(&api, a, b)
+    });
+    assert_ne!(original, replacement);
+    assert!(refs.get(&original).is_none());
+    let current = refs.get(&replacement).unwrap();
+    assert_eq!(
+        unsafe {
+            current
+                .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+                .unwrap()
+                .CurrentValue()
+                .unwrap()
+                .to_string()
+        },
+        "replacement"
+    );
+}
