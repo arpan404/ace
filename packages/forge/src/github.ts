@@ -201,7 +201,11 @@ export class GitHubForge implements Forge, ForgeBrowser {
     );
     const parsed = z.object({ merged: z.boolean() }).safeParse(response.body);
     if (!parsed.success) throw new ForgeError("invalid_data");
-    if (!parsed.data.merged) throw new ForgeError("conflict");
+    if (!parsed.data.merged) {
+      const refusal = new ForgeError("conflict");
+      dispatch?.reject(refusal);
+      throw refusal;
+    }
   }
   async enableAutoMerge(
     number: number,

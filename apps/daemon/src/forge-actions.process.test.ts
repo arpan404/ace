@@ -326,3 +326,21 @@ test("a merge that cannot launch gh settles as failed and permits a new command 
     await app.close();
   }
 });
+
+test("an explicit merged-false acknowledgement releases the merge fence", async () => {
+  const records = fixtures();
+  records[mergePath] = [{ body: { merged: false } }, { body: { merged: true } }];
+  records[path] = [{ body: merged }];
+  const app = await environment(records);
+  try {
+    expect(await app.command("refused-ack")).toMatchObject({ ok: false, error: "forge_conflict" });
+    await app.restart();
+    expect(await app.command("explicit-retry")).toMatchObject({
+      ok: true,
+      prStatus: { state: "merged" },
+    });
+    expect(await app.command("refused-ack")).toMatchObject({ ok: false, error: "forge_conflict" });
+  } finally {
+    await app.close();
+  }
+});

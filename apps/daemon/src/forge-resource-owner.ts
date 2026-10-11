@@ -9,13 +9,15 @@ export class ForgeResourceOwner {
   capture(ref: ForgePrRef): object {
     const key = forgeResourceKey(ref);
     let revision = this.#revisions.get(key);
-    if (!revision) {
-      revision = {};
-      this.#revisions.set(key, revision);
-      if (this.#revisions.size > 4096) {
-        const oldest = this.#revisions.keys().next().value;
-        if (oldest !== undefined) this.#revisions.delete(oldest);
-      }
+    if (!revision) revision = this.#change(key);
+    return revision;
+  }
+  #change(key: string): object {
+    const revision = {};
+    this.#revisions.set(key, revision);
+    while (this.#revisions.size > 4096) {
+      const oldest = this.#revisions.keys().next().value;
+      if (oldest !== undefined) this.#revisions.delete(oldest);
     }
     return revision;
   }
@@ -29,10 +31,10 @@ export class ForgeResourceOwner {
     const key = forgeResourceKey(ref);
     if (this.#active.has(key) || this.#active.size >= 16) throw new Error("forge_write_pending");
     this.#active.add(key);
-    this.#revisions.set(key, {});
+    this.#change(key);
     return () => {
       this.#active.delete(key);
-      this.#revisions.set(key, {});
+      this.#change(key);
     };
   }
 }
