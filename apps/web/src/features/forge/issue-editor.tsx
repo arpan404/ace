@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import {
   WorkspaceId,
@@ -7,15 +7,14 @@ import {
   type ForgeIssueWrite,
   type ForgeIssueRef,
 } from "@ace/protocol";
-import * as z from "zod/mini";
 import { readJson, writeJson } from "@ace/ui-core";
 import { useLayout } from "@/lib/layout.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { readForge, forgeError } from "./source.ts";
+import { IssueDraft, confirmIssueDraft } from "./issue-draft.ts";
 
-const Draft = z.object({ title: z.string(), body: z.string() });
 export function IssueEditor(props: {
   workspaceId: string;
   repository: ForgeRepository;
@@ -25,6 +24,7 @@ export function IssueEditor(props: {
   action: "create" | "edit" | "comment";
   updatedAt?: string | undefined;
   disabled?: boolean | undefined;
+  actionId?: (() => string) | undefined;
   onSaved(issue: ForgeIssueRef): void;
 }) {
   const client = useClient();
@@ -32,8 +32,14 @@ export function IssueEditor(props: {
   const { storage } = useLayout();
   const key = `ace.issue.draft:${JSON.stringify([props.workspaceId, props.repository, props.number ?? 0, props.action])}`;
   const [draft, setDraft] = useState(() =>
-    readJson(storage, key, Draft, { title: props.title ?? "", body: props.body ?? "" }),
+    readJson(storage, key, IssueDraft, {
+      title: props.title ?? "",
+      body: props.body ?? "",
+      updatedAt: props.updatedAt,
+    }),
   );
+  const currentDraft = useRef(draft);
+  const submitting = useRef(false);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const actions = useDaemonQuery({
@@ -59,49 +65,105 @@ export function IssueEditor(props: {
   const uncertain =
     actions.data?.filter((action) => action.state === "pending" || action.state === "uncertain") ??
     [];
+  const submitted = draft.submission;
+  const submissionState = actions.data?.find((action) => action.id === submitted?.id)?.state;
+  const outstanding = submitted !== undefined && submissionState !== "failed";
+  const canSubmit =
+    ready &&
+    !pending &&
+    !props.disabled &&
+    actions.isSuccess &&
+    !actions.isFetching &&
+    !uncertain.length &&
+    !outstanding &&
+    (props.action === "comment" ? Boolean(draft.body.trim()) : Boolean(draft.title.trim()));
+  const newId = () => (props.actionId ? props.actionId() : crypto.randomUUID());
   const update = (next: typeof draft) => {
+    currentDraft.current = next;
     setDraft(next);
     writeJson(storage, key, next);
   };
+  const confirm = (id: string) => {
+    const latest = readJson(storage, key, IssueDraft, currentDraft.current);
+    const next = confirmIssueDraft(latest, id);
+    if (next === latest) return;
+    if (next) update(next);
+    else {
+      try {
+        if (storage?.removeItem) storage.removeItem(key);
+        else writeJson(storage, key, null);
+      } catch {
+        writeJson(storage, key, null);
+      }
+      const fresh: IssueDraft = {
+        title: props.action === "edit" ? latest.title : "",
+        body: props.action === "edit" ? latest.body : "",
+        updatedAt: props.updatedAt,
+      };
+      currentDraft.current = fresh;
+      setDraft(fresh);
+    }
+  };
+  const releaseUnsent = (id: string) => {
+    const latest = readJson(storage, key, IssueDraft, currentDraft.current);
+    if (latest.submission?.id === id) update({ ...latest, submission: undefined });
+  };
   const submit = async () => {
+    if (!canSubmit || submitting.current) return;
+    submitting.current = true;
+    const id = newId();
+    const revision = draft.revision ?? newId();
+    const snapshot = { ...draft, revision, submission: { id, revision } };
+    update(snapshot);
     const input: ForgeIssueWrite =
       props.action === "create"
-        ? { action: "create", ...draft }
+        ? { action: "create", title: snapshot.title, body: snapshot.body }
         : props.action === "comment"
-          ? { action: "comment", number: props.number ?? 0, body: draft.body }
+          ? { action: "comment", number: props.number ?? 0, body: snapshot.body }
           : {
               action: "edit",
               number: props.number ?? 0,
-              expectedUpdatedAt: props.updatedAt ?? "",
-              ...draft,
+              expectedUpdatedAt: snapshot.updatedAt ?? "",
+              title: snapshot.title,
+              body: snapshot.body,
             };
     setPending(true);
     setMessage("Waiting for GitHub. This action is saved on this device.");
     try {
-      const result = await client.command({
-        type: "forge.issue.write",
-        workspaceId: WorkspaceId.parse(props.workspaceId),
-        repository: props.repository,
-        input,
-      });
+      const result = await client.command(
+        {
+          type: "forge.issue.write",
+          workspaceId: WorkspaceId.parse(props.workspaceId),
+          repository: props.repository,
+          input,
+        },
+        {},
+        id,
+      );
       if (result.ok && result.issue) {
-        update({ title: "", body: "" });
+        confirm(id);
         setMessage("Saved on GitHub.");
         props.onSaved(result.issue);
-      } else
+      } else {
+        if (result.issueAction?.state === "failed") releaseUnsent(id);
         setMessage(
           result.issueAction?.state === "uncertain"
             ? "The outcome is uncertain. Reconcile before another write. Your draft is saved."
             : forgeError(result.error ?? "action_failed"),
         );
+      }
     } catch {
+      if (client.intent(id).getSnapshot()?.localFailure) releaseUnsent(id);
       setMessage("This device couldn't save the action. Your draft is preserved.");
     } finally {
+      submitting.current = false;
       setPending(false);
       void actions.refetch();
     }
   };
   const reconcile = async (id: string) => {
+    if (!ready || pending || submitting.current) return;
+    submitting.current = true;
     setPending(true);
     try {
       const result = await client.command({
@@ -111,8 +173,12 @@ export function IssueEditor(props: {
         actionId: CommandId.parse(id),
       });
       if (result.ok && result.issue) {
+        confirm(id);
         setMessage("GitHub confirmed the action.");
         props.onSaved(result.issue);
+      } else if (result.issueAction?.state === "failed") {
+        releaseUnsent(id);
+        setMessage(forgeError(result.issueAction.error ?? "action_not_dispatched"));
       } else
         setMessage(
           "GitHub has not confirmed the outcome. Check GitHub before continuing; ace will not repeat this write.",
@@ -120,6 +186,7 @@ export function IssueEditor(props: {
     } catch {
       setMessage("Could not reconcile. Reconnect and try reconciliation again.");
     } finally {
+      submitting.current = false;
       setPending(false);
       void actions.refetch();
     }
@@ -144,8 +211,9 @@ export function IssueEditor(props: {
           <Input
             aria-label="Issue title"
             value={draft.title}
+            disabled={pending}
             maxLength={256}
-            onChange={(e) => update({ ...draft, title: e.target.value })}
+            onChange={(e) => update({ ...draft, title: e.target.value, revision: newId() })}
           />
         )}
         <textarea
@@ -153,19 +221,10 @@ export function IssueEditor(props: {
           className="w-full min-h-32 rounded-md border border-border bg-input p-3 text-sm focus-ring"
           maxLength={64000}
           value={draft.body}
-          onChange={(e) => update({ ...draft, body: e.target.value })}
+          disabled={pending}
+          onChange={(e) => update({ ...draft, body: e.target.value, revision: newId() })}
         />
-        <Button
-          type="submit"
-          disabled={
-            !ready ||
-            pending ||
-            props.disabled ||
-            !actions.isSuccess ||
-            uncertain.length > 0 ||
-            (props.action === "comment" ? !draft.body.trim() : !draft.title.trim())
-          }
-        >
+        <Button type="submit" disabled={!canSubmit}>
           {props.action === "create"
             ? "Create issue"
             : props.action === "edit"
@@ -174,16 +233,50 @@ export function IssueEditor(props: {
         </Button>
       </form>
       {message && <p role="status">{message}</p>}
+      {props.action === "edit" && draft.updatedAt !== props.updatedAt && (
+        <div role="alert">
+          This issue changed since the draft started. Saving will check the original version.
+          <Button
+            disabled={pending || outstanding}
+            onClick={() =>
+              update({
+                title: props.title ?? "",
+                body: props.body ?? "",
+                updatedAt: props.updatedAt,
+                revision: newId(),
+              })
+            }
+          >
+            Reload current issue
+          </Button>
+        </div>
+      )}
+      {outstanding && !uncertain.some((action) => action.id === submitted?.id) && submitted && (
+        <Button
+          disabled={!ready || pending || submissionState === "pending"}
+          onClick={() => void reconcile(submitted.id)}
+        >
+          Check submission
+        </Button>
+      )}
       {uncertain.map((action) => (
         <div key={action.id} className="space-y-2">
           <p>
-            Uncertain {action.action} · {action.id}
+            {action.state === "pending" ? "Pending" : "Uncertain"} {action.action} · {action.id}
           </p>
-          <Button disabled={!ready || pending} onClick={() => void reconcile(action.id)}>
+          <Button
+            disabled={!ready || pending || action.state === "pending"}
+            onClick={() => void reconcile(action.id)}
+          >
             Reconcile action
           </Button>
         </div>
       ))}
+      {uncertain.some((action) => action.state === "pending") && (
+        <Button disabled={!ready || pending} onClick={() => void actions.refetch()}>
+          Refresh actions
+        </Button>
+      )}
       {actions.isError && (
         <p role="alert">
           The action journal could not load.{" "}

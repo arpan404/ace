@@ -29,7 +29,8 @@ export function forgeError(code: string): string {
     forge_status_unavailable: "GitHub accepted the action. Refresh to load its current status.",
     forge_action_reconciled:
       "The previous action is reconciled. Review the current PR before making another change.",
-    forge_write_pending: "An action is still running for this PR. Refresh before continuing.",
+    forge_write_pending: "An action is still running on GitHub. Refresh before continuing.",
+    action_not_dispatched: "The action was not sent to GitHub. Your draft can be submitted again.",
     forge_write_uncertain:
       "GitHub may have accepted the action. Refresh to reconcile it before making another change.",
     issue_reconciliation_required: "An earlier write is uncertain. Reconcile it before continuing.",

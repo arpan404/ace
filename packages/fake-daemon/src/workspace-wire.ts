@@ -15,6 +15,7 @@ import {
 import { synthesizedStatus } from "./catalog/git-status.ts";
 import { scriptOutput } from "./catalog/scripts.ts";
 import { FakeForgeWire } from "./forge-wire.ts";
+import { FakeIssueWire } from "./issue-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { fakeBranchRefs } from "./worktree-base.ts";
 import type { FakeServiceContext } from "./service-context.ts";
@@ -33,8 +34,13 @@ export class FakeWorkspaceWire {
     this.context = context;
     this.projects = new FakeProjects(context, (id) => this.terminals.hasOwnedWork(id));
     this.forge = new FakeForgeWire(context);
+    this.issues = new FakeIssueWire(this.forgeReads, () => context.now());
   }
   private forgeReads = new Map<string, ForgeBrowserResult>();
+  private issues: FakeIssueWire;
+  setIssueOutcome(outcome: "succeeded" | "uncertain"): void {
+    this.issues.setOutcome(outcome);
+  }
   setForgeRead(operation: ForgeBrowserOperation, result: ForgeBrowserResult): void {
     this.forgeReads.set(JSON.stringify(operation), ForgeBrowserResult.parse(result));
   }
@@ -143,14 +149,14 @@ export class FakeWorkspaceWire {
         },
       });
     }
-    if (op.op.startsWith("forge."))
+    if (op.op.startsWith("forge.")) {
+      const data = this.issues.read(op) ?? this.forgeReads.get(JSON.stringify(op));
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: this.forgeReads.has(JSON.stringify(op))
-          ? { kind: "forge", data: this.forgeReads.get(JSON.stringify(op)) }
-          : { kind: "error", code: "forge_not_found" },
+        result: data ? { kind: "forge", data } : { kind: "error", code: "forge_not_found" },
       });
+    }
     if (op.op === "git.diff")
       return ServerMessage.parse({
         type: "workspace.result",
@@ -201,6 +207,8 @@ export class FakeWorkspaceWire {
     if (project) return project;
     const forge = this.forge.command(payload);
     if (forge) return forge;
+    const issue = this.issues.command(payload, commandId);
+    if (issue) return issue;
     if (!("threadId" in payload) || !payload.threadId) return undefined;
     const thread = this.context.thread(payload.threadId)?.thread;
     if (

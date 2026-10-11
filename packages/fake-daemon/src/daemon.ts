@@ -340,6 +340,7 @@ export class FakeDaemon implements Host {
     | "setEditors"
     | "setForgeRead"
     | "setDraftGenerator"
+    | "setIssueOutcome"
   > {
     return this.servicesWire.workspace;
   }

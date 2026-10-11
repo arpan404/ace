@@ -10,6 +10,8 @@ import { QueryState } from "./query-state.tsx";
 import { IssueDetail } from "./issue-detail.tsx";
 import { IssueEditor } from "./issue-editor.tsx";
 import { readForge } from "./source.ts";
+import { useQueryClient } from "@tanstack/react-query";
+import { refreshIssueLists } from "./issue-cache.ts";
 
 export interface IssueLocation extends ForgeIssueSearch {
   project: string;
@@ -21,6 +23,7 @@ export function IssueScreen(props: {
   onLocation(location: IssueLocation): void;
 }) {
   const projects = useRegisteredProjects();
+  const cache = useQueryClient();
   const location = props.location;
   const workspaceId = location.project || projects.ids[0] || "";
   const [address, setAddress] = useState("");
@@ -253,6 +256,7 @@ export function IssueScreen(props: {
                     repository={query.data.repository}
                     action="create"
                     onSaved={(issue) => {
+                      refreshIssueLists(cache, workspaceId, issue.repository);
                       setCreating(false);
                       open(
                         issue.number,

@@ -11,6 +11,8 @@ import { IssueTimeline } from "./issue-timeline.tsx";
 import { readForge, forgeError } from "./source.ts";
 import { openExternal } from "@/boot/open-external.ts";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useQueryClient } from "@tanstack/react-query";
+import { refreshIssueLists } from "./issue-cache.ts";
 
 export function IssueDetail(props: {
   workspaceId: string;
@@ -20,6 +22,7 @@ export function IssueDetail(props: {
   const client = useClient();
   const ready = useConnectionState() === "ready";
   const toast = useToast();
+  const cache = useQueryClient();
   const [edit, setEdit] = useState(false);
   const [threadId, setThread] = useState("");
   const [message, setMessage] = useState("");
@@ -54,11 +57,12 @@ export function IssueDetail(props: {
   });
   const detail = query.data;
   const refresh = () => {
+    if (detail) refreshIssueLists(cache, props.workspaceId, detail.ref.repository);
     void query.refetch();
     setRevision((value) => value + 1);
   };
   const state = async () => {
-    if (!detail) return;
+    if (!detail || pending || !ready || query.isError || query.isFetching) return;
     setPending(true);
     try {
       const result = await client.command({
@@ -73,6 +77,11 @@ export function IssueDetail(props: {
         },
       });
       setMessage(result.ok ? "Issue state saved." : forgeError(result.error ?? "action_failed"));
+      if (result.ok)
+        refreshIssueLists(cache, props.workspaceId, detail.ref.repository, {
+          previous: detail,
+          next: { ...detail, state: detail.state === "open" ? "closed" : "open" },
+        });
     } catch {
       setMessage("Could not save the action on this device.");
     } finally {
@@ -132,6 +141,8 @@ export function IssueDetail(props: {
               disabled={
                 !ready ||
                 pending ||
+                query.isError ||
+                query.isFetching ||
                 (detail.state === "open" ? !detail.permissions.close : !detail.permissions.reopen)
               }
               onClick={() => void state()}
@@ -152,7 +163,10 @@ export function IssueDetail(props: {
               updatedAt={detail.updatedAt}
               action="edit"
               disabled={!detail.permissions.edit}
-              onSaved={refresh}
+              onSaved={() => {
+                setEdit(false);
+                refresh();
+              }}
             />
           )}
           <section className="space-y-3 border-t border-border pt-4" aria-label="Issue agent tasks">
