@@ -1,5 +1,5 @@
 import { useSidebarThread } from "@ace/client-react";
-import type { ThreadReader } from "@ace/client";
+import type { AgentFacts } from "@/lib/agent-facts.ts";
 import {
   delegatedState,
   describeProviderError,
@@ -14,7 +14,7 @@ import {
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/cn.ts";
-import { useWatched } from "@/lib/use-watched.ts";
+import { useAgentFacts } from "@/lib/use-agent-facts.ts";
 import { useCallback } from "react";
 import {
   readSubagentResults,
@@ -29,7 +29,6 @@ const outcomes: Record<DelegationResult["outcome"], SubagentState> = {
   failed: "failed",
   cancelled: "cancelled",
 };
-const keys = ["agents", "order"] as const;
 
 /** Results stay at their delivery point; one compact navigable row per child. */
 export function DelegationCard(props: {
@@ -39,11 +38,15 @@ export function DelegationCard(props: {
   at?: number;
 }) {
   const read = useCallback(
-    (reader: ThreadReader) =>
-      readSubagentResults(reader, new Set(props.results.map((result) => result.threadId))),
+    (facts: AgentFacts) =>
+      readSubagentResults(
+        facts.reader,
+        new Set(props.results.map((result) => result.threadId)),
+        facts,
+      ),
     [props.results],
   );
-  const entries = useWatched(props.threadId, keys, read, subagentEntriesEqual) ?? [];
+  const entries = useAgentFacts(props.threadId, read, subagentEntriesEqual) ?? [];
   const byThread = new Map(entries.map((entry) => [entry.childThreadId, entry]));
   return (
     <section aria-label="Delegated work finished" className="py-2">

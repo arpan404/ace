@@ -8,7 +8,7 @@ import {
   subagentTerminal,
   type SubagentState,
 } from "@ace/ui-core";
-import { agentRunEnds } from "@/lib/agent-run-ends.ts";
+import { AgentFacts } from "@/lib/agent-facts.ts";
 import type { Watched } from "@/lib/use-watched.ts";
 
 export interface SubagentEntry {
@@ -30,6 +30,7 @@ type Spawn = Extract<Item, { type: "tool_call" }>;
 export function readSubagentGroup(
   reader: ThreadReader,
   itemIds: readonly string[],
+  facts = new AgentFacts(reader),
 ): Watched<readonly SubagentEntry[]> {
   const launches = new Map<string, Launch>();
   const spawns = new Map<string, Spawn>();
@@ -37,20 +38,6 @@ export function readSubagentGroup(
     const item = reader.item(id);
     if (item?.type === "delegation.started") launches.set(item.childThreadId, item);
     else if (item?.type === "tool_call" && item.call.kind === "agent.spawn") spawns.set(id, item);
-  }
-  const agents = new Map<string, Agent>();
-  const bySpawn = new Map<string, Agent[]>();
-  const byThread = new Map<string, Agent>();
-  for (const id of reader.agentIds()) {
-    const agent = reader.agent(id);
-    if (!agent) continue;
-    agents.set(id, agent);
-    if (agent.spawnedBy) {
-      const list = bySpawn.get(agent.spawnedBy) ?? [];
-      list.push(agent);
-      bySpawn.set(agent.spawnedBy, list);
-    }
-    if (agent.childThreadId) byThread.set(agent.childThreadId, agent);
   }
   const roots: { agent?: Agent; spawn?: Spawn; launch?: Launch; id: string }[] = [];
   const added = new Set<string>();
@@ -69,12 +56,20 @@ export function readSubagentGroup(
   for (const id of itemIds) {
     const spawn = spawns.get(id);
     const item = reader.item(id);
-    if (item?.type === "delegation.started") add(byThread.get(item.childThreadId), undefined, item);
+    if (item?.type === "delegation.started")
+      add(
+        reader.agent([...(facts.byThread.get(item.childThreadId) ?? [])][0] ?? ""),
+        undefined,
+        item,
+      );
     if (!spawn) continue;
-    const linked = bySpawn.get(id) ?? [];
+    const linked = [...(facts.bySpawn.get(id) ?? [])].flatMap((agentId) => {
+      const agent = reader.agent(agentId);
+      return agent ? [agent] : [];
+    });
     const childId =
       spawn.call.detail.kind === "agent.spawn" ? spawn.call.detail.childAgentId : undefined;
-    const child = childId ? agents.get(childId) : undefined;
+    const child = childId ? reader.agent(childId) : undefined;
     if (child && !linked.some((agent) => agent.id === child.id)) linked.push(child);
     if (linked.length) for (const agent of linked) add(agent, spawn);
     else add(undefined, spawn);
@@ -87,7 +82,7 @@ export function readSubagentGroup(
     while (parent && !visited.has(parent)) {
       if (rootIds.has(parent)) return false;
       visited.add(parent);
-      parent = agents.get(parent)?.parentId;
+      parent = reader.agent(parent)?.parentId;
     }
     return true;
   });
@@ -99,17 +94,16 @@ export function readSubagentGroup(
     for (const child of reader.children(id)) collect(child);
   };
   for (const root of direct) if (root.agent) collect(root.agent.id);
-  const ends = agentRunEnds(reader, watched);
   const cached = new Map<string, { state: SubagentState; end?: number }>();
   const visiting = new Set<string>();
   const branch = (id: string): { state: SubagentState; end?: number } => {
     const previous = cached.get(id);
     if (previous) return previous;
-    const agent = agents.get(id);
+    const agent = reader.agent(id);
     if (!agent || visiting.has(id)) return { state: "working" };
     visiting.add(id);
-    let state = subagentState(agent.status);
-    let end = agent.endedAt ?? ends.value.get(id);
+    let state: SubagentState = facts.actionable(id) ? "human" : subagentState(agent.status);
+    let end = agent.endedAt ?? facts.endedAt(id);
     for (const child of reader.children(id)) {
       const below = branch(child);
       state = rollupSubagent(state, below.state);
@@ -156,7 +150,14 @@ export function readSubagentGroup(
     watch: [
       ...itemIds.map((id) => `item:${id}`),
       ...[...watched].map((id) => `agent:${id}`),
-      ...ends.watch,
+      ...[...watched].flatMap((id) => [`attention:${id}`, `end:${id}`]),
+      ...itemIds.map((id) => `spawn:${id}`),
+      ...[...launches.keys()].map((id) => `childThread:${id}`),
+      ...[...spawns.values()].flatMap((spawn) =>
+        spawn.call.detail.kind === "agent.spawn" && spawn.call.detail.childAgentId
+          ? [`agent:${spawn.call.detail.childAgentId}`]
+          : [],
+      ),
     ],
   };
 }
@@ -189,16 +190,22 @@ export function subagentEntriesEqual(
 export function readSubagentResults(
   reader: ThreadReader,
   threadIds: ReadonlySet<string>,
+  facts = new AgentFacts(reader),
 ): Watched<readonly SubagentEntry[]> {
   const itemIds = new Set<string>();
-  for (const id of reader.order) {
-    const item = reader.item(id);
-    if (item?.type === "delegation.started" && threadIds.has(item.childThreadId)) itemIds.add(id);
+  for (const threadId of threadIds) {
+    for (const id of facts.launches.get(threadId) ?? []) itemIds.add(id);
+    for (const id of facts.byThread.get(threadId) ?? []) {
+      const agent = reader.agent(id);
+      if (agent?.spawnedBy) itemIds.add(agent.spawnedBy);
+    }
   }
-  for (const id of reader.agentIds()) {
-    const agent = reader.agent(id);
-    if (agent?.childThreadId && threadIds.has(agent.childThreadId) && agent.spawnedBy)
-      itemIds.add(agent.spawnedBy);
-  }
-  return readSubagentGroup(reader, [...itemIds]);
+  const result = readSubagentGroup(reader, [...itemIds], facts);
+  return {
+    value: result.value,
+    watch: [
+      ...result.watch,
+      ...[...threadIds].flatMap((id) => [`launch:${id}`, `childThread:${id}`]),
+    ],
+  };
 }

@@ -8,8 +8,7 @@ import type { Item } from "@ace/protocol";
  * the tail with, so one renderer serves both.
  */
 
-const windowKey = (key: ThreadKey) =>
-  key === "order" || key === "history" || key.startsWith("item:");
+const windowKey = (key: string) => key === "order" || key === "history" || key.startsWith("item:");
 
 /** A window's items, oldest first and contiguous, and the cursor before its first item. */
 export interface ThreadWindow {
@@ -76,6 +75,13 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
     usageSnapshot: (key) => live.usageSnapshot(key),
     // A window's own items arrive whole from the daemon's bounded reply; nothing was cut here.
     truncated: (id) => (items.has(id) && !(joined && live.item(id)) ? false : live.truncated(id)),
+    observe(tap) {
+      return live.observe((keys) => {
+        if (keys === "all") return tap(keys);
+        const visible = new Set([...keys].filter((key) => joined || !windowKey(key)));
+        if (visible.size) tap(visible);
+      });
+    },
     select<T>(
       keys: readonly ThreadKey[],
       selector: (reader: ThreadReader) => T,

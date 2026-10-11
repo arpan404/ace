@@ -1,8 +1,8 @@
-import type { ThreadReader } from "@ace/client";
+import type { AgentFacts } from "@/lib/agent-facts.ts";
 import { subagentStatusLine, subagentTerminal } from "@ace/ui-core";
 import { CaretDownIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { useWatched } from "@/lib/use-watched.ts";
+import { useAgentFacts } from "@/lib/use-agent-facts.ts";
 import { useCallback, useId, useState, lazy, Suspense } from "react";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import { readSubagentGroup, subagentEntriesEqual } from "../lib/subagent-group.ts";
@@ -11,15 +11,14 @@ import { SubagentAvatar, SubagentElapsed, SubagentRow, subagentTones } from "./s
 const SubagentActions = lazy(() =>
   import("./subagent-actions.tsx").then((module) => ({ default: module.SubagentActions })),
 );
-const keys = ["agents", "order"] as const;
 
-/** One disclosure at the first launch of a work stretch, with flat rows for its direct children. */
+/** One disclosure at the first launch of a batch, with flat rows for its direct children. */
 export function Subagents(props: { threadId: string; itemIds: readonly string[] }) {
   const read = useCallback(
-    (reader: ThreadReader) => readSubagentGroup(reader, props.itemIds),
+    (facts: AgentFacts) => readSubagentGroup(facts.reader, props.itemIds, facts),
     [props.itemIds],
   );
-  const entries = useWatched(props.threadId, keys, read, subagentEntriesEqual) ?? [];
+  const entries = useAgentFacts(props.threadId, read, subagentEntriesEqual) ?? [];
   const [open, setOpen] = useState(false);
   const body = useId();
   const live = useThreadLiveState(props.threadId);

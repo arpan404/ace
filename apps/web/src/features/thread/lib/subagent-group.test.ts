@@ -1,9 +1,10 @@
-import { ThreadStore, defaultLimits } from "@ace/client";
+import { ThreadStore, defaultLimits, type ThreadSource } from "@ace/client";
 import { createThreadView } from "@ace/projection";
-import { Agent, Item, Run, Thread, type AgentStatus } from "@ace/protocol";
+import { Agent, Event, Item, Run, Thread, type AgentStatus } from "@ace/protocol";
 import { subagentLabels, subagentStatusLine, subagentTerminal } from "@ace/ui-core";
 import { expect, test } from "vitest";
-import { readSubagentGroup } from "./subagent-group.ts";
+import { agentFactsOf } from "@/lib/agent-facts.ts";
+import { readSubagentGroup, subagentEntriesEqual } from "./subagent-group.ts";
 
 const thread = Thread.parse({
   id: "group",
@@ -179,4 +180,77 @@ test("a cancelling launch with an old completion stays live until canonical sett
     complete: false,
   });
   expect(line(store([], [launch]), ["launch"])).toBe("1 working");
+});
+
+test("appending unrelated output does no historical or membership reads for 50 mounted groups", () => {
+  const children = Array.from({ length: 50 }, (_, at) => `review-${at}`);
+  const reader = store(
+    children.map((id) => agent(id, { state: "idle" })),
+    children.map(spawn),
+  );
+  let historicalReads = 0;
+  let membershipReads = 0;
+  let appended = false;
+  const source: ThreadSource = new Proxy(reader, {
+    get(target, key) {
+      if (key === "item")
+        return (id: string) => {
+          if (appended && id !== "new-output") historicalReads++;
+          return target.item(id);
+        };
+      if (key === "agentIds")
+        return () => {
+          if (appended) membershipReads++;
+          return target.agentIds();
+        };
+      const value = Reflect.get(target, key, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const index = agentFactsOf(source);
+  const selections = children.map((id) =>
+    index.select(
+      (facts) => readSubagentGroup(facts.reader, [`spawn-${id}`], facts),
+      subagentEntriesEqual,
+    ),
+  );
+  const stops = selections.map((selection) => selection.subscribe(() => {}));
+  const before = selections.map((selection) => selection.getSnapshot());
+  try {
+    appended = true;
+    const seq = (reader.cursor ?? 0) + 1;
+    reader.delivery({
+      type: "events",
+      subscriptionId: "groups",
+      afterSeq: seq - 1,
+      throughSeq: seq,
+      events: [
+        Event.parse({
+          id: "output-event",
+          threadId: thread.id,
+          seq,
+          at: 2000,
+          payload: {
+            type: "item.created",
+            item: Item.parse({
+              id: "new-output",
+              agentId: "root",
+              createdAt: 2000,
+              complete: true,
+              type: "message",
+              role: "assistant",
+              parts: [{ type: "text", text: "Still reviewing" }],
+            }),
+          },
+        }),
+      ],
+    });
+    expect(reader.item("new-output")?.type).toBe("message");
+    expect(historicalReads).toBe(0);
+    expect(membershipReads).toBe(0);
+    for (const [at, selection] of selections.entries())
+      expect(selection.getSnapshot()).toBe(before[at]);
+  } finally {
+    for (const stop of stops) stop();
+  }
 });
