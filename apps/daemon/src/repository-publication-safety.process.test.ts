@@ -22,6 +22,27 @@ async function commit(f: Fixture, path: string, content: string | Buffer) {
   await f.git(f.path, ["add", "-f", "--", path]);
   await f.git(f.path, ["commit", "-m", "Fixture"]);
 }
+
+test("a restored remote root tree in an intermediate commit is scanned even after HEAD removes it", async () => {
+  const f = await setup();
+  try {
+    const remote = await configure(f);
+    await commit(f, ".env", "synthetic");
+    const originalTree = (await f.git(f.path, ["rev-parse", "HEAD^{tree}"])).stdout;
+    await f.git(f.path, ["rm", ".env"]);
+    await f.git(f.path, ["commit", "-m", "Clean"]);
+    await f.git(f.path, ["push", `file://${remote}`, "HEAD:refs/heads/trunk"]);
+    const before = (await f.git(remote, ["rev-parse", "refs/heads/trunk"])).stdout;
+    await commit(f, ".env", "synthetic");
+    expect((await f.git(f.path, ["rev-parse", "HEAD^{tree}"])).stdout).toBe(originalTree);
+    await f.git(f.path, ["rm", ".env"]);
+    await f.git(f.path, ["commit", "-m", "Remove again"]);
+    expect(await f.publish()).toMatchObject({ ok: false, error: "publication_sensitive_history" });
+    expect((await f.git(remote, ["rev-parse", "refs/heads/trunk"])).stdout).toBe(before);
+  } finally {
+    await f.cleanup();
+  }
+});
 for (const sample of [
   { path: ".env.production", text: "setting=value", deleted: true },
   { path: "config/credentials.json", text: "{}", deleted: false },

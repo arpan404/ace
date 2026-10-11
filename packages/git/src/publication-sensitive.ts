@@ -78,7 +78,17 @@ export function inspectPublicationBatch(bytes: Buffer, expected: readonly ScanOb
       incompletePublicationScan();
     if (object.type === "tree") {
       for (const id of assertPublicationTree(content, object.id.length / 2)) children.push(id);
-    } else assertPublicationText(content);
+    } else {
+      if (object.type === "commit") {
+        // A commit can reuse an excluded remote root tree without any new tree objects.
+        const endOfHeader = content.indexOf(10);
+        const root = /^tree ([a-f0-9]+)$/.exec(content.subarray(0, endOfHeader).toString("ascii"));
+        if (endOfHeader < 0 || !root?.[1] || root[1].length !== object.id.length)
+          incompletePublicationScan();
+        children.push(decode(hashSchema, root[1], "publication commit tree"));
+      }
+      assertPublicationText(content);
+    }
     offset += object.size + 1;
   }
   if (offset !== bytes.length) incompletePublicationScan();
