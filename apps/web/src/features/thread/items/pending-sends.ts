@@ -1,7 +1,7 @@
-import type { PendingSend, ThreadReader } from "@ace/client";
-import { useThread, usePendingSends } from "@ace/client-react";
+import type { PendingSend, ThreadKey, ThreadReader } from "@ace/client";
+import { arrayEqual, useThread, usePendingSends } from "@ace/client-react";
 import type { QueuePage } from "@ace/protocol";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useLayout } from "@/lib/layout.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { dismissedSends, loadDismissed } from "../composer/dismissed-sends.ts";
@@ -10,6 +10,7 @@ import {
   liveOwners,
   pageId,
   stagedSends,
+  unstage,
   withPreviews,
   type StagedSend,
 } from "../composer/staged-sends.ts";
@@ -94,6 +95,32 @@ export function useStaged(threadId: string): readonly StagedSend[] {
   const store = stagedSends(storage);
   const all = useSyncExternalStore(store.subscribe, store.get, store.get);
   const here = useMemo(() => all.filter((send) => send.threadId === threadId), [all, threadId]);
+  const pending = usePendingSends(threadId);
+  const outbox = useMemo(
+    () => new Map(pending.map((send) => [send.commandId, send.state])),
+    [pending],
+  );
+  const readAdmitted = useCallback(
+    (reader: ThreadReader) =>
+      here
+        .filter((send) => reader.item(inputItemId(send.commandId))?.type === "message")
+        .map((send) => send.commandId),
+    [here],
+  );
+  const admitted = useThread(
+    threadId,
+    here.map((send): ThreadKey => `item:${inputItemId(send.commandId)}`),
+    readAdmitted,
+    arrayEqual,
+  );
+  const owned = useMemo(() => new Set(admitted), [admitted]);
+  useEffect(() => {
+    for (const send of here) {
+      const state = outbox.get(send.commandId);
+      if (owned.has(send.commandId) || (state && state !== "saving" && state !== "failed"))
+        unstage(send.commandId, true);
+    }
+  }, [here, outbox, owned]);
   // Other pages' holds: alive while their pages hold their locks.
   const others = here.some((send) => send.owner !== pageId && !send.failed);
   const [live, setLive] = useState<ReadonlySet<string>>();
@@ -109,12 +136,18 @@ export function useStaged(threadId: string): readonly StagedSend[] {
   }, [others, here]);
   return useMemo(
     () =>
-      here.map((send) => {
-        const shown = withPreviews(send);
-        const gone = send.owner !== pageId && !send.failed && live && !live.has(send.owner);
-        return gone ? { ...shown, failed: interrupted(send) } : shown;
-      }),
-    [here, live],
+      here
+        .filter(
+          (send) =>
+            !owned.has(send.commandId) &&
+            (!outbox.has(send.commandId) || outbox.get(send.commandId) === "failed"),
+        )
+        .map((send) => {
+          const shown = withPreviews(send);
+          const gone = send.owner !== pageId && !send.failed && live && !live.has(send.owner);
+          return gone ? Object.assign({}, shown, { failed: interrupted(send) }) : shown;
+        }),
+    [here, live, outbox, owned],
   );
 }
 

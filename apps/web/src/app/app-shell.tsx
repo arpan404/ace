@@ -7,7 +7,7 @@ import { MoveToProjectHost } from "@/features/organize/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
 import { ProjectsHost, useProjectDialogs } from "@/features/projects/index.ts";
 import { ComputerUseIndicator } from "@/features/computer-use/index.ts";
-import { ThreadsSidebar } from "@/features/home/index.ts";
+import { ThreadsSidebar, useSeenWhileOpen } from "@/features/home/index.ts";
 import { SearchHost } from "@/features/search/index.ts";
 import { SignInHost } from "@/features/sign-in/index.ts";
 import { AppSidebar, GlobalHotkeys, SidebarFrame } from "@/features/shell/index.ts";
@@ -22,6 +22,7 @@ import { cn } from "@/lib/cn.ts";
  */
 export function AppShell() {
   const shell = useRouteFocus();
+  useSeenWhileOpen();
   const connection = useConnectionState();
   // The static boot shell from index.html fades into this one.
   useDismissBootSplash();

@@ -60,9 +60,18 @@ for (const { theme, width } of cases) {
     await expect(page.getByRole("button", { name: "Stop Calculator" })).toBeVisible();
     await shot(page, "17-computer-profile", suffix);
     await page.keyboard.press("Escape");
-    await page.goto("/new?project=relay");
+    await page.goto("/setup");
+    await page.getByRole("button", { name: "Get started" }).click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByText("Bring an existing conversation").click();
+    await page.getByRole("combobox", { name: "Past sessions project" }).click();
+    await page.getByRole("option", { name: "relay", exact: true }).click();
     const past = page.getByRole("list", { name: "Past sessions in relay" });
-    await past.getByRole("button", { name: "Import", exact: true }).first().click();
+    await past
+      .getByRole("button", { name: /^Import / })
+      .first()
+      .click();
     await expect(page.getByRole("feed", { name: "Transcript" })).toContainText(
       "The replay cursor advances only after the event is stored.",
     );

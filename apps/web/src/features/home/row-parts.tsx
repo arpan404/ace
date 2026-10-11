@@ -188,7 +188,7 @@ export function titleTone(card: ThreadCard, selected: boolean): string {
 function ProviderMark(props: { card: ThreadCard; instance?: string | undefined }) {
   const { card } = props;
   return (
-    <span role="img" aria-label={card.providerLabel} className="inline-flex items-center gap-0.5">
+    <span aria-hidden className="inline-flex items-center gap-0.5">
       {card.subagents > 0 && (
         <span className="text-2xs text-muted-foreground tabular-nums">⑂ {card.subagents}</span>
       )}
@@ -248,7 +248,7 @@ export function RowDetail(props: {
     <span className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-subtle-foreground">
       <span className="flex min-w-0 flex-1 items-center gap-1.5">
         <span className="truncate">
-          {card.branch?.name ?? props.model}
+          {card.branch?.name ?? props.model ?? card.providerLabel}
           {!props.machinePrimary && card.machine && (
             <span className="hidden group-focus-within/row:inline-flex group-hover/row:inline-flex">
               {` · ${card.machine}`}

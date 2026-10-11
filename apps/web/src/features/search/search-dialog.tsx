@@ -1,8 +1,8 @@
 import { ClockCounterClockwiseIcon, MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
-import { useClient } from "@ace/client-react";
+import { useClient, useConnectionState } from "@ace/client-react";
 import { formatAge, resultCountLabel } from "@ace/ui-core";
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { useEffect, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { CommandDialog, commandField, CommandSearchRow } from "@/components/ui/command.tsx";
@@ -74,8 +74,7 @@ function Snippet(props: { snippet: SearchHit["snippet"] }) {
 /**
  * Search every thread, in a sheet over the current screen (the palette's, opened from the
  * sidebar's Search, ⇧⌘K or the palette's "Search all threads"). Typing settles for 180ms before
- * a search goes out. ↑ and ↓ move through results, Enter opens the thread at the hit (⌘↵ in a new
- * tab), and Esc closes the sheet.
+ * a search goes out. ↑ and ↓ move through results, Enter opens the thread at the hit , and Esc closes the sheet.
  */
 export default function SearchDialog(props: {
   open: boolean;
@@ -108,6 +107,9 @@ function SearchBody(props: { initial: string; onClose(): void }) {
   const navigate = useNavigate();
   const router = useRouter();
   const client = useClient();
+  const ready = useConnectionState() === "ready";
+  const opening = useRef(false);
+  const [isOpening, setOpening] = useState(false);
   const now = useNow();
   const projects = useProjectChoices();
   const projectName = projects.name;
@@ -136,23 +138,27 @@ function SearchBody(props: { initial: string; onClose(): void }) {
     setActive(0);
   };
   /** Into the thread at the hit: its sequence when the thread can say, and the words. */
-  const open = async (hit: SearchHit | undefined, newTab = false) => {
-    if (!hit) return;
+  const stale = !ready || results.updating || text.trim() !== settled.trim();
+  const open = async (hit: SearchHit | undefined) => {
+    if (!hit || stale || opening.current) return;
+    opening.current = true;
+    setOpening(true);
     recent.remember(query);
-    const seq = await hitSeq(client, hit, query);
     const target = {
       to: "/t/$threadId" as const,
       params: { threadId: hit.threadId },
-      search: { ...(seq === undefined ? {} : { seq }), ...(query ? { q: query } : {}) },
+      search: query ? { q: query } : {},
     };
-    if (newTab) {
-      globalThis.open?.(router.buildLocation(target).href, "_blank", "noopener");
-      return;
-    }
+    // Open the thread immediately; locating an older item can require several pages.
+    await navigate(target);
+    const location = router.state.location;
     props.onClose();
-    void navigate(target);
+    const seq = await hitSeq(client, hit, query);
+    if (seq !== undefined && router.state.location === location)
+      void navigate({ ...target, search: { q: query, seq }, replace: true });
   };
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setActive((index) => Math.min(index + 1, Math.max(hits.length - 1, 0)));
@@ -161,11 +167,10 @@ function SearchBody(props: { initial: string; onClose(): void }) {
       setActive((index) => Math.max(index - 1, 0));
     } else if (event.key === "Enter") {
       event.preventDefault();
-      void open(hits[active], event.metaKey || event.ctrlKey);
+      void open(hits[active]);
     }
   };
-  const onHitClick = (event: MouseEvent, hit: SearchHit) =>
-    void open(hit, event.metaKey || event.ctrlKey || event.button === 1);
+  const onHitClick = (_event: MouseEvent, hit: SearchHit) => void open(hit);
 
   return (
     <>
@@ -185,7 +190,11 @@ function SearchBody(props: { initial: string; onClose(): void }) {
           onKeyDown={onKeyDown}
           className={commandField}
         />
-        {results.updating && query && <Spinner label="Updating results" />}
+        {isOpening ? (
+          <Spinner label="Opening thread" />
+        ) : results.updating && query ? (
+          <Spinner label="Updating results" />
+        ) : null}
       </CommandSearchRow>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
         <SegmentedControl
@@ -236,7 +245,14 @@ function SearchBody(props: { initial: string; onClose(): void }) {
         </p>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {!query ? (
+        {!ready ? (
+          <EmptyState
+            variant="inline"
+            title="Search is offline"
+            description="Search when reconnected."
+            className="py-6"
+          />
+        ) : !query ? (
           recent.recent.length ? (
             <RecentSearches recent={recent.recent} onPick={change} onForget={recent.forget} />
           ) : (
@@ -295,6 +311,7 @@ function SearchBody(props: { initial: string; onClose(): void }) {
                   id={`search-hit-${index}`}
                   role="option"
                   aria-selected={index === active}
+                  aria-disabled={stale || isOpening || undefined}
                   onMouseEnter={() => setActive(index)}
                   onClick={(event) => onHitClick(event, hit)}
                   onAuxClick={(event) => event.button === 1 && onHitClick(event, hit)}

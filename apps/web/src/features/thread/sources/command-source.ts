@@ -15,6 +15,7 @@ export interface CommandSource {
 export function daemonCommandSource(client: ClientApi): CommandSource {
   return {
     watch(thread, receive, failed) {
+      if (thread.draft && (!thread.id || !thread.provider)) return () => {};
       const target =
         thread.draft && thread.provider
           ? {

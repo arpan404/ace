@@ -20,6 +20,7 @@ const isImage = (mimeType: string) => mimeType.startsWith("image/");
 
 /** "Uploading 2 images…", "Uploading a file…". */
 function uploadingLabel(staged: StagedSend): string {
+  if (staged.attachments.every((file) => !!file.sha256)) return "Sending…";
   const files = staged.attachments.length;
   const images = staged.attachments.every((file) => isImage(file.mimeType));
   const noun = images

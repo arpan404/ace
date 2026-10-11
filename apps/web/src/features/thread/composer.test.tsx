@@ -161,7 +161,7 @@ test("the work card carries checkout details and refreshes them after a commit",
     name: "Work card",
   });
   await userEvent.click(strip);
-  let card = await screen.findByRole("region", { name: "Where this thread runs" });
+  let card = await screen.findByRole("region", { name: "Checkout details" });
   expect(within(card).getByText("Local checkout")).toBeTruthy();
   expect(within(card).getByText("fix/replay-cursor")).toBeTruthy();
   expect(within(card).queryByText(/ahead/)).toBeNull();
@@ -173,7 +173,7 @@ test("the work card carries checkout details and refreshes them after a commit",
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Commit changes" })).toBeNull());
   await userEvent.click(screen.getByRole("button", { name: "Work card" }));
-  card = await screen.findByRole("region", { name: "Where this thread runs" });
+  card = await screen.findByRole("region", { name: "Checkout details" });
   expect(await within(card).findByText(/1 ahead/)).toBeTruthy();
 
   // Escape folds the details back to the strip and puts the caret in the message.
@@ -185,7 +185,7 @@ test("the work card carries checkout details and refreshes them after a commit",
   });
   await userEvent.keyboard("{Escape}");
   await waitFor(() =>
-    expect(screen.queryByRole("region", { name: "Where this thread runs" })).toBeNull(),
+    expect(screen.queryByRole("region", { name: "Checkout details" })).toBeNull(),
   );
   expect(screen.getByRole("button", { name: "Work card" })).toBeTruthy();
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Work card" }));

@@ -58,8 +58,12 @@ function app() {
 async function openHistory(made: ReturnType<typeof app>) {
   await made.open("/setup");
   await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
+  const continueButton = await screen.findByRole("button", { name: "Continue" });
+  await waitFor(() => expect(continueButton).toHaveProperty("disabled", false));
+  await userEvent.click(continueButton);
+  await screen.findByRole("heading", { name: "Check your tools" });
   await userEvent.click(await screen.findByRole("button", { name: "Continue" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Continue" }));
+  await screen.findByRole("heading", { name: "Choose your first project" });
   await userEvent.click(await screen.findByText("Bring an existing conversation"));
   const project = await screen.findByRole("combobox", { name: "Past sessions project" });
   await userEvent.click(project);

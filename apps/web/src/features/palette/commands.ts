@@ -50,7 +50,7 @@ const orderOf = (group: PaletteGroup) => {
  * register entries without touching the dialog: threads, projects and thread actions come from
  * `thread-commands.ts`.
  */
-export function usePaletteGroups(close: () => void): PaletteGroup[] {
+export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] {
   const navigate = useNavigate();
   const { themes, theme, update } = useTheme();
   // Workspace commands act on the screen showing one (a thread), and only appear there.
@@ -59,7 +59,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
   const panel = useWorkspaceActions(scope ?? "");
   // The showing tab's commands (pin, close others, reopen): PN-05, PN-19.
   const tabCommands = useWorkspaceCommands();
-  const threadGroups = useThreadCommands(close);
+  const threadGroups = useThreadCommands(close, query);
   const projects = useProjectDialogs();
   const directory = useProjectDirectory();
   const { openSearch } = useLayout();

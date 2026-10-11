@@ -166,7 +166,7 @@ export function useCatalogQuery() {
 /** Every model discovery found, or undefined until discovery is known. */
 export function useModelCatalog(): CatalogModel[] | undefined {
   const query = useCatalogQuery();
-  return query.data?.models;
+  return query.data?.models ?? (query.isError ? noModels : undefined);
 }
 
 /** Each account's freshness, last refresh and discovery errors; empty until known. */
@@ -187,4 +187,5 @@ export function useModelCatalogState(): CatalogState {
   return query.isFetching || discovering ? "refreshing" : "ready";
 }
 
+const noModels: CatalogModel[] = [];
 const noInstances: ModelInstanceStatus[] = [];

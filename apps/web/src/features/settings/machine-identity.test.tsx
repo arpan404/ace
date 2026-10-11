@@ -40,7 +40,7 @@ test("editing this machine updates its name and mark in Settings, both thread en
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.click(await screen.findByRole("button", { name: "Work card" }));
-  const environment = await screen.findByRole("region", { name: "Where this thread runs" });
+  const environment = await screen.findByRole("region", { name: "Checkout details" });
   expect(await within(environment).findByText("Workshop Mac")).toBeTruthy();
   expect(within(environment).getByRole("img", { name: "desktop machine icon" })).toBeTruthy();
   const card = await screen.findByRole("complementary", { name: "Work card" });

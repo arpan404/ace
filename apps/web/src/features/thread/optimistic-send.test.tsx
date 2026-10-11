@@ -37,7 +37,8 @@ test("a message sent offline shows as its bubble at once and becomes the daemon'
   act(() => app.daemon.refuseConnections(true));
   await waitFor(() => expect(app.client.state).not.toBe("ready"));
 
-  await userEvent.type(message, "Add a route for /settings{Enter}");
+  // This slash is literal text; dismiss the offline command completion before sending.
+  await userEvent.type(message, "Add a route for /settings{Escape}{Enter}");
   expect(message.textContent).toBe("");
   expect(within(feed).getByText("Add a route for /settings")).toBeTruthy();
   expect(within(feed).getByText("Will apply when reconnected")).toBeTruthy();

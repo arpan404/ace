@@ -65,6 +65,7 @@ export function providerAccountModel(input: {
   acpAgentId?: string | undefined;
   accounts: readonly AccountView[] | undefined;
   row?: ProviderStatus | undefined;
+  readinessFailed?: boolean | undefined;
   catalog?: CatalogSignal | undefined;
   catalogForAccount?: ((id: string) => CatalogSignal | undefined) | undefined;
   readinessFailed?: boolean | undefined;

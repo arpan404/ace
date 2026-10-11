@@ -4,6 +4,13 @@ import type { Item } from "@ace/protocol";
 export function displayNotice(item: Extract<Item, { type: "notice" }>) {
   if (item.raw.some((raw) => raw.type === "native-notice" || raw.type === "stderr"))
     return undefined;
+  if (
+    item.raw.some((raw) => raw.type === "cursor.sdk.v1") &&
+    /^(?:Malformed SDK boundary|Checkpoint snapshot retained|Shell output has no observed|SDK (?:task summary|checkpoint recovery))/.test(
+      item.text,
+    )
+  )
+    return undefined;
   return {
     ...item,
     text: noticeText(item.text),
@@ -25,5 +32,7 @@ export function noticeText(text: string): string {
     return "The selected model isn't available. Pick another model.";
   if (/No adapter registered for /i.test(cleaned))
     return "The provider isn't ready. Check its connection in Settings and try again.";
+  if (cleaned.startsWith("SDK host exited;"))
+    return "Cursor stopped unexpectedly. Unfinished work needs your attention.";
   return cleaned;
 }

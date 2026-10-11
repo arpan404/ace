@@ -87,21 +87,13 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   // Working rows expose their worktree and subagents too.
   const dedupe = card(/^Dedupe thread events after reconnect/);
   expect(within(dedupe).getByText("fix/replay-dedupe")).toBeTruthy();
-  expect(
-    within(
-      within(dedupe.parentElement ?? dedupe).getByRole("img", {
-        name: "Claude Code · 2 subagents running",
-      }),
-    ).getByText("⑂ 2"),
-  ).toBeTruthy();
+  expect(dedupe.getAttribute("aria-label")).toContain("Claude Code · 2 subagents running");
   expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toContain(
     "Waiting on 2 subagents",
   );
   // The branch stays available while diff totals stay out of the sidebar.
   const install = card(/^Rewrite the install page for the daemon/);
-  expect(
-    within(install.parentElement ?? install).getByRole("img", { name: "OpenCode" }),
-  ).toBeTruthy();
+  expect(install.getAttribute("aria-label")).toContain("OpenCode");
   expect(within(install).getByText("docs/install-daemon")).toBeTruthy();
   expect(within(install).queryByText("+120")).toBeNull();
   expect(install.getAttribute("aria-label")).not.toMatch(/lines added|removed/);

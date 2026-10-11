@@ -204,7 +204,7 @@ export class CursorTranslator implements Translator {
         return [
           ...preserved,
           this.notice(
-            "Cursor session ended while work was still running. Check the conversation before continuing.",
+            "Cursor stopped unexpectedly. Unfinished work needs your attention.",
             event,
             "warning",
           ),
@@ -366,7 +366,14 @@ export class CursorTranslator implements Translator {
         text,
         level,
         complete: true,
-        raw: [this.current?.raw ?? { type: "cursor.sdk.v1", data }],
+        raw: [
+          this.current?.raw ?? { type: "cursor.sdk.v1", data },
+          ...(/^(?:Malformed SDK boundary|Checkpoint snapshot retained|Shell output has no observed|SDK (?:task summary|checkpoint recovery))/.test(
+            text,
+          )
+            ? [{ type: "native-notice", data: {} }]
+            : []),
+        ],
       },
     };
   }

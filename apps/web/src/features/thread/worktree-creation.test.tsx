@@ -176,7 +176,7 @@ test("Cancel stops the worktree, keeps the message unsent and offers Retry or th
   expect(within(stopped).queryByRole("button", { name: "Cancel" })).toBeNull();
   // The daemon made no thread, and the bubble doesn't add a "Not sent" of its own.
   expect(made.threads().some((thread) => isNew(thread.id))).toBe(false);
-  expect(screen.queryByText("Not sent")).toBeNull();
+  expect(within(screen.getByRole("main")).queryByText("Not sent")).toBeNull();
   expect(screen.queryByRole("region", { name: "Worktree" })).toBeNull();
 
   // Retry makes it from the start, under the same message.

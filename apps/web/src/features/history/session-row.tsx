@@ -22,7 +22,7 @@ export function SessionRow(props: { session: HistorySession; busy: boolean; open
       >
         {formatAgo(session.lastActivity, now)}
       </time>
-      <div className="flex w-14 shrink-0 justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
+      <div className="flex w-14 shrink-0 justify-end gap-1">
         <IconButton
           icon={ArrowSquareInIcon}
           size="sm"

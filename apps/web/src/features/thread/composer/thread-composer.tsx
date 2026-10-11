@@ -30,7 +30,12 @@ import {
   DeferredPermissionControl,
   DeferredQueueArea,
 } from "./deferred-parts.tsx";
-import { DeferredPlanTab, DeferredRequestStack, DeferredStatusStrip } from "./deferred-cards.ts";
+import {
+  DeferredEnvironmentStrip,
+  DeferredPlanTab,
+  DeferredRequestStack,
+  DeferredStatusStrip,
+} from "./deferred-cards.ts";
 import { useShownPlans } from "./plan-state.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useActiveRootRun, useStopping } from "./stop-state.ts";
@@ -255,6 +260,11 @@ export function ThreadComposer({
                 onStop={stop}
               />
             ) : null}
+          </Suspense>
+        }
+        environment={
+          <Suspense fallback={null}>
+            <DeferredEnvironmentStrip.Component thread={props.thread} />
           </Suspense>
         }
         answer={tab === "requests" ? answer : undefined}

@@ -35,7 +35,13 @@ try {
         },
         { theme },
       );
-      await page.goto("http://127.0.0.1:5298/new?project=relay");
+      await page.goto("http://127.0.0.1:5298/setup");
+      await page.getByRole("button", { name: "Get started" }).click();
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
+      await page.getByText("Bring an existing conversation").click();
+      await page.getByRole("combobox", { name: "Past sessions project" }).click();
+      await page.getByRole("option", { name: "relay", exact: true }).click();
       await page.getByRole("button", { name: "Show all past sessions" }).click();
       const dialog = page.getByRole("dialog", { name: "Past sessions" });
       await expect(dialog.getByRole("list", { name: "Pi sessions" })).toBeVisible();

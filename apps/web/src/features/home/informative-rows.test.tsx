@@ -87,7 +87,8 @@ test("PR state, status words and provider stay visible while changes remain in t
   expect(within(row).getByRole("img", { name: "draft pull request #283" })).toBeTruthy();
   expect(within(row).queryByText("+24")).toBeNull();
   expect(within(row).queryByText("−6")).toBeNull();
-  expect(within(row.parentElement ?? row).getByRole("img", { name: "Codex" })).toBeTruthy();
+  expect(row.getAttribute("aria-label")).toContain("Codex");
+  expect(within(row.parentElement ?? row).queryByRole("img", { name: "Codex" })).toBeNull();
   await userEvent.hover(row);
   const tip = await screen.findByLabelText(/^Details for /);
   expect(tip.textContent).toContain("Build replay recovery");
@@ -106,11 +107,7 @@ test("this device's read cursor shows new activity even while a task works", asy
   await app.open("/new");
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
   expect(await within(row).findByRole("img", { name: "Unread activity" })).toBeTruthy();
-  expect(
-    within(
-      within(row.parentElement ?? row).getByRole("img", { name: "Codex · 1 subagent running" }),
-    ).getByText("⑂ 1"),
-  ).toBeTruthy();
+  expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running");
 });
 
 test("agents running beside a human request remain counted until they finish", async () => {
@@ -130,13 +127,9 @@ test("agents running beside a human request remain counted until they finish", a
   await app.open("/new");
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
   expect(within(row).getByText("Approve")).toBeTruthy();
-  expect(
-    within(
-      within(row.parentElement ?? row).getByRole("img", { name: "Codex · 1 subagent running" }),
-    ).getByText("⑂ 1"),
-  ).toBeTruthy();
+  expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running");
   app.daemon.apply("build", [facts.endTurn("web")]);
-  await waitFor(() => expect(within(row.parentElement ?? row).queryByText("⑂ 1")).toBeNull());
+  await waitFor(() => expect(row.getAttribute("aria-label")).not.toContain("subagent running"));
   expect(within(row).getByText("Approve")).toBeTruthy();
 });
 
@@ -202,7 +195,7 @@ test.each([false, true])(
     else expect(row.textContent).not.toContain(name);
     expect(row.textContent).not.toContain("Stale server");
     expect(row.getAttribute("aria-label")).toContain(`Running on ${name}`);
-    expect(within(row.parentElement ?? row).getByRole("img", { name: /Codex/ })).toBeTruthy();
+    expect(row.getAttribute("aria-label")).toContain("Codex");
     await userEvent.hover(row);
     expect((await screen.findByLabelText(/^Details for /)).textContent).toContain(name);
     await userEvent.unhover(row);
@@ -229,7 +222,7 @@ test("settled rows keep local device truth in the rich hover card", async () => 
   const row = await (await rows()).findByRole("link", { name: /^Bump Codex app-server/ });
   if (!row.parentElement) throw new Error("No row container");
   expect(within(row.parentElement).queryByRole("img", { name: "Device: Workshop Mac" })).toBeNull();
-  expect(within(row.parentElement ?? row).getByRole("img", { name: "Codex" })).toBeTruthy();
+  expect(row.getAttribute("aria-label")).toContain("Codex");
   expect(row.textContent).not.toContain("Workshop Mac");
   await userEvent.hover(row);
   expect((await screen.findByLabelText(/^Details for /)).textContent).toContain("Workshop Mac");

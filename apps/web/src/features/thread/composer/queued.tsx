@@ -62,17 +62,19 @@ function QueuedBubble(props: {
     >
       <PendingBody message={message} text={queuedText(message)} />
       <div className="flex items-center justify-end gap-1 pr-1">
-        <IconButton
-          icon={ArrowUpIcon}
-          label={uncertain ? "Send again" : "Send now"}
-          tip={uncertain ? description : "Send this message into the running turn"}
-          size="sm"
-          disabled={busy}
-          onClick={() => {
-            if ("saving" in message) return;
-            return uncertain ? queue.resend(message) : queue.sendNow(message);
-          }}
-        />
+        {(uncertain || queue.canSteer) && (
+          <IconButton
+            icon={ArrowUpIcon}
+            label={uncertain ? "Send again" : "Send now"}
+            tip={uncertain ? description : "Send this message into the running turn"}
+            size="sm"
+            disabled={busy}
+            onClick={() => {
+              if ("saving" in message) return;
+              return uncertain ? queue.resend(message) : queue.sendNow(message);
+            }}
+          />
+        )}
         <IconButton
           icon={XIcon}
           label="Take back to composer"

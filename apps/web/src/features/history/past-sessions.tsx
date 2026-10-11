@@ -8,15 +8,14 @@ import { useOpenSession, usePastSessions } from "./use-past-sessions.ts";
 
 const AllSessions = lazy(() => import("./sessions-dialog.tsx"));
 
-export function PastSessions(props: { projectId?: string | undefined }) {
+export function PastSessions() {
   const directory = useProjectDirectory();
   const [selected, setSelected] = useState("");
   const project =
-    directory.projects.find((entry) => entry.id === (props.projectId ?? selected)) ??
-    (props.projectId ? undefined : directory.projects[0]);
+    directory.projects.find((entry) => entry.id === selected) ?? directory.projects[0];
   return (
     <>
-      {props.projectId === undefined && project && (
+      {project && (
         <Select
           label="Past sessions project"
           value={project.id}

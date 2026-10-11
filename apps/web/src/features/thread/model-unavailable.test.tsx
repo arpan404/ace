@@ -67,7 +67,7 @@ test("a vanished model shows one actionable notice and picking a replacement sen
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   expect(screen.queryByText("Working")).toBeNull();
-  expect(screen.queryByText("Not sent")).toBeNull();
+  expect(within(screen.getByRole("main")).queryByText("Not sent")).toBeNull();
   await userEvent.click(within(notice).getByRole("button", { name: "Pick another model" }));
   const search = await screen.findByRole("combobox", { name: "Search models" });
   const old = await screen.findByRole("option", {
@@ -88,7 +88,7 @@ test("a vanished model shows one actionable notice and picking a replacement sen
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "Search models" })).toBeNull();
   expect(within(screen.getByRole("feed", { name: "Transcript" })).getByText("hi")).toBeTruthy();
-  expect(screen.queryByText("Not sent")).toBeNull();
+  expect(within(screen.getByRole("main")).queryByText("Not sent")).toBeNull();
   const snapshot = app.daemon.snapshot({ kind: "thread", threadId: id });
   expect(snapshot?.kind === "thread" && snapshot.thread.status.state).toBe("working");
 });
@@ -119,7 +119,7 @@ test("a not-sent message has one retry notice and no active work until retried",
   const notice = await screen.findByRole("region", { name: "Message not sent" });
   expect(await within(notice).findByText(correction)).toBeTruthy();
   expect(screen.getAllByText(correction)).toHaveLength(1);
-  expect(screen.queryByText("Not sent")).toBeNull();
+  expect(within(screen.getByRole("main")).queryByText("Not sent")).toBeNull();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   expect(screen.queryByText("Working")).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Try again" }));

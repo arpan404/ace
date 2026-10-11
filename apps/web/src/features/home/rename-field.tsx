@@ -1,6 +1,10 @@
 import type { ThreadListEntry } from "@ace/protocol";
 import { useEffect, useRef } from "react";
-import { useOrganizeOverlay, useThreadActions } from "@/features/organize/index.ts";
+import {
+  useOrganizeOverlay,
+  useThreadActions,
+  useHomeSelection,
+} from "@/features/organize/index.ts";
 
 /**
  * Inline rename in place of the title. Enter or leaving the field saves; Escape cancels. The new
@@ -8,6 +12,7 @@ import { useOrganizeOverlay, useThreadActions } from "@/features/organize/index.
  */
 export function RenameField(props: { entry: ThreadListEntry; title: string; onDone(): void }) {
   const actions = useThreadActions();
+  const selection = useHomeSelection();
   const overlay = useOrganizeOverlay();
   const input = useRef<HTMLInputElement>(null);
   const finished = useRef(false);
@@ -31,9 +36,11 @@ export function RenameField(props: { entry: ThreadListEntry; title: string; onDo
       ref={input}
       aria-label="Thread title"
       defaultValue={props.title}
+      onChange={(event) => selection.rename(props.entry.id, event.target.value)}
       maxLength={200}
       onBlur={() => finish(true)}
       onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
         if (event.key === "Enter") finish(true);
         else if (event.key === "Escape") finish(false);
         else return;

@@ -1,7 +1,10 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { overrideKeyboardEnv } from "@/lib/keybindings.ts";
+afterEach(() => overrideKeyboardEnv(undefined));
+
 import { recordChord } from "./keybindings.ts";
 
 // jsdom reports a non-Apple platform, so keys render as Ctrl+ and record Ctrl as mod.
@@ -183,3 +186,23 @@ test("retrying an older refused change never undoes a newer one that was saved",
     }),
   );
 });
+
+for (const [env, key, code, shifted] of [
+  [{ apple: true, web: true }, "n", "KeyN", false],
+  [{ apple: true, web: true }, "N", "KeyN", true],
+  [{ apple: true, web: false }, "h", "KeyH", false],
+  [{ apple: true, web: false }, "m", "KeyM", false],
+  [{ apple: true, web: false }, "Tab", "Tab", false],
+] as const)
+  test(`shortcut recorder rejects reserved ${code} on ${env.web ? "web" : "desktop"}${shifted ? " with Shift" : ""}`, async () => {
+    overrideKeyboardEnv(env);
+    await harness().open("/settings/keyboard");
+    const settings = await shortcut("Settings");
+    await userEvent.click(settings);
+    press(settings, { key, code, metaKey: true, shiftKey: shifted });
+    if (code !== "Tab")
+      expect(screen.getByRole("alert").textContent).toContain(
+        `is used by the ${env.web ? "browser" : "system"}.`,
+      );
+    expect(settings.textContent).toBe("Press keys…");
+  });

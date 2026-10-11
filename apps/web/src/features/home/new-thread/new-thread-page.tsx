@@ -57,6 +57,7 @@ function useDraftThreadRef(
   project: string | undefined,
   provider: ProviderKind | undefined,
   accountId: string | undefined,
+  retryDraftScope: () => void,
 ) {
   return useMemo(
     () => ({
@@ -66,8 +67,9 @@ function useDraftThreadRef(
       draft: true,
       provider,
       instanceId: accountId,
+      retryDraftScope,
     }),
-    [draftId, project, provider, accountId],
+    [draftId, project, provider, accountId, retryDraftScope],
   );
 }
 
@@ -165,7 +167,7 @@ export function NewThreadPage(props: {
   // exists; the new thread adopts it. A draft ref's id is that scope.
   const scope = useDraftScope(project);
   const accountId = resolved.account?.id;
-  const draftThread = useDraftThreadRef(scope.draftId, project, provider, accountId);
+  const draftThread = useDraftThreadRef(scope.draftId, project, provider, accountId, scope.retry);
   const waitingForAdmission =
     !start.loaded || !provider || defaultMode === undefined || permissions.loading;
   const admissionProblem = waitingForAdmission
@@ -253,6 +255,7 @@ export function NewThreadPage(props: {
           </div>
           <div className="shrink-0">
             <Composer
+              key={project}
               onPlan={() => {
                 if (provider) setPermissionChoice({ provider, id: "plan" });
               }}
@@ -318,4 +321,44 @@ export function NewThreadPage(props: {
               }
               controls={
                 <PermissionPicker
+                  current={
+                    waitingForAdmission
+                      ? undefined
+                      : permissionOption(admitted.mode ?? null, permissions.capabilities)
+                  }
+                  detail={
+                    admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
+                  }
+                  inherited={!chosen}
+                  menu={{
+                    options: permissionOptions(permissions.capabilities),
+                    value: admitted.mode,
                     loading: waitingForAdmission,
+                    unavailable: permissions.failed
+                      ? "Couldn't load permission modes. Reconnect and try again."
+                      : undefined,
+
+                    fallback: admitted.fallback,
+                  }}
+                  onChange={permissions.setCurrentId}
+                />
+              }
+            />
+            {admissionProblem && (
+              <p id={readinessId} role="status" className="mt-2 px-4 text-xs text-muted-foreground">
+                {admissionProblem}
+              </p>
+            )}
+            <SignInNotice provider={provider} />
+            {project && <PastSessions projectId={project} />}
+            {error && (
+              <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
+                {error}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </Screen>
+  );
+}

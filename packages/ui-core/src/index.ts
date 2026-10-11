@@ -112,3 +112,5 @@ export { catalogModelIds } from "./catalog-ids.ts";
 export { serviceLabel } from "./provider-services.ts";
 
 export { freeModelMarker } from "./model-picker.ts";
+
+export { recoveryAttention, type RecoveryAttention } from "./recovery-attention.ts";

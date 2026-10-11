@@ -166,3 +166,62 @@ createInterface({input:process.stdin}).on('line',line=>{
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("retains scrubbed stderr diagnostics when the host exits after acknowledging a send", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cursor-late-exit-"));
+  const entry = join(root, "host.mjs");
+  await writeFile(
+    entry,
+    `
+import {createInterface} from 'node:readline';
+const out=value=>process.stdout.write(JSON.stringify(value)+'\\n');
+createInterface({input:process.stdin}).on('line',line=>{
+ const input=JSON.parse(line);
+ if(input.method==='open') out({id:input.id,result:{agentId:'native'}});
+ else if(input.method==='send') out({id:input.id,result:{runId:'native-run'}});
+ else if(input.method==='crash') process.stderr.write('Runtime dependency disappeared; opaque-sdk-secret\\n',()=>process.exit(1));
+});
+`,
+  );
+  const exited = Promise.withResolvers<{ deliberate: boolean; message?: string }>();
+  const exitFrame = Promise.withResolvers<unknown>();
+  let host: SupervisedProcess | undefined;
+  let session: Awaited<ReturnType<typeof openCursorSession>> | undefined;
+  try {
+    session = await openCursorSession(
+      {
+        threadId: ThreadId.parse("late-exit"),
+        cwd: root,
+        signal: new AbortController().signal,
+        onExit: exited.resolve,
+        onFrame(frame) {
+          const envelope = CursorEnvelopeSchema.parse(frame.data);
+          if (envelope.kind === "host-exit") exitFrame.resolve(envelope.body);
+        },
+      },
+      {
+        env: { HOME: root, CURSOR_API_KEY: "opaque-sdk-secret" },
+        entry,
+        instanceId: "instance",
+        spawn(options) {
+          host = spawnSupervised(options);
+          return host;
+        },
+      },
+    );
+    await session.send([{ type: "text", text: "Start work" }], "queue", "late-intent");
+    if (!host) throw new Error("Synthetic host unavailable");
+    host.stdin.write(JSON.stringify({ method: "crash" }) + "\n");
+    expect(await exited.promise).toMatchObject({
+      deliberate: false,
+      message: "Cursor stopped unexpectedly. Unfinished work needs your attention.",
+    });
+    expect(await exitFrame.promise).toMatchObject({
+      detail: expect.stringContaining("Runtime dependency disappeared"),
+    });
+    expect(JSON.stringify(await exitFrame.promise)).not.toContain("opaque-sdk-secret");
+  } finally {
+    await session?.close("shutdown");
+    await rm(root, { recursive: true, force: true });
+  }
+});

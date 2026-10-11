@@ -71,7 +71,7 @@ export function useStopping(threadId: string | undefined): boolean {
   // Only a thread with a Stop on its way watches which turn is running.
   const run = useActiveRootRun(record ? threadId : undefined);
   const sameTurn = record?.runId === undefined || run === undefined || run === record.runId;
-  return !!record && intent?.state !== "failed" && sameTurn;
+  return !!record && intent?.state !== "failed" && intent?.state !== "acked" && sameTurn;
 }
 
 /** Test seam. */

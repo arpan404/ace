@@ -203,6 +203,11 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
     matchesChord(event.nativeEvent, parseChord(keys[id]));
   /** A keyboard move takes every key first, before a row's tooltip or menu can claim Escape. */
   const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (
+      event.target instanceof HTMLElement &&
+      event.target.closest("input, textarea, [contenteditable]")
+    )
+      return;
     const move = keyboardMove.current;
     // Escape lets the pick go (a row's tooltip, closing too, takes the key after this).
     if (!move && event.key === "Escape" && picked.length) selection.clear();

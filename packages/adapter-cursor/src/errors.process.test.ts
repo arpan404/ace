@@ -10,6 +10,7 @@ import {
   CursorTranslator,
   CursorLimitsSchema,
   openCursorSession,
+  CursorEnvelopeSchema,
   type RuntimeSdkBoundary,
 } from "./index.ts";
 
@@ -157,13 +158,17 @@ hostWire(async method=>{if(method==='open')return {agentId:'native'}; if(method=
 createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.method==='open') console.log(JSON.stringify({id:m.id,result:{agentId:'native'}}));else if(m.method==='send'){process.stderr.write('SDK helper dependency missing; Bearer sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n',()=>process.exit(1));}});`,
     );
     const exited = Promise.withResolvers<{ deliberate: boolean; message?: string }>();
+    const exitFrame = Promise.withResolvers<unknown>();
     try {
       const session = await openCursorSession(
         {
           threadId: ThreadId.parse("stderr"),
           cwd: home,
           signal: new AbortController().signal,
-          onFrame() {},
+          onFrame(frame) {
+            const envelope = CursorEnvelopeSchema.parse(frame.data);
+            if (envelope.kind === "host-exit") exitFrame.resolve(envelope.body);
+          },
           onExit: exited.resolve,
         },
         {
@@ -175,10 +180,14 @@ createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line)
       await expect(session.send([{ type: "text", text: "synthetic" }], "queue")).rejects.toThrow(
         "SDK helper dependency missing",
       );
-      expect((await exited.promise).message).toContain("SDK helper dependency missing");
-      expect((await exited.promise).message).not.toContain("sk-aaaaaaaa");
-      expect((await exited.promise).message).not.toContain("opaque-");
-      expect((await exited.promise).message).not.toContain("sdk-secret");
+      expect((await exited.promise).message).toBe(
+        "Cursor stopped unexpectedly. Unfinished work needs your attention.",
+      );
+      const evidence = JSON.stringify(await exitFrame.promise);
+      expect(evidence).toContain("SDK helper dependency missing");
+      expect(evidence).not.toContain("sk-aaaaaaaa");
+      expect(evidence).not.toContain("opaque-");
+      expect(evidence).not.toContain("sdk-secret");
     } finally {
       await rm(home, { recursive: true, force: true });
     }

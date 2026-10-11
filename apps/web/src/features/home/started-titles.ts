@@ -9,6 +9,8 @@ let titles: ReadonlyMap<string, string> = new Map();
 const listeners = new Set<() => void>();
 
 export function publishStartedTitles(next: ReadonlyMap<string, string>): void {
+  if (next.size === titles.size && [...next].every(([id, title]) => titles.get(id) === title))
+    return;
   titles = next;
   for (const listener of listeners) listener();
 }
@@ -17,9 +19,9 @@ const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => listeners.delete(listener);
 };
-const snapshot = () => titles;
 
 /** The provisional title this window gave the thread, if it started it. */
 export function useStartedTitle(threadId: string): string | undefined {
-  return useSyncExternalStore(subscribe, snapshot, snapshot).get(threadId);
+  const snapshot = () => titles.get(threadId);
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
 }

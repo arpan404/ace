@@ -39,6 +39,7 @@ export function useProviderAccountModels(options: { enabled?: boolean; refreshMs
       readinessFailed: readiness.isError,
       now,
       catalogForAccount: (id) => signals(provider, id),
+      readinessFailed: readiness.isFetched && readiness.data === undefined,
       row: readiness.data?.find((row) => row.provider === provider),
       catalog: signals(
         provider,

@@ -131,10 +131,10 @@ test("a row shows its own stored keys, even when they spell another shortcut's d
   await waitFor(() => expect(settings.textContent).toBe("Ctrl+P"));
 });
 
-test("keys another shortcut still answers through its browser alias are refused", async () => {
+test("the browser New thread chord is refused before shortcut alias conflicts", async () => {
   await harness().open("/settings/keyboard");
   const settings = await recorder("Settings");
   await userEvent.click(settings);
   record(settings, { key: "n", code: "KeyN", ctrlKey: true });
-  expect(screen.getByRole("alert").textContent).toBe("Ctrl+N is already New thread.");
+  expect(screen.getByRole("alert").textContent).toBe("Ctrl+N is used by the browser.");
 });

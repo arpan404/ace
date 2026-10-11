@@ -116,13 +116,19 @@ export async function openCursorSession(
   void host.process.exited.then(() => {
     exited = true;
     context.signal.removeEventListener("abort", abort);
-    frame("note", "host-exit", { deliberate }, operation, segment);
+    frame(
+      "note",
+      "host-exit",
+      { deliberate, ...(host.failureMessage ? { detail: host.failureMessage } : {}) },
+      operation,
+      segment,
+    );
     context.onExit({
       deliberate,
       ...(deliberate
         ? {}
         : {
-            message: `${host.failureMessage ? host.failureMessage + " " : ""}Cursor session ended. Check the conversation before continuing.`,
+            message: `${host.failureMessage ? host.failureMessage + " " : ""}Cursor stopped unexpectedly. Unfinished work needs your attention.`,
           }),
     });
   });

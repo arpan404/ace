@@ -13,6 +13,9 @@ import {
   useModelCatalogState,
   type ModelControlView,
 } from "@/features/models/index.ts";
+import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { useCatalogQuery } from "@/lib/model-catalog.ts";
 import { composerChip, useComposerCompact } from "@/features/thread/index.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
 import type { NewThreadOptions, Resolved } from "./choices.ts";
@@ -39,19 +42,27 @@ export function ModelPicker(props: {
   const error = useProviderReadError();
   const statuses = useProviderStatuses();
   const catalog = useModelCatalogState();
+  const catalogQuery = useCatalogQuery();
   // Say what's missing rather than wait for models that won't come or make one up.
   const none = props.options !== undefined && props.options.models.length === 0;
   const installed = (statuses.data ?? []).some((status) => status.state !== "not_installed");
-  const empty = !props.options
-    ? { label: "Loading models…", aria: "loading" }
-    : none && !installed
-      ? { label: "No provider CLI installed", aria: "no provider installed" }
-      : none
-        ? { label: "No models available", aria: "no models available" }
-        : {
-            label: `No models on ${account ? accountDisplayName(account.label) : "this account"}`,
-            aria: "no models on this account",
-          };
+  const error = catalogQuery.isError
+    ? "Couldn't load models"
+    : statuses.isError
+      ? "Couldn't check providers"
+      : undefined;
+  const empty = error
+    ? { label: error, aria: error }
+    : !props.options || (none && catalog === "refreshing")
+      ? { label: "Loading models…", aria: "loading" }
+      : none && !installed
+        ? { label: "No provider CLI installed", aria: "no provider installed" }
+        : none
+          ? { label: "No models available", aria: "no models available" }
+          : {
+              label: `No models on ${account ? accountDisplayName(account.label) : "this account"}`,
+              aria: "no models on this account",
+            };
   const tag = account ? accountDisplayName(account.label) : undefined;
   const efforts = model?.efforts ?? [];
   const speed = speedControl({
@@ -82,12 +93,13 @@ export function ModelPicker(props: {
       (props.options?.accounts.filter((option) => option.provider === provider).length ?? 0) > 1
         ? tag
         : undefined,
-    label: model?.label,
+    label: error ? undefined : model?.label,
     placeholder: empty.label,
-    ariaLabel: `Model: ${name ?? empty.aria}`,
-    tip: details ? modelControlName({ ...details, provider: model.provider }) : empty.label,
+    ariaLabel: `Model: ${error ?? name ?? empty.aria}`,
+    tip:
+      error ?? (details ? modelControlName({ ...details, provider: model.provider }) : empty.label),
     // An account without models can still move to another model or account.
-    disabled: !model && (props.options === undefined || none),
+    disabled: !!error || (!model && (props.options === undefined || none)),
     modelKey: model?.key,
     instance: model?.account,
     efforts,
@@ -114,20 +126,33 @@ export function ModelPicker(props: {
   const problem = error.providers ?? error.models;
   if (!model && problem) return <ProviderReadError message={problem} retry={error.retry} />;
   return (
-    <ModelControl
-      view={view}
-      className={composerChip}
-      compact={compact}
-      actions={{
-        onEffort: props.onEffort,
-        onFast: props.onFast,
-        onReset: props.onReset,
-        onModel: (key, listed) => {
-          props.onModel(key, listed);
-          return true;
-        },
-        onAccount: props.onAccount,
-      }}
-    />
+    <>
+      <ModelControl
+        view={view}
+        className={composerChip}
+        compact={compact}
+        actions={{
+          onEffort: props.onEffort,
+          onFast: props.onFast,
+          onReset: props.onReset,
+          onModel: (key, listed) => {
+            props.onModel(key, listed);
+            return true;
+          },
+          onAccount: props.onAccount,
+        }}
+      />
+      {error && (
+        <IconButton
+          icon={ArrowClockwiseIcon}
+          label="Retry loading models"
+          size="sm"
+          onClick={() => {
+            void catalogQuery.refetch();
+            void statuses.refetch();
+          }}
+        />
+      )}
+    </>
   );
 }
