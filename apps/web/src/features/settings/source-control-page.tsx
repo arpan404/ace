@@ -80,6 +80,7 @@ function MachineSourceControl({ client }: { client: ClientApi }) {
           throw new Error("Source control status unavailable. Rescan to retry.");
         const next = reply.result.readiness;
         setStatus(next);
+        setError(undefined);
         setHost(next.preferences.host);
         setAccount(
           next.preferences.hosts.find((entry) => entry.host === next.preferences.host)?.account ??
@@ -95,6 +96,8 @@ function MachineSourceControl({ client }: { client: ClientApi }) {
         if (!controller.signal.aborted) setPending(false);
       });
     return () => controller.abort();
+    // Rescan deliberately invalidates the machine-local CLI facts after an external login.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [client, revision, workspace]);
 
   useEffect(() => {
