@@ -55,18 +55,46 @@ for (const sample of [
   },
   { path: "src/config.txt", text: "ghp_" + "x".repeat(32), deleted: true },
   { path: "archive.bin", text: "\0Bearer synthetic-private-value\0", deleted: false },
-  { path: ".docker/config.json", text: JSON.stringify({ auths: { "registry.example.invalid": { auth: "c3ludGhldGljOmNyZWRlbnRpYWw=" } } }), deleted: false },
-  { path: ".docker/config.json", text: JSON.stringify({ auths: { "registry.example.invalid": { auth: "c3ludGhldGljOmNyZWRlbnRpYWw=" } } }), deleted: true },
-  { path: "registry.json", text: '{"auths":{"registry.example.invalid":{"a\\u0075th":"c3ludGhldGljOmNyZWRlbnRpYWw="}}}', deleted: true },
+  {
+    path: ".docker/config.json",
+    text: JSON.stringify({
+      auths: { "registry.example.invalid": { auth: "c3ludGhldGljOmNyZWRlbnRpYWw=" } },
+    }),
+    deleted: false,
+  },
+  {
+    path: ".docker/config.json",
+    text: JSON.stringify({
+      auths: { "registry.example.invalid": { auth: "c3ludGhldGljOmNyZWRlbnRpYWw=" } },
+    }),
+    deleted: true,
+  },
+  {
+    path: "registry.json",
+    text: '{"auths":{"registry.example.invalid":{"a\\u0075th":"c3ludGhldGljOmNyZWRlbnRpYWw="}}}',
+    deleted: true,
+  },
   { path: ".npmrc", text: "//registry.example.invalid/:_authToken=synthetic", deleted: true },
-  { path: "copied-config.txt", text: "//registry.example.invalid/:_authToken=synthetic", deleted: true },
+  {
+    path: "copied-config.txt",
+    text: "//registry.example.invalid/:_authToken=synthetic",
+    deleted: true,
+  },
   { path: ".pypirc", text: "[index-server]\npassword = synthetic", deleted: true },
-  { path: ".netrc", text: "machine example.invalid login synthetic password synthetic", deleted: true },
+  {
+    path: ".netrc",
+    text: "machine example.invalid login synthetic password synthetic",
+    deleted: true,
+  },
   { path: ".git-credentials", text: "https://synthetic:synthetic@example.invalid", deleted: true },
   { path: ".aws/credentials", text: "[default]\naws_secret_access_key=synthetic", deleted: true },
   { path: ".azure/msal_token_cache.bin", text: "synthetic", deleted: true },
   { path: ".config/gcloud/access_tokens.db", text: "synthetic", deleted: true },
-  { path: "copied-cloud.json", text: JSON.stringify({ profile: { aws_access_key_id: "synthetic" } }), deleted: true },
+  {
+    path: "copied-cloud.json",
+    text: JSON.stringify({ profile: { aws_access_key_id: "synthetic" } }),
+    deleted: true,
+  },
 ]) {
   test(`publication blocks ${sample.path} ${sample.deleted ? "in deleted, ignored history" : "in tracked content"} without changing history or uploading`, async () => {
     const f = await setup();
@@ -188,7 +216,6 @@ test("secret content in an already-remote blob is blocked when reused and delete
   }
 });
 
-
 test("publication blocks sensitive history already present on an unchanged remote", async () => {
   const f = await setup();
   try {
@@ -208,13 +235,20 @@ test("publication blocks sensitive history already present on an unchanged remot
 
 test("a remote branch disappearing before push cannot exclude sensitive history from publication review", async () => {
   let remote: string | undefined;
-  const f = await setup({}, {
-    git: { processRuntime: { spawn(command, args, options) {
-      if (args.includes("rev-list") && remote)
-        execFileSync("git", ["--git-dir", remote, "update-ref", "-d", "refs/heads/trunk"]);
-      return spawnGitProcess(command, args, options);
-    } } },
-  });
+  const f = await setup(
+    {},
+    {
+      git: {
+        processRuntime: {
+          spawn(command, args, options) {
+            if (args.includes("rev-list") && remote)
+              execFileSync("git", ["--git-dir", remote, "update-ref", "-d", "refs/heads/trunk"]);
+            return spawnGitProcess(command, args, options);
+          },
+        },
+      },
+    },
+  );
   try {
     remote = await configure(f);
     await commit(f, ".env", "synthetic");

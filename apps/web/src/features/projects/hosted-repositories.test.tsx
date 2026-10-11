@@ -123,6 +123,7 @@ test("reopening a daemon-owned publication offers Stop and disables Resume until
 class DelayedPublicationReadiness extends FakeDaemon {
   delayNextReadiness = false;
   private delayed: (() => void) | undefined;
+  private runningSeen = false;
   private captured = Promise.withResolvers<void>();
   readonly runningSnapshot = this.captured.promise;
   releaseReadiness(): void {
@@ -137,10 +138,18 @@ class DelayedPublicationReadiness extends FakeDaemon {
         if (frame.type === "source-control.result" && this.delayNextReadiness) {
           this.delayNextReadiness = false;
           this.delayed = () => wire.send(text);
+          if (this.runningSeen) this.captured.resolve();
           return;
         }
-        if (this.delayed && frame.type === "repositories.result" && frame.result.kind === "publication" && frame.result.running)
-          this.captured.resolve();
+        if (
+          (this.delayed || this.delayNextReadiness) &&
+          frame.type === "repositories.result" &&
+          frame.result.kind === "publication" &&
+          frame.result.running
+        ) {
+          this.runningSeen = true;
+          if (this.delayed) this.captured.resolve();
+        }
         wire.send(text);
       },
     });
@@ -149,7 +158,12 @@ class DelayedPublicationReadiness extends FakeDaemon {
 
 test("a stale running snapshot waiting for readiness cannot overwrite the completion receipt after reopening", async () => {
   const stages: (() => void)[] = [];
-  const daemon = new DelayedPublicationReadiness({ clock: () => 1000, projectScheduler: (run) => { stages.push(run); } });
+  const daemon = new DelayedPublicationReadiness({
+    clock: () => 1000,
+    projectScheduler: (run) => {
+      stages.push(run);
+    },
+  });
   const app = harness({ throughWorker: true, daemon });
   daemon.projects.seedFolders("/home/dev", [{ path: "/home/dev/site", git: true }]);
   await app.client.start();
@@ -161,12 +175,18 @@ test("a stale running snapshot waiting for readiness cannot overwrite the comple
   const submit = await within(dialog).findByRole("button", { name: "Publish repository" });
   await waitFor(() => expect(submit).toHaveProperty("disabled", false));
   await userEvent.click(submit);
-  await waitFor(() => expect(daemon.projects.publicationActivity(added.workspace?.id ?? "", "test-device").running).toBe(true));
+  await waitFor(() =>
+    expect(
+      daemon.projects.publicationActivity(added.workspace?.id ?? "", "test-device").running,
+    ).toBe(true),
+  );
   await userEvent.click(within(dialog).getByRole("button", { name: "Hide" }));
   daemon.delayNextReadiness = true;
   const reopened = await openPublish();
   await daemon.runningSnapshot;
-  await act(async () => { for (const run of stages.splice(0)) run(); });
+  await act(async () => {
+    for (const run of stages.splice(0)) run();
+  });
   await within(reopened).findByText(/This project has no commits/);
   await act(async () => {
     daemon.releaseReadiness();
@@ -175,5 +195,8 @@ test("a stale running snapshot waiting for readiness cannot overwrite the comple
   });
   expect(within(reopened).getByText(/This project has no commits/)).toBeTruthy();
   expect(within(reopened).queryByRole("button", { name: "Stop publication" })).toBeNull();
-  expect(within(reopened).getByRole("button", { name: "Resume publication" })).toHaveProperty("disabled", false);
+  expect(within(reopened).getByRole("button", { name: "Resume publication" })).toHaveProperty(
+    "disabled",
+    false,
+  );
 });

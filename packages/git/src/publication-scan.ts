@@ -55,9 +55,7 @@ export async function scanPublication(
       throw new GitError("sensitive_publication", "Sensitive tracked path");
     if (parsed[1] === "blob") objects.add(hash(parsed[2]));
   }
-  const reachable = (
-    await read(["rev-list", "--objects", "--no-object-names", input.head])
-  )
+  const reachable = (await read(["rev-list", "--objects", "--no-object-names", input.head]))
     .toString("ascii")
     .trim();
   if (reachable) for (const id of reachable.split("\n")) objects.add(hash(id));
