@@ -134,7 +134,7 @@ test("workspace identity capacity applies backpressure while pinned identities r
   });
 });
 
-test("a root replaced by an empty directory retains its original workspace settings and diagnostic", async () => {
+test("a root replaced by a symlink retains its original workspace settings and diagnostic", async () => {
   const f = await setup();
   await f.service.set("threads.settleOnClose", true, { kind: "workspace", workspace: f.workspace });
   const target = join(f.root, "empty-target");
@@ -154,6 +154,54 @@ test("a root replaced by an empty directory retains its original workspace setti
     }),
   );
 });
+
+test("a regular replacement workspace retains last-good settings and cannot be migrated or written", async () => {
+  const f = await setup();
+  const scope = { kind: "workspace", workspace: f.workspace } as const;
+  await f.service.set("threads.settleOnClose", true, scope);
+  await rename(f.workspace, join(f.root, "old-repo"));
+  await mkdir(join(f.workspace, ".ace"), { recursive: true });
+  const path = join(f.workspace, ".ace", "settings.json");
+  const source = '{"version":1,"values":{"threads.settleOnClose":false}}';
+  await writeFile(path, source);
+  await f.service.refresh(scope);
+  const result = await f.service.read({ keys: ["threads.settleOnClose"], scope });
+  expect(result.entries[0]).toMatchObject({ value: true });
+  expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "validation" }));
+  await expect(f.service.set("threads.settleOnClose", false, scope)).rejects.toMatchObject({
+    code: "validation",
+  });
+  expect(await readFile(path, "utf8")).toBe(source);
+});
+
+test.each([0, 80])(
+  "global aliases refuse regular replacement roots after %i inactive file acquisitions",
+  async (count) => {
+    const f = await setup();
+    const dataDir = join(f.workspace, ".ace");
+    await mkdir(dataDir);
+    const service = new SettingsService({ dataDir, io: f.edges.io, scheduler: f.edges.scheduler });
+    cleanups.push(() => service.close());
+    await service.get("threads.settleOnClose", { workspace: f.workspace });
+    for (let index = 0; index < count; index++)
+      await service.get("threads.settleOnClose", { thread: `idle-${index}` });
+    await rename(f.workspace, join(f.root, "old-repo"));
+    await mkdir(dataDir, { recursive: true });
+    const path = join(dataDir, "settings.json");
+    const source = '{"version":1,"values":{"threads.settleOnClose":true}}';
+    await writeFile(path, source);
+    await service.refresh({ kind: "global" });
+    const result = await service.read({ keys: ["threads.settleOnClose"], scope: {} });
+    expect(result.entries[0]).toMatchObject({ value: false, provenance: "defaults" });
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "validation" }));
+    await expect(
+      service.set("threads.settleOnClose", true, { kind: "global" }),
+    ).rejects.toMatchObject({
+      code: "validation",
+    });
+    expect(await readFile(path, "utf8")).toBe(source);
+  },
+);
 
 test("unchanged containment failures notify subscribers once across repeated reads", async () => {
   const f = await setup();
