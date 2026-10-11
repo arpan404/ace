@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, test } from "vitest";
 import { spawnGitProcess } from "@ace/git";
 import { input, setup } from "./publication-project-test-support.ts";
 import { configure, commit } from "./publication-safety-test-support.ts";
-
 
 test("a restored remote root tree in an intermediate commit is scanned even after HEAD removes it", async () => {
   const f = await setup();
@@ -35,8 +36,16 @@ for (const sample of [
   },
   { path: "src/config.txt", text: "ghp_" + "x".repeat(32), deleted: true },
   { path: "archive.bin", text: "\0Bearer synthetic-private-value\0", deleted: false },
-  { path: "docs/link.txt", text: "https://example.invalid/#ticket=opaque-credential", deleted: false },
-  { path: "docs/link.txt", text: "https://example.invalid/#ticket=opaque-credential", deleted: true },
+  {
+    path: "docs/link.txt",
+    text: "https://example.invalid/#ticket=opaque-credential",
+    deleted: false,
+  },
+  {
+    path: "docs/link.txt",
+    text: "https://example.invalid/#ticket=opaque-credential",
+    deleted: true,
+  },
   {
     path: ".docker/config.json",
     text: JSON.stringify({

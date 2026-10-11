@@ -32,7 +32,10 @@ export function incompletePublicationScan(): never {
   throw new GitError("publication_scan_incomplete", "Publication safety scan incomplete");
 }
 export type PublicationReference = { id: string; format?: "yaml" };
-export type ScanObject = PublicationReference & { type: "blob" | "tree" | "commit" | "tag"; size: number };
+export type ScanObject = PublicationReference & {
+  type: "blob" | "tree" | "commit" | "tag";
+  size: number;
+};
 const objectType = z.enum(["blob", "tree", "commit", "tag"]);
 export function objectHeader(line: string): ScanObject {
   const parts = /^(\S+) (\S+) (\d+)$/.exec(line);
@@ -59,14 +62,19 @@ export function assertPublicationTree(bytes: Buffer, hashBytes: number): Publica
     if (mode !== "160000")
       children.push({
         id: bytes.subarray(end + 1, end + 1 + hashBytes).toString("hex"),
-        ...(mode !== "40000" && mode !== "040000" && /\.ya?ml$/i.test(name) ? { format: "yaml" as const } : {}),
+        ...(mode !== "40000" && mode !== "040000" && /\.ya?ml$/i.test(name)
+          ? { format: "yaml" as const }
+          : {}),
       });
     offset = end + 1 + hashBytes;
   }
   return children;
 }
 /** Parse the byte-framed batch result. Raw content never becomes diagnostics or a receipt. */
-export function inspectPublicationBatch(bytes: Buffer, expected: readonly ScanObject[]): PublicationReference[] {
+export function inspectPublicationBatch(
+  bytes: Buffer,
+  expected: readonly ScanObject[],
+): PublicationReference[] {
   const children: PublicationReference[] = [];
   let offset = 0;
   for (const object of expected) {

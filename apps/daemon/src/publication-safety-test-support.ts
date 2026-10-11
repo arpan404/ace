@@ -21,4 +21,3 @@ export async function commit(f: Fixture, path: string, content: string | Buffer)
   await f.git(f.path, ["add", "-f", "--", path]);
   await f.git(f.path, ["commit", "-m", "Fixture"]);
 }
-

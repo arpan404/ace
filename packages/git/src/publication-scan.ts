@@ -100,27 +100,30 @@ export async function scanPublication(
   };
   // Historical trees can label a blob after its first read. A second bounded pass
   // inspects every YAML spelling, including reused/renamed blobs. Both passes share the byte budget.
-  for (const phase of [{ ids, format: undefined }, { ids: yamlIds, format: "yaml" }] as const) {
-  let position = 0;
-  while (position < phase.ids.length) {
-    const group = phase.ids.slice(position, position + 512);
-    position += group.length;
-    const headers = (await read(["cat-file", "--batch-check"], group.join("\n") + "\n"))
-      .toString("ascii")
-      .trim()
-      .split("\n");
-    if (headers.length !== group.length) incompletePublicationScan();
-    for (const [index, header] of headers.entries()) {
-      const object = objectHeader(header);
-      if (phase.format === "yaml" && object.type !== "blob") incompletePublicationScan();
-      if (object.id !== group[index] || object.size > objectLimit) incompletePublicationScan();
-      total += object.size;
-      if (total > contentLimit) incompletePublicationScan();
-      if (batch.length >= 256 || batchBytes + object.size > 16 * 1024 * 1024) await flush();
-      batch.push({ ...object, ...(phase.format ? { format: phase.format } : {}) });
-      batchBytes += object.size + 1;
+  for (const phase of [
+    { ids, format: undefined },
+    { ids: yamlIds, format: "yaml" },
+  ] as const) {
+    let position = 0;
+    while (position < phase.ids.length) {
+      const group = phase.ids.slice(position, position + 512);
+      position += group.length;
+      const headers = (await read(["cat-file", "--batch-check"], group.join("\n") + "\n"))
+        .toString("ascii")
+        .trim()
+        .split("\n");
+      if (headers.length !== group.length) incompletePublicationScan();
+      for (const [index, header] of headers.entries()) {
+        const object = objectHeader(header);
+        if (phase.format === "yaml" && object.type !== "blob") incompletePublicationScan();
+        if (object.id !== group[index] || object.size > objectLimit) incompletePublicationScan();
+        total += object.size;
+        if (total > contentLimit) incompletePublicationScan();
+        if (batch.length >= 256 || batchBytes + object.size > 16 * 1024 * 1024) await flush();
+        batch.push({ ...object, ...(phase.format ? { format: phase.format } : {}) });
+        batchBytes += object.size + 1;
+      }
+      await flush();
     }
-    await flush();
-  }
   }
 }
