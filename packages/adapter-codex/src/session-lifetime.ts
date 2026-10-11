@@ -51,7 +51,8 @@ export function sessionLifetime(config: {
   });
   function stop(reason: Retirement): Promise<void> {
     if (closePromise) return closePromise;
-    retirement = reason;
+    // Shutdown after leader exit only finishes draining; it cannot make the loss deliberate.
+    if (!proc.signal.aborted) retirement = reason;
     closed = true;
     config.cleanup();
     ctx.signal.removeEventListener("abort", abort);
