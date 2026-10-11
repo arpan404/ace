@@ -54,8 +54,20 @@ export function QueuedTray(props: {
   const moving = queue.messages.some((message) => queue.busy(message.id));
   const uncertain = queue.messages.some((message) => message.state === "uncertain");
   useLayoutEffect(() => {
+    const cancelOnFocus = (event: FocusEvent) => {
+      if (restoreFocus.current && event.target !== restoreFocus.current.handle)
+        restoreFocus.current = undefined;
+    };
+    document.addEventListener("focusin", cancelOnFocus);
+    return () => document.removeEventListener("focusin", cancelOnFocus);
+  }, []);
+  useLayoutEffect(() => {
     const target = restoreFocus.current;
     if (!target) return;
+    if (document.activeElement !== document.body && document.activeElement !== target.handle) {
+      restoreFocus.current = undefined;
+      return;
+    }
     if (queue.messages.some((message) => message.id === target.id) && target.handle.isConnected)
       target.handle.focus();
     if (!moving) restoreFocus.current = undefined;

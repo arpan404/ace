@@ -20,7 +20,7 @@ export function QueuedEdit(props: {
 }) {
   const [text, setText] = useState(() => queuedText(props.message));
   const [saving, setSaving] = useState(false);
-  const current = props.queue.messages.find((message) => message.id === props.message.id);
+  const current = props.queue.allMessages.find((message) => message.id === props.message.id);
   const gone = !current;
   const changed = !!current && queuedText(current) !== queuedText(props.message);
   const unavailable = gone || changed || current?.state === "uncertain";

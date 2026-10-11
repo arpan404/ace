@@ -79,6 +79,8 @@ export interface QueueControls {
   messages: readonly QueuedMessage[];
   /** All saved entries, including those hidden behind Load more. */
   retained: readonly QueuedMessage[];
+  /** Every retained entry with this device's optimistic edits applied. */
+  allMessages: readonly QueuedMessage[];
   failed: boolean;
   /** A command for this message is on its way: its pill waits for it. */
   busy(messageId: string): boolean;
@@ -155,6 +157,10 @@ export function useQueue(threadId: string): QueueControls {
     () => overlayQueue(page?.messages ?? [], edits, revision),
     [page, edits, revision],
   );
+  const allMessages = useMemo(
+    () => overlayQueue(retained, edits, revision),
+    [retained, edits, revision],
+  );
   const ids = messages.map((message) => message.id);
   const moveTo = (index: number, destination: number) => {
     const message = messages[index];
@@ -180,6 +186,7 @@ export function useQueue(threadId: string): QueueControls {
     page,
     messages,
     retained,
+    allMessages,
     failed,
     busy: (id) => {
       const edit = edits.get(id);

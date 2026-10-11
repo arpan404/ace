@@ -526,9 +526,14 @@ test("loading more keeps every queued message beyond the first page reachable", 
   await waitFor(() => expect(pills()).toHaveLength(32));
   await userEvent.click(screen.getByRole("button", { name: "Load more queued messages" }));
   await waitFor(() => expect(pills()).toHaveLength(35));
+  const beforeHead = await app.client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse(threadId),
+  });
   const before = await app.client.request({
     type: "queue.get",
     threadId: ThreadId.parse(threadId),
+    expectedRevision: beforeHead.queue.revision,
     after: CommandId.parse("page-message-31"),
     limit: 32,
   });
@@ -543,9 +548,18 @@ test("loading more keeps every queued message beyond the first page reachable", 
   if (!last) throw new Error("no last row");
   await userEvent.click(within(last).getByRole("button", { name: "Remove queued message" }));
   await waitFor(() => expect(pills()).toHaveLength(34));
+  const afterHead = await waitFor(async () => {
+    const head = await app.client.request({
+      type: "queue.get",
+      threadId: ThreadId.parse(threadId),
+    });
+    expect(head.queue.total).toBe(34);
+    return head;
+  });
   const after = await app.client.request({
     type: "queue.get",
     threadId: ThreadId.parse(threadId),
+    expectedRevision: afterHead.queue.revision,
     after: CommandId.parse("page-message-31"),
     limit: 32,
   });
