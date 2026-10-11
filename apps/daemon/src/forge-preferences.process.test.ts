@@ -101,11 +101,8 @@ test("a preference change during a status read prevents old capabilities from be
 });
 
 function gate() {
-  let open = () => {};
-  const promise = new Promise<void>((resolve) => {
-    open = resolve;
-  });
-  return { promise, open: () => open() };
+  const { promise, resolve } = Promise.withResolvers<void>();
+  return { promise, open: () => resolve() };
 }
 
 /** Hold admission at the public settings read. Files, validation and notifications remain real. */
