@@ -11,7 +11,7 @@ const fixture = new URL(
   "../../../native/screen-helper-linux/target/debug/examples/wire_fixture",
   import.meta.url,
 ).pathname;
-it.skipIf(!existsSync(fixture))(
+it.skipIf(!existsSync(fixture) && process.env.CI !== "true")(
   "native Linux encodings pass public tree and search validation and their refs are admitted for actions",
   async () => {
     const output = await probeOutput(fixture, [], { timeoutMs: 30_000 });

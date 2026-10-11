@@ -15,7 +15,7 @@ const nativeFixture =
     import.meta.url,
   ).pathname + (process.platform === "win32" ? ".exe" : "");
 const nativeReply = z.object({ ok: z.literal(true), data: z.unknown() });
-it.skipIf(!existsSync(nativeFixture))(
+it.skipIf(!existsSync(nativeFixture) && process.env.CI !== "true")(
   "dense native Windows trees and searches preserve capture and subsequent inspection",
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "ace-native-replies-"));
