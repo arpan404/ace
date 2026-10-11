@@ -216,6 +216,35 @@ test.each(["acp", "opencode"] as const)(
     }
   },
 );
+test("ACP composition identifies a truncated text resource as an inline prefix with a full-file path", async () => {
+  const f = await fixture();
+  const prefix = "a".repeat(16 * 1024);
+  const tail = "b".repeat(16 * 1024);
+  const bytes = Buffer.from(prefix + tail);
+  await storeBytes(f.service, bytes, "large-notes.txt");
+  const result = await f.service.compose(
+    "device",
+    thread,
+    { mentions: [], attachments: [{ sha256: hash(bytes) }] },
+    { ...caps, provider: "acp", embeddedContext: true, maxInlineBytes: 4 * 1024 * 1024 },
+  );
+  try {
+    expect(result.projection.input).toHaveLength(1);
+    const part = result.projection.input[0];
+    if (part?.type !== "resource" || !("text" in part.resource))
+      throw new Error("Expected a text-bearing ACP resource");
+    expect(part.resource.text).toContain(`<ace-attachment>\n${prefix}\n</ace-attachment>`);
+    expect(part.resource.text).not.toContain(tail);
+    expect(part.resource.text).toContain("[Inline text truncated.]");
+    const path = result.attachmentPaths[0]?.path;
+    if (!path) throw new Error("Missing retained file path");
+    expect(part.resource.text).toContain(`Read the full file at ${JSON.stringify(path)}`);
+    expect(result.attachments[0]?.delivery).toBe("inline_text_and_path");
+    expect(await readFile(path)).toEqual(bytes);
+  } finally {
+    result.release();
+  }
+});
 test("multi-megabyte documents stay native for Claude and remain readable through ACP file fallback", async () => {
   const f = await fixture();
   const bytes = Buffer.alloc(4 * 1024 * 1024, 32);
