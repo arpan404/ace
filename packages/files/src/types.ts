@@ -26,6 +26,7 @@ export interface FilesOptions {
   exportRaw?(device: string, blobRef: string, assertAuthorized: () => void): Promise<string>;
   exportOutput?(device: string, streamId: string, assertAuthorized: () => void): Promise<string>;
   onChange?(change: WorkspaceFileChange): void;
+  onUploadRecovery?(notice: { uploadId: string; path: string; reason: string }): void;
   maxTransfers?: number;
   transferIdleMs?: number;
   scheduleTimeout?(callback: () => void, milliseconds: number): () => void;

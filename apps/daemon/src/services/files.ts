@@ -46,6 +46,8 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
       // Socket-scoped read/operate checks are enforced by the authenticated server.
       authorize: () => !store.workspaceReservations.reserved(workspaceRoot),
       onChange: (change) => eventStore.recordWorkspaceFileChange(workspaceId, change),
+      onUploadRecovery: (notice) =>
+        log.log("warn", "Upload receipt settled after destination changed", notice),
       exportSupport: (_device, assertAuthorized) => {
         if (!artifacts) throw new Error("Artifact producer not initialized");
         return artifacts.bundle(assertAuthorized);

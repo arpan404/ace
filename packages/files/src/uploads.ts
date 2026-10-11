@@ -25,7 +25,7 @@ export class Uploads {
     this.catalog = catalog;
     this.options = options;
     this.exclusive = exclusive;
-    this.publication = new UploadPublication(safe, catalog, options.now);
+    this.publication = new UploadPublication(safe, catalog, options.now, options.onUploadRecovery);
   }
   async reconcile(): Promise<void> {
     for (const row of this.catalog.list("upload"))
