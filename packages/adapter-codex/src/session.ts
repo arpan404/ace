@@ -84,6 +84,23 @@ export async function openCodexSession(
     unknown,
     { method: string; thread: string; mode: string | null; completed: Set<string> }
   >();
+  const correlationDeadlines = new Map<unknown, () => void>();
+  function awaitCorrelation(id: unknown, thread: string): void {
+    if (correlationDeadlines.has(id)) return;
+    const deadline = io.now() + 30_000;
+    const expire = () => {
+      if (closed || !controlRequests.has(id)) return;
+      const remaining = deadline - io.now();
+      if (remaining > 0) {
+        correlationDeadlines.set(id, io.schedule(expire, remaining));
+        return;
+      }
+      // Local RPC rejection cannot resolve translation's held completion. Retire the owned peer.
+      emit("note", { event: "turn-correlation-timeout", threadId: thread });
+      void lifetime.failTransport();
+    };
+    correlationDeadlines.set(id, io.schedule(expire, deadline - io.now()));
+  }
   const revisions = new Map<string, number>();
   const reading = new Set<string>();
   const scopedReads = new Set<unknown>();
@@ -155,11 +172,17 @@ export async function openCodexSession(
       if (dir === "recv") {
         observeRecovery(thread, method, str(obj(p["turn"])["id"]));
         if (method === "turn/completed")
-          for (const submitted of controlRequests.values())
-            if (submitted.method === "turn/start" && submitted.thread === thread)
+          for (const [id, submitted] of controlRequests)
+            if (submitted.method === "turn/start" && submitted.thread === thread) {
               submitted.completed.add(str(obj(p["turn"])["id"]));
+              awaitCorrelation(id, thread);
+            }
         const control = method ? undefined : controlRequests.get(m["id"]);
-        if (!method) controlRequests.delete(m["id"]);
+        if (!method) {
+          correlationDeadlines.get(m["id"])?.();
+          correlationDeadlines.delete(m["id"]);
+          controlRequests.delete(m["id"]);
+        }
         const result = obj(m["result"]);
         const snapshot = obj(result["thread"]);
         if (control && m["error"] === undefined) {
@@ -321,6 +344,9 @@ export async function openCodexSession(
     emit,
     cleanup() {
       closed = true;
+      for (const cancel of correlationDeadlines.values()) cancel();
+      correlationDeadlines.clear();
+      controlRequests.clear();
       optionalFrames.clear();
       for (const cancel of timers.values()) cancel();
       timers.clear();

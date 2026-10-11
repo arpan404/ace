@@ -247,7 +247,9 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
-    if (process.env["ACE_FAKE_RESUME"] === "complete-before-ack") {
+    if (
+      ["complete-before-ack", "missing-start-ack"].includes(process.env["ACE_FAKE_RESUME"] ?? "")
+    ) {
       const turnId = `late-${++policyTurn}`;
       if (policyTurn === 2) {
         notify("turn/completed", {
@@ -258,7 +260,21 @@ for await (const line of createInterface({ input: process.stdin })) {
             error: { message: "Usage limit reached", codexErrorInfo: "usageLimitExceeded" },
           },
         });
-        respond({ turn: { id: turnId } });
+        if (process.env["ACE_FAKE_RESUME"] === "missing-start-ack") {
+          if (text === "quota-with-late-boundaries") {
+            // Repeated turn boundaries cannot identify the request whose acknowledgement is missing.
+            notify("turn/started", { threadId: "native", turn: { id: turnId } });
+            notify("turn/completed", {
+              threadId: "native",
+              turn: {
+                id: turnId,
+                status: "failed",
+                error: { message: "Usage limit reached", codexErrorInfo: "usageLimitExceeded" },
+              },
+            });
+          }
+          notify("test/provider-alive", { pid: process.pid });
+        } else respond({ turn: { id: turnId } });
       } else {
         respond({ turn: { id: turnId } });
         active.set("native", turnId);
