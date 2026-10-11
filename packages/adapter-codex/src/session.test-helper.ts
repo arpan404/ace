@@ -7,6 +7,7 @@ import { ThreadId } from "@ace/protocol";
 import { createCodexAdapter } from "./index.ts";
 import { requestKey } from "./native.ts";
 import { replayHarness } from "./replay.test-helper.ts";
+import type { CodexRuntime } from "./runtime.ts";
 export async function sessionHarness(
   resume = false,
   mode = "",
@@ -16,6 +17,7 @@ export async function sessionHarness(
   permissionMode?: SessionContext["permissionMode"],
   policy?: Pick<CodexSessionContext, "getPermissionMode" | "resetPermissions">,
   onInputMessage?: SessionContext["onInputMessage"],
+  runtime?: Partial<CodexRuntime>,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "ace-codex-session-"));
   const binary = join(directory, "codex.mjs");
@@ -38,6 +40,7 @@ export async function sessionHarness(
           scheduled.delete(callback);
         };
       },
+      ...runtime,
     },
     discovery: {
       overrides: { codex: binary },

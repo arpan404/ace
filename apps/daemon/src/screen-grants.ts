@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ScreenBundle, ScreenGrant, ThreadId, type ScreenAgentScope } from "@ace/protocol";
 import type { Store } from "./store.ts";
+import type { ScreenAccessRevision } from "@ace/screen";
 
 import { browserApp, sensitiveApp } from "@ace/screen/sensitive-app";
 export { sensitiveApp } from "@ace/screen/sensitive-app";
@@ -27,6 +28,8 @@ export class ScreenGrants {
   private readonly store: Store;
   private readonly now: () => number;
   private readonly turn: (threadId: string) => string | undefined;
+  private enableRevision = {};
+  private readonly grantRevisions = new Map<string, object>();
   enabled(): boolean {
     return (
       z
@@ -42,7 +45,10 @@ export class ScreenGrants {
     this.store.atomic((db) =>
       db.prepare("UPDATE screen_settings SET enabled=? WHERE id=1").run(enabled ? 1 : 0),
     );
+    const revision = {};
+    this.enableRevision = revision;
     this.changed();
+    return { current: () => this.enableRevision === revision };
   }
   list(threadId?: string): ScreenGrant[] {
     return this.store
@@ -126,8 +132,9 @@ export class ScreenGrants {
     allowed: boolean,
     scope: ScreenGrant["scope"],
     threadId?: string,
-  ): void {
+  ): ScreenAccessRevision | void {
     const bundle = ScreenBundle.parse(bundleId);
+    const key = JSON.stringify([bundle, scope, scope === "always" ? "" : ThreadId.parse(threadId)]);
     if (allowed && scope === "always" && browserApp(bundle))
       throw new Error("Web browsers require a turn or thread grant from the person in ace's UI");
     if (!allowed) {
@@ -136,6 +143,7 @@ export class ScreenGrants {
           .prepare("DELETE FROM screen_grants WHERE bundle_id=? AND scope=? AND thread_id=?")
           .run(bundle, scope, scope === "always" ? "" : ThreadId.parse(threadId)),
       );
+      this.grantRevisions.delete(key);
       this.changed();
       return;
     }
@@ -159,6 +167,9 @@ export class ScreenGrants {
         "INSERT INTO screen_grants VALUES (?,?,?,?,?) ON CONFLICT(bundle_id,scope,thread_id) DO UPDATE SET turn_id=excluded.turn_id,granted_at=excluded.granted_at",
       ).run(bundle, scope, thread, turn, this.now());
     });
+    const revision = {};
+    this.grantRevisions.set(key, revision);
     this.changed();
+    return { current: () => this.grantRevisions.get(key) === revision };
   }
 }

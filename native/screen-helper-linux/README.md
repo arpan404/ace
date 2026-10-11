@@ -42,3 +42,14 @@ Test on both a current GNOME session and a current KDE Plasma session, as the sa
 6. Leave the target unchanged, then animate it at 10 fps. Run session benchmarks and report CPU/RSS/latencies. Disconnect all viewers and explicitly stop the session; confirm the portal/PipeWire session closes while the helper identity remains stable.
 
 macOS and Windows release packaging must retain stable identities as well: macOS Developer ID, hardened runtime and notarization of an `.app` with Info.plist and stable bundle id; Windows Authenticode. Development signing must use a stable identity. This Linux task does not change the existing Swift v1 implementation or supply Windows UI Automation.
+
+### Pointer routing regression
+
+X11 motion, click, drag and nonzero wheel input refuse before dispatch because XTest cannot
+address a recipient or exclude passive grabs and destination races. Use direct
+AT-SPI actions when advertised by the control. The helper advertises pointer and wheel input as unavailable.
+Run `native/screen-helper-linux/test-in-docker.sh --pointer` for the two-application
+Xvfb fixture, including a real inactive root passive grab and changed destinations.
+No synthetic button events or pointer moves may occur on those refused actions.
+Set `ACE_TEST_PLATFORM=linux/arm64` on an Apple Silicon host. The runner removes only
+its own container and image after completion or failure.

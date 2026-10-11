@@ -19,7 +19,7 @@ test("Usage groups limited and at least eighty-percent accounts ahead of everyth
   expect(within(closest).getByRole("article", { name: "Claude Code Personal" })).toBeTruthy();
   expect(within(closest).getByRole("article", { name: "Claude Code Work" })).toBeTruthy();
   expect(
-    within(await screen.findByRole("region", { name: "Everything else" })).getByRole("article", {
+    within(await screen.findByRole("region", { name: "Reported limits" })).getByRole("article", {
       name: "Codex Personal",
     }),
   ).toBeTruthy();
@@ -48,12 +48,13 @@ test("Usage has no account-management actions and directs management to Provider
 
 test("accounts without readings use a quiet state instead of empty meters", async () => {
   await harness().open("/accounts");
+  await userEvent.click(await screen.findByText(/accounts without reported limits/));
   const opencode = await card("OpenCode Work");
   expect(within(opencode).queryByRole("meter")).toBeNull();
   expect(within(opencode).getByText(/No limits|Not reported yet/)).toBeTruthy();
 });
 
-test("Refresh updates percentages and moves an account below eighty percent into Everything else", async () => {
+test("Refresh updates percentages and moves an account below eighty percent into Reported limits", async () => {
   const app = harness();
   await app.open("/accounts");
   const work = await card("Claude Code Work");
@@ -66,14 +67,14 @@ test("Refresh updates percentages and moves an account below eighty percent into
   await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
   await waitFor(() =>
     expect(
-      within(screen.getByRole("region", { name: "Everything else" })).getByRole("article", {
+      within(screen.getByRole("region", { name: "Reported limits" })).getByRole("article", {
         name: "Claude Code Work",
       }),
     ).toBeTruthy(),
   );
 });
 
-test("usage keeps daily totals and models available below the limits", async () => {
+test("usage keeps daily totals and models available above the limits", async () => {
   await harness().open("/accounts");
   const days = await screen.findByRole("list", { name: "Tokens per day" });
   await waitFor(() => expect(within(days).getAllByRole("listitem")).toHaveLength(14));

@@ -17,7 +17,8 @@ function tickStyle(index: number, count: number) {
 }
 
 /** Moves the thumb and the fill together, quick and without overshoot past a stop. */
-const glide = "transition-[left,width,scale] duration-(--dur-1) ease-smooth";
+const glide =
+  "transition-[left,width,scale] duration-(--dur-1) ease-smooth motion-reduce:transition-none";
 
 /**
  * A slider over a few named steps (Low · Medium · High): a pill track with a dot per
@@ -44,6 +45,8 @@ function StepSlider(props: {
   quietFocus?: boolean;
   /** A contained active material for a supported deep reasoning setting. */
   deepReasoning?: boolean;
+  /** Use the existing accent gradient at every supported level. */
+  gradient?: boolean;
 }) {
   // The pointer dragging the thumb, if any: a second finger can neither move nor end its drag.
   const [pointer, setPointer] = useState<number>();
@@ -118,14 +121,14 @@ function StepSlider(props: {
         onPointerUp={release}
         onPointerCancel={release}
         onLostPointerCapture={release}
-        className="group relative h-5.5 w-full cursor-pointer touch-none rounded-full bg-secondary outline-none select-none data-disabled:cursor-default data-disabled:opacity-50 data-dragging:cursor-grabbing"
+        className="group relative h-5.5 w-full cursor-pointer touch-none rounded-full bg-secondary focus-ring-inset select-none data-disabled:cursor-default data-disabled:opacity-50 data-dragging:cursor-grabbing"
       >
         {selected && (
           <span
             aria-hidden
             className={cn(
               "absolute inset-y-0 left-0 overflow-hidden rounded-full bg-ring",
-              props.deepReasoning && "step-slider-deep",
+              (props.deepReasoning || props.gradient) && "step-slider-deep",
               glide,
             )}
             style={{ width: `calc(${at(value, count)} + ${inset}px)` }}

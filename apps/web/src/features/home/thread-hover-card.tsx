@@ -25,7 +25,7 @@ export function ThreadHoverContent(props: {
     entry.switch?.state === "queued" && entry.switch.selection.instanceId === account?.id;
   return (
     <HoverCardContent
-      side="bottom"
+      side="right"
       sideOffset={4}
       align="start"
       aria-label={`Details for ${card.title}`}

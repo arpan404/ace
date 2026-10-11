@@ -3,8 +3,14 @@ import { z } from "zod";
 import { RemoteTask } from "@ace/protocol";
 import type { Store } from "../store.ts";
 
+const reconciliationMs = 7 * 24 * 60 * 60 * 1000;
+const reconciling = `terminal=1 AND json_extract(record,'$.phase')='failed'
+  AND json_extract(record,'$.cancellingAt') IS NOT NULL
+  AND json_extract(record,'$.result') IS NULL AND json_extract(record,'$.finishedAt')>?`;
+
 /** The originating daemon owns the sole durable task ledger; broker windows hold no run state. */
 export class RemoteTaskJournal {
+  private pollCursor = "";
   constructor(privateStore: Store) {
     this.store = privateStore;
     this.store.atomic((db) =>
@@ -35,12 +41,54 @@ export class RemoteTaskJournal {
     return this.store
       .atomic((db) =>
         db
-          .prepare(`SELECT record FROM remote_agent_tasks WHERE terminal=1
-      AND json_extract(record,'$.phase')='failed' AND json_extract(record,'$.cancellingAt') IS NOT NULL
-      AND json_extract(record,'$.result') IS NULL AND json_extract(record,'$.finishedAt')>? ORDER BY id LIMIT 64`)
-          .all(now - 7 * 24 * 60 * 60 * 1000),
+          .prepare(
+            `SELECT record FROM remote_agent_tasks WHERE ${reconciling} ORDER BY id LIMIT 64`,
+          )
+          .all(now - reconciliationMs),
       )
       .map((row) => RemoteTask.parse(JSON.parse(z.string().parse(row.record))));
+  }
+  /** A page omission is not removal. Confirm eligibility against the source ledger. */
+  inactive(ids: readonly string[], now: number): string[] {
+    if (!ids.length) return [];
+    const live = new Set(
+      this.store
+        .atomic((db) =>
+          db
+            .prepare(`SELECT id FROM remote_agent_tasks
+            WHERE id IN (${ids.map(() => "?").join(",")}) AND (terminal=0 OR (${reconciling}))`)
+            .all(...ids, now - reconciliationMs),
+        )
+        .map((row) => z.string().parse(row.id)),
+    );
+    return ids.filter((id) => !live.has(id));
+  }
+  /** One wire-sized batch, with cancellation priority and a rotating share for all other work. */
+  poll(now: number): RemoteTask[] {
+    return this.store.atomic((db) => {
+      const priority = db
+        .prepare(`SELECT id,record FROM remote_agent_tasks WHERE terminal=0
+          AND json_extract(record,'$.phase')='cancelling' ORDER BY id LIMIT 32`)
+        .all();
+      const excluded = priority.map((row) => z.string().parse(row.id));
+      const slots = 64 - priority.length;
+      const select = (comparison: ">" | "<=", limit: number) =>
+        db
+          .prepare(`SELECT id,record FROM (
+          SELECT id,record FROM remote_agent_tasks WHERE terminal=0 AND id${comparison}?
+          UNION ALL
+          SELECT id,record FROM remote_agent_tasks WHERE id${comparison}? AND ${reconciling}
+        ) ${excluded.length ? `WHERE id NOT IN (${excluded.map(() => "?").join(",")})` : ""}
+        ORDER BY id LIMIT ?`)
+          .all(this.pollCursor, this.pollCursor, now - reconciliationMs, ...excluded, limit);
+      const rotated = select(">", slots);
+      if (rotated.length < slots) rotated.push(...select("<=", slots - rotated.length));
+      const last = rotated.at(-1);
+      if (last) this.pollCursor = z.string().parse(last.id);
+      return [...priority, ...rotated].map((row) =>
+        RemoteTask.parse(JSON.parse(z.string().parse(row.record))),
+      );
+    });
   }
   save(task: RemoteTask) {
     this.store.atomic((db) =>

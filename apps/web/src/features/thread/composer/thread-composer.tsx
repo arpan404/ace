@@ -1,6 +1,6 @@
 import { useClient, useIntent, useInteractions, useThreadMeta } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
-import { RunId, ThreadId } from "@ace/protocol";
+import { ThreadId } from "@ace/protocol";
 import {
   modelLabel,
   providerNames,
@@ -39,7 +39,7 @@ import {
 import { UsageNotice } from "./usage-notice.tsx";
 import { useShownPlans } from "./plan-state.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
-import { clearStop, recordStop, useActiveRootRun, useStopping } from "./stop-state.ts";
+import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
 
 /** The send pipeline's code: fetched when a composer mounts, so the first Enter never waits on it. */
 let sender: Promise<typeof import("./send-message.ts")> | undefined;
@@ -72,6 +72,7 @@ export function ThreadComposer({
   thread: ThreadRef;
   status: ThreadStatus | undefined;
   composer?: Ref<ComposerHandle> | undefined;
+  requestTarget?: string | undefined;
 }) {
   const client = useClient();
   const { storage } = useLayout();
@@ -149,9 +150,11 @@ export function ThreadComposer({
   useEffect(() => void loadSender(), []);
 
   // Stop names the turn it was pressed in, and reads "Stopping…" until that turn ends.
-  const run = useActiveRootRun(props.thread.id);
+  const fence = useStopFence(props.thread.id);
+  const run = fence && "runId" in fence ? fence.runId : undefined;
   const stopping = useStopping(props.thread.id);
   const stop = () => {
+    if (!fence) return;
     const commandId = crypto.randomUUID();
     recordStop(props.thread.id, { commandId, runId: run });
     void client
@@ -160,7 +163,7 @@ export function ThreadComposer({
           type: "thread.interrupt",
           threadId,
           cascade: true,
-          ...(run ? { runId: RunId.parse(run) } : {}),
+          ...fence,
         },
         commandId,
       )
@@ -250,6 +253,7 @@ export function ThreadComposer({
               <DeferredRequestStack.Component
                 threadId={props.thread.id}
                 ids={open}
+                target={props.requestTarget}
                 onLeave={toMessage}
               />
             ) : tab === "plan" ? (

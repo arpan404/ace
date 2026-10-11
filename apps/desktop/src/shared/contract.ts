@@ -17,7 +17,12 @@ export const AbsolutePath = z
 
 /** How the renderer reaches its daemon. The token never travels in a URL. */
 export const DaemonConnection = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("daemon"), url: SocketUrl, token: Hex64 }),
+  z.object({
+    mode: z.literal("daemon"),
+    url: SocketUrl,
+    token: Hex64,
+    pairedDeviceId: z.string().min(1).max(256).optional(),
+  }),
   /** `dev:desktop:fake`: the renderer runs the in-page fake daemon. */
   z.object({ mode: z.literal("fake") }),
 ]);
@@ -135,7 +140,7 @@ export type DeepLink = z.infer<typeof DeepLink>;
 export function deepLinkRoute(link: DeepLink): string {
   switch (link.kind) {
     case "thread":
-      return `/t/${encodeURIComponent(link.threadId)}`;
+      return `/t/${encodeURIComponent(link.threadId)}${link.itemId ? `?item=${encodeURIComponent(link.itemId)}` : ""}`;
     case "settings":
       return `/settings/${link.page ?? "general"}`;
     case "new-thread":

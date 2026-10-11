@@ -1,7 +1,7 @@
 import { FakeDaemon, ScenarioPlayer, failingSubagent } from "@ace/fake-daemon";
 import { waitFor } from "@testing-library/react";
 import { expect, test } from "vitest";
-import { fakeClient } from "@/test/harness.tsx";
+import { fakeClient } from "@/test/fake-client.ts";
 import type { Schedule } from "../schedule.ts";
 import type { PageVisibility } from "@/lib/page-visibility.ts";
 import { daemonPreview } from "./daemon-preview.ts";
@@ -95,4 +95,88 @@ test("native visibility holds the fallback frame until screencast viewing resume
   daemon.browser.type("thread-settings", "remote-edit");
   await waitFor(() => expect(preview.frame("thread-settings")?.src).not.toBe(before));
   stop();
+});
+
+test("retired preview sources release warm cached frames and document listeners", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  new ScenarioPlayer(daemon, failingSubagent()).step();
+  daemon.browser.drive("thread-settings", { url: "http://localhost:5173" });
+  const listeners = new Set<() => void>();
+  const visibility: PageVisibility = {
+    visible: () => true,
+    watch(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const released: string[] = [];
+  const live: string[] = [];
+  for (let n = 0; n < 8; n++) {
+    const client = fakeClient(daemon);
+    await client.start();
+    await waitFor(() => expect(client.state).toBe("ready"));
+    const timers = manualTimers();
+    const preview = daemonPreview(client, {
+      visibility,
+      schedule: timers.schedule,
+      decode: async () => {
+        const src = `frame-${n}-${live.length}`;
+        live.push(src);
+        return {
+          src,
+          release: () => {
+            released.push(src);
+          },
+        };
+      },
+    });
+    const unwatch = preview.watch("thread-settings");
+    await preview.open("thread-settings", failingSubagent().thread.workspaceId);
+    await waitFor(() => expect(preview.frame("thread-settings")).toBeDefined());
+    unwatch();
+    await Promise.resolve();
+    // Unwatch preserves this frame for a quick return while the client lives.
+    expect(preview.frame("thread-settings")).toBeDefined();
+    preview.dispose();
+    preview.dispose();
+    await client.close();
+    expect(preview.frame("thread-settings")).toBeUndefined();
+    const version = preview.version;
+    for (const listener of listeners) listener();
+    timers.fire();
+    expect(preview.version).toBe(version);
+  }
+  expect(listeners.size).toBe(0);
+  expect(released.toSorted()).toEqual(live.toSorted());
+});
+
+test("a frame decoded after its preview owner retires is released without being shown", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  new ScenarioPlayer(daemon, failingSubagent()).step();
+  const client = fakeClient(daemon);
+  await client.start();
+  await waitFor(() => expect(client.state).toBe("ready"));
+  const decoded = Promise.withResolvers<{ src: string; release: () => void }>();
+  let decoding = false;
+  let releases = 0;
+  const preview = daemonPreview(client, {
+    schedule: manualTimers().schedule,
+    visibility: page(),
+    decode: () => {
+      decoding = true;
+      return decoded.promise;
+    },
+  });
+  preview.watch("thread-settings");
+  await preview.open("thread-settings", failingSubagent().thread.workspaceId);
+  await waitFor(() => expect(decoding).toBe(true));
+  preview.dispose();
+  decoded.resolve({
+    src: "late-frame",
+    release: () => {
+      releases++;
+    },
+  });
+  await waitFor(() => expect(releases).toBe(1));
+  expect(preview.frame("thread-settings")).toBeUndefined();
 });

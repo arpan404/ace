@@ -39,21 +39,34 @@ export function Row(props: {
   htmlFor?: string;
   errors?: string | undefined;
   className?: string;
+  layout?: "stacked";
   children: ReactNode;
 }) {
-  return (
-    <SettingRow title={props.label} htmlFor={props.htmlFor} inline>
-      <div className="flex min-w-0 w-60 max-w-full flex-col gap-1">
-        {props.children}
-        {props.errors && (
-          <p
-            {...(props.htmlFor ? { id: errorId(props.htmlFor) } : {})}
-            className="text-sm text-destructive"
-          >
-            {props.errors}
-          </p>
-        )}
+  const content = (
+    <div className="flex min-w-0 w-full flex-col gap-1">
+      {props.children}
+      {props.errors && (
+        <p
+          {...(props.htmlFor ? { id: errorId(props.htmlFor) } : {})}
+          className="text-sm text-destructive"
+        >
+          {props.errors}
+        </p>
+      )}
+    </div>
+  );
+  if (props.layout === "stacked")
+    return (
+      <div className="grid gap-2 py-(--setting-row-padding)">
+        <label htmlFor={props.htmlFor} className="text-ui">
+          {props.label}
+        </label>
+        {content}
       </div>
+    );
+  return (
+    <SettingRow title={props.label} htmlFor={props.htmlFor}>
+      <div className="w-60 max-w-full">{content}</div>
     </SettingRow>
   );
 }

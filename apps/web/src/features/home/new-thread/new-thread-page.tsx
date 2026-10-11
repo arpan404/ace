@@ -11,6 +11,7 @@ import {
   useDraftScope,
   usePermissionModes,
   type Draft,
+  type ComposerHandle,
 } from "@/features/thread/index.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { whenIdle } from "@/lib/idle.ts";
@@ -99,7 +100,10 @@ export function NewThreadPage(props: {
   const project = pickProject(projects, requested, choices.project, filter);
   const [baseChoice, setBase] = useState<WorktreeBase | string | undefined>(props.base);
   const page = useRef<HTMLDivElement>(null);
-  const { create, error } = useCreateThread();
+  const composer = useRef<ComposerHandle>(null);
+  const { create, error, recovering } = useCreateThread((payload) => {
+    if (payload.workspaceId === project) composer.current?.discardIfSubmitted(payload);
+  });
   useEffect(() => whenIdle(() => void preloadComposerParts()), []);
 
   // Until the starting provider is known, show models loading rather than a provider to undo.
@@ -126,22 +130,16 @@ export function NewThreadPage(props: {
         : defaultWorktreeBase(branches.refs, branches.defaultBranch);
   const provider = resolved.provider;
 
-  // A selection belongs to this provider; omission retains its configured native default.
-  const [permissionChoice, setPermissionChoice] = useState<{
-    provider: ProviderKind | undefined;
-    id: PermissionMode | undefined;
-  }>();
-  if (permissionChoice && permissionChoice.provider !== provider) setPermissionChoice(undefined);
-  const permission = permissionChoice?.provider === provider ? permissionChoice?.id : undefined;
-  const setPermission = (id: PermissionMode | undefined) => setPermissionChoice({ provider, id });
+  // Keep explicit choices across account/provider changes; null is an intentional reset.
+  const [permission, setPermission] = useState<PermissionMode | null>();
   const [defaultMode] = useDaemonSetting(
     "permissions.providerModes",
     project ? { workspaceId: WorkspaceId.parse(project) } : {},
   );
   const permissions = usePermissionModes(provider, {
     instanceId: resolved.account?.id,
-    currentId: permission ?? (provider ? defaultMode?.[provider] : undefined),
-    setCurrentId: (id) => setPermission(id ?? undefined),
+    currentId: permission !== undefined ? permission : provider ? defaultMode?.[provider] : null,
+    setCurrentId: setPermission,
   });
   const admitted = {
     mode: permissions.currentId ?? undefined,
@@ -153,8 +151,7 @@ export function NewThreadPage(props: {
         )
       : undefined,
   };
-  const chosen =
-    permission && permissions.modes.some((mode) => mode.id === permission) ? permission : undefined;
+  const chosen = permission === undefined ? undefined : (permissions.currentId ?? undefined);
 
   const choose = (patch: Partial<Choices>) => {
     const next = { ...choices, ...patch };
@@ -195,14 +192,16 @@ export function NewThreadPage(props: {
     !start.loaded ||
     options === undefined ||
     (!!provider && (defaultMode === undefined || permissions.loading));
-  const admissionProblem = waitingForAdmission
-    ? "Checking provider settings…"
-    : permissions.failed
-      ? "Couldn't check provider permissions. Reconnect and try again."
-      : !scope.draftId
-        ? "Preparing attachment storage…"
-        : !resolved.model
-          ? "No model selected. Open the model menu to refresh or sign in."
+  const admissionProblem = recovering
+    ? "Recovering the previous thread start…"
+    : waitingForAdmission
+      ? "Checking provider settings…"
+      : permissions.failed
+        ? "Couldn't check provider permissions. Reconnect and try again."
+        : !scope.draftId
+          ? "Preparing attachment storage…"
+          : !resolved.model
+            ? "No model selected. Open the model menu to refresh or sign in."
           : admitted.fallback;
   const send = async (draft: Draft) => {
     if (!project || !resolved.model || admissionProblem || !scope.draftId) return false;
@@ -214,6 +213,7 @@ export function NewThreadPage(props: {
     void draft.files.settled.then((ready) => rememberAttachments(draft.files.local, ready));
     const sent = await create({
       project,
+      draftKey: draftKeyFor(project),
       scope: resolved.model.scope,
       model: resolved.model.id,
       mode: resolved.mode,
@@ -286,9 +286,10 @@ export function NewThreadPage(props: {
           </div>
           <div className="shrink-0">
             <Composer
+              ref={composer}
               key={project}
               onPlan={() => {
-                if (provider === "claude") setPermissionChoice({ provider, id: "plan" });
+                if (provider === "claude") setPermission("plan");
               }}
               thread={draftThread}
               draftKey={project ? draftKeyFor(project) : undefined}

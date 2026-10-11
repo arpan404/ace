@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button.tsx";
 import { useRefreshModels } from "./use-refresh-models.ts";
 import type { ProviderKind } from "@ace/protocol";
-import type { ModelProblem, PickerGroup, PickerModel } from "@ace/ui-core";
+import type { ModelProblem, PickerModel } from "@ace/ui-core";
 import { providerNames, freeModelMarker } from "@ace/ui-core";
 import {
   CaretRightIcon,
@@ -11,11 +11,10 @@ import {
   WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import { menuItem, menuLabel } from "@/components/ui/menu-styles.ts";
-import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
+import { menuItem } from "@/components/ui/menu-styles.ts";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import { titleWhenClipped } from "@/lib/clipped-title.ts";
 import { cn } from "@/lib/cn.ts";
 import { SignInButton } from "@/features/sign-in/index.ts";
@@ -35,7 +34,7 @@ export function rowDetail(model: PickerModel): string | undefined {
 /** Where a row comes from, where providers mix (a search, Favorites): "OpenCode · OpenRouter". */
 function origin(model: PickerModel): string {
   const source = model.source;
-  const from = source && source.kind !== "account" && source.kind !== "local" ? source.label : "";
+  const from = source && source.kind !== "account" ? source.label : "";
   return [providerNames[model.provider], from].filter(Boolean).join(" · ");
 }
 
@@ -61,9 +60,14 @@ export function ModelRow(props: {
   const detail = rowDetail(model);
   const marker = model.isDefault ? (model.userDefault ? "Your choice" : "Recommended") : undefined;
   const subtitle = [
-    props.mixed ? [origin(model), account?.label].filter(Boolean).join(" · ") : undefined,
+    [
+      origin(model),
+      account?.label ?? (model.source?.kind === "account" ? model.source.label : undefined),
+    ]
+      .filter(Boolean)
+      .join(" · "),
     props.mixed && model.legacy ? "Legacy" : undefined,
-    props.mixed ? model.unavailable : undefined,
+    model.unavailable,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -72,7 +76,6 @@ export function ModelRow(props: {
     freeModelMarker(model) ? "Free" : undefined,
     detail,
     marker?.toLowerCase(),
-    props.mixed ? undefined : model.unavailable,
     subtitle || providerNames[model.provider],
   ]
     .filter(Boolean)
@@ -90,32 +93,15 @@ export function ModelRow(props: {
         onMouseMove={props.onHighlight}
         onClick={props.onPick}
         className={cn(
-          menuItem,
-          "gap-2 pr-9",
-          subtitle ? "h-auto min-h-10 py-1" : "h-8",
-          props.nested && "pl-6",
+          "flex h-13 w-full items-center gap-2 rounded-sm px-2 py-1.5 pr-9 text-ui whitespace-nowrap text-foreground select-none data-highlighted:bg-accent data-disabled:opacity-50 focus-ring-inset",
           !model.unavailable && "cursor-pointer",
         )}
       >
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5">
-            <span
-              className={cn("truncate", props.current && "font-medium")}
-              onPointerEnter={titleWhenClipped(model.label)}
-            >
+            <span className="truncate font-normal" onPointerEnter={titleWhenClipped(model.label)}>
               {model.label}
             </span>
-            {detail && (
-              <span
-                title={detail}
-                className="min-w-0 shrink-[2] truncate text-xs text-subtle-foreground"
-              >
-                {detail}
-              </span>
-            )}
-            {!props.mixed && model.unavailable && (
-              <span className="shrink-0 text-xs text-status-failed">{model.unavailable}</span>
-            )}
             {model.isNew && (
               <span className="shrink-0 rounded-xs bg-ring/10 px-1 text-2xs leading-4 font-semibold tracking-[0.02em] text-link">
                 NEW
@@ -127,21 +113,32 @@ export function ModelRow(props: {
           </span>
           {subtitle && (
             <span className="flex min-w-0 items-center gap-1 text-xs text-subtle-foreground">
-              {props.mixed && (
-                <ProviderAccountIcon
+              {
+                <ProviderIcon
                   provider={model.provider}
-                  instance={model.instance}
-                  size={14}
+                  acpAgentId={account?.acpAgentId}
+                  size={12}
+                  className="size-3"
+                  decorative
                 />
-              )}
-              <span className="truncate">{subtitle}</span>
+              }
+              <span
+                className="truncate"
+                title={[subtitle, model.detail].filter(Boolean).join(" · ")}
+              >
+                {subtitle}
+                {model.detail ? ` · ${model.detail}` : ""}
+              </span>
             </span>
           )}
         </span>
-        {marker && <span className="shrink-0 text-xs text-subtle-foreground">{marker}</span>}
-        {props.current && <CheckIcon aria-hidden size={14} weight="bold" className="shrink-0" />}
+        {props.current && <CheckIcon aria-hidden size={12} weight="bold" className="shrink-0" />}
         {props.number !== undefined && (
-          <Kbd keys={`mod+${props.number}`} className="tabular-nums" />
+          <Kbd
+            keys={`mod+${props.number}`}
+            variant="bare"
+            className="bg-transparent tabular-nums"
+          />
         )}
       </div>
       <Tip label={`${props.starred ? "Remove from" : "Add to"} favorites`}>
@@ -152,8 +149,7 @@ export function ModelRow(props: {
           tabIndex={props.highlighted ? 0 : -1}
           onClick={props.onStar}
           className={cn(
-            "absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-full text-subtle-foreground outline-none transition-[color,opacity] duration-(--dur-1) hover:text-foreground focus-visible:opacity-100 focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-pressed:text-foreground",
-            !props.starred && !props.highlighted && "opacity-0",
+            "absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-subtle-foreground transition-colors duration-(--dur-1) motion-reduce:transition-none hover:text-foreground focus-ring-inset aria-pressed:text-link",
           )}
         >
           <StarIcon aria-hidden size={14} weight={props.starred ? "fill" : "regular"} />
@@ -188,7 +184,10 @@ export function LegacyToggle(props: {
       data-highlighted={props.highlighted ? "" : undefined}
       onMouseMove={props.onHighlight}
       onClick={props.onToggle}
-      className={cn(menuItem, "h-8 cursor-pointer gap-1.5 text-muted-foreground")}
+      className={cn(
+        menuItem,
+        "h-7 cursor-pointer gap-1.5 text-xs text-muted-foreground focus-ring-inset",
+      )}
     >
       <CaretRightIcon
         aria-hidden
@@ -198,18 +197,6 @@ export function LegacyToggle(props: {
       />
       <span className="flex-1">Legacy models</span>
       <span className="text-xs text-subtle-foreground tabular-nums">{props.count}</span>
-    </div>
-  );
-}
-
-/** A group's header: its source ("OpenCode Go", "Work") and a spinner while it refreshes. */
-export function GroupHeader(props: { group: PickerGroup }) {
-  const { label, refreshing } = props.group;
-  if (!label) return null;
-  return (
-    <div role="presentation" className={cn(menuLabel, "flex items-center gap-1.5")}>
-      <span className="truncate">{label}</span>
-      {refreshing && <Spinner label={`Refreshing ${label}`} />}
     </div>
   );
 }

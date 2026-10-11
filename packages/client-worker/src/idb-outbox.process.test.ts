@@ -141,3 +141,32 @@ test("IndexedDB migration preserves ordered full drafts once and never resurrect
     expect(result.again.map((row) => row.command.id)).toEqual(["a-second"]);
   });
 });
+
+test("concurrent workers cannot reassign a persistent outbox to another daemon", async () => {
+  await browserStorage(async (evaluate) => {
+    const result = z
+      .object({
+        rejected: z.boolean(),
+        binding: z.string(),
+        original: z.array(z.string()),
+        other: z.null(),
+      })
+      .parse(
+        await evaluate(`(async () => {
+      const { idbOutbox } = await import('/adapter.js');
+      const a = idbOutbox('pinned-device');
+      const b = idbOutbox('pinned-device');
+      await a.hostBinding.save('host-a');
+      await a.records.write('original', JSON.stringify({ command: { id: 'original', deviceId: 'device', payload: {type: 'thread.archive', threadId: 'thread'} }, hostId: 'host-a', state: 'pending' }));
+      let rejected = false;
+      try { await b.hostBinding.save('host-b'); } catch { rejected = true; }
+      const reload = idbOutbox('pinned-device');
+      return { rejected, binding: await reload.hostBinding.load(), original: await reload.records.load(), other: await idbOutbox('other-device').hostBinding.load() };
+    })()`),
+      );
+    expect(result.rejected).toBe(true);
+    expect(result.binding).toBe("host-a");
+    expect(result.original).toContainEqual(expect.stringContaining('"original"'));
+    expect(result.other).toBeNull();
+  });
+});

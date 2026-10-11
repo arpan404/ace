@@ -123,6 +123,8 @@ test("extension confirmation remains answerable while a native fork is pending",
       (error: unknown) => ({ error }),
     );
     await h.wait((frame) => frame.dir === "recv" && obj(frame.data).id === "fork-confirm");
+    h.expireCommands();
+    expect(h.h.state.status.state).toBe("needs_you");
     await h.session.resolve("fork-confirm", {
       kind: "question",
       answers: { "fork-confirm": ["yes"] },

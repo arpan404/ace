@@ -18,6 +18,7 @@ export function PromptsSettingsScreen() {
   const projects = useProjectDirectory();
   const [project, setProject] = useState("global");
   const [editing, setEditing] = useState<{ file?: PromptFile; scope: PromptFileScope }>();
+  const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState<string>();
   const files = useQuery({
     queryKey: ["prompt-files", project],
@@ -52,6 +53,7 @@ export function PromptsSettingsScreen() {
       trailing={
         <Select
           label="Prompt location"
+          disabled={dirty}
           value={project}
           options={[
             { value: "global", label: "Global" },
@@ -94,6 +96,7 @@ export function PromptsSettingsScreen() {
         <PromptEditor
           key={`${editing.file?.name ?? "new"}:${JSON.stringify(editing.scope)}`}
           {...editing}
+          onDirtyChange={setDirty}
           onClose={() => setEditing(undefined)}
           onSaved={(file) => {
             setSaved(

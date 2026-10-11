@@ -57,6 +57,9 @@
       ],
       "type": "string"
     },
+    "ownedHere": {
+      "type": "boolean"
+    },
     "recording": {
       "type": "boolean"
     },

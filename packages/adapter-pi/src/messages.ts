@@ -15,14 +15,13 @@ export function messageFacts(input: {
   agent: Key;
   prefix: string;
   message: number;
-  streamed: ReadonlySet<number>;
   data: unknown;
 }): { facts: Fact[]; outcome?: MessageOutcome } | undefined {
   const e = obj(input.data),
     m = obj(e.message),
     facts: Fact[] = [];
   if (Array.isArray(m.content) && m.content.length > 256) return undefined;
-  const { agent, prefix, message, streamed } = input;
+  const { agent, prefix, message } = input;
   if (m.role === "assistant") {
     let retained = false;
     list(m.content).forEach((block, index) => {
@@ -40,13 +39,13 @@ export function messageFacts(input: {
                 type: "message",
                 role: "assistant",
                 complete: true,
-                ...(!streamed.has(index) ? { parts: [{ type: "text", text: str(b.text) }] } : {}),
+                parts: [{ type: "text", text: str(b.text) }],
                 raw: native,
               }
             : {
                 type: "reasoning",
                 complete: true,
-                ...(!streamed.has(index) ? { text: str(b.thinking) } : {}),
+                text: str(b.thinking),
                 raw: native,
               },
       });

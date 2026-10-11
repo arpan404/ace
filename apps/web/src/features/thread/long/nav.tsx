@@ -12,6 +12,7 @@ import {
 } from "react";
 import type { JumpSnapshot } from "./jump-controller.ts";
 import { Jump } from "./jump.ts";
+import { useTurnRefresh } from "./turn-refresh.ts";
 
 /*
  * Navigation state of one open thread: the jump controller (a window of older history beside
@@ -77,6 +78,7 @@ function firstItemOf(live: ThreadSource | undefined, ordinal: number): string | 
 export function ThreadNavProvider(props: { threadId: string; children: ReactNode }) {
   const client = useClient();
   const live = useThreadStore(props.threadId);
+  useTurnRefresh(live, props.threadId);
   const [jump] = useState(() => new Jump(client, props.threadId));
   useEffect(
     () =>

@@ -41,6 +41,7 @@ const record = z.object({
   activity: AgentActivity,
   lastSignalAt: Timestamp,
   activeRun: RunId.optional(),
+  completionRelevant: z.boolean().optional(),
   lastRun: RunId.optional(),
   nativeRuns: records(RunId).optional(),
   lastOutcomeOrder: Timestamp.optional(),

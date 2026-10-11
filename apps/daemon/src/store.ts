@@ -124,6 +124,7 @@ export class Store {
   private deferredAfter: number | undefined;
   private notifyingHistory = false;
   private publishing = false;
+  private publishedSeq = 0;
   constructor(
     path: string,
     onError: (error: unknown) => void = console.error,
@@ -212,6 +213,8 @@ export class Store {
       this.db.close();
       throw error;
     }
+    // Existing history is already covered by new subscribers' initial snapshots.
+    this.publishedSeq = this.headSeq();
     void this.search
       .backfill(this, { signal: this.searchAbort.signal })
       .then(() => {
@@ -355,6 +358,7 @@ export class Store {
     try {
       let batch: Event[] | undefined;
       while ((batch = this.publications.shift())) {
+        this.publishedSeq = Math.max(this.publishedSeq, batch.at(-1)?.seq ?? this.publishedSeq);
         for (const [id, { view }] of this.caches) {
           const changes = batch.filter(
             (event) =>
@@ -395,9 +399,23 @@ export class Store {
   isHistoryWriting(): boolean {
     return this.historyWriting;
   }
-  async writable(): Promise<void> {
-    while (this.historyWriting)
-      await new Promise<void>((resolve) => this.historyWaiters.add(resolve));
+  async writable(signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
+    while (this.historyWriting) {
+      await new Promise<void>((resolve, reject) => {
+        const ready = () => {
+          signal?.removeEventListener("abort", abort);
+          resolve();
+        };
+        const abort = () => {
+          this.historyWaiters.delete(ready);
+          reject(signal?.reason);
+        };
+        this.historyWaiters.add(ready);
+        signal?.addEventListener("abort", abort, { once: true });
+      });
+      signal?.throwIfAborted();
+    }
   }
   setHistoryWriting(active: boolean): void {
     if (active && this.historyWriting) throw new Error("History publication in progress");
@@ -405,16 +423,22 @@ export class Store {
     this.db.exec("PRAGMA busy_timeout=5000");
     if (active) {
       this.historyWriting = true;
+      this.deferredAfter = this.publishedSeq;
       return;
     }
     const after = this.deferredAfter;
     try {
       if (after !== undefined) {
-        let cursor = after;
+        let cursor = Math.max(after, this.publishedSeq);
         // Keep the fence through all pages, including listener-created tail events.
         while (cursor < this.headSeq()) {
+          const through = this.headSeq();
           const events = this.readEvents({ afterSeq: cursor, limit: 64 });
-          if (!events.length) throw new Error("Missing deferred history events");
+          if (!events.length) {
+            this.coverDeletedTail(through);
+            cursor = through;
+            continue;
+          }
           this.notifyingHistory = true;
           try {
             this.publish(events);
@@ -456,13 +480,25 @@ export class Store {
       this.installingHistory = false;
     }
   }
-  async notifyHistory(after: number): Promise<void> {
+  private coverDeletedTail(through: number): void {
+    // Physical deletion removes event rows and reserves a tombstone sequence. A later
+    // deletion can also remove the event at a notification's previously captured head.
+    if (!this.statement("SELECT 1 FROM usage_deletions WHERE seq>=? LIMIT 1").get(through))
+      throw new Error("Missing committed history events");
+    this.publishedSeq = Math.max(this.publishedSeq, through);
+  }
+  async notifyHistory(after = this.publishedSeq): Promise<void> {
+    after = Math.max(after, this.publishedSeq);
     const through = this.headSeq();
     while (after < through) {
       const events = this.readEvents({ afterSeq: after, limit: 16 }).filter(
         (event) => event.seq <= through,
       );
-      if (!events.length) throw new Error("Missing committed history events");
+      if (!events.length) {
+        this.coverDeletedTail(through);
+        after = through;
+        continue;
+      }
       this.notifyingHistory = true;
       try {
         this.publish(events);
@@ -1034,6 +1070,21 @@ export class Store {
     const query = ItemsWindowRequest.parse({ type: "items.window", requestId: "window", ...input });
     this.readableThread(query.threadId);
     let target = query.aroundSeq;
+    if (query.itemId !== undefined) {
+      target = this.payloads.itemCreatedSeq(query.threadId, query.itemId);
+      if (target === undefined)
+        return ItemsWindowResponse.parse({
+          type: "items.window",
+          requestId: query.requestId,
+          threadId: query.threadId,
+          seq: this.headSeq(),
+          targetSeq: null,
+          items: [],
+          itemSeqs: {},
+          itemsBefore: null,
+          itemsAfter: null,
+        });
+    }
     if (query.turnOrdinal !== undefined) {
       const row = this.longThreads.data
         .sql(

@@ -1,7 +1,7 @@
 import { readFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
-import { ContextService, type ProjectionCapabilities } from "./index.ts";
+import { ContextService, encodedContextBudget, type ProjectionCapabilities } from "./index.ts";
 import { repository, hash, png, thread } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -178,7 +178,45 @@ async function storeBytes(service: ContextService, bytes: Buffer, name: string) 
     });
   await service.uploads.handle("device", { op: "upload.commit", uploadId: begin.uploadId });
 }
-test("multi-megabyte documents compose into Claude and ACP native inputs", async () => {
+test.each(["acp", "opencode"] as const)(
+  "%s composition reports file-path delivery when the prompt budget replaces inline text",
+  async (provider) => {
+    const f = await fixture();
+    const bytes = Buffer.alloc(8 * 1024, 97);
+    await storeBytes(f.service, bytes, "notes.txt");
+    const context = { mentions: [], attachments: [{ sha256: hash(bytes) }] };
+    const settings = { ...caps, provider, embeddedContext: true, maxInlineBytes: 4 * 1024 * 1024 };
+    const inline = await f.service.compose("device", thread, context, settings);
+    try {
+      expect(JSON.stringify(inline.projection.input)).toContain(bytes.toString("utf8"));
+      expect(inline.attachments[0]?.delivery).toBe(
+        provider === "acp" ? "native_resource" : "inline_text",
+      );
+    } finally {
+      inline.release();
+    }
+    const result = await f.service.compose("device", thread, context, {
+      ...settings,
+      maxEncodedBytes: encodedContextBudget([{ type: "text", text: "p".repeat(326_000) }]),
+    });
+    try {
+      const path = result.attachmentPaths[0]?.path;
+      if (!path) throw new Error("Missing retained file path");
+      expect(result.projection.input).toEqual([
+        {
+          type: "text",
+          text: expect.stringContaining(`Read the full file at ${JSON.stringify(path)}`),
+        },
+      ]);
+      expect(JSON.stringify(result.projection.input)).not.toContain(bytes.toString("utf8"));
+      expect(result.attachments[0]?.delivery).toBe("file_path");
+      expect(await readFile(path)).toEqual(bytes);
+    } finally {
+      result.release();
+    }
+  },
+);
+test("multi-megabyte documents stay native for Claude and remain readable through ACP file fallback", async () => {
   const f = await fixture();
   const bytes = Buffer.alloc(4 * 1024 * 1024, 32);
   bytes.write("%PDF-1.7\n");
@@ -199,8 +237,14 @@ test("multi-megabyte documents compose into Claude and ACP native inputs", async
     expect(result.projection.input).toMatchObject(
       provider === "claude"
         ? [{ type: "document", source: { data: bytes.toString("base64") } }]
-        : [{ type: "resource", resource: { blob: bytes.toString("base64") } }],
+        : [{ type: "text", text: expect.stringContaining("Read the full file") }],
     );
+    if (provider === "acp") {
+      const path = result.attachmentPaths[0]?.path;
+      if (!path) throw new Error("Missing preserved PDF path");
+      expect((await readFile(path)).equals(bytes)).toBe(true);
+      expect(result.attachments[0]?.delivery).toBe("file_path");
+    }
     expect(result.diagnostics).toEqual([]);
     result.release();
   }

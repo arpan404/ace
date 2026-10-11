@@ -1,6 +1,7 @@
-import { cp, mkdir, open, realpath } from "node:fs/promises";
+import { open, realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { basename, dirname, join, parse } from "node:path";
+import { dirname, join, parse } from "node:path";
+import { copyRuntimePackage } from "./copy-runtime-package.ts";
 import { z } from "zod";
 
 const Name = z
@@ -52,7 +53,7 @@ async function packageRoot(from: string, name: string): Promise<string> {
   throw new Error(`Cursor runtime package root missing: ${name}`);
 }
 
-/** Stage the installed, pinned SDK unchanged, including its Node runtime closure and target helpers. */
+/** Stage the pinned SDK's runtime code, dependency closure and target helpers. */
 export async function stageCursorRuntime(source: string, destination: string, target: string) {
   if (!/^(darwin|linux)-(arm64|x64)$/.test(target))
     throw new Error(`Unsupported Cursor runtime target: ${target}`);
@@ -82,12 +83,7 @@ export async function stageCursorRuntime(source: string, destination: string, ta
       throw new Error("Cursor runtime helper version changed");
     staged.set(entry.name, manifest.version);
     const targetRoot = join(destination, "node_modules", entry.name);
-    await mkdir(targetRoot, { recursive: true });
-    await cp(entry.source, targetRoot, {
-      recursive: true,
-      dereference: false,
-      filter: (path) => basename(path) !== "node_modules",
-    });
+    await copyRuntimePackage(entry.source, targetRoot);
     manifests.push(join(entry.source, "package.json"));
     const dependencies = new Set([
       ...Object.keys(manifest.dependencies),

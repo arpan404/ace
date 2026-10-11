@@ -1,215 +1,122 @@
-// Node worker_threads.postMessage has no browser targetOrigin.
-/* eslint-disable unicorn/require-post-message-target-origin */
-import { Worker, type WorkerOptions } from "node:worker_threads";
-import { IdleWorker } from "@ace/provider-kit/idle-worker";
-import {
-  Command,
-  ReviewerOutput,
-  type CommandResult,
-  type ReviewExecutionTarget,
-} from "@ace/protocol";
+import { Command, type CommandResult, type ReviewExecutionTarget } from "@ace/protocol";
 import type { ReviewExecutor } from "./intents.ts";
-import { WorkerInput, WorkerOutput } from "./worker-protocol.ts";
+import { ReviewIsolate, type ReviewWorkerOptions } from "./review-isolate.ts";
+export type { ReviewWorkerOptions } from "./review-isolate.ts";
 
-export interface ReviewWorkerOptions {
-  gitBinary?: string;
-  createWorker?: (url: URL, options: WorkerOptions) => Worker;
-}
-
+/** A physical isolate fault ends that generation, not the daemon's review service. */
 export class ReviewWorker {
-  private readonly worker: IdleWorker;
-  private readonly persistent: boolean;
-  private readonly pending = new Map<
-    number,
-    { resolve: (result: CommandResult) => void; reject: (error: Error) => void }
-  >();
-  private readonly lifetime = new AbortController();
-  private key = 0;
+  private current: ReviewIsolate;
+  private retiring: Promise<void> = Promise.resolve();
+  private recovering: Promise<ReviewIsolate> | undefined;
+  private faulted = false;
+  private failures = 0;
+  private pending = 0;
   private closed = false;
-  private readonly executions = new Set<Promise<void>>();
-  private readonly exit = Promise.withResolvers<void>();
-  private exited = false;
+  private cancelWait: (() => void) | undefined;
   private closing: Promise<void> | undefined;
+  private readonly path: string;
+  private readonly executor: ReviewExecutor | undefined;
+  private readonly options: ReviewWorkerOptions;
   constructor(path: string, executor?: ReviewExecutor, options: ReviewWorkerOptions = {}) {
-    this.persistent = path !== ":memory:";
-    const create = options.createWorker ?? ((url, init) => new Worker(url, init));
-    this.worker = new IdleWorker(
-      new URL("./worker.ts", import.meta.url),
-      {
-        workerData: {
-          path,
-          executor: Boolean(executor),
-          ...(options.gitBinary ? { gitBinary: options.gitBinary } : {}),
-        },
-      },
-      {
-        spawn: create,
-        delay(callback, milliseconds) {
-          const timer = setTimeout(callback, milliseconds);
-          timer.unref();
-          return () => clearTimeout(timer);
-        },
-      },
-    );
-    this.worker.on("error", (error) =>
-      this.fail(error instanceof Error ? error : new Error("Review worker failed")),
-    );
-    this.worker.on("exit", () => {
-      this.exited = true;
-      this.fail(new Error("Review worker stopped"));
-      this.exit.resolve();
+    this.path = path;
+    this.executor = executor;
+    this.options = options;
+    this.current = this.create();
+  }
+  private create(): ReviewIsolate {
+    const isolate = new ReviewIsolate(this.path, this.executor, this.options, () => {
+      if (this.closed || this.current !== isolate) return;
+      this.faulted = true;
+      this.failures++;
+      // Drain the physical isolate and every executor observer before a new
+      // generation can open the same database. Old completions remain fenced.
+      this.retiring = isolate.close();
+      void this.retiring.catch(() => {});
     });
-    this.worker.on("message", (input: unknown) => {
-      const parsed = WorkerOutput.safeParse(input);
-      if (!parsed.success) {
-        this.fail(new Error("Invalid review worker response"));
-        void this.close();
-        return;
-      }
-      const message = parsed.data;
-      if (message.type === "closed") return;
-      if (message.type === "result") {
-        this.pending.get(message.key)?.resolve(message.result);
-        this.pending.delete(message.key);
-        this.retireIfIdle();
-        return;
-      }
-      if (this.closed) return;
-      if (this.executions.size >= 16) {
-        this.worker.postMessage({ type: "execution", key: message.key, ok: false });
-        return;
-      }
-      const run = async () => {
-        if (this.closed) throw new Error("Review worker closed");
-        if (!executor) throw new Error("Executor unavailable");
-        if (message.intent.kind === "review-fix") {
-          await executor.fix(message.intent, this.lifetime.signal);
-          return undefined;
-        }
-        return ReviewerOutput.parse(await executor.review(message.intent, this.lifetime.signal));
-      };
-      // Register ownership before invoking an executor, including reentrant close.
-      const execution = Promise.resolve()
-        .then(run)
-        .then(
-          (output) => {
-            if (!this.closed)
-              this.worker.postMessage({
-                type: "execution",
-                key: message.key,
-                ok: true,
-                ...(output ? { output } : {}),
-              });
-          },
-          (error: unknown) => {
-            if (!this.closed)
-              this.worker.postMessage({
-                type: "execution",
-                key: message.key,
-                ok: false,
-                error:
-                  error instanceof Error && /^review_[a-z_]+$/.test(error.message)
-                    ? error.message
-                    : "review_executor_failed",
-              });
-          },
-        );
-      this.executions.add(execution);
-      void execution.then(
-        () => {
-          this.executions.delete(execution);
-          this.retireIfIdle();
-        },
-        () => {
-          this.executions.delete(execution);
-          this.retireIfIdle();
-        },
-      );
+    return isolate;
+  }
+  private owner(): Promise<ReviewIsolate> {
+    if (this.closed) return Promise.reject(new Error("Review worker closed"));
+    if (!this.faulted) return Promise.resolve(this.current);
+    if (this.recovering) return this.recovering;
+    this.recovering = (async () => {
+      await this.retiring;
+      if (this.closed) throw new Error("Review worker closed");
+      if (this.failures >= 3 || this.path === ":memory:")
+        throw new Error("Review worker recovery exhausted");
+      await new Promise<void>((resolve) => {
+        const schedule =
+          this.options.scheduleRecovery ??
+          ((callback, milliseconds) => {
+            const timer = setTimeout(callback, milliseconds);
+            return () => clearTimeout(timer);
+          });
+        const cancel = schedule(resolve, 250 * 2 ** (this.failures - 1));
+        this.cancelWait = () => {
+          cancel();
+          resolve();
+        };
+      });
+      this.cancelWait = undefined;
+      if (this.closed) throw new Error("Review worker closed");
+      this.current = this.create();
+      this.faulted = false;
+      return this.current;
+    })().finally(() => {
+      this.recovering = undefined;
     });
+    return this.recovering;
+  }
+  private async request(
+    input: unknown,
+    run: (owner: ReviewIsolate, command: Command) => Promise<CommandResult>,
+  ): Promise<CommandResult> {
+    const command = Command.parse(input);
+    if (this.closed) throw new Error("Review worker closed");
+    if (this.pending >= 16) return { commandId: command.id, ok: false, error: "review_busy" };
+    this.pending++;
+    try {
+      const owner = await this.owner();
+      const result = await run(owner, command);
+      if (owner === this.current && !this.faulted) this.failures = 0;
+      return result;
+    } finally {
+      this.pending--;
+    }
   }
   handle(
     input: unknown,
     worktree?: string,
     target?: ReviewExecutionTarget,
   ): Promise<CommandResult> {
-    return this.request("command", input, worktree, target);
+    return this.request(input, (owner, command) => owner.handle(command, worktree, target));
   }
   recover(input: unknown): Promise<CommandResult> {
-    return this.request("receipt", input);
+    return this.request(input, (owner, command) => owner.recover(command));
   }
-  private request(
-    type: "command" | "receipt",
-    input: unknown,
-    worktree?: string,
-    target?: ReviewExecutionTarget,
-  ): Promise<CommandResult> {
-    if (this.closed) return Promise.reject(new Error("Review worker closed"));
-    const command = Command.parse(input);
-    if (this.pending.size >= 16)
-      return Promise.resolve({ commandId: command.id, ok: false, error: "review_busy" });
-    const key = ++this.key;
-    const message = WorkerInput.parse({
-      type,
-      key,
-      command,
-      ...(worktree ? { worktree } : {}),
-      ...(target ? { target } : {}),
-    });
-    return new Promise((resolve, reject) => {
-      this.pending.set(key, { resolve, reject });
-      try {
-        this.worker.postMessage(message);
-      } catch (error) {
-        this.pending.delete(key);
-        reject(error);
-      }
-    });
-  }
-  /** The engine calls this only after the fixing agent's whole tree settles. */
   async afterFix(sessionId: string, requestId: string): Promise<CommandResult> {
-    const listed = await this.handle(
-      Command.parse({
+    return this.request(
+      {
         id: `${requestId}:review-source`,
         deviceId: "review-engine",
         payload: { type: "review.list", sessionId, limit: 1 },
-      }),
+      },
+      (owner) => owner.afterFix(sessionId, requestId),
     );
-    const source = listed.review?.session?.source;
-    if (!listed.ok || !source) return listed;
-    return this.handle(
-      Command.parse({
-        id: `${requestId}:review-refresh`,
-        deviceId: "review-engine",
-        payload: {
-          type: "review.refresh",
-          sessionId,
-          from: source.from,
-          to: { kind: "working-tree" },
-        },
-      }),
-    );
-  }
-  private retireIfIdle() {
-    if (this.persistent && !this.pending.size && !this.executions.size) this.worker.idle();
-  }
-  private fail(error: Error) {
-    this.closed = true;
-    this.lifetime.abort();
-    for (const request of this.pending.values()) request.reject(error);
-    this.pending.clear();
   }
   close(): Promise<void> {
     if (this.closing) return this.closing;
-    const completion = Promise.withResolvers<void>();
-    this.closing = completion.promise;
-    this.fail(new Error("Review worker closed"));
-    if (!this.exited) {
-      if (this.worker.started) this.worker.postMessage({ type: "close" });
-      else void this.worker.terminate();
-    }
-    void Promise.all([this.exit.promise, Promise.allSettled(this.executions)]).then(
-      () => completion.resolve(),
-      completion.reject,
+    this.closed = true;
+    this.cancelWait?.();
+    this.closing = Promise.allSettled([this.retiring, this.recovering, this.current.close()]).then(
+      (results) => {
+        const failure = results.find(
+          (result) =>
+            result.status === "rejected" &&
+            !(result.reason instanceof Error && result.reason.message === "Review worker closed"),
+        );
+        if (failure?.status === "rejected") throw failure.reason;
+      },
     );
     return this.closing;
   }

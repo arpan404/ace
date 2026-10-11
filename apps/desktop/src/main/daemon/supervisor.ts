@@ -26,6 +26,7 @@ export interface SupervisorPorts {
   service?: { active(): Promise<boolean>; start(): Promise<void> } | undefined;
   setMaintenance(daemon: LocalDaemon, on: boolean): Promise<number>;
   blockers(daemon: LocalDaemon): Promise<number>;
+  maintenance(daemon: LocalDaemon): Promise<{ draining: boolean }>;
   timers: { set(delayMs: number, callback: () => void): () => void };
   now(): number;
   log(level: "info" | "warn" | "error", message: string): void;
@@ -89,6 +90,8 @@ export class DaemonSupervisor {
   private daemon: LocalDaemon | undefined;
   private child: Child | undefined;
   private crashes = 0;
+  private maintenanceRevision = 0;
+  private draining = false;
   private runningSince = 0;
   /** False once the app asked to stop: nothing may spawn or restart after that. */
   private wanted = false;
@@ -183,9 +186,14 @@ export class DaemonSupervisor {
 
   /** Close or reopen admission for new work (tray "Pause"); running turns continue. */
   async pause(on: boolean): Promise<DaemonStatus> {
-    if (!this.daemon) throw new Error("The daemon is not running");
-    await this.ports.setMaintenance(this.daemon, on);
-    this.update({ paused: on });
+    const daemon = this.daemon;
+    if (!daemon || this.status.state !== "running") throw new Error("The daemon is not running");
+    if (this.draining) throw new Error("The daemon is draining for an update");
+    const generation = this.generation;
+    const revision = ++this.maintenanceRevision;
+    await this.ports.setMaintenance(daemon, on);
+    if (!this.stale(generation) && this.daemon === daemon && revision === this.maintenanceRevision)
+      this.update({ paused: on });
     return this.status;
   }
 
@@ -196,15 +204,28 @@ export class DaemonSupervisor {
   async drain(deadlineMs: number, pollMs = 1_000): Promise<boolean> {
     const daemon = this.daemon;
     if (!daemon || !this.child) return true;
-    let blockers = await this.ports.setMaintenance(daemon, true);
-    const until = this.ports.now() + deadlineMs;
-    while (blockers > 0 && this.ports.now() < until) {
-      await new Promise<void>((resolve) => this.ports.timers.set(pollMs, resolve));
-      blockers = await this.ports.blockers(daemon);
+    const generation = this.generation;
+    const wasPaused = this.status.paused;
+    this.draining = true;
+    ++this.maintenanceRevision;
+    try {
+      let blockers = await this.ports.setMaintenance(daemon, true);
+      if (this.stale(generation) || this.daemon !== daemon) return false;
+      this.update({ paused: true });
+      const until = this.ports.now() + deadlineMs;
+      while (blockers > 0 && this.ports.now() < until) {
+        await new Promise<void>((resolve) => this.ports.timers.set(pollMs, resolve));
+        if (this.stale(generation) || this.daemon !== daemon) return false;
+        blockers = await this.ports.blockers(daemon);
+      }
+      if (this.stale(generation) || this.daemon !== daemon) return false;
+      if (blockers > 0 && !wasPaused) await this.ports.setMaintenance(daemon, false);
+      if (!this.stale(generation) && this.daemon === daemon)
+        this.update({ paused: blockers === 0 || wasPaused });
+      return blockers === 0;
+    } finally {
+      this.draining = false;
     }
-    if (blockers > 0) await this.ports.setMaintenance(daemon, false);
-    this.update({ paused: blockers === 0 });
-    return blockers === 0;
   }
 
   /**
@@ -234,13 +255,14 @@ export class DaemonSupervisor {
     if (this.stale(generation)) return;
     if (existing) {
       const fromService = (await this.ports.service?.active().catch(() => false)) ?? false;
-      if (!this.stale(generation)) this.running(existing, fromService ? "service" : "external");
+      if (!this.stale(generation))
+        await this.running(existing, fromService ? "service" : "external", generation);
       return;
     }
     if (await this.startService()) {
       const found = await this.waitForDaemon(generation, () => true);
       if (this.stale(generation)) return;
-      if (found) return this.running(found, "service");
+      if (found) return this.running(found, "service", generation);
     }
     if (this.stale(generation)) return;
     const spawn = this.ports.spawn;
@@ -248,7 +270,7 @@ export class DaemonSupervisor {
       for (;;) {
         const found = await this.waitForDaemon(generation, () => true);
         if (this.stale(generation)) return;
-        if (found) return this.running(found, "external");
+        if (found) return this.running(found, "external", generation);
       }
     }
     let spawned: Child;
@@ -284,9 +306,9 @@ export class DaemonSupervisor {
 
   /** Report the child as running once it answers; kill it if it never does. */
   private awaitChild(generation: number, child: Child): void {
-    void this.waitForDaemon(generation, () => !child.done).then((found) => {
+    void this.waitForDaemon(generation, () => !child.done).then(async (found) => {
       if (this.stale(generation) || child.done) return;
-      if (found) this.running(found, "app");
+      if (found) await this.running(found, "app", generation);
       else {
         this.ports.log("error", "The daemon did not become ready; restarting it");
         child.process.kill("SIGKILL");
@@ -352,11 +374,41 @@ export class DaemonSupervisor {
     return undefined;
   }
 
-  private running(daemon: LocalDaemon, source: Source): void {
+  private async running(daemon: LocalDaemon, source: Source, generation: number): Promise<void> {
+    const deadline = this.ports.now() + this.options.readyTimeoutMs;
+    let admission: { draining: boolean } | undefined;
+    while (!this.stale(generation)) {
+      if (source === "app" && (!this.child || this.child.done)) return;
+      try {
+        admission = await this.ports.maintenance(daemon);
+        break;
+      } catch (error) {
+        if (this.stale(generation) || (source === "app" && (!this.child || this.child.done)))
+          return;
+        if (this.ports.now() >= deadline) {
+          this.couldNotStart(`Cannot read daemon admission: ${String(error)}`);
+          return;
+        }
+        this.ports.log("warn", `Cannot read daemon admission yet: ${String(error)}`);
+        await new Promise<void>((resolve) => this.ports.timers.set(200, resolve));
+      }
+    }
+    if (
+      !admission ||
+      this.stale(generation) ||
+      (source === "app" && (!this.child || this.child.done))
+    )
+      return;
     this.daemon = daemon;
     this.runningSince = this.ports.now();
     const { message: _message, ...rest } = this.status;
-    this.status = { ...rest, state: "running", source, url: daemon.url };
+    this.status = {
+      ...rest,
+      state: "running",
+      source,
+      url: daemon.url,
+      paused: admission.draining,
+    };
     this.emit();
     for (const resolve of this.waiters) resolve(daemon);
     this.waiters.clear();

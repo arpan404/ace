@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
-import { useScopeWorkspace } from "@/lib/workspace/index.ts";
+import { useScopeWorkspace, useWorkspaceStore } from "@/lib/workspace/index.ts";
 import { WithServices } from "../with-services.tsx";
 import { usePanelServices } from "../services.ts";
 import { PageDialog } from "./page-dialog.tsx";
@@ -12,6 +12,8 @@ function ThreadBrowser(props: { threadId: string }) {
   const { preview: source } = usePanelServices();
   const { threadId } = props;
   const workspace = useScopeWorkspace(threadId);
+  const workspaces = useWorkspaceStore();
+  const presence = useRef<object | undefined>(undefined);
   const browser = useBrowserFeatures(source, threadId);
   const subscribe = useCallback(
     (changed: () => void) => source.subscribe(changed, threadId),
@@ -20,12 +22,14 @@ function ThreadBrowser(props: { threadId: string }) {
   useSyncExternalStore(subscribe, () => source.version);
   const opened = useRef(workspace.open);
   const release = () => {
-    if (source.heldAs(threadId) && source.view(threadId)?.takeoverMode !== "private")
-      void source.handback(threadId).catch(() => {});
+    void source.releaseSharedControl(threadId).catch(() => {});
   };
   useEffect(() => {
+    const lifetime = {};
+    presence.current = lifetime;
     const stop = source.watch(threadId);
     return () => {
+      if (presence.current === lifetime) presence.current = undefined;
       release();
       stop();
     };
@@ -46,7 +50,21 @@ function ThreadBrowser(props: { threadId: string }) {
       source.nativeShown?.(threadId, !!desktopBrowserViews() && view?.backend === "embedded");
   }, [source, threadId, showingBrowser, view?.backend]);
   return view?.pendingDialog && !showingBrowser ? (
-    <PageDialog view={view} browser={browser} />
+    <PageDialog
+      view={view}
+      browser={{
+        answerDialog: (...args) => {
+          const lifetime = presence.current;
+          return browser.answerBackgroundDialog(
+            () =>
+              lifetime !== undefined &&
+              presence.current === lifetime &&
+              workspaces.get(threadId).open,
+            ...args,
+          );
+        },
+      }}
+    />
   ) : null;
 }
 export default function ThreadBrowserBoundary(props: { threadId: string }) {

@@ -26,6 +26,17 @@ test("nothing is known about a thread whose checkout the daemon hasn't read", ()
   expect(checkoutOf({ mode: "worktree" })).toBeUndefined();
 });
 
+test("a remote PR base keeps its Git ref separate from its forge branch name", () => {
+  const checkout = checkoutOf(
+    details({
+      baseBranch: "origin/release",
+      base: { ref: "release", remote: "origin", head: "b".repeat(40), fetch: "fetched" },
+    }),
+  );
+  expect(checkout?.baseBranch).toBe("release");
+  expect(checkout?.baseRef).toBe("refs/remotes/origin/release");
+});
+
 test("uncommitted changes come first, even with an open PR", () => {
   expect(
     step({
