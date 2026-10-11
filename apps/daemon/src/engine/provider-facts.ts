@@ -207,6 +207,7 @@ export function foldProviderFacts(
   // so a later run cannot acknowledge the next, unrelated engine input.
   const root = state.agents[state.rootKey ?? ""]?.agent.id;
   const inputUpdates: EventPayload[] = [];
+  let admittedUncertainty = false;
   for (const event of events) {
     const rootStarted =
       event.type === "run.started" &&
@@ -224,7 +225,10 @@ export function foldProviderFacts(
         "limit_resume",
       ].includes(event.run.trigger);
     const pending =
-      event.type === "input.admitted" || rootStarted ? repo.pending.awaiting(id) : undefined;
+      event.type === "input.admitted" || rootStarted
+        ? (repo.pending.awaiting(id) ??
+          (rootStarted ? repo.pending.uncertainContinuation(id) : undefined))
+        : undefined;
     const commandId =
       event.type === "input.admitted"
         ? (event.commandId ?? pending?.commandId)
@@ -256,12 +260,14 @@ export function foldProviderFacts(
       event.type === "input.admitted" && admitted && event.commandId !== undefined
         ? ports.admission.correlated.all(id, event.commandId)
         : admitted || started
-          ? ports.admission.ack.all(id, id)
+          ? started && pending && repo.pending.uncertainContinuation(id)?.id === pending.id
+            ? ports.admission.correlated.all(id, pending.commandId)
+            : ports.admission.ack.all(id, id)
           : [];
     for (const row of acknowledged) {
       repo.queue.prune(Number(row.id));
-      const key = `intent:${row.id}`;
-      const notice = state.items[key];
+      const noticeKey = `intent:${row.id}`;
+      const notice = state.items[noticeKey];
       if (notice?.type === "notice" && notice.code === "delivery_uncertain") {
         const confirmed = {
           ...notice,
@@ -270,24 +276,25 @@ export function foldProviderFacts(
           title: "Message received",
           text: "The provider confirmed this message",
         };
-        state.items[key] = confirmed;
+        state.items[noticeKey] = confirmed;
         inputUpdates.push({ type: "item.updated", item: confirmed });
       }
     }
-    if (acknowledged.length) {
-      const queue = repo.queue.get(id);
-      if (queue.reason === "uncertain" && !repo.queue.hasUncertain(id))
-        repo.queue.set(
-          id,
-          !queue.limited && !queue.continuation ? { paused: false, reason: null } : {},
-          now,
-        );
-    }
+    if (acknowledged.length) admittedUncertainty = true;
   }
   events.push(...inputUpdates);
   if (continuationStarted && repo.queue.get(id).trigger) {
     repo.queue.set(id, { continuation: null, trigger: null }, now);
     repo.pending.finishContinuation(id);
+  }
+  if (admittedUncertainty) {
+    const queue = repo.queue.get(id);
+    if (queue.reason === "uncertain" && !repo.queue.hasUncertain(id))
+      repo.queue.set(
+        id,
+        !queue.limited && !queue.continuation ? { paused: false, reason: null } : {},
+        now,
+      );
   }
   ports.snapshot?.updateDeadlines(facts, events, now);
   repo.save(state, events, now);

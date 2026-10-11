@@ -75,10 +75,19 @@ export function recoverEngine(
           },
           clock.now(),
         );
+      for (const intent of repo.pending.headers(state.threadId))
+        if (
+          ["thread.resume", "queue.resume", "thread.limit"].includes(intent.kind) &&
+          intent.submittedGeneration !== undefined &&
+          !intent.acknowledged &&
+          (intent.status === "running" || intent.awaiting)
+        )
+          repo.queue.uncertain(intent.id);
       recovery.capture(state.threadId);
       // A stopped provider no longer owns an admitted continuation. Native history
       // remains the source for a new restart continuation, never the old input.
-      repo.pending.finishContinuation(state.threadId);
+      if (!repo.pending.uncertainContinuation(state.threadId))
+        repo.pending.finishContinuation(state.threadId);
       const backend = repo.backend(state.threadId);
       const interrupted = lostWork(state, 0, backend, clock.now());
       const live = !state.processExit && interrupted !== undefined;
@@ -143,7 +152,13 @@ export function recoverEngine(
         }
         if (
           !intent.acknowledged &&
-          (intent.kind === "thread.send" || intent.kind === "thread.create")
+          [
+            "thread.send",
+            "thread.create",
+            "thread.resume",
+            "queue.resume",
+            "thread.limit",
+          ].includes(intent.kind)
         )
           repo.queue.uncertain(intent.id);
         fail(

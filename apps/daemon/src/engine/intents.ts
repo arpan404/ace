@@ -132,10 +132,10 @@ export class IntentStore {
       const rows =
         id === undefined
           ? this.sql(
-              `SELECT ${columns} FROM intents WHERE id>? AND (status IN ('pending','queued','running') OR awaiting=1) ORDER BY id LIMIT 64`,
+              `SELECT ${columns} FROM intents WHERE id>? AND (status IN ('pending','queued','running') OR awaiting=1 OR uncertain=1) ORDER BY id LIMIT 64`,
             ).all(after)
           : this.sql(
-              `SELECT ${columns} FROM intents WHERE thread_id=? AND id>? AND (status IN ('pending','queued','running') OR awaiting=1) ORDER BY id LIMIT 64`,
+              `SELECT ${columns} FROM intents WHERE thread_id=? AND id>? AND (status IN ('pending','queued','running') OR awaiting=1 OR uncertain=1) ORDER BY id LIMIT 64`,
             ).all(id, after);
       if (!rows.length) return;
       for (const row of rows) {
@@ -148,9 +148,22 @@ export class IntentStore {
   recoveryAcknowledgement(id: ThreadId): boolean {
     return Boolean(
       this.sql(
-        "SELECT 1 FROM intents i JOIN engine_state_records r ON r.thread_id=i.thread_id AND r.section='engineRecovery' AND r.key='root' AND i.id=CAST(r.value AS INTEGER) WHERE i.thread_id=? AND (i.acknowledged=1 OR (i.awaiting=1 AND i.status<>'failed')) LIMIT 1",
+        "SELECT 1 FROM intents i JOIN engine_state_records r ON r.thread_id=i.thread_id AND r.section='engineRecovery' AND r.key='root' AND i.id=CAST(r.value AS INTEGER) WHERE i.thread_id=? AND (i.acknowledged=1 OR i.uncertain=1 OR (i.awaiting=1 AND i.status<>'failed')) LIMIT 1",
       ).get(id),
     );
+  }
+  unconfirmedContinuation(id: ThreadId): boolean {
+    return Boolean(
+      this.sql(
+        "SELECT 1 FROM intents WHERE thread_id=? AND acknowledged=0 AND submitted_generation IS NOT NULL AND (awaiting=1 OR uncertain=1) AND id=(SELECT CAST(value AS INTEGER) FROM engine_state_records WHERE thread_id=? AND section='engineRecovery' AND key='root') LIMIT 1",
+      ).get(id, id),
+    );
+  }
+  uncertainContinuation(id: ThreadId): IntentHeader | undefined {
+    const row = this.sql(
+      `SELECT ${columns} FROM intents WHERE thread_id=? AND uncertain=1 AND id=(SELECT CAST(value AS INTEGER) FROM engine_state_records WHERE thread_id=? AND section='engineRecovery' AND key='root') LIMIT 1`,
+    ).get(id, id);
+    return row ? header(row) : undefined;
   }
   finishContinuation(id: ThreadId): void {
     this.sql(

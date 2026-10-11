@@ -165,6 +165,7 @@ export class Recovery {
     this.schedule();
   }
   capture(id: ThreadId): void {
+    if (this.repo.pending.uncertainContinuation(id)) return;
     const text = lostWork(
       this.repo.requireState(id),
       this.repo.pending.recoveryAcknowledgement(id) ? 1 : 0,
