@@ -444,6 +444,8 @@ export class OpenCodeSession implements ProviderSession {
         this.evidence.stage(channel, data, session, Math.min(started, this.recoveryStarted)),
       liveMessages: (id) => this.translator.liveMessages(id),
       executionObserved: this.executionObserved,
+      pendingShells: () => this.ancestry.shells(),
+      shellSnapshot: (id, owner, started) => this.evidence.shell(id, owner, started),
       shell: async (id, directory) => {
         let status = 0;
         const client = this.server.scoped(
@@ -465,7 +467,10 @@ export class OpenCodeSession implements ProviderSession {
   }
 
   private async prepareReplay(): Promise<void> {
-    for (let pass = 0; this.ancestry.needsSnapshots((id) => this.evidence.complete(id)); pass++) {
+    for (let pass = 0;
+      this.ancestry.needsSnapshots((id) => this.evidence.complete(id)) ||
+      this.ancestry.needsShellSnapshots((id, owner) => this.evidence.completeShell(id, owner));
+      pass++) {
       if (pass >= 8) throw new Error("OpenCode ancestry recovery incomplete");
       await this.resync();
     }

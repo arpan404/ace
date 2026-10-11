@@ -1,7 +1,7 @@
 import type { OpenCodeClient } from "@opencode/client";
 import { NativeEvent, SessionInfo, eventSession } from "./boundaries.ts";
 import type { SessionOwnership } from "./ownership.ts";
-import { string } from "./data.ts";
+import { object, string } from "./data.ts";
 type Ports = {
   client: OpenCodeClient;
   ownership: SessionOwnership;
@@ -118,6 +118,22 @@ export class AncestryProbe {
   needsSnapshots(complete: (id: string) => boolean): boolean {
     for (const id of this.probes.keys())
       if (this.p.ownership.sessions.has(id) && !complete(id)) return true;
+    return false;
+  }
+  shells(): ReadonlyMap<string, string> {
+    const shells = new Map<string, string>();
+    for (const [owner, probe] of this.probes)
+      for (const event of probe.events) {
+        const envelope = object(event.data);
+        if (envelope.type !== "shell.created") continue;
+        const id = string(object(object(envelope.data).info).id);
+        if (id) shells.set(id, owner);
+      }
+    return shells;
+  }
+  needsShellSnapshots(complete: (id: string, owner: string) => boolean): boolean {
+    for (const [id, owner] of this.shells())
+      if (this.p.ownership.sessions.has(owner) && !complete(id, owner)) return true;
     return false;
   }
   reconciled(): void {

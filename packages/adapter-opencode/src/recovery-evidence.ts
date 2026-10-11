@@ -16,6 +16,7 @@ export class RecoveryEvidence {
   private work = new Map<string, number>();
   private interactions = new Map<string, number>();
   private inbox = new Map<string, number>();
+  private shells = new Map<string, { owner: string; started: number }>();
   private key(type: string, session: string, message: string, ordinal: number): string {
     return `${type}:${session}:${message}:${ordinal}`;
   }
@@ -26,10 +27,12 @@ export class RecoveryEvidence {
     this.work.clear();
     this.interactions.clear();
     this.inbox.clear();
+    this.shells.clear();
   }
   pass(): void {
     this.snapshots = [];
     this.bytes = 0;
+    this.shells.clear();
   }
   observe(value: unknown, watermark: number): void {
     const e = NativeEvent.parse(value),
@@ -99,6 +102,10 @@ export class RecoveryEvidence {
   covered(value: unknown, watermark: number): boolean {
     const e = NativeEvent.parse(value),
       p = e.data;
+    if (e.type === "shell.created") {
+      const state = this.shells.get(string(object(p.info).id));
+      return !!state && state.owner === eventSession(e) && watermark <= state.started;
+    }
     if (["permission.asked", "form.created", "session.execution.started"].includes(e.type)) {
       const session = eventSession(e);
       return this.snapshots.some((snap) => {
@@ -148,6 +155,14 @@ export class RecoveryEvidence {
     return ["snapshot.active", "snapshot.interactions"].every((channel) =>
       this.snapshots.some((snap) => snap.session === session && snap.channel === channel),
     );
+  }
+  shell(id: string, owner: string, started: number): void {
+    if (this.shells.size >= 4096 && !this.shells.has(id))
+      throw new Error("OpenCode shell snapshot budget exceeded");
+    this.shells.set(id, { owner, started });
+  }
+  completeShell(id: string, owner: string): boolean {
+    return this.shells.get(id)?.owner === owner;
   }
   finish(): Snapshot[] {
     return this.snapshots.splice(0).filter((s) => {
