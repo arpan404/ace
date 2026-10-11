@@ -77,8 +77,11 @@ planner. Changed imports, added/removed root files, changed global declarations,
 and changed dependency types trigger a new source-graph inspection. Corrupt or
 missing scope metadata triggers inspection too. No success/failure result is stored
 by the runner; TypeScript owns diagnostic reuse and incremental invalidation.
-Generated config comments include content fingerprints, forcing a fresh build
-when input bytes change even if their source timestamps were preserved. Check
+Generated configs include content fingerprints. Before publishing a changed
+config, the runner removes that program's build info, forcing fresh inference or
+checking even if input timestamps were preserved. A config comment alone does
+not invalidate TypeScript's cached diagnostics. Unchanged programs keep their
+build info. Check
 fingerprints cover their own roots and globals; dependency declarations drive
 downstream compiler invalidation. Source fallback programs fingerprint the entire
 original graph, including dependency implementations.
@@ -89,11 +92,14 @@ Keeping an augmentation file alone does not preserve implementation checking.
 An augmented dependency interface can invalidate a default parameter initializer,
 which its declaration file omits. The planner selects the original source program
 for every reachable global/module augmentation, including external declaration
-files, and for repository global scripts. A consumer-only external augmentation
+files, and for all reachable non-module declaration scripts and repository global
+scripts. Bare external declarations can merge global interfaces without any
+augmentation metadata. A consumer-only external augmentation
 can invalidate an implementation that passed in its own package's environment.
 Ambient module declarations also trigger the conservative fallback. No package
-list is maintained by hand. Common Node and test-library augmentations can cause
-many programs to use sources; correctness takes priority over declaration reuse.
+list is maintained by hand. Standard-library global declarations and common Node
+and test-library augmentations can cause many programs to use sources;
+correctness takes priority over declaration reuse.
 
 TypeScript 7.0.2 also has a confirmed declaration-emit defect:
 [microsoft/TypeScript#64059](https://github.com/microsoft/TypeScript/issues/64059).
@@ -119,7 +125,8 @@ consumer; separate incremental compiler caches still bound subsequent work.
 `node scripts/typecheck-regressions.ts` runs small compiler fixtures, with one
 native compiler at a time. It verifies augmentation-induced initializer errors
 and const-generic readonly assignment errors through a workspace re-export, plus
-a consumer-only external `ErrorOptions` augmentation. Each case runs cold, warm
+a consumer-only external `ErrorOptions` augmentation and a bare global declaration
+script. Each case runs cold, warm
 with preserved source mtimes, from cached failures, and after recovery. The same
 fixtures also exercise the separate full source CLI. CI runs these probes after
 both typecheck steps. It does not invoke a test runner.

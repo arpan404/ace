@@ -27,13 +27,14 @@ type Workspace = {
   guards: string[];
 };
 
-function writeText(file: string, text: string): void {
+function writeText(file: string, text: string, beforeWrite?: () => void): void {
   mkdirSync(dirname(file), { recursive: true });
   try {
     if (readFileSync(file, "utf8") === text) return;
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
+  beforeWrite?.();
   const temporary = `${file}.${process.pid}.tmp`;
   writeFileSync(temporary, text);
   renameSync(temporary, file);
@@ -43,9 +44,19 @@ function writeConfig(file: string, value: unknown): void {
   writeText(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function writeProgram(file: string, value: unknown, fingerprint: string): void {
-  // Changing inputs invalidates the builder even when their mtimes were preserved.
-  writeText(file, `// Source graph content: ${fingerprint}\n${JSON.stringify(value, null, 2)}\n`);
+type ProgramConfig = {
+  compilerOptions: { tsBuildInfoFile: string; [option: string]: unknown };
+  [property: string]: unknown;
+};
+
+function writeProgram(file: string, value: ProgramConfig, fingerprint: string): void {
+  // Config comments alone do not invalidate cached diagnostics for preserved mtimes.
+  // Clear build info before publishing new inputs, including if the run is interrupted.
+  writeText(
+    file,
+    `// Source graph content: ${fingerprint}\n${JSON.stringify(value, null, 2)}\n`,
+    () => rmSync(value.compilerOptions.tsBuildInfoFile, { force: true }),
+  );
 }
 
 function discover(root: string): Workspace[] {

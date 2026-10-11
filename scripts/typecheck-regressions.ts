@@ -200,6 +200,22 @@ try {
   console.log(
     "External global augmentation: warm preserved-mtime, cached failure, cold, and recovery passed.",
   );
+
+  // A bare declaration script merges globals without `declare global` metadata.
+  write(environment, "interface ErrorOptions {}\n");
+  passes();
+  const scriptTimestamp = statSync(join(fixture, environment));
+  write(environment, "interface ErrorOptions { requiredProbe: string; }\n");
+  utimesSync(join(fixture, environment), scriptTimestamp.atime, scriptTimestamp.mtime);
+  rejects(/producer\/src\/index\.ts.*error TS2741/);
+  rejects(/producer\/src\/index\.ts.*error TS2741/);
+  cleanTypecheck(fixture);
+  rejects(/producer\/src\/index\.ts.*error TS2741/);
+  write(environment, "interface ErrorOptions {}\n");
+  passes();
+  console.log(
+    "External global script: warm preserved-mtime, cached failure, cold, and recovery passed.",
+  );
 } finally {
   rmSync(fixture, { recursive: true, force: true });
 }

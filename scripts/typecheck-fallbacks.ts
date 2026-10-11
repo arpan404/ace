@@ -45,7 +45,8 @@ export function needsSourceCheck(
   // Every reachable augmentation can change dependency implementations, including
   // global/module augmentations supplied only by external declaration packages.
   if (source.moduleAugmentations.length || source.ambientModuleNames.length) return true;
-  if (local && !source.externalModuleIndicator) return true;
+  // Bare external .d.ts scripts merge globals without augmentation metadata.
+  if ((local || source.isDeclarationFile) && !source.externalModuleIndicator) return true;
   if (!inWorkspace(source.fileName)) return false;
   if (source.isDeclarationFile) return false;
 
