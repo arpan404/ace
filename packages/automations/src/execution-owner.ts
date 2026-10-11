@@ -103,8 +103,10 @@ export class ExecutionOwner {
       request = Promise.reject(error);
     }
     const release = () => {
-      this.deadlines.delete(run.id);
-      if (this.monitors.get(run.id) === controller) this.monitors.delete(run.id);
+      if (this.monitors.get(run.id) === controller) {
+        this.deadlines.delete(run.id);
+        this.monitors.delete(run.id);
+      }
       this.pending.delete(tracked);
     };
     const operation = async () => {

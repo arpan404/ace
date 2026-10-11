@@ -76,3 +76,26 @@ it("does not launch a new observer after a run notification stops the service", 
   await h.finish();
   expect(h.service.inbox().runs).toMatchObject([{ status: "succeeded" }]);
 });
+
+it("immediate stop and start preserves the recovered deadline and releases concurrency on expiry", async () => {
+  const h = harness();
+  h.service.put(definition());
+  const run = h.service.trigger("triage", { key: "first", variables: { subject: "issues" } });
+  h.recoveries.set(run.id, new Promise(() => {}));
+  for (let i = 0; i < 3; i++) {
+    h.service.stop();
+    h.service.start();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  h.now = run.startedAt + 3_600_000;
+  await h.timer.fire();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(h.service.inbox().runs).toMatchObject([
+    { status: "failed", result: "Automation exceeded its maximum runtime" },
+  ]);
+  const next = h.service.trigger("triage", { key: "next", variables: { subject: "issues" } });
+  expect(next.status).toBe("running");
+  h.completions[0]?.resolve({ threadId: "obsolete", status: "succeeded", result: "late" });
+  await h.finish(1);
+  expect(h.service.inbox().runs.map((item) => item.status)).toEqual(["succeeded", "failed"]);
+});
