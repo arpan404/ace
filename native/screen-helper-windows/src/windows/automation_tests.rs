@@ -166,3 +166,45 @@ fn a_destroyed_native_control_cannot_inherit_a_ref_when_its_runtime_cache_key_is
         "replacement"
     );
 }
+
+#[test]
+#[ignore = "requires an interactive Windows desktop; run during the Windows manual plan"]
+fn tree_find_and_act_do_not_let_a_destroyed_child_ref_edit_its_replacement() {
+    use crate::{errors::Code, tree::Query};
+    let _apartment = Apartment::new().unwrap();
+    let parent = Window(unsafe {
+        CreateWindowExW(WINDOW_EX_STYLE(0), w!("STATIC"), w!("reference fixture"),
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE, 100, 100, 400, 200,
+            None, None, None, None).unwrap()
+    });
+    fn edit(parent: HWND, text: &windows::core::HSTRING) -> Window {
+        Window(unsafe {
+            CreateWindowExW(WINDOW_EX_STYLE(0), w!("EDIT"), text,
+                WS_CHILD | WS_VISIBLE, 10, 10, 200, 40,
+                parent, None, None, None).unwrap()
+        })
+    }
+    let target = Target { kind: "window".into(), window_id: Some(parent.0.0 as usize as u64),
+        display_id: None, bundle_id: None, bundle_ids: None };
+    let first = edit(parent.0, &"original".into());
+    let mut automation = Automation::new().unwrap();
+    fn find(automation: &mut Automation, target: &Target, text: &str) -> String {
+        let result = automation.find(target, &Query { role: None, name: None, text: Some(text.into()) }, 8).unwrap();
+        result["nodes"].as_array().unwrap().iter()
+            .find(|node| node["value"].as_str() == Some(text)).unwrap()["ref"]
+            .as_str().unwrap().into()
+    }
+    let original = find(&mut automation, &target, "original");
+    automation.tree(&target, 8, 64).unwrap();
+    assert_eq!(find(&mut automation, &target, "original"), original);
+    drop(first);
+    let _replacement = edit(parent.0, &"replacement".into());
+    automation.tree(&target, 8, 64).unwrap();
+    let replacement = find(&mut automation, &target, "replacement");
+    assert_ne!(original, replacement);
+    let attempted = automation.act(&target, &original, "setValue", Some(&serde_json::json!("wrong")));
+    assert_eq!(attempted.unwrap_err().code, Code::TargetGone);
+    assert_eq!(find(&mut automation, &target, "replacement"), replacement);
+    automation.act(&target, &replacement, "setValue", Some(&serde_json::json!("updated"))).unwrap();
+    assert_eq!(find(&mut automation, &target, "updated"), replacement);
+}
