@@ -73,6 +73,20 @@ export class DelegationAdmission {
     )
       throw controlAdmissionError("launch_options_unsupported");
   }
+  /** Admission and revived work share source-owned local and remote accounting. */
+  capacity(parent: ThreadId, now: number) {
+    const tree = this.journal.tree(parent, now);
+    const external = this.deps.externalCapacity?.(parent, tree.root);
+    return {
+      ...tree,
+      children: tree.children + (external?.children ?? 0),
+      usage: {
+        tokens: tree.usage.tokens + (external?.usage.tokens ?? 0),
+        cost: tree.usage.cost + (external?.usage.cost ?? 0),
+      },
+      concurrent: this.journal.concurrent(parent) + (external?.concurrent ?? 0),
+    };
+  }
   reserve(
     caller: McpAttribution,
     value: DelegationRequest,
@@ -90,21 +104,8 @@ export class DelegationAdmission {
         return existing;
       }
       const now = this.deps.clock.now(),
-        tree = this.journal.tree(caller.threadId, now);
-      const external = this.deps.externalCapacity?.(caller.threadId, tree.root);
-      const rejection = admitDelegation(
-        {
-          ...tree,
-          children: tree.children + (external?.children ?? 0),
-          usage: {
-            tokens: tree.usage.tokens + (external?.usage.tokens ?? 0),
-            cost: tree.usage.cost + (external?.usage.cost ?? 0),
-          },
-          concurrent: this.journal.concurrent(caller.threadId) + (external?.concurrent ?? 0),
-        },
-        this.policy,
-        now,
-      );
+        tree = this.capacity(caller.threadId, now);
+      const rejection = admitDelegation(tree, this.policy, now);
       if (rejection || this.journal.activeCount() >= 64)
         throw new AgentControlError(
           rejection === "cancelled" ? "delegation_cancelled" : "delegation_limit",

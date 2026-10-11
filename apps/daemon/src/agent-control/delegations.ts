@@ -380,7 +380,7 @@ export class DelegationService {
         this.reconcile(edge);
       } else if (event.payload.type === "usage.updated" && edge) {
         this.deps.store.atomic(() => this.journal.usage(edge.rootId, event));
-        const tree = this.journal.tree(edge.rootId, this.deps.clock.now());
+        const tree = this.admission.capacity(edge.rootId, this.deps.clock.now());
         if (delegationBudget(tree, this.policy, this.deps.clock.now()))
           this.cancelDescendants(edge.rootId);
       } else if (edge) this.reconcile(edge);
@@ -393,13 +393,13 @@ export class DelegationService {
     this.deps.store.atomic(() => {
       if (edge.phase === "settled" && !["done", "failed"].includes(thread.status.state)) {
         this.journal.revive(edge);
-        const tree = this.journal.tree(edge.childId, this.deps.clock.now());
+        const tree = this.admission.capacity(edge.parentId, this.deps.clock.now());
         if (
           this.journal.stopped(edge.childId) ||
           this.journal.ancestorStopped(edge.childId) ||
           tree.cancelled ||
           delegationBudget(tree, this.policy, this.deps.clock.now()) ||
-          this.journal.concurrent(edge.parentId) > this.policy.maxConcurrent ||
+          tree.concurrent > this.policy.maxConcurrent ||
           this.journal.activeCount() > 64
         ) {
           const request = controlCommandId(
