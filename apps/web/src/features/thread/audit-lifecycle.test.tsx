@@ -69,11 +69,10 @@ test("catalog failure explains the missing model and Retry recovers it", async (
   const made = app();
   made.daemon.failRequests("models.list");
   await made.open("/new?project=relay");
-  expect(
-    await screen.findByRole("button", { name: "Model: Couldn't load models" }, { timeout: 5000 }),
-  ).toBeTruthy();
+  const problem = await screen.findByRole("alert", {}, { timeout: 5000 });
+  expect(within(problem).getByText("Couldn't load models")).toBeTruthy();
   made.daemon.restoreRequests();
-  await userEvent.click(screen.getByRole("button", { name: "Retry loading models" }));
+  await userEvent.click(within(problem).getByRole("button", { name: "Retry" }));
   expect(
     await screen.findByRole("button", { name: /^Model: Opus/ }, { timeout: 5000 }),
   ).toBeTruthy();
@@ -232,7 +231,7 @@ test("reopening a failed slash menu reads its catalog again and failed Enter kee
   made.daemon.restoreRequests();
   await userEvent.clear(field());
   await userEvent.type(field(), "/");
-  expect(await screen.findByRole("listbox", { name: "Add and commands" })).toBeTruthy();
+  expect(await screen.findByRole("listbox", { name: "Commands" })).toBeTruthy();
 });
 
 test("a transient draft scope refusal retries before showing slash commands", async () => {
@@ -248,9 +247,7 @@ test("a transient draft scope refusal retries before showing slash commands", as
   await made.open("/new?project=relay");
   await screen.findByRole("button", { name: /^Model: Opus/ });
   await userEvent.type(field(), "/");
-  expect(
-    await screen.findByRole("listbox", { name: "Add and commands" }, { timeout: 5000 }),
-  ).toBeTruthy();
+  expect(await screen.findByRole("listbox", { name: "Commands" }, { timeout: 5000 })).toBeTruthy();
 });
 
 test("the branch fallback uses Current branch while branch discovery is unavailable", async () => {
@@ -391,7 +388,7 @@ test("Retry after a local save failure still retains only one recoverable messag
   fail = true;
   await userEvent.type(field(), "Keep the retry once{Enter}");
   await userEvent.click(await screen.findByRole("button", { name: "Retry" }));
-  await screen.findByText("It still didn't go");
+  await screen.findByRole("heading", { name: "It still didn't go" });
   await waitFor(() =>
     expect(
       within(screen.getByRole("feed", { name: "Transcript" })).getAllByText("Keep the retry once"),

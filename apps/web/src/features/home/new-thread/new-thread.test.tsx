@@ -516,36 +516,56 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   );
 });
 
-test("an explicit native settings default is passed without falsely selecting a preset", async () => {
+test("native settings remain inherited while the menu exposes every Claude mode", async () => {
   const made = app();
   made.daemon.services.settings.seed({ "permissions.providerModes": { claude: "acceptEdits" } });
   await made.open("/new?project=relay");
   await userEvent.click(await screen.findByRole("button", { name: "Approvals: Accept edits" }));
   const options = await screen.findAllByRole("menuitemradio");
   expect(options.map((option) => option.getAttribute("aria-label"))).toEqual([
+    "Provider default",
     "Manual",
-    "Auto review",
-    "Full access",
+    "Accept edits",
+    "Plan",
+    "Auto",
+    "Don't ask",
+    "Bypass permissions",
   ]);
-  expect(options.every((option) => option.getAttribute("aria-checked") === "false")).toBe(true);
+  expect(
+    screen.getByRole("menuitemradio", { name: "Accept edits" }).getAttribute("aria-checked"),
+  ).toBe("true");
   await userEvent.keyboard("{Escape}");
   await userEvent.type(await prompt(), "Use my approval default{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Use my approval default" });
   expect((await started(made))?.permission).toMatchObject({
-    override: "acceptEdits",
+    override: null,
     effective: "acceptEdits",
   });
   expect(await screen.findByRole("button", { name: /^Approvals: Accept edits/ })).toBeTruthy();
 });
 
-test("new threads pass the automatic native review default without a picker interaction", async () => {
+test("new threads leave the CLI default unpinned without a picker interaction", async () => {
   const made = app();
   await made.open("/new?project=relay");
-  expect(await screen.findByRole("button", { name: "Approvals: Auto review" })).toBeTruthy();
-  expect(screen.queryByText("Provider default")).toBeNull();
+  expect(await screen.findByRole("button", { name: "Approvals: Provider default" })).toBeTruthy();
   await userEvent.type(await prompt(), "Review the inherited default{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Review the inherited default" });
-  expect((await started(made))?.permission).toMatchObject({ override: "auto", effective: "auto" });
+  expect((await started(made))?.permission).toMatchObject({ override: null, effective: null });
+});
+
+test.each([
+  ["ask", "Manual", "default"],
+  ["on-failure", "Auto", "auto"],
+  ["never", "Bypass permissions", "bypassPermissions"],
+])("a persisted %s approval policy supplies inherited native %s", async (policy, label, mode) => {
+  const made = app();
+  made.daemon.services.settings.seed({ "approvals.policy": policy });
+  await made.open("/new?project=relay");
+  expect(await screen.findByRole("button", { name: `Approvals: ${label}` })).toBeTruthy();
+  await userEvent.type(await prompt(), "Use the migrated approval policy{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Use the migrated approval policy" });
+  expect((await started(made))?.permission).toMatchObject({ override: null, effective: mode });
+  expect(await screen.findByRole("button", { name: `Approvals: ${label}` })).toBeTruthy();
 });
 
 afterEach(() => vi.restoreAllMocks());

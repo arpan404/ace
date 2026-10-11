@@ -718,18 +718,26 @@ test("the ⋯ menu keeps the common thread actions in the row menu's order", asy
     .map((item) => item.textContent ?? "")
     .filter((label) => !/^(Link pull request…|Unlink all pull requests)$/.test(label));
   const shortcut = /(Alt\+Ctrl\+[RP]|(Alt\+)?Shift\+Ctrl\+A|⌥⌘[RP]|⇧⌘A)$/;
+  const headerOnly =
+    /^(Open in…|Open agent tree|Attachments|Search this thread|(?:Hide )?Turns|Bring back to parent…)/;
   const compact = items
-    .filter((label) => label !== "Open in…")
+    .filter((label) => !headerOnly.test(label))
     .map((label) => label.replace(shortcut, ""));
   expect(compact).toEqual(
     context
       .filter((label) => compact.includes(label.replace(shortcut, "")))
       .map((label) => label.replace(shortcut, "")),
   );
-  expect(compact).toContain("Rename");
-  expect(compact).toContain("Delete thread");
+  expect(compact).toEqual([
+    "Rename",
+    "Mark unread",
+    "Pin",
+    "Move to project…",
+    "Snooze",
+    "Archive",
+    "Delete thread",
+  ]);
   expect(compact).not.toContain("Copy link");
-  expect(items.length).toBeLessThanOrEqual(8);
 });
 
 test("the ⋯ menu shows the thread's shortcuts, and they rename, pin and archive it", async () => {
@@ -765,8 +773,10 @@ test("the thread menu offers working thread actions without Side chat", async ()
   await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   expect(await screen.findByRole("menuitem", { name: /^Rename/ })).toBeTruthy();
-  expect(screen.queryByRole("menuitem", { name: /Open agent tree/ })).toBeNull();
   expect(screen.queryByRole("menuitem", { name: /side chat/i })).toBeNull();
+  await userEvent.click(screen.getByRole("menuitem", { name: /Open agent tree/ }));
+  const panel = await sidePanel();
+  expect(await within(panel).findByRole("tab", { name: /^Agents/, selected: true })).toBeTruthy();
 });
 
 test("Fork is omitted until the first turn has finished", async () => {

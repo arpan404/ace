@@ -410,7 +410,6 @@ test("Skills and a thread offer available discovered skills and omit unavailable
   const project = await screen.findByRole("combobox", { name: "Skills project" });
   await userEvent.click(project);
   await userEvent.click(await screen.findByRole("option", { name: "relay" }));
-  await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
   await userEvent.click(await screen.findByRole("combobox", { name: "Skills provider" }));
   await userEvent.click(await screen.findByRole("option", { name: /^Codex$/ }));
   await userEvent.keyboard("{Escape}");

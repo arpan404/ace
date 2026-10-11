@@ -243,10 +243,14 @@ test("shutdown reports failure to persist an admitted session update", async () 
   const writing = catalog.updateFromSession(config, metadata("pending"));
   const failure = expect(writing).rejects.toThrow("Persistence failed");
   await started.promise;
-  const closing = expect(catalog.close()).rejects.toThrow("Session model persistence failed");
+  const cleanupFailure = {
+    name: "AggregateError",
+    errors: [expect.objectContaining({ message: "Persistence failed" })],
+  };
+  const closing = expect(catalog.close()).rejects.toMatchObject(cleanupFailure);
   release.resolve();
   await Promise.all([failure, closing]);
-  await catalog.close();
+  await expect(catalog.close()).rejects.toMatchObject(cleanupFailure);
 });
 
 test("model catalog uses the same declared category and config ID as ACP selection", async () => {

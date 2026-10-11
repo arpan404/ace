@@ -89,5 +89,5 @@ test("old Cursor boundary diagnostics do not appear in the conversation", () => 
 test("an old interrupted Cursor notice explains unfinished work in plain language", () => {
   expect(
     displayNotice(notice("SDK host exited; unresolved child/background work is uncertain"))?.text,
-  ).toBe("Cursor stopped unexpectedly. Unfinished work needs your attention.");
+  ).toBe("Cursor stopped; some work may not have finished. Send a message to continue.");
 });

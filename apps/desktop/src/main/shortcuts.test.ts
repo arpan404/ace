@@ -23,6 +23,13 @@ function forwarded(input: KeyInput, platform: NodeJS.Platform) {
   return sent;
 }
 
+const dispatched = (input: KeyInput, platform: NodeJS.Platform) => {
+  const sent: unknown[] = [];
+  const chord = browserChord(input, platform) ?? appChord(input, platform);
+  if (chord) replayChord({ sendInputEvent: (event) => void sent.push(event) }, chord, platform);
+  return sent;
+};
+
 describe("app shortcuts while an embedded page has focus", () => {
   it("forwards the palette, new thread, sidebar and close tab to the app window on macOS", () => {
     expect(forwarded(press("k", "KeyK", { meta: true }), "darwin")).toEqual([
@@ -67,11 +74,18 @@ describe("app shortcuts while an embedded page has focus", () => {
       expect(forwarded(input, "darwin"), `${input.code}`).toEqual([]);
   });
 
-  it("⌘T in a page opens another browser tab in the app instead of reaching the page", () => {
-    expect(browserChord(press("t", "KeyT", { meta: true }), "darwin")).toBe("CmdOrCtrl+T");
-    expect(browserChord(press("t", "KeyT", { control: true }), "linux")).toBe("CmdOrCtrl+T");
-    // Plain typing stays the page's.
-    expect(browserChord(press("t", "KeyT"), "darwin")).toBeUndefined();
+  it("new-page chords do not dispatch a browser or app action", () => {
+    for (const platform of ["darwin", "linux", "win32"] as const) {
+      const held = platform === "darwin" ? { meta: true } : { control: true };
+      // The thread owns one page; this chord must not request another one.
+      expect(dispatched(press("t", "KeyT", held), platform)).toEqual([]);
+      expect(dispatched(press("t", "KeyT"), platform)).toEqual([]);
+      // Other toolbar actions still dispatch, so an inert shortcut router fails this test.
+      expect(dispatched(press("l", "KeyL", held), platform)).toEqual([
+        { type: "keyDown", keyCode: "L", modifiers: [platform === "darwin" ? "meta" : "control"] },
+        { type: "keyUp", keyCode: "L", modifiers: [platform === "darwin" ? "meta" : "control"] },
+      ]);
+    }
   });
 
   it("follows the layout's letters rather than the physical key", () => {

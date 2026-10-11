@@ -87,7 +87,6 @@ export function fakeBrowserSession(
             break;
           }
           if (message.type === "browser.tabs.open") {
-            browser.tabOpen(id);
             if (message.url) browser.navigate(id, message.url, host.now());
           } else if (message.type === "browser.tabs.switch") browser.tabSwitch(id, message.tabId);
           else if (message.type === "browser.tabs.close") browser.tabClose(id, message.tabId);

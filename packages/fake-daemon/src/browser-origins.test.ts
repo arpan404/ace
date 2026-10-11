@@ -175,10 +175,12 @@ it("fake native modes honor the global allowlist without granting other origins"
   }
 });
 
-it("fake wire exposes tabs, dialogs, downloads and evaluate revocation", async () => {
+it("fake wire reuses the browser page, refuses its final close and exposes dialogs and downloads", async () => {
   const f = await fixture();
   try {
     await f.client.request({ type: "browser.takeover", threadId: f.threadId });
+    const firstTabId = f.daemon.browser.view(f.threadId)?.activeTabId;
+    if (!firstTabId) throw new Error("tab");
     const opened = await f.client.request({
       type: "browser.tabs.open",
       threadId: f.threadId,
@@ -188,11 +190,12 @@ it("fake wire exposes tabs, dialogs, downloads and evaluate revocation", async (
     const view = f.daemon.browser.view(f.threadId),
       tabId = view?.activeTabId;
     if (!tabId) throw new Error("tab");
+    expect(tabId).toBe(firstTabId);
     expect(
       await f.client.request({ type: "browser.tabs.list", threadId: f.threadId }),
     ).toMatchObject({
       ok: true,
-      result: [{ url: "about:blank" }, { tabId, url: "https://site.example/page" }],
+      result: [{ tabId, url: "https://site.example/page" }],
     });
     f.daemon.browser.dialogOpen(f.threadId, {
       tabId,
@@ -239,8 +242,15 @@ it("fake wire exposes tabs, dialogs, downloads and evaluate revocation", async (
         origin: "https://site.example",
       }),
     ).toMatchObject({ ok: true, result: [] });
-    await f.client.request({ type: "browser.tabs.close", threadId: f.threadId, tabId });
-    expect(f.daemon.browser.tabsList(f.threadId)).toHaveLength(1);
+    expect(
+      await f.client.request({ type: "browser.tabs.close", threadId: f.threadId, tabId }),
+    ).toMatchObject({ ok: false });
+    expect(
+      await f.client.request({ type: "browser.tabs.list", threadId: f.threadId }),
+    ).toMatchObject({
+      ok: true,
+      result: [{ tabId, url: "https://site.example/page" }],
+    });
   } finally {
     await f.client.close();
   }
@@ -329,9 +339,11 @@ it("typed browser client APIs follow tabs, downloads, dialogs, grants and privat
     await browser.takeover(f.threadId, "shared");
     const first = (await browser.tabs(f.threadId))[0];
     if (!first) throw new Error("tab");
-    const opened = await browser.openTab(f.threadId);
+    const opened = await browser.openTab(f.threadId, "https://site.example/page");
     if (!("activeTabId" in opened)) throw new Error("unexpected dialog");
-    expect(opened.tabs).toHaveLength(2);
+    expect(opened.activeTabId).toBe(first.tabId);
+    expect(opened.tabs).toEqual([{ ...first, url: "https://site.example/page" }]);
+    expect(await browser.openTab(f.threadId)).toEqual(opened);
     expect(await browser.switchTab(f.threadId, first.tabId)).toMatchObject({
       activeTabId: first.tabId,
     });
@@ -357,7 +369,10 @@ it("typed browser client APIs follow tabs, downloads, dialogs, grants and privat
       { origin: "https://site.example" },
     ]);
     expect(await browser.revokeEvaluateGrant(f.threadId, "https://site.example")).toEqual([]);
-    expect(await browser.closeTab(f.threadId, opened.activeTabId)).toMatchObject({ tabs: [first] });
+    await expect(browser.closeTab(f.threadId, opened.activeTabId)).rejects.toMatchObject({
+      code: "daemon",
+    });
+    expect(await browser.tabs(f.threadId)).toEqual(opened.tabs);
     expect(await browser.takeover(f.threadId, "private")).toMatchObject({
       takeoverMode: "private",
       controller: "human",
