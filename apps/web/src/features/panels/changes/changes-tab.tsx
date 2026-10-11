@@ -19,7 +19,7 @@ import {
   sendDrafts,
   type ReviewDraft,
 } from "./drafts.ts";
-import { displayedSelection, linesOf } from "./displayed-selection.ts";
+import { displayedSelection } from "./displayed-selection.ts";
 import { applySuggestion, setReviewStatus } from "./review-actions.ts";
 import { FileActions } from "./file-actions.tsx";
 import {
@@ -78,7 +78,19 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   );
   const viewedAll = useLocal(services.viewed, identity);
   const viewedHere = viewedAll.get(threadId);
-  const [composing, setComposing] = useState<{ file: string; range: LineRange; key?: string }>();
+  const [composing, setComposing] = useState<{
+    id: string;
+    file: string;
+    range: LineRange;
+    key?: string;
+    version: string;
+    fingerprint: ReviewDraft["fingerprint"];
+    source: ReviewDraft["source"];
+  }>();
+  const changeScope = (next: Parameters<typeof setScope>[0]) => {
+    setComposing(undefined);
+    setScope(next);
+  };
   // Per file, by path: kept here so a file scrolled out of a long list and back keeps it.
   const [views, setViews] = useState<ReadonlyMap<string, { version: string; view: FileView }>>(
     () => new Map(),
@@ -149,7 +161,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         details={thread?.details}
         state={thread?.status.state}
         turns={edited}
-        onScope={setScope}
+        onScope={changeScope}
       />
     );
 
@@ -187,8 +199,12 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
       onEdit={() => {
         setSelectedComment(undefined);
         setComposing({
+          id: crypto.randomUUID(),
           file: draft.file,
           key: draft.key,
+          version: versions.get(draft.file) ?? "",
+          fingerprint: draft.fingerprint,
+          source: draft.source,
           range: { side: draft.side, start: draft.line, end: draft.end ?? draft.line },
         });
       }}
@@ -205,7 +221,11 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
       forFile.filter(
         (draft) => draft.side === target.side && (draft.end ?? draft.line) === target.line,
       );
-    const writing = composing?.file === file.path ? composing.range : undefined;
+    const composition =
+      composing?.file === file.path && composing.version === versionOf(file)
+        ? composing
+        : undefined;
+    const writing = composition?.range;
     const view = viewOf(file);
     const isViewed = viewed.has(file.path);
     return (
@@ -237,30 +257,42 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
           )
         }
         selection={writing}
-        onComment={(range) => setComposing({ file: file.path, range })}
+        onComment={(range) =>
+          setComposing({
+            id: crypto.randomUUID(),
+            file: file.path,
+            range,
+            version: versionOf(file),
+            fingerprint: displayedSelection(file, range),
+            source: undefined,
+          })
+        }
         renderAnnotation={(target) => {
-          if (writing && writing.side === target.side && writing.end === target.line) {
-            const draft = forFile.find((each) => each.key === composing?.key);
+          if (
+            composition &&
+            writing &&
+            writing.side === target.side &&
+            writing.end === target.line
+          ) {
+            const draft = forFile.find((each) => each.key === composition.key);
             return (
               <CommentComposer
                 label={`Comment on ${linesLabel(writing.side, writing.start, writing.end)}`}
                 {...textOf(draft)}
                 suggestFrom={
-                  writing.side === "new"
-                    ? (draft?.fingerprint?.lines ?? linesOf(file, writing))?.join("\n")
-                    : undefined
+                  writing.side === "new" ? composition.fingerprint?.lines.join("\n") : undefined
                 }
                 onCancel={() => setComposing(undefined)}
                 onSave={(text, suggestion) => {
                   saveDraft(services.drafts, {
-                    key: draft && !draft.commentId ? draft.key : crypto.randomUUID(),
+                    key: draft && !draft.commentId ? draft.key : composition.id,
                     threadId,
                     file: file.path,
                     side: writing.side,
                     line: writing.start,
                     ...(writing.end > writing.start ? { end: writing.end } : {}),
-                    fingerprint: draft?.fingerprint ?? displayedSelection(file, writing),
-                    source: draft?.source,
+                    fingerprint: composition.fingerprint,
+                    source: composition.source,
                     text,
                     ...(suggestion === undefined ? {} : { suggestion }),
                     createdAt: Date.now(),
@@ -294,7 +326,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
       <ChangesToolbar
         scope={scope}
         turns={edited}
-        onScope={setScope}
+        onScope={changeScope}
         stat={stat}
         prefs={prefs}
         shown={mode}
