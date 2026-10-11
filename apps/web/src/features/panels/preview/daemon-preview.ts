@@ -80,6 +80,7 @@ function reached(result: unknown, fallback: string): string {
 }
 
 interface Watch {
+  generation: number;
   count: number;
   subscribed: boolean;
   capture?: BrowserCaptureViewport;
@@ -141,6 +142,13 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     frames.delete(threadId);
     views.delete(threadId);
     servers.delete(threadId);
+  };
+  const invalidate = (threadId: string, watch: Watch) => {
+    watch.generation++;
+    watch.latest = undefined;
+    watch.owed = undefined;
+    frames.get(threadId)?.release();
+    frames.delete(threadId);
   };
   const requestId = () => `browser-${++requests}`;
   const call = async (
@@ -232,9 +240,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     }
   };
   /** Show a decoded frame, then ask for the next one (later, if the page is hidden). */
-  const show = (threadId: string, sequence: number, frame: Shown) => {
-    const watch = watches.get(threadId);
-    if (!watch || watch.latest !== sequence) return frame.release();
+  const currentFrame = (threadId: string, watch: Watch, generation: number, sequence: number) =>
+    watches.get(threadId) === watch && watch.generation === generation && watch.latest === sequence;
+  const show = (
+    threadId: string,
+    watch: Watch,
+    generation: number,
+    sequence: number,
+    frame: Shown,
+  ) => {
+    if (!currentFrame(threadId, watch, generation, sequence)) return frame.release();
     frames.get(threadId)?.release();
     frames.set(threadId, frame);
     changed(threadId);
@@ -255,7 +270,19 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     }
     if (message.type === "browser.state") {
       const state = message.state;
-      if (!watches.has(state.threadId)) return;
+      const watch = watches.get(state.threadId);
+      if (!watch) return;
+      const previous = views.get(state.threadId);
+      if (
+        state.closed ||
+        state.status === "paused" ||
+        state.status === "recovering" ||
+        (previous &&
+          (previous.backend !== state.backend || previous.activeTabId !== state.activeTabId))
+      ) {
+        invalidate(state.threadId, watch);
+        if (state.closed) watch.subscribed = false;
+      }
       views.set(state.threadId, view(state));
       if (state.controller !== "human") held.delete(state.threadId);
       if (state.takeoverMode !== "private") privateHolds.delete(state.threadId);
@@ -266,6 +293,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     const { threadId, frame } = message;
     const watch = watches.get(threadId);
     if (!watch) return;
+    const generation = watch.generation;
     watch.latest = frame.sequence;
     if (watch.capture?.nativeShown) {
       watch.owed = frame.sequence;
@@ -273,7 +301,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     }
     void decode(frame.data).then(
       (decoded) =>
-        show(threadId, frame.sequence, {
+        show(threadId, watch, generation, frame.sequence, {
           sequence: frame.sequence,
           src: decoded.src,
           width: frame.width,
@@ -282,7 +310,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         }),
       // A frame that cannot be decoded is skipped; the next one may.
       () => {
-        if (watches.get(threadId)?.latest === frame.sequence) ack(threadId, frame.sequence);
+        if (currentFrame(threadId, watch, generation, frame.sequence))
+          ack(threadId, frame.sequence);
       },
     );
   };
@@ -293,7 +322,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       for (const [threadId, watch] of watches) {
         // The daemon dropped this connection's subscriptions and control leases.
         watch.subscribed = false;
-        watch.owed = undefined;
+        invalidate(threadId, watch);
         held.delete(threadId);
         watch.cancel?.();
         if (ready) poll(threadId);
@@ -324,6 +353,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       if (watch) watch.count++;
       else {
         watch = {
+          generation: 0,
           count: 1,
           subscribed: false,
           cancel: undefined,
@@ -447,6 +477,12 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     async close(threadId) {
       held.delete(threadId);
       privateHolds.delete(threadId);
+      const watch = watches.get(threadId);
+      if (watch) {
+        invalidate(threadId, watch);
+        watch.subscribed = false;
+        changed(threadId);
+      }
       await call("browser.close", threadId);
     },
     async takeover(threadId, mode) {
