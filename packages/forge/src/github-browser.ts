@@ -217,6 +217,7 @@ export class GitHubBrowser {
       date: item.commit.author?.date ?? null,
       url: item.html_url,
     }));
+    await this.#head(number, headSha, undefined, signal);
     return {
       commits,
       ...(this.#api.next(response, path) && page < 10 ? { nextPage: page + 1 } : {}),
@@ -235,7 +236,7 @@ export class GitHubBrowser {
   ): Promise<ForgePrFiles> {
     const parsed = ForgePrFiles.pick({ headSha: true, baseSha: true, commit: true }).parse(input);
     ForgePageInput.parse(input);
-    await this.#head(input.number, parsed.headSha, parsed.baseSha, signal);
+    const pr = await this.#head(input.number, parsed.headSha, parsed.baseSha, signal);
     let path = `${this.#root}/pulls/${input.number}/files?per_page=25&page=${input.page}`;
     let baseSha = parsed.baseSha;
     let headSha = parsed.headSha;
@@ -303,7 +304,10 @@ export class GitHubBrowser {
       ...(parsed.commit ? { commit: parsed.commit } : {}),
       files,
       ...(next && input.page < 120 ? { nextPage: input.page + 1 } : {}),
-      truncated: Boolean(next && input.page === 120) || files.some((f) => f.truncated),
+      truncated:
+        (!parsed.commit && pr.changed_files > 3000) ||
+        Boolean(next && input.page === 120) ||
+        files.some((f) => f.truncated),
     };
   }
 }

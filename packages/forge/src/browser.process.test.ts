@@ -244,3 +244,87 @@ test("malformed pagination and cancelled or rate-limited reads never produce par
     await limited.cleanup();
   }
 });
+
+test("a push during a commit-list read cannot label the new commits with the previously selected head", async () => {
+  const f = await fakeGh({
+    "repos/octo/ace/pulls/7": [
+      { body: richPr },
+      { body: { ...richPr, head: { ...richPr.head, sha: nextSha } } },
+    ],
+    "repos/octo/ace/pulls/7/commits?per_page=25&page=1": [{ body: [{ ...commit, sha: nextSha }] }],
+  });
+  try {
+    await expect(f.forge.prCommits(7, 1, sha, signal())).rejects.toMatchObject({
+      kind: "conflict",
+    });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("unchanged commit pages retain their authors and next-page navigation", async () => {
+  const path = "repos/octo/ace/pulls/7/commits?per_page=25&page=1";
+  const f = await fakeGh({
+    "repos/octo/ace/pulls/7": [{ body: richPr }],
+    [path]: [
+      {
+        body: [commit],
+        headers: {
+          link: '<https://api.github.com/repos/octo/ace/pulls/7/commits?per_page=25&page=2>; rel="next"',
+        },
+      },
+    ],
+  });
+  try {
+    expect(await f.forge.prCommits(7, 1, sha, signal())).toMatchObject({
+      commits: [{ sha, author: "contributor", message: "Handle empty input" }],
+      nextPage: 2,
+      truncated: false,
+    });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("the PR file provider cap stays visible on a terminal page with complete patches and no next link", async () => {
+  for (const changedFiles of [3000, 3001]) {
+    const f = await fakeGh({
+      "repos/octo/ace/pulls/7": [{ body: { ...richPr, changed_files: changedFiles } }],
+      "repos/octo/ace/pulls/7/files?per_page=25&page=120": [{ body: [file] }],
+      [`repos/octo/ace/compare/${nextSha}...${sha}`]: [
+        { body: { merge_base_commit: { sha: nextSha } } },
+      ],
+    });
+    try {
+      const result = await f.forge.prFiles(
+        { number: 7, page: 120, headSha: sha, baseSha: nextSha },
+        signal(),
+      );
+      expect(result.truncated).toBe(changedFiles > 3000);
+      expect(result.nextPage).toBeUndefined();
+      expect(result.files[0]).toMatchObject({ patch: file.patch, truncated: false });
+    } finally {
+      await f.cleanup();
+    }
+  }
+});
+
+test("a PR's file cap does not label a complete individual-commit diff as truncated", async () => {
+  const f = await fakeGh({
+    "repos/octo/ace/pulls/7": [{ body: { ...richPr, changed_files: 3001 } }],
+    "repos/octo/ace/pulls/7/commits?per_page=100&page=1": [{ body: [commit] }],
+    [`repos/octo/ace/commits/${sha}?per_page=25&page=1`]: [
+      { body: { ...commit, parents: [{ sha: nextSha }], files: [file] } },
+    ],
+  });
+  try {
+    expect(
+      await f.forge.prFiles(
+        { number: 7, page: 1, headSha: sha, baseSha: nextSha, commit: sha },
+        signal(),
+      ),
+    ).toMatchObject({ truncated: false, files: [{ truncated: false }] });
+  } finally {
+    await f.cleanup();
+  }
+});
