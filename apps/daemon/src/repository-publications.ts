@@ -4,7 +4,7 @@ import {
   publicationError,
 } from "./publication-state.ts";
 import { z } from "zod";
-import { GitHubRepositories, ForgeMutationOutcome, ForgeError } from "@ace/forge";
+import { GitHubRepositories, ForgeMutationOutcome, ForgeError, MutationDispatch } from "@ace/forge";
 import {
   HostedRepository,
   RepositoryPublication,
@@ -16,7 +16,7 @@ import type { Store } from "./store.ts";
 import type { SourceControl } from "./source-control.ts";
 import type { ProjectDirectory } from "./project-directory.ts";
 
-const saved = z.object({ device: z.string(), publication: RepositoryPublication });
+const saved = z.object({ device: z.string(), publication: RepositoryPublication, dispatch: z.enum(["pending", "possible"]).optional() });
 /** One durable intent per local project. A dispatched create is never repeated. */
 export class RepositoryPublications {
   private store: Store;
@@ -45,11 +45,16 @@ export class RepositoryPublications {
     return row ? saved.parse(JSON.parse(z.string().parse(row.record))) : null;
   }
   status(id: WorkspaceId): RepositoryPublication | null {
-    return this.record(id)?.publication ?? null;
+    const record = this.record(id);
+    if (record?.dispatch === "pending" && record.publication.phase === "creating" && !this.flights.has(id))
+      return { ...record.publication, phase: "prepared" as const };
+    return record?.publication ?? null;
   }
-  private save(device: string, publication: RepositoryPublication): void {
+  private save(device: string, publication: RepositoryPublication, dispatch?: "pending" | "possible"): void {
     publication.updatedAt = this.now();
-    const record = saved.parse({ device, publication });
+    const record = saved.parse({ device, publication, dispatch: dispatch ?? (
+      publication.phase === "prepared" ? "pending" : this.record(publication.workspaceId)?.dispatch ?? "possible"
+    ) });
     this.store
       .statement(
         "INSERT INTO repository_publications VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET record=excluded.record",
@@ -82,7 +87,10 @@ export class RepositoryPublications {
     if (this.flights.has(id)) throw new Error("publication_busy");
     if (this.flights.size >= 4) throw new Error("publication_busy");
     const value = RepositoryPublishInput.parse(input);
-    const publication = publicationIntent(this.record(id), device, value, id, this.now());
+    const previous = this.record(id);
+    // Only a durable pre-spawn marker proves an interrupted admission never sent creation.
+    if (previous?.dispatch === "pending" && previous.publication.phase === "creating") previous.publication.phase = "prepared";
+    const publication = publicationIntent(previous, device, value, id, this.now());
     const controller = new AbortController();
     const flight = { device, controller, git: false };
     this.flights.set(id, flight);
@@ -129,7 +137,11 @@ export class RepositoryPublications {
         this.save(device, publication);
         // Intent is durable before admission; even a lost CLI response must use exact-name lookup.
         try {
-          publication.remote = await remote.create(value, signal);
+          const dispatch = new MutationDispatch(() => {
+            check();
+            this.save(device, publication, "possible");
+          });
+          publication.remote = await remote.create(value, signal, dispatch);
         } catch (error) {
           if (!(error instanceof ForgeMutationOutcome)) {
             // The shared transport confirms that no write was dispatched (or HTTP rejected it).

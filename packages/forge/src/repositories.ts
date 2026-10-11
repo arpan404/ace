@@ -1,4 +1,4 @@
-import { ForgeMutationOutcome } from "./mutation.ts";
+import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
 import { ReadBudget } from "./read-budget.ts";
 import { z } from "zod";
 import { HostedRepository, RepositoryListInput, RepositoryPublishInput } from "@ace/protocol";
@@ -91,7 +91,7 @@ export class GitHubRepositories {
     }
   }
   /** Caller journals intent before admission and reconciles failures; no automatic retries. */
-  async create(input: RepositoryPublishInput, signal: AbortSignal): Promise<HostedRepository> {
+  async create(input: RepositoryPublishInput, signal: AbortSignal, dispatch?: MutationDispatch): Promise<HostedRepository> {
     const value = RepositoryPublishInput.parse(input);
     if (value.host !== this.host || value.account !== this.account)
       throw new ForgeError("forbidden");
@@ -104,7 +104,7 @@ export class GitHubRepositories {
       description: value.description,
       private: value.visibility === "private",
       auto_init: false,
-    });
+    }, "POST", dispatch);
     let repository: HostedRepository;
     try {
       repository = hosted(this.host, response.body);
