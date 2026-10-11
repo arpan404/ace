@@ -96,9 +96,28 @@ export class OpenCodeSession implements ProviderSession {
     this.ancestry = new AncestryProbe({
       client: this.client,
       ownership: this.ownership,
+      recovering: () => this.recovering,
       directory: () => this.ownership.sessions.get(this.ownership.root)?.directory ?? this.ctx.cwd,
       info: (info) => this.emit("recv", "snapshot.info", { info }),
-      receive: (data) => this.receive(data),
+      receive: (data, watermark) => {
+        if (!this.recovering || !this.evidence.covered(data, watermark)) this.receive(data);
+      },
+      buffered: (data, watermark) => {
+        this.emit("note", "ancestry.buffered", data);
+        if (this.recovering) this.evidence.observe(data, watermark);
+      },
+      pending: (id) => this.emit("note", "lifecycle", { type: "ancestry.pending", id }),
+      settled: (id) => this.emit("note", "lifecycle", { type: "ancestry.settled", id }),
+      failed: (data) => {
+        if (this.closed) return;
+        this.recovering = true;
+        this.emit("note", "ancestry.unverified", data);
+        this.emit("note", "lifecycle", {
+          type: "disconnected",
+          reason: "ancestry verification incomplete",
+        });
+        void this.server.reconcileNow();
+      },
     });
     this.abortListener = () => {
       void this.close("shutdown");
@@ -114,22 +133,21 @@ export class OpenCodeSession implements ProviderSession {
     const s = new OpenCodeSession(ctx, server);
     s.unsubscribe = server.subscribe({
       ...(ctx.outputFlow ? { outputFlow: ctx.outputFlow } : {}),
-      accepts: (data) => s.owns(data),
+      accepts: (data, watermark) => s.owns(data, watermark),
       receive: (data) => s.receive(data),
       buffered: (data, watermark) => s.evidence.observe(data, watermark),
       frame: s.emit,
       disconnected: (started) => {
         s.recovering = true;
         s.evidence.reset();
+        s.ancestry.observePending((data, watermark) => s.evidence.observe(data, watermark));
         s.recoveryStarted = started;
         s.emit("note", "lifecycle", { type: "disconnected" });
       },
       reconcile: (data, watermark) => {
         if (!s.evidence.covered(data, watermark)) s.receive(data);
       },
-      prepareReplay: () => {
-        for (const snap of s.evidence.positive()) s.emit("recv", snap.channel, snap.data);
-      },
+      prepareReplay: () => s.prepareReplay(),
       close: () => s.close("shutdown"),
       resync: () => s.resync(),
       finalizeSnapshots: () => s.finalizeSnapshots(),
@@ -193,7 +211,9 @@ export class OpenCodeSession implements ProviderSession {
       if (ctx.resume) {
         s.recovering = true;
         s.emit("note", "lifecycle", { type: "disconnected" });
+        s.ancestry.observePending((data, watermark) => s.evidence.observe(data, watermark));
         await s.resync();
+        await s.prepareReplay();
         s.finalizeSnapshots();
         s.recovering = false;
         s.emit("note", "lifecycle", { type: "resynced" });
@@ -236,7 +256,7 @@ export class OpenCodeSession implements ProviderSession {
     this.translator.translate(frame, t);
     this.ctx.onFrame(frame);
   };
-  private owns(data: unknown): boolean {
+  private owns(data: unknown, watermark = this.server.eventWatermark): boolean {
     if (this.closed) return false;
     if (this.opening) {
       const directory = string(object(object(data).location).directory);
@@ -256,7 +276,7 @@ export class OpenCodeSession implements ProviderSession {
     )
       return false;
     const accepted = this.ownership.accept(data);
-    if (!accepted) this.ancestry.prove(data);
+    if (!accepted) this.ancestry.prove(data, watermark);
     if (accepted && object(data).type === "session.moved") {
       const id = eventSession(data);
       // Refetch a known ID before changing its stored location or accepting new-project frames.
@@ -425,6 +445,8 @@ export class OpenCodeSession implements ProviderSession {
         this.evidence.stage(channel, data, session, Math.min(started, this.recoveryStarted)),
       liveMessages: (id) => this.translator.liveMessages(id),
       executionObserved: this.executionObserved,
+      pendingShells: () => this.ancestry.shells(),
+      shellSnapshot: (id, owner, started) => this.evidence.shell(id, owner, started),
       shell: async (id, directory) => {
         let status = 0;
         const client = this.server.scoped(
@@ -445,6 +467,19 @@ export class OpenCodeSession implements ProviderSession {
     });
   }
 
+  private async prepareReplay(): Promise<void> {
+    for (
+      let pass = 0;
+      this.ancestry.needsSnapshots((id) => this.evidence.complete(id)) ||
+      this.ancestry.needsShellSnapshots((id, owner) => this.evidence.completeShell(id, owner));
+      pass++
+    ) {
+      if (pass >= 8) throw new Error("OpenCode ancestry recovery incomplete");
+      await this.resync();
+    }
+    for (const snap of this.evidence.positive()) this.emit("recv", snap.channel, snap.data);
+    this.ancestry.reconciled();
+  }
   private finalizeSnapshots(): void {
     for (const snap of [...this.evidence.positive(), ...this.evidence.finish()]) {
       this.emit("recv", snap.channel, snap.data);

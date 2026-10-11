@@ -177,7 +177,7 @@ it("a revoked device loses queued jobs, presence and its address and cannot re-r
   await f.flush();
   expect(f.deliveries.slice(3).map((d) => d.device.id)).toEqual([f.desktop]);
 });
-it("vendor revocation stops future alerts while a permanent failure does not retry", async () => {
+it("vendor address expiry stops future alerts while a permanent failure does not retry", async () => {
   const f = fixture("gone");
   f.start();
   f.end();
@@ -383,4 +383,40 @@ it("revoked device tombstones do not consume capacity or regain authority after 
   f.service.connectDevice(newDevice);
   expect(f.service.getPreferences(newDevice)).toMatchObject({ includePreview: false });
   expect(() => f.service.connectDevice(DeviceId.parse("revoked-0"))).toThrow("revoked");
+});
+
+it("deleting a completed thread cancels its coalesced alert and suppresses later notices after restart", async () => {
+  const f = fixture();
+  f.start();
+  f.end();
+  f.append([{ type: "thread.client.updated", changes: { deletedAt: 1000 } }]);
+  await f.reopen();
+  await f.flush();
+  expect(f.deliveries).toEqual([]);
+  f.service.notify({
+    id: "late-notice",
+    threadId: f.threadId,
+    title: "Late notice",
+    status: "agent_says",
+    backgroundCount: 0,
+    actions: [],
+  });
+  f.start();
+  f.end();
+  await f.flush();
+  expect(f.deliveries).toEqual([]);
+});
+
+it("deleting a thread cancels queued offline delivery across restart", async () => {
+  const f = fixture("retry");
+  f.start();
+  f.end();
+  await f.flush();
+  expect(f.deliveries).toHaveLength(2);
+  f.append([{ type: "thread.client.updated", changes: { deletedAt: 6000 } }]);
+  await f.reopen();
+  f.setOutcome("accepted");
+  f.setTime(7000);
+  await f.service.drain();
+  expect(f.deliveries).toHaveLength(2);
 });

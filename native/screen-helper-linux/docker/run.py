@@ -12,7 +12,7 @@ platform = os.environ.get("ACE_TEST_PLATFORM", "linux/amd64")
 built = False
 try:
     subprocess.run(["docker", "info"], timeout=30, check=True, stdout=subprocess.DEVNULL)
-    subprocess.run(["docker", "build", "--platform", platform, "--label", "ace.ephemeral="+name, "-t", image, str(root)], timeout=1800, check=True)
+    subprocess.run(["docker", "build", "-f", str(root / "docker" / "Dockerfile"), "--platform", platform, "--label", "ace.ephemeral="+name, "-t", image, str(root)], timeout=1800, check=True)
     built = True
     subprocess.run(["docker", "run", "--name", name, "--rm", "--platform", platform, "--shm-size", "128m", image] + sys.argv[1:], timeout=300, check=True)
 finally:

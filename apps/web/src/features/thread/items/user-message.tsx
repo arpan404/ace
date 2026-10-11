@@ -2,7 +2,10 @@ import { MessageReferences } from "./message-references.tsx";
 import { userBubble } from "./user-bubble.ts";
 import { useItem } from "@ace/client-react";
 import { formatClock, withoutPortableHandoff, sanitizeUserText } from "@ace/ui-core";
-import { Suspense } from "react";
+import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { useCopy } from "@/components/use-copy.ts";
+import { Suspense, useRef } from "react";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { DeferredSendStatus } from "../composer/deferred-parts.tsx";
@@ -60,6 +63,8 @@ function localFiles(local: LocalSend): readonly LocalAttachment[] | undefined {
  * images show as thumbnails and files by name, never by a host path (AT-1).
  */
 export function UserMessage(props: { threadId: string; itemId: string }) {
+  const content = useRef<HTMLDivElement>(null);
+  const { copied, copy } = useCopy();
   const item = useItem(leasable(props.threadId), props.itemId);
   const local: LocalSend = useLocalSendsView(props.threadId)?.find(props.itemId) ?? nothing;
   const noticeId = local.noticeId;
@@ -112,8 +117,23 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
             />
           </Suspense>
         )}
-        {parts.length ? <MessageReferences parts={parts} /> : text}
+        <div ref={content}>{parts.length ? <MessageReferences parts={parts} /> : text}</div>
       </div>
+      {(text || parts.some((part) => part.type === "mention")) && (
+        <div className="flex items-center gap-2 pt-1 opacity-0 transition-opacity duration-(--dur-1) group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100 [@media(pointer:coarse)]:opacity-100">
+          <IconButton
+            icon={copied ? CheckIcon : CopyIcon}
+            label={copied ? "Copied message" : "Copy message"}
+            size="sm"
+            onClick={() => copy(content.current?.textContent ?? text)}
+          />
+          {copied && (
+            <span role="status" className="text-xs text-muted-foreground">
+              Copied
+            </span>
+          )}
+        </div>
+      )}
       {/* One line under the bubble: how its sending goes, else its time on hover. Both are
           the same height, so the row doesn't move when "Sending…" goes. */}
       {saying ? (

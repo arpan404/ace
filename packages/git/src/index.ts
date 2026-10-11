@@ -1,3 +1,5 @@
+import { writingContext } from "./writing-context.ts";
+import { SourceControlContext, type SourceControlSelection } from "@ace/protocol";
 import {
   cloneRepository,
   initRepository,
@@ -31,6 +33,7 @@ import {
 import type { ChangedFile, Checkpoint, DiffSide, GitOptions } from "./types.ts";
 
 export { validateCloneUrl } from "./projects.ts";
+export { publicationRemote } from "./publication-remote.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
 export { GitError, isMutationUnavailable } from "./types.ts";
 export { spawnGitProcess } from "./process-runtime.ts";
@@ -104,11 +107,44 @@ export class GitService {
     return integrateRevision(this.repository, input);
   }
 
+  async writingContext(worktree: string, selection: SourceControlSelection) {
+    const root = await this.repository.root(worktree);
+    return this.repository.serial(root, () => writingContext(this.repository, root, selection));
+  }
+
+  /** Validate and publish under the checkout's mutation lease. The callback must not reenter Git. */
+  async withWritingGuard<T>(
+    worktree: string,
+    selection: SourceControlSelection,
+    fingerprint: string,
+    publish: () => Promise<T>,
+  ): Promise<T> {
+    const expected = SourceControlContext.shape.fingerprint.parse(fingerprint);
+    const root = await this.repository.root(worktree);
+    const outcome = await this.repository.serial(
+      root,
+      async (): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> => {
+        const context = await writingContext(this.repository, root, selection);
+        if (context.fingerprint !== expected)
+          throw new GitError("head_moved", "Draft changes moved; regenerate or discard the draft");
+        // The Git lease translates Git failures. Preserve the publisher's own error categories.
+        try {
+          return { ok: true, value: await publish() };
+        } catch (error) {
+          return { ok: false, error };
+        }
+      },
+    );
+    if (!outcome.ok) throw outcome.error;
+    return outcome.value;
+  }
+
   /** Commit every change, or only `paths`; other changes stay as they were. */
   commit(options: {
     worktree: string;
     message: string;
     expectedHead: string | null;
+    draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
   }): Promise<string> {
     return commitChanges(this.repository, options);

@@ -11,6 +11,7 @@ interface Child {
 export class SessionRouting {
   readonly children = new Map<string, Child>();
   readonly toolOwners = new Map<string, string>();
+  private completedTools = new Set<string>();
   readonly byKey = new Map<string, Child>();
   readonly live = new Set<string>();
   readonly byParent = new Map<string, Set<string>>();
@@ -42,6 +43,23 @@ export class SessionRouting {
     const parent = string(params["sessionId"]);
     const update = object(params["update"]);
     const type = string(update["sessionUpdate"]);
+    const toolId = string(update["toolCallId"]);
+    const toolKey = JSON.stringify([parent, toolId]);
+    const passive =
+      type === "tool_call_update" &&
+      this.completedTools.has(toolKey) &&
+      !["pending", "in_progress"].includes(string(update["status"]));
+    if (toolId && ["tool_call", "tool_call_update"].includes(type)) {
+      if (["completed", "failed", "cancelled"].includes(string(update["status"]))) {
+        this.completedTools.delete(toolKey);
+        this.completedTools.add(toolKey);
+        if (this.completedTools.size > 4096) {
+          const oldest = this.completedTools.values().next().value;
+          if (oldest) this.completedTools.delete(oldest);
+        }
+      } else if (["pending", "in_progress"].includes(string(update["status"])))
+        this.completedTools.delete(toolKey);
+    }
     if (type === "tool_call" && typeof update["toolCallId"] === "string")
       this.toolOwners.set(update["toolCallId"], parent);
     const association = childAssociation(update);
@@ -49,6 +67,7 @@ export class SessionRouting {
       if (
         parent &&
         parent !== this.root &&
+        !passive &&
         ["agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update"].includes(
           type,
         )

@@ -1,4 +1,4 @@
-import { scopedSelection, type ModelScope } from "@ace/client";
+import { ClientError, scopedSelection, type ModelScope } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import {
   AgentLaunchOptions,
@@ -10,14 +10,30 @@ import {
 } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { baseName, provisionalTitle } from "@ace/ui-core";
-import { useCallback, useState } from "react";
-import { rememberTitle } from "@/features/thread/index.ts";
+import { useCallback, useRef, useState } from "react";
+import { rememberTitle, sameSubmittedDraft, type SubmittedDraft } from "@/features/thread/index.ts";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import { withBrowserLock } from "@/boot/web-locks.ts";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import {
+  createAttemptKey,
+  forgetCreateAttempt,
+  readCreateAttempt,
+  saveCreateAttempt,
+} from "./create-attempt.ts";
+import {
+  differentCreateHost,
+  settleCreateAttempt,
+  useCreateRecovery,
+} from "./use-create-recovery.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { dismissSend } from "@/lib/dismissed-sends.ts";
 import { rememberProvider } from "@/lib/provider-statuses.ts";
 
 export interface CreateRequest {
   project: string;
+  /** The composer's own draft key, retained until the original create settles. */
+  draftKey?: string | undefined;
   /** The account the thread runs on: picked first, before its model. */
   scope: ModelScope;
   /** The catalog id listed on that account (OpenCode's `provider/model`), never a bare native id. */
@@ -72,42 +88,116 @@ export const pendingThreadId = (commandId: string) => `pending:${commandId}`;
  * Start a thread the way a message is sent (UX audit SY-2, SY-4): `thread.create` goes into the
  * client's durable outbox under a command id made here, and the thread opens after the local save on its
  * pending route (`/t/pending:<commandId>`) with the person's message as its first bubble. The
- * pending view moves to the real thread when the daemon's receipt names it. Offline or slow is
- * never a failure, and a retry reuses nothing, so one Enter can never start two threads.
+ * pending view moves to the real thread when the daemon's receipt names it. A lost worker
+ * leaves an unresolved attempt under its original id; resubmission reconciles that attempt
+ * before a new command can be allocated.
  */
-export function useCreateThread(): {
-  /** Resolves false only when this device couldn't save the request. */
+export function useCreateThread(
+  onRecovered: (payload: SubmittedDraft & { workspaceId: string }) => void,
+): {
+  /** Resolves false when the composer must keep its draft, including uncertain worker delivery. */
   create(request: CreateRequest): Promise<boolean>;
   error: string | undefined;
+  recovering: boolean;
 } {
   const client = useClient();
   const navigate = useNavigate();
   const { storage } = useLayout();
+  const connection = useDaemonConnection();
+  const host = useHostIdentity();
+  const deviceId = connection.endpoint?.kind === "daemon" ? connection.endpoint.deviceId : "fake";
+  const recoveryKey = createAttemptKey(connection.url, deviceId);
   const [error, setError] = useState<string>();
 
-  const create = useCallback(
+  const flight = useRef<{ payload: SubmittedDraft; promise: Promise<boolean> } | undefined>(
+    undefined,
+  );
+  const recovery = useCreateRecovery({
+    client,
+    storage,
+    key: recoveryKey,
+    hostId: host?.hostId,
+    isSubmitting: () => flight.current !== undefined,
+    onError: setError,
+    onRecovered,
+  });
+
+  const submit = useCallback(
     async (request: CreateRequest) => {
       setError(undefined);
-      const commandId = crypto.randomUUID();
-      const payload = createPayload(request);
-      // Its header and row read the provisional title at once (the daemon titles it the same way).
-      rememberTitle(commandId, provisionalTitle(payload.input));
-      // Keep the composer mounted until the outbox owns a reload-safe copy.
-      const saved = client.enqueue(payload, commandId);
-      rememberProvider(storage, payload.provider);
+      const requested = createPayload(request);
+      let commandId: string | undefined;
+      let submitted = false;
       try {
-        await saved;
+        const hostId =
+          host?.hostId ?? (await client.request({ type: "host.identity" })).identity.hostId;
+        const attempt = await withBrowserLock(recoveryKey, () => {
+          const previous = readCreateAttempt(storage, recoveryKey);
+          if (previous && previous.hostId !== hostId) {
+            setError(differentCreateHost);
+            return undefined;
+          }
+          const reserved = previous ?? {
+            hostId,
+            commandId: crypto.randomUUID(),
+            draftKey: request.draftKey,
+            payload: requested,
+          };
+          saveCreateAttempt(storage, recoveryKey, reserved);
+          return reserved;
+        });
+        if (!attempt) return false;
+        commandId = attempt.commandId;
+        rememberTitle(commandId, provisionalTitle(attempt.payload.input));
+        rememberProvider(storage, attempt.payload.provider);
+        submitted = true;
+        await client.enqueue(attempt.payload, commandId);
+        // A local enqueue reply confirms persistence, not settlement. Keep the journal
+        // until a receipt for this ID arrives, including after this page has unmounted.
+        void settleCreateAttempt(client, storage, recoveryKey, attempt).catch(() => {
+          /* Reconnect recovers the saved payload under its original ID. */
+        });
         void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
-        return true;
-      } catch {
-        // A failed local write leaves only an in-memory send. The composer restores
-        // the original draft, so hide that duplicate recovery entry.
-        dismissSend(storage, commandId);
+        return sameSubmittedDraft(requested, attempt.payload);
+      } catch (failure) {
+        if (submitted && failure instanceof ClientError && failure.code === "offline") {
+          setError(
+            "Thread delivery is uncertain. Reconnect and send this message again to recover the same thread.",
+          );
+          return false;
+        }
+        if (submitted && commandId) {
+          try {
+            await withBrowserLock(recoveryKey, () => {
+              if (commandId) forgetCreateAttempt(storage, recoveryKey, commandId);
+            });
+          } catch {
+            /* Retry remains idempotent. */
+          }
+          dismissSend(storage, commandId);
+        }
         setError("This device couldn't save the new thread. Try again.");
         return false;
       }
     },
-    [client, navigate, storage],
+    [client, navigate, storage, recoveryKey, host],
   );
-  return { create, error };
+  const create = useCallback(
+    (request: CreateRequest) => {
+      // Share the promise before any awaited identity or persistence work. A second Enter
+      // cannot allocate another command while the first submission remains unresolved.
+      if (recovery.isRecovering()) return Promise.resolve(false);
+      const payload = createPayload(request);
+      const current = flight.current;
+      if (current)
+        return current.promise.then((sent) => sent && sameSubmittedDraft(current.payload, payload));
+      const pending = submit(request).finally(() => {
+        if (flight.current?.promise === pending) flight.current = undefined;
+      });
+      flight.current = { payload, promise: pending };
+      return pending;
+    },
+    [submit, recovery],
+  );
+  return { create, error, recovering: recovery.recovering };
 }

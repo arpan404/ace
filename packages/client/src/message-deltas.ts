@@ -8,11 +8,12 @@ interface Tail {
   prefixUnits: number;
 }
 function shell(item: Message, parts: ContentPart[]): Message {
-  return {
-    type: "message",
+  // Copy descriptors so replacing a lazy parts getter never materializes the old prefix.
+  const { parts: _parts, ...metadata } = Object.getOwnPropertyDescriptors(item);
+  const next: Message = {
+    type: item.type,
     id: item.id,
     agentId: item.agentId,
-    ...(item.runId === undefined ? {} : { runId: item.runId }),
     createdAt: item.createdAt,
     complete: item.complete,
     role: item.role,
@@ -20,6 +21,7 @@ function shell(item: Message, parts: ContentPart[]): Message {
     raw: item.raw,
     parts,
   };
+  return Object.defineProperties(next, metadata);
 }
 /** Immutable tails keep application O(append); materialize the full parts array on read.
  * Prefixes are shared, never chained through previous items. Weak keys do not retain history. */

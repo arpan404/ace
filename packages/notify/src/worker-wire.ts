@@ -50,7 +50,7 @@ export const ToWorker = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("deliveryResult"),
     id: seq,
-    result: z.enum(["accepted", "retry", "gone", "failed"]),
+    result: z.enum(["accepted", "retry", "gone", "revoked", "failed"]),
   }),
 ]);
 export const FromWorker = z.discriminatedUnion("type", [

@@ -8,3 +8,4 @@ export {
 } from "./measure.ts";
 export { selectTurn, scrollTranscript, stepTurn } from "./navigation.ts";
 export { reportBrowser } from "./browser-budgets.ts";
+export { workerHeap, type WorkerSession } from "./worker-heap.ts";

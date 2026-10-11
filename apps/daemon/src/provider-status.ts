@@ -1,3 +1,4 @@
+import { configuredProviderDiscovery } from "./provider-discovery.ts";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { providerReadiness, onboardingChecklist } from "@ace/core";
 import { providerStatusRow } from "./provider-status-row.ts";
@@ -10,17 +11,26 @@ import {
   type DiscoveryResult,
 } from "@ace/provider-kit/discovery";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
+import { probeOutput } from "@ace/provider-kit/process";
 
 export interface ProviderStatusOptions extends DiscoveryOptions {
   piExecutable?: string;
-  configuration?: (provider: Status["provider"]) => {
+  configuration?: (
+    provider: Status["provider"],
+    instance?: string,
+  ) => {
     enabled?: boolean | undefined;
     binaryPath?: string | undefined;
+    revision?: string | undefined;
   };
+  environment?(
+    provider: Status["provider"],
+    instance?: string,
+  ): NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv>;
   attention?(row: Status): boolean;
   account?(
     row: Status,
-  ): Partial<Pick<Status, "auth" | "authMethod" | "accountLabel" | "authDetail">>;
+  ): Partial<Pick<Status, "auth" | "authMethod" | "accountLabel" | "authDetail" | "instanceId">>;
   authInfo?(row: Status, signal: AbortSignal): Promise<Pick<Status, "apiKey" | "authMethod">>;
   versions?(
     row: Status,
@@ -47,13 +57,24 @@ export class ProviderStatuses {
     stale: true,
     refreshing: false,
   }));
+  private published: string | undefined;
+  private observations = new Map<Status["provider"], string>();
+  private followup: Promise<void> | undefined;
   private listeners = new Set<(rows: Status[]) => void>();
   listen(listener: (rows: Status[]) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
   publish(): void {
-    for (const listener of this.listeners) listener(this.readiness());
+    const rows = this.readiness();
+    // Fresh timestamps alone do not change provider availability. Mutation callers
+    // may also publish after refresh; suppress their duplicate settled result.
+    const observation = JSON.stringify(
+      rows.map(({ checkedAt: _checkedAt, versionCheckedAt: _versionCheckedAt, ...row }) => row),
+    );
+    if (observation === this.published) return;
+    this.published = observation;
+    for (const listener of this.listeners) listener(rows);
   }
   private options: ProviderStatusOptions;
   private runtime: ProviderStatusRuntime;
@@ -66,20 +87,70 @@ export class ProviderStatuses {
     this.runtime = runtime;
     void this.refresh();
   }
+  private selection(row: Status) {
+    const account = this.options.account?.(row);
+    const configuration = this.options.configuration?.(row.provider, account?.instanceId);
+    return {
+      account,
+      configuration,
+      key: JSON.stringify([
+        account?.instanceId,
+        configuration?.binaryPath,
+        configuration?.enabled !== false,
+        configuration?.revision,
+      ]),
+    };
+  }
+  private refreshSelection(): void {
+    if (this.followup || this.controller.signal.aborted) return;
+    this.followup = Promise.resolve()
+      .then(async () => {
+        await this.flight;
+        await this.refresh();
+      })
+      .finally(() => {
+        this.followup = undefined;
+      });
+  }
   list(): Status[] {
     const now = this.runtime.now();
-    return this.rows.map((row) => {
+    return this.rows.map((cached) => {
+      const selection = this.selection(cached);
+      const observed = this.observations.get(cached.provider);
+      const fresh = observed === undefined || observed === selection.key;
+      if (!fresh) this.refreshSelection();
+      const row: Status = fresh
+        ? cached
+        : {
+            provider: cached.provider,
+            runtime: cached.runtime,
+            installed: null,
+            auth: "unknown",
+            loginHint: cached.loginHint,
+            stale: true,
+            refreshing: Boolean(this.flight),
+          };
       const available = row.provider === "opencode" && this.options.modelsAvailable?.(row.provider);
       const { state, actionId, ...observation } = row;
+      const account = this.options.account?.(row);
+      // Auth-derived actions follow the selected account; installation errors stay intact.
+      const authState = state === "not_configured" && actionId === "provider.sign_in";
+      const selectedAuth = account?.auth ?? row.auth;
+      const effectiveState =
+        account?.auth !== undefined && (authState || state === undefined)
+          ? selectedAuth === "logged_out" && row.installed && !row.error
+            ? { state: "not_configured" as const, actionId: "provider.sign_in" as const }
+            : {}
+          : { state, actionId };
       return providerReadiness({
         ...observation,
-        ...(available ? { modelsAvailable: true } : { state, actionId }),
+        ...(available ? { modelsAvailable: true } : effectiveState),
         instanceId:
           row.runtime === "cursor-sdk" ? "cursor-sdk-default" : `${row.provider}-cli-default`,
         permissionModes: nativePermissionModes(row.provider),
-        ...this.options.account?.(row),
+        ...account,
         ...(this.options.attention?.(row) ? { readiness: "needs_attention" as const } : {}),
-        enabled: this.options.configuration?.(row.provider).enabled !== false,
+        enabled: selection.configuration?.enabled !== false,
         stale: row.checkedAt === undefined || now - row.checkedAt >= 300_000,
         refreshing: Boolean(this.flight),
       });
@@ -97,27 +168,41 @@ export class ProviderStatuses {
       signal: this.controller.signal,
       timeoutMs: this.options.timeoutMs ?? 4000,
     };
-    const probe = (row: Status): Promise<DiscoveryResult | undefined> => {
-      const configuration = this.options.configuration?.(row.provider);
+    const selections = new Map(this.rows.map((row) => [row.provider, this.selection(row)]));
+    const assertSelection = (row: Status) => {
+      this.controller.signal.throwIfAborted();
+      if (selections.get(row.provider)?.key !== this.selection(row).key)
+        throw new Error("Provider selection changed");
+    };
+    const probe = async (row: Status): Promise<DiscoveryResult | undefined> => {
+      const selection = selections.get(row.provider);
+      const configuration = selection?.configuration;
       if (configuration?.enabled === false) return Promise.resolve(undefined);
-      const configured = {
+      const env =
+        (await this.options.environment?.(row.provider, selection?.account?.instanceId)) ??
+        options.env;
+      assertSelection(row);
+      const configured = configuredProviderDiscovery(row.provider, configuration?.binaryPath, {
         ...options,
-        ...(configuration?.binaryPath &&
-        ["claude", "codex", "opencode", "cursor"].includes(row.provider)
-          ? { overrides: { ...options.overrides, [row.provider]: configuration.binaryPath } }
-          : {}),
-      };
+        ...(env ? { env } : {}),
+        probe: async (...args: Parameters<typeof probeOutput>) => {
+          assertSelection(row);
+          const result = await (options.probe ?? probeOutput)(...args);
+          assertSelection(row);
+          return result;
+        },
+      });
       if (row.runtime === "cursor-sdk")
         return this.options.cursorSdk?.(this.controller.signal) ?? Promise.resolve(undefined);
       switch (row.provider) {
         case "pi": {
           const executable = configuration?.binaryPath ?? this.options.piExecutable;
-          return discoverPiStatus({ ...options, ...(executable ? { executable } : {}) });
+          return discoverPiStatus({ ...configured, ...(executable ? { executable } : {}) });
         }
         case "antigravity":
           if (this.options.antigravity) return this.options.antigravity(this.controller.signal);
           return discoverAntigravity({
-            ...options,
+            ...configured,
             ...(configuration?.binaryPath ? { executable: configuration.binaryPath } : {}),
           });
         case "claude":
@@ -132,15 +217,23 @@ export class ProviderStatuses {
     const work = this.rows.map(async (row): Promise<Status> => {
       try {
         const status = await probe(row);
-        const result = providerStatusRow(row, status, this.runtime.now());
+        assertSelection(row);
+        const instanceId = selections.get(row.provider)?.account?.instanceId;
+        const result: Status = {
+          ...providerStatusRow(row, status, this.runtime.now()),
+          ...(instanceId ? { instanceId } : {}),
+        };
         const versions =
           result.installed && this.options.versions
             ? await this.options.versions(result, this.controller.signal)
             : {};
+        assertSelection(row);
+        const authInfo = await this.options.authInfo?.(result, this.controller.signal);
+        assertSelection(row);
         return {
           ...result,
           ...versions,
-          ...(await this.options.authInfo?.(result, this.controller.signal)),
+          ...authInfo,
         };
       } catch {
         return {
@@ -159,16 +252,28 @@ export class ProviderStatuses {
     this.flight = Promise.all(work)
       .then((rows) => {
         if (!this.controller.signal.aborted) {
-          this.rows = rows;
-          this.options.checked?.(rows);
+          const admitted = rows.filter(
+            (row) => selections.get(row.provider)?.key === this.selection(row).key,
+          );
+          const admittedProviders = new Set(admitted.map((row) => row.provider));
+          this.rows = rows.map((row) =>
+            admittedProviders.has(row.provider)
+              ? row
+              : providerStatusRow(row, undefined, this.runtime.now()),
+          );
+          for (const [provider, selection] of selections)
+            this.observations.set(provider, selection.key);
+          this.options.checked?.(admitted);
         }
       })
       .finally(() => {
         this.flight = undefined;
-        if (!this.controller.signal.aborted)
+        if (!this.controller.signal.aborted) {
           this.cancelTimer = this.runtime.schedule(() => {
             void this.refresh();
           }, 300_000);
+          this.publish();
+        }
       });
     return this.flight;
   }

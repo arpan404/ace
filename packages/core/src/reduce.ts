@@ -164,8 +164,6 @@ function fold(
       break;
     case "turn.ended":
       endTurn(state, fact, ctx, events);
-      if (fact.error?.kind === "quota")
-        ensureAgent(state, fact.agent, ctx, events).limited = { message: fact.error.message };
       break;
     case "input.admitted":
       emit(events, {

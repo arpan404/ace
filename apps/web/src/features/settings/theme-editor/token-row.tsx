@@ -14,7 +14,7 @@ import { isHexColor, longHex, swatchColor } from "./editor-model.ts";
 const settleMs = 150;
 
 const field =
-  "h-7 min-w-0 w-40 max-w-full rounded-sm bg-secondary px-2 font-mono text-sm text-foreground focus-ring";
+  "h-7 pointer-coarse:min-h-11 min-w-0 w-40 max-w-full rounded-sm bg-secondary px-2 font-mono text-sm text-foreground focus-ring";
 
 /**
  * One token: name, a swatch that is also the colour picker for hex values, and the value
@@ -65,7 +65,7 @@ export const TokenRow = memo(function TokenRow(props: {
             aria-label={`Pick ${label}`}
             value={longHex(value)}
             onChange={(event) => onChange(token, event.target.value.toUpperCase())}
-            className="size-7 shrink-0 cursor-pointer rounded-sm border border-foreground/30 bg-transparent p-0 focus-ring [&::-webkit-color-swatch]:rounded-sm [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0"
+            className="size-7 pointer-coarse:size-11 shrink-0 cursor-pointer rounded-sm border border-foreground/30 bg-transparent p-0 focus-ring [&::-webkit-color-swatch]:rounded-sm [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0"
           />
         ) : (
           <span

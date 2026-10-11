@@ -3,7 +3,7 @@ import { WorkspaceCreations } from "./creation-workspace.ts";
 import { createHash } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { GitError, type GitService } from "@ace/git";
+import { GitError, publicationRemote, type GitService } from "@ace/git";
 import { repositoryFromRemote } from "@ace/forge";
 import { ThreadId, type ThreadDetails, type Command } from "@ace/protocol";
 import type { Store } from "./store.ts";
@@ -261,7 +261,7 @@ export class WorkspaceRoots {
 function originRepository(
   remotes: readonly { name: string; fetchUrls: readonly string[] }[],
 ): ThreadDetails["repository"] {
-  const remote = (remotes.find((entry) => entry.name === "origin") ?? remotes[0])?.fetchUrls[0];
+  const remote = publicationRemote(remotes)?.fetchUrls[0];
   if (!remote) return undefined;
   try {
     return repositoryFromRemote(remote);

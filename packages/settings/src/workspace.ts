@@ -1,11 +1,17 @@
-import { lstat, realpath } from "node:fs/promises";
+import { lstat, realpath, stat } from "node:fs/promises";
 import { resolve, relative, isAbsolute, dirname, basename } from "node:path";
 import { SettingsError } from "./validation.ts";
 
 export async function workspaceGuard(root: string): Promise<() => Promise<void>> {
   const canonical = await realpath(root);
+  const identity = await stat(canonical, { bigint: true });
   return async () => {
-    if ((await realpath(root)) !== canonical)
+    const current = await stat(root, { bigint: true });
+    if (
+      (await realpath(root)) !== canonical ||
+      current.dev !== identity.dev ||
+      current.ino !== identity.ino
+    )
       throw new SettingsError("validation", "Workspace root changed during settings access");
     for (const path of [resolve(canonical, ".ace"), resolve(canonical, ".ace", "settings.json")]) {
       try {

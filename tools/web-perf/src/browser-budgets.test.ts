@@ -16,7 +16,31 @@ const healthy = {
   longShare: 0,
   longCount: 0,
   seconds: 12,
+  streamedEvents: 60_000,
+  streamedSeconds: 12,
+  streamAgeSeconds: 0.008,
 };
+
+test.each([
+  { streamedEvents: 15_000, streamedSeconds: 3, streamAgeSeconds: 9 },
+  { streamedEvents: 0, streamedSeconds: 0, streamAgeSeconds: 12 },
+  { streamedEvents: 60_000, streamedSeconds: 12, streamAgeSeconds: 9 },
+  { streamedEvents: 0, streamedSeconds: 12, streamAgeSeconds: 0.008 },
+])("incomplete delivery is fatal even with healthy page timings", async (delivery) => {
+  await expect(
+    retryTiming(
+      async () => reportBrowser(5000, { ...healthy, ...delivery }),
+      () => {},
+    ),
+  ).rejects.toThrow("Incomplete streaming workload");
+  expect(() => reportBrowser(5000, { ...healthy, ...delivery })).not.toThrow(TimingFailure);
+});
+
+test("continuous delivery at the floor tolerates a normal batch boundary", () => {
+  expect(() =>
+    reportBrowser(5000, { ...healthy, streamedEvents: 59_960, streamedSeconds: 11.992 }),
+  ).not.toThrow();
+});
 
 test("4997.42 events/s is rejected and replaced only by a passing complete repeat", async () => {
   const samples = [4997.42, 5040][Symbol.iterator]();

@@ -16,7 +16,6 @@ import {
   CheckCircleIcon,
   ClockIcon,
   GitMergeIcon,
-  LinkIcon,
   MinusCircleIcon,
   UserPlusIcon,
   WarningIcon,
@@ -69,10 +68,14 @@ function ToneIcon(props: { tone: keyof typeof tones }) {
 const open = (url: string, onError: () => void) => void openExternal(url).catch(onError);
 
 /** Compact links; the validated field appears only when requested. */
-export function PullRequestsSection(props: { git: GitFlow }) {
+export function PullRequestsSection(props: {
+  git: GitFlow;
+  linking: boolean;
+  onLinkClose(): void;
+}) {
   const { git } = props;
   const checkout = git.checkout;
-  const [linking, setLinking] = useState(false);
+
   const [confirm, setConfirm] = useState(false);
   const links = git.linkedPrs?.length ? git.linkedPrs : checkout?.pr ? [checkout.pr] : [];
   return (
@@ -86,22 +89,16 @@ export function PullRequestsSection(props: { git: GitFlow }) {
           onUnlinkAll={() => setConfirm(true)}
         />
       ))}
-      {checkout?.repository?.forge !== "gitlab" &&
-        (linking ? (
-          <PrLinkForm
-            repository={checkout?.repository}
-            pending={git.pending}
-            onDone={() => setLinking(false)}
-            onLink={(number, repository) =>
-              git.submit({ kind: "link-pr", number, ...(repository ? { repository } : {}) })
-            }
-          />
-        ) : (
-          <RowButton className="text-subtle-foreground" onClick={() => setLinking(true)}>
-            <LinkIcon aria-hidden size={14} />
-            Link a pull request
-          </RowButton>
-        ))}
+      {props.linking && checkout?.repository?.forge !== "gitlab" && (
+        <PrLinkForm
+          repository={checkout?.repository}
+          pending={git.pending}
+          onDone={props.onLinkClose}
+          onLink={(number, repository) =>
+            git.submit({ kind: "link-pr", number, ...(repository ? { repository } : {}) })
+          }
+        />
+      )}
       {confirm && (
         <PrUnlinkDialog
           onClose={() => setConfirm(false)}
@@ -136,7 +133,7 @@ function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string; onUnl
   const ci = error === undefined && !refreshing && pr.ci && pr.ci !== "unknown" ? pr.ci : undefined;
   return (
     <div>
-      <div className="group/pr relative flex h-7 min-w-0 items-center">
+      <div className="group/pr relative flex min-h-(--row-height) min-w-0 items-center">
         <RowButton
           className="flex-1"
           aria-expanded={openNow}
@@ -163,7 +160,7 @@ function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string; onUnl
             onClick={() => open(url, () => toast.error({ title: "Couldn’t open the PR" }))}
           />
         )}
-        <span className="absolute right-6 hidden bg-panel group-focus-within/pr:inline-flex group-hover/pr:inline-flex">
+        <span className="absolute right-6 hidden bg-panel group-focus-within/pr:inline-flex group-hover/pr:inline-flex [@media(pointer:coarse)]:inline-flex">
           <Menu>
             <MenuTrigger
               render={
@@ -190,7 +187,7 @@ function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string; onUnl
       </div>
       {openNow && (
         <section id={id} aria-label={`Pull request #${pr.number}`}>
-          <div className="flex h-8 items-center gap-1 pr-1 pl-2.5">
+          <div className="flex min-h-(--row-height) items-center gap-1 pr-1 pl-2.5">
             <Tip label={pr.title ?? `Pull request #${pr.number}`}>
               <h3 className="min-w-0 flex-1 truncate text-ui">
                 <span className="text-subtle-foreground">#{pr.number}</span> {pr.title}
@@ -257,7 +254,10 @@ function PrDetails(props: {
       {view.checks.length > 0 && (
         <ul aria-label="Checks">
           {view.checks.map((check) => (
-            <li key={check.id} className="flex h-7 items-center gap-2.5 pr-1 pl-6 text-sm">
+            <li
+              key={check.id}
+              className="flex min-h-(--row-height) items-center gap-2.5 pr-1 pl-6 text-sm"
+            >
               <ToneIcon tone={check.status} />
               <TruncatedText>{check.name}</TruncatedText>
               {check.url && (

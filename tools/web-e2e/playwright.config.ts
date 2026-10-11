@@ -1,8 +1,17 @@
+import { homedir } from "node:os";
 import { defineConfig } from "@playwright/test";
-import { daemonHome, webPort as realPort } from "./src/real-daemon-config.ts";
+import { webPort as realPort } from "./src/real-daemon-config.ts";
 
 const fakePort = Number(process.env.ACE_E2E_FAKE_PORT ?? 5190);
 const web = new URL("../../apps/web", import.meta.url).pathname;
+
+/** The fake browser journeys need only Vite and the in-page scripted daemon. */
+export const fakeWebServer = {
+  command: `bunx vite --mode fake --host 127.0.0.1 --port ${fakePort} --strictPort`,
+  cwd: web,
+  url: `http://127.0.0.1:${fakePort}`,
+  reuseExistingServer: !process.env.CI,
+};
 
 /**
  * End-to-end journeys through the real web app in Chromium.
@@ -49,12 +58,7 @@ export default defineConfig({
     },
   ],
   webServer: [
-    {
-      command: `bunx vite --mode fake --host 127.0.0.1 --port ${fakePort} --strictPort`,
-      cwd: web,
-      url: `http://127.0.0.1:${fakePort}`,
-      reuseExistingServer: !process.env.CI,
-    },
+    fakeWebServer,
     {
       command: `bunx vite --host 127.0.0.1 --port ${realPort} --strictPort`,
       cwd: web,
@@ -62,9 +66,9 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
     },
     {
-      // HOME points into the throwaway daemon home so nothing reads the person's own CLI state.
+      // The entrypoint isolates the complete environment before starting daemon services.
       command: "node src/real-daemon.ts",
-      env: { HOME: daemonHome, ACE_LOG_LEVEL: "warn" },
+      env: { ACE_TEST_REAL_HOME: process.env.ACE_TEST_REAL_HOME ?? homedir() },
       wait: { stdout: /e2e daemon ready/ },
       reuseExistingServer: false,
     },

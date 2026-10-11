@@ -1,4 +1,5 @@
 import { logError } from "@ace/diagnostics";
+import { followAutomationSetting } from "../automation-lifecycle.ts";
 import { AgentPreviews } from "./previews.ts";
 export { AgentPreviews } from "./previews.ts";
 import { createHandoffs } from "./handoffs.ts";
@@ -102,7 +103,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
   });
   resources.own(() => automations.stop());
   resources.onShutdown(() => automations.stop());
-  context.onListen.push(() => automations.start());
+  context.onListen.push(() => followAutomationSetting(context, automations));
   const previews = new AgentPreviews();
   const handoffs = createHandoffs(context, delegations);
   return {
@@ -168,12 +169,8 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
             )
               return { ok: false, code: "unsupported" };
             store.atomic((db) => {
-              if (
-                Number(db.prepare("SELECT COUNT(*) AS n FROM agent_automation_owners").get()?.n) >=
-                  1000 &&
-                !identity
-              )
-                throw new Error("Automation capacity");
+              // Ownership tombstones protect historical and interrupted runs.
+              // AutomationStore caps live definitions; this claim and put never yield.
               db.prepare("INSERT OR IGNORE INTO agent_automation_owners VALUES (?,?,?)").run(
                 automationId,
                 caller.threadId,

@@ -125,7 +125,15 @@ export function scheduleToPreset(schedule: AutomationSchedule): SchedulePreset {
     const day = rule.days?.length === 1 ? weekdays.find((d) => d === rule.days?.[0]) : undefined;
     if (day) return { kind: "weekly", day, time };
   }
-  if (rule.freq === "HOURLY" && !rule.days && !rule.hours && rule.minutes?.join() === "0")
+  if (
+    rule.freq === "HOURLY" &&
+    Number.isInteger(rule.interval) &&
+    rule.interval >= 1 &&
+    rule.interval <= 23 &&
+    !rule.days &&
+    !rule.hours &&
+    rule.minutes?.join() === "0"
+  )
     return { kind: "hourly", every: rule.interval };
   return custom;
 }

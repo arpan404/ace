@@ -87,7 +87,8 @@ export class HeadlessDownloads {
   async accept(download: Download, tabId: string): Promise<void> {
     const directory = this.request.downloadDir;
     if (this.privateMode || this.entries.length >= 128 || !directory) {
-      await download.cancel();
+      await download.cancel().catch(() => {});
+      await download.delete().catch(() => {});
       return;
     }
     const abort = new AbortController();
@@ -113,55 +114,68 @@ export class HeadlessDownloads {
     this.entries.push(entry);
     this.request.changed?.();
     const path = join(directory, `${entry.downloadId}-${filename}`);
+    let published = false;
     try {
       await this.admission.run(
         signal,
         async () => {
-          if (!(await this.allowed(download.url()))) {
-            entry.state = "denied";
-            await download.cancel();
-            return;
+          try {
+            if (!(await this.allowed(download.url()))) {
+              entry.state = "denied";
+              await download.cancel();
+              return;
+            }
+            signal.throwIfAborted();
+            await mkdir(directory, { recursive: true, mode: 0o700 });
+            const stream = await download.createReadStream();
+            if (!stream) throw new Error("Download stream unavailable");
+            signal.throwIfAborted();
+            const limit = this.request.maxDownloadBytes ?? 64 * 1024 * 1024;
+            const counter = new Transform({
+              transform: (chunk: Buffer, _encoding, callback) => {
+                if (
+                  entry.bytes + chunk.byteLength > limit ||
+                  this.total + chunk.byteLength > 256 * 1024 * 1024
+                ) {
+                  entry.state = "too_large";
+                  callback(new Error("Download size limit"));
+                  return;
+                }
+                entry.bytes += chunk.byteLength;
+                this.total += chunk.byteLength;
+                callback(null, chunk);
+              },
+            });
+            await pipeline(stream, counter, createWriteStream(path, { flags: "wx", mode: 0o600 }), {
+              signal,
+            });
+            signal.throwIfAborted();
+            if (this.request.artifact) {
+              await this.request.artifact({
+                path,
+                mimeType,
+                bytes: entry.bytes,
+                filename,
+                flags: entry.flags,
+              });
+              published = true;
+            }
+            signal.throwIfAborted();
+            entry.state = "complete";
+            entry.path = path;
+          } finally {
+            // PolicyGate can return on cancellation before this work settles.
+            // The publisher owns these bytes until it acknowledges or rejects.
+            // Successful publication retains its original path even if cancelled.
+            if (!published && entry.state !== "complete") await rm(path, { force: true });
           }
-          signal.throwIfAborted();
-          await mkdir(directory, { recursive: true, mode: 0o700 });
-          const stream = await download.createReadStream();
-          if (!stream) throw new Error("Download stream unavailable");
-          signal.throwIfAborted();
-          const limit = this.request.maxDownloadBytes ?? 64 * 1024 * 1024;
-          const counter = new Transform({
-            transform: (chunk: Buffer, _encoding, callback) => {
-              if (
-                entry.bytes + chunk.byteLength > limit ||
-                this.total + chunk.byteLength > 256 * 1024 * 1024
-              ) {
-                entry.state = "too_large";
-                callback(new Error("Download size limit"));
-                return;
-              }
-              entry.bytes += chunk.byteLength;
-              this.total += chunk.byteLength;
-              callback(null, chunk);
-            },
-          });
-          await pipeline(stream, counter, createWriteStream(path, { flags: "wx", mode: 0o600 }), {
-            signal,
-          });
-          signal.throwIfAborted();
-          entry.state = "complete";
-          entry.path = path;
-          await this.request.artifact?.({
-            path,
-            mimeType,
-            bytes: entry.bytes,
-            filename,
-            flags: entry.flags,
-          });
         },
         600_000,
       );
     } catch {
       if (entry.state === "pending") entry.state = abort.signal.aborted ? "denied" : "failed";
-      await rm(path, { force: true });
+      // A gate deadline must also stop streaming and fence any late completion.
+      abort.abort();
       await download.cancel().catch(() => {});
     } finally {
       this.transfers.delete(abort);

@@ -4,10 +4,12 @@ import * as z from "zod/mini";
 import { ThreadView } from "@/features/thread/index.ts";
 
 /**
- * `/t/<id>?seq=1234&q=words`: both optional; a link into the thread at an item (a search hit).
+ * `/t/<id>?item=<id>` opens a canonical item or pending interaction.
+ * `?seq=1234&q=words` keeps search-hit links working.
  * The router reads `seq=1234` as a number; the thread view ignores one that isn't a sequence.
  */
 const ThreadSearch = z.object({
+  item: z.catch(z.optional(z.string().check(z.minLength(1), z.maxLength(256))), undefined),
   seq: z.catch(z.optional(z.number()), undefined),
   q: z.catch(z.optional(z.string()), undefined),
 });
@@ -19,15 +21,17 @@ export const Route = createFileRoute("/_home/t/$threadId")({
 
 function ThreadRoute() {
   const { threadId } = Route.useParams();
-  const { seq, q } = Route.useSearch();
+  const { seq, q, item } = Route.useSearch();
   return (
     <ThreadView
       key={threadId}
       threadId={threadId}
       target={
-        seq !== undefined && Number.isSafeInteger(seq) && seq >= 0
-          ? { seq, query: q?.slice(0, 512) }
-          : undefined
+        item !== undefined
+          ? { itemId: item }
+          : seq !== undefined && Number.isSafeInteger(seq) && seq >= 0
+            ? { seq, query: q?.slice(0, 512) }
+            : undefined
       }
     />
   );

@@ -61,6 +61,7 @@ test("Pi General permissions keeps the provider default when no selector is supp
   const app = fixture();
   app.daemon.services.installed.delete("pi");
   await app.open("/settings/general");
+  await userEvent.click(await screen.findByText("Per-provider defaults"));
   const permissions = await screen.findByRole("combobox", { name: "Pi permissions" });
   expect(await within(permissions).findByText("Provider default")).toBeTruthy();
   expect(permissions.hasAttribute("disabled")).toBe(true);
@@ -73,6 +74,7 @@ test("Pi General permissions keeps the provider default when no selector is supp
 
 test("Usage shows OpenCode's unreported limits quietly while another source needs attention", async () => {
   await fixture().open("/accounts");
+  await userEvent.click(await screen.findByText(/accounts without reported limits/));
   const row = await screen.findByRole("article", { name: "OpenCode Your CLI login" });
   expect(within(row).getByText("Not reported yet")).toBeTruthy();
   expect(within(row).queryByText("Needs attention")).toBeNull();

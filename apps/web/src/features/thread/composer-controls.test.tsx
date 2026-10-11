@@ -88,7 +88,7 @@ test("permission picker offers every native mode with exact Claude selectors", a
     "Plan",
     "Auto",
     "Don't ask",
-    "Bypass permissions",
+    "Full access",
   ]);
   expect(
     options
@@ -104,10 +104,10 @@ test("permission picker offers every native mode with exact Claude selectors", a
 test("a mode chosen mid-turn takes over at the agent's next turn", async () => {
   const { app, message } = await open("busy");
   await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Bypass permissions" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Full access" }));
   expect(
     await screen.findByRole("button", {
-      name: "Approvals: Bypass permissions, applies at the agent's next turn",
+      name: "Approvals: Full access, applies at the agent's next turn",
     }),
   ).toBeTruthy();
 
@@ -118,7 +118,7 @@ test("a mode chosen mid-turn takes over at the agent's next turn", async () => {
     { type: "background.ended", task: "relay", status: "stopped" },
   ]);
   await userEvent.type(message, "Now cap the replay{Enter}");
-  await screen.findByRole("button", { name: "Approvals: Bypass permissions" });
+  await screen.findByRole("button", { name: "Approvals: Full access" });
   expect(thread(app, "thread-replay-cursor")?.permission).toMatchObject({
     effective: "bypassPermissions",
     pending: false,
