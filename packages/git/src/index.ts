@@ -30,7 +30,7 @@ import {
   type BranchRefs,
   type FetchBranchOptions,
 } from "./remote-branches.ts";
-import type { ChangedFile, Checkpoint, DiffSide, GitOptions } from "./types.ts";
+import type { ChangedFile, Checkpoint, DiffSide, GitOptions, PushOptions } from "./types.ts";
 
 export { validateCloneUrl } from "./projects.ts";
 export { publicationRemote } from "./publication-remote.ts";
@@ -159,7 +159,7 @@ export class GitService {
   changeSummary(worktree: string) {
     return changeSummary(this.repository, worktree);
   }
-  push(options: { worktree: string; remote: string }): Promise<void> {
+  push(options: PushOptions): Promise<void> {
     return pushBranch(this.repository, options);
   }
   switchBranch(options: {

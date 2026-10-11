@@ -117,3 +117,18 @@ test("reviewers are GitHub usernames, with or without @, separated by commas or 
     error: "“acme/core” isn't a GitHub username",
   });
 });
+
+test("configured Enterprise PR addresses are accepted and other hosts stay rejected", () => {
+  const enterprise = { ...repository, host: "git.example.com" };
+  expect(
+    parsePrReference("https://git.example.com/acme/api/pull/7", enterprise, ["git.example.com"]),
+  ).toEqual({ number: 7 });
+  expect(
+    parsePrReference("https://git.example.com/acme/api/pull/7", repository, ["git.example.com"]),
+  ).toEqual({ number: 7, repository: enterprise });
+  expect(
+    parsePrReference("https://unconfigured.example.com/acme/api/pull/7", enterprise, [
+      "git.example.com",
+    ]),
+  ).toHaveProperty("error");
+});

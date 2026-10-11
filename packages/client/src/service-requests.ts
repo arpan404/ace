@@ -50,17 +50,19 @@ type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "prompt
                   ? Replies<"permissions.capabilities.result">
                   : Q["type"] extends "providers.request"
                     ? Replies<"providers.result">
-                    : Q["type"] extends "projects.request"
-                      ? Replies<"projects.result">
-                      : Q["type"] extends "accounts.login" | "accounts.logout"
-                        ? Replies<"accounts.auth">
-                        : Q["type"] extends
-                              | "accounts.add"
-                              | "accounts.rename"
-                              | "accounts.remove"
-                              | "accounts.setDefault"
-                          ? Replies<"accounts.changed">
-                          : ExistingServiceResponse<Q>;
+                    : Q["type"] extends "source-control.request"
+                      ? Replies<"source-control.result">
+                      : Q["type"] extends "projects.request"
+                        ? Replies<"projects.result">
+                        : Q["type"] extends "accounts.login" | "accounts.logout"
+                          ? Replies<"accounts.auth">
+                          : Q["type"] extends
+                                | "accounts.add"
+                                | "accounts.rename"
+                                | "accounts.remove"
+                                | "accounts.setDefault"
+                            ? Replies<"accounts.changed">
+                            : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"
@@ -170,6 +172,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "terminal.request": ["terminal.result"],
   "workspace.request": ["workspace.result"],
   "projects.request": ["projects.result"],
+  "source-control.request": ["source-control.result"],
   "providers.request": ["providers.result"],
   "provider.accounts.list": ["provider.accounts.result"],
   "provider.accounts.add": ["provider.accounts.result"],
