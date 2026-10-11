@@ -12,7 +12,7 @@ export async function pushWorkspace(git: Pick<GitService, "push" | "repositoryIn
     const preferences = await sourceControl?.preferences();
     const allowed = () => { check?.(); if (!permitted()) throw new Error("forbidden"); };
     allowed();
-    if (!input.target) { await git.push({ worktree: cwd, remote: input.remote }); allowed(); return; }
+    if (!input.target) { await git.push({ worktree: cwd, remote: input.remote, beforePush: allowed }); allowed(); return; }
     if (input.remote !== (preferences?.remote ?? "origin")) throw new Error("repository_mismatch");
     const info = await git.repositoryInfo(cwd);
     allowed();
@@ -25,7 +25,7 @@ export async function pushWorkspace(git: Pick<GitService, "push" | "repositoryIn
       const repository = workspaceRepository([{ name: input.remote, fetchUrls: [url] }], preferences);
       return !repository || repositoryKey(repository) !== repositoryKey(target.repository);
     })) throw new Error("repository_mismatch");
-    await git.push({ worktree: cwd, remote: input.remote,
+    await git.push({ worktree: cwd, remote: input.remote, beforePush: allowed,
       expected: { branch: target.branch, head: target.head, pushUrls: remote.pushUrls } });
     allowed();
   }

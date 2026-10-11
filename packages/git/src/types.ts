@@ -165,5 +165,6 @@ export function isMutationUnavailable(error: unknown): boolean {
 export type PushOptions = {
   worktree: string;
   remote: string;
+  beforePush?: () => void;
   expected?: { branch: string; head: string | null; pushUrls: readonly string[] };
 };

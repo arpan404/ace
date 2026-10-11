@@ -38,6 +38,8 @@ for (const origin of [true, false]) {
         } } },
       });
       const details = await runtime.details(f.thread.id);
+      if (!details.head) throw new Error("Expected committed head");
+      await f.update({ prHead: details.head });
       const target = { repository: details.repository, branch: details.branch, head: details.head };
       expect(await runtime.execute(Command.parse({ id: "push-selected", deviceId: "device", payload: {
         type: "git.push", threadId: f.thread.id, remote: "upstream", target,

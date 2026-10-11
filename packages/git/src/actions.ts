@@ -98,6 +98,7 @@ export async function pushBranch(
       if (JSON.stringify(selected?.pushUrls) !== JSON.stringify(expected.pushUrls))
         throw new GitError("invalid_argument", "The selected remote changed before pushing");
     }
+    options.beforePush?.();
     await repository.cli.call(
       root,
       ["push", "--set-upstream", "--", remote, `HEAD:refs/heads/${info.branch}`],
