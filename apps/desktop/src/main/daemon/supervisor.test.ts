@@ -139,14 +139,23 @@ describe("daemon supervisor", () => {
     const m = machine();
     m.state.answering = true;
     m.state.external = true;
-    m.state.admissionAvailable = false;
+    const admission = Promise.withResolvers<{ draining: boolean }>();
+    const requested = Promise.withResolvers<void>();
+    m.ports.maintenance = () => {
+      requested.resolve();
+      return admission.promise;
+    };
     const supervisor = new DaemonSupervisor(m.ports);
+    const seen = track(supervisor);
     const starting = supervisor.start();
-    await m.advance(0);
+    await requested.promise;
     const stopping = supervisor.stop();
-    m.state.admissionAvailable = true;
-    await m.advance(400);
+    // Stop invalidates this generation immediately; its lifecycle step waits for discovery.
+    admission.resolve({ draining: true });
     await Promise.all([starting, stopping]);
+    expect(seen.map((status) => status.state)).toContain("starting");
+    expect(seen.filter((status) => status.state === "running")).toEqual([]);
+    expect(seen.map((status) => status.state)).toContain("stopped");
     expect(supervisor.current().state).toBe("stopped");
     expect(m.children.every((child) => !child.alive)).toBe(true);
   });
