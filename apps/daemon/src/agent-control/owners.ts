@@ -169,12 +169,8 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
             )
               return { ok: false, code: "unsupported" };
             store.atomic((db) => {
-              if (
-                Number(db.prepare("SELECT COUNT(*) AS n FROM agent_automation_owners").get()?.n) >=
-                  1000 &&
-                !identity
-              )
-                throw new Error("Automation capacity");
+              // Ownership tombstones protect historical and interrupted runs.
+              // AutomationStore caps live definitions; this claim and put never yield.
               db.prepare("INSERT OR IGNORE INTO agent_automation_owners VALUES (?,?,?)").run(
                 automationId,
                 caller.threadId,
