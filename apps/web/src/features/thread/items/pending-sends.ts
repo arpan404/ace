@@ -81,9 +81,17 @@ export function queuedCommands(
 
 export function useQueuedCommands(threadId: string): ReadonlySet<string> {
   const pending = usePendingSends(threadId);
-  const { page } = useServerQueue(threadId);
+  const { page, retained } = useServerQueue(threadId);
   const live = useThread(threadId, ["queue"], revisionOf);
-  return useMemo(() => queuedCommands(pending, page, live), [pending, page, live]);
+  return useMemo(
+    () =>
+      queuedCommands(
+        pending,
+        page ? { revision: page.revision, messages: [...retained] } : undefined,
+        live,
+      ),
+    [pending, page, retained, live],
+  );
 }
 
 /**

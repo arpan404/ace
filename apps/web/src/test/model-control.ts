@@ -5,7 +5,7 @@ import { expect } from "vitest";
 /** Open the composer's model chip and return its popover. */
 export async function openModelControl(chip: RegExp | string = /^Model: /): Promise<HTMLElement> {
   await userEvent.click(await screen.findByRole("button", { name: chip }));
-  return screen.findByRole("dialog", { name: "Model and effort" });
+  return screen.findByRole("dialog", { name: "Choose model" });
 }
 
 /** From the open popover, go to the model picker (it opens there when no model is chosen). */
@@ -35,12 +35,10 @@ export async function chooseModel(label: string, provider: string, chip?: RegExp
 
 /** Close the popover and wait for it to leave, so the next control can open. */
 export async function closeModelControl() {
-  // A search clears on the first Escape; the popover closes on the next.
-  const search = screen.queryByRole<HTMLInputElement>("combobox", { name: "Search models" });
-  if (search?.value) await userEvent.keyboard("{Escape}");
+  if (!screen.queryByRole("dialog", { name: /^(Choose model|Effort and speed)$/ })) return;
   await userEvent.keyboard("{Escape}");
   await waitFor(() =>
-    expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull(),
+    expect(screen.queryByRole("dialog", { name: /^(Choose model|Effort and speed)$/ })).toBeNull(),
   );
 }
 
@@ -66,8 +64,23 @@ export async function chooseAccount(popover: HTMLElement, name: string) {
 
 /** Choose an account within the selected provider. */
 export async function selectAccount(popover: HTMLElement, name: string) {
-  const account = within(popover).queryByRole("combobox", { name: "Account" });
-  if (!account) return; // One account needs no selector.
-  await userEvent.click(account);
-  await userEvent.click(await screen.findByRole("option", { name }));
+  const rail = within(popover).getByRole("tablist", { name: "Model sources" });
+  const selected = within(rail).getByRole("tab", { selected: true });
+  const provider = selected.getAttribute("aria-label")?.split(" · ")[0];
+  await userEvent.click(within(rail).getByRole("tab", { name: `${provider} · ${name}` }));
+}
+
+/** Open the separate effort and speed popover from the composer's chip. */
+export async function openEffortControl(): Promise<HTMLElement> {
+  await userEvent.click(await screen.findByRole("button", { name: /^Reasoning: / }));
+  const popover = await screen.findByRole("dialog", { name: "Effort and speed" });
+  await within(popover).findByRole("slider", { name: "Effort" });
+  return popover;
+}
+
+/** Choose a catalog level through the slider's keyboard interface. */
+export async function chooseEffort(popover: HTMLElement, keys: string) {
+  const slider = within(popover).getByRole("slider", { name: "Effort" });
+  slider.focus();
+  await userEvent.keyboard(keys);
 }

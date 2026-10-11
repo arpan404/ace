@@ -1,6 +1,7 @@
 import type { QueuedMessage } from "@ace/protocol";
 import { ArrowUpIcon, XIcon } from "@phosphor-icons/react";
 import { Suspense } from "react";
+import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import type { PendingQueued } from "./queued-pending.ts";
 import { queuedText, type QueueControls } from "./use-queue.ts";
@@ -28,6 +29,16 @@ export function QueuedBubbles(props: { queue: QueueControls; pending?: readonly 
           <QueuedBubble key={message.id} message={message} stopped={stopped} queue={props.queue} />
         ))}
       </ul>
+      {page?.next && props.queue.loadMore && (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={props.queue.loadingMore}
+          onClick={props.queue.loadMore}
+        >
+          Load more queued messages
+        </Button>
+      )}
       {hidden > 0 && (
         <p className="text-xs text-subtle-foreground">
           {hidden === 1 ? "1 more queued message" : `${hidden} more queued messages`}

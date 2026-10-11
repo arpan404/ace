@@ -37,7 +37,8 @@ export const attachedSurface = `${composerSurface} rounded-xl`;
 export const environmentSurface = `${attachedSurface} relative z-0 mx-4 -mt-4 pt-4`;
 
 /** A one-line tab's row: 36px, the composer's text size, a step quieter than the message. */
-const stripRowLayout = "flex min-w-0 items-center gap-1 px-2 text-ui text-muted-foreground";
+const stripRowLayout =
+  "flex min-w-0 items-center gap-1 px-2 text-xs font-normal text-muted-foreground";
 export const stripRow = `${stripRowLayout} h-9`;
 /** Environment stays shorter than the attached status and plan rows. */
 export const environmentRow = `${stripRowLayout} h-7`;

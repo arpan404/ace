@@ -321,3 +321,59 @@ test("failed configuration and rollback prevent turns on an uncertain native ses
   expect(h.sessions.at(-1)?.context.resume?.nativeSessionId).toBe(h.sessions[0]?.nativeId);
   expect(h.inputs.at(-1)?.model).toBe("model-a");
 });
+
+test.each(["idle", "cancelled", "expired"])(
+  "model switches settle after a %s wake",
+  async (wake) => {
+    const h = setup();
+    const id = await h.create();
+    h.emit(id, {
+      type: "wake.expected",
+      agent: "root",
+      until: wake === "idle" ? h.clock.now() : h.clock.now() + 50,
+    });
+    await h.engine.flush();
+    if (wake === "cancelled") {
+      h.emit(id, { type: "wake.expected", agent: "root", until: h.clock.now() });
+      await h.engine.flush();
+    }
+    for (const model of ["model-b", "model-c"]) {
+      expect(
+        h.command({ type: "thread.switch", threadId: id, selection: { provider: "codex", model } })
+          .ok,
+      ).toBe(true);
+      await h.engine.flush();
+      if (wake === "expired" && model === "model-b") {
+        expect(h.store.getThread(id)?.switch?.state).toBe("queued");
+        h.clock.advance(h.clock.now() + 50);
+        await h.engine.flush();
+      }
+      expect(h.store.getThread(id)?.switch?.state).toBe("applied");
+      expect(h.sessions[0]?.selection.model).toBe(model);
+      expect(h.engine.liveWork(id)).toEqual({ agentsRunning: 0, operationsRunning: 0 });
+    }
+    await h.reopen();
+    expect(h.engine.liveWork(id)).toEqual({ agentsRunning: 0, operationsRunning: 0 });
+  },
+);
+
+test("reloading after a future wake expires does not create phantom recovery work", async () => {
+  const h = setup();
+  const id = await h.create();
+  h.emit(id, { type: "wake.expected", agent: "root", until: h.clock.now() + 50 });
+  await h.engine.flush();
+  // Move only the injected wall clock: no live actor timer observes the expiry before reload.
+  h.clock.time += 50;
+  await h.reopen();
+  expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, paused: false });
+  expect(
+    h.command({
+      type: "thread.switch",
+      threadId: id,
+      selection: { provider: "codex", model: "after-reload" },
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.switch?.state).toBe("applied");
+  expect(h.engine.liveWork(id)).toEqual({ agentsRunning: 0, operationsRunning: 0 });
+});

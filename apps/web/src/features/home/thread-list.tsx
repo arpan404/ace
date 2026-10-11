@@ -1,4 +1,3 @@
-import { useTheme } from "@/theme/theme-provider.tsx";
 import { CaretDownIcon } from "@phosphor-icons/react";
 import { useSidebarStore } from "@ace/client-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -22,6 +21,7 @@ import { matchesChord } from "@/lib/hotkeys.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
 import { ThreadRow } from "./thread-row.tsx";
+import { groupProjectRows, startsProject } from "./project-rows.ts";
 import type { HomeList } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
 import {
@@ -37,11 +37,11 @@ import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 const estimates: Record<HomeRow["kind"], number> = {
   "pinned-header": 33,
-  pinned: 88,
+  pinned: 32,
   "pinned-end": 9,
-  thread: 88,
+  thread: 32,
   "settled-header": 37,
-  settled: 38,
+  settled: 32,
 };
 
 /** Keys that move focus between rows: arrows, and j/k as in other lists. */
@@ -83,17 +83,20 @@ function HeadingText(props: { label: string; count?: number | undefined }) {
  * group, being theirs to order, never holds.
  */
 export function ThreadList(props: { list: HomeList; settledTotal?: number | undefined }) {
-  const { appearance } = useTheme();
-  const compact = appearance.density === "compact";
-  const { pinned, active, recent, settled } = props.list;
-  const { settledOpen } = useOrganizerState();
+  const { pinned, active, recent, settled, projects } = props.list;
+  const { settledOpen, project } = useOrganizerState();
   const organizer = useOrganizer();
   const [moving, setMoving] = useState<readonly string[]>();
-  const rows = useMemo(
-    () =>
-      homeRows({ pinned, active, recent, settled }, { settledOpen, pinZone: moving !== undefined }),
-    [pinned, active, recent, settled, settledOpen, moving],
-  );
+  const rows = useMemo(() => {
+    const sections = homeRows(
+      { pinned, active, recent, settled },
+      {
+        settledOpen,
+        pinZone: moving !== undefined,
+      },
+    );
+    return project === null ? groupProjectRows(sections, projects) : sections;
+  }, [pinned, active, recent, settled, settledOpen, moving, project, projects]);
   const hold = useListHold();
   const held = useHeldRows(rows, hold.state, props.list.needsYou);
   const { rows: drawn, moving: sliding } = useListMotion(held, homeRowKey);
@@ -113,9 +116,10 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
     getScrollElement: () => viewport.current,
     estimateSize: (index) => {
       const kind = drawn[index]?.item.kind ?? "thread";
-      if (compact && (kind === "thread" || kind === "pinned")) return 76;
-      if (compact && kind === "settled") return 34;
-      return estimates[kind];
+      const row = drawn[index]?.item;
+      const heading =
+        project === null && row && startsProject(row, drawn[index - 1]?.item, projects);
+      return estimates[kind] + (heading ? 28 : 0);
     },
     overscan: 6,
     getItemKey: (index) => drawn[index]?.key ?? index,
@@ -328,6 +332,8 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
             const row = entry.item;
             const leaving = entry.phase === "exit";
             const thread = homeRowThread(row);
+            const showProject =
+              project === null && startsProject(row, drawn[item.index - 1]?.item, projects);
             return (
               <div
                 key={item.key}
@@ -338,11 +344,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                 data-index={item.index}
                 className={cn(
                   "absolute inset-x-0 top-0",
-                  row.kind === "thread" || row.kind === "pinned"
-                    ? "pb-2 compact:pb-1"
-                    : row.kind === "settled"
-                      ? "pb-1.5 compact:pb-0.5"
-                      : "pb-px",
+                  !("id" in row) && "pb-px",
                   // While rows slide past each other each is opaque, and the one moving up
                   // passes over the others: a swap never shows two rows through each other.
                   sliding && "bg-[rgb(var(--sidebar-rgb))]",
@@ -355,10 +357,20 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
               >
                 <div className={rowMotion(entry.phase)}>
                   {(row.kind === "thread" || row.kind === "pinned") && (
-                    <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
+                    <ThreadRow
+                      threadId={row.id}
+                      settled={false}
+                      leaving={leaving}
+                      showProject={showProject}
+                    />
                   )}
                   {row.kind === "settled" && (
-                    <ThreadRow threadId={row.id} settled leaving={leaving} />
+                    <ThreadRow
+                      threadId={row.id}
+                      settled
+                      leaving={leaving}
+                      showProject={showProject}
+                    />
                   )}
                   {row.kind === "pinned-end" && (
                     <div className="mx-2 my-1 h-px bg-sidebar-border" />

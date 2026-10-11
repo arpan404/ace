@@ -4,7 +4,7 @@ import { WorktreeCreationProgress } from "./worktree-creation.ts";
 import { ExecutionOptions } from "./thread-transitions.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
-import { BackgroundTaskId, InteractionId, ThreadId, Timestamp } from "./ids.ts";
+import { BackgroundTaskId, InteractionId, RunId, ThreadId, Timestamp } from "./ids.ts";
 import { ForgeRepository, LinkedPullRequest } from "./forge.ts";
 import { WorktreeBaseRecord } from "./worktree-base.ts";
 
@@ -95,6 +95,8 @@ export const ThreadDetails = z.object({
 });
 export type ThreadDetails = z.infer<typeof ThreadDetails>;
 export const ThreadRunMetadata = z.object({
+  /** Active root run, independent of retained transcript items; null after it ends. */
+  rootRunId: RunId.nullable().optional(),
   /** Start of the current working stretch; streaming activity does not reset it. */
   workingSince: Timestamp.optional(),
   provider: ProviderKind.optional(),

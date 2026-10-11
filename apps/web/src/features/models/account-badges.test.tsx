@@ -33,7 +33,7 @@ async function open(app: ReturnType<typeof harness>) {
   return { popover, list };
 }
 
-test("a single account has a readable picker badge and keeps its composer and row unchanged", async () => {
+test("a single account omits an unnecessary picker badge and keeps its composer and row unchanged", async () => {
   const app = harness();
   app.daemon.services.accounts = app.daemon.services.accounts.filter(
     (account) => account.provider !== "claude" || account.id === "claude-personal",
@@ -43,8 +43,11 @@ test("a single account has a readable picker badge and keeps its composer and ro
   );
   const { popover } = await open(app);
   const rail = within(popover).getByRole("tablist", { name: "Model sources" });
-  const personal = await within(rail).findByRole("tab", { name: "Claude Code", selected: true });
-  expect(within(personal).getByRole("img", { name: "Personal account" })).toBeTruthy();
+  const personal = await within(rail).findByRole("tab", {
+    name: "Claude Code · Personal",
+    selected: true,
+  });
+  expect(within(personal).queryByRole("img", { name: "Personal account" })).toBeNull();
   expect(
     within(screen.getByRole("button", { name: /^Model: Opus 5.5, Personal/ })).queryByRole("img", {
       name: "Personal account",
@@ -58,7 +61,7 @@ test("a single account has a readable picker badge and keeps its composer and ro
   await closeModelControl();
 });
 
-test("each provider has one rail entry and selecting an account switches its catalog", async () => {
+test("each account has a rail entry and selecting it switches the catalog", async () => {
   const app = harness();
   const team = app.daemon.services.accounts.find((account) => account.id === "codex-team");
   if (!team) throw new Error("Missing team account");
@@ -68,8 +71,8 @@ test("each provider has one rail entry and selecting an account switches its cat
     if (account.provider === "codex" && account !== team) account.isDefault = false;
   const { popover, list } = await open(app);
   const rail = within(popover).getByRole("tablist", { name: "Model sources" });
-  expect(within(rail).getAllByRole("tab", { name: "Codex" })).toHaveLength(1);
-  await userEvent.click(within(rail).getByRole("tab", { name: "Codex" }));
+  expect(within(rail).getAllByRole("tab", { name: /^Codex · / })).toHaveLength(2);
+  await userEvent.click(within(rail).getByRole("tab", { name: "Codex · Team" }));
   expect(within(list).getByRole("option", { name: /^GPT-6\.2 Sol/ })).toBeTruthy();
   await selectAccount(popover, "Personal");
   expect(within(list).getByRole("option", { name: /^GPT-6 Luna/ })).toBeTruthy();
@@ -79,8 +82,10 @@ test("each provider has one rail entry and selecting an account switches its cat
   expect(within(list).queryByRole("option", { name: /^GPT-6 Luna/ })).toBeNull();
   expect(within(list).getByText("NEW")).toBeTruthy();
   await userEvent.type(within(popover).getByRole("combobox", { name: "Search models" }), "gpt-6");
-  expect(within(list).getAllByRole("img", { name: "Team account" }).length).toBeGreaterThan(0);
-  expect(within(list).getAllByRole("img", { name: "Personal account" }).length).toBeGreaterThan(0);
+  expect(within(list).getAllByRole("option", { name: /Codex · Team/ }).length).toBeGreaterThan(0);
+  expect(within(list).getAllByRole("option", { name: /Codex · Personal/ }).length).toBeGreaterThan(
+    0,
+  );
 });
 
 test("choosing a model on another account updates the composer and its row's details", async () => {
@@ -141,9 +146,9 @@ test("editing an account label updates its composer, thread row, picker, search 
   await userEvent.unhover(row);
   const popover = await openModelControl();
   const list = await openModelPicker(popover);
-  expect(within(popover).getByRole("combobox", { name: "Account" }).textContent).toContain(
-    "Studio",
-  );
+  expect(
+    within(popover).getByRole("tab", { name: "Claude Code · Studio", selected: true }),
+  ).toBeTruthy();
   await userEvent.type(within(popover).getByRole("combobox", { name: "Search models" }), "Studio");
   expect(await within(list).findByRole("option", { name: /Opus 5.5.*Studio/ })).toBeTruthy();
   await closeModelControl();
@@ -176,3 +181,35 @@ test("account badges accept a complete emoji and reject more than two text chara
   const saved = await app.client.request({ type: "accounts.list" });
   expect(saved.accounts.find((account) => account.id === "claude-personal")?.shortLabel).toBe("👩‍💻");
 });
+
+test.each([1, 2])(
+  "the composer's account marker appears only with multiple provider accounts (%s)",
+  async (count) => {
+    const app = harness();
+    if (count === 1) {
+      app.daemon.services.accounts = app.daemon.services.accounts.filter(
+        (account) => account.provider !== "claude" || account.id === "claude-personal",
+      );
+      app.daemon.services.models = app.daemon.services.models.filter(
+        (model) => model.provider !== "claude" || model.instance === "claude-personal",
+      );
+    }
+    const scenario = replayCursor();
+    app
+      .play({
+        ...scenario,
+        thread: {
+          ...scenario.thread,
+          live: { account: "claude-personal", model: "claude-opus-5-5" },
+        },
+      })
+      .runThrough("finding");
+    await app.open(`/t/${thread}`);
+    const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Personal/ });
+    await waitFor(() => {
+      const marker = within(chip).queryByText("P", { exact: true });
+      if (count === 1) expect(marker).toBeNull();
+      else expect(marker).toBeTruthy();
+    });
+  },
+);

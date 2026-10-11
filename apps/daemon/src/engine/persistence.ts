@@ -13,6 +13,7 @@ const nativeRunId = z.custom<RunId>((value) => RunId.safeParse(value).success);
 export class Snapshot {
   readonly state: ThreadState;
   private deadlines: DeadlineIndex | undefined;
+  private deadlineObservedAt: number | undefined;
   private items: Records<Item>;
   private metadata: Records<Item>;
   private readonly sections = new Set<{ flush(): void }>();
@@ -180,8 +181,11 @@ export class Snapshot {
     return this.deadlines.next(providerDeadline);
   }
   updateDeadlines(facts: readonly Fact[], events: readonly EventPayload[], now: number): void {
+    const rolledBack = this.deadlineObservedAt !== undefined && now < this.deadlineObservedAt;
+    this.deadlineObservedAt = now;
     if (!this.deadlines) return;
     if (
+      !rolledBack &&
       facts.every((fact) => fact.type === "item.delta" || fact.type === "signal") &&
       events.every((event) => event.type === "item.delta")
     ) {
