@@ -46,8 +46,18 @@ export function redactEmbeddedText(
       sensitive = spans.next().value;
     }
     if (crossing) {
-      parts.push(crossing.replacement);
-      start = crossing.end - 1;
+      // The span begins inside this record. Resume scanning original syntax
+      // after its closer, so a consumed next opener retains its enclosing end.
+      let resume = consumedRecordEnd(text, end + 1, crossing.end);
+      let replacement = crossing.replacement;
+      sensitive = spans.next().value;
+      while (sensitive && sensitive.start < resume) {
+        resume = Math.max(resume, consumedRecordEnd(text, sensitive.start, sensitive.end));
+        if (sensitive.replacement === "<SECRET>") replacement = "<SECRET>";
+        sensitive = spans.next().value;
+      }
+      parts.push(replacement);
+      start = resume - 1;
       plain = start + 1;
       continue;
     }

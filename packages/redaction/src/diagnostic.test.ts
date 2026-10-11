@@ -2,6 +2,16 @@ import { expect, it } from "vitest";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { createRedactor, createStreamingRedactor, createTextRedactor } from "@ace/redaction";
 
+it("configured spans crossing records cannot erase a later credential container's classification", () => {
+  const redact = createDiagnosticRedactor({ env: { CUSTOM: 'first"}bridge{"credentials":' } });
+  const evidence = '{"value":"first"}bridge{"credentials":{"login":"OPAQUE_CONTAINER_CREDENTIAL"},"code":7}';
+  for (const input of [evidence, JSON.stringify({ stderr: evidence })]) {
+    const safe = redact(input);
+    expect(safe).not.toContain("OPAQUE_CONTAINER_CREDENTIAL");
+    expect(safe).toContain("<ENV>");
+  }
+});
+
 it("overlapping configured secrets mask their complete union in raw and escaped output", () => {
   const context = { env: { FIRST: "left{", SECOND: '{ "value": "OPAQUE_ENV_CREDENTIAL" }right' } };
   const value = 'left{ "value": "OPAQUE_ENV_CREDENTIAL" }right';
