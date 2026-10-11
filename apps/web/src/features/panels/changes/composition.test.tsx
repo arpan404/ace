@@ -65,6 +65,27 @@ async function readFile(app: ReturnType<typeof harness>) {
   return new TextDecoder().decode(Buffer.concat(chunks));
 }
 
+test.each([
+  { extendTo: 1, label: "Comment on lines 1–2", lines: ["header", "const b = 2;"], result: "const b = 4;\nfooter\n" },
+  { extendTo: 3, label: "Comment on lines 2–3", lines: ["const b = 2;", "footer"], result: "header\nconst b = 4;\n" },
+])("extending a written suggestion to line $extendTo keeps its content and applies to the extended selection", async ({ extendTo, label, lines, result }) => {
+  const { app, panel } = await openChanges();
+  const block = within(panel).getByRole("region", { name: path });
+  await begin(block, "Keep this finding", "const b = 4;");
+  await userEvent.keyboard("{Shift>}");
+  await userEvent.click(within(block).getByRole("button", { name: `Comment on line ${extendTo}` }));
+  await userEvent.keyboard("{/Shift}");
+  expect(within(block).getByRole("textbox", { name: label })).toHaveProperty("value", "Keep this finding");
+  expect(within(block).getByRole("textbox", { name: "Suggested change" })).toHaveProperty("value", "const b = 4;");
+  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+  await userEvent.click(within(block).getByRole("button", { name: "Apply" }));
+  await within(block).findByText("Applied");
+  expect(await readFile(app)).toBe(result);
+  expect(app.daemon.review.comments()).toEqual([
+    expect.objectContaining({ text: "Keep this finding", originalAnchor: expect.objectContaining({ fingerprint: expect.objectContaining({ lines }) }) }),
+  ]);
+}, 30000);
+
 test("changing to a cached diff scope cancels its historical suggestion and a fresh suggestion applies only the newly selected text", async () => {
   const { app, panel } = await openChanges();
   // Warm both scopes so the same annotation position survives the scope transition.

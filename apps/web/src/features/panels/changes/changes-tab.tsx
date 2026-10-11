@@ -86,6 +86,8 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
     version: string;
     fingerprint: ReviewDraft["fingerprint"];
     source: ReviewDraft["source"];
+    text: string;
+    suggestion: string | undefined;
   }>();
   const changeScope = (next: Parameters<typeof setScope>[0]) => {
     setComposing(undefined);
@@ -205,6 +207,8 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
           version: versions.get(draft.file) ?? "",
           fingerprint: draft.fingerprint,
           source: draft.source,
+          text: draft.text,
+          suggestion: draft.suggestion,
           range: { side: draft.side, start: draft.line, end: draft.end ?? draft.line },
         });
       }}
@@ -265,6 +269,16 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
             version: versionOf(file),
             fingerprint: displayedSelection(file, range),
             source: undefined,
+            text: "",
+            suggestion: undefined,
+          })
+        }
+        onExtend={(range) =>
+          setComposing((previous) => previous && {
+            ...previous,
+            range,
+            fingerprint: displayedSelection(file, range),
+            source: undefined,
           })
         }
         renderAnnotation={(target) => {
@@ -279,7 +293,10 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
               <CommentComposer
                 key={composition.id}
                 label={`Comment on ${linesLabel(writing.side, writing.start, writing.end)}`}
-                {...textOf(draft)}
+                text={composition.text}
+                suggestion={composition.suggestion}
+                onText={(text) => setComposing((previous) => previous && { ...previous, text })}
+                onSuggestion={(suggestion) => setComposing((previous) => previous && { ...previous, suggestion })}
                 suggestFrom={
                   writing.side === "new" ? composition.fingerprint?.lines.join("\n") : undefined
                 }
@@ -399,5 +416,3 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
 }
 
 const identity = <T,>(value: T) => value;
-const textOf = (draft: ReviewDraft | undefined) =>
-  draft ? { initial: draft.text, initialSuggestion: draft.suggestion } : {};
