@@ -4,6 +4,47 @@ import { expect, it } from "vitest";
 import type { BrowserFrame } from "@ace/protocol";
 import { backendFixture, FakeHeadless } from "./backend-test-support.ts";
 
+it("simultaneous opens join replacement recovery and both return a usable ready page", async () => {
+  const headless = new FakeHeadless();
+  const open = headless.open.bind(headless);
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let hold = false;
+  headless.open = async (request) => {
+    if (hold) {
+      started.resolve();
+      await release.promise;
+    }
+    return open(request);
+  };
+  const f = await backendFixture({ headlessBackend: headless, backendLoss: () => "headless" });
+  await f.open();
+  const ready = Promise.withResolvers<void>();
+  f.service.subscribe("thread", "viewer", { send: () => true }, (state) => {
+    if (state.backend === "headless" && state.status === "ready") ready.resolve();
+  });
+  await f.disconnect();
+  await ready.promise;
+  await f.service.open({ threadId: "thread", workspaceId: "workspace-thread", background: true });
+  hold = true;
+  headless.opens.at(-1)?.lost("Replacement context closed");
+  const opens = [0, 1].map(async () => {
+    const state = await f.service.open({
+      threadId: "thread",
+      workspaceId: "workspace-thread",
+      background: true,
+    });
+    expect(state).toMatchObject({ status: "ready", backend: "headless" });
+    await f.service.execute("thread", { action: "press", key: "Enter" });
+    return state;
+  });
+  // Both requests remain owned until recovery can install its replacement.
+  const complete = Promise.all(opens);
+  await started.promise;
+  release.resolve();
+  expect(await complete).toHaveLength(2);
+});
+
 it("ordinary agent opens recover after repeated losses of the replacement headless page and release old profiles", async () => {
   const f = await backendFixture({ backendLoss: () => "headless" });
   await f.open();

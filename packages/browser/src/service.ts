@@ -77,13 +77,16 @@ export class BrowserService {
     const existing = this.sessions.get(options.threadId);
     if (existing && !existing.state.closed) {
       // Every client and the agent share the thread's one page, on whichever backend it runs.
-      const resume = this.resumable.get(options.threadId);
-      if (resume && (!options.background || agentResumes(existing.state))) {
+      if (!options.background || agentResumes(existing.state)) {
         // A replacement can be lost immediately after publishing ready, while its
         // installation promise is still unwinding. Retry after that work settles.
         await this.recoveries.get(options.threadId);
         const retry = this.resumable.get(options.threadId);
-        if (retry && (!options.background || agentResumes(existing.state))) await retry();
+        if (!options.background || agentResumes(existing.state)) {
+          // Another opener may have consumed the callback during our await.
+          // Join its installed recovery promise instead of returning paused.
+          await (retry ? retry() : this.recoveries.get(options.threadId));
+        }
       }
       return existing.state;
     }
