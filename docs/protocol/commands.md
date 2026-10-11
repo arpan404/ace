@@ -503,6 +503,38 @@ Example:
 }
 ```
 
+### forge.hosted.review
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"forge.hosted.review"` |  |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| pr | yes | [ForgePrRef.json](schema/ForgePrRef.json) |  |
+| action | yes | [ForgeReviewAction.json](schema/ForgeReviewAction.json) |  |
+
+Example:
+
+```json
+{
+  "action": {
+    "body": "example",
+    "commentId": 1,
+    "kind": "reply"
+  },
+  "pr": {
+    "number": 8,
+    "repository": {
+      "forge": "github",
+      "host": "v49m",
+      "name": "S1zihIP.A",
+      "owner": "Kuth-f6ZBT/Gg/MSE/nS4"
+    }
+  },
+  "type": "forge.hosted.review",
+  "workspaceId": "example"
+}
+```
+
 ### thread.move
 
 | Field | Required | Type | Constraints |
@@ -535,8 +567,6 @@ Example:
 
 ```json
 {
-  "allowUncommitted": false,
-  "branch": "example",
   "mode": "local",
   "threadId": "example",
   "type": "thread.workspace.set"
@@ -594,8 +624,11 @@ Example:
 
 ```json
 {
-  "expectedHead": "3ffc9b8605eb2bd351dd587570cc249050ab796c0e178df2e0a4f1e3523d0",
+  "expectedHead": "e178df2e0a4f1e3523d008d8938ae229957e34af169a3e441",
   "message": "example",
+  "paths": [
+    "example"
+  ],
   "threadId": "example",
   "type": "git.commit"
 }
@@ -632,7 +665,6 @@ Example:
 ```json
 {
   "icon": null,
-  "name": "}+} %+*}~.{",
   "path": "example",
   "type": "workspace.add"
 }
@@ -653,7 +685,9 @@ Example:
 
 ```json
 {
-  "name": "!')z~ ,&",
+  "git": {},
+  "gitignore": "example",
+  "name": "|y+~~-z!+",
   "parent": "example",
   "type": "workspace.create"
 }
@@ -673,7 +707,8 @@ Example:
 
 ```json
 {
-  "name": "|y+~~-z!+",
+  "icon": null,
+  "name": ")',+ (,!\"\"%",
   "parent": "example",
   "type": "workspace.clone",
   "url": "example"
@@ -693,7 +728,7 @@ Example:
 
 ```json
 {
-  "name": "y }",
+  "name": "+-y,%#$\"')",
   "type": "workspace.update",
   "workspaceId": "example"
 }
@@ -711,7 +746,7 @@ Example:
 
 ```json
 {
-  "name": ",+ (",
+  "name": "{&.('y*y",
   "type": "workspace.rename",
   "workspaceId": "example"
 }
@@ -747,12 +782,12 @@ Example:
 {
   "link": {
     "pr": {
-      "number": 2,
+      "number": 9,
       "repository": {
         "forge": "github",
-        "host": "gq",
-        "name": "QMgFK7ii09W",
-        "owner": "JA-Q/Sr64/PVLriof/BXO0/SAwU/VRqZ9Y/jLGS_Bc0ny"
+        "host": "9Y4kLHSaB",
+        "name": "Y33",
+        "owner": "0/-QMgF/7ii09Wg"
       }
     },
     "threadId": "example"
@@ -776,6 +811,7 @@ Example:
 
 ```json
 {
+  "draftBaseRef": "example",
   "input": {
     "base": "example",
     "branch": "example",
@@ -788,9 +824,9 @@ Example:
   },
   "repository": {
     "forge": "github",
-    "host": "332fR7NK5",
-    "name": "1p",
-    "owner": "WBXoFLojA/RnneZ-yBh"
+    "host": "7NK5WWCY",
+    "name": "Z-",
+    "owner": "FLo/iYRnn"
   },
   "threadId": "example",
   "type": "forge.pr.create"
@@ -812,8 +848,8 @@ Example:
     "pr": {
       "number": 2,
       "repository": {
-        "forge": "gitlab",
-        "host": "o9Wd",
+        "forge": "github",
+        "host": "qCLxUso9Wd",
         "name": "eUrp2Sc0",
         "owner": "ksu6ZDcXB5"
       }

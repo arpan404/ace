@@ -3,6 +3,7 @@ import { ForgePrRef } from "./forge.ts";
 import { WorkspaceId } from "./ids.ts";
 const id = z.string().min(1).max(256);
 const body = z.string().max(60_000);
+const hostedBody = z.string().max(65_536);
 const sha = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
 export const ForgeReviewAnchor = z.object({
   commit: sha,
@@ -32,14 +33,14 @@ export const ForgeReviewAction = z.discriminatedUnion("kind", [
     kind: z.literal("comment.edit"),
     commentId: z.number().int().positive(),
     source: z.enum(["issue", "inline"]),
-    expectedBody: body,
+    expectedBody: hostedBody,
     body: body.min(1),
   }),
   z.object({
     kind: z.literal("comment.delete"),
     commentId: z.number().int().positive(),
     source: z.enum(["issue", "inline"]),
-    expectedBody: body,
+    expectedBody: hostedBody,
   }),
   z.object({ kind: z.literal("thread.resolve"), threadId: id }),
   z.object({ kind: z.literal("thread.unresolve"), threadId: id }),

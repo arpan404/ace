@@ -150,7 +150,7 @@
           "type": "integer"
         },
         "expectedBody": {
-          "maxLength": 60000,
+          "maxLength": 65536,
           "type": "string"
         },
         "kind": {
@@ -182,7 +182,7 @@
           "type": "integer"
         },
         "expectedBody": {
-          "maxLength": 60000,
+          "maxLength": 65536,
           "type": "string"
         },
         "kind": {
