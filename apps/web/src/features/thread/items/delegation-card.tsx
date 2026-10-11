@@ -25,10 +25,7 @@ const outcomes = {
 export function DelegationCard(props: { results: readonly DelegationResult[]; received?: string }) {
   const done = props.results.length;
   return (
-    <section
-      aria-label="Delegated work finished"
-      className="rounded-lg px-4 py-3 shadow-[inset_0_0_0_1px_var(--border)]"
-    >
+    <section aria-label="Delegated work finished" className="py-2">
       <p className="text-xs text-subtle-foreground">
         Delegated work finished{done > 1 ? ` · ${done} threads` : ""}
       </p>
@@ -54,24 +51,26 @@ function ResultRow(props: { result: DelegationResult }) {
       : resultLead(result.result);
   return (
     <li className="flex items-start gap-2.5">
-      <Glyph aria-label={outcome.label} size={16} className={`mt-0.5 shrink-0 ${outcome.tone}`} />
+      {thread ? (
+        <ProviderIcon provider={thread.provider} size={16} decorative />
+      ) : (
+        <Glyph aria-label={outcome.label} size={16} className={`mt-0.5 shrink-0 ${outcome.tone}`} />
+      )}
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 items-center gap-2 text-ui">
-          <span className="truncate font-medium">{thread?.title ?? "Delegated thread"}</span>
+          <Link
+            to="/t/$threadId"
+            params={{ threadId: result.threadId }}
+            className="min-w-0 truncate font-medium hover:underline focus-ring"
+          >
+            {thread?.title ?? "Delegated thread"}
+          </Link>
           {thread && (
             <span className="inline-flex shrink-0 items-center gap-1 text-xs text-subtle-foreground">
-              <ProviderIcon provider={thread.provider} model={model} size={12} decorative />
               {providerNames[thread.provider]}
               {model ? ` · ${modelLabel(model)}` : ""}
             </span>
           )}
-          <Link
-            to="/t/$threadId"
-            params={{ threadId: result.threadId }}
-            className="ml-auto shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-          >
-            Open thread
-          </Link>
         </p>
         {lead && (
           <p

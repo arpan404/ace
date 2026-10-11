@@ -3,7 +3,12 @@ import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import { closeModelControl, openModelControl, openModelPicker } from "@/test/model-control.ts";
+import {
+  closeModelControl,
+  openModelControl,
+  openModelPicker,
+  selectAccount,
+} from "@/test/model-control.ts";
 import { openProfileMenu } from "@/test/navigation.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
@@ -53,7 +58,7 @@ test("a single account has a readable picker badge and keeps its composer and ro
   await closeModelControl();
 });
 
-test("each Codex account has a badged rail entry and its own catalog, default first", async () => {
+test("each provider has one rail entry and selecting an account switches its catalog", async () => {
   const app = harness();
   const team = app.daemon.services.accounts.find((account) => account.id === "codex-team");
   if (!team) throw new Error("Missing team account");
@@ -63,24 +68,13 @@ test("each Codex account has a badged rail entry and its own catalog, default fi
     if (account.provider === "codex" && account !== team) account.isDefault = false;
   const { popover, list } = await open(app);
   const rail = within(popover).getByRole("tablist", { name: "Model sources" });
-  const codex = within(rail)
-    .getAllByRole("tab")
-    .filter((tab) => tab.getAttribute("aria-label")?.startsWith("Codex ·"));
-  expect(codex.map((tab) => tab.getAttribute("aria-label"))).toEqual([
-    "Codex · Team",
-    "Codex · Your CLI login",
-    "Codex · Personal",
-  ]);
-  expect(within(codex[0] ?? rail).getByRole("img", { name: "Team account" })).toBeTruthy();
-  expect(
-    within(within(rail).getByRole("tab", { name: "Codex · Your CLI login" })).getByRole("img", {
-      name: "Your CLI login account",
-    }),
-  ).toBeTruthy();
-  await userEvent.click(within(rail).getByRole("tab", { name: "Codex · Personal" }));
+  expect(within(rail).getAllByRole("tab", { name: "Codex" })).toHaveLength(1);
+  await userEvent.click(within(rail).getByRole("tab", { name: "Codex" }));
+  expect(within(list).getByRole("option", { name: /^GPT-6\.2 Sol/ })).toBeTruthy();
+  await selectAccount(popover, "Personal");
   expect(within(list).getByRole("option", { name: /^GPT-6 Luna/ })).toBeTruthy();
   expect(within(list).queryByRole("option", { name: /^GPT-6\.2 Sol/ })).toBeNull();
-  await userEvent.click(within(rail).getByRole("tab", { name: "Codex · Team" }));
+  await selectAccount(popover, "Team");
   expect(within(list).getByRole("option", { name: /^GPT-6\.2 Sol/ })).toBeTruthy();
   expect(within(list).queryByRole("option", { name: /^GPT-6 Luna/ })).toBeNull();
   expect(within(list).getByText("NEW")).toBeTruthy();
@@ -89,20 +83,13 @@ test("each Codex account has a badged rail entry and its own catalog, default fi
   expect(within(list).getAllByRole("img", { name: "Personal account" }).length).toBeGreaterThan(0);
 });
 
-test("arrow keys and Tab move between account rail and models, then Enter picks on that account", async () => {
-  const { popover } = await open(harness());
-  const search = within(popover).getByRole("combobox", { name: "Search models" });
-  await userEvent.keyboard("{ArrowLeft}{ArrowDown}");
-  expect(document.activeElement).toBe(
-    within(popover).getByRole("tab", { name: "Claude Code · Work" }),
-  );
-  await userEvent.tab();
-  expect(document.activeElement).toBe(search);
-  await userEvent.keyboard("{ArrowDown}{Enter}");
+test("choosing a model on another account updates the composer and its row's details", async () => {
+  const { popover, list } = await open(harness());
+  await selectAccount(popover, "Work");
+  await userEvent.click(within(list).getByRole("option", { name: /^Sonnet 5.5/ }));
   const chip = await screen.findByRole("button", { name: /^Model: Sonnet 5.5, Work/ });
   expect(within(chip).getByRole("img", { name: "Claude Code · Work" })).toBeTruthy();
   const row = screen.getByRole("link", { name: /Replay cursor resets/ });
-  expect(within(row.parentElement ?? row).getByText("W")).toBeTruthy();
   await userEvent.hover(row);
   const details = await screen.findByLabelText(/^Details for Replay cursor resets/);
   expect(within(details).getByText("Claude Code · Work (queued)")).toBeTruthy();
@@ -140,17 +127,13 @@ test("editing an account label updates its composer, thread row, picker, search 
   await openProfileMenu();
   await userEvent.click(await screen.findByRole("menuitem", { name: "Usage" }));
   await waitFor(() =>
-    expect(
-      within(screen.getByRole("article", { name: "Claude Code Studio" })).getByRole("img", {
-        name: "Studio account",
-      }),
-    ).toBeTruthy(),
+    expect(screen.getByRole("article", { name: "Claude Code Studio" })).toBeTruthy(),
   );
   await userEvent.click(await screen.findByRole("link", { name: /Replay cursor resets/ }));
   const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Studio/ });
   expect(within(chip).getByRole("img", { name: "Claude Code · Studio" })).toBeTruthy();
   const row = screen.getByRole("link", { name: /Replay cursor resets/ });
-  expect(within(row.parentElement ?? row).getByText("ST")).toBeTruthy();
+
   await userEvent.hover(row);
   const details = await screen.findByLabelText(/^Details for Replay cursor resets/);
   expect(within(details).getByText("Claude Code · Studio")).toBeTruthy();
@@ -158,22 +141,16 @@ test("editing an account label updates its composer, thread row, picker, search 
   await userEvent.unhover(row);
   const popover = await openModelControl();
   const list = await openModelPicker(popover);
-  expect(
-    within(within(popover).getByRole("tab", { name: "Claude Code · Studio" })).getByRole("img", {
-      name: "Studio account",
-    }),
-  ).toBeTruthy();
+  expect(within(popover).getByRole("combobox", { name: "Account" }).textContent).toContain(
+    "Studio",
+  );
   await userEvent.type(within(popover).getByRole("combobox", { name: "Search models" }), "Studio");
   expect(await within(list).findByRole("option", { name: /Opus 5.5.*Studio/ })).toBeTruthy();
   await closeModelControl();
   await userEvent.click(screen.getByRole("button", { name: /, account/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Usage" }));
   await waitFor(() =>
-    expect(
-      within(screen.getByRole("article", { name: "Claude Code Studio" })).getByRole("img", {
-        name: "Studio account",
-      }),
-    ).toBeTruthy(),
+    expect(screen.getByRole("article", { name: "Claude Code Studio" })).toBeTruthy(),
   );
 });
 

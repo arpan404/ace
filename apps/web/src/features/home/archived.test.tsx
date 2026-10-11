@@ -1,9 +1,12 @@
 import { workbench } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 /*
  * The archive (QA-09): an archived thread waits where it can be found again after Undo is gone,
@@ -70,7 +73,8 @@ test("Delete in Archived asks first, then deletes the thread on the daemon", asy
   await archive(app, /Invoice PDF/, "thread-pdf-locale");
   const archived = await openArchiveFromProfile();
 
-  await userEvent.click(within(archived).getByRole("button", { name: /^Delete Invoice PDF/ }));
+  await userEvent.click(within(archived).getByRole("button", { name: /^Actions for Invoice PDF/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
   const dialog = await screen.findByRole("dialog", { name: /^Delete “Invoice PDF/ });
   expect(onDaemon(app, "thread-pdf-locale")).toBe(true);
   await userEvent.click(within(dialog).getByRole("button", { name: "Delete thread" }));

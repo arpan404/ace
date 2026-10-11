@@ -194,7 +194,7 @@ function ScheduleReadBack(props: { values: AutomationForm }) {
   const next = upcomingRuns(schedule, now).map((at) => formatRunInZone(at, timezone));
   return (
     <p aria-live="polite" className="-mt-1 mb-4 text-sm text-muted-foreground">
-      {next[0] && <>Next run {next[0]}</>}
+      {next.length > 0 ? `Next run ${next[0]}` : "No upcoming run"}
     </p>
   );
 }

@@ -19,18 +19,14 @@ export function LivePill(props: {
       type="button"
       onClick={props.onClick}
       aria-label={count ? `Jump to live, ${count}` : "Jump to live"}
-      className="fx-rise-in glass absolute bottom-[min(calc(var(--composer-clearance,0px)+0.75rem),calc(100%-2.75rem))] left-1/2 z-20 inline-flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground"
+      className="fx-rise-in absolute bottom-[min(calc(var(--composer-clearance,0px)+0.75rem),calc(100%-2.75rem))] left-1/2 z-20 inline-flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-md bg-background px-3 text-sm font-medium text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground"
     >
       <ArrowDownIcon aria-hidden size={14} />
       {props.paused && (
         <span className="font-normal text-subtle-foreground">Following paused ·</span>
       )}
       Jump to live
-      {count && (
-        <span className="rounded-full bg-ring/22 px-1.5 text-xs tabular-nums text-foreground">
-          {count}
-        </span>
-      )}
+      {count && <span className="px-1.5 text-xs tabular-nums text-foreground">{count}</span>}
     </button>
   );
 }

@@ -22,8 +22,7 @@ const buttonVariants = cva(
           "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground",
         outline:
           "bg-transparent text-foreground shadow-[inset_0_0_0_1px_var(--border)] hover:bg-accent aria-expanded:bg-accent",
-        danger:
-          "bg-secondary text-destructive hover:bg-[color-mix(in_oklab,var(--secondary),var(--destructive)_12%)]",
+        danger: "bg-transparent text-destructive hover:bg-destructive/10",
         link: "h-auto bg-transparent px-0 text-link underline-offset-4 hover:underline",
       },
       size: {

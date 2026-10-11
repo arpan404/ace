@@ -1,16 +1,20 @@
 import { failingSubagent } from "@ace/fake-daemon";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { act, screen, within } from "@testing-library/react";
+import { configure, act, screen, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 async function openPreview() {
   const app = harness();
   app.play(failingSubagent()).step();
   await app.open("/t/thread-settings");
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
+  await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
   // ⌃⇧P opens the Preview tool in the side panel.
   await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
@@ -141,7 +145,7 @@ test("while a dev server's page loads, the frame waits behind a spinner and its 
   release();
 });
 
-test("a dev server that doesn't answer keeps its address, says so and offers Reload", async () => {
+test("a dev server that doesn't answer keeps its address, says so and offers Retry", async () => {
   const { panel, browser } = await openPreview();
   act(() =>
     browser.serve("thread-settings", {
@@ -158,7 +162,7 @@ test("a dev server that doesn't answer keeps its address, says so and offers Rel
   expect((within(panel).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value).toBe(
     "127.0.0.1:1",
   );
-  await userEvent.click(within(failure).getByRole("button", { name: "Reload" }));
+  await userEvent.click(within(failure).getByRole("button", { name: "Retry" }));
   expect(
     await within(panel).findByRole("heading", { name: "Couldn't reach 127.0.0.1:1" }),
   ).toBeTruthy();

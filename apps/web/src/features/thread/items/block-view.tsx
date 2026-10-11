@@ -2,6 +2,7 @@ import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { useItem } from "@ace/client-react";
 import { mayBeSystemInput } from "@ace/ui-core";
 import { memo, Suspense } from "react";
+import { usageWarning } from "../lib/usage-warning.ts";
 import { DeferredEvent } from "./deferred-review.ts";
 import type { Block } from "../transcript/blocks.ts";
 import { TurnEnd } from "../transcript/turn-end.tsx";
@@ -60,6 +61,8 @@ const BlockContent = memo(function BlockContent(props: {
 });
 
 function Event(props: { threadId: string; itemId: string }) {
+  const item = useItem(props.threadId, props.itemId);
+  if (usageWarning(item)) return null;
   return (
     <Suspense fallback={null}>
       <EventView threadId={props.threadId} itemId={props.itemId} />

@@ -40,7 +40,9 @@ export function WorkLog(props: {
   return (
     <div>
       <WorkLogHeader
-        headline={headline}
+        headline={
+          headline.awaiting ? { ...headline, label: "Working", current: undefined } : headline
+        }
         open={open}
         panel={panel}
         onToggle={() => setOpen(!open)}

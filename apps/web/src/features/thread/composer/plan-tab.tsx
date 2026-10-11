@@ -1,13 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import type { TodoEntry } from "@ace/protocol";
-import {
-  agentName,
-  currentStepSince,
-  formatElapsed,
-  planCount,
-  type PlanProgress,
-} from "@ace/ui-core";
+import { agentName, currentStepSince, formatElapsed, planCount } from "@ace/ui-core";
 import {
   CaretDownIcon,
   CaretUpIcon,
@@ -29,7 +23,6 @@ import { useLayout } from "@/lib/layout.tsx";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import { useTicker } from "../lib/clock.ts";
 import { AttachedCard } from "./attached-card.tsx";
-import { useComposerCompact } from "./composer-compact.ts";
 import { stripControl, stripRow } from "./composer-styles.ts";
 import { planRaised, rememberPlanRaised } from "./plan-fold.ts";
 import type { ShownPlan } from "./plan-state.ts";
@@ -42,28 +35,6 @@ const marks: Record<TodoEntry["status"], { icon: typeof CircleIcon; words: strin
     cancelled: { icon: XCircleIcon, words: "Cancelled", tone: "text-subtle-foreground" },
   };
 
-/** One segment per item: done, the one in progress, the rest. A long list shares the width. */
-function Progress(props: { progress: PlanProgress }) {
-  return (
-    <span aria-hidden className="flex w-16 shrink-0 gap-0.5">
-      {props.progress.todos.map((todo, index) => (
-        <span
-          // oxlint-disable-next-line react/no-array-index-key -- a segment is its position.
-          key={index}
-          className={cn(
-            "h-1 min-w-0 flex-1 rounded-full transition-colors duration-(--dur-3)",
-            todo.status === "completed"
-              ? "bg-status-done"
-              : todo.status === "in_progress"
-                ? "bg-ring"
-                : "bg-foreground/10",
-          )}
-        />
-      ))}
-    </span>
-  );
-}
-
 /**
  * The agents' to-do list in the composer's tab. Folded (the default), it is one line: the step
  * the agent is on, "3 of 6" and a segmented bar; clicking it raises the whole list behind the
@@ -73,7 +44,6 @@ function Progress(props: { progress: PlanProgress }) {
  */
 export function PlanTab(props: { threadId: string; plans: readonly ShownPlan[] }) {
   const { storage } = useLayout();
-  const compact = useComposerCompact();
   const [raised, setRaised] = useState(() => planRaised(storage, props.threadId));
   const [focused, setFocused] = useState<string>();
   const plan = props.plans.find((each) => each.step.agentId === focused) ?? props.plans[0];
@@ -134,9 +104,7 @@ export function PlanTab(props: { threadId: string; plans: readonly ShownPlan[] }
               </span>
             </span>
             <span className="flex shrink-0 items-center gap-2.5 tabular-nums">
-              {!compact && elapsed && <span className="text-subtle-foreground">{elapsed}</span>}
               <span>{count}</span>
-              {!compact && <Progress progress={progress} />}
               <CaretUpIcon aria-hidden size={12} className="text-subtle-foreground" />
             </span>
           </button>
@@ -161,7 +129,6 @@ export function PlanTab(props: { threadId: string; plans: readonly ShownPlan[] }
               <span className="tabular-nums">{count} done</span>
             </span>
             <span className="flex shrink-0 items-center gap-2.5">
-              <Progress progress={progress} />
               <CaretDownIcon aria-hidden size={12} className="text-subtle-foreground" />
             </span>
           </button>
@@ -177,8 +144,8 @@ export function PlanTab(props: { threadId: string; plans: readonly ShownPlan[] }
                 aria-current={current ? "step" : undefined}
                 className={cn(
                   "flex items-start gap-2.5 rounded-lg px-2 py-1.5 text-ui leading-5",
-                  current && "bg-accent",
-                  settled ? "text-subtle-foreground" : "text-foreground",
+                  "hover:bg-accent",
+                  "text-foreground",
                   current && "font-medium",
                 )}
               >

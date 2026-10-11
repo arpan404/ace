@@ -27,7 +27,7 @@ export function AttachedCard(props: {
 }) {
   const behind = Math.min(props.behind ?? 0, slivers.length);
   return (
-    <div className="relative z-0 mx-4 -mb-4">
+    <div className="relative z-0 mx-4">
       {slivers.slice(slivers.length - behind).map((place) => (
         <div
           key={place}
@@ -43,8 +43,8 @@ export function AttachedCard(props: {
         onKeyDownCapture={props.onKeyDown}
         className={cn(
           "fx-panel-in relative",
-          props.strip ? "pb-4" : "max-h-[50vh] overflow-y-auto overscroll-contain pb-7",
-          attachedSurface,
+          props.strip ? "" : "max-h-[50vh] overflow-y-auto overscroll-contain pb-3",
+          props.label === "Plan" || props.label === "Waiting for you" ? "" : attachedSurface,
         )}
       >
         {/* What it shows changing settles in place; the surface stays. */}

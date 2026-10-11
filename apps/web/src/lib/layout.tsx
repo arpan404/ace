@@ -19,9 +19,23 @@ export type ShellLayout = z.infer<typeof ShellLayout>;
 const defaultLayout: ShellLayout = { sidebarOpen: true };
 const storageKey = "ace.layout";
 
+export interface ScreenActions {
+  scope: string;
+  rename(): void;
+  fork?: (() => void) | undefined;
+  merge?: (() => void) | undefined;
+  attachments(): void;
+  find(): void;
+  turns(): void;
+}
+
 interface LayoutValue {
+  screenActions: ScreenActions | undefined;
+  setScreenActions(actions: ScreenActions | undefined): void;
   layout: ShellLayout;
   setSidebarOpen(open: boolean): void;
+  shortcutsOpen: boolean;
+  setShortcutsOpen(open: boolean): void;
   paletteOpen: boolean;
   setPaletteOpen(open: boolean): void;
   /** The search dialog, open with the words it starts from; undefined while it is closed. */
@@ -51,6 +65,8 @@ export function LayoutProvider(props: {
   const [layout, setLayout] = useState(() =>
     readJson(storage, storageKey, ShellLayout, defaultLayout),
   );
+  const [screenActions, setScreenActions] = useState<ScreenActions>();
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [paletteOpen, setPaletteState] = useState(false);
   const [search, setSearch] = useState<{ query: string }>();
   const setPaletteOpen = useCallback((open: boolean) => {
@@ -88,6 +104,10 @@ export function LayoutProvider(props: {
   const value = useMemo<LayoutValue>(
     () => ({
       layout,
+      screenActions,
+      setScreenActions,
+      shortcutsOpen,
+      setShortcutsOpen,
       paletteOpen,
       setPaletteOpen,
       search,
@@ -102,6 +122,10 @@ export function LayoutProvider(props: {
     }),
     [
       layout,
+      screenActions,
+      setScreenActions,
+      shortcutsOpen,
+      setShortcutsOpen,
       paletteOpen,
       setPaletteOpen,
       search,

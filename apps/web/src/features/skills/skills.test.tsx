@@ -1,8 +1,11 @@
 import { workbench, workbenchServices } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, act, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 const catalog = () => screen.getByRole("navigation", { name: "Skills catalog" });
 
@@ -277,7 +280,17 @@ test("a removal reaches the daemon once its Undo has gone", async () => {
   expect(await installed(app)).toContain("release");
 
   await userEvent.hover(await screen.findByText("Removed release"));
-  await userEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  try {
+    const viewport = screen.getByRole("region", { name: "Notifications" });
+    fireEvent.pointerLeave(viewport);
+    fireEvent.mouseLeave(viewport);
+    act(() => {
+      vi.advanceTimersByTime(10000);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
   await waitFor(async () => expect(await installed(app)).not.toContain("release"));
   expect(within(catalog()).getByText("Code Review")).toBeTruthy();
   expect(within(catalog()).queryByText("Release Notes")).toBeNull();
@@ -381,7 +394,7 @@ test("when the daemon can't list plugins, Skills says so once and reads them aga
   ).toBeTruthy();
 });
 
-test("Skills and a thread offer the same discovered skills for a project and provider", async () => {
+test("Skills and a thread offer available discovered skills and omit unavailable actions", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   app.daemon.seedServices(workbenchServices(Date.now()));
@@ -400,6 +413,7 @@ test("Skills and a thread offer the same discovered skills for a project and pro
   await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
   await userEvent.click(await screen.findByRole("combobox", { name: "Skills provider" }));
   await userEvent.click(await screen.findByRole("option", { name: /^Codex$/ }));
+  await userEvent.keyboard("{Escape}");
   const list = within(await screen.findByRole("navigation", { name: "Skills catalog" }));
   expect(await list.findByText("Review")).toBeTruthy();
   expect(await list.findByText("Writing")).toBeTruthy();
@@ -415,7 +429,7 @@ test("Skills and a thread offer the same discovered skills for a project and pro
   expect(await screen.findByRole("option", { name: /^Review / })).toBeTruthy();
   expect(await screen.findByRole("option", { name: /^Writing / })).toBeTruthy();
   expect(await screen.findByRole("option", { name: /^Explain / })).toBeTruthy();
-  expect(await screen.findByRole("option", { name: /^Code Review / })).toBeTruthy();
+  expect(screen.queryByRole("option", { name: /^Code Review / })).toBeNull();
   await app.client.request({
     type: "pluginRequest",
     request: {

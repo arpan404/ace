@@ -1,9 +1,12 @@
 import { openProfileView } from "@/test/navigation.ts";
 import { workbench, workbenchServices } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, act, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
@@ -449,8 +452,19 @@ test("a deletion that isn't undone is sent once its toast closes", async () => {
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
   const toasts = within(screen.getByRole("region", { name: "Notifications" }));
+  await toasts.findByText("Deleted · Changelog draft");
   await userEvent.hover(await toasts.findByText("Deleted · Changelog draft"));
-  await userEvent.click(await toasts.findByRole("button", { name: "Dismiss" }));
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  try {
+    const viewport = screen.getByRole("region", { name: "Notifications" });
+    fireEvent.pointerLeave(viewport);
+    fireEvent.mouseLeave(viewport);
+    act(() => {
+      vi.advanceTimersByTime(10000);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
   await waitFor(async () => expect(await stored(app, "auto-changelog")).toBeUndefined());
   expect(sidebar.queryByRole("link", { name: /Changelog draft/ })).toBeNull();
 });

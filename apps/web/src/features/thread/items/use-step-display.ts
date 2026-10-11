@@ -39,6 +39,13 @@ export function useStepDisplay(
   // Without its interaction loaded, the provider's own status says whether it waits.
   const awaiting =
     described.needsYou ?? (item.type === "tool_call" && item.call.status === "awaiting_approval");
-  const step = counted ? { ...described, ...counted } : described;
-  return { item, step, awaiting };
+  const countedStep = counted ? { ...described, ...counted } : described;
+  const step = countedStep.note?.startsWith("exit ")
+    ? { ...countedStep, note: countedStep.failed ? "Failed" : undefined }
+    : countedStep;
+  return {
+    item,
+    step: awaiting ? { ...step, verb: "", target: undefined, note: undefined } : step,
+    awaiting,
+  };
 }

@@ -58,7 +58,7 @@ export function ModelControl(props: {
           aria-description={switching?.description}
           onPointerEnter={warm}
           onFocus={warm}
-          className={cn(props.className, "max-w-64 gap-1.5 text-sm leading-4")}
+          className={cn(props.className, "max-w-64 gap-1.5 text-sm leading-4 max-sm:shrink-0")}
         >
           {view.provider && (
             <ProviderAccountIcon

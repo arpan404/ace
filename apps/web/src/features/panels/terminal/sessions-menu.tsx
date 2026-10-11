@@ -30,9 +30,6 @@ const shellState = {
   unknown: "may still be running",
 };
 
-/** The count's ring in the panel's colour (inline: a one-off value). */
-const ring = { boxShadow: "0 0 0 1.5px var(--panel)" };
-
 /**
  * Every shell of the thread in one place: your terminals, open in a tab or not, and the
  * agents' background shells still running or open in a tab (a finished one stays reachable
@@ -80,17 +77,6 @@ export function SessionsMenu(props: { scope: string }) {
             />
           }
         />
-        {unseen > 0 && (
-          <span
-            aria-hidden
-            // 14px at the button's corner, ringed in the panel's colour so it stands clear of
-            // the glyph under it.
-            style={ring}
-            className="pointer-events-none absolute -top-0.5 -right-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-foreground px-1 text-2xs leading-none font-semibold text-background tabular-nums"
-          >
-            {unseen}
-          </span>
-        )}
       </span>
       <MenuContent
         align="end"

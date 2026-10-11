@@ -7,9 +7,11 @@ import {
   DownloadSimpleIcon,
   MagnifyingGlassIcon,
   ScrollIcon,
-  TrashIcon,
+  DotsThreeIcon,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Menu, MenuTrigger, MenuContent, MenuItem } from "@/components/ui/menu.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { LongRows } from "@/components/virtual-rows.tsx";
@@ -190,6 +192,23 @@ function ThreadLogView(props: TabViewProps & { agentId: string | undefined }) {
           disabled={!shown.length}
           onClick={() => save(`${agentName ?? "thread"}-${threadId}.log`, text())}
         />
+        <Menu>
+          <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="Log options" />} />
+          <MenuContent align="end">
+            <MenuItem
+              disabled={!kept.length}
+              onClick={() =>
+                hideLogLines(
+                  services.logCleared,
+                  threadId,
+                  lines.map((line) => line.key),
+                )
+              }
+            >
+              Clear logs
+            </MenuItem>
+          </MenuContent>
+        </Menu>
       </div>
       {hidden > 0 && (
         <p className="flex h-8 shrink-0 items-center gap-1 px-3 text-xs text-subtle-foreground">
@@ -303,34 +322,5 @@ function LogRow(props: { line: LogLine }) {
       </span>
       <span className="break-words whitespace-pre-wrap">{line.text}</span>
     </div>
-  );
-}
-
-/** Clear, beside a Logs tab: hides the lines shown so far (Show brings them back). */
-export function LogsActions(props: TabViewProps) {
-  if (parseLogScope(props.tab.id).kind === "daemon") return null;
-  return (
-    <WithServices quiet>
-      <LogsButtons threadId={props.scope} />
-    </WithServices>
-  );
-}
-
-function LogsButtons(props: { threadId: string }) {
-  const services = usePanelServices();
-  const lines = useThreadLog(props.threadId);
-  return (
-    <ToolbarButton
-      icon={TrashIcon}
-      label="Clear logs"
-      disabled={!lines.length}
-      onClick={() =>
-        hideLogLines(
-          services.logCleared,
-          props.threadId,
-          lines.map((line) => line.key),
-        )
-      }
-    />
   );
 }

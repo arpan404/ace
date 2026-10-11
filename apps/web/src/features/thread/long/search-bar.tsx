@@ -5,6 +5,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { LongRows } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -107,7 +108,7 @@ export function SearchBar(props: { nav: ThreadNav }) {
         event.stopPropagation();
         close();
       }}
-      className="glass fx-rise-in flex w-[min(620px,calc(100vw-2rem))] flex-col rounded-lg shadow-[var(--glass-shadow)]"
+      className="bg-popover border border-border fx-rise-in flex w-[min(620px,calc(100vw-2rem))] flex-col rounded-lg shadow-[var(--glass-shadow)]"
     >
       <div className="flex h-11 items-center gap-2 pr-1.5 pl-3">
         <MagnifyingGlassIcon aria-hidden size={16} className="shrink-0 text-subtle-foreground" />
@@ -154,28 +155,15 @@ export function SearchBar(props: { nav: ThreadNav }) {
         <IconButton icon={XIcon} label="Close search" size="sm" onClick={close} />
       </div>
       <div className="flex items-center justify-between gap-3 border-t border-border px-2 py-1.5">
-        <div
-          role="group"
-          aria-label="Search in"
-          className="inline-flex gap-0.5 rounded-md bg-secondary p-[3px]"
-        >
-          {filters.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              aria-pressed={filter === option.value}
-              // The segmented control's own look, from its `data-pressed` styles.
-              {...(filter === option.value ? { "data-pressed": "" } : {})}
-              onClick={() => {
-                setFilter(option.value);
-                setListOpen(true);
-              }}
-              className="h-[22px] rounded-sm px-[11px] text-[12px] font-medium whitespace-nowrap text-muted-foreground outline-none transition-[background-color,color] duration-(--dur-1) hover:text-foreground data-pressed:bg-popover data-pressed:text-foreground data-pressed:shadow-raised"
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        <Select
+          label="Search in"
+          value={filter}
+          options={filters}
+          onValueChange={(value) => {
+            setFilter(value);
+            setListOpen(true);
+          }}
+        />
         <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
           <Switch
             checked={tree}
@@ -293,7 +281,7 @@ function HitRow(props: { hit: SearchHit; active: boolean; other: boolean; onOpen
       )}
     >
       <span className="flex items-center gap-2 text-xs text-subtle-foreground">
-        <span className="font-mono tabular-nums">
+        <span className="tabular-nums">
           {hit.turnOrdinal === null ? "Turn unknown" : `Turn ${hit.turnOrdinal}`}
         </span>
         {props.other && <span>· Subagent</span>}

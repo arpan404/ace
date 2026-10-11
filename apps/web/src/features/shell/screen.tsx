@@ -52,6 +52,7 @@ export function Screen(
       tools={props.tools}
       actions={props.actions}
       status={props.status}
+      notice={<ConnectionNotice />}
       scrolled={scrolled}
       trailing={trailing}
     />
@@ -61,7 +62,6 @@ export function Screen(
       <>
         {header()}
         <PausedNotice />
-        <ConnectionNotice />
         <div className="relative flex min-h-0 flex-1 flex-col">{main}</div>
       </>
     );
@@ -75,7 +75,6 @@ export function Screen(
       notice={
         <>
           <PausedNotice />
-          <ConnectionNotice />
         </>
       }
     >

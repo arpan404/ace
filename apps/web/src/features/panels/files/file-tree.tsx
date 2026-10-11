@@ -3,7 +3,6 @@ import {
   FolderIcon,
   FolderOpenIcon,
   MagnifyingGlassIcon,
-  UploadSimpleIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { useClient, useConnectionState } from "@ace/client-react";
@@ -24,7 +23,6 @@ import {
   type ReactNode,
 } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { Highlighted } from "./highlighted-path.tsx";
@@ -255,13 +253,11 @@ export function FileTree(props: {
             </button>
           )}
         </label>
-        <FileMenu folder={currentFolder} disabled={!online} onOperation={props.onOperation} />
-        <IconButton
-          icon={UploadSimpleIcon}
-          label={currentFolder ? `Upload to ${currentFolder}` : "Upload to the checkout"}
-          className="size-8"
+        <FileMenu
+          folder={currentFolder}
           disabled={!online}
-          onClick={() => upload.current?.click()}
+          onOperation={props.onOperation}
+          onUpload={() => upload.current?.click()}
         />
         <input
           ref={upload}
@@ -278,9 +274,6 @@ export function FileTree(props: {
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {!searching && rows.length > 0 && (
-          <p className="flex h-6 items-center px-1 text-xs text-subtle-foreground">Checkout</p>
-        )}
         <div
           ref={list}
           role="tree"

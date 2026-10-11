@@ -6,3 +6,5 @@ export { SidebarFrame } from "./sidebar-frame.tsx";
 export { useThreadIdsWhere } from "./use-threads.ts";
 export { SidebarHeader, ViewFrame, ViewListPage, ViewSidebar } from "./view-frame.tsx";
 export { views, type View } from "./views.ts";
+
+export { ShortcutHost } from "./shortcut-host.tsx";

@@ -35,6 +35,7 @@ export interface KeymapEntry {
 }
 
 export const keymap = {
+  shortcuts: { keys: "mod+/", also: ["shift+/"], label: "Keyboard shortcuts" },
   palette: { keys: "mod+k", label: "Command palette" },
   search: { keys: "shift+mod+k", label: "Search all threads" },
   newThread: { keys: "mod+n", web: "alt+mod+n", label: "New thread" },

@@ -43,6 +43,7 @@ function MenuContent({
         <MenuPrimitive.Popup
           data-slot="menu-content"
           className={cn(popupSurface, popupBounds, "min-w-[220px]", className)}
+          finalFocus={() => !document.querySelector('[role="dialog"], [data-inline-rename]')}
           {...props}
         />
       </MenuPrimitive.Positioner>
@@ -112,7 +113,7 @@ function MenuItem({
           <span className="text-xs whitespace-normal text-subtle-foreground">{reason}</span>
         </span>
         {shortcutText && (
-          <span className={cn(menuShortcut, "group-data-disabled/item:opacity-50")}>
+          <span aria-hidden className={cn(menuShortcut, "group-data-disabled/item:opacity-50")}>
             {shortcutText}
           </span>
         )}
@@ -122,7 +123,11 @@ function MenuItem({
     <MenuPrimitive.Item className={cn(menuItem, danger && menuDanger, className)} {...props}>
       {icon}
       <span className="min-w-0 flex-1 truncate">{children}</span>
-      {shortcutText && <span className={menuShortcut}>{shortcutText}</span>}
+      {shortcutText && (
+        <span aria-hidden className={menuShortcut}>
+          {shortcutText}
+        </span>
+      )}
     </MenuPrimitive.Item>
   );
 }

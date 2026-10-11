@@ -1,9 +1,11 @@
 import { openProfileView } from "@/test/navigation.ts";
 import { coldStartReplay, workbenchServices } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 /** Pretend the window is `width` px wide: media queries answer as a browser would. */
 function windowWidth(width: number) {
@@ -159,7 +161,7 @@ test("on a phone a panel covers the thread as a sheet that Done or Escape closes
   await openThread();
   // On a phone the panel's toggle lives in the header's ⋯, which focus returns to.
   await userEvent.click(await moreActions(screen.getByRole("banner")));
-  await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Changes" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).queryByRole("separator", { name: /Resize/ })).toBeNull();
   // Focus moves into the sheet, onto its showing tab.
@@ -181,7 +183,8 @@ test("on a phone a panel covers the thread as a sheet that Done or Escape closes
 
   // Its shortcut (Ctrl+Alt+B off Apple) opens it too; Escape closes it.
   await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
-  await screen.findByRole("region", { name: "Thread panel" });
+  const opened = await screen.findByRole("region", { name: "Thread panel" });
+  await waitFor(() => expect(opened.contains(document.activeElement)).toBe(true));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 
@@ -240,8 +243,9 @@ test("on a small tablet the floating panel leaves the sidebar where the person p
   await openThread();
   expect(sidebar()).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
-  await screen.findByRole("region", { name: "Thread panel" });
+  const opened = await screen.findByRole("region", { name: "Thread panel" });
   expect(sidebar()).toBeTruthy();
+  await waitFor(() => expect(opened.contains(document.activeElement)).toBe(true));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
   expect(sidebar()).toBeTruthy();

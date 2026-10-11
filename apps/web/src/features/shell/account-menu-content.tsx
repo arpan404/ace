@@ -1,5 +1,11 @@
 import { DaemonMenuItems } from "./daemon-menu-content.tsx";
-import { ArchiveIcon, ChartBarIcon, InfoIcon, UserIcon, PlugsIcon } from "@phosphor-icons/react";
+import {
+  ArchiveIcon,
+  ChartBarIcon,
+  InfoIcon,
+  KeyboardIcon,
+  PlugsIcon,
+} from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   MenuContent,
@@ -12,6 +18,7 @@ import { Icon } from "@/components/icon.tsx";
 import { menuViews } from "./views.ts";
 import { menuLabel } from "@/components/ui/menu-styles.ts";
 import { cn } from "@/lib/cn.ts";
+import { useLayout } from "@/lib/layout.tsx";
 import { useProfileName } from "@/lib/profile.ts";
 
 /** The desktop app's version, from its preload bridge; a browser tab has none to show. */
@@ -29,13 +36,13 @@ function desktopVersion(): string | undefined {
  * beside the profile, so it isn't repeated here.
  */
 export function AccountMenuContent() {
+  const layout = useLayout();
   const [name] = useProfileName();
   const navigate = useNavigate();
   const version = desktopVersion();
   return (
     <MenuContent side="top" align="start" className="min-w-(--anchor-width)">
-      <div className="flex items-center gap-2 truncate px-2.5 py-1.5 text-ui font-medium text-foreground">
-        <UserIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+      <div className="flex items-center gap-2 truncate px-2.5 py-1.5 text-ui text-muted-foreground">
         <span className="truncate">{name || "You"}</span>
       </div>
       <MenuSeparator />
@@ -60,6 +67,13 @@ export function AccountMenuContent() {
         onClick={() => void navigate({ to: "/archived" })}
       >
         Archived threads
+      </MenuItem>
+      <MenuItem
+        icon={<KeyboardIcon aria-hidden />}
+        shortcut="shortcuts"
+        onClick={() => layout.setShortcutsOpen(true)}
+      >
+        Keyboard shortcuts
       </MenuItem>
       <MenuSeparator />
       <MenuSub>

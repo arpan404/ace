@@ -6,6 +6,7 @@ import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, failureMessage, stillAlive, waitingNote } from "@/lib/daemon-command.ts";
 import { describeWake, type OrganizePatch } from "@ace/ui-core";
+import { useDeleteConfirmation } from "./delete-confirmation.ts";
 import { useOrganizeOverlay } from "./overlay.ts";
 
 /** How long Undo stays on screen for reversible actions. */
@@ -106,6 +107,7 @@ interface Action {
  */
 export function useThreadActions(): ThreadActions {
   const overlay = useOrganizeOverlay();
+  const confirmation = useDeleteConfirmation();
   const client = useClient();
   const toast = useToast();
   const navigate = useNavigate();
@@ -267,24 +269,15 @@ export function useThreadActions(): ThreadActions {
           });
         const only = live.length === 1 ? live[0] : undefined;
         if (!live.length) return;
-        const toastId = toast.add({
-          title: only
-            ? `Couldn't delete · ${only.entry.title}`
-            : `Couldn't delete ${count(live.length)}`,
-          description: only
-            ? failureMessage(only.error)
-            : "Their agents or terminals are still running.",
-          actionProps: {
-            children: "Stop and delete",
-            onClick: () => {
-              toast.close(toastId);
-              removeAll(
-                live.map((refusal) => refusal.entry),
-                done,
-                true,
-              );
-            },
-          },
+        confirmation.open({
+          title: only ? only.entry.title : count(live.length),
+          running: "Agents or terminals are still running. They will stop before deletion.",
+          confirm: () =>
+            removeAll(
+              live.map((refusal) => refusal.entry),
+              done,
+              true,
+            ),
         });
       });
     };
@@ -382,7 +375,19 @@ export function useThreadActions(): ThreadActions {
       restore: (entry) =>
         void reversible(entry, restore(entry), `Restored · ${entry.title}`, archive(entry)),
       deleteArchived: (entry) => removeAll([entry], () => `Deleted · ${entry.title}`),
-      remove: (entry) => removeAll([entry], () => `Deleted · ${entry.title}`),
+      remove: (entry) => {
+        const lease = client.threads();
+        const status = lease.store.thread(entry.id)?.status;
+        lease.release();
+        const running = status && !["done", "failed", "stopped"].includes(status.state);
+        confirmation.open({
+          title: entry.title,
+          running: running
+            ? `${status.state === "working" ? status.agents : 1} ${status.state === "working" && status.agents !== 1 ? "agents" : "agent"} running. Running work will stop before deletion.`
+            : "",
+          confirm: () => removeAll([entry], () => `Deleted · ${entry.title}`, !!running),
+        });
+      },
       newThreadOnMain: (entry) =>
         void navigate({ to: "/new", search: { project: entry.workspaceId, base: "main" } }),
       copyLink: (entry) => {
@@ -395,5 +400,5 @@ export function useThreadActions(): ThreadActions {
         );
       },
     };
-  }, [overlay, client, toast, navigate, router]);
+  }, [overlay, client, toast, navigate, router, confirmation]);
 }

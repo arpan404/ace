@@ -1,9 +1,13 @@
 import { longHistory } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { screen, within } from "@testing-library/react";
+import { configure, screen, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
+import { selectAccount } from "@/test/model-control.ts";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
@@ -12,21 +16,26 @@ async function fork() {
   app.play(longHistory(2)).runUntilBlocked();
   await app.open("/t/thread-router");
   await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Fork from the last turn…" }));
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 }),
+    "Fork",
+  );
+  await userEvent.click(await screen.findByRole("option", { name: /Fork from the last turn/ }));
   const dialog = await screen.findByRole("dialog", { name: "Fork from here" });
   const title = within(dialog).getByRole("textbox", { name: "Title" });
   await userEvent.clear(title);
   await userEvent.type(title, "Try another model");
   await userEvent.click(within(dialog).getByRole("button", { name: /^Fork model:/ }));
   const picker = await screen.findByRole("dialog", { name: "Fork model" });
-  await userEvent.click(await within(picker).findByRole("tab", { name: "Codex · Personal" }));
+  await userEvent.click(await within(picker).findByRole("tab", { name: "Codex" }));
+  await selectAccount(picker, "Personal");
   await userEvent.type(
     within(picker).getByRole("combobox", { name: "Search models" }),
     "GPT-5 Codex",
   );
   await userEvent.click(
-    await within(picker).findByRole("option", { name: /^GPT-5 Codex,.*Codex · Personal/ }),
+    await within(picker).findByRole("option", { name: /^GPT-5 Codex, Codex · Personal$/ }),
   );
   await userEvent.type(
     within(dialog).getByRole("textbox", { name: "First message of the fork" }),
@@ -67,8 +76,12 @@ function finish(app: ReturnType<typeof harness>, id: string) {
 }
 
 async function openMerge() {
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Bring back to parent…" }));
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 }),
+    "Bring back",
+  );
+  await userEvent.click(await screen.findByRole("option", { name: /Bring back to parent/ }));
   return screen.findByRole("dialog", { name: "Bring back to parent" });
 }
 

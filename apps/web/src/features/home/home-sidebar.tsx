@@ -63,6 +63,7 @@ export function HomeSidebar() {
         ) : empty ? (
           <>
             <EmptyState
+              className="shrink-0 justify-start pt-6"
               icon={ChatsIcon}
               title={project ? `Nothing in ${directory.name(project)}` : "No threads yet"}
               description={

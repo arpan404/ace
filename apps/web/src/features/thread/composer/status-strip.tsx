@@ -25,7 +25,12 @@ export function StatusStrip(props: {
   const compact = useComposerCompact();
   const activity = useTurnActivity(props.threadId);
   const live = useThreadLiveState(props.threadId);
-  if (!activity && !live.canStop) return null;
+  if (
+    activity?.label.startsWith("Watching") ||
+    activity?.tone === "needs-you" ||
+    (!activity && !live.canStop)
+  )
+    return null;
   const agents = props.status?.state === "working" ? props.status.agents : 1;
   // While Stop is on its way the button says so; the label keeps saying what is running.
   const label =
@@ -41,13 +46,7 @@ export function StatusStrip(props: {
       <div className={cn(stripRow, "gap-2 pl-3.5")}>
         <p role="status" className="flex min-w-0 flex-1 items-center gap-1.5">
           <StatusLabel
-            tone={
-              activity?.tone === "working"
-                ? "working"
-                : activity?.tone === "needs-you"
-                  ? "needs-you"
-                  : "waiting"
-            }
+            tone={activity?.tone === "working" ? "working" : "waiting"}
             label={label}
             mark={activity?.tone === "working" ? <Spinner /> : <Dot tone="limited" />}
             className="min-w-0 shrink truncate"

@@ -1,7 +1,9 @@
 import { usePendingSends } from "@ace/client-react";
 import type { PendingSend } from "@ace/client";
 import { provisionalTitle, untitledThread } from "@ace/ui-core";
-import { useId, useMemo, useState } from "react";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import { useMemo } from "react";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover.tsx";
 import { usePendingActions } from "@/lib/pending-actions.ts";
 
 interface Waiting {
@@ -38,44 +40,39 @@ function useWaiting(): readonly Waiting[] {
 }
 
 /** Offline: what still works, how much waits, and (opened) what exactly waits. */
-export function OfflineNotice(props: { words: string }) {
+export function OfflineNotice(_props: { words: string }) {
+  const connection = useDaemonConnection();
   const waiting = useWaiting();
-  const [open, setOpen] = useState(false);
-  const listId = useId();
-  const words = props.words;
+  const words = "Offline";
   return (
-    <div className="fx-view-in shrink-0 border-b text-sm text-muted-foreground">
-      <div
-        role="status"
-        className="flex min-h-8 items-center justify-center gap-2 px-3 py-1 text-center"
-      >
+    <div className="text-xs text-muted-foreground">
+      <div role="status" className="flex items-center gap-2">
         {waiting.length ? (
-          <button
-            type="button"
-            aria-expanded={open}
-            aria-controls={listId}
-            onClick={() => setOpen(!open)}
-            className="rounded-sm px-1 outline-none hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
-          >
-            {words} · {waiting.length} waiting
-          </button>
+          <Popover>
+            <PopoverTrigger className="rounded-sm px-1 outline-none hover:text-foreground focus-ring">
+              {words} · {waiting.length} waiting
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-72 max-h-40 overflow-y-auto">
+              <ul aria-label="Waiting for ace">
+                {waiting.map((item) => (
+                  <li key={item.key} className="truncate px-2 py-1">
+                    {item.label}
+                  </li>
+                ))}
+              </ul>
+            </PopoverContent>
+          </Popover>
         ) : (
           words
         )}
-      </div>
-      {open && waiting.length > 0 && (
-        <ul
-          id={listId}
-          aria-label="Waiting for ace"
-          className="mx-auto max-h-40 max-w-[560px] overflow-y-auto px-4 pb-2"
+        <button
+          type="button"
+          className="rounded-sm text-foreground hover:underline focus-ring"
+          onClick={() => connection.retry()}
         >
-          {waiting.map((item) => (
-            <li key={item.key} className="truncate py-0.5">
-              {item.label}
-            </li>
-          ))}
-        </ul>
-      )}
+          Retry
+        </button>
+      </div>
     </div>
   );
 }

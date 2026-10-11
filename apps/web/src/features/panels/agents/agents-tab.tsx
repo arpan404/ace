@@ -169,7 +169,6 @@ export function AgentsTab(props: { threadId: string }) {
             </ul>
           </section>
         )}
-        <h3 className={heading}>Status</h3>
         <Why threadId={props.threadId} queued={queuedCount} />
       </div>
     </ArrivalScope>
@@ -466,9 +465,8 @@ function Why(props: { threadId: string; queued: number }) {
   return (
     <section
       aria-label={why.title}
-      className="mx-0.5 mt-2 rounded-card bg-muted px-3 py-2.5 text-sm leading-normal text-muted-foreground"
+      className="mx-0.5 mt-2 px-3 py-2 text-ui leading-normal text-muted-foreground"
     >
-      <b className="mb-0.5 block font-medium text-foreground">{why.title}</b>
       {why.body}
     </section>
   );

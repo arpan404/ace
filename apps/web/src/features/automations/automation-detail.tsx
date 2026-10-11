@@ -29,9 +29,9 @@ import { useProjectName } from "@/lib/projects.ts";
 
 /** One automation: what it does, where it runs, when next, and its recent runs. */
 export function AutomationScreen(props: { id: string }) {
+  const navigate = useNavigate();
   const { entry, pending, error, retry } = useAutomation(props.id);
   const actions = useAutomationControls(entry?.automation);
-  const navigate = useNavigate();
   const choices = useModelChoices();
   const now = useNow();
   const projectName = useProjectName();
@@ -208,7 +208,6 @@ function useAutomationControls(automation: Automation | undefined) {
   const { setEnabled, remove, runNow, setHidden, save } = useAutomationActions();
   const list = useAutomations().data;
   const toast = useToast();
-  const navigate = useNavigate();
   const failed = (error: unknown) =>
     toast.error({
       title:

@@ -1,11 +1,11 @@
-import { ProjectImage } from "@/components/project-image.tsx";
+import { ProjectMark } from "@/components/project-mark.tsx";
 import {
   FolderPlusIcon,
   CaretDownIcon,
   FolderSimpleIcon,
   DotsThreeIcon,
 } from "@phosphor-icons/react";
-import { projectTint } from "@ace/ui-core";
+import { projectBadge, projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -141,17 +141,26 @@ function ProjectItem(props: {
               : { color: `var(--project-${projectTint(props.value)})` }
           }
         >
-          <ProjectImage icon={props.icon} fallback={<Icon icon={FolderSimpleIcon} />} />
+          {props.value === all ? (
+            <Icon icon={FolderSimpleIcon} />
+          ) : (
+            <ProjectMark
+              icon={props.icon}
+              badge={projectBadge({ id: props.value, name: props.label })}
+            />
+          )}
         </span>
         {props.label}
-        <span className="ml-auto pl-4 text-xs text-subtle-foreground">{props.count}</span>
+        <span className="ml-auto pl-4 group-hover/project:opacity-0 group-focus-within/project:opacity-0 text-xs text-subtle-foreground">
+          {props.count}
+        </span>
       </span>
     </MenuRadioItem>
   );
   if (!props.registered) return item;
   const actions = <ManageProjectItems projectId={props.value} name={props.label} />;
   return (
-    <div className="flex items-center">
+    <div className="group/project flex items-center">
       <ContextMenu>
         <ContextMenuTrigger render={<div className="flex-1" />}>{item}</ContextMenuTrigger>
         <ContextMenuContent aria-label={`Actions for ${props.label}`}>{actions}</ContextMenuContent>
@@ -160,7 +169,7 @@ function ProjectItem(props: {
         <Tip label={`Actions for ${props.label}`}>
           <MenuSubTrigger
             aria-label={`Actions for ${props.label}`}
-            className="w-auto px-2 [&>svg:last-child]:hidden"
+            className="w-auto px-2 opacity-0 group-hover/project:opacity-100 group-focus-within/project:opacity-100 [&>svg:last-child]:hidden"
           >
             <DotsThreeIcon aria-hidden size={16} />
           </MenuSubTrigger>

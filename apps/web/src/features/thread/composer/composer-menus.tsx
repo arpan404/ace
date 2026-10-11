@@ -31,7 +31,7 @@ export function PermissionMenu(props: {
   if (view.loading) return <Note pending>Checking available approval modes…</Note>;
   if (!view.options.length)
     return <Note>This provider doesn't report approval modes, so they can't be changed here.</Note>;
-  const options = [
+  const options: PermissionMenuView["options"] = [
     {
       id: "",
       label: "Provider default",
@@ -55,11 +55,12 @@ export function PermissionMenu(props: {
           {options.map((option) => {
             const attention = option.risk === "high";
             return (
-              <Tip key={option.id} label={option.description} side="right">
+              <Tip key={option.id} label={option.unavailable ?? option.description} side="right">
                 <MenuPrimitive.RadioItem
                   value={option.id}
                   aria-label={option.label}
-                  aria-description={option.description}
+                  aria-description={option.unavailable ?? option.description}
+                  disabled={!!option.unavailable}
                   closeOnClick
                   className={cn(menuItem, "gap-2.5 px-2.5")}
                 >

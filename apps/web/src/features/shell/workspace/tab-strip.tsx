@@ -18,8 +18,7 @@ import type {
 import { shownTab } from "@/lib/workspace/index.ts";
 import { useReducedMotion } from "@/lib/motion.ts";
 import { tabDragType, TabItem, type DropSide } from "./tab-item.tsx";
-import { useEdgeFade } from "@/lib/edge-fade.ts";
-import { useRevealShown, useTabFit } from "./use-tab-layout.ts";
+import { useRevealShown } from "./use-tab-layout.ts";
 
 /**
  * The side panel's tabs: one tab stop (arrows move between tabs and show them, Home/End jump,
@@ -45,8 +44,6 @@ export function TabStrip(props: {
   const [announcement, setAnnouncement] = useState("");
   const overflowing = useOverflow(scroller, state.tabs.length);
   const entering = useEntering(state.tabs.map((tab) => tab.key));
-  const fit = useTabFit(row, scroller, shown);
-  const mask = useEdgeFade(scroller);
   useRevealShown(scroller, shown);
   useLayoutEffect(() => {
     const key = focusNext.current;
@@ -125,7 +122,6 @@ export function TabStrip(props: {
     <div ref={row} className="flex min-w-0 flex-1 items-center gap-1">
       <div
         ref={scroller}
-        style={mask ? { maskImage: mask, WebkitMaskImage: mask } : undefined}
         role="tablist"
         aria-label={props.label}
         onDragOver={(event) => onDragOver(event)}
@@ -148,10 +144,10 @@ export function TabStrip(props: {
             actions={actions}
             drop={drop?.key === tab.key ? drop.side : undefined}
             entering={entering.has(tab.key)}
-            width={fit?.widths.get(tab.key)}
-            iconOnly={fit?.icons.has(tab.key) ?? false}
-            clipped={fit?.clipped.has(tab.key) ?? false}
-            badgeDot={fit?.dots.has(tab.key) ?? false}
+            width={120}
+            iconOnly={false}
+            clipped={true}
+            badgeDot={false}
             onKeyDown={onKeyDown(index)}
             onDragOver={(event, side) => {
               event.stopPropagation();

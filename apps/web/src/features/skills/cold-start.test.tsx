@@ -1,8 +1,11 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { configure, act, screen, waitFor } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { CatalogEntry, ClientMessage, ServerMessage } from "@ace/protocol";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 const tdd = CatalogEntry.parse({

@@ -1,8 +1,8 @@
+import { SlashIcon } from "@/components/slash-icon.tsx";
 import { useSkillDiscovery } from "./discovered-skills.tsx";
 import {
   FunnelSimpleIcon,
   ClockIcon,
-  CommandIcon,
   PlugIcon,
   RobotIcon,
   ScrollIcon,
@@ -37,7 +37,7 @@ import { useSkills } from "./skills-source.ts";
 
 export const kinds: readonly { kind: SkillKind; label: string; icon: IconGlyph }[] = [
   { kind: "skill", label: "Skills", icon: SparkleIcon },
-  { kind: "command", label: "Slash commands", icon: CommandIcon },
+  { kind: "command", label: "Slash commands", icon: SlashIcon },
   { kind: "agent", label: "Agents", icon: RobotIcon },
   { kind: "rule", label: "Rules", icon: ScrollIcon },
   { kind: "plugin", label: "Plugins", icon: PlugIcon },

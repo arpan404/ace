@@ -3,12 +3,13 @@ import { StarIcon } from "@phosphor-icons/react";
 import type { KeyboardEvent, Ref } from "react";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { providerNames } from "@ace/ui-core";
 import type { PickerEntry } from "./picker-entries.ts";
 
 const tabButton =
   "grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-selected:bg-foreground/8 aria-selected:text-foreground data-disabled:opacity-40";
 
-/** Account marks with a roving keyboard selection; the right pane owns model navigation. */
+/** One provider tab with roving keyboard selection; the pane chooses the account and model. */
 export function PickerRail({
   ref,
   ...props
@@ -24,6 +25,30 @@ export function PickerRail({
   onSelect(id: string): void;
   onClose?: (() => void) | undefined;
 }) {
+  const railEntries = props.entries
+    .filter(
+      (entry, index, entries) =>
+        !entry.provider ||
+        entries.findIndex((candidate) => candidate.provider === entry.provider) === index,
+    )
+    .map((entry) => {
+      const selected = props.entries.find(
+        (candidate) => candidate.id === props.selected && candidate.provider === entry.provider,
+      );
+      const usable = props.entries.find(
+        (candidate) => candidate.provider === entry.provider && !candidate.reason,
+      );
+      const chosen = selected ?? usable ?? entry;
+      return entry.provider
+        ? {
+            id: chosen.id,
+            provider: chosen.provider,
+            instance: chosen.instance,
+            reason: chosen.reason,
+            name: providerNames[entry.provider],
+          }
+        : entry;
+    });
   const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "ArrowRight" || (event.key === "Tab" && !event.shiftKey)) {
       event.preventDefault();
@@ -32,7 +57,7 @@ export function PickerRail({
     }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
-    const usable = props.entries.filter((entry) => !entry.reason);
+    const usable = railEntries.filter((entry) => !entry.reason);
     const at = usable.findIndex((entry) => entry.id === props.selected);
     const next =
       usable[(at + (event.key === "ArrowDown" ? 1 : -1) + usable.length) % usable.length];
@@ -51,7 +76,7 @@ export function PickerRail({
           onKeyDown={onKey}
           className="flex min-h-0 w-12 shrink-0 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto overscroll-contain border-r border-border px-1.5 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          {props.entries.map((entry) => {
+          {railEntries.map((entry) => {
             const name = entry.name;
             const activeTab = !props.searching && props.selected === entry.id;
             return (

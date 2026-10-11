@@ -157,6 +157,7 @@ export function LoadFailed(props: {
   url: string;
   failure: BrowserFailure;
   onReload(): void;
+  reloadLabel?: string;
   extra?: ReactNode;
 }) {
   return (
@@ -171,7 +172,7 @@ export function LoadFailed(props: {
       <div className="mt-6 flex gap-2">
         <Button size="sm" onClick={props.onReload}>
           <ArrowClockwiseIcon aria-hidden size={14} />
-          {props.failure.needsControl ? "Take control and reload" : "Reload"}
+          {props.failure.needsControl ? "Take control and reload" : (props.reloadLabel ?? "Reload")}
         </Button>
         {props.extra}
       </div>

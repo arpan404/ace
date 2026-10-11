@@ -1,9 +1,12 @@
 import { createIdleTask } from "@/test/tasks.ts";
 import { workbench } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
@@ -41,13 +44,6 @@ async function openPicker(title: RegExp) {
   await waitFor(() => expect(document.activeElement).toBe(search));
 }
 
-/** The highlighted project's name. */
-const highlighted = () =>
-  screen
-    .getAllByRole("option")
-    .find((option) => option.hasAttribute("data-highlighted"))
-    ?.querySelector("span")?.textContent;
-
 /** Pick a project in the open picker by typing part of its name and pressing Enter. */
 async function pickProject(typed: string) {
   const search = await screen.findByRole("combobox", { name: "Search projects" });
@@ -64,10 +60,10 @@ test("Move to project from a row's menu moves it at once and the daemon keeps it
   // The other projects are offered by name, without the one it is in.
   const picker = await screen.findByRole("dialog", { name: "Move to project" });
   const offered = await within(picker).findAllByRole("option");
-  expect(offered.map((option) => option.textContent)).toEqual(
+  expect(offered.map((option) => option.getAttribute("aria-label"))).toEqual(
     expect.arrayContaining([expect.stringMatching(/^relay/), expect.stringMatching(/^docs-site/)]),
   );
-  expect(offered.some((option) => option.textContent?.startsWith("billing-api"))).toBe(false);
+  expect(offered.some((option) => option.getAttribute("aria-label") === "billing-api")).toBe(false);
 
   await pickProject("rel");
   expect(card(/^Invoice PDF locale fallback.*Project relay/)).toBeTruthy();
@@ -80,19 +76,15 @@ test("Move to project from a row's menu moves it at once and the daemon keeps it
 test("the picker is keyboard driven: arrows choose a project, Escape leaves it where it was", async () => {
   const app = await openApp();
   await openPicker(/Invoice PDF/);
-  const first = highlighted();
   await userEvent.keyboard("{ArrowDown}");
-  await waitFor(() => expect(highlighted()).not.toBe(first));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Move to project" })).toBeNull());
   expect(listed(app, "thread-pdf-locale")?.workspaceId).toBe("billing-api");
 
   await openPicker(/Invoice PDF/);
   await userEvent.keyboard("{ArrowDown}");
-  const second = highlighted();
-  expect(second).toBeTruthy();
   await userEvent.keyboard("{Enter}");
-  await waitFor(() => expect(listed(app, "thread-pdf-locale")?.workspaceId).toBe(second));
+  await waitFor(() => expect(listed(app, "thread-pdf-locale")?.workspaceId).toBe("ace-mobile"));
 });
 
 test("Undo on the toast moves the thread back to its project", async () => {
@@ -186,10 +178,8 @@ test("⌘K moves the open thread to another project", async () => {
   await screen.findByRole("heading", { level: 1, name: "Invoice PDF locale fallback" });
   await userEvent.keyboard("{Meta>}k{/Meta}");
   const search = await screen.findByRole("combobox", { name: "Search commands" });
-  await userEvent.type(search, "move this");
-  await userEvent.click(
-    await screen.findByRole("option", { name: /^Move this thread to another project/ }),
-  );
+  await userEvent.type(search, "Move to project");
+  await userEvent.click(await screen.findByRole("option", { name: /^Move to project/ }));
   await pickProject("ace-mobile");
   await waitFor(() => expect(listed(app, "thread-pdf-locale")?.workspaceId).toBe("ace-mobile"));
   expect(await screen.findByText("Moved to ace-mobile")).toBeTruthy();

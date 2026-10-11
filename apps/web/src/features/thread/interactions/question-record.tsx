@@ -68,6 +68,7 @@ export function QuestionRecord(props: { threadId: string; interactionId: string 
           : meta.kind === "sending"
             ? "Sending…"
             : undefined;
+  if (waiting) return null;
   return (
     <div role="group" aria-label={`Question: ${title}`} className="text-ui">
       <div className="flex min-w-0 items-center gap-2 text-muted-foreground">

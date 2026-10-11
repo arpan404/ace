@@ -13,6 +13,7 @@ export function FileMenu(props: {
   folder: string;
   disabled: boolean;
   onOperation(operation: FileOperationDialog): void;
+  onUpload(): void;
 }) {
   const folder = cleanPath(props.folder);
   return (
@@ -38,6 +39,7 @@ export function FileMenu(props: {
         >
           New folder
         </MenuItem>
+        <MenuItem onClick={props.onUpload}>Upload files…</MenuItem>
         <MenuSeparator />
         <MenuItem onClick={() => props.onOperation({ kind: "archive", path: "" })}>
           Download folder…

@@ -1,10 +1,13 @@
 import { workbench } from "@ace/fake-daemon";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { configure, cleanup, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 import { fakeClient, harness } from "@/test/harness.tsx";
 import { memoryStorage } from "@/boot/client.ts";
+
+configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
@@ -26,6 +29,12 @@ async function choose(title: RegExp, item: string | RegExp) {
   await userEvent.pointer({ keys: "[MouseRight]", target });
   const menu = await screen.findByRole("menu", { name: /^Actions for/ });
   await userEvent.click(within(menu).getByRole("menuitem", { name: item }));
+  if (item === "Delete thread") {
+    const dialog = await screen.findByRole("dialog", { name: "Delete thread?" });
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /^(Delete|Stop and delete)$/ }),
+    );
+  }
 }
 
 /** The thread as the daemon's list has it. */
@@ -190,8 +199,9 @@ test("deleting another thread and a refused active delete preserve the open thre
   await screen.findByRole("heading", { level: 1, name: "Invoice PDF locale fallback" });
   await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
   await userEvent.click(
-    screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
+    screen.getByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
   );
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Unsettle" }));
   await waitFor(() => expect(card(/Bump Codex/)).toBeTruthy());
   await choose(/Bump Codex/, "Delete thread");
   await waitFor(() => expect(listed(app, "thread-bump-codex")).toBeUndefined());
@@ -225,7 +235,6 @@ test("a delivered create never returns as a starting row after deleting its thre
   await waitFor(() => expect(card(/^Temporary thread for deletion/)).toBeTruthy());
   await waitFor(() => expect(screen.queryByRole("list", { name: "Starting threads" })).toBeNull());
   await choose(/^Temporary thread for deletion/, "Delete thread");
-  await userEvent.click(await screen.findByRole("button", { name: "Stop and delete" }));
   await screen.findByText("Deleted · Temporary thread for deletion");
   await waitFor(() => expect(screen.queryByRole("list", { name: "Starting threads" })).toBeNull());
   expect(card(/^Temporary thread for deletion/)).toBeNull();

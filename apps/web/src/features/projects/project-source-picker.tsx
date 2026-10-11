@@ -6,7 +6,6 @@ import {
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import type { AddTab } from "./requests.ts";
 
 const sources = [
@@ -69,7 +68,7 @@ export function ProjectSourcePicker(props: { onChoose(tab: AddTab): void }) {
           }}
           onKeyDown={keyDown}
           ref={input}
-          className="h-full min-w-0 flex-1 bg-transparent text-ui focus-ring"
+          className="h-full min-w-0 flex-1 rounded-sm bg-input text-ui outline-none focus-ring"
         />
       </div>
       <div id={id} role="listbox" aria-label="Project sources" className="grid gap-1">
@@ -83,7 +82,7 @@ export function ProjectSourcePicker(props: { onChoose(tab: AddTab): void }) {
             aria-selected={at === current}
             onPointerMove={() => setActive(at)}
             onClick={() => props.onChoose(source.tab)}
-            className="flex w-full items-center gap-3 rounded-md p-3 text-left focus-ring aria-selected:bg-accent"
+            className="flex w-full items-center gap-3 h-11 rounded-sm px-2 text-left focus-ring aria-selected:bg-accent"
           >
             <Icon icon={source.icon} size={20} className="shrink-0 text-muted-foreground" />
             <span className="grid gap-1">
@@ -97,20 +96,6 @@ export function ProjectSourcePicker(props: { onChoose(tab: AddTab): void }) {
             No sources match your search.
           </p>
         )}
-      </div>
-      <div
-        aria-hidden
-        className="flex items-center gap-3 border-t border-border pt-3 text-xs text-muted-foreground"
-      >
-        <span>
-          <Kbd>↑</Kbd> <Kbd>↓</Kbd> Navigate
-        </span>
-        <span>
-          <Kbd>Enter</Kbd> Select
-        </span>
-        <span className="ml-auto">
-          <Kbd>Esc</Kbd> Close
-        </span>
       </div>
     </div>
   );

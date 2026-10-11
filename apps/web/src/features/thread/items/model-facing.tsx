@@ -1,5 +1,6 @@
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { useId, useState } from "react";
+import { handoffSummary, resultLead } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 
 /**
@@ -9,6 +10,7 @@ import { cn } from "@/lib/cn.ts";
 export function ModelFacing(props: { text: string; label?: string; className?: string }) {
   const [open, setOpen] = useState(false);
   const body = useId();
+  const summary = handoffSummary(props.text) ?? readableSummary(props.text);
   return (
     <div className={props.className}>
       <button
@@ -26,13 +28,35 @@ export function ModelFacing(props: { text: string; label?: string; className?: s
         />
       </button>
       {open && (
-        <pre
+        <div
           id={body}
-          className="fx-rise-in mt-1 max-h-72 overflow-auto rounded-md bg-code px-3 py-2 text-left font-mono text-[12px] leading-[1.5] whitespace-pre-wrap text-muted-foreground"
+          className="fx-rise-in mt-1 text-ui whitespace-pre-wrap text-muted-foreground"
         >
-          {props.text}
-        </pre>
+          <p>{summary}</p>
+          <details className="mt-1">
+            <summary className="cursor-pointer text-xs">Details</summary>
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-xs">
+              {props.text}
+            </pre>
+          </details>
+        </div>
       )}
     </div>
   );
+}
+
+/** Provider context may be prose or a JSON envelope; only readable strings belong in the summary. */
+function readableSummary(text: string): string {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (typeof value === "object" && value !== null) {
+      for (const key of ["summary", "text", "result", "message"]) {
+        const field: unknown = Reflect.get(value, key);
+        if (typeof field === "string") return field;
+      }
+    }
+    return "The agent received context from the previous work.";
+  } catch {
+    return resultLead(text) || "The agent received context from the previous work.";
+  }
 }

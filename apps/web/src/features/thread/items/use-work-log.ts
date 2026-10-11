@@ -50,7 +50,7 @@ export function useWorkLog(
   const now = useTicker(activity?.tone !== "working" && activity?.elapsedFrom !== undefined);
   if (!summary) return undefined;
   const counts = workCounts(summary);
-  if (activity && activity.tone !== "working")
+  if (activity && activity.tone !== "working" && !activity.label.startsWith("Watching"))
     return {
       label: activityText(activity, now),
       counts,

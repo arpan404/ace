@@ -11,6 +11,7 @@ import {
 } from "@ace/ui-core";
 import { ArrowClockwiseIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { Select } from "@/components/ui/select.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { PickerRail } from "./picker-rail.tsx";
 import { pickerEntries } from "./picker-entries.ts";
@@ -329,6 +330,23 @@ export function ModelPickerPanel(props: {
         onClose={props.onClose}
       />
       <div className="flex min-w-0 flex-1 flex-col">
+        {provider && tabs.filter((entry) => entry.provider === provider).length > 1 && (
+          <div className="p-1">
+            <Select
+              label="Account"
+              value={tab}
+              className="w-full bg-transparent"
+              options={tabs
+                .filter((entry) => entry.provider === provider)
+                .map((entry) => ({
+                  value: entry.id,
+                  label: entry.name.replace(`${providerNames[provider]} · `, ""),
+                  disabled: !!entry.reason,
+                }))}
+              onValueChange={showTab}
+            />
+          </div>
+        )}
         <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border pr-1.5 pl-3 text-subtle-foreground">
           <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
           <input

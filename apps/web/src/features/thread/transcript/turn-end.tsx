@@ -2,7 +2,7 @@ import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useThreadMeta } from "@ace/client-react";
 import type { Run } from "@ace/protocol";
 import { formatElapsed, pauseLabel, providerNames } from "@ace/ui-core";
-import { HourglassMediumIcon, StopIcon } from "@phosphor-icons/react";
+import { HourglassMediumIcon } from "@phosphor-icons/react";
 import { Suspense, useCallback, useMemo } from "react";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { DeferredFailedTurn } from "../items/deferred-review.ts";
@@ -117,13 +117,10 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
       ending.ranMs !== undefined && ending.ranMs >= 1000
         ? ` · after ${formatElapsed(ending.ranMs)}`
         : "";
-    const text = `${block.automatic ? "Stopped" : "Stopped by you"}${after}`;
+    const text = `Stopped${after}`;
     return (
       <Marker role="note" aria-label={text} variant="separator" className="text-xs">
-        <MarkerContent className="flex items-center gap-1.5">
-          <StopIcon aria-hidden size={12} weight="fill" />
-          {text}
-        </MarkerContent>
+        <MarkerContent className="flex items-center gap-1.5">{text}</MarkerContent>
       </Marker>
     );
   }

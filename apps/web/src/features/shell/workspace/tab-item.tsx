@@ -110,7 +110,13 @@ export function TabItem(props: {
           />
         )}
         {/* Folded or clipped, the tab's whole title shows as a tooltip (on keyboard focus too). */}
-        <Tooltip disabled={!iconOnly && !props.clipped}>
+        <Tooltip
+          disabled={!iconOnly && !props.clipped}
+          onOpenChange={(open, details) => {
+            // A title tooltip must not consume Escape meant for the containing sheet.
+            if (open && details.reason === "trigger-focus") details.cancel();
+          }}
+        >
           <TooltipTrigger
             delay={400}
             render={

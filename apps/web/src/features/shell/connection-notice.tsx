@@ -3,7 +3,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useClient, useConnectionState } from "@ace/client-react";
 import type { ClientError } from "@ace/client";
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 
@@ -11,7 +11,7 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 const DeferredOfflineNotice = deferredComponent(() =>
   import("./offline-notice.tsx").then((module) => module.OfflineNotice),
 );
-const offlineWords = "Offline · messages, answers and Stop will send when the connection returns";
+const offlineWords = "Offline";
 
 const fatalReasons: Partial<Record<ClientError["code"], string>> = {
   auth: "ace didn't accept this token",
@@ -28,16 +28,22 @@ export function ConnectionNotice() {
   const state = useConnectionState();
   const client = useClient();
   const connection = useDaemonConnection();
+  const [late, setLate] = useState(false);
+  useEffect(() => {
+    if (state !== "reconnecting") return;
+    const timer = setTimeout(() => setLate(true), 10_000);
+    return () => {
+      clearTimeout(timer);
+      setLate(false);
+    };
+  }, [state]);
   if (state === "ready" || state === "connecting" || state === "starting") return null;
   if (state === "offline")
     return (
       <Suspense
         fallback={
-          <div className="fx-view-in shrink-0 border-b text-sm text-muted-foreground">
-            <div
-              role="status"
-              className="flex min-h-8 items-center justify-center gap-2 px-3 py-1 text-center"
-            >
+          <div className="text-xs text-muted-foreground">
+            <div role="status" className="flex items-center gap-2">
               {offlineWords}
             </div>
           </div>
@@ -47,14 +53,11 @@ export function ConnectionNotice() {
       </Suspense>
     );
   return (
-    <div
-      role="status"
-      className="fx-view-in flex h-8 shrink-0 items-center justify-center gap-2 border-b text-sm text-muted-foreground"
-    >
+    <div role="status" className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
       {state === "reconnecting" && (
         <>
           <Spinner />
-          Reconnecting to ace…
+          {late ? "Offline" : "Reconnecting"}
           <IconButton
             icon={ArrowClockwiseIcon}
             label="Retry now"

@@ -15,7 +15,8 @@ export function LiveFooter(props: { activity: TurnActivity | undefined }) {
   if (
     !activity ||
     activity.tone === "working" ||
-    (activity.tone === "needs-you" && activity.label === "Waiting for your approval")
+    (activity.tone === "needs-you" && activity.label === "Waiting for your approval") ||
+    activity.label.startsWith("Watching")
   )
     return null;
   return (

@@ -10,7 +10,13 @@ import {
   WrenchIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { isMeasurementCall, reviewedInteraction, type StepIcon, type StepText } from "@ace/ui-core";
+import {
+  isMeasurementCall,
+  reviewedInteraction,
+  retriedStepIds,
+  type StepIcon,
+  type StepText,
+} from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import { Suspense, useId, useState } from "react";
 import { LiveWorkMark } from "@/components/live-work-mark.tsx";
@@ -22,6 +28,7 @@ import { AssistantMessage } from "./messages.tsx";
 import { StepDetail } from "./step-detail.tsx";
 import { StepGroup, StepImages, useAceLog } from "./ace-steps.tsx";
 import { ToolMarkIcon } from "./tool-mark.tsx";
+import { useItemsSelect } from "../lib/use-items.ts";
 import { useStepDisplay } from "./use-step-display.ts";
 
 /*
@@ -52,13 +59,25 @@ export function WorkLogSteps(props: {
   panel: string;
 }) {
   const log = useAceLog(props.threadId, props.itemIds);
+  const retried = useItemsSelect(
+    props.threadId,
+    props.itemIds,
+    retriedStepIds,
+    (a, b) => a.size === b.size && [...a].every((id) => b.has(id)),
+  );
   return (
     <ul id={props.panel} aria-label="Steps" className="fx-rise-in mt-0.5 mb-2 flex flex-col py-1">
       {log.rows.map((row) =>
         row.kind === "group" ? (
           <StepGroup key={row.key} group={row}>
             {row.ids.map((id) => (
-              <ToolStep key={id} threadId={props.threadId} itemId={id} ace={log.contexts[id]} />
+              <ToolStep
+                key={id}
+                threadId={props.threadId}
+                itemId={id}
+                ace={log.contexts[id]}
+                retried={retried?.has(id)}
+              />
             ))}
           </StepGroup>
         ) : (
@@ -67,6 +86,7 @@ export function WorkLogSteps(props: {
             threadId={props.threadId}
             itemId={row.id}
             ace={log.contexts[row.id]}
+            retried={retried?.has(row.id)}
           />
         ),
       )}
@@ -82,9 +102,15 @@ export function ToolStepContent(props: {
   threadId: string;
   itemId: string;
   ace?: AceToolContext | undefined;
+  retried?: boolean | undefined;
 }) {
   const data = useStepDisplay(props.threadId, props.itemId, props.ace);
   const item = data?.item;
+  const display =
+    data && props.retried
+      ? { ...data, step: { ...data.step, note: undefined, failed: false } }
+      : data;
+  if (item?.type === "tool_call" && item.call.detail.kind === "plan") return null;
   // What the agent said between two steps.
   if (item?.type === "message")
     return (
@@ -100,7 +126,7 @@ export function ToolStepContent(props: {
         </Suspense>
       </li>
     );
-  const line = <StepLine threadId={props.threadId} data={data} />;
+  const line = <StepLine threadId={props.threadId} data={display} />;
   if (
     data &&
     ((item?.type === "tool_call" && (item.measurement || isMeasurementCall(item.call))) ||
@@ -116,13 +142,20 @@ export function ToolStepContent(props: {
 
 function StepLine(props: { threadId: string; data: ReturnType<typeof useStepDisplay> }) {
   const { data } = props;
-  // A step shown while it waits for approval starts open.
-  const [open, setOpen] = useState(data?.awaiting ?? false);
+  // Details start folded; pending requests remain visible above the composer.
+  const [open, setOpen] = useState(false);
   const panel = useId();
   if (!data) return null;
+  const expandable = hasStepDetail(data.item);
   return (
     <li>
-      <StepRow step={data.step} open={open} panel={panel} onToggle={() => setOpen(!open)} />
+      <StepRow
+        step={data.step}
+        open={open}
+        panel={panel}
+        onToggle={() => setOpen(!open)}
+        expandable={expandable}
+      />
       {data.step.ace && data.step.ace.images.length > 0 && <StepImages view={data.step.ace} />}
       {data.item.type === "tool_call" &&
         data.item.call.detail.kind === "image" &&
@@ -144,17 +177,23 @@ function StepLine(props: { threadId: string; data: ReturnType<typeof useStepDisp
 }
 
 /** One quiet step row: glyph or spinner, verb, target, diff stat and note. */
-export function StepRow(props: { step: StepText; open: boolean; panel: string; onToggle(): void }) {
+export function StepRow(props: {
+  step: StepText;
+  open: boolean;
+  panel: string;
+  onToggle(): void;
+  expandable?: boolean;
+}) {
   const { step } = props;
   const Glyph = icons[step.icon];
   return (
     <button
       type="button"
-      aria-expanded={props.open}
+      aria-expanded={props.expandable === false ? undefined : props.open}
       aria-controls={props.panel}
       aria-label={[step.verb, step.target, step.note].filter(Boolean).join(" ")}
       title={step.ace?.problem?.hint}
-      onClick={props.onToggle}
+      onClick={props.expandable === false ? undefined : props.onToggle}
       className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent"
     >
       {!step.settled ? (
@@ -191,4 +230,15 @@ function ToolStep(props: React.ComponentProps<typeof ToolStepContent>) {
       <ToolStepContent {...props} />
     </LocalBoundary>
   );
+}
+
+function hasStepDetail(item: import("@ace/protocol").Item): boolean {
+  if (item.type !== "tool_call") return item.type === "reasoning" || item.type === "notice";
+  const detail = item.call.detail;
+  if (item.call.error) return true;
+  if (detail.kind === "shell") return !!detail.output;
+  if (detail.kind === "search") return false;
+  if (detail.kind === "web.search" || detail.kind === "web.fetch" || detail.kind === "file.read")
+    return false;
+  return true;
 }

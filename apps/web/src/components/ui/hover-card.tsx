@@ -23,7 +23,7 @@ function HoverCardContent({
       >
         <PreviewCard.Popup
           data-slot="hover-card-content"
-          className={cn(popupSurface, popupBounds, "p-3 motion-reduce:transition-none", className)}
+          className={cn(popupSurface, popupBounds, "motion-reduce:transition-none", className)}
           {...props}
         />
       </PreviewCard.Positioner>

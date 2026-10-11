@@ -1,9 +1,12 @@
 import { coldStartReplay } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
+
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+
+configure({ asyncUtilTimeout: 10000 });
 
 async function openThread() {
   const app = harness();
@@ -181,7 +184,7 @@ test("an upload lands in the checkout and opens; an existing name asks before re
   );
 });
 
-test("the thread's Files tab is the checkout tree; it opens files beside itself and remembers hiding the tree", async () => {
+test("the Files tab keeps the checkout tree while a source tab remembers hiding its tree", async () => {
   await openThread();
   await userEvent.keyboard("{Control>}{Shift>}d{/Shift}{/Control}");
   const side = await panel();
@@ -200,11 +203,12 @@ test("the thread's Files tab is the checkout tree; it opens files beside itself 
   expect(await within(side).findByRole("tab", { name: "Files", selected: true })).toBeTruthy();
   expect(within(side).getAllByRole("tab", { name: "Files" })).toHaveLength(1);
 
+  await userEvent.click(within(side).getByRole("tab", { name: "outbox.ts" }));
   await userEvent.click(within(side).getByRole("button", { name: "Hide the file tree" }));
   expect(within(side).queryByRole("complementary", { name: "Checkout files" })).toBeNull();
-  // Away and back: the tab kept the choice.
+  // Away and back: the source tab kept the choice.
   await userEvent.click(within(side).getByRole("tab", { name: /^Changes/ }));
-  await userEvent.click(within(side).getByRole("tab", { name: "Files" }));
+  await userEvent.click(within(side).getByRole("tab", { name: "outbox.ts" }));
   expect(within(side).queryByRole("complementary", { name: "Checkout files" })).toBeNull();
   expect(within(side).getByRole("button", { name: "Show the file tree" })).toBeTruthy();
 });

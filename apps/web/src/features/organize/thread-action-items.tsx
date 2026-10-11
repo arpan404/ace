@@ -173,13 +173,6 @@ export function threadActions(
   return list;
 }
 
-/** The context menu's single-key hints, where the Home row binds them. */
-const rowHints: Partial<Record<string, string>> = {
-  "new-on-main": "shift+n",
-  rename: "r",
-  pin: "p",
-};
-
 /**
  * Everything a person can do to one thread, for the Home row's context menu and the thread's ⋯
  * menu alike (`threadActions`), with Snooze before settling. `hints` shows the R, P and ⇧N keys
@@ -196,38 +189,24 @@ export function ThreadActionItems(props: {
   shortcuts?: boolean;
   extra?: ReactNode;
   onLeave?(): void;
+  compact?: boolean;
 }) {
   const { entry, flags } = props;
   const actions = useThreadActions();
   const mover = useThreadMover();
-  const list = threadActions(entry, flags, actions, {
+  const allActions = threadActions(entry, flags, actions, {
     onRename: props.onRename,
     fork: props.fork,
     onMove: () => mover.open({ entries: [entry] }),
     ...(props.onLeave ? { onLeave: props.onLeave } : {}),
   });
-  const item = (action: ThreadAction) => {
-    const hint = props.hints ? rowHints[action.id] : undefined;
-    return (
-      <MenuItem
-        key={action.id}
-        icon={<Icon icon={action.icon} />}
-        {...(hint
-          ? { keys: hint }
-          : props.shortcuts && action.shortcut
-            ? { shortcut: action.shortcut }
-            : {})}
-        {...(action.danger ? { danger: true } : {})}
-        disabled={action.disabled !== undefined}
-        reason={action.disabled}
-        onClick={action.run}
-      >
-        {action.label}
-      </MenuItem>
-    );
-  };
+  const list = props.compact
+    ? allActions.filter((action) =>
+        ["rename", "unread", "pin", "move", "archive", "restore", "delete"].includes(action.id),
+      )
+    : allActions.filter((action) => !action.disabled);
   const section = (name: ThreadAction["section"]) =>
-    list.filter((action) => action.section === name).map(item);
+    list.filter((action) => action.section === name).map(renderThreadAction);
   return (
     <>
       {section("start")}
@@ -245,5 +224,19 @@ export function ThreadActionItems(props: {
       <MenuSeparator />
       {section("leave")}
     </>
+  );
+}
+
+function renderThreadAction(action: ThreadAction) {
+  return (
+    <MenuItem
+      key={action.id}
+      icon={<Icon icon={action.icon} />}
+      {...(action.shortcut ? { shortcut: action.shortcut } : {})}
+      {...(action.danger ? { danger: true } : {})}
+      onClick={action.run}
+    >
+      {action.label}
+    </MenuItem>
   );
 }

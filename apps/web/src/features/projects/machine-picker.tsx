@@ -73,11 +73,13 @@ export function MachinePicker(props: {
               )}
             >
               <MachineLabel name={machine.name} icon={machine.icon} />
-              <span
-                aria-hidden
-                data-tone={machineStatus[machine.status].tone}
-                className="size-1.5 rounded-full bg-(--tone)"
-              />
+              {machine.status !== "online" && (
+                <span
+                  aria-hidden
+                  data-tone={machineStatus[machine.status].tone}
+                  className="size-1.5 rounded-full bg-(--tone)"
+                />
+              )}
             </button>
           );
         })}
