@@ -47,6 +47,14 @@ export class WorkspaceCreations {
     this.directory = directory;
     this.fetchTimeoutMs = fetchTimeoutMs;
     this.journal = new CreationWorkspaceJournal(store);
+    // Backfill pre-policy leases and admitted PR bindings. Retained checkouts keep their
+    // protection across workspace switches and restarts, even after their lease is released.
+    for (const resource of this.journal.list())
+      if (resource.non_executing) this.journal.remember(resource.path);
+    for (const thread of store.listThreads())
+      if (thread.details?.pullRequestWorkspace && thread.details.worktree)
+        this.journal.remember(thread.details.worktree);
+    for (const path of this.journal.protectedRoots()) this.git.protectWorktree(path);
     this.recovery = this.recover();
     void this.recovery.catch(() => {});
   }
@@ -64,7 +72,11 @@ export class WorkspaceCreations {
     if (this.closing || this.pending.size >= 16) throw new Error("workspace_busy");
     const project = this.store.getWorkspacePath(p.workspaceId);
     if (!project) throw new Error("workspace_not_found");
-    const task = this.create(id, project, requestedBase(p), progress);
+    const requested = requestedBase(p);
+    const task =
+      requested.kind === "pull-request"
+        ? this.git.nonExecuting(() => this.create(id, project, requested, progress))
+        : this.create(id, project, requested, progress);
     this.pending.set(id, task);
     try {
       return await task;
@@ -86,7 +98,9 @@ export class WorkspaceCreations {
     await this.ready(id);
     if (this.closing || this.pending.size >= 16 || this.pending.has(id))
       throw new Error("workspace_busy");
-    const task = this.create(id, project, requested, progress, p.threadId);
+    const task = this.git.nonExecuting(() =>
+      this.create(id, project, requested, progress, p.threadId),
+    );
     this.pending.set(id, task);
     try {
       return await task;
@@ -143,8 +157,10 @@ export class WorkspaceCreations {
       cleanup_head: null,
       uncertain: 1,
       ran_setup: 0,
+      non_executing: requested.kind === "pull-request" ? 1 : 0,
     };
     this.journal.acquire(resource);
+    if (resource.non_executing) this.git.protectWorktree(path);
     let ranSetup = false;
     try {
       await this.git.createWorktree({
@@ -221,7 +237,7 @@ export class WorkspaceCreations {
           throw new Error("workspace_cleanup_required", { cause: error });
         }
       },
-      ...(preparedPr ? { verify: () => preparedPr.verify(path) } : {}),
+      ...(preparedPr ? { verify: () => this.git.nonExecuting(() => preparedPr.verify(path)) } : {}),
     };
     if (this.closing) {
       await lease.release();
@@ -233,10 +249,12 @@ export class WorkspaceCreations {
   private cleanup(resource: CreationResource, options: { force?: boolean } = {}): Promise<void> {
     const existing = this.cleanups.get(resource.id);
     if (existing) return existing;
-    const task = this.cleanupResource(resource, {
-      ...options,
-      ...(resource.ran_setup ? { force: true } : {}),
-    })
+    const cleanup = () =>
+      this.cleanupResource(resource, {
+        ...options,
+        ...(resource.ran_setup ? { force: true } : {}),
+      });
+    const task = (resource.non_executing ? this.git.nonExecuting(cleanup) : cleanup())
       .then(
         () => {
           this.cleanupFailures.delete(resource.id);
@@ -257,9 +275,9 @@ export class WorkspaceCreations {
     resource: CreationResource,
     options: { force?: boolean },
   ): Promise<void> {
-    if (
-      this.store.getThread(resource.owner_id ?? resource.id)?.details?.worktree !== resource.path
-    ) {
+    const retained =
+      this.store.getThread(resource.owner_id ?? resource.id)?.details?.worktree === resource.path;
+    if (!retained) {
       await cleanupOwnedWorktree(
         this.git,
         {
@@ -277,7 +295,11 @@ export class WorkspaceCreations {
         options,
       );
     }
-    this.journal.release(resource.id);
+    this.journal.release(
+      resource.id,
+      !retained && resource.non_executing ? resource.path : undefined,
+    );
+    if (!retained && resource.non_executing) this.git.forgetWorktree(resource.path);
     this.pending.delete(resource.id);
   }
   private async recover(): Promise<void> {

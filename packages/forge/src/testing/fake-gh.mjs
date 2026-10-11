@@ -41,6 +41,7 @@ if (response.barrier) {
   }
 }
 if (response.wait) {
+  if (response.waitMarker) writeFileSync(response.waitMarker, "waiting");
   setInterval(() => {}, 1000);
 } else if (response.repeat) {
   for (let i = 0; i < response.repeat; i++) {

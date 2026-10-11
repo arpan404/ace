@@ -365,7 +365,7 @@ export class WorkspaceRuntime {
       const threadId = ThreadId.parse(id);
       if (threadCleaning(this.store, threadId)) return { ok: false, error: "thread_deleting" };
       if (p.type === "forge.pr.worktree")
-        return this.workOnPr(command, threadId, allowed, progress);
+        return this.git.nonExecuting(() => this.workOnPr(command, threadId, allowed, progress));
       if (p.type === "thread.move") {
         await this.reconcileTerminals(threadId);
         await this.options.reconcileThread?.(threadId);

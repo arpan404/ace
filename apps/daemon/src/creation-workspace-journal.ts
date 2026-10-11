@@ -13,6 +13,7 @@ const Resource = z.object({
     .string()
     .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/)
     .nullable(),
+  non_executing: z.number().int().min(0).max(1).default(1),
   ran_setup: z.number().int().min(0).max(1).default(0),
   uncertain: z.number().int().min(0).max(1),
 });
@@ -28,9 +29,21 @@ export class CreationWorkspaceJournal {
       base_head TEXT NOT NULL,cleanup_head TEXT,uncertain INTEGER NOT NULL DEFAULT 1
     )`),
     );
+    store.atomic((db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS workspace_non_executing_roots (
+      path TEXT PRIMARY KEY
+    )`),
+    );
     const columns = store.atomic((db) =>
       db.prepare("PRAGMA table_info(workspace_creation_resources)").all(),
     );
+    // Older interrupted leases have no policy record; recovery treats them as untrusted.
+    if (!columns.some((column) => column.name === "non_executing"))
+      store.atomic((db) =>
+        db.exec(
+          "ALTER TABLE workspace_creation_resources ADD COLUMN non_executing INTEGER NOT NULL DEFAULT 1",
+        ),
+      );
     if (!columns.some((column) => column.name === "owner_id"))
       store.atomic((db) =>
         db.exec("ALTER TABLE workspace_creation_resources ADD COLUMN owner_id TEXT"),
@@ -41,6 +54,17 @@ export class CreationWorkspaceJournal {
           "ALTER TABLE workspace_creation_resources ADD COLUMN ran_setup INTEGER NOT NULL DEFAULT 1",
         ),
       );
+  }
+  protectedRoots(): string[] {
+    return this.store
+      .atomic((db) => db.prepare("SELECT path FROM workspace_non_executing_roots").all())
+      .map((row) => z.string().min(1).max(4096).parse(row.path));
+  }
+  remember(path: string): void {
+    const root = Resource.shape.path.parse(path);
+    this.store.atomic((db) =>
+      db.prepare("INSERT OR IGNORE INTO workspace_non_executing_roots VALUES (?)").run(root),
+    );
   }
   setup(id: ThreadId): void {
     this.store.atomic((db) =>
@@ -60,7 +84,7 @@ export class CreationWorkspaceJournal {
       );
       if (count >= 16) throw new Error("workspace_busy");
       db.prepare(
-        "INSERT INTO workspace_creation_resources (id,repo,path,branch,base_head,cleanup_head,uncertain,ran_setup,owner_id) VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO workspace_creation_resources (id,repo,path,branch,base_head,cleanup_head,uncertain,ran_setup,owner_id,non_executing) VALUES (?,?,?,?,?,?,?,?,?,?)",
       ).run(
         row.id,
         row.repo,
@@ -71,7 +95,10 @@ export class CreationWorkspaceJournal {
         row.uncertain,
         row.ran_setup,
         row.owner_id,
+        row.non_executing,
       );
+      if (row.non_executing)
+        db.prepare("INSERT OR IGNORE INTO workspace_non_executing_roots VALUES (?)").run(row.path);
     });
   }
   head(id: ThreadId, head: string): void {
@@ -87,9 +114,11 @@ export class CreationWorkspaceJournal {
       db.prepare("UPDATE workspace_creation_resources SET uncertain=0 WHERE id=?").run(id),
     );
   }
-  release(id: ThreadId): void {
-    this.store.atomic((db) =>
-      db.prepare("DELETE FROM workspace_creation_resources WHERE id=?").run(id),
-    );
+  release(id: ThreadId, removedPath?: string): void {
+    this.store.atomic((db) => {
+      db.prepare("DELETE FROM workspace_creation_resources WHERE id=?").run(id);
+      if (removedPath)
+        db.prepare("DELETE FROM workspace_non_executing_roots WHERE path=?").run(removedPath);
+    });
   }
 }

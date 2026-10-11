@@ -7,10 +7,12 @@ import { z } from "zod";
 import { expect, test } from "vitest";
 import { Command, DeviceId } from "@ace/protocol";
 import { prDaemon, run } from "./pr-worktree-test-support.ts";
+import { maliciousPr } from "./pr-worktree-execution-test-support.ts";
 
 for (const dirty of [false, true]) {
   test(`fresh PR intent after SIGKILL ${dirty ? "preserves an edited orphan and requires cleanup" : "cleans the orphan and reclaims interrupted draft capacity without replaying old commands"}`, async () => {
-    const d = await prDaemon();
+    const security = maliciousPr("all");
+    const d = await prDaemon(security.options);
     let child: ReturnType<typeof spawn> | undefined;
     let exited: Promise<unknown> | undefined;
     try {
@@ -60,6 +62,7 @@ for (const dirty of [false, true]) {
       child.kill("SIGKILL");
       await exited;
       await d.resumeAfterCrash();
+      await security.expectNoExecution();
       const freshTarget = targets[0];
       if (!freshTarget) throw new Error("Missing fresh target");
       if (dirty) {
@@ -93,6 +96,7 @@ for (const dirty of [false, true]) {
       if (child && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
       await exited;
       await d.close();
+      await security.expectNoExecution();
     }
   });
 }
