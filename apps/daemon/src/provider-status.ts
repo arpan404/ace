@@ -14,10 +14,12 @@ import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation
 
 export interface ProviderStatusOptions extends DiscoveryOptions {
   piExecutable?: string;
-  configuration?: (provider: Status["provider"]) => {
+  configuration?: (provider: Status["provider"], instance?: string) => {
     enabled?: boolean | undefined;
     binaryPath?: string | undefined;
+    revision?: string | undefined;
   };
+  environment?(provider: Status["provider"], instance?: string): NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv>;
   attention?(row: Status): boolean;
   account?(
     row: Status,
@@ -49,6 +51,8 @@ export class ProviderStatuses {
     refreshing: false,
   }));
   private published: string | undefined;
+  private observations = new Map<Status["provider"], string>();
+  private followup: Promise<void> | undefined;
   private listeners = new Set<(rows: Status[]) => void>();
   listen(listener: (rows: Status[]) => void): () => void {
     this.listeners.add(listener);
@@ -76,9 +80,30 @@ export class ProviderStatuses {
     this.runtime = runtime;
     void this.refresh();
   }
+  private selection(row: Status) {
+    const account = this.options.account?.(row);
+    const configuration = this.options.configuration?.(row.provider, account?.instanceId);
+    return {
+      account,
+      configuration,
+      key: JSON.stringify([account?.instanceId, configuration?.binaryPath, configuration?.enabled !== false, configuration?.revision]),
+    };
+  }
+  private refreshSelection(): void {
+    if (this.followup || this.controller.signal.aborted) return;
+    this.followup = Promise.resolve().then(async () => {
+      await this.flight;
+      await this.refresh();
+    }).finally(() => { this.followup = undefined; });
+  }
   list(): Status[] {
     const now = this.runtime.now();
-    return this.rows.map((row) => {
+    return this.rows.map((cached) => {
+      const selection = this.selection(cached);
+      const observed = this.observations.get(cached.provider);
+      const fresh = observed === undefined || observed === selection.key;
+      if (!fresh) this.refreshSelection();
+      const row: Status = fresh ? cached : { provider: cached.provider, runtime: cached.runtime, installed: null, auth: "unknown", loginHint: cached.loginHint, stale: true, refreshing: Boolean(this.flight) };
       const available = row.provider === "opencode" && this.options.modelsAvailable?.(row.provider);
       const { state, actionId, ...observation } = row;
       const account = this.options.account?.(row);
@@ -100,7 +125,7 @@ export class ProviderStatuses {
         permissionModes: nativePermissionModes(row.provider),
         ...account,
         ...(this.options.attention?.(row) ? { readiness: "needs_attention" as const } : {}),
-        enabled: this.options.configuration?.(row.provider).enabled !== false,
+        enabled: selection.configuration?.enabled !== false,
         stale: row.checkedAt === undefined || now - row.checkedAt >= 300_000,
         refreshing: Boolean(this.flight),
       });
@@ -118,25 +143,29 @@ export class ProviderStatuses {
       signal: this.controller.signal,
       timeoutMs: this.options.timeoutMs ?? 4000,
     };
-    const probe = (row: Status): Promise<DiscoveryResult | undefined> => {
-      const configuration = this.options.configuration?.(row.provider);
+    const selections = new Map(this.rows.map((row) => [row.provider, this.selection(row)]));
+    const probe = async (row: Status): Promise<DiscoveryResult | undefined> => {
+      const selection = selections.get(row.provider);
+      const configuration = selection?.configuration;
       if (configuration?.enabled === false) return Promise.resolve(undefined);
+      const env = await this.options.environment?.(row.provider, selection?.account?.instanceId) ?? options.env;
+      if (selection?.key !== this.selection(row).key) throw new Error("Provider selection changed");
       const configured = configuredProviderDiscovery(
         row.provider,
         configuration?.binaryPath,
-        options,
+        { ...options, ...(env ? { env } : {}) },
       );
       if (row.runtime === "cursor-sdk")
         return this.options.cursorSdk?.(this.controller.signal) ?? Promise.resolve(undefined);
       switch (row.provider) {
         case "pi": {
           const executable = configuration?.binaryPath ?? this.options.piExecutable;
-          return discoverPiStatus({ ...options, ...(executable ? { executable } : {}) });
+          return discoverPiStatus({ ...configured, ...(executable ? { executable } : {}) });
         }
         case "antigravity":
           if (this.options.antigravity) return this.options.antigravity(this.controller.signal);
           return discoverAntigravity({
-            ...options,
+            ...configured,
             ...(configuration?.binaryPath ? { executable: configuration.binaryPath } : {}),
           });
         case "claude":
@@ -151,7 +180,8 @@ export class ProviderStatuses {
     const work = this.rows.map(async (row): Promise<Status> => {
       try {
         const status = await probe(row);
-        const result = providerStatusRow(row, status, this.runtime.now());
+        const instanceId = selections.get(row.provider)?.account?.instanceId;
+        const result: Status = { ...providerStatusRow(row, status, this.runtime.now()), ...(instanceId ? { instanceId } : {}) };
         const versions =
           result.installed && this.options.versions
             ? await this.options.versions(result, this.controller.signal)
@@ -179,6 +209,7 @@ export class ProviderStatuses {
       .then((rows) => {
         if (!this.controller.signal.aborted) {
           this.rows = rows;
+          for (const [provider, selection] of selections) this.observations.set(provider, selection.key);
           this.options.checked?.(rows);
         }
       })

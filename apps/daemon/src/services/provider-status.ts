@@ -34,6 +34,9 @@ export function startProviderStatuses(context: ServiceContext): void {
   const accountDriver = context.services.accountRegistry
     ? cursorSdkLoginDriver(context.services.accountRegistry, { ...driverOptions, now: context.now })
     : undefined;
+  const selectedInstance = (provider: import("@ace/protocol").ProviderKind) =>
+    (provider === "cursor" ? context.services.accountRegistry?.selectedCursorSdk() : context.services.accountRegistry?.selectedProvider(provider)) ??
+    (provider === "cursor" ? "cursor-sdk-default" : `${provider}-cli-default`);
   const statuses = new ProviderStatuses(
     {
       ...context.options.providerStatus,
@@ -46,16 +49,14 @@ export function startProviderStatuses(context: ServiceContext): void {
         if (row.provider === "antigravity" && context.services.antigravityAuth)
           return { auth: context.services.antigravityAuth };
         const registry = context.services.accountRegistry;
-        const selected =
-          registry?.selectedProvider(row.provider) ??
-          (row.provider === "cursor" ? "cursor-sdk-default" : `${row.provider}-cli-default`);
+        const selected = selectedInstance(row.provider);
         const account = registry?.get(selected);
         if (!account) return {};
         return {
           instanceId: account.instance.id,
           ...(account.instance.authMethod ? { authMethod: account.instance.authMethod } : {}),
           ...(account.instance.signedInAs ? { accountLabel: account.instance.signedInAs } : {}),
-          ...(!account.instance.implicit ? { auth: account.quota.auth } : {}),
+          ...(!account.instance.implicit ? { auth: row.provider === "cursor" ? account.quota.auth : row.instanceId === selected ? row.auth : "unknown" as const } : {}),
         };
       },
       async authInfo(row, signal) {
@@ -106,8 +107,17 @@ export function startProviderStatuses(context: ServiceContext): void {
           if (row.version)
             context.services.models?.installationChanged(row.provider, row.version, row.runtime);
       },
-      configuration: (provider) =>
-        context.services.providerConfigurations?.for(provider) ?? { provider },
+      configuration: (provider) => ({
+        ...context.services.providerConfigurations?.for(provider, selectedInstance(provider)),
+        revision: context.services.accountRegistry?.get(selectedInstance(provider))?.instance.loginRevision,
+      }),
+      async environment(provider, instanceId) {
+        const env = context.options.providerStatus?.env ?? process.env;
+        const account = instanceId ? context.services.accountRegistry?.get(instanceId)?.instance : undefined;
+        if (!account || provider === "cursor") return env;
+        await context.services.accountRegistry?.validateHome(account);
+        return instanceEnv(account, env);
+      },
       cursorSdk:
         context.options.providerStatus?.cursorSdk ??
         (async (signal) => {
