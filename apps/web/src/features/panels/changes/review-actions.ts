@@ -22,7 +22,7 @@ const message = (error: unknown) =>
  * agent to do. A draft is recorded first.
  */
 export async function applySuggestion(
-  client: ClientApi,
+  client: Pick<ClientApi, "command">,
   store: Drafts,
   thread: Thread,
   key: string,
@@ -50,7 +50,7 @@ export async function applySuggestion(
 
 /** Every reply under a recorded comment, oldest first (bounded: ten pages of twenty). */
 export async function readReplies(
-  client: ClientApi,
+  client: Pick<ClientApi, "command">,
   sessionId: string,
   commentId: string,
 ): Promise<ReviewReply[]> {
@@ -72,7 +72,7 @@ export async function readReplies(
 }
 
 export async function reply(
-  client: ClientApi,
+  client: Pick<ClientApi, "command">,
   draft: ReviewDraft,
   text: string,
 ): Promise<ReviewReply> {
@@ -93,7 +93,7 @@ export async function reply(
  * is opened for the working tree, so a change can be approved without a comment.
  */
 export async function setReviewStatus(
-  client: ClientApi,
+  client: Pick<ClientApi, "command">,
   thread: Thread,
   session: ReviewSession | null | undefined,
   status: "approved" | "changes-requested",

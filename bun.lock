@@ -163,6 +163,7 @@
         "@ace/adapter-testkit": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
+        "@ace/review": "workspace:*",
         "@babel/core": "^8.0.6",
         "@playwright/test": "1.63.0",
         "@rolldown/plugin-babel": "^0.2.4",
