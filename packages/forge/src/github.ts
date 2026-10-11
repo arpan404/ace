@@ -1,4 +1,8 @@
 import type { WriteDispatch } from "./write-dispatch.ts";
+import { sameStack } from "./stack-plan.ts";
+import { GitHubStacks } from "./github-stacks.ts";
+import { LocalStacks } from "./local-stacks.ts";
+import { ForgeStackExpected } from "@ace/protocol/forge-stacks";
 import { GitHubBrowser } from "./github-browser.ts";
 import type { ForgePrSearch } from "@ace/protocol/forge-browser";
 import { z } from "zod";
@@ -27,6 +31,8 @@ export class GitHubForge implements Forge, ForgeBrowser {
   readonly #status = new GitHubStatusReader(this.revisions);
   readonly #root: string;
   readonly #browser: GitHubBrowser;
+  readonly #stacks: GitHubStacks;
+  readonly #localStacks: LocalStacks;
   constructor(options: {
     repository: ForgeRepository;
     runner: CommandRunner;
@@ -38,6 +44,8 @@ export class GitHubForge implements Forge, ForgeBrowser {
       throw new ForgeError("unsupported");
     this.#root = `repos/${this.repository.owner}/${this.repository.name}`;
     this.#api = new GhApi({ ...options, host: this.repository.host });
+    this.#stacks = new GitHubStacks(this.#api, this.repository);
+    this.#localStacks = new LocalStacks(options.runner, options.command);
     this.#browser = new GitHubBrowser(this.#api, this.repository);
   }
   #ref(number: number): ForgePrRef {
@@ -51,6 +59,41 @@ export class GitHubForge implements Forge, ForgeBrowser {
     const parsed = z.object({ login: z.string().min(1).max(100) }).safeParse(response.body);
     if (!parsed.success) throw new ForgeError("invalid_data");
     return parsed.data.login;
+  }
+  prStack(number: number, signal: AbortSignal) {
+    return this.#stacks.read(number, signal);
+  }
+  stackMemberships(numbers: readonly number[], signal: AbortSignal) {
+    return this.#stacks.memberships(numbers, signal);
+  }
+  localStack(signal: AbortSignal) {
+    return this.#localStacks.read(signal);
+  }
+  mergeStack(
+    number: number,
+    expected: ForgeStackExpected,
+    method: MergeMethod,
+    signal: AbortSignal,
+    allowed: () => boolean,
+    started: () => void = () => {},
+  ) {
+    return this.#stacks.merge(number, expected, method, signal, allowed, started);
+  }
+  stackMergeResult(number: number, uuid: string, signal: AbortSignal) {
+    return this.#stacks.mergeResult(number, uuid, signal);
+  }
+  async rebaseStack(
+    number: number,
+    expected: ForgeStackExpected,
+    action: "rebase" | "continue" | "abort" | "push",
+    signal: AbortSignal,
+    allowed: () => boolean,
+    started: (stage: "rebase" | "push") => void = () => {},
+  ) {
+    const revisions = ForgeStackExpected.parse(expected);
+    const stack = await this.#stacks.read(number, signal);
+    if (!stack || !sameStack(revisions, stack)) throw new ForgeError("conflict");
+    return this.#localStacks.rebase(action, revisions, stack, signal, allowed, started);
   }
   prActivity(number: number, page: number, signal: AbortSignal) {
     return this.#browser.activity(number, page, signal);

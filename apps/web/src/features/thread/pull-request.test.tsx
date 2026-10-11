@@ -1,5 +1,5 @@
 import { facts, workbench, type Scenario } from "@ace/fake-daemon";
-import { ForgePrStatus, ThreadId } from "@ace/protocol";
+import { ForgePrStatus, ThreadId, WorkspaceId } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
@@ -79,7 +79,18 @@ const pr = (patch: Partial<ForgePrStatus> = {}) =>
 async function withPr(status: ForgePrStatus | undefined, details: Partial<Details> = {}) {
   const app = harness();
   app.play(idle("thread-pr", { ...checkout, ...details })).runUntilBlocked();
-  if (status) app.daemon.seedServices({ pullRequests: { "thread-pr": status } });
+  if (status) {
+    app.daemon.seedServices({ pullRequests: { "thread-pr": status } });
+    app.daemon.workspace.setForgeRead(
+      {
+        op: "forge.pr.stack-memberships",
+        workspaceId: WorkspaceId.parse("api"),
+        repository: status.ref.repository,
+        numbers: [status.ref.number],
+      },
+      { resource: "prStackMemberships", value: [{ number: status.ref.number, stack: null }] },
+    );
+  }
   await app.open("/t/thread-pr");
   await screen.findByRole("feed", { name: "Transcript" });
   return app;
@@ -99,7 +110,16 @@ async function openPr(number = 42) {
   await userEvent.click(
     await within(prs).findByRole("button", { name: new RegExp(`^Pull request #${number}`) }),
   );
-  return screen.findByRole("region", { name: `Pull request #${number}` });
+  const popover = await screen.findByRole("region", { name: `Pull request #${number}` });
+  // Wait for the host membership read before inspecting independent-PR action availability.
+  await waitFor(() =>
+    expect(
+      within(popover)
+        .queryByRole("button", { name: "Squash and merge" })
+        ?.getAttribute("aria-description"),
+    ).not.toBe("Open the full PR workspace to inspect native stack merge rules."),
+  );
+  return popover;
 }
 
 async function linkField(card: HTMLElement) {
@@ -487,4 +507,37 @@ test("an inline merge confirms the selected repository and leaves another linked
     ]),
   );
   expect(await screen.findByText("Merged #283")).toBeTruthy();
+});
+
+test("a host-confirmed native layer is grouped in linked controls and sends merge actions to the full workspace", async () => {
+  const app = await withPr(pr());
+  app.daemon.workspace.setForgeRead(
+    {
+      op: "forge.pr.stack-memberships",
+      workspaceId: WorkspaceId.parse("api"),
+      repository,
+      numbers: [42],
+    },
+    {
+      resource: "prStackMemberships",
+      value: [
+        { number: 42, stack: { id: "STACK_9", number: 9, trunk: "main", size: 3, position: 2 } },
+      ],
+    },
+  );
+  const card = await openCard();
+  expect(await within(card).findByRole("button", { name: "#42 · layer 2" })).toBeTruthy();
+  await userEvent.click(within(card).getByRole("button", { name: /^Pull request #42/ }));
+  const popover = await screen.findByRole("region", { name: "Pull request #42" });
+  const merge = await within(popover).findByRole("button", { name: "Squash and merge" });
+  expect(merge.getAttribute("aria-disabled")).toBe("true");
+  expect(merge.getAttribute("aria-description")).toBe(
+    "Open the full PR workspace to inspect native stack merge rules.",
+  );
+  await userEvent.click(within(popover).getByRole("button", { name: "Merge options" }));
+  expect(
+    (await screen.findByRole("menuitem", { name: /Auto-merge when checks pass/ })).getAttribute(
+      "aria-disabled",
+    ),
+  ).toBe("true");
 });

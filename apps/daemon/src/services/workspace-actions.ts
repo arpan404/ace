@@ -102,7 +102,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
       const op = message.operation;
       const scope =
         op.op === "git.draft.generate" || op.op === "git.draft.cancel" ? "operate" : "read";
-      if (!authorize(scope) || ("threadId" in op && !canReadThread(op.threadId))) {
+      if (!authorize(scope) || ("threadId" in op && op.threadId !== undefined && !canReadThread(op.threadId))) {
         send({
           type: "workspace.result",
           requestId: message.requestId,
@@ -149,7 +149,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
           if (
             connected() &&
             authorize(scope) &&
-            (!("threadId" in op) || canReadThread(op.threadId))
+            (!("threadId" in op) || op.threadId === undefined || canReadThread(op.threadId))
           )
             send(WorkspaceActionResult.parse(result));
         })

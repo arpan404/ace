@@ -7,6 +7,7 @@ import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { openExternal } from "@/boot/open-external.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { PrActivity } from "./pr-activity.tsx";
+import { PrStack } from "./pr-stack.tsx";
 import { PrActions } from "./pr-actions.tsx";
 import { PrCommits } from "./pr-commits.tsx";
 import { PrFiles } from "./pr-files.tsx";
@@ -19,6 +20,7 @@ export function PrDetail(props: {
   number: number;
   tab: string;
   onTab(tab: string): void;
+  onOpen(number: number): void;
 }) {
   const toast = useToast();
   const query = useDaemonQuery({
@@ -82,10 +84,18 @@ export function PrDetail(props: {
             </div>
           </div>
           <PrActions
+            workspaceId={props.workspaceId}
             key={JSON.stringify(status.ref)}
             detail={detail}
             writeReady={!query.isError && !query.isFetching}
             onRefresh={async () => !(await query.refetch()).isError}
+          />
+          <PrStack
+            key={JSON.stringify(status.ref)}
+            workspaceId={props.workspaceId}
+            detail={detail}
+            onRefresh={() => void query.refetch()}
+            onOpen={props.onOpen}
           />
           <Tabs
             value={props.tab}

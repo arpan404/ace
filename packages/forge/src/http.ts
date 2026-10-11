@@ -146,12 +146,13 @@ export class GhApi {
     }
     if (code === 404) throw new ForgeError("not_found", undefined, false);
     if (code === 401 || code === 403) throw new ForgeError("forbidden", undefined, false);
-    if (code === 409 || code === 422) throw new ForgeError("conflict", undefined, false);
-    if (code < 200 || code >= 300) throw new ForgeError("cli");
+    // Native async merges can acknowledge an existing request with HTTP 409.
+    const mergeResult = (code === 409 || code === 400) && method === "PUT" &&
+      /^repos\/[\w.-]+\/[\w.-]+\/pulls\/[1-9]\d*\/merge-async$/.test(path);
+    if ((code === 409 && !mergeResult) || code === 422) throw new ForgeError("conflict", undefined, false);
+    if (!mergeResult && (code < 200 || code >= 300)) throw new ForgeError("cli");
     const graphqlResponse = path === "graphql";
-    // gh exits nonzero for GraphQL errors even when HTTP succeeded. Decode the
-    // acknowledgement first so a complete refusal can release the write fence.
-    if (output.code !== 0 && !graphqlResponse) throw new ForgeError("cli");
+    if (output.code !== 0 && !graphqlResponse && !mergeResult) throw new ForgeError("cli");
     const version = createHash("sha256").update(text).digest("hex");
     const safeHeaders = {
       ...(headers.etag && /^[\x20-\x7e]{1,512}$/.test(headers.etag) ? { etag: headers.etag } : {}),
@@ -170,7 +171,7 @@ export class GhApi {
       throw new ForgeError("invalid_data");
     }
     if (graphqlResponse) assertGraphqlResult(data);
-    if (output.code !== 0) throw new ForgeError("cli");
+    if (output.code !== 0 && !mergeResult) throw new ForgeError("cli");
     const page = { version, bytes: Buffer.byteLength(text), body: data, headers: safeHeaders };
     if (!reusable) {
       this.#cache.clear();

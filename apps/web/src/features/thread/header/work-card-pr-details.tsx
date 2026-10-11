@@ -1,3 +1,4 @@
+import { useStackMemberships } from "@/features/forge/index.ts";
 import type { ForgeCheck, ForgePrStatus } from "@ace/protocol";
 import { mergeMethods, prOverview, type MergeMethod, type PrTone } from "@ace/ui-core";
 import {
@@ -39,12 +40,16 @@ function ToneIcon(props: { tone: keyof typeof tones }) {
 
 export function PrDetails(props: {
   git: GitFlow;
+  workspaceId: string;
   status: ForgePrStatus;
   base: string;
   onRequestReview?: (() => void) | undefined;
 }) {
   const { git, status } = props;
   const toast = useToast();
+  const membership = useStackMemberships(props.workspaceId, status.ref.repository, [status.ref.number]);
+  const nativeStackOrUnknown = !membership.data || membership.isError || !!membership.data[0]?.stack;
+  const stackReason = nativeStackOrUnknown ? "Open the full PR workspace to inspect native stack merge rules." : undefined;
   const view = prOverview(status, props.base);
   const [method, setMethod] = useState<MergeMethod>("squash");
   const label = mergeMethods.find((each) => each.method === method)?.label ?? "Merge";
@@ -99,8 +104,8 @@ export function PrDetails(props: {
         <div className="flex h-10 items-center gap-2 pr-1 pl-2.5">
           <SplitButton
             label={label}
-            actionLabel={view.mergeBlocked ?? `${label} into ${props.base}`}
-            actionDisabled={!!view.mergeBlocked}
+            actionLabel={stackReason ?? view.mergeBlocked ?? `${label} into ${props.base}`}
+            actionDisabled={nativeStackOrUnknown || !!view.mergeBlocked}
             className={view.mergeBlocked ? "text-muted-foreground" : ""}
             menuLabel="Merge options"
             disabled={git.pending}
@@ -128,8 +133,8 @@ export function PrDetails(props: {
                 <MenuSeparator />
                 <MenuItem
                   icon={<ClockIcon aria-hidden size={16} />}
-                  disabled={!!view.autoMergeBlocked}
-                  reason={view.autoMergeBlocked}
+                  disabled={nativeStackOrUnknown || !!view.autoMergeBlocked}
+                  reason={stackReason ?? view.autoMergeBlocked}
                   onClick={() =>
                     git.run({
                       kind: "merge",

@@ -4,6 +4,42 @@
   "oneOf": [
     {
       "properties": {
+        "resource": {
+          "const": "prStack",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeStackWorkspace.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "prStackMemberships",
+          "type": "string"
+        },
+        "value": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeStackMembership.json"
+          },
+          "maxItems": 100,
+          "type": "array"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "events": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/ForgeActivity.json"

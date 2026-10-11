@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./stack-plan": "./src/stack-plan.ts",
     "./pr-reference": "./src/pr-reference.ts",
     "./testing": "./src/testing/fixtures.ts"
   },

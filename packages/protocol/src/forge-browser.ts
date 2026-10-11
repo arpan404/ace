@@ -1,3 +1,4 @@
+import { ForgeStackMembership, ForgeStackWorkspace } from "./forge-stacks.ts";
 import { z } from "zod";
 import { ForgePrRef, ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { WorkspaceId, ThreadId } from "./ids.ts";
@@ -108,6 +109,17 @@ export const ForgeActivity = z.object({
 const scope = { workspaceId: WorkspaceId, repository: ForgeRepository.optional() };
 export const ForgeBrowserOperations = [
   z.object({
+    op: z.literal("forge.pr.stack"),
+    ...scope,
+    threadId: ThreadId.optional(),
+    number: z.number().int().positive(),
+  }),
+  z.object({
+    op: z.literal("forge.pr.stack-memberships"),
+    ...scope,
+    numbers: z.array(z.number().int().positive()).max(100),
+  }),
+  z.object({
     op: z.literal("forge.pr.activity"),
     ...scope,
     number: z.number().int().positive(),
@@ -133,6 +145,11 @@ export const ForgeBrowserOperations = [
   }),
 ] as const;
 export const ForgeBrowserResult = z.discriminatedUnion("resource", [
+  z.object({ resource: z.literal("prStack"), value: ForgeStackWorkspace }),
+  z.object({
+    resource: z.literal("prStackMemberships"),
+    value: z.array(ForgeStackMembership).max(100),
+  }),
   z.object({
     resource: z.literal("prActivity"),
     events: z.array(ForgeActivity).max(25),

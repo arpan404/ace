@@ -1,0 +1,354 @@
+import { expect, test } from "vitest";
+import {
+  fakeGh,
+  stackChecksFixture,
+  stackUuid,
+  stackLayers,
+  stackResponse,
+  expectedStack,
+  localStack,
+  nextSha,
+} from "./testing/fixtures.ts";
+const signal = () => new AbortController().signal;
+const allowed = () => true;
+const pending = {
+  body: { status: "pending", details: { uuid: stackUuid, message: "Merge requested" } },
+};
+
+test("native stack ordering comes from host positions and shows lower-layer rules and bounded raw fields", async () => {
+  const f = await fakeGh({
+    ...stackChecksFixture,
+    graphql: [
+      stackResponse(
+        8,
+        stackLayers.toReversed().map((pr) => ({ position: pr.position, pullRequest: pr })),
+      ),
+    ],
+  });
+  try {
+    const stack = await f.forge.prStack(8, signal());
+    expect(stack?.layers.map((layer) => layer.number)).toEqual([7, 8, 9]);
+    expect(stack).toMatchObject({
+      id: "STACK_42",
+      trunk: "main",
+      layers: [
+        { reviewDecision: "APPROVED", requiredChecks: [{ name: "Model tests", state: "SUCCESS" }] },
+        {
+          checksState: "SUCCESS",
+          reviewDecision: "REVIEW_REQUIRED",
+          mergeState: "BLOCKED",
+          requiredChecks: [{ name: "API tests", state: "SUCCESS" }],
+        },
+        { checksState: "PENDING", checksTruncated: true },
+      ],
+    });
+    expect(stack?.raw).toMatchObject({
+      stack: { data: { repository: { pullRequest: { stack: { future_field: "retained" } } } } },
+    });
+  } finally {
+    await f.cleanup();
+  }
+});
+test("an already pending native merge adopts GitHub's existing UUID for reconciliation", async () => {
+  const f = await fakeGh({
+    ...stackChecksFixture,
+    graphql: [stackResponse()],
+    "repos/octo/ace/pulls/8/merge-async": [{ ...pending, status: 409 }],
+  });
+  try {
+    expect(await f.forge.mergeStack(8, expectedStack, "squash", signal(), allowed)).toMatchObject({
+      state: "pending",
+      uuid: stackUuid,
+    });
+    expect((await f.requests()).filter((request) => request.args.includes("PUT"))).toHaveLength(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+test("a native merge refusal stays visible without reporting success or retrying it", async () => {
+  const f = await fakeGh({
+    ...stackChecksFixture,
+    graphql: [stackResponse()],
+    "repos/octo/ace/pulls/8/merge-async": [
+      {
+        status: 400,
+        body: {
+          status: "failed",
+          details: { message: "GitHub rejected this request." },
+          future_field: "retained",
+        },
+      },
+    ],
+  });
+  try {
+    expect(await f.forge.mergeStack(8, expectedStack, "squash", signal(), allowed)).toMatchObject({
+      state: "failed",
+      message: "GitHub rejected this request.",
+      raw: { future_field: "retained" },
+    });
+    expect((await f.requests()).filter((request) => request.args.includes("PUT"))).toHaveLength(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+test("a future host result is retained as uncertain instead of fabricating a known completion", async () => {
+  const f = await fakeGh({
+    [`repos/octo/ace/pulls/8/merge-async/${stackUuid}`]: [
+      {
+        body: {
+          status: "future_result",
+          details: { message: "Inspect GitHub." },
+          future_field: "retained",
+        },
+      },
+    ],
+  });
+  try {
+    expect(await f.forge.stackMergeResult(8, stackUuid, signal())).toMatchObject({
+      state: "uncertain",
+      raw: { status: "future_result", future_field: "retained" },
+    });
+  } finally {
+    await f.cleanup();
+  }
+});
+test("association order does not create a native stack and membership is scoped to repository PR identity", async () => {
+  const f = await fakeGh({
+    ...stackChecksFixture,
+    graphql: [
+      {
+        body: {
+          data: {
+            repository: {
+              pr9: {
+                number: 9,
+                stack: { id: "STACK_42", number: 42, baseRefName: "main", size: 3 },
+                stackEntry: { position: 3 },
+              },
+              pr7: {
+                number: 7,
+                stack: { id: "STACK_42", number: 42, baseRefName: "main", size: 3 },
+                stackEntry: { position: 1 },
+              },
+              pr8: { number: 8, stack: null, stackEntry: null },
+            },
+          },
+        },
+      },
+    ],
+  });
+  try {
+    expect(await f.forge.stackMemberships([9, 7, 8], signal())).toMatchObject([
+      { number: 9, stack: { id: "STACK_42", number: 42, trunk: "main", size: 3, position: 3 } },
+      { number: 7, stack: { id: "STACK_42", number: 42, trunk: "main", size: 3, position: 1 } },
+      { number: 8, stack: null },
+    ]);
+  } finally {
+    await f.cleanup();
+  }
+});
+test("merging a middle layer submits one expected-head native asynchronous request without bypassing host rules", async () => {
+  const f = await fakeGh({
+    ...stackChecksFixture,
+    graphql: [stackResponse()],
+    "repos/octo/ace/pulls/8/merge-async": [pending],
+    [`repos/octo/ace/pulls/8/merge-async/${stackUuid}`]: [
+      { body: { status: "enqueued", details: { message: "Queued" } } },
+    ],
+  });
+  try {
+    expect(await f.forge.mergeStack(8, expectedStack, "squash", signal(), allowed)).toMatchObject({
+      state: "pending",
+      uuid: stackUuid,
+    });
+    expect(await f.forge.stackMergeResult(8, stackUuid, signal())).toMatchObject({
+      state: "enqueued",
+    });
+    const writes = (await f.requests()).filter((request) => request.args.includes("PUT"));
+    expect(writes).toEqual([
+      expect.objectContaining({
+        path: "repos/octo/ace/pulls/8/merge-async",
+        body: {
+          sha: nextSha,
+          merge_method: "squash",
+          merge_action: "default",
+          bypass_rules: false,
+        },
+      }),
+    ]);
+  } finally {
+    await f.cleanup();
+  }
+});
+test.each(["changed lower head", "removed lower layer", "closed lower layer"])(
+  "%s prevents a merge write",
+  async (change) => {
+    const layers = stackLayers.map((pr) => ({
+      position: pr.position,
+      pullRequest: {
+        ...pr,
+        ...(pr.number === 7
+          ? change === "changed lower head"
+            ? { headRefOid: "f".repeat(40) }
+            : change === "closed lower layer"
+              ? { state: "CLOSED" }
+              : {}
+          : {}),
+      },
+    }));
+    const f = await fakeGh({
+      ...stackChecksFixture,
+      graphql: [
+        stackResponse(
+          8,
+          change === "removed lower layer"
+            ? layers
+                .slice(1)
+                .map((entry, index) => Object.assign({}, entry, { position: index + 1 }))
+            : layers,
+        ),
+      ],
+    });
+    try {
+      await expect(
+        f.forge.mergeStack(8, expectedStack, "merge", signal(), allowed),
+      ).rejects.toMatchObject({ kind: "conflict" });
+      expect((await f.requests()).every((request) => !request.args.includes("PUT"))).toBe(true);
+    } finally {
+      await f.cleanup();
+    }
+  },
+);
+test("rebase conflicts never push and a reviewed continuation publishes through the installed stack CLI", async () => {
+  const f = await fakeGh({
+    ...stackChecksFixture,
+    graphql: [stackResponse()],
+    "stack-view": [{ body: localStack }],
+    "stack-rebase": [{ code: 3 }],
+    "stack-rebase-continue": [{ code: 0 }],
+    "stack-push": [{ code: 0 }],
+  });
+  try {
+    expect(await f.forge.rebaseStack(8, expectedStack, "rebase", signal(), allowed)).toMatchObject({
+      state: "conflict",
+    });
+    expect((await f.requests()).some((request) => request.path === "stack-push")).toBe(false);
+    expect(
+      await f.forge.rebaseStack(8, expectedStack, "continue", signal(), allowed),
+    ).toMatchObject({ state: "rebased" });
+    expect((await f.requests()).filter((request) => request.path === "stack-push")).toEqual([
+      expect.objectContaining({ args: ["stack", "push", "--remote", "origin"] }),
+    ]);
+  } finally {
+    await f.cleanup();
+  }
+});
+test("a rejected lease is a visible partial push and aborting a reviewed conflict restores without a push", async () => {
+  const f = await fakeGh({
+    ...stackChecksFixture,
+    graphql: [stackResponse()],
+    "stack-view": [{ body: localStack }],
+    "stack-rebase": [{ code: 0 }],
+    "stack-push": [{ code: 1 }],
+    "stack-rebase-abort": [{ code: 0 }],
+  });
+  try {
+    expect(await f.forge.rebaseStack(8, expectedStack, "rebase", signal(), allowed)).toMatchObject({
+      state: "push_partial",
+    });
+    const before = (await f.requests()).filter((request) => request.path === "stack-push").length;
+    expect(await f.forge.rebaseStack(8, expectedStack, "abort", signal(), allowed)).toMatchObject({
+      state: "aborted",
+    });
+    expect((await f.requests()).filter((request) => request.path === "stack-push")).toHaveLength(
+      before,
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+test("an unrelated local stack cannot rebase the selected host layers", async () => {
+  const f = await fakeGh({
+    ...stackChecksFixture,
+    graphql: [stackResponse()],
+    "stack-view": [{ body: { ...localStack, trunk: "release" } }],
+    "stack-rebase": [{ code: 0 }],
+  });
+  try {
+    await expect(
+      f.forge.rebaseStack(8, expectedStack, "rebase", signal(), allowed),
+    ).rejects.toMatchObject({ kind: "conflict" });
+    expect((await f.requests()).some((request) => request.path === "stack-rebase")).toBe(false);
+  } finally {
+    await f.cleanup();
+  }
+});
+test.each(["FORBIDDEN", "RATE_LIMITED", "UNSUPPORTED"])(
+  "%s host capability failure remains explicit",
+  async (type) => {
+    const f = await fakeGh({ ...stackChecksFixture, graphql: [{ body: { errors: [{ type }] } }] });
+    try {
+      await expect(f.forge.prStack(8, signal())).rejects.toMatchObject({
+        kind:
+          type === "FORBIDDEN"
+            ? "forbidden"
+            : type === "RATE_LIMITED"
+              ? "rate_limit"
+              : "unsupported",
+      });
+    } finally {
+      await f.cleanup();
+    }
+  },
+);
+test("a missing stack CLI leaves rebase unsupported and never fabricates a successful receipt", async () => {
+  const f = await fakeGh({
+    ...stackChecksFixture,
+    graphql: [stackResponse()],
+    "stack-view": [{ code: 1 }],
+  });
+  try {
+    await expect(
+      f.forge.rebaseStack(8, expectedStack, "rebase", signal(), allowed),
+    ).rejects.toMatchObject({ kind: "unsupported" });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test.each(["closed", "queued"])(
+  "a %s dependency blocks publishing a local rebase",
+  async (state) => {
+    const layers = stackLayers.map((pr) => ({
+      position: pr.position,
+      pullRequest: Object.assign(
+        {},
+        pr,
+        pr.number === 7
+          ? state === "closed"
+            ? { state: "CLOSED" }
+            : { mergeQueueEntry: { state: "AWAITING_CHECKS" } }
+          : {},
+      ),
+    }));
+    const f = await fakeGh({
+      ...stackChecksFixture,
+      graphql: [stackResponse(8, layers)],
+      "stack-view": [{ body: localStack }],
+      "stack-rebase": [{ code: 0 }],
+      "stack-push": [{ code: 0 }],
+    });
+    try {
+      await expect(
+        f.forge.rebaseStack(8, expectedStack, "rebase", signal(), allowed),
+      ).rejects.toMatchObject({ kind: "conflict" });
+      expect(
+        (await f.requests()).some(
+          (request) => request.path === "stack-rebase" || request.path === "stack-push",
+        ),
+      ).toBe(false);
+    } finally {
+      await f.cleanup();
+    }
+  },
+);
