@@ -77,7 +77,7 @@ test.each(cases)(
       const status = statuses.list().find((row) => row.provider === "codex");
       expect(status?.readiness).toBe(
         change === "disabled"
-          ? "disabled"
+          ? "not_configured"
           : change === "binary path" || change === "selected account"
             ? "installed_signed_out"
             : "signed_in",

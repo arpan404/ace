@@ -197,7 +197,7 @@ test("selected account discovery uses its executable and enabled setting instead
     );
     expect(statuses.readiness().find((row) => row.provider === "codex")).toMatchObject({
       enabled: false,
-      readiness: "disabled",
+      readiness: "not_configured",
     });
     expect(onboarding.query("device", "disabled")).toMatchObject({ result: { ready: [] } });
     await settings.set(
