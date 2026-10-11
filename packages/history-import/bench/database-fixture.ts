@@ -24,6 +24,8 @@ export function databaseFixture(root: string, cwd: string) {
     CREATE INDEX message_session ON session_message(session_id,seq,id);`);
   const session = db.prepare("INSERT INTO session VALUES(?,?,?,?,NULL)");
   const message = db.prepare("INSERT INTO session_message VALUES(?,?,?,?,?)");
+  const userData = JSON.stringify({ text: "Find app version", files: [] });
+  const assistantData = JSON.stringify({ text: "Synthetic assistant output. ".repeat(300) });
   db.exec("BEGIN");
   for (let i = 0; i < 802; i++) {
     session.run(`db-${i}`, cwd, "Title request: Find app version", 1);
@@ -33,11 +35,7 @@ export function databaseFixture(root: string, cwd: string) {
         `db-${i}`,
         j === 0 ? "user" : "assistant",
         j,
-        JSON.stringify(
-          j === 0
-            ? { text: "Find app version", files: [] }
-            : { text: "Synthetic assistant output. ".repeat(300) },
-        ),
+        j === 0 ? userData : assistantData,
       );
   }
   // The measured largest v2 record is 27,350,606 bytes. No in-memory transcript array.
