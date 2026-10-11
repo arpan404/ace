@@ -88,17 +88,20 @@ export function ScheduleFields(props: { form: AutomationFormApi }) {
               )}
               {cadence === "hourly" && (
                 <form.Field name="every">
-                  {(field) => (
-                    <Row label="How often">
-                      <Select
-                        label="How often"
-                        value={String(field.state.value)}
-                        options={hourOptions(field.state.value)}
-                        onValueChange={(value) => field.handleChange(Number(value))}
-                        className="w-full min-w-0"
-                      />
-                    </Row>
-                  )}
+                  {(field) => {
+                    const error = visible(field.state.meta);
+                    return (
+                      <Row label="How often" errors={error}>
+                        <Select
+                          label="How often"
+                          value={String(field.state.value)}
+                          options={hourOptions(field.state.value)}
+                          onValueChange={(value) => field.handleChange(Number(value))}
+                          className="w-full min-w-0"
+                        />
+                      </Row>
+                    );
+                  }}
                 </form.Field>
               )}
               {cadence === "custom" && (
