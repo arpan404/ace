@@ -195,8 +195,7 @@ export class GitWorkspace implements WorkspaceFiles {
             next.update(child, false),
           );
           await this.listing(["--deleted", "--", path], (child) => next.update(child, false));
-          for (const child of this.index.under(path)) this.index.update(child, false);
-          for (const child of next.under(path)) this.index.update(child, true);
+          this.index.replaceSubtree(path, next);
         }
       } catch (error) {
         if (
