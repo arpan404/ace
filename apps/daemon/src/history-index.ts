@@ -1,3 +1,5 @@
+import { HistorySearchReplay } from "./history-search-replay.ts";
+import type { SearchReplayItem } from "@ace/search";
 import { z } from "zod";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { Event, Item, ItemId, ThreadId, type TextSource, type ItemsPage } from "@ace/protocol";
@@ -30,6 +32,7 @@ type ArchiveOutput = (
 
 /** Immutable metadata and stream lengths. Deltas write one small indexed row. */
 export class HistoryIndex {
+  private readonly searchReplay: HistorySearchReplay;
   private db: DatabaseSync;
   private statement: (sql: string) => StatementSync;
   private texts: ItemTextStore;
@@ -42,6 +45,7 @@ export class HistoryIndex {
     archiveOutput: ArchiveOutput,
   ) {
     this.db = db;
+    this.searchReplay = new HistorySearchReplay(db);
     this.statement = statement;
     this.readBytes = readBytes;
     this.archiveOutput = archiveOutput;
@@ -139,14 +143,28 @@ export class HistoryIndex {
     itemId: ItemId,
     through: number,
     maxBytes: number,
-  ): Item | undefined {
+  ): Item | SearchReplayItem | undefined {
     const size = this.statement(
-      "SELECT length(CAST(item AS BLOB)) AS bytes FROM history_item_revisions WHERE item_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
+      "SELECT seq,length(CAST(item AS BLOB)) AS bytes FROM history_item_revisions WHERE item_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
     ).get(itemId, through);
     if (!size) return;
-    if (Number(size.bytes) > maxBytes) throw new Error("search_replay_metadata_limit");
+    if (Number(size.bytes) > maxBytes)
+      return this.searchReplay.item(threadId, itemId, Number(size.seq));
     const item = this.itemAt(itemId, through);
     return item ? this.preview(threadId, item, through) : undefined;
+  }
+  readSearchBytes(
+    thread: ThreadId,
+    stream: string,
+    offset: number,
+    limit: number,
+  ): Buffer | undefined {
+    if (!stream.startsWith("history-search:")) return;
+    const owner = z
+      .tuple([ThreadId, ItemId, z.number(), z.string()])
+      .parse(JSON.parse(stream.slice(15)));
+    if (owner[0] !== thread) throw new Error("search_replay_source_thread");
+    return this.searchReplay.read(stream, offset, limit);
   }
   private sources(event: Event, item: Item): void {
     const sources: TextSource[] = [];

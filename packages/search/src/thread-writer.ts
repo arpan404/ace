@@ -1,3 +1,4 @@
+import type { SearchReplayEvent } from "./replay.ts";
 import { z } from "zod";
 import { ThreadId, SearchKind, type Event } from "@ace/protocol";
 import { acceptsDelta } from "@ace/projection";
@@ -42,7 +43,7 @@ export class ThreadSearchWriter {
   advance(seq: number): void {
     this.sql.run("UPDATE search_full_meta SET seq=? WHERE id=1", seq);
   }
-  stage(event: Event): void {
+  stage(event: Event | SearchReplayEvent): void {
     if (this.sql.get("SELECT 1 FROM search_tombstones WHERE thread=?").get(event.threadId)) return;
     const payload = event.payload;
     if (payload.type === "item.deleted") {
@@ -84,7 +85,12 @@ export class ThreadSearchWriter {
       } else this.append(id, payload.append);
       return;
     }
-    if (payload.type !== "item.created" && payload.type !== "item.updated") return;
+    if (
+      payload.type !== "item.created" &&
+      payload.type !== "item.updated" &&
+      payload.type !== "search.item"
+    )
+      return;
     const item = payload.item;
     this.sql.run(
       `INSERT INTO search_full_items(thread,item,seq,kind,tool_kind) VALUES(?,?,?,?,?)
@@ -93,10 +99,16 @@ export class ThreadSearchWriter {
       item.id,
       event.seq,
       item.type,
-      item.type === "tool_call" ? item.call.detail.kind : null,
+      payload.type === "search.item"
+        ? (payload.item.toolKind ?? null)
+        : payload.item.type === "tool_call"
+          ? payload.item.call.detail.kind
+          : null,
     );
     let delta: number | null = null;
-    for (const part of threadItemText(item)) {
+    for (const part of payload.type === "search.item"
+      ? payload.segments
+      : threadItemText(payload.item)) {
       const id = this.segment(event.threadId, item.id, part.name, part.category, event.seq);
       const previous = this.get(id);
       this.sql.run("UPDATE search_full_segments SET category=? WHERE id=?", part.category, id);
@@ -133,7 +145,12 @@ export class ThreadSearchWriter {
         delta = id;
     }
     // A message ending in an attachment receives a fresh text segment on its next delta.
-    if (item.type === "message" && item.parts.at(-1)?.type !== "text") delta = null;
+    if (
+      payload.type !== "search.item" &&
+      payload.item.type === "message" &&
+      payload.item.parts.at(-1)?.type !== "text"
+    )
+      delta = null;
     this.sql.run(
       "UPDATE search_full_items SET delta_segment=? WHERE thread=? AND item=?",
       delta,

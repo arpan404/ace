@@ -17,13 +17,16 @@ import { SearchWriter } from "./writer.ts";
 import { querySearch } from "./query.ts";
 import type { OutputReader } from "./output.ts";
 export type { OutputReader } from "./output.ts";
-export { FIELD_CAP, GAP } from "./text.ts";
+export { FIELD_CAP, GAP, appendWindow, windowText } from "./text.ts";
+export { outputText } from "./output.ts";
+export { SearchReplayItem, SearchReplayEvent } from "./replay.ts";
+import type { SearchReplayEvent } from "./replay.ts";
 
 const ItemKey = z.object({ item: z.string() });
 const PendingWrites = z.object({ pending: z.number().int().nonnegative() });
 
 export interface SearchPage {
-  events: Event[];
+  events: (Event | SearchReplayEvent)[];
   throughSeq: number;
   bytes: number;
 }
@@ -84,7 +87,7 @@ export class SearchIndex {
     }
     this.consume(contiguous, seq);
   }
-  private consume(events: readonly Event[], throughSeq: number): number {
+  private consume(events: readonly (Event | SearchReplayEvent)[], throughSeq: number): number {
     return this.atomic(() => {
       const existingSeq = Number(
         this.writer.sql.get("SELECT seq FROM search_meta WHERE id=1").get()?.seq,

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 import { Event, ItemId, ThreadId } from "@ace/protocol";
-import type { SearchPage } from "@ace/search";
+import { SearchReplayEvent, type SearchPage } from "@ace/search";
 import type { HistoryIndex } from "./history-index.ts";
 
 const Options = z.object({
@@ -41,7 +41,7 @@ export class SearchReplay {
   }
   read(input: unknown, headSeq: number): SearchPage {
     const q = Options.parse(input);
-    const events: Event[] = [];
+    const events: SearchPage["events"] = [];
     let bytes = 2;
     let work = 0;
     let throughSeq = q.afterSeq;
@@ -87,7 +87,7 @@ export class SearchReplay {
           q.maxBytes - bytes - 1024,
         );
         if (!item) throw new Error("search_replay_source_unavailable");
-        payload = { type: "item.updated", item };
+        payload = item.type === "search.item" ? item : { type: "item.updated", item };
       } else {
         if (row.bytes > q.maxBytes - bytes - 1024) {
           complete = false;
@@ -95,7 +95,7 @@ export class SearchReplay {
         }
         payload = JSON.parse(String(this.payload.get(row.seq)?.payload));
       }
-      const event = Event.parse({
+      const event = (typeof payload === "object" && payload !== null && "type" in payload && payload.type === "search.item" ? SearchReplayEvent : Event).parse({
         seq: row.seq,
         id: row.id,
         threadId: row.thread_id,

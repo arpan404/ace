@@ -181,6 +181,8 @@ export class Store {
       this.searchReplay = new SearchReplay(this.db, this.history);
       this.search = new SearchIndex(this.db, {
         readOutput: (threadId, streamId, offset, limit) => {
+          const replay = this.history.readSearchBytes(threadId, streamId, offset, limit);
+          if (replay) return replay;
           if (this.payloads.streamThread(streamId) !== threadId) return undefined;
           return this.payloads.readOutputBytes(streamId, offset, limit).bytes;
         },

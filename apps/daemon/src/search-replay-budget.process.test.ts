@@ -182,3 +182,29 @@ test("byte-limited replay crosses deleted sequence gaps and never treats a short
     ]);
   expect(f.store.search.status(f.store.headSeq()).ready).toBe(true);
 });
+
+test("oversized file-write metadata rebuilds bounded previews and full file text without blocking later events", async () => {
+  const f = storeFixture();
+  const text = "writehead " + "x ".repeat(180000) + " writeinterior " + "y ".repeat(180000) + " writetail";
+  f.store.appendEvents(f.thread.id, [{
+    type: "item.created",
+    item: Item.parse({
+      type: "tool_call", id: "large-write", agentId: root, createdAt: 10, complete: true,
+      call: { id: "large-write", agentId: root, kind: "file.write", title: "Write giant-file.ts", status: "succeeded", startedAt: 10, raw: [],
+        detail: { kind: "file.write", changes: [{ kind: "add", path: "giant-file.ts", newText: text }] } },
+    }),
+  }, {
+    type: "item.created", item: Item.parse({ type: "message", id: "after-write", agentId: root, createdAt: 11, complete: true, role: "assistant", parts: [{ type: "text", text: "afterwriteneedle" }] }),
+  }]);
+  await f.restart();
+  const pages: number[] = [];
+  await f.store.search.rebuild({
+    headSeq: () => f.store.headSeq(), getThread: f.store.getThread.bind(f.store), readEvents: f.store.readEvents.bind(f.store),
+    readSearchPage(options) { const page = f.store.readSearchPage(options); pages.push(page.bytes); return page; },
+  }, { signal: new AbortController().signal });
+  expect(Math.max(...pages)).toBeLessThanOrEqual(524288);
+  expect(f.store.search.status(f.store.headSeq()).ready).toBe(true);
+  for (const text of ["writehead", "writetail"]) expect(f.store.search.query({ text }).hits).toMatchObject([{ itemId: "large-write" }]);
+  expect(f.store.search.query({ text: "afterwriteneedle" }).hits).toMatchObject([{ itemId: "after-write" }]);
+  expect(f.store.threadSearch({ threadId: f.thread.id, text: "writeinterior", scope: "thread", limit: 10 }).hits).toMatchObject([{ itemId: "large-write" }]);
+});

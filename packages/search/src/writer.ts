@@ -1,3 +1,4 @@
+import type { SearchReplayEvent } from "./replay.ts";
 import type { DatabaseSync, StatementSync, SQLInputValue } from "node:sqlite";
 import { z } from "zod";
 import type { Event, Thread } from "@ace/protocol";
@@ -55,10 +56,26 @@ export class SearchWriter {
     this.trigrams = trigrams;
     this.sql = new Statements(db);
   }
-  stage(event: Event): void {
+  stage(event: Event | SearchReplayEvent): void {
     if (this.sql.get("SELECT 1 FROM search_tombstones WHERE thread=?").get(event.threadId)) return;
     const p = event.payload;
-    if (p.type === "thread.created") {
+    if (p.type === "search.item") {
+      const window = appendWindow({ head: "", tail: "", size: 0 }, p.body);
+      this.put(
+        event.threadId,
+        p.item.id,
+        p.item.agentId,
+        p.item.type,
+        p.item.createdAt,
+        p.title,
+        window.head,
+        window.tail,
+        window.size,
+        p.item.complete,
+        event.seq,
+        p.item.toolKind ?? null,
+      );
+    } else if (p.type === "thread.created") {
       const t = p.thread;
       this.observeThread(t, event.seq);
       this.put(
