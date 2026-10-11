@@ -47,13 +47,22 @@ export class ProviderStatuses {
     stale: true,
     refreshing: false,
   }));
+  private published: string | undefined;
   private listeners = new Set<(rows: Status[]) => void>();
   listen(listener: (rows: Status[]) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
   publish(): void {
-    for (const listener of this.listeners) listener(this.readiness());
+    const rows = this.readiness();
+    // Fresh timestamps alone do not change provider availability. Mutation callers
+    // may also publish after refresh; suppress their duplicate settled result.
+    const observation = JSON.stringify(
+      rows.map(({ checkedAt: _checkedAt, versionCheckedAt: _versionCheckedAt, ...row }) => row),
+    );
+    if (observation === this.published) return;
+    this.published = observation;
+    for (const listener of this.listeners) listener(rows);
   }
   private options: ProviderStatusOptions;
   private runtime: ProviderStatusRuntime;
@@ -176,10 +185,12 @@ export class ProviderStatuses {
       })
       .finally(() => {
         this.flight = undefined;
-        if (!this.controller.signal.aborted)
+        if (!this.controller.signal.aborted) {
           this.cancelTimer = this.runtime.schedule(() => {
             void this.refresh();
           }, 300_000);
+          this.publish();
+        }
       });
     return this.flight;
   }
