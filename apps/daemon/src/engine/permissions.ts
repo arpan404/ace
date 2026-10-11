@@ -7,6 +7,8 @@ import {
 import {
   Command,
   PermissionMode,
+  PermissionPolicyIdentity,
+  AcpIdentity,
   type PermissionState,
   type ThreadId,
   type CommandResult,
@@ -34,6 +36,7 @@ const Record = z.object({
     .enum(["claude", "codex", "opencode", "cursor", "pi", "acp", "antigravity"])
     .nullable(),
   ceiling_mode: PermissionMode.nullable(),
+  ceiling_identity: z.string().nullable(),
 });
 type Record = z.infer<typeof Record>;
 export type PermissionSettings = (id: ThreadId) => Promise<PermissionMode | null>;
@@ -70,6 +73,8 @@ export class Permissions {
           ceiling_mode=(SELECT effective FROM engine_permissions p WHERE p.thread_id=engine_permissions.parent)
           WHERE parent IS NOT NULL;`);
       }
+      if (!columns.some((column) => column.name === "ceiling_identity"))
+        db.exec("ALTER TABLE engine_permissions ADD COLUMN ceiling_identity TEXT");
       for (const value of db.prepare("SELECT thread_id FROM engine_permissions").iterate()) {
         const row = z.object({ thread_id: z.string() }).parse(value);
         const id = importThreadId.parse(row.thread_id);
@@ -126,7 +131,7 @@ export class Permissions {
     const row = this.repo.store.atomic((db) =>
       db
         .prepare(
-          "SELECT override,effective,parent,ceiling_provider,ceiling_mode FROM engine_permissions WHERE thread_id=?",
+          "SELECT override,effective,parent,ceiling_provider,ceiling_mode,ceiling_identity FROM engine_permissions WHERE thread_id=?",
         )
         .get(id),
     );
@@ -138,6 +143,7 @@ export class Permissions {
           parent: null,
           ceiling_provider: null,
           ceiling_mode: null,
+          ceiling_identity: null,
         };
     const provider =
       this.repo.store.getThread(id)?.provider ?? this.repo.state(id)?.config.provider;
@@ -193,14 +199,15 @@ export class Permissions {
     const provider = this.repo.store.getThread(parent)?.provider;
     if (!provider) throw new Error("permission_parent_not_found");
     const mode = this.effective(parent);
+    const identity = this.identity(parent, provider);
     this.repo.store.atomic((db) => {
       const existing = this.read(child);
       if (existing.parent && existing.parent !== parent)
         throw new Error("Permission owner conflict");
       if (!existing.parent)
         db.prepare(
-          "UPDATE engine_permissions SET parent=?,ceiling_provider=?,ceiling_mode=? WHERE thread_id=?",
-        ).run(parent, provider, mode, child);
+          "UPDATE engine_permissions SET parent=?,ceiling_provider=?,ceiling_mode=?,ceiling_identity=? WHERE thread_id=?",
+        ).run(parent, provider, mode, JSON.stringify(identity), child);
     });
   }
   private contained(
@@ -212,32 +219,55 @@ export class Permissions {
     const record = this.read(id);
     if (!record.parent) return selected;
     if (depth >= 64) throw new Error("Permission ancestry exceeds capacity");
-    const mode = this.narrow(importThreadId.parse(record.parent), provider, selected, depth + 1);
+    const identity = this.identity(id, provider);
+    const mode = this.narrow(importThreadId.parse(record.parent), identity, selected, depth + 1);
     if (
-      !record.ceiling_provider ||
+      !record.ceiling_identity ||
       !permissionWithinCeiling(
-        { provider: record.ceiling_provider, mode: record.ceiling_mode },
-        { provider, mode },
+        {
+          ...PermissionPolicyIdentity.parse(JSON.parse(record.ceiling_identity)),
+          mode: record.ceiling_mode,
+        },
+        { ...identity, mode },
       )
     )
       throw new Error("permission_ceiling_unverifiable");
     return mode;
   }
+  private identity(
+    id: ThreadId,
+    provider: import("@ace/protocol").ProviderKind,
+  ): PermissionPolicyIdentity {
+    const thread = this.repo.store.getThread(id);
+    if (!thread) throw new Error("permission_thread_not_found");
+    return PermissionPolicyIdentity.parse({
+      provider,
+      backend: this.repo.backend(id),
+      ...(provider === "acp"
+        ? {
+            ...AcpIdentity.parse(thread),
+            instanceId: this.repo.session(id).instanceId ?? thread.instanceId,
+          }
+        : {
+            instanceId: this.repo.session(id).instanceId ?? `${provider}-cli-default`,
+          }),
+    });
+  }
   /** Shared by spawn, native session resolution and policy changes. */
   narrow(
     parentId: ThreadId,
-    provider: import("@ace/protocol").ProviderKind,
+    identity: PermissionPolicyIdentity,
     requested?: PermissionMode | null,
     depth = 0,
   ): PermissionMode | null {
     const parent = this.repo.store.getThread(parentId);
     if (!parent) throw new Error("permission_parent_not_found");
     const ceiling = {
-      provider: parent.provider,
+      ...this.identity(parentId, parent.provider),
       mode: this.contained(parentId, parent.provider, this.effective(parentId), depth),
     };
-    const mode = requested === undefined ? inheritedPermissionMode(ceiling, provider) : requested;
-    if (!permissionWithinCeiling(ceiling, { provider, mode }))
+    const mode = requested === undefined ? inheritedPermissionMode(ceiling, identity) : requested;
+    if (!permissionWithinCeiling(ceiling, { ...identity, mode }))
       throw new Error("permission_ceiling_unverifiable");
     return mode;
   }
@@ -345,6 +375,9 @@ export class Permissions {
         at,
       );
     });
+  }
+  validateIdentity(id: ThreadId, mode: PermissionMode | null): void {
+    this.contained(id, this.repo.requireState(id).config.provider, mode);
   }
   observe(state: ThreadState, events: EventPayload[], at: number, wake: () => void): void {
     const notices: Fact[] = [];

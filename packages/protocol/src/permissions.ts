@@ -1,5 +1,18 @@
 import { z } from "zod";
 import { InteractionId } from "./ids.ts";
+import { ProviderKind } from "./provider-data.ts";
+import { AcpIdentity } from "./agent-registry.ts";
+
+/** Opaque policy names only have meaning within this execution identity. */
+export const PermissionPolicyIdentity = z
+  .object({
+    provider: ProviderKind,
+    backend: z.enum(["acp", "cursor-sdk"]).optional(),
+    ...AcpIdentity.partial().shape,
+  })
+  .refine((identity) => identity.provider !== "acp" || AcpIdentity.safeParse(identity).success)
+  .meta({ "x-ace-constraint": "ACP policies require acpAgentId, installationId and instanceId." });
+export type PermissionPolicyIdentity = z.infer<typeof PermissionPolicyIdentity>;
 
 /** Native provider selector, or serialized native options when the harness has no mode enum. */
 export const PermissionMode = z.string().min(1).max(4096);

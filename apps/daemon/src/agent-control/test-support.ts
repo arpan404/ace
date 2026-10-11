@@ -33,6 +33,7 @@ export function setup(
   accounts?: import("@ace/accounts").AccountRegistry,
   capacity?: number,
   models?: import("@ace/models").ModelCatalogApi,
+  providerEnabled?: import("./delegations.ts").DelegationDependencies["providerEnabled"],
 ) {
   const home = path ? join(path, "..") : mkdtempSync(join(tmpdir(), "ace-control-"));
   if (!path) homes.push(home);
@@ -182,6 +183,7 @@ export function setup(
     ...(capacity === undefined ? {} : { journalCapacity: capacity }),
     ...(accounts ? { accounts } : {}),
     models: models ?? catalog,
+    ...(providerEnabled ? { providerEnabled } : {}),
     admitsWork: () => admitting,
     onError: (error) => errors.push(error),
   });
@@ -292,6 +294,7 @@ export function setup(
         ...(capacity === undefined ? {} : { journalCapacity: capacity }),
         ...(accounts ? { accounts } : {}),
         models: models ?? catalog,
+        ...(providerEnabled ? { providerEnabled } : {}),
         admitsWork: () => admitting,
         onError: (error) => errors.push(error),
       });

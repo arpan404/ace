@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/PermissionPolicyIdentity.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "backend": {
+      "enum": [
+        "acp",
+        "cursor-sdk"
+      ],
+      "type": "string"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    }
+  },
+  "required": [
+    "provider"
+  ],
+  "type": "object",
+  "x-ace-constraint": "ACP policies require acpAgentId, installationId and instanceId."
+}

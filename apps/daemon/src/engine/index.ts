@@ -1,3 +1,7 @@
+import {
+  PermissionPolicyIdentity as importPermissionPolicyIdentity,
+  AcpIdentity as importAcpIdentity,
+} from "@ace/protocol";
 import { backfillThreadTitles } from "./title-input.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
@@ -383,7 +387,11 @@ export class Engine {
     if (scope.parentThreadId) {
       try {
         requested =
-          this.repo.permissions.narrow(scope.parentThreadId, p.provider, requested) ?? undefined;
+          this.repo.permissions.narrow(
+            scope.parentThreadId,
+            this.permissionTarget(p.provider, p),
+            requested,
+          ) ?? undefined;
       } catch {
         return { commandId: command.id, ok: false, error: "permission_ceiling_unverifiable" };
       }
@@ -411,8 +419,35 @@ export class Engine {
   permissionMode(id: ThreadId): PermissionMode | null {
     return this.repo.permissions.effective(id);
   }
-  childPermissionMode(parent: ThreadId, provider: ProviderKind, requested?: PermissionMode) {
-    return this.repo.permissions.narrow(parent, provider, requested);
+  private permissionTarget(
+    provider: ProviderKind,
+    selection?: Partial<import("@ace/protocol").AgentSelection>,
+  ) {
+    return importPermissionPolicyIdentity.parse({
+      provider,
+      backend: this.registry.get(provider).adapter.backend,
+      ...(provider === "acp"
+        ? importAcpIdentity.parse(selection)
+        : {
+            instanceId:
+              selection?.accountId ??
+              selection?.instanceId ??
+              this.selectInstance?.(provider, this.registry.get(provider).adapter.backend) ??
+              `${provider}-cli-default`,
+          }),
+    });
+  }
+  childPermissionMode(
+    parent: ThreadId,
+    provider: ProviderKind,
+    requested?: PermissionMode,
+    selection?: Partial<import("@ace/protocol").AgentSelection>,
+  ) {
+    return this.repo.permissions.narrow(
+      parent,
+      this.permissionTarget(provider, selection),
+      requested,
+    );
   }
   /** Host-owned summary attachment. Child transcript and native session stay independent. */
   attachChild(

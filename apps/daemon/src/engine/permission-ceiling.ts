@@ -1,23 +1,42 @@
 import { cursorMode, nativePermissionModes } from "@ace/provider-kit/permission-modes";
-import type { PermissionMode, ProviderKind } from "@ace/protocol";
+import type { PermissionMode, PermissionPolicyIdentity } from "@ace/protocol";
+
+type Policy = PermissionPolicyIdentity & { mode: PermissionMode | null };
+function sameIdentity(parent: PermissionPolicyIdentity, child: PermissionPolicyIdentity) {
+  return (
+    parent.provider === child.provider &&
+    parent.backend === child.backend &&
+    parent.acpAgentId === child.acpAgentId &&
+    parent.installationId === child.installationId &&
+    parent.instanceId === child.instanceId
+  );
+}
 
 /** Native display risk is not an ordering. Only known containment is accepted. */
-export function permissionWithinCeiling(
-  parent: { provider: ProviderKind; mode: PermissionMode | null },
-  child: { provider: ProviderKind; mode: PermissionMode | null },
-): boolean {
+export function permissionWithinCeiling(parent: Policy, child: Policy): boolean {
   const unrestricted =
-    (parent.provider === "codex" && parent.mode === ":danger-full-access") ||
-    (parent.provider === "claude" && parent.mode === "bypassPermissions") ||
-    (parent.provider === "cursor" && parent.mode === cursorMode(false, false)) ||
-    // ADR 0050: Pi has no native sandbox or permission mode. Its process has
-    // the user's OS rights; an ace MCP call still needs separate ace consent.
-    (parent.provider === "pi" && parent.mode === null);
+    parent.backend !== "acp" &&
+    ((parent.provider === "codex" && parent.mode === ":danger-full-access") ||
+      (parent.provider === "claude" && parent.mode === "bypassPermissions") ||
+      (parent.provider === "cursor" && parent.mode === cursorMode(false, false)) ||
+      // ADR 0050: Pi has no native sandbox or permission mode. Its process has
+      // the user's OS rights; an ace MCP call still needs separate ace consent.
+      (parent.provider === "pi" && parent.mode === null));
   if (unrestricted) return true;
   if (parent.mode === null || child.mode === null) return false;
-  if (parent.provider === child.provider && parent.mode === child.mode) return true;
+  if (sameIdentity(parent, child) && parent.mode === child.mode) return true;
   // These pairs retain the same provider's isolation/configuration while reducing autonomy.
-  if (parent.provider !== child.provider) return false;
+  if (
+    parent.provider !== child.provider ||
+    parent.backend !== child.backend ||
+    parent.provider === "acp"
+  )
+    return false;
+  if (
+    nativePermissionModes(parent.provider).some((mode) => mode.id === parent.mode) &&
+    parent.mode === child.mode
+  )
+    return true;
   if (parent.provider === "codex")
     return (
       nativePermissionModes("codex").some((mode) => mode.id === parent.mode) &&
@@ -32,10 +51,15 @@ export function permissionWithinCeiling(
 }
 
 export function inheritedPermissionMode(
-  parent: { provider: ProviderKind; mode: PermissionMode | null },
-  provider: ProviderKind,
+  parent: Policy,
+  child: PermissionPolicyIdentity,
 ): PermissionMode | null {
-  if (parent.provider === provider) return parent.mode;
+  if (
+    parent.provider === child.provider &&
+    permissionWithinCeiling(parent, { ...child, mode: parent.mode })
+  )
+    return parent.mode;
+  const provider = child.provider;
   const candidate =
     provider === "claude"
       ? "default"
@@ -46,5 +70,5 @@ export function inheritedPermissionMode(
           : provider === "cursor"
             ? cursorMode(true, false)
             : null;
-  return permissionWithinCeiling(parent, { provider, mode: candidate }) ? candidate : null;
+  return permissionWithinCeiling(parent, { ...child, mode: candidate }) ? candidate : null;
 }

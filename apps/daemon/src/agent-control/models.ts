@@ -9,13 +9,13 @@ import {
 import { AcpIdentity, type DelegationRequest, type Thread } from "@ace/protocol";
 
 /** Only catalog identities from the selected provider/account reach provider launch. */
-export function delegationModel(
+export function selectedDelegationModel(
   catalog: ModelCatalogApi,
   request: DelegationRequest,
   parent: Thread,
   instance?: string,
   configured?: string,
-): string {
+): import("@ace/protocol").CatalogModel {
   const identity = request.provider === "acp" ? AcpIdentity.parse(request) : undefined;
   const filter = selectionModelFilter(request.provider, instance, identity);
   if (!filter)
@@ -61,5 +61,15 @@ export function delegationModel(
       !chosen.serviceTiers.some((tier) => tier.id === request.options?.serviceTier))
   )
     throw new AgentControlError("not_supported", "The selected model does not offer these options");
-  return executionModelId(chosen);
+  return chosen;
+}
+
+export function delegationModel(
+  catalog: ModelCatalogApi,
+  request: DelegationRequest,
+  parent: Thread,
+  instance?: string,
+  configured?: string,
+): string {
+  return executionModelId(selectedDelegationModel(catalog, request, parent, instance, configured));
 }

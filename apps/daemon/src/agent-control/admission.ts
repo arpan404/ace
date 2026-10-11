@@ -1,11 +1,8 @@
 import { delegationRequest } from "./cursor-request.ts";
-import { cursorDefaultInstanceId } from "@ace/provider-kit/cursor-selection";
 import { AgentControlError, controlAdmissionError } from "./failure.ts";
-import { delegationModel } from "./models.ts";
+import { delegationSelection, validateDelegationSelection } from "./selection.ts";
 import { callerThread } from "./authorization.ts";
 import { admitDelegation, delegationBudget } from "@ace/orchestrator";
-import { pickInstance, explicitInstance } from "@ace/accounts";
-import { AccountProvider } from "@ace/protocol/accounts";
 import {
   Command,
   AcpIdentity,
@@ -40,7 +37,12 @@ export class DelegationAdmission {
     if (!this.admits()) throw new AgentControlError("admission_closed", "Admission closed");
     callerThread(this.deps.store, caller);
     try {
-      this.deps.engine.childPermissionMode(caller.threadId, input.provider, input.permissionMode);
+      this.deps.engine.childPermissionMode(
+        caller.threadId,
+        input.provider,
+        input.permissionMode,
+        input,
+      );
     } catch {
       throw controlAdmissionError("permission_ceiling_unverifiable");
     }
@@ -51,11 +53,6 @@ export class DelegationAdmission {
         "provider_unavailable",
         `No installed provider adapter for ${input.provider}`,
       );
-    if (
-      this.deps.engine.providerAvailability(input.provider).auth === "logged_out" &&
-      !input.accountId
-    )
-      throw new AgentControlError("account_unavailable", "Provider CLI is signed out");
 
     if (
       this.journal.get(caller.threadId)?.phase === "cancelling" ||
@@ -114,47 +111,14 @@ export class DelegationAdmission {
           rejection ?? "active_limit",
         );
       this.journal.assertCapacity();
-      const provider = AccountProvider.safeParse(
-        input.provider === "acp" ? undefined : input.provider,
-      );
-      const candidates = provider.success
-        ? (this.deps.accounts
-            ?.list()
-            .filter(
-              (entry) =>
-                entry.instance.provider === provider.data &&
-                (input.accountId
-                  ? entry.instance.id === input.accountId
-                  : !entry.instance.implicit),
-            ) ?? [])
-        : [];
-      const selected = provider.success
-        ? input.accountId && candidates[0]
-          ? explicitInstance(
-              { provider: provider.data, role: input.role, estimatedLoad: input.estimatedLoad },
-              candidates[0],
-              now,
-            )
-          : pickInstance(
-              { provider: provider.data, role: input.role, estimatedLoad: input.estimatedLoad },
-              candidates,
-              now,
-            )
-        : undefined;
-      if (provider.success && (input.accountId || candidates.length > 0) && !selected)
-        throw new AgentControlError(
-          "account_unavailable",
-          "Account unavailable or quota exhausted",
-        );
-      const resolvedModel = delegationModel(
-        this.deps.models,
+      const selected = delegationSelection(
+        this.deps,
         input,
         callerThread(this.deps.store, caller),
-        selected?.id ??
-          input.instanceId ??
-          (input.provider === "cursor" ? cursorDefaultInstanceId : `${input.provider}-cli-default`),
+        now,
         configuredModel,
       );
+      const resolvedModel = selected.resolvedModel;
       const reservation: DelegationReservation = {
         record: {
           childId: ThreadId.parse(this.deps.id()),
@@ -170,7 +134,7 @@ export class DelegationAdmission {
           generation: 0,
           ...(resultDelivery ? { resultDelivery } : {}),
         },
-        ...(selected ? { accountId: selected.id } : {}),
+        ...(selected.accountId ? { accountId: selected.accountId } : {}),
       };
       this.journal.reserve(reservation);
       return reservation;
@@ -216,22 +180,13 @@ export class DelegationAdmission {
           rejection,
         );
       // Quota may have changed during filesystem work; selected identity is immutable.
-      if (current.accountId) {
-        const account = this.deps.accounts?.get(current.accountId);
-        const provider = AccountProvider.parse(r.request.provider);
-        if (
-          !account ||
-          !explicitInstance(
-            { provider, role: r.request.role, estimatedLoad: r.request.estimatedLoad },
-            account,
-            this.deps.clock.now(),
-          )
-        )
-          throw new AgentControlError(
-            "account_unavailable",
-            "Account unavailable or quota exhausted",
-          );
-      }
+      validateDelegationSelection(
+        this.deps,
+        r.request,
+        r.resolvedModel,
+        current.accountId,
+        this.deps.clock.now(),
+      );
       const identity = r.request.provider === "acp" ? AcpIdentity.parse(r.request) : undefined;
       const result = this.deps.engine.spawn(
         Command.parse({

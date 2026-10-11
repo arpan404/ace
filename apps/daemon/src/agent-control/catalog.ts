@@ -15,9 +15,9 @@ export function readAgentCatalog(
   const { instanceOffset, permissionOffset, ...filter } = input;
   const page = deps.models.list(filter);
   const ceiling = { provider: parent.provider, mode: deps.engine.permissionMode(parent.id) };
-  const allows = (provider: import("@ace/protocol").ProviderKind, mode?: string) => {
+  const allows = (status: import("@ace/protocol").ModelInstanceStatus, mode?: string) => {
     try {
-      deps.engine.childPermissionMode(parent.id, provider, mode);
+      deps.engine.childPermissionMode(parent.id, status.provider, mode, status);
       return true;
     } catch {
       return false;
@@ -28,7 +28,7 @@ export function readAgentCatalog(
     const capabilities = installed.installed
       ? deps.engine.capabilities(status.provider)
       : undefined;
-    const account = deps.accounts?.get(status.instance);
+    const account = deps.accounts?.get(status.instanceId ?? status.instance);
     const modes =
       status.permissionModes ??
       capabilities?.permissionModes ??
@@ -41,15 +41,19 @@ export function readAgentCatalog(
       permissionModes: selected,
       installed: installed.installed,
       auth: account?.quota.auth ?? installed.auth,
-      enabled: deps.providerEnabled?.(status.provider, status.instance) !== false,
+      enabled:
+        deps.providerEnabled?.(status.provider, status.instanceId ?? status.instance) !== false,
       ...(account
         ? {
             accountLabel: account.instance.label,
-            availability: deps.accounts?.summary(status.instance, deps.clock.now())?.availability,
+            availability: deps.accounts?.summary(
+              status.instanceId ?? status.instance,
+              deps.clock.now(),
+            )?.availability,
           }
         : {}),
       launchOptions: capabilities?.launchOptions ?? [],
-      allowedPermissionModes: selected.filter((mode) => allows(status.provider, mode.id)),
+      allowedPermissionModes: selected.filter((mode) => allows(status, mode.id)),
       ...(permissionOffset + selected.length < modes.length
         ? { nextPermissionOffset: permissionOffset + selected.length }
         : {}),

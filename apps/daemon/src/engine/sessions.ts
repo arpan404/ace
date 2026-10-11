@@ -272,10 +272,13 @@ export class Sessions {
             throw new Error("Provider identity arrived after host admission was fenced");
           const parsed = SessionIdentity.parse(selection);
           if (parsed.backend !== backend) throw new Error("Provider changed its selected backend");
-          this.dependencies.repo.pinSessionIdentity(actor.id, {
-            backend: parsed.backend,
-            instanceId: parsed.instanceId,
-            ...(parsed.nativeSessionId ? { nativeSessionId: parsed.nativeSessionId } : {}),
+          this.dependencies.repo.store.atomic(() => {
+            this.dependencies.repo.pinSessionIdentity(actor.id, {
+              backend: parsed.backend,
+              instanceId: parsed.instanceId,
+              ...(parsed.nativeSessionId ? { nativeSessionId: parsed.nativeSessionId } : {}),
+            });
+            this.dependencies.repo.permissions.validateIdentity(actor.id, mode);
           });
         },
         onSessionConfirmed: (nativeId) => {
@@ -375,6 +378,7 @@ export class Sessions {
             session.backend ?? adapter.backend,
             session.instanceId,
           );
+        this.dependencies.repo.permissions.validateIdentity(actor.id, mode);
         delete transition.fork;
         if (transition.selection && session.instanceId)
           transition.selection.instanceId = session.instanceId;

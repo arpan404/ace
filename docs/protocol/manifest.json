@@ -1408,6 +1408,10 @@
       "bytes": 185,
       "sha256": "9413c0d62118674275808d64dce00c826f9952de1ce6869b15a2796443efedb0"
     },
+    "schema/PermissionPolicyIdentity.json": {
+      "bytes": 792,
+      "sha256": "5ac483eee921ac75458462614801ad7fee8a4ecb1880a5b0a1e5d771fef193c1"
+    },
     "schema/PermissionReview.json": {
       "bytes": 842,
       "sha256": "9aaf75aae62ea1498c61a29472169c69551bf3fbbd01267fd8b41c1582b30a8c"
@@ -3061,10 +3065,10 @@
       "sha256": "8483e2fd08a5b7f6d6ca7be1172e25765a4dbcc863fa1983e8bcea54b8dd5593"
     },
     "types.md": {
-      "bytes": 675726,
-      "sha256": "8a879f8c03f421379b64ddcc4b2a8bcf45de439136621502ee9ac8a43f92bc32"
+      "bytes": 675969,
+      "sha256": "5a11d0f0140e105685b38339164a25d0824a725c2b4e8c936df9afe4fd513f75"
     }
   },
-  "input": "9b3d3854df5dcb7197166a90294668c3dea1712aaca011cc412da6b18ff36d3e",
+  "input": "eb9501316a1d57a1e3ba1b75f2e3cad926fb407a9c757c597da6512f1be65d56",
   "version": 1
 }
