@@ -118,6 +118,11 @@ async function world() {
         projects: [{ workspaceId: target.workspace, name: "Target project" }],
         agents: [
           {
+            provider: "claude",
+            model: "chosen-model",
+            permissionModes: [{ id: "plan", label: "Safe", description: "safe", risk: "low" }],
+          },
+          {
             provider: "codex",
             model: "chosen-model",
             accountId: "codex-cli-default",
@@ -193,15 +198,16 @@ async function world() {
   async function delegate(
     context?: { attachments?: string[]; files?: string[] },
     requestId = "work",
+    provider: "codex" | "claude" = "codex",
   ) {
     const reply = await source.controls.remote.execute(
       source.caller,
       RemoteAgentOperation.parse({
         op: "device.delegate",
         requestId,
-        provider: "codex",
+        provider,
         model: "chosen-model",
-        accountId: "codex-cli-default",
+        ...(provider === "codex" ? { accountId: "codex-cli-default" } : {}),
         hostId: targetWire.hostId,
         workspaceId: target.workspace,
         mode: "local",
@@ -450,7 +456,7 @@ test("text context uses relay; transient target stop retries and deleted admitte
 });
 
 async function admittedReturnTask(f: Awaited<ReturnType<typeof world>>) {
-  const task = await f.delegate();
+  const task = await f.delegate(undefined, "work", "claude");
   f.source.controls.remote.poll("broker", f.lease);
   await transferRemoteContext(
     task,
@@ -474,6 +480,7 @@ async function publish(
   f: Awaited<ReturnType<typeof world>>,
   caller: import("@ace/protocol").McpAttribution,
   files: string[],
+  text = "Completed delegated review",
 ) {
   const lease = f.target.daemon.mcp.openSession(
     { ...caller, capabilities: ["thread_control"] },
@@ -509,7 +516,27 @@ async function publish(
   expect(result, JSON.stringify(result)).toMatchObject({
     result: { structuredContent: { ok: true } },
   });
-  return RemoteArtifactManifest.parse(result.result.structuredContent.data);
+  const artifacts = RemoteArtifactManifest.parse(result.result.structuredContent.data);
+  const session = f.target.h.contexts.get(caller.threadId);
+  if (!session) throw new Error("Missing target session");
+  session.onFrame(
+    f.target.h.frames.frame(
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "delegated-answer",
+        draft: {
+          type: "message",
+          role: "assistant",
+          parts: [{ type: "text", text }],
+          complete: true,
+        },
+      },
+      { type: "turn.ended", agent: "root", outcome: "completed" },
+    ),
+  );
+  await f.target.daemon.engine?.flush();
+  return artifacts;
 }
 
 test("remote agent explicitly publishes image and file through MCP; reverse relay imports source-owned bytes and preserves provenance without overwriting files", async () => {
@@ -915,23 +942,7 @@ test("an unacknowledged sealed target result and selected files survive an eight
   const f = await world();
   const { task, caller } = await admittedReturnTask(f);
   await writeFile(join(f.target.h.home, "retained.txt"), "Retained immutable bytes");
-  const artifacts = await publish(f, caller, ["retained.txt"]);
-  const session = f.target.h.contexts.get(task.threadId);
-  if (!session) throw new Error("Missing target session");
-  session.onFrame(
-    f.target.h.frames.frame({
-      type: "item.upsert",
-      agent: "root",
-      item: "original-answer",
-      draft: {
-        type: "message",
-        role: "assistant",
-        parts: [{ type: "text", text: "Original retained answer" }],
-        complete: true,
-      },
-    }),
-  );
-  await f.target.daemon.engine?.flush();
+  const artifacts = await publish(f, caller, ["retained.txt"], "Original retained answer");
   expect(
     await f.targetWire.request({ type: "delegation.remote.status", taskId: task.id }),
   ).toMatchObject({ ok: true, phase: "completed", result: "Original retained answer", artifacts });
@@ -945,6 +956,7 @@ test("an unacknowledged sealed target result and selected files survive an eight
     hostId: f.targetWire.hostId,
   });
   expect(recovered.manifest(task.id)).toEqual(artifacts);
+  recovered.close();
   expect(
     await f.targetWire.request({ type: "delegation.remote.status", taskId: task.id }),
   ).toMatchObject({ ok: true, phase: "completed", result: "Original retained answer", artifacts });

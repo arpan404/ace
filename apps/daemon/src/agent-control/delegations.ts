@@ -28,6 +28,7 @@ import { OutcomeWaiters } from "./waiters.ts";
 import { DelegationAdmission } from "./admission.ts";
 import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
+import { incomingRemoteRoot } from "./incoming-root.ts";
 
 export interface DelegationDependencies {
   store: Store;
@@ -359,7 +360,20 @@ export class DelegationService {
         }
       }
       const edge = this.journal.get(event.threadId);
-      if (!edge) continue;
+      if (!edge) {
+        // Incoming roots have no local parent edge. Reuse the durable counter owner
+        // so terminal snapshots never depend on asynchronous analytics catch-up.
+        if (
+          (event.payload.type === "run.started" || event.payload.type === "usage.updated") &&
+          incomingRemoteRoot(this.deps.store, event.threadId)
+        )
+          this.deps.store.atomic(() => {
+            this.journal.tree(event.threadId, this.deps.clock.now());
+            this.journal.started(event);
+            this.journal.usage(event.threadId, event);
+          });
+        continue;
+      }
       changed = true;
       if (event.payload.type === "run.started") {
         if (edge) this.deps.store.atomic(() => this.journal.started(event));

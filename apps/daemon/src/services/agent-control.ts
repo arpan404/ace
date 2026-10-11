@@ -95,7 +95,10 @@ export function startAgentControl(context: ServiceContext): void {
     context: services.context,
     files: services.threadFiles,
     hostId: loadHostId(context.config.dataDir),
+    usage: (thread) => delegations.journal.tree(thread, now()).usage,
   });
+  resources.own(() => publications.close());
+  resources.onShutdown(() => publications.close());
   remote = new RemoteDelegations({
     resolveArtifacts: async (task) => {
       const ownedContext = services.context;

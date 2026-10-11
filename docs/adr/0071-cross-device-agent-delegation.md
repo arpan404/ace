@@ -52,6 +52,11 @@ A receiving root agent can call `ace_device_task_publish` once before finishing.
 It explicitly selects thread attachment hashes or relative workspace files under
 its current task authority. The target freezes these bytes with the same bounds
 and seals their immutable manifest together with the canonical terminal outcome.
+The first aggregate terminal state captures text and usage durably before a later
+local turn can be admitted, independently of broker polling. If selected file
+publication is still running, its immutable completion waits for that manifest.
+Recovery captures terminal tasks before new requests are admitted. Background
+work and blocking human interactions keep the task unsealed.
 Selected names and aliases retain producing host/thread/path provenance. Further
 turns or changed workspace files cannot mutate that sealed outcome.
 

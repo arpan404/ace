@@ -7,6 +7,7 @@ import {
   type RemoteAgentOperation,
   type AgentControlResult,
   type RemoteTaskUsage,
+  type ThreadId,
 } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import type { Engine } from "../engine/index.ts";
@@ -14,20 +15,22 @@ import type { ContextService } from "@ace/context";
 import type { FilesWorkspaces } from "../files-workspaces.ts";
 import { remoteContextOwner } from "./remote-identity.ts";
 import { freezeRemoteAttachments } from "./remote-attachments.ts";
+import { threadOutcome } from "./results.ts";
+import { threadCleaning } from "../thread-cleanup-journal.ts";
+const Completion = z.object({
+  phase: z.enum(["completed", "failed"]),
+  result: z.string(),
+  usage: z.object({ tokens: z.number(), cost: z.number() }),
+  truncated: z.boolean(),
+});
 const Publication = z.object({
   task: RemoteTask,
   requestId: z.string(),
   selection: z.object({ attachments: z.array(z.string()), files: z.array(z.string()) }),
   artifacts: RemoteArtifactManifest.optional(),
   frozen: z.array(z.string()).default([]),
-  sealed: z
-    .object({
-      phase: z.enum(["completed", "failed"]),
-      result: z.string(),
-      usage: z.object({ tokens: z.number(), cost: z.number() }),
-      truncated: z.boolean(),
-    })
-    .optional(),
+  completion: Completion.optional(),
+  sealed: Completion.optional(),
 });
 /** Target-owned explicit export selection. Raw broker paths never authorize output reads. */
 export class RemotePublications {
@@ -37,8 +40,10 @@ export class RemotePublications {
     context?: ContextService | undefined;
     files?: FilesWorkspaces | undefined;
     hostId: string;
+    usage?(threadId: ThreadId): RemoteTaskUsage;
   };
   private pending = new Set<string>();
+  private unsubscribe: () => void;
   constructor(options: RemotePublications["options"]) {
     this.options = options;
     options.store.atomic((db) =>
@@ -48,15 +53,68 @@ export class RemotePublications {
     );
     options.store.atomic((db) =>
       db.exec(
-        "DELETE FROM remote_agent_publications WHERE json_extract(record,'$.artifacts') IS NULL AND json_extract(record,'$.sealed') IS NULL",
+        "DELETE FROM remote_agent_publications WHERE json_extract(record,'$.artifacts') IS NULL AND json_extract(record,'$.sealed') IS NULL AND json_extract(record,'$.completion') IS NULL",
       ),
     );
+    this.unsubscribe = options.store.subscribe((events) => {
+      for (const event of events)
+        if (
+          event.payload.type === "thread.updated" &&
+          ["done", "failed"].includes(event.payload.status?.state ?? "")
+        )
+          this.capture(event.threadId);
+    });
+    // Recover a terminal interval committed immediately before a daemon restart.
+    const threads = options.store.atomic((db) => {
+      if (!db.prepare("SELECT name FROM sqlite_master WHERE name='remote_agent_incoming'").get())
+        return [];
+      return db
+        .prepare(`SELECT incoming.thread_id FROM remote_agent_incoming incoming
+        JOIN threads ON threads.id=incoming.thread_id
+        WHERE json_extract(threads.status,'$.state') IN ('done','failed')
+        AND json_extract(threads.client,'$.deletedAt') IS NULL
+        AND NOT EXISTS (SELECT 1 FROM remote_agent_publications publication
+          WHERE publication.id=incoming.id AND json_extract(publication.record,'$.sealed') IS NOT NULL)
+        LIMIT 10000`)
+        .all();
+    });
+    for (const row of threads) this.capture(z.string().parse(row.thread_id));
+  }
+  close() {
+    this.unsubscribe();
+  }
+  /** Capture aggregate completion synchronously, before another turn can be admitted. */
+  capture(threadId: string) {
+    const task = this.incoming(threadId);
+    if (!task || task.request.hostId !== this.options.hostId) return;
+    const previous = this.outcome(task.id);
+    if (previous) return previous;
+    const { store } = this.options;
+    const thread = store.getThread(task.threadId);
+    if (
+      !thread ||
+      thread.deletedAt !== undefined ||
+      threadCleaning(store, task.threadId) ||
+      !["done", "failed"].includes(thread.status.state) ||
+      store.commandReceipt(CommandId.parse(`remote-create:${task.id}`), remoteContextOwner)?.ok !==
+        true ||
+      store.commandReceipt(CommandId.parse(`remote-stop:${task.id}`), remoteContextOwner)?.ok ===
+        true
+    )
+      return;
+    const outcome = threadOutcome(store, thread);
+    return this.seal(task, {
+      phase: thread.status.state === "done" ? "completed" : "failed",
+      result: outcome.result,
+      truncated: outcome.truncated,
+      usage: this.options.usage?.(task.threadId) ?? { tokens: 0, cost: 0 },
+    });
   }
   private discardPending(id: string) {
     this.options.store.atomic((db) =>
       db
         .prepare(
-          "DELETE FROM remote_agent_publications WHERE id=? AND json_extract(record,'$.artifacts') IS NULL AND json_extract(record,'$.sealed') IS NULL",
+          "DELETE FROM remote_agent_publications WHERE id=? AND json_extract(record,'$.artifacts') IS NULL AND json_extract(record,'$.sealed') IS NULL AND json_extract(record,'$.completion') IS NULL",
         )
         .run(id),
     );
@@ -143,8 +201,9 @@ export class RemotePublications {
         {
           ...this.options,
           retain: (hash: string) => {
-            publication.frozen.push(hash);
-            this.save(publication);
+            const current = this.read(task.id) ?? publication;
+            current.frozen.push(hash);
+            this.save(current);
           },
         },
         task.threadId,
@@ -152,7 +211,8 @@ export class RemotePublications {
         signal,
       );
       signal.throwIfAborted();
-      if (!this.valid(task, caller) || this.read(task.id)?.sealed)
+      record = this.read(task.id);
+      if (!record || !this.valid(task, caller) || record.sealed)
         return { ok: false, code: "forbidden" };
       record.artifacts = {
         taskId: task.id,
@@ -162,6 +222,7 @@ export class RemotePublications {
         threadId: task.threadId,
         attachments,
       };
+      if (record.completion) record.sealed = record.completion;
       this.save(record);
       return { ok: true, data: record.artifacts };
     } catch {
@@ -172,8 +233,8 @@ export class RemotePublications {
       this.discardPending(task.id);
     }
   }
-  /** Seal text and export identity once; later target turns cannot change a delivered outcome. */
-  seal(
+  /** Keep the first completion even when selected file freezing is still in flight. */
+  private seal(
     task: RemoteTask,
     outcome: {
       phase: "completed" | "failed";
@@ -183,7 +244,6 @@ export class RemotePublications {
     },
   ) {
     let record = this.read(task.id);
-    if (record && !record.artifacts) return undefined;
     if (!record)
       record = {
         task,
@@ -199,13 +259,18 @@ export class RemotePublications {
           attachments: [],
         },
       };
-    record.sealed ??= outcome;
+    record.completion ??= record.sealed ?? outcome;
+    if (record.artifacts) record.sealed ??= record.completion;
     this.save(record);
-    return { ...record.sealed, artifacts: record.artifacts };
+    return record.sealed ? { ...record.sealed, artifacts: record.artifacts } : undefined;
   }
   outcome(id: string) {
     const record = this.read(id);
     return record?.sealed ? { ...record.sealed, artifacts: record.artifacts } : undefined;
+  }
+  completionPending(id: string) {
+    const record = this.read(id);
+    return !!record?.completion && !record.sealed;
   }
   manifest(id: string) {
     const record = this.read(id);
