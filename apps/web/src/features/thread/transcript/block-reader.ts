@@ -115,6 +115,7 @@ export function createBlockReader(
       order,
       item: (id) => reader.item(id),
       background: ledger.background,
+      launchThread: (id) => ancestry.agent(id)?.childThreadId,
       questions: agentId === undefined ? ledger.questions() : [],
       // Turns are the root agent's runs (a subagent's work counts toward the turn that spawned
       // it); one agent's own transcript turns on its own runs.

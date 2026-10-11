@@ -12,7 +12,7 @@ export { isInlineInteraction } from "@ace/ui-core";
 
 /**
  * The transcript reads like a document: a turn's tool work collapses into one "Worked for" line
- * and its launches into one subagent card (subagents' own work interleaves with the
+ * and each narrated launch batch into a subagent card (subagents' own work interleaves with the
  * parent's, so these are per turn, not per run of adjacent items). What the agent says between
  * steps sits inside that log, in order; what it says after its last step is the answer, shown
  * below it. Background tasks, questions and notices show where they happened without opening a
@@ -100,6 +100,8 @@ export interface BlockSource {
   background: ReadonlyMap<string, string>;
   /** Interactions that render inline (questions), oldest first. */
   questions?: readonly InlineQuestion[];
+  /** Canonical child-thread link for a native spawn, including late agent links. */
+  launchThread?(agentId: string): string | undefined;
   /** The turn (the root agent's run) an item belongs to, where known. */
   turnOf?(itemId: string): string | undefined;
   /** A run's state, trigger and end. */
@@ -250,7 +252,7 @@ function lastWorkOf(
 
 /**
  * The transcript's blocks. A stretch of work (one "Worked for" log, one subagent
- * card) is a turn's output until its answer or the person's next message, never across turns:
+ * log) is a turn's output until its answer or the person's next message, never across turns:
  * the agent's words between steps join the log in order, and notices, background tasks,
  * questions, injected messages and other events show inline without ending it. A turn's files
  * card and ending wait until its whole tree has settled (ADR 0062).
@@ -262,7 +264,11 @@ export function buildBlocks(source: BlockSource): Block[] {
   const { stretchAt, lastWork } = lastWorkOf(order, source, anchors);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];
-  let stretch: { work?: { block: WorkBlock; at: number }; subagents?: { itemIds: string[] } } = {};
+  let stretch: { work?: { block: WorkBlock; at: number } } = {};
+  // Launch batches belong to their launching agent's own run, independent of work-log stretches.
+  const batches = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
+  const launched = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
+  const branches = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
   const groupOf = new Map<string, { itemIds: string[]; at: number }>();
   let turnId: string | undefined;
   let askId: string | undefined;
@@ -310,14 +316,38 @@ export function buildBlocks(source: BlockSource): Block[] {
   };
   const group = (kind: "work" | "subagents", id: string) => {
     if (kind === "subagents") {
-      let open = stretch.subagents;
+      const item = source.item(id);
+      if (!item) return;
+      const owner = item.agentId ?? "";
+      const child =
+        item.type === "delegation.started"
+          ? item.childThreadId
+          : item.type === "tool_call" &&
+              item.call.detail.kind === "agent.spawn" &&
+              item.call.detail.childAgentId
+            ? source.launchThread?.(item.call.detail.childAgentId)
+            : undefined;
+      let open = branches.get(owner) ?? (child ? launched.get(child) : undefined);
+      if (!open) {
+        const batch = batches.get(owner);
+        if (batch?.run === item.runId) open = batch;
+      }
       if (!open) {
         const itemIds: string[] = [];
-        blocks.push({ kind, key: `${kind}:${id}`, itemIds });
-        open = stretch.subagents = { itemIds };
+        const at = blocks.push({ kind, key: `${kind}:${id}`, itemIds }) - 1;
+        open = { run: item.runId, itemIds, at };
       }
+      // A delayed duplicate stays at its original launch; it cannot reopen a narrated batch.
+      if (!child || !launched.has(child)) batches.set(owner, open);
+      if (child) launched.set(child, open);
+      if (
+        item.type === "tool_call" &&
+        item.call.detail.kind === "agent.spawn" &&
+        item.call.detail.childAgentId
+      )
+        branches.set(item.call.detail.childAgentId, open);
       open.itemIds.push(id);
-      placed(blocks.length - 1);
+      placed(open.at);
       return;
     }
     let open = stretch.work;
@@ -340,6 +370,8 @@ export function buildBlocks(source: BlockSource): Block[] {
     const item = source.item(id);
     if (!item) continue;
     const person = isPerson(item);
+    if (person) batches.clear();
+    else if (item.type === "message" && !item.synthetic) batches.delete(item.agentId ?? "");
     const known = source.turnOf?.(id);
     if (person) {
       // The person's message belongs to the turn that answers it.

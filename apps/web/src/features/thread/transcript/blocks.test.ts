@@ -53,6 +53,72 @@ const ended = (state: RunFacts["state"]): RunFacts => ({ state, trigger: "user",
 const shown = (blocks: readonly Block[]) =>
   blocks.map((block) => ("itemId" in block ? block.itemId : `${block.kind}:${block.key}`));
 
+test("delayed canonical launch records deduplicate at the original batch without reopening it", () => {
+  const items = [
+    Item.parse({
+      id: "native-first",
+      agentId: "root",
+      runId: "turn",
+      createdAt: 1,
+      complete: true,
+      type: "tool_call",
+      call: {
+        id: "native-first",
+        agentId: "root",
+        kind: "agent.spawn",
+        title: "Review first",
+        detail: { kind: "agent.spawn", childAgentId: "first" },
+        status: "succeeded",
+        startedAt: 1,
+        raw: [],
+      },
+    }),
+    Item.parse({
+      id: "narration",
+      agentId: "root",
+      runId: "turn",
+      createdAt: 2,
+      complete: true,
+      type: "message",
+      role: "assistant",
+      parts: [{ type: "text", text: "Next batch" }],
+    }),
+    ...["first", "second"].map((child, at) =>
+      Item.parse({
+        id: `launch-${child}`,
+        agentId: "root",
+        runId: "turn",
+        createdAt: 3 + at,
+        type: "delegation.started",
+        origin: "ace",
+        childThreadId: `thread-${child}`,
+        provider: "codex",
+        title: child,
+        role: "review",
+        phase: "running",
+        status: { state: "working", agents: 1 },
+        updatedAt: 3 + at,
+        generation: 0,
+        complete: false,
+      }),
+    ),
+  ];
+  const blocks = buildBlocks({
+    order: items.map((item) => item.id),
+    item: (id) => items.find((item) => item.id === id),
+    background: new Map(),
+    launchThread: (id) => (id === "first" ? "thread-first" : undefined),
+  });
+  expect(
+    blocks.filter((block) => block.kind === "subagents").map((block) => block.itemIds),
+  ).toEqual([["native-first", "launch-first"], ["launch-second"]]);
+  expect(shown(blocks)).toEqual([
+    "subagents:subagents:native-first",
+    "narration",
+    "subagents:subagents:launch-second",
+  ]);
+});
+
 test("subagents that run in the background retain one launch card rather than separate task lines", () => {
   const items = ["first", "second"].map((id) =>
     Item.parse({

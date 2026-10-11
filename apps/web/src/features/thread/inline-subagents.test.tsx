@@ -53,6 +53,175 @@ function scenario(output: Fact[]): Scenario {
 const group = (feed: HTMLElement, title: string) =>
   within(feed).findByRole("region", { name: title });
 
+const mcpLaunch = (id: string): Fact[] => [
+  facts.tool("root", `mcp-${id}`, {
+    kind: "mcp",
+    title: "Delegate work",
+    detail: { kind: "mcp", server: "ace", tool: "delegate_task", arguments: { task: id } },
+  }),
+  {
+    type: "item.upsert",
+    agent: "root",
+    item: `launch-${id}`,
+    draft: {
+      type: "delegation.started",
+      origin: "ace",
+      childThreadId: ThreadId.parse(`child-${id}`),
+      provider: "codex",
+      title: `Review ${id}`,
+      role: "review",
+      phase: "running",
+      status: { state: "working", agents: 1 },
+      updatedAt: 1000,
+      generation: 0,
+      complete: false,
+    },
+  },
+  facts.toolDone("root", `mcp-${id}`),
+];
+
+test("MCP batches separated by parent narration have disclosures at separate launch points", async () => {
+  const app = harness();
+  app
+    .play(
+      scenario([
+        ...mcpLaunch("first"),
+        ...mcpLaunch("second"),
+        facts.message("root", "narration", "assistant", "Starting the next batch."),
+        ...mcpLaunch("third"),
+      ]),
+    )
+    .runUntilBlocked();
+  await app.open("/t/inline-subagents");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const first = await group(feed, "2 subagents");
+  const second = await group(feed, "1 subagent");
+  expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  await userEvent.click(within(first).getByRole("button", { name: "2 subagents" }));
+  expect(
+    within(first)
+      .getByRole("link", { name: "Open Review first's thread, Running" })
+      .getAttribute("href"),
+  ).toBe("/t/child-first");
+  expect(
+    within(first).getByRole("link", { name: "Open Review second's thread, Running" }),
+  ).toBeTruthy();
+  expect(within(first).queryByText("Review third")).toBeNull();
+  await userEvent.click(within(second).getByRole("button", { name: "1 subagent" }));
+  expect(
+    within(second).getByRole("link", { name: "Open Review third's thread, Running" }),
+  ).toBeTruthy();
+});
+
+test("an automatic parent continuation starts its own launch batch while the work log carries on", async () => {
+  const app = harness();
+  app
+    .play(
+      scenario([
+        ...mcpLaunch("first"),
+        ...mcpLaunch("second"),
+        facts.endTurn("root"),
+        {
+          type: "turn.started",
+          agent: "root",
+          nativeTurnId: "next-turn",
+          trigger: "subagent_result",
+        },
+        ...mcpLaunch("third"),
+      ]),
+    )
+    .runUntilBlocked();
+  await app.open("/t/inline-subagents");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await group(feed, "2 subagents");
+  await group(feed, "1 subagent");
+  expect(within(feed).queryByRole("region", { name: "3 subagents" })).toBeNull();
+});
+
+test.each(["child", "descendant"])(
+  "a non-blocking %s question becomes actionable after its owner stops and follows resolution",
+  async (owner) => {
+    const app = harness();
+    const nested: Fact[] =
+      owner === "descendant"
+        ? [
+            facts.tool("first", "spawn-nested", {
+              kind: "agent.spawn",
+              title: "Nested review",
+              detail: { kind: "agent.spawn", childAgent: "nested" },
+            }),
+            facts.subagent("codex", "nested", "Nested review", "spawn-nested", { parent: "first" }),
+            facts.turn("nested", "spawn"),
+          ]
+        : [];
+    const agent = owner === "descendant" ? "nested" : "first";
+    app.play(scenario([...spawn("first"), ...nested])).runUntilBlocked();
+    await app.open("/t/inline-subagents");
+    const feed = await screen.findByRole("feed", { name: "Transcript" });
+    const card = await group(feed, "1 subagent");
+    await act(async () =>
+      app.daemon.apply("inline-subagents", [
+        {
+          type: "interaction.opened",
+          agent,
+          interaction: "async-question",
+          blocking: false,
+          request: {
+            kind: "question",
+            questions: [
+              {
+                id: "scope",
+                text: "Include generated files?",
+                options: [],
+                allowOther: true,
+                multiSelect: false,
+              },
+            ],
+          },
+        },
+      ]),
+    );
+    expect(within(card).getByText("1 working")).toBeTruthy();
+    await act(async () =>
+      app.daemon.apply("inline-subagents", [
+        facts.endTurn("first"),
+        ...(owner === "descendant" ? [facts.endTurn("nested")] : []),
+      ]),
+    );
+    await within(card).findByText("1 waiting on you");
+    await userEvent.click(within(card).getByRole("button", { name: "1 subagent" }));
+    expect(
+      within(card).getByRole("button", { name: "Open Review first, Waiting on you" }),
+    ).toBeTruthy();
+    expect(within(card).queryByText("Finished")).toBeNull();
+    await act(async () =>
+      app.daemon.apply("inline-subagents", [
+        {
+          type: "interaction.closed",
+          interaction: "async-question",
+          state: "resolved",
+          resolution: { kind: "question", answers: { scope: ["Yes"] } },
+        },
+      ]),
+    );
+    await within(card).findByText("1 done");
+    expect(within(card).getByRole("button", { name: "Open Review first, Finished" })).toBeTruthy();
+    // Opening a question on an already idle owner must update the disclosure too.
+    await act(async () =>
+      app.daemon.apply("inline-subagents", [
+        {
+          type: "interaction.opened",
+          agent,
+          interaction: "late-question",
+          blocking: false,
+          request: { kind: "question", questions: [] },
+        },
+      ]),
+    );
+    await within(card).findByText("1 waiting on you");
+  },
+);
+
 test("52 concurrent children share one disclosure, expose every row and retain keyboard navigation", async () => {
   const app = harness();
   app
@@ -140,7 +309,8 @@ test("collapsed status counts follow child completion and human waits through du
 });
 
 test("a finished result is a compact child-thread link with its summary and delivery timestamp", async () => {
-  const app = harness();
+  const timestamp = Date.parse("2026-10-11T14:35:00.000Z");
+  const app = harness({ clock: () => timestamp });
   for (const script of delegatedDocs()) app.play(script).runUntilBlocked();
   await app.open(`/t/${delegatedDocsIds.parent}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
@@ -151,7 +321,7 @@ test("a finished result is a compact child-thread link with its summary and deli
   expect(link.textContent).toContain(
     "Wrote docs/protocol/relay.md and documented reconnect behavior.",
   );
-  expect(link.querySelector("time")?.getAttribute("datetime")).toBeTruthy();
+  expect(link.querySelector("time")?.getAttribute("datetime")).toBe("2026-10-11T14:35:00.000Z");
   expect(within(feed).getAllByRole("button", { name: "1 subagent" })).toHaveLength(1);
   await act(async () =>
     app.daemon.apply(delegatedDocsIds.parent, [
