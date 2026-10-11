@@ -845,12 +845,14 @@
     "tools/web-e2e": {
       "name": "@ace/web-e2e",
       "dependencies": {
+        "@ace/accounts": "workspace:*",
         "@ace/adapter-testkit": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/daemon": "workspace:*",
         "@ace/engine-api": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "@playwright/test": "1.63.0",
       },
