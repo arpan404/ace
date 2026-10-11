@@ -160,3 +160,10 @@ export function isMutationUnavailable(error: unknown): boolean {
     error instanceof GitError && (error.code === "git_quarantined" || error.cleanup !== undefined)
   );
 }
+
+
+export type PushOptions = {
+  worktree: string;
+  remote: string;
+  expected?: { branch: string; head: string | null; pushUrls: readonly string[] };
+};

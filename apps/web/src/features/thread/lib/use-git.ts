@@ -172,7 +172,7 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
         const branch = checkout.branch;
         if (!branch) throw new Error("This checkout can't open a pull request.");
         // A branch without an upstream reports nothing ahead; pushing first is always safe.
-        await workspace.push(thread);
+        await workspace.push(thread, { repository, branch, head: checkout.head });
         const status = await workspace.createPr(thread, {
           repository,
           branch,
@@ -180,6 +180,7 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
           title: change.title,
           summary: change.summary,
           draft: change.draft,
+          ...(checkout.head ? { expectedHead: checkout.head } : {}),
         });
         published(status);
         return change.reviewers?.length

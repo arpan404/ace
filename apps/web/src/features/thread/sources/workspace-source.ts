@@ -5,6 +5,7 @@ import type { ClientApi } from "@ace/client";
 import { actionErrorText, type MergeMethod } from "@ace/ui-core";
 import {
   ThreadId,
+  SourceControlPreferences,
   type CommandPayload,
   type CommandResult,
   type ForgePrRef,
@@ -41,6 +42,7 @@ export interface PrInput {
   title: string;
   summary: string;
   draft: boolean;
+  expectedHead?: string;
 }
 
 export class WorkspaceError extends Error {
@@ -80,7 +82,7 @@ export interface WorkspaceSource {
     expectedHead: string | null,
     paths?: readonly string[],
   ): Promise<string>;
-  push(thread: ThreadRef): Promise<void>;
+  push(thread: ThreadRef, target?: {repository: ForgeRepository; branch: string; head: string | null}): Promise<void>;
   /**
    * Opens a pull request for the branch, or links the one the forge already has for it (the
    * daemon never opens a second); returns its status as the forge reports it.
@@ -201,8 +203,13 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
       });
       return result.commit ?? "";
     },
-    async push(thread) {
-      await run({ type: "git.push", threadId: id(thread), remote: "origin" });
+    async push(thread, target) {
+      const response = await client.request({ type: "settings.get", key: "sourceControl.preferences", scope: {} });
+      const entry = response.entries.find((item) => item.key === "sourceControl.preferences");
+      if (!response.ok || !entry) throw new WorkspaceError("forge_preferences_changed");
+      const preferences = SourceControlPreferences.parse(entry.value);
+      await run({ type: "git.push", threadId: id(thread), remote: preferences.remote,
+        ...(target ? { target } : {}) });
     },
     async createPr(thread, input) {
       return status(
@@ -218,6 +225,7 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
             // The forge fills these from the fields above.
             template: { title: "{{title}}", body: "{{summary}}" },
             draft: input.draft,
+            ...(input.expectedHead ? { expectedHead: input.expectedHead } : {}),
           },
         }),
       );

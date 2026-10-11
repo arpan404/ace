@@ -319,7 +319,16 @@ export class WorkspaceForge {
     const backend = await this.backend(cwd, await this.repository(cwd));
     if (!allowed()) throw new Error("forbidden");
     if (!backend.findPr) throw new Error("forge_recovery_unavailable");
+    const verifyHead = async () => {
+      if (value.expectedHead === undefined) return;
+      const info = await this.git.repositoryInfo(cwd);
+      if (!allowed()) throw new Error("forbidden");
+      if (info.branch !== value.branch || info.head !== value.expectedHead)
+        throw new Error("git_head_moved");
+    };
+    await verifyHead();
     const found = await backend.findPr(value.branch, value.base, this.lifetime.signal);
+    await verifyHead();
     if (!allowed()) throw new Error("forbidden");
     const pr = found ?? (await backend.createPr(id, value, this.lifetime.signal));
     if (!allowed()) throw new Error("forbidden");
