@@ -138,9 +138,11 @@ export class ThreadSearchWriter {
         this.append(id, part.text);
       }
       if (
-        (item.type === "message" && part.category === "messages") ||
-        part.name === "text" ||
-        part.name === "output"
+        payload.type === "search.item"
+          ? part.name === payload.appendTarget
+          : (item.type === "message" && part.category === "messages") ||
+            part.name === "text" ||
+            part.name === "output"
       )
         delta = id;
     }

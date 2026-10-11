@@ -14,6 +14,8 @@ export const SearchReplayItem = z.object({
   }),
   title: z.string(),
   body: z.string(),
+  /** Exact segment accepting later deltas; null creates a fresh append segment. */
+  appendTarget: z.string().nullable(),
   segments: z.array(
     z.object({
       name: z.string(),

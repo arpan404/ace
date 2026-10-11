@@ -36,6 +36,7 @@ const Metadata = z.object({
   outputStream: z.string().nullable(),
   source: z.string().nullable(),
   level: z.string().nullable(),
+  appendTarget: z.string().nullable(),
 });
 
 // SQLite visits canonical leaves; raw/native data, source descriptors and attachments
@@ -83,7 +84,13 @@ export class HistorySearchReplay {
       json_extract(item,'$.complete') AS complete,json_extract(item,'$.call.detail.kind') AS toolKind,
       COALESCE(substr(json_extract(item,'$.call.title'),1,8192),'') AS title,
       json_extract(item,'$.call.detail.output.streamId') AS outputStream,
-      json_extract(item,'$.source') AS source,json_extract(item,'$.level') AS level
+      json_extract(item,'$.source') AS source,json_extract(item,'$.level') AS level,
+      CASE json_extract(item,'$.type')
+        WHEN 'message' THEN CASE WHEN json_extract(item,'$.parts[#-1].type')='text'
+          THEN 'part:' || (json_array_length(item,'$.parts')-1) END
+        WHEN 'notice' THEN 'text' WHEN 'reasoning' THEN 'text'
+        WHEN 'tool_call' THEN CASE WHEN json_extract(item,'$.call.detail.kind')='shell' THEN 'output' END
+      END AS appendTarget
       FROM history_item_revisions WHERE item_id=? AND seq=?`)
         .get(id, seq),
     );
@@ -157,6 +164,7 @@ export class HistorySearchReplay {
       },
       title: m.title,
       body: windowText(window),
+      appendTarget: m.appendTarget,
       segments,
     });
   }
