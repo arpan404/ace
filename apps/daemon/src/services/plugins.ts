@@ -18,16 +18,18 @@ export async function startPlugins(context: ServiceContext): Promise<void> {
     id,
   });
   const maintenance = warmup(context, "plugins", () => plugins.maintain(context.signal));
+  const service = new PluginService(plugins);
+  resources.onShutdown(() => service.stopAdmission());
   resources.own(async () => {
     await maintenance;
-    plugins.close();
+    await service.close();
   });
   const launches = new PluginLaunches((provider, root, options) =>
     launchPluginProcess(plugins, provider, root, options),
   );
   resources.onShutdown(() => launches.stopAdmission());
   resources.own(() => launches.close());
-  services.plugins = new PluginService(plugins);
+  services.plugins = service;
   services.preparePlugins = (provider, root) => preparePluginSession(plugins, provider, root);
   services.launchPlugins = (provider, root, options) => launches.launch(provider, root, options);
 }
