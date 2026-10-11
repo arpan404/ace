@@ -1,3 +1,4 @@
+import { FakeSourceControlDrafts } from "./source-control-drafts.ts";
 import { FakeProjects } from "./projects.ts";
 import {
   gitStatusLimit,
@@ -18,6 +19,10 @@ import type { FakeServiceContext } from "./service-context.ts";
 const emptyDiff = { files: 0, additions: 0, deletions: 0 };
 
 export class FakeWorkspaceWire {
+  readonly drafts = new FakeSourceControlDrafts();
+  setDraftGenerator(generate: FakeSourceControlDrafts["generate"]) {
+    this.drafts.generate = generate;
+  }
   readonly projects: FakeProjects;
   readonly terminals = new FakeTerminals();
   private context: FakeServiceContext;
@@ -67,8 +72,47 @@ export class FakeWorkspaceWire {
       command: `bun run ${name}`,
     }));
   }
-  read(request: WorkspaceActionRequest) {
+  async read(request: WorkspaceActionRequest) {
     const op = request.operation;
+    if (op.op === "git.draft.cancel") {
+      this.drafts.cancel(op.generationId);
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "draftCancelled" },
+      });
+    }
+    if (op.op === "git.draft.context" || op.op === "git.draft.generate") {
+      const selection = op.op === "git.draft.context" ? op.selection : op.input.selection;
+      const context = await this.drafts.context(
+        selection,
+        this.context.thread(op.threadId)?.thread.details,
+        selection.kind === "commit"
+          ? selection.paths
+          : this.gitStatus(op.threadId).map((file) => file.path),
+        this.gitPatches.get(op.threadId) ?? "",
+      );
+      try {
+        const result =
+          op.op === "git.draft.context"
+            ? { kind: "draftContext", context }
+            : { kind: "draft", context, draft: await this.drafts.draft(op.input, context) };
+        return ServerMessage.parse({
+          type: "workspace.result",
+          requestId: request.requestId,
+          result,
+        });
+      } catch (error) {
+        return ServerMessage.parse({
+          type: "workspace.result",
+          requestId: request.requestId,
+          result: {
+            kind: "error",
+            code: error instanceof Error ? error.message : "draft_provider_failed",
+          },
+        });
+      }
+    }
     if (op.op === "workspaces.list")
       return ServerMessage.parse({
         type: "workspace.result",

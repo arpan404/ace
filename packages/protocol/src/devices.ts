@@ -90,6 +90,8 @@ export const DeviceState = z.object({
   recording: z.boolean().optional(),
   streamId: ScreenId.optional(),
   controller: z.enum(["none", "human", "agent"]),
+  /** Whether this authenticated connection holds the human controller lease. */
+  ownedHere: z.boolean().optional(),
   holder: z.object({ threadId: ThreadId, agentId: AgentId }).optional(),
   leaseExpiresAt: z.number().nonnegative().optional(),
   error: DeviceFailure.optional(),

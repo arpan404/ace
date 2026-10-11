@@ -14,6 +14,7 @@ export const observe = () => {
     start: 0,
     startEvents: 0,
     startStreamedAt: 0,
+    startStreamAge: 0,
   };
   const reset = () => {
     record.longTasks.length = 0;
@@ -21,6 +22,7 @@ export const observe = () => {
     record.start = performance.now();
     record.startEvents = Reflect.get(globalThis, "acePerf")?.events ?? 0;
     record.startStreamedAt = Reflect.get(globalThis, "acePerf")?.at ?? 0;
+    record.startStreamAge = record.start - (Reflect.get(globalThis, "acePerf")?.receivedAt ?? 0);
     return record.start;
   };
   Object.assign(globalThis, { acePerfRecord: Object.assign(record, { reset }) });
@@ -60,11 +62,15 @@ export interface MainThread {
   seconds: number;
 }
 
+export interface StreamDelivery {
+  streamedEvents: number;
+  streamedSeconds: number;
+  /** Largest telemetry age at either boundary, on the page's receipt clock. */
+  streamAgeSeconds: number;
+}
+
 /** Input-to-paint percentiles and long tasks since `start`. */
-export async function readRecord(
-  page: Page,
-  start: number,
-): Promise<MainThread & { streamedEvents: number; streamedSeconds: number }> {
+export async function readRecord(page: Page, start: number): Promise<MainThread & StreamDelivery> {
   const sample = await page.evaluate((from) => {
     const record = Reflect.get(globalThis, "acePerfRecord");
     if (from !== record.start) throw new Error("Measurement window was reset before reading");
@@ -88,6 +94,8 @@ export async function readRecord(
       seconds: elapsed,
       streamedEvents,
       streamedSeconds,
+      streamAgeSeconds:
+        Math.max(record.startStreamAge, performance.now() - (stream?.receivedAt ?? 0)) / 1000,
     };
   }, start);
   return MainThreadSample.parse(sample);
@@ -103,6 +111,7 @@ const MainThreadSample = z.object({
   seconds: z.number().nonnegative(),
   streamedEvents: z.number().int().nonnegative(),
   streamedSeconds: z.number().nonnegative(),
+  streamAgeSeconds: z.number().nonnegative(),
 });
 
 /** Measure completed delivery batches using their own monotonic timestamps. */

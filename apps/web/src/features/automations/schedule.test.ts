@@ -9,7 +9,13 @@ import {
   scheduleToPreset,
   upcomingRuns,
 } from "./schedule.ts";
-import { automationFromForm, formFromAutomation, scheduleFromForm } from "./automation-values.ts";
+import {
+  AutomationForm,
+  automationFromForm,
+  blankForm,
+  formFromAutomation,
+  scheduleFromForm,
+} from "./automation-values.ts";
 
 // 2026-10-02T14:45:00Z: a start instant whose wall clock differs by zone.
 const startAt = Date.UTC(2026, 9, 2, 14, 45);
@@ -141,5 +147,58 @@ test("friendly times use the requested timezone and keep calendar days across da
   );
   expect(formatWhen(Date.UTC(2026, 9, 8, 7), Date.UTC(2026, 9, 8, 13), "Asia/Kolkata")).toBe(
     "Today 12:30 PM",
+  );
+});
+
+test.each([24, 48, 12])(
+  "a saved %i-hour schedule can be renamed without changing its recurrence",
+  (every) => {
+    const initial = AutomationForm.parse({
+      ...blankForm("ace", "UTC"),
+      title: "Check",
+      prompt: "Check",
+      cadence: "custom",
+      expression: `FREQ=HOURLY;INTERVAL=${every};BYMINUTE=0`,
+      startAt,
+    });
+    const original = automationFromForm(initial, { id: "hourly", now: startAt });
+    const renamed = AutomationForm.parse({
+      ...formFromAutomation(original, "UTC"),
+      title: "Renamed",
+    });
+    const saved = automationFromForm(renamed, {
+      id: original.id,
+      now: startAt + 60_000,
+      previous: original,
+    });
+    expect(saved.title).toBe("Renamed");
+    expect(saved.trigger).toEqual(original.trigger);
+  },
+);
+test("inactive schedule fields cannot prevent switching to manual or custom", () => {
+  const stale = {
+    ...blankForm("ace", "UTC"),
+    title: "Check",
+    prompt: "Check",
+    every: 48,
+    time: "invalid",
+    timezone: "invalid",
+  };
+  const manual = AutomationForm.parse({ ...stale, trigger: "manual" });
+  expect(automationFromForm(manual, { id: "manual", now: startAt }).trigger).toEqual({
+    kind: "manual",
+  });
+  const custom = AutomationForm.parse({
+    ...stale,
+    cadence: "custom",
+    timezone: "UTC",
+    expression: "FREQ=DAILY",
+  });
+  expect(automationFromForm(custom, { id: "custom", now: startAt }).trigger).toMatchObject({
+    kind: "schedule",
+    schedule: { expression: "FREQ=DAILY" },
+  });
+  expect(AutomationForm.safeParse({ ...stale, cadence: "hourly", timezone: "UTC" }).success).toBe(
+    false,
   );
 });

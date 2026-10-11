@@ -24,6 +24,7 @@ import {
   Permissions,
   RevealPath,
   ThemeSource,
+  SocketUrl,
   UpdateStatus,
   WindowAction,
   WindowState,
@@ -48,6 +49,7 @@ export const requests = {
   /** Quit ace (the daemon this app started stops with it). */
   "app.quit": { request: None, result: None },
   "daemon.connection": { request: None, result: DaemonConnection },
+  "daemon.authorize": { request: SocketUrl, result: None },
   "daemon.status": { request: None, result: DaemonStatus },
   "daemon.restart": { request: None, result: DaemonStatus },
   /** `ace doctor --json` with the bundled daemon: the "repair" flow and onboarding. */

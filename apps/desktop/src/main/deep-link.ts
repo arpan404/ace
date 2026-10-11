@@ -10,16 +10,18 @@ export const protocolScheme = "ace";
  */
 export function parseDeepLink(input: string): DeepLink | undefined {
   let url: URL;
+  let segments: string[];
   try {
     url = new URL(input);
+    // OS arguments are untrusted, including malformed UTF-8 and percent escapes.
+    segments = [url.hostname, ...url.pathname.split("/")]
+      .filter(Boolean)
+      .map((segment) => decodeURIComponent(segment));
   } catch {
     return undefined;
   }
   if (url.protocol !== `${protocolScheme}:`) return undefined;
   // `ace://thread/abc`: the first segment parses as the host.
-  const segments = [url.hostname, ...url.pathname.split("/")]
-    .filter(Boolean)
-    .map((segment) => decodeURIComponent(segment));
   const [kind, first, second, third] = segments;
   const candidate = (() => {
     switch (kind) {

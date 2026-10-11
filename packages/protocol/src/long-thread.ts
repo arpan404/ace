@@ -98,11 +98,16 @@ export const ItemsWindowRequest = z
     requestId,
     threadId: ThreadId,
     aroundSeq: count.optional(),
+    itemId: ItemId.optional(),
     turnOrdinal: ordinal.optional(),
     before: count.max(199).default(50),
     after: count.max(199).default(50),
   })
-  .refine((input) => (input.aroundSeq === undefined) !== (input.turnOrdinal === undefined))
+  .refine(
+    (input) =>
+      [input.aroundSeq, input.turnOrdinal, input.itemId].filter((target) => target !== undefined)
+        .length === 1,
+  )
   .refine((input) => input.before + input.after < 200)
   .meta({
     "x-ace-constraint": "Exactly one target; before + after + target is at most 200 items.",

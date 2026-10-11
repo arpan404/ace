@@ -1,10 +1,18 @@
 import { checkBudgets } from "@ace/perf-kit";
 import { budgets } from "./budgets.ts";
-import { report, type MainThread } from "./measure.ts";
+import { report, type MainThread, type StreamDelivery } from "./measure.ts";
 
 /** Report a complete sample and reject every documented browser timing violation. */
-export function reportBrowser(streamed: number, result: MainThread): void {
+export function reportBrowser(streamed: number, result: MainThread & StreamDelivery): void {
   const limits = budgets.browser;
+  // At most 100 ms of batch-boundary jitter; the 5,000 events/s floor stays fixed.
+  // Workload failures are resource errors and must never trigger a timing retry.
+  const toleranceSeconds = 0.1;
+  const complete =
+    result.seconds > toleranceSeconds &&
+    result.streamedSeconds > 0 &&
+    result.streamAgeSeconds <= toleranceSeconds &&
+    result.streamedEvents >= limits.eventsPerSecond * (result.seconds - toleranceSeconds);
   const lines = [
     ["events/s streamed", streamed, limits.eventsPerSecond, streamed >= limits.eventsPerSecond],
     [
@@ -30,5 +38,8 @@ export function reportBrowser(streamed: number, result: MainThread): void {
   const violations: string[] = [];
   for (const [label, value, limit, ok] of lines)
     if (!report(label, value, limit, ok)) violations.push(`${label}: ${value} (budget ${limit})`);
-  checkBudgets([], violations);
+  checkBudgets(
+    complete ? [] : ["Incomplete streaming workload across the interaction window"],
+    violations,
+  );
 }

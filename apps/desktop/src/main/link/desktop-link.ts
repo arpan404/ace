@@ -6,6 +6,7 @@ import {
   type CommandPayload,
   type ThreadListEntry,
 } from "@ace/protocol";
+import { pairedSocketCredential } from "@ace/client/access-ticket";
 import type { Alert } from "../notifications/router.ts";
 import { alertFromDaemon } from "../notifications/router.ts";
 import { derivedAlerts, WorkTally, type WorkSummary } from "./thread-watch.ts";
@@ -14,6 +15,7 @@ export interface LinkOptions {
   url: string;
   token: string;
   deviceId: string;
+  pairedDeviceId?: string;
   /** Durable outbox for notification actions, so an Approve survives a reconnect. */
   storage: { load(): Promise<string | null>; save(value: string): Promise<void> };
   quietHours(): { timeZone: string; startMinute: number; endMinute: number } | null;
@@ -44,9 +46,15 @@ export class DesktopLink {
   constructor(options: LinkOptions) {
     this.options = options;
     this.client = new Client({
-      deviceId: DeviceId.parse(options.deviceId),
+      deviceId: DeviceId.parse(options.pairedDeviceId ?? options.deviceId),
       transport: () => this.transport(),
-      credential: async () => options.token,
+      credential: options.pairedDeviceId
+        ? pairedSocketCredential({
+            url: options.url,
+            token: async () => options.token,
+            fetch: (input, init) => fetch(input, init),
+          })
+        : async () => options.token,
       storage: options.storage,
       scheduler: {
         set(delayMs, callback) {

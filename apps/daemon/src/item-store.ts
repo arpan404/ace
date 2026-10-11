@@ -216,6 +216,13 @@ export class ItemStore {
       itemsBefore: rows.length > items.length ? (cursors.at(-1)?.[1] ?? before) : null,
     };
   }
+  createdSeq(threadId: ThreadId, itemId: string): number | undefined {
+    const row = this.statement("SELECT created_seq FROM item_heads WHERE thread_id=? AND id=?").get(
+      threadId,
+      itemId,
+    );
+    return row ? Number(row.created_seq) : undefined;
+  }
   window(threadId: ThreadId, aroundSeq: number, before: number, after: number, byteLimit: number) {
     const target =
       this.statement(

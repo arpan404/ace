@@ -13,6 +13,7 @@
     "@ace/daemon": "workspace:*",
     "@ace/fake-daemon": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "zod": "^4.6.5"
   }
 }

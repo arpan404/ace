@@ -5,8 +5,8 @@ export const appOrigin = `${appScheme}://ace`;
 /**
  * Content Security Policy for the renderer. Scripts come only from the app bundle (plus the
  * hashed inline theme-boot script from index.html); network access only to loopback daemons
- * and the configured remote daemon. Development adds the Vite server and its HMR socket and
- * allows inline scripts, which Vite's React refresh preamble needs.
+ * and selected remote daemons (the session request gate enforces selection). Development adds
+ * the Vite server and its HMR socket and allows inline scripts for React refresh.
  */
 export function contentSecurityPolicy(options: {
   dev?: { origin: string } | undefined;
@@ -14,6 +14,8 @@ export function contentSecurityPolicy(options: {
   inlineScripts?: readonly string[];
   /** Extra daemon origins (a remote `wss://` daemon). */
   daemonOrigins?: readonly string[];
+  /** A session request allowlist enforces selected origins for an already-loaded document. */
+  dynamicDaemons?: boolean;
 }): string {
   const dev = options.dev?.origin;
   const devSocket = dev?.replace(/^http/, "ws");
@@ -22,6 +24,8 @@ export function contentSecurityPolicy(options: {
     "ws://127.0.0.1:*",
     "http://localhost:*",
     "ws://localhost:*",
+    "http://[::1]:*",
+    "ws://[::1]:*",
   ];
   /**
    * The local daemon's dev-server previews (ADR 0008): one `p<port>-<generation>` host per
@@ -48,7 +52,11 @@ export function contentSecurityPolicy(options: {
       "'self'",
       ...loopback,
       previews,
-      ...(options.daemonOrigins ?? []),
+      ...(options.daemonOrigins ?? []).flatMap((origin) => [
+        origin,
+        origin.replace(/^wss:/, "https:").replace(/^ws:/, "http:"),
+      ]),
+      ...(options.dynamicDaemons ? ["https:", "wss:"] : []),
       ...(dev && devSocket ? [dev, devSocket] : []),
     ],
     "media-src": ["'self'", "blob:", "data:"],

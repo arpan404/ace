@@ -53,10 +53,10 @@ export class Catalog {
       "CREATE TABLE IF NOT EXISTS native_titles(instance TEXT,native TEXT,title TEXT,origin TEXT NOT NULL,PRIMARY KEY(instance,native))",
     );
     if (
-      this.db.prepare("SELECT value FROM catalog_settings WHERE key='format'").get()?.value !== "4"
+      this.db.prepare("SELECT value FROM catalog_settings WHERE key='format'").get()?.value !== "5"
     ) {
       this.db.exec(
-        "DELETE FROM files; UPDATE sources SET hidden=1; INSERT OR REPLACE INTO catalog_settings VALUES('format','4')",
+        "DELETE FROM files; UPDATE sources SET hidden=1; INSERT OR REPLACE INTO catalog_settings VALUES('format','5')",
       );
     }
     this.updates = new ScanUpdates(this.db);
@@ -106,6 +106,8 @@ export class Catalog {
       db.exec(`CREATE TEMP VIEW visible_sources AS SELECT sources.* FROM sources
         JOIN registered_instances r ON sources.instance=r.id
         WHERE json_extract(summary,'$.provider')=r.provider
+        AND EXISTS (SELECT 1 FROM files f WHERE f.instance=sources.instance AND f.path=sources.path
+          AND f.home=r.home AND f.provider=r.provider)
         AND history_home_contains(r.home,path)=1`);
     }
     this.db.exec(
