@@ -415,7 +415,9 @@ export class OpenCodeServer {
     this.recovery ??= (async () => {
       const cancel = this.runtime.schedule(() => this.controller.abort(), 30000);
       try {
-        await this.verify("2.0.22");
+        const expected = this.identity?.version;
+        if (!expected) throw new Error("OpenCode startup identity is unavailable");
+        await this.verify(expected);
         for (let pass = 0; pass < 2; pass++) for (const c of this.consumers) await c.resync();
         // Positive work must be established before newer terminal evidence is replayed.
         for (const c of this.consumers) c.prepareReplay();
