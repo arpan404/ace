@@ -24,6 +24,7 @@ export function useDaemonQuery<T>(
   const { read, enabled, ...rest } = options;
   return useQuery({
     ...rest,
+    meta: { ...rest.meta, daemonClient: client },
     queryFn: ({ signal }) => read(client, signal),
     enabled: ready && (enabled ?? true),
   });

@@ -1,3 +1,4 @@
+import { useSourceControlCache } from "@/lib/source-control-cache.ts";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import type { ClientApi } from "@ace/client";
@@ -72,6 +73,7 @@ export function App(props: {
   return (
     <ClientProvider client={props.client} {...(props.batch ? { batch: props.batch } : {})}>
       <QueryClientProvider client={queryClient}>
+        <SourceControlCache client={props.client} />
         <LayoutProvider storage={props.storage}>
           <MachinePoolFactoryProvider value={props.ensureMachines}>
             <MachinePoolProvider value={props.machines}>
@@ -86,5 +88,11 @@ export function App(props: {
 
 function DesktopUpdates() {
   useDesktopUpdates();
+  return null;
+}
+
+
+function SourceControlCache({ client }: { client: ClientApi }) {
+  useSourceControlCache(client);
   return null;
 }

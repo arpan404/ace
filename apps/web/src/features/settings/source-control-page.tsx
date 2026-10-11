@@ -1,3 +1,5 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { refreshSourceControl } from "@/lib/source-control-cache.ts";
 import { useEffect, useState } from "react";
 import type { ClientApi } from "@ace/client";
 import { useMachines } from "@/lib/machines.ts";
@@ -52,6 +54,7 @@ export function SourceControlSettings() {
   );
 }
 function MachineSourceControl({ client }: { client: ClientApi }) {
+  const queries = useQueryClient();
   const [status, setStatus] = useState<SourceControlReadiness>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(true);
@@ -132,6 +135,7 @@ function MachineSourceControl({ client }: { client: ClientApi }) {
         value: SettingsValues.shape["sourceControl.preferences"].parse(parsed.data),
       });
       if (!reply.ok) throw new Error("save_failed");
+      void refreshSourceControl(queries, client);
       setRevision((value) => value + 1);
     } catch {
       setError("Couldn't save source control preferences. Administrator access is required.");
@@ -155,6 +159,7 @@ function MachineSourceControl({ client }: { client: ClientApi }) {
             variant="secondary"
             disabled={disabled}
             onClick={() => {
+              void refreshSourceControl(queries, client);
               setStatus(undefined);
               setPending(true);
               setRevision((value) => value + 1);
