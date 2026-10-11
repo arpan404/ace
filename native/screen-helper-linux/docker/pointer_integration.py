@@ -30,9 +30,13 @@ try:
     root = conn.screen().root
     root.change_attributes(event_mask=X.PropertyChangeMask)
     conn.sync()
-    launch(["openbox"], stdout=subprocess.DEVNULL)
-    while not root.get_full_property(conn.intern_atom("_NET_SUPPORTING_WM_CHECK"), X.AnyPropertyType):
-        conn.next_event()
+    # Keep the WM's root mouse bindings out of the passive-grab fixture.
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".xml") as config:
+        config.write('<openbox_config xmlns="http://openbox.org/3.4/rc"><focus><focusNew>yes</focusNew><followMouse>no</followMouse></focus><mouse/></openbox_config>')
+        config.flush()
+        launch(["openbox", "--config-file", config.name], stdout=subprocess.DEVNULL)
+        while not root.get_full_property(conn.intern_atom("_NET_SUPPORTING_WM_CHECK"), X.AnyPropertyType):
+            conn.next_event()
     a = launch(["python3", "docker/pointer_app.py", "target"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     a_id = int(a.stdout.readline().strip().split(":")[1])
     b = launch(["python3", "docker/pointer_app.py", "other"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
@@ -62,36 +66,47 @@ try:
         active_atom = conn.intern_atom("_NET_ACTIVE_WINDOW")
         while root.get_full_property(active_atom, X.AnyPropertyType).value[0] != a_id:
             conn.next_event()
-        # Put the physical pointer over B while A remains the active keyboard target.
-        root.warp_pointer(750, 100)
-        conn.sync()
-        assert root.get_full_property(active_atom, X.AnyPropertyType).value[0] == a_id
-        reply = request("scroll", dx=0, dy=1)
-        assert reply["ok"], reply
-        assert command(a, ["status"])["wheels"] == 1
-        assert command(b, ["status"])["wheels"] == 0
-        # A nonactivating B covers the centre of A, so neither click nor drag may press.
         origin = window["bounds"]
-        command(b, ["move", origin["x"]+10, origin["y"]+10, 300, 150])
-        for op, fields in [("pointer.click", {}), ("pointer.drag", dict(toX=200, toY=100))]:
-            reply = request(op, x=100, y=80, **fields)
-            assert not reply["ok"] and reply["error"]["code"] == "busy", reply
-        assert command(a, ["status"])["presses"] == 0
-        assert command(b, ["status"])["presses"] == 0
-        command(b, ["move", 700, 50, 200, 200])
-        assert request("pointer.click", x=100, y=80)["ok"]
-        assert command(a, ["status"])["presses"] == 1
-        # An unapproved explicit grab must also refuse before any synthetic press.
+        actions = [("pointer.move", dict(x=100, y=80)),
+                   ("pointer.click", dict(x=100, y=80)),
+                   ("pointer.drag", dict(x=100, y=80, toX=200, toY=100)),
+                   ("scroll", dict(dx=0, dy=1))]
+        def refused_actions():
+            before = root.query_pointer()
+            for op, fields in actions:
+                reply = request(op, **fields)
+                assert not reply["ok"] and reply["error"]["code"] == "not_supported", reply
+                assert reply["error"]["phase"] == "rejected-before-dispatch", reply
+            after = root.query_pointer()
+            assert (before.root_x, before.root_y) == (after.root_x, after.root_y)
+            for app in [a, b]:
+                assert command(app, ["status"]) == dict(presses=0, wheels=0)
+        # B's passive grab remains inactive while the pointer is inside unobscured A.
+        root.warp_pointer(origin["x"]+100, origin["y"]+80)
+        conn.sync()
+        command(b, ["passive"])
+        refused_actions()
+        command(b, ["unpassive"])
+        # Refusal also holds when a nonactivating overlay or human pointer movement
+        # changes the destination. There is no verification/press gap to exploit.
+        for x, y, width, height in [(origin["x"]+10, origin["y"]+10, 300, 150), (700, 50, 200, 200)]:
+            command(b, ["move", x, y, width, height])
+            root.warp_pointer(x+20, y+20)
+            conn.sync()
+            assert root.get_full_property(active_atom, X.AnyPropertyType).value[0] == a_id
+            refused_actions()
+        # Even ordinary unobscured requests refuse: XTest cannot prove a recipient.
+        root.warp_pointer(origin["x"]+100, origin["y"]+80)
+        conn.sync()
+        refused_actions()
         command(b, ["grab"])
-        reply = request("pointer.click", x=100, y=80)
-        assert not reply["ok"] and reply["error"]["code"] == "busy", reply
+        refused_actions()
         command(b, ["ungrab"])
-        assert command(b, ["status"])["presses"] == 0
         assert not request("pointer.click", x=origin["width"], y=1)["ok"]
         assert request("stop")["ok"]
         helper.stdin.close()
         assert helper.wait(timeout=20) == 0
-        print("PASS: real X11 scroll destination, covered click/drag refusal, normal click, pointer grab refusal and exclusive bounds", flush=True)
+        print("PASS: X11 buttons refuse without effects under passive/active grabs, overlays and changed pointer destinations", flush=True)
 finally:
     if frames:
         frames.close()

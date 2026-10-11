@@ -213,7 +213,7 @@ impl X11 {
             .map_err(internal)?;
         self.conn.flush().map_err(internal)
     }
-    pub(crate) fn fake(&self, kind: u8, detail: u8, x: i16, y: i16) -> Result<()> {
+    fn fake(&self, kind: u8, detail: u8, x: i16, y: i16) -> Result<()> {
         self.conn
             .xtest_fake_input(kind, detail, 0, self.root, x, y, 0)
             .map_err(internal)?
@@ -223,41 +223,22 @@ impl X11 {
     }
     pub fn motion(&self, w: &Window, x: f64, y: f64) -> Result<()> {
         let live = self.check(w)?;
-        let (x, y) = point(x, y, live.bounds.w as u32, live.bounds.h as u32)?;
-        let x = i16::try_from(live.bounds.x + x.round() as i32).map_err(internal)?;
-        let y = i16::try_from(live.bounds.y + y.round() as i32).map_err(internal)?;
-        self.fake(MOTION_NOTIFY_EVENT, 0, x, y)
+        point(x, y, live.bounds.w as u32, live.bounds.h as u32)?;
+        Err(pointer_delivery_unavailable())
     }
     pub fn click(&self, w: &Window, x: f64, y: f64, button: &str) -> Result<()> {
-        let b = match button {
-            "left" => 1,
-            "middle" => 2,
-            "right" => 3,
-            _ => return Err(Fault::new("bounds", "Unknown button")),
-        };
-        crate::pointer_route::click(
-            &mut crate::x11_pointer::TargetPointer {
-                backend: self,
-                target: w,
-            },
-            x,
-            y,
-            b,
-        )
+        if !matches!(button, "left" | "middle" | "right") {
+            return Err(Fault::new("bounds", "Unknown button"));
+        }
+        let live = self.check(w)?;
+        point(x, y, live.bounds.w as u32, live.bounds.h as u32)?;
+        Err(pointer_delivery_unavailable())
     }
     pub fn drag(&self, w: &Window, x: f64, y: f64, to_x: f64, to_y: f64) -> Result<()> {
         let live = self.check(w)?;
+        point(x, y, live.bounds.w as u32, live.bounds.h as u32)?;
         point(to_x, to_y, live.bounds.w as u32, live.bounds.h as u32)?;
-        crate::pointer_route::drag(
-            &mut crate::x11_pointer::TargetPointer {
-                backend: self,
-                target: w,
-            },
-            x,
-            y,
-            to_x,
-            to_y,
-        )
+        Err(pointer_delivery_unavailable())
     }
     fn keycode(&self, symbol: u32) -> Result<u8> {
         let setup = self.conn.setup();
@@ -325,18 +306,19 @@ impl X11 {
         if !dx.is_finite() || !dy.is_finite() || dx.abs() > 1000. || dy.abs() > 1000. {
             return Err(Fault::new("bounds", "Scroll exceeds limit"));
         }
-        let live = self.check(w)?;
-        crate::pointer_route::scroll(
-            &mut crate::x11_pointer::TargetPointer {
-                backend: self,
-                target: w,
-            },
-            f64::from(live.bounds.w) / 2.,
-            f64::from(live.bounds.h) / 2.,
-            dx,
-            dy,
-        )
+        if dx == 0. && dy == 0. {
+            return Ok(());
+        }
+        Err(pointer_delivery_unavailable())
     }
+}
+// XTest button input has no recipient address. Passive grabs and pointer/window
+// changes can redirect it after any hit test. Refuse rather than cross approval.
+fn pointer_delivery_unavailable() -> Fault {
+    Fault::new(
+        "not_supported",
+        "X11 cannot guarantee pointer delivery to the approved window; use a direct accessibility action",
+    ).phase("rejected-before-dispatch")
 }
 pub fn keysym(key: &str) -> Result<u32> {
     let symbol = match key.to_ascii_lowercase().as_str() {

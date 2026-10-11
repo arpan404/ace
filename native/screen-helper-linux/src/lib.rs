@@ -22,7 +22,4 @@ pub mod x11_capture;
 mod x11_scale;
 
 pub mod frame_identity;
-pub mod pointer_route;
 pub mod references;
-#[cfg(target_os = "linux")]
-mod x11_pointer;

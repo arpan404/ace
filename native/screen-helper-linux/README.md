@@ -45,10 +45,11 @@ macOS and Windows release packaging must retain stable identities as well: macOS
 
 ### Pointer routing regression
 
-`cargo test --manifest-path native/screen-helper-linux/Cargo.toml --test pointer_route`
-runs the injected pointer policy on any host. For real XTest routing, run
-`native/screen-helper-linux/test-in-docker.sh --pointer`. The disposable Xvfb fixture
-starts two separate applications and checks scroll routing with the cursor over the
-unapproved app, covering windows, explicit pointer grabs, normal clicks and bounds.
+X11 motion, click, drag and nonzero wheel input refuse before dispatch because XTest cannot
+address a recipient or exclude passive grabs and destination races. Use direct
+AT-SPI actions when advertised by the control. The helper advertises pointer and wheel input as unavailable.
+Run `native/screen-helper-linux/test-in-docker.sh --pointer` for the two-application
+Xvfb fixture, including a real inactive root passive grab and changed destinations.
+No synthetic button events or pointer moves may occur on those refused actions.
 Set `ACE_TEST_PLATFORM=linux/arm64` on an Apple Silicon host. The runner removes only
 its own container and image after completion or failure.

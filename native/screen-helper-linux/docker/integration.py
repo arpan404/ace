@@ -150,8 +150,7 @@ try:
         line_until(app.stdout, "KEY:65293")
         b = button["bounds"]
         origin = window["bounds"]
-        ok("pointer.click", x=b["x"]-origin["x"]+b["w"]/2, y=b["y"]-origin["y"]+b["h"]/2, button="left")
-        assert line_until(app.stdout, "CLICKED") == "CLICKED"
+        assert request("pointer.click", x=b["x"]-origin["x"]+b["w"]/2, y=b["y"]-origin["y"]+b["h"]/2, button="left")["error"]["code"] == "not_supported"
         ok("ui.act", ref=button["ref"], action="press")
         assert line_until(app.stdout, "CLICKED") == "CLICKED"
         header, changed = frame(frames)

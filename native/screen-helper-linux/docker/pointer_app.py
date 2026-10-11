@@ -21,6 +21,9 @@ print("READY:" + str(window.id), flush=True)
 presses = 0
 wheels = 0
 
+def grab_failed(error, request):
+    raise RuntimeError("Passive grab was not installed: " + str(error))
+
 def events():
     global presses, wheels
     while conn.pending_events():
@@ -45,6 +48,12 @@ while True:
         elif command[0] == "grab":
             status = window.grab_pointer(False, X.ButtonPressMask, X.GrabModeAsync, X.GrabModeAsync, X.NONE, X.NONE, X.CurrentTime)
             assert status == X.GrabSuccess
+        elif command[0] == "passive":
+            # An inactive root grab passes an active GrabPointer probe, then steals a press.
+            root.grab_button(X.AnyButton, X.AnyModifier, False, X.ButtonPressMask,
+                             X.GrabModeAsync, X.GrabModeAsync, X.NONE, X.NONE, onerror=grab_failed)
+        elif command[0] == "unpassive":
+            root.ungrab_button(X.AnyButton, X.AnyModifier)
         elif command[0] == "ungrab":
             conn.ungrab_pointer(X.CurrentTime)
         conn.sync()
