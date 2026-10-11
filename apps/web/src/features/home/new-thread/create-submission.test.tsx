@@ -54,7 +54,9 @@ test("overlapping new-thread submissions waiting for identity create one thread"
   const prompt = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(prompt, "Start only once");
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe("true"),
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
+      "true",
+    ),
   );
   await userEvent.keyboard("{Enter}");
   await waitFor(() => expect(held.length).toBeGreaterThan(1));

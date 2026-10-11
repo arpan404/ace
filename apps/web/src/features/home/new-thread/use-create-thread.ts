@@ -11,7 +11,7 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { baseName, provisionalTitle } from "@ace/ui-core";
 import { useCallback, useRef, useState } from "react";
-import { rememberTitle } from "@/features/thread/index.ts";
+import { rememberTitle, sameSubmittedDraft, type SubmittedDraft } from "@/features/thread/index.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { withBrowserLock } from "@/boot/web-locks.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
@@ -19,15 +19,21 @@ import {
   createAttemptKey,
   forgetCreateAttempt,
   readCreateAttempt,
-  sameCreate,
   saveCreateAttempt,
 } from "./create-attempt.ts";
+import {
+  differentCreateHost,
+  settleCreateAttempt,
+  useCreateRecovery,
+} from "./use-create-recovery.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { dismissSend } from "@/lib/dismissed-sends.ts";
 import { rememberProvider } from "@/lib/provider-statuses.ts";
 
 export interface CreateRequest {
   project: string;
+  /** The composer's own draft key, retained until the original create settles. */
+  draftKey?: string | undefined;
   /** The account the thread runs on: picked first, before its model. */
   scope: ModelScope;
   /** The catalog id listed on that account (OpenCode's `provider/model`), never a bare native id. */
@@ -86,10 +92,13 @@ export const pendingThreadId = (commandId: string) => `pending:${commandId}`;
  * leaves an unresolved attempt under its original id; resubmission reconciles that attempt
  * before a new command can be allocated.
  */
-export function useCreateThread(): {
+export function useCreateThread(
+  onRecovered: (payload: SubmittedDraft & { workspaceId: string }) => void,
+): {
   /** Resolves false when the composer must keep its draft, including uncertain worker delivery. */
   create(request: CreateRequest): Promise<boolean>;
   error: string | undefined;
+  recovering: boolean;
 } {
   const client = useClient();
   const navigate = useNavigate();
@@ -100,7 +109,18 @@ export function useCreateThread(): {
   const recoveryKey = createAttemptKey(connection.url, deviceId);
   const [error, setError] = useState<string>();
 
-  const flight = useRef<Promise<boolean> | undefined>(undefined);
+  const flight = useRef<{ payload: SubmittedDraft; promise: Promise<boolean> } | undefined>(
+    undefined,
+  );
+  const recovery = useCreateRecovery({
+    client,
+    storage,
+    key: recoveryKey,
+    hostId: host?.hostId,
+    isSubmitting: () => flight.current !== undefined,
+    onError: setError,
+    onRecovered,
+  });
 
   const submit = useCallback(
     async (request: CreateRequest) => {
@@ -114,24 +134,17 @@ export function useCreateThread(): {
         const attempt = await withBrowserLock(recoveryKey, () => {
           const previous = readCreateAttempt(storage, recoveryKey);
           if (previous && previous.hostId !== hostId) {
-            setError(
-              "The previous thread belongs to another daemon. Reconnect to that daemon to recover it.",
-            );
+            setError(differentCreateHost);
             return undefined;
           }
-          if (previous && !sameCreate(previous.payload, requested)) {
-            setError(
-              "The previous thread start still needs recovery. Restore that message and retry before starting another.",
-            );
-            return undefined;
-          }
-          const attempt = previous ?? {
+          const reserved = previous ?? {
             hostId,
             commandId: crypto.randomUUID(),
+            draftKey: request.draftKey,
             payload: requested,
           };
-          saveCreateAttempt(storage, recoveryKey, attempt);
-          return attempt;
+          saveCreateAttempt(storage, recoveryKey, reserved);
+          return reserved;
         });
         if (!attempt) return false;
         commandId = attempt.commandId;
@@ -139,17 +152,13 @@ export function useCreateThread(): {
         rememberProvider(storage, attempt.payload.provider);
         submitted = true;
         await client.enqueue(attempt.payload, commandId);
-        // The outbox now owns the payload. Failure to remove a recovery record is safe:
-        // a later submission still reconciles the same command rather than creating another.
-        try {
-          await withBrowserLock(recoveryKey, () =>
-            forgetCreateAttempt(storage, recoveryKey, attempt.commandId),
-          );
-        } catch {
-          /* Keep its original ID. */
-        }
+        // A local enqueue reply confirms persistence, not settlement. Keep the journal
+        // until a receipt for this ID arrives, including after this page has unmounted.
+        void settleCreateAttempt(client, storage, recoveryKey, attempt).catch(() => {
+          /* Reconnect recovers the saved payload under its original ID. */
+        });
         void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
-        return true;
+        return sameSubmittedDraft(requested, attempt.payload);
       } catch (failure) {
         if (submitted && failure instanceof ClientError && failure.code === "offline") {
           setError(
@@ -177,14 +186,18 @@ export function useCreateThread(): {
     (request: CreateRequest) => {
       // Share the promise before any awaited identity or persistence work. A second Enter
       // cannot allocate another command while the first submission remains unresolved.
-      if (flight.current) return flight.current;
+      if (recovery.isRecovering()) return Promise.resolve(false);
+      const payload = createPayload(request);
+      const current = flight.current;
+      if (current)
+        return current.promise.then((sent) => sent && sameSubmittedDraft(current.payload, payload));
       const pending = submit(request).finally(() => {
-        if (flight.current === pending) flight.current = undefined;
+        if (flight.current?.promise === pending) flight.current = undefined;
       });
-      flight.current = pending;
+      flight.current = { payload, promise: pending };
       return pending;
     },
-    [submit],
+    [submit, recovery],
   );
-  return { create, error };
+  return { create, error, recovering: recovery.recovering };
 }

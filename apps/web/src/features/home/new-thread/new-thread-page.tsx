@@ -11,6 +11,7 @@ import {
   useDraftScope,
   usePermissionModes,
   type Draft,
+  type ComposerHandle,
 } from "@/features/thread/index.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { whenIdle } from "@/lib/idle.ts";
@@ -95,7 +96,10 @@ export function NewThreadPage(props: {
   const project = pickProject(projects, requested, choices.project, filter);
   const [baseChoice, setBase] = useState<WorktreeBase | string | undefined>(props.base);
   const page = useRef<HTMLDivElement>(null);
-  const { create, error } = useCreateThread();
+  const composer = useRef<ComposerHandle>(null);
+  const { create, error, recovering } = useCreateThread((payload) => {
+    if (payload.workspaceId === project) composer.current?.discardIfSubmitted(payload);
+  });
   useEffect(() => whenIdle(() => void preloadComposerParts()), []);
 
   // Until the starting provider is known, show models loading rather than a provider to undo.
@@ -176,13 +180,15 @@ export function NewThreadPage(props: {
   const draftThread = useDraftThreadRef(scope.draftId, project, provider, accountId, scope.retry);
   const waitingForAdmission =
     !start.loaded || !provider || defaultMode === undefined || permissions.loading;
-  const admissionProblem = waitingForAdmission
-    ? "Checking provider settings…"
-    : permissions.failed
-      ? "Couldn't check provider permissions. Reconnect and try again."
-      : !resolved.model
-        ? "Choose an available model before sending."
-        : admitted.fallback;
+  const admissionProblem = recovering
+    ? "Recovering the previous thread start…"
+    : waitingForAdmission
+      ? "Checking provider settings…"
+      : permissions.failed
+        ? "Couldn't check provider permissions. Reconnect and try again."
+        : !resolved.model
+          ? "Choose an available model before sending."
+          : admitted.fallback;
   const send = async (draft: Draft) => {
     if (!project || !resolved.model || admissionProblem) return false;
     choose({ project });
@@ -193,6 +199,7 @@ export function NewThreadPage(props: {
     void draft.files.settled.then((ready) => rememberAttachments(draft.files.local, ready));
     return create({
       project,
+      draftKey: draftKeyFor(project),
       scope: resolved.model.scope,
       model: resolved.model.id,
       mode: resolved.mode,
@@ -261,6 +268,7 @@ export function NewThreadPage(props: {
           </div>
           <div className="shrink-0">
             <Composer
+              ref={composer}
               key={project}
               onPlan={() => {
                 if (provider) setPermissionChoice({ provider, id: "plan" });

@@ -6,11 +6,13 @@ import { z } from "zod";
 const Attempt = z.object({
   hostId: HostId,
   commandId: z.string().min(1),
+  draftKey: z.string().optional(),
   payload: CommandPayload,
 });
 export type CreateAttempt = {
   hostId: string;
   commandId: string;
+  draftKey?: string | undefined;
   payload: Extract<CommandPayload, { type: "thread.create" }>;
 };
 
@@ -28,7 +30,12 @@ export function readCreateAttempt(
   if (raw === null || raw === "") return undefined;
   const attempt = Attempt.parse(JSON.parse(raw));
   if (attempt.payload.type !== "thread.create") throw new ClientError("storage");
-  return { hostId: attempt.hostId, commandId: attempt.commandId, payload: attempt.payload };
+  return {
+    hostId: attempt.hostId,
+    commandId: attempt.commandId,
+    draftKey: attempt.draftKey,
+    payload: attempt.payload,
+  };
 }
 export function saveCreateAttempt(
   storage: KeyValueStorage | undefined,
@@ -44,19 +51,9 @@ export function forgetCreateAttempt(
   storage: KeyValueStorage | undefined,
   key: string,
   commandId: string,
-): void {
-  if (readCreateAttempt(storage, key)?.commandId !== commandId) return;
+): boolean {
+  if (readCreateAttempt(storage, key)?.commandId !== commandId) return false;
   if (storage?.removeItem) storage.removeItem(key);
   else storage?.setItem(key, "");
-}
-const comparable = (payload: CreateAttempt["payload"]) =>
-  JSON.stringify(
-    CommandPayload.parse({
-      ...payload,
-      context: payload.context && { ...payload.context, draftId: undefined },
-    }),
-  );
-/** A remount receives a fresh draft scope; the original command must retain its old payload. */
-export function sameCreate(a: CreateAttempt["payload"], b: CreateAttempt["payload"]): boolean {
-  return comparable(a) === comparable(b);
+  return true;
 }
