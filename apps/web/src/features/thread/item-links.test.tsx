@@ -2,6 +2,7 @@ import { facts } from "@ace/fake-daemon";
 import { ThreadId, ThreadView } from "@ace/protocol";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { act, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, it } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
@@ -38,7 +39,7 @@ it("item links reveal old history and a second link changes the target within th
   expect(await within(feed).findByText("Latest finding")).toBeTruthy();
 });
 
-it("a notification target selects its canonical pending request without making stale requests actionable", async () => {
+it("notification targets select current pending requests with working keyboard navigation", async () => {
   const history = createMemoryHistory({ initialEntries: ["/t/requests"] });
   const app = harness({ history });
   app.daemon.createThread({
@@ -75,6 +76,12 @@ it("a notification target selects its canonical pending request without making s
   await act(async () => history.push(`/t/requests?item=${encodeURIComponent(target.id)}`));
   expect(await within(region).findByRole("article", { name: "Second approval" })).toBeTruthy();
   await waitFor(() => expect(region.parentElement?.contains(document.activeElement)).toBe(true));
+  await userEvent.keyboard("]");
+  expect(await within(region).findByRole("article", { name: "First approval" })).toBeTruthy();
+  await userEvent.keyboard("[[");
+  expect(await within(region).findByRole("article", { name: "Second approval" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(document.activeElement?.getAttribute("role")).toBe("combobox"));
   await act(async () => history.push("/t/requests?item=stale-interaction"));
   const fallback = await screen.findByRole("alert");
   expect(fallback.textContent).toContain("That item is no longer available");

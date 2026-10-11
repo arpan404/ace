@@ -93,18 +93,17 @@ export function RequestStack(props: {
     request?.request.kind === "approval" ? (
       <section
         aria-label="Waiting for you"
-        onKeyDownCapture={onKeyDown}
         className="relative mx-0 mb-3 max-h-[50vh] overflow-y-auto overscroll-contain"
       >
         {content}
       </section>
     ) : (
-      <AttachedCard label="Waiting for you" behind={count - 1} cardKey={id} onKeyDown={onKeyDown}>
+      <AttachedCard label="Waiting for you" behind={count - 1} cardKey={id}>
         {content}
       </AttachedCard>
     );
   return (
-    <div ref={frame} tabIndex={-1} className="outline-none">
+    <div ref={frame} tabIndex={-1} onKeyDownCapture={onKeyDown} className="outline-none">
       {card}
     </div>
   );
