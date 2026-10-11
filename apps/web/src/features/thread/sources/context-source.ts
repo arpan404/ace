@@ -176,9 +176,14 @@ export function draftScopes(client: ClientApi) {
     },
     async resume(draftId: string): Promise<string> {
       // Local admission can precede daemon adoption, particularly while offline.
-      if (retiredScopes.get(client)?.has(draftId)) throw new ConsumedDraftScope("Draft already handed off");
+      if (retiredScopes.get(client)?.has(draftId))
+        throw new ConsumedDraftScope("Draft already handed off");
       const reply = await ask({ op: "draft.mention.complete", draftId, query: "", limit: 1 });
-      if (reply.kind === "error" && reply.code === "forbidden" && reply.message === "Draft already adopted")
+      if (
+        reply.kind === "error" &&
+        reply.code === "forbidden" &&
+        reply.message === "Draft already adopted"
+      )
         throw new ConsumedDraftScope(reply.message);
       expect(reply, "completion");
       return draftId;
