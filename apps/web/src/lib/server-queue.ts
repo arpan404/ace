@@ -1,41 +1,71 @@
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
-import { ThreadId, type QueuePage } from "@ace/protocol";
+import { ThreadId, type QueueGet, type QueuePage } from "@ace/protocol";
+import { useState } from "react";
 import { useDaemonQuery } from "./daemon-query.ts";
 
-/** Messages a composer shows at once; the rest are counted. The daemon pages at most 32. */
+/** Visible queue rows grow on demand; wire pages remain bounded by the daemon. */
 export const queuePageSize = 16;
-
 const queueOf = (reader: ThreadReader) => reader.queue;
 
+type ReadQueue = (
+  request: Pick<QueueGet, "threadId" | "limit" | "after" | "expectedRevision">,
+) => Promise<QueuePage>;
+
+export async function readServerQueue(threadId: ThreadId, read: ReadQueue): Promise<QueuePage> {
+  const first = await read({ threadId, limit: 32 });
+  const messages = [...first.messages];
+  let next = first.next;
+  const cursors = new Set<string>();
+  while (next !== null) {
+    if (cursors.has(next) || messages.length >= 256) throw new Error("invalid_queue_cursor");
+    cursors.add(next);
+    const page = await read({ threadId, limit: 32, after: next, expectedRevision: first.revision });
+    if (page.revision !== first.revision) throw new Error("queue_conflict");
+    messages.push(...page.messages);
+    next = page.next;
+  }
+  return { ...first, messages, next: null };
+}
+
 /**
- * A thread's server queue (ADR 0053): the hold and revision arrive live on the thread
- * (`queue.updated`), and the first page of messages is read again whenever the revision moves.
- * Every reader (the composer's pills, the Agents tab) shares the one read per revision.
+ * One shared read per revision follows the daemon's byte-bounded cursors. Retained inputs
+ * must all be known to transcript readers, including rows beyond the visible queue page.
+ * The server limits a thread to 256 retained inputs. Every cursor is fenced to its first page.
  */
 export function useServerQueue(threadId: string): {
-  /** The first page at the current revision; undefined until read. */
   page: QueuePage | undefined;
+  retained: readonly QueuePage["messages"][number][];
   failed: boolean;
+  loadingMore: boolean;
+  loadMore(): void;
   refresh(): void;
 } {
   const hold = useThread(threadId, ["queue"], queueOf);
+  const [shown, setShown] = useState({ threadId, count: queuePageSize });
   const query = useDaemonQuery({
     queryKey: ["queue", threadId, hold?.revision ?? -1],
     staleTime: Infinity,
-    // A page older than the live revision is about to be replaced; keep showing it meanwhile.
     placeholderData: (previous: QueuePage | undefined) => previous,
-    read: async (client, signal): Promise<QueuePage> =>
-      (
-        await client.request(
-          { type: "queue.get", threadId: ThreadId.parse(threadId), limit: queuePageSize },
-          { signal },
-        )
-      ).queue,
+    read: (client, signal) =>
+      readServerQueue(
+        ThreadId.parse(threadId),
+        async (request) =>
+          (await client.request({ type: "queue.get", ...request }, { signal })).queue,
+      ),
   });
+  const count = shown.threadId === threadId ? shown.count : queuePageSize;
+  const data = query.data?.threadId === threadId ? query.data : undefined;
+  const retained = data?.messages ?? [];
+  const messages = retained.slice(0, count);
   return {
-    page: query.data,
+    page: data
+      ? { ...data, messages, next: retained.length > count ? (messages.at(-1)?.id ?? null) : null }
+      : undefined,
+    retained,
     failed: query.isError,
+    loadingMore: query.isFetching,
+    loadMore: () => setShown({ threadId, count: Math.min(count + queuePageSize, 256) }),
     refresh: () => void query.refetch(),
   };
 }
