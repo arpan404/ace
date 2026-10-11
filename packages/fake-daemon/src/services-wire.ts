@@ -3,6 +3,7 @@ import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeHistory } from "./history-wire.ts";
 import { FakeMcpWire } from "./mcp-wire.ts";
 import {
+  SourceControlPreferences,
   BrowserClientMessage,
   ServerMessage,
   type ClientMessage,
@@ -241,6 +242,37 @@ export class FakeServicesWire {
               : await this.workspace.projects.read(message, device);
             if (allowed()) emit(result);
             if (picker === controller) picker = undefined;
+            return;
+          }
+          if (message.type === "source-control.request") {
+            const preferences = SourceControlPreferences.parse(
+              this.settings.get("sourceControl.preferences"),
+            );
+            const expected = preferences.hosts.find(
+              (entry) => entry.host === preferences.host,
+            )?.account;
+            emit({
+              type: "source-control.result",
+              requestId: message.requestId,
+              result: {
+                kind: "readiness",
+                readiness: {
+                  preferences,
+                  cli: "available",
+                  version: "2.90.0",
+                  accounts: [{ login: "ada", active: true }],
+                  account: "ada",
+                  api: expected && expected !== "ada" ? "account_mismatch" : "ready",
+                  instructions:
+                    expected && expected !== "ada"
+                      ? `Run gh auth switch --hostname ${preferences.host} --user ${expected} on this computer, then Rescan.`
+                      : `GitHub API access verified as ada on ${preferences.host}.`,
+                  transport: "unchecked",
+                  transportInstructions:
+                    "API sign-in does not verify Git clone or push access. Configure your Git credential helper / SSH key on this computer.",
+                },
+              },
+            });
             return;
           }
           if (message.type === "workspace.request") {

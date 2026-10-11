@@ -36,6 +36,8 @@ export function createCommandRunner(options: {
       ...options.env,
       GH_PROMPT_DISABLED: "1",
       GH_PAGER: "cat",
+      GIT_TERMINAL_PROMPT: "0",
+      GCM_INTERACTIVE: "never",
     };
     delete env.GH_DEBUG;
     delete env.DEBUG;

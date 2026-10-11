@@ -1,3 +1,4 @@
+import { SourceControlPreferences } from "./source-control.ts";
 import { MachineIcon } from "./host-identity.ts";
 import { ProviderConfigurations } from "./provider-configuration.ts";
 import { BrowserOrigin } from "./browser.ts";
@@ -10,6 +11,7 @@ const name = z.string().min(1).max(256);
 const tier = z.enum(["default", "standard", "fast", "flex", "priority"]);
 const effort = z.enum(["default", "none", "minimal", "low", "medium", "high", "xhigh", "max"]);
 export const SettingsValues = z.object({
+  "sourceControl.preferences": SourceControlPreferences.and(z.json()),
   "providers.configuration": ProviderConfigurations,
   "host.displayName": z.string().max(256),
   "host.icon": MachineIcon.and(z.json()),

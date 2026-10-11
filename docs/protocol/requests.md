@@ -1017,6 +1017,27 @@ Example:
 }
 ```
 
+### source-control.request
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"source-control.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"readiness"},"workspaceId":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}},"required":["op"]}]} |
+
+Example:
+
+```json
+{
+  "operation": {
+    "op": "readiness",
+    "workspaceId": "example"
+  },
+  "requestId": "example",
+  "type": "source-control.request"
+}
+```
+
 ### terminal.request
 
 | Field | Required | Type | Constraints |
@@ -1030,9 +1051,8 @@ Example:
 ```json
 {
   "operation": {
-    "op": "close",
-    "terminalId": "example",
-    "threadId": "example"
+    "op": "unsubscribe",
+    "subscriptionId": "example"
   },
   "requestId": "example",
   "type": "terminal.request"
@@ -1068,7 +1088,10 @@ Example:
 ```json
 {
   "request": {
-    "type": "plugins.origins"
+    "name": "h",
+    "ref": "example",
+    "repository": "example",
+    "type": "plugins.prepare"
   },
   "requestId": "example",
   "type": "pluginRequest"
@@ -1103,7 +1126,7 @@ Example:
 
 ```json
 {
-  "operation": "toolchains",
+  "operation": "doctor",
   "requestId": "example",
   "type": "diagnostics.request"
 }
@@ -1123,9 +1146,7 @@ Example:
 
 ```json
 {
-  "backend": "cursor-sdk",
-  "instanceId": "example",
-  "provider": "codex",
+  "provider": "pi",
   "requestId": "example",
   "type": "permissions.capabilities"
 }
@@ -1145,9 +1166,9 @@ Example:
 {
   "operation": {
     "op": "upload.cancel",
-    "uploadId": "OyFNZbWj"
+    "uploadId": "yFNZbWjQ"
   },
-  "requestId": "Gvvp9",
+  "requestId": "vp9N",
   "type": "context.request"
 }
 ```
@@ -1165,10 +1186,10 @@ Example:
 
 ```json
 {
-  "key": "permissions.providerModes",
+  "key": "threads.settleOnClose",
   "requestId": "example",
   "scope": {
-    "threadId": "example"
+    "workspaceId": "example"
   },
   "type": "settings.get"
 }
@@ -1190,12 +1211,11 @@ Example:
 {
   "key": "example",
   "layer": {
-    "kind": "workspace",
-    "workspaceId": "example"
+    "kind": "global"
   },
   "requestId": "example",
   "type": "settings.set",
-  "value": {}
+  "value": null
 }
 ```
 
@@ -1230,11 +1250,12 @@ Example:
 ```json
 {
   "keys": [
-    "threads.limitPolicy"
+    "permissions.defaultMode"
   ],
   "requestId": "example",
   "scope": {
-    "threadId": "example"
+    "threadId": "example",
+    "workspaceId": "example"
   },
   "subscriptionId": "example",
   "type": "settings.subscribe"
@@ -1276,7 +1297,6 @@ Example:
 ```json
 {
   "cwd": "example",
-  "requestId": "example",
   "type": "history.list"
 }
 ```
@@ -1294,6 +1314,7 @@ Example:
 
 ```json
 {
+  "requestId": "example",
   "sourceId": "example",
   "type": "history.import",
   "workspaceId": "example"
@@ -1335,13 +1356,12 @@ Example:
 {
   "input": [],
   "mode": "fork",
-  "requestId": "example",
   "threadId": "example",
   "type": "history.continue"
 }
 ```
 
-### Variant 62
+### Variant 63
 
 Type: union. See JSON Schema for constraints.
 
@@ -1350,9 +1370,9 @@ Example:
 ```json
 {
   "name": "example",
-  "provider": "pi",
+  "provider": "antigravity",
   "requestId": "example",
-  "type": "mcp.provider.reconnect"
+  "type": "mcp.provider.disable"
 }
 ```
 
@@ -1411,7 +1431,6 @@ Example:
 ```json
 {
   "query": {
-    "limit": 10,
     "thread": "example"
   },
   "requestId": "example",

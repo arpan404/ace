@@ -27,6 +27,7 @@ import { AsyncCommands } from "./async-commands.ts";
 import type { Store } from "./store.ts";
 
 export interface WorkspaceRuntimeOptions {
+  sourceControl?: import("./source-control.ts").SourceControl;
   git?: GitOptions;
   reconcileThread?(id: ThreadId): Promise<void>;
   changeWorkspace?(
@@ -87,6 +88,7 @@ export class WorkspaceRuntime {
       this.git,
       now,
       options.forgeRunner ?? ((cwd) => createCommandRunner({ cwd })),
+      options.sourceControl,
     );
     this.commands = new AsyncCommands(store);
     this.checkpoints = new RunCheckpoints(store, this.git, (id) => this.root(id), now);

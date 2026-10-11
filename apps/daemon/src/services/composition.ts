@@ -1,3 +1,4 @@
+import { startSourceControl } from "./source-control.ts";
 import { startProviderInstalls } from "./provider-install.ts";
 import { startProviderLogin } from "./provider-login.ts";
 import { startProviderStatuses } from "./provider-status.ts";
@@ -33,6 +34,13 @@ import type { ServiceContext, Services } from "./types.ts";
 import type { ServiceDefinition } from "./startup.ts";
 /** Dependencies are explicit; optional integration failures do not disable the engine. */
 export const serviceFactories: readonly ServiceDefinition[] = [
+  {
+    name: "sourceControl",
+    phase: "core",
+    requires: ["settings"],
+    after: [],
+    start: startSourceControl,
+  },
   { name: "screen", phase: "core", requires: [], after: [], start: startScreen },
   { name: "settings", phase: "core", requires: [], after: [], start: startSettings },
   { name: "accounts", phase: "core", requires: [], after: [], start: startAccounts },
@@ -54,7 +62,7 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     name: "workspaceActions",
     phase: "core",
     requires: [],
-    after: ["files"],
+    after: ["files", "sourceControl"],
     start: startWorkspaceActions,
   },
   {

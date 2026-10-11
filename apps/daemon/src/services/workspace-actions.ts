@@ -26,6 +26,7 @@ export async function startWorkspaceActions({
   );
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     ...options.workspaceActions,
+    ...(services.sourceControl ? { sourceControl: services.sourceControl } : {}),
     machine: options.workspaceActions?.machine ?? {
       host: loadHostId(config.dataDir),
       name: await computerName(),

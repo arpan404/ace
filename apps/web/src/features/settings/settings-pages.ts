@@ -17,6 +17,7 @@ export type SettingsPath =
   | "/settings/appearance"
   | "/settings/providers"
   | "/settings/notifications"
+  | "/settings/source-control"
   | "/settings/remote"
   | "/settings/computer-use"
   | "/settings/keyboard"
@@ -28,6 +29,7 @@ export const settingsPages: readonly { to: SettingsPath; title: string; icon: Ic
   { to: "/settings/prompts", title: "Prompts", icon: FileTextIcon },
   { to: "/settings/providers", title: "Providers", icon: PlugIcon },
   { to: "/settings/notifications", title: "Notifications", icon: BellIcon },
+  { to: "/settings/source-control", title: "Source control", icon: CodeIcon },
   { to: "/settings/remote", title: "Remote devices", icon: LaptopIcon },
   { to: "/settings/computer-use", title: "Computer use", icon: CursorClickIcon },
   { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon },
