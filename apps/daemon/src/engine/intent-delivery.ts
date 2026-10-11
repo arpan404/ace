@@ -98,12 +98,12 @@ export class IntentDelivery {
       const acknowledged = this.dependencies.repo.pending.acknowledged(intent.id);
       if (this.dependencies.repo.pending.commandStatus(intent.commandId) === "failed") {
         this.dependencies.releaseGuards(intent);
-      } else if (continuation && acknowledged) {
+      } else if ((continuation || send) && acknowledged) {
         // Admission transfers ownership even if the transport loses the reply.
         // Keep the durable run correlation until the admitted run actually starts.
         this.dependencies.repo.mark(intent, "done");
         this.dependencies.transitions.delivered(actor.id);
-        this.dependencies.recovery.release(actor.id, holdToken);
+        if (continuation) this.dependencies.recovery.release(actor.id, holdToken);
       } else if (
         send &&
         !acknowledged &&
