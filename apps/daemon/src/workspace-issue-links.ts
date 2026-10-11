@@ -63,13 +63,11 @@ export class WorkspaceIssueLinks {
       return thread ? [thread] : [];
     });
     return {
-      relatedThreads: threads
-        .slice(0, 100)
-        .map((thread) => ({
-          id: thread.id,
-          title: thread.title,
-          archived: thread.archivedAt !== undefined,
-        })),
+      relatedThreads: threads.slice(0, 100).map((thread) => ({
+        id: thread.id,
+        title: thread.title,
+        archived: thread.archivedAt !== undefined,
+      })),
       relatedThreadsTruncated: threads.length > 100,
     };
   }

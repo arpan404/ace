@@ -218,7 +218,12 @@ export class GitHubIssues {
       truncated: Boolean(next && page === 120),
     };
   }
-  async write(input: ForgeIssueWrite, actionId: string, signal: AbortSignal) {
+  async write(
+    input: ForgeIssueWrite,
+    actionId: string,
+    signal: AbortSignal,
+    beforeDispatch: () => void = () => {},
+  ) {
     const value = ForgeIssueWrite.parse(input);
     z.string().min(1).max(256).parse(actionId);
     const marker = `<!-- ace-issue-action:${encodeURIComponent(actionId)} -->`;
@@ -228,6 +233,8 @@ export class GitHubIssues {
         (await this.#api.request(this.#root, signal)).body,
       );
       if (repo.archived || !repo.has_issues) throw new ForgeError("forbidden");
+      signal.throwIfAborted();
+      beforeDispatch();
       const record = decode(
         GitHubIssueRecord,
         (
@@ -242,6 +249,8 @@ export class GitHubIssues {
     const current = await this.detail(value.number, signal);
     if (value.action === "comment") {
       if (!current.permissions.comment) throw new ForgeError("forbidden");
+      signal.throwIfAborted();
+      beforeDispatch();
       decode(
         z.looseObject({ id: z.number().int().positive() }),
         (
@@ -262,6 +271,8 @@ export class GitHubIssues {
         throw new ForgeError("forbidden");
       const body =
         value.action === "edit" ? { title: value.title, body: value.body } : { state: value.state };
+      signal.throwIfAborted();
+      beforeDispatch();
       const record = decode(
         GitHubIssueRecord,
         (await this.#api.request(`${this.#root}/issues/${value.number}`, signal, body, "PATCH"))

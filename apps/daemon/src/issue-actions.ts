@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ForgeError, repositoryKey, type GitHubForge } from "@ace/forge";
+import { repositoryKey, type GitHubForge } from "@ace/forge";
 import {
   ForgeIssueAction,
   ForgeIssueWrite,
@@ -9,15 +9,19 @@ import {
 } from "@ace/protocol";
 import type { Store } from "./store.ts";
 import { actionErrorCode } from "./action-errors.ts";
+import { ForgeWriteFlights, writeFailureState } from "./forge-write-lifecycle.ts";
 
 const saved = z.object({
   repository: ForgeRepository,
   input: ForgeIssueWrite,
   result: ForgeIssueAction,
+  // Historical pending rows must be treated conservatively as dispatched.
+  dispatched: z.boolean().default(true),
 });
 /** Reservations survive disconnect/restart. Uncertain POSTs are reconciled, never replayed. */
 export class IssueActions {
   readonly #store: Store;
+  readonly #flights = new ForgeWriteFlights();
   constructor(store: Store) {
     this.#store = store;
     store.atomic((db) =>
@@ -37,10 +41,20 @@ export class IssueActions {
           .all(repositoryKey(repository), number),
       )
       .map((row) => {
-        const result = saved.parse(JSON.parse(String(row.value))).result;
-        return result.state === "pending"
-          ? Object.assign({}, result, { state: "uncertain" as const })
-          : result;
+        const action = saved.parse(JSON.parse(z.string().parse(row.value)));
+        if (action.result.state !== "pending" || this.#flights.hasOperation(action.result.id))
+          return action.result;
+        return this.#save(
+          {
+            ...action,
+            result: {
+              ...action.result,
+              state: action.dispatched ? "uncertain" : "failed",
+              ...(!action.dispatched ? { error: "action_not_dispatched" } : {}),
+            },
+          },
+          z.string().parse(row.value),
+        );
       });
   }
   async execute(
@@ -60,66 +74,102 @@ export class IssueActions {
           .get(p.actionId, repositoryKey(p.repository)),
       );
       if (!row || row.device !== command.deviceId) throw new Error("forbidden");
-      const action = saved.parse(JSON.parse(String(row.value)));
+      const action = saved.parse(JSON.parse(z.string().parse(row.value)));
       if (action.result.state === "succeeded" || action.result.state === "failed")
         return {
           ok: action.result.state === "succeeded",
           issueAction: action.result,
           ...(action.result.issue ? { issue: action.result.issue } : {}),
         };
-      const issue = await backend.reconcileIssue(action.input, action.result.id, signal);
-      if (!allowed()) throw new Error("forbidden");
-      const result: ForgeIssueAction = issue
-        ? { ...action.result, state: "succeeded", issue }
-        : {
-            ...action.result,
-            state: "uncertain",
-            error:
-              "The outcome could not be established. Check GitHub; this write will not be repeated.",
-          };
-      this.#save({ ...action, result });
-      return {
-        ok: Boolean(issue),
-        issueAction: result,
-        ...(issue ? { issue } : { error: "action_outcome_uncertain" }),
-      };
+      const scope = JSON.stringify([
+        repositoryKey(p.repository),
+        action.input.action === "create" ? 0 : action.input.number,
+      ]);
+      if (!this.#flights.acquire(scope, action.result.id))
+        return { ok: false, error: "forge_write_pending", issueAction: action.result };
+      try {
+        if (!action.dispatched)
+          return this.#receipt(
+            this.#save(
+              {
+                ...action,
+                result: { ...action.result, state: "failed", error: "action_not_dispatched" },
+              },
+              z.string().parse(row.value),
+            ),
+          );
+        const issue = await backend.reconcileIssue(action.input, action.result.id, signal);
+        // A read cannot downgrade a newer terminal result, even from another owner.
+        const result: ForgeIssueAction = issue
+          ? { ...action.result, state: "succeeded", issue }
+          : { ...action.result, state: "uncertain", error: "action_outcome_uncertain" };
+        return this.#receipt(this.#save({ ...action, result }, z.string().parse(row.value)));
+      } finally {
+        this.#flights.release(scope);
+      }
     }
     const number = p.input.action === "create" ? 0 : p.input.number;
-    this.#store.atomic((db) => {
-      if (
-        db
-          .prepare(
-            "SELECT 1 FROM forge_issue_actions WHERE repo=? AND number=? AND state IN ('pending','uncertain')",
-          )
-          .get(repositoryKey(p.repository), number)
-      )
-        throw new Error("issue_reconciliation_required");
-      const result: ForgeIssueAction = { id: command.id, state: "pending", action: p.input.action };
-      db.prepare("INSERT INTO forge_issue_actions VALUES(?,?,?,?,?,?)").run(
-        command.id,
-        command.deviceId,
-        repositoryKey(p.repository),
-        number,
-        "pending",
-        JSON.stringify({ repository: p.repository, input: p.input, result }),
-      );
-    });
-    let result: ForgeIssueAction;
+    const scope = JSON.stringify([repositoryKey(p.repository), number]);
+    if (!this.#flights.acquire(scope, command.id))
+      return { ok: false, error: "forge_write_pending" };
     try {
-      const issue = await backend.writeIssue(p.input, command.id, signal);
-      result = { id: command.id, state: "succeeded", action: p.input.action, issue };
-    } catch (error) {
-      const certain =
-        error instanceof ForgeError &&
-        ["forbidden", "not_found", "conflict", "rate_limit", "unsupported"].includes(error.kind);
-      result = {
-        id: command.id,
-        state: certain ? "failed" : "uncertain",
-        action: p.input.action,
-        error: actionErrorCode(error),
-      };
+      // Retire a reservation that crashed before reaching mutation dispatch.
+      this.list(p.repository, number);
+      this.#store.atomic((db) => {
+        if (
+          db
+            .prepare(
+              "SELECT 1 FROM forge_issue_actions WHERE repo=? AND number=? AND state IN ('pending','uncertain')",
+            )
+            .get(repositoryKey(p.repository), number)
+        )
+          throw new Error("issue_reconciliation_required");
+        const result: ForgeIssueAction = {
+          id: command.id,
+          state: "pending",
+          action: p.input.action,
+        };
+        db.prepare("INSERT INTO forge_issue_actions VALUES(?,?,?,?,?,?)").run(
+          command.id,
+          command.deviceId,
+          repositoryKey(p.repository),
+          number,
+          "pending",
+          JSON.stringify({ repository: p.repository, input: p.input, result, dispatched: false }),
+        );
+      });
+      let result: ForgeIssueAction;
+      let dispatched = false;
+      try {
+        const issue = await backend.writeIssue(p.input, command.id, signal, () => {
+          signal.throwIfAborted();
+          if (!allowed()) throw new Error("forbidden");
+          const reservation = this.#save({
+            repository: p.repository,
+            input: p.input,
+            dispatched: true,
+            result: { id: command.id, state: "pending", action: p.input.action },
+          });
+          if (reservation.state !== "pending") throw new Error("issue_reconciliation_required");
+          dispatched = true;
+        });
+        result = { id: command.id, state: "succeeded", action: p.input.action, issue };
+      } catch (error) {
+        result = {
+          id: command.id,
+          state: writeFailureState(error, dispatched),
+          action: p.input.action,
+          error: actionErrorCode(error),
+        };
+      }
+      return this.#receipt(
+        this.#save({ repository: p.repository, input: p.input, result, dispatched }),
+      );
+    } finally {
+      this.#flights.release(scope);
     }
-    this.#save({ repository: p.repository, input: p.input, result });
+  }
+  #receipt(result: ForgeIssueAction): Omit<CommandResult, "commandId"> {
     return {
       ok: result.state === "succeeded",
       issueAction: result,
@@ -133,11 +183,21 @@ export class IssueActions {
           }),
     };
   }
-  #save(value: z.infer<typeof saved>) {
-    this.#store.atomic((db) =>
-      db
-        .prepare("UPDATE forge_issue_actions SET state=?,value=? WHERE id=?")
-        .run(value.result.state, JSON.stringify(value), value.result.id),
-    );
+  #save(value: z.infer<typeof saved>, expected?: string): ForgeIssueAction {
+    return this.#store.atomic((db) => {
+      db.prepare(
+        "UPDATE forge_issue_actions SET state=?,value=? WHERE id=? AND state IN ('pending','uncertain') AND (? IS NULL OR value=?)",
+      ).run(
+        value.result.state,
+        JSON.stringify(value),
+        value.result.id,
+        expected ?? null,
+        expected ?? null,
+      );
+      const row = db
+        .prepare("SELECT value FROM forge_issue_actions WHERE id=?")
+        .get(value.result.id);
+      return saved.parse(JSON.parse(z.string().parse(row?.value))).result;
+    });
   }
 }

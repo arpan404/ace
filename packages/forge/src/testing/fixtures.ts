@@ -1,6 +1,7 @@
 import recorded from "./__fixtures__/github.json" with { type: "json" };
 import { watch } from "node:fs";
 import { mkdtemp, writeFile, readFile, rm, copyFile, chmod } from "node:fs/promises";
+import { watch } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
