@@ -1,3 +1,6 @@
+import { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
+import { IssueActions } from "./issue-actions.ts";
+import type { Command } from "@ace/protocol";
 import {
   GitHubForge,
   ForgeError,
@@ -27,6 +30,8 @@ import type { PrOwnerOperation } from "./agent-control/tools.ts";
 export class WorkspaceForge {
   private store: Store;
   private git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>;
+  private issueLinks: WorkspaceIssueLinks;
+  private issueActions: IssueActions;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
   private projection: WorkspacePrLinks;
@@ -41,6 +46,8 @@ export class WorkspaceForge {
     runner: (cwd: string) => CommandRunner,
   ) {
     this.store = store;
+    this.issueLinks = new WorkspaceIssueLinks(store);
+    this.issueActions = new IssueActions(store);
     this.git = git;
     this.now = now;
     this.runner = runner;
@@ -74,6 +81,25 @@ export class WorkspaceForge {
     const repository = operation.repository ?? (await this.repository(cwd));
     signal.throwIfAborted();
     const backend = this.backend(cwd, repository);
+    if (operation.op === "forge.issue.list")
+      return { resource: "issueList", value: await backend.listIssues(operation.query, signal) };
+    if (operation.op === "forge.issue.timeline")
+      return {
+        resource: "issueTimeline",
+        ...(await backend.issueTimeline(operation.number, operation.page, signal)),
+      };
+    if (operation.op === "forge.issue.actions")
+      return {
+        resource: "issueActions",
+        actions: this.issueActions.list(repository, operation.number),
+      };
+    if (operation.op === "forge.issue.detail") {
+      const value = await backend.issueDetail(operation.number, signal);
+      return {
+        resource: "issueDetail",
+        value: { ...value, ...this.issueLinks.related(value.ref) },
+      };
+    }
     if (operation.op === "forge.pr.activity")
       return {
         resource: "prActivity",
@@ -117,6 +143,23 @@ export class WorkspaceForge {
         relatedThreadsTruncated: threads.length > 100,
       },
     };
+  }
+  async issueCommand(command: Command, cwd: string, allowed: () => boolean) {
+    const p = command.payload;
+    if (p.type === "forge.issue.link") {
+      await this.backend(cwd, p.issue.repository).issueDetail(p.issue.number, this.lifetime.signal);
+      if (!allowed()) throw new Error("forbidden");
+      this.issueLinks.link(p.threadId, p.issue, this.now());
+      return { ok: true, threadId: p.threadId, issue: p.issue };
+    }
+    if (p.type !== "forge.issue.write" && p.type !== "forge.issue.reconcile")
+      throw new Error("invalid_command");
+    return this.issueActions.execute(
+      command,
+      this.backend(cwd, p.repository),
+      allowed,
+      this.lifetime.signal,
+    );
   }
   async link(
     id: ThreadId,

@@ -6,7 +6,13 @@ import { actionErrorCode } from "../action-errors.ts";
 import { logError } from "@ace/diagnostics";
 import { WorkspaceRefresh } from "../workspace-refresh.ts";
 import { PullRequestAutoLink } from "../pr-auto-link.ts";
-import { ThreadId, ForgeCommand, WorkspaceCommands, WorkspaceActionResult } from "@ace/protocol";
+import {
+  ThreadId,
+  ForgeCommand,
+  ForgeIssueCommands,
+  WorkspaceCommands,
+  WorkspaceActionResult,
+} from "@ace/protocol";
 import { WorkspaceRuntime } from "../workspace-runtime.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -73,12 +79,18 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
       types: [
         ...WorkspaceCommands.map((schema) => schema.shape.type.value),
         ...ForgeCommand.options.map((schema) => schema.shape.type.value),
+        ...ForgeIssueCommands.map((schema) => schema.shape.type.value),
       ],
       scope: (command) => (command.payload.type === "forge.pr.status" ? "read" : "operate"),
       async accept(command) {
         const p = command.payload;
         const id = "threadId" in p ? p.threadId : "link" in p ? p.link.threadId : undefined;
-        if (!options.workspaceActions || !id || !canReadThread(ThreadId.parse(id))) {
+        if (
+          !options.workspaceActions ||
+          (id
+            ? !canReadThread(ThreadId.parse(id))
+            : p.type !== "forge.issue.write" && p.type !== "forge.issue.reconcile")
+        ) {
           send({
             type: "commandResult",
             commandId: command.id,
@@ -92,7 +104,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
           () =>
             connected() &&
             authorize(p.type === "forge.pr.status" ? "read" : "operate") &&
-            canReadThread(ThreadId.parse(id)),
+            (!id || canReadThread(ThreadId.parse(id))),
         );
         if (connected()) send({ type: "commandResult", ...result });
       },

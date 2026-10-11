@@ -44,3 +44,15 @@ The non-gating benchmark workloads cover mapping, unchanged and one-comment-edit
 The daemon routes project-scoped `forge.pr.*` reads through `workspace.request`, cancels reads on socket close and discovers at most 100 active/archived related threads through an indexed association lookup. Browsing never changes association order. `/pull-requests` is the shared web/desktop workspace; project menus and each linked PR's menu open it. URL search parameters retain filters, page, selection and tab. The hosted diff is labelled separately from the thread's local Changes panel. Existing durable forge commands still own link, merge and review actions. Follow-up actions can extend the workspace without requiring a primary thread link.
 
 The public `@ace/forge/testing` entry supplies the existing executable fake `gh` fixture to process tests. The current shared-machine policy requires writing tests without running them locally; CI must verify the final change. No provider sessions or recorder runs are involved.
+
+Repository issues share the `GitHubForge` transport and CLI boundary. Search excludes pull requests,
+uses literal text plus bounded filters, and caps results at 1,000 (25 per page). Detail reads viewer
+permissions from GitHub; the paged timeline labels issue comments separately from activity and PR
+references. Unknown provider fields remain in `raw`.
+
+Issue writes use the daemon's durable command owner plus a resource-scoped action journal. An
+uncertain result blocks another write to that issue (or another create) until read-only reconciliation
+finds the marked issue/comment or confirms the requested edit/state. The recovery window is bounded
+at 1,000 records; absence never permits replaying a POST. Unsent editor content is stored per device,
+project, repository, issue and action. Issue links have their own indexed owner and never change PR
+associations. Thread admission records the source issue in the same transaction as creation.

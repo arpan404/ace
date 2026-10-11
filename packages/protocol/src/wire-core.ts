@@ -1,3 +1,4 @@
+import { ForgeIssueAction, ForgeIssueRef } from "./forge-issues.ts";
 import { Project, ProjectInspection } from "./projects.ts";
 import { z } from "zod";
 import { Agent } from "./agent.ts";
@@ -131,6 +132,8 @@ export const EntitiesPage = z
   .and(z.object({ seq, threadId: ThreadId, entitiesBefore: seq.positive().nullable() }));
 export type EntitiesPage = z.infer<typeof EntitiesPage>;
 export const CommandResult = z.object({
+  issue: ForgeIssueRef.optional(),
+  issueAction: ForgeIssueAction.optional(),
   workspace: Project.optional(),
   inspection: ProjectInspection.optional(),
   threadId: ThreadId.optional(),

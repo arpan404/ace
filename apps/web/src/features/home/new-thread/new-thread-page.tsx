@@ -1,3 +1,4 @@
+import { useIssueSource } from "@/features/forge/index.ts";
 import { PastSessions } from "@/features/history/index.ts";
 import { ProjectPicker } from "./project-picker.tsx";
 import type { BranchRef, PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
@@ -86,6 +87,7 @@ export function NewThreadPage(props: {
   project?: string | undefined;
   base?: string | undefined;
   skill?: string | undefined;
+  issue?: string | undefined;
 }) {
   const { storage } = useLayout();
   const readinessId = useId();
@@ -94,6 +96,7 @@ export function NewThreadPage(props: {
   const [choices, setChoices] = useState<Choices>(() => loadChoices(storage));
   const [requested, setRequested] = useState(props.project);
   const project = pickProject(projects, requested, choices.project, filter);
+  const issueSource = useIssueSource(project, props.issue);
   const [baseChoice, setBase] = useState<WorktreeBase | string | undefined>(props.base);
   const page = useRef<HTMLDivElement>(null);
   const composer = useRef<ComposerHandle>(null);
@@ -183,7 +186,7 @@ export function NewThreadPage(props: {
           ? "Choose an available model before sending."
           : admitted.fallback;
   const send = async (draft: Draft) => {
-    if (!project || !resolved.model || admissionProblem) return false;
+    if (!project || !resolved.model || admissionProblem || issueSource.problem) return false;
     choose({ project });
     const draftId = scope.draftId;
     // The new thread takes the draft scope over: keep it when this page closes, which is now.
@@ -193,6 +196,7 @@ export function NewThreadPage(props: {
     return create({
       project,
       draftKey: draftKeyFor(project),
+      issue: issueSource.ref,
       scope: resolved.model.scope,
       model: resolved.model.id,
       mode: resolved.mode,
@@ -262,17 +266,24 @@ export function NewThreadPage(props: {
           <div className="shrink-0">
             <Composer
               ref={composer}
-              key={project}
+              key={`${project}:${issueSource.ref ? JSON.stringify(issueSource.ref) : ""}`}
               onPlan={() => {
                 if (provider) setPermission("plan");
               }}
               thread={draftThread}
-              draftKey={project ? draftKeyFor(project) : undefined}
-              initialText={props.skill ? `/${props.skill} ` : undefined}
+              draftKey={
+                project
+                  ? `${draftKeyFor(project)}${props.issue ? `:issue:${props.issue}` : ""}`
+                  : undefined
+              }
+              initialText={issueSource.text ?? (props.skill ? `/${props.skill} ` : undefined)}
               busy={false}
               sendBlocked={
-                admissionProblem
-                  ? { reason: admissionProblem, describedBy: readinessId }
+                admissionProblem || issueSource.problem
+                  ? {
+                      reason: admissionProblem || issueSource.problem || "",
+                      describedBy: readinessId,
+                    }
                   : undefined
               }
               onSubmit={send}
@@ -351,9 +362,9 @@ export function NewThreadPage(props: {
                 />
               }
             />
-            {admissionProblem && (
+            {(admissionProblem || issueSource.problem) && (
               <p id={readinessId} role="status" className="mt-2 px-4 text-xs text-muted-foreground">
-                {admissionProblem}
+                {admissionProblem || issueSource.problem}
               </p>
             )}
             <SignInNotice provider={provider} />

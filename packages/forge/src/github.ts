@@ -1,4 +1,6 @@
 import type { WriteDispatch } from "./write-dispatch.ts";
+import { GitHubIssues } from "./github-issues.ts";
+import type { ForgeIssueSearch, ForgeIssueWrite } from "@ace/protocol/forge-issues";
 import { GitHubBrowser } from "./github-browser.ts";
 import type { ForgePrSearch } from "@ace/protocol/forge-browser";
 import { z } from "zod";
@@ -27,6 +29,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
   readonly #status = new GitHubStatusReader(this.revisions);
   readonly #root: string;
   readonly #browser: GitHubBrowser;
+  readonly #issues: GitHubIssues;
   constructor(options: {
     repository: ForgeRepository;
     runner: CommandRunner;
@@ -39,6 +42,22 @@ export class GitHubForge implements Forge, ForgeBrowser {
     this.#root = `repos/${this.repository.owner}/${this.repository.name}`;
     this.#api = new GhApi({ ...options, host: this.repository.host });
     this.#browser = new GitHubBrowser(this.#api, this.repository);
+    this.#issues = new GitHubIssues(this.#api, this.repository);
+  }
+  listIssues(query: ForgeIssueSearch, signal: AbortSignal) {
+    return this.#issues.list(query, signal);
+  }
+  issueDetail(number: number, signal: AbortSignal) {
+    return this.#issues.detail(number, signal);
+  }
+  issueTimeline(number: number, page: number, signal: AbortSignal) {
+    return this.#issues.timeline(number, page, signal);
+  }
+  writeIssue(input: ForgeIssueWrite, actionId: string, signal: AbortSignal) {
+    return this.#issues.write(input, actionId, signal);
+  }
+  reconcileIssue(input: ForgeIssueWrite, actionId: string, signal: AbortSignal) {
+    return this.#issues.reconcile(input, actionId, signal);
   }
   #ref(number: number): ForgePrRef {
     return ForgePrRef.parse({ repository: this.repository, number });

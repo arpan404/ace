@@ -14,6 +14,7 @@ import { Route as AccountsRouteImport } from "./routes/accounts"
 import { Route as ActivityRouteImport } from "./routes/activity"
 import { Route as AutomationsRouteImport } from "./routes/automations"
 import { Route as DeckRouteImport } from "./routes/deck"
+import { Route as IssuesRouteImport } from "./routes/issues"
 import { Route as MoreRouteImport } from "./routes/more"
 import { Route as OffsetsRouteImport } from "./routes/offsets"
 import { Route as OffshiftsRouteImport } from "./routes/offshifts"
@@ -72,6 +73,11 @@ const AutomationsRoute = AutomationsRouteImport.update({
 const DeckRoute = DeckRouteImport.update({
   id: "/deck",
   path: "/deck",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IssuesRoute = IssuesRouteImport.update({
+  id: "/issues",
+  path: "/issues",
   getParentRoute: () => rootRouteImport,
 } as any)
 const MoreRoute = MoreRouteImport.update({
@@ -259,6 +265,7 @@ export interface FileRoutesByFullPath {
   "/activity": typeof ActivityRouteWithChildren
   "/automations": typeof AutomationsRouteWithChildren
   "/deck": typeof DeckRouteWithChildren
+  "/issues": typeof IssuesRoute
   "/more": typeof MoreRouteWithChildren
   "/offsets": typeof OffsetsRouteWithChildren
   "/offshifts": typeof OffshiftsRouteWithChildren
@@ -297,6 +304,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/accounts": typeof AccountsRoute
   "/deck": typeof DeckRouteWithChildren
+  "/issues": typeof IssuesRoute
   "/more": typeof MoreRouteWithChildren
   "/offsets": typeof OffsetsRouteWithChildren
   "/offshifts": typeof OffshiftsRouteWithChildren
@@ -338,6 +346,7 @@ export interface FileRoutesById {
   "/activity": typeof ActivityRouteWithChildren
   "/automations": typeof AutomationsRouteWithChildren
   "/deck": typeof DeckRouteWithChildren
+  "/issues": typeof IssuesRoute
   "/more": typeof MoreRouteWithChildren
   "/offsets": typeof OffsetsRouteWithChildren
   "/offshifts": typeof OffshiftsRouteWithChildren
@@ -382,6 +391,7 @@ export interface FileRouteTypes {
     | "/activity"
     | "/automations"
     | "/deck"
+    | "/issues"
     | "/more"
     | "/offsets"
     | "/offshifts"
@@ -420,6 +430,7 @@ export interface FileRouteTypes {
   to:
     | "/accounts"
     | "/deck"
+    | "/issues"
     | "/more"
     | "/offsets"
     | "/offshifts"
@@ -460,6 +471,7 @@ export interface FileRouteTypes {
     | "/activity"
     | "/automations"
     | "/deck"
+    | "/issues"
     | "/more"
     | "/offsets"
     | "/offshifts"
@@ -503,6 +515,7 @@ export interface RootRouteChildren {
   ActivityRoute: typeof ActivityRouteWithChildren
   AutomationsRoute: typeof AutomationsRouteWithChildren
   DeckRoute: typeof DeckRouteWithChildren
+  IssuesRoute: typeof IssuesRoute
   MoreRoute: typeof MoreRouteWithChildren
   OffsetsRoute: typeof OffsetsRouteWithChildren
   OffshiftsRoute: typeof OffshiftsRouteWithChildren
@@ -548,6 +561,13 @@ declare module "@tanstack/react-router" {
       path: "/deck"
       fullPath: "/deck"
       preLoaderRoute: typeof DeckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/issues": {
+      id: "/issues"
+      path: "/issues"
+      fullPath: "/issues"
+      preLoaderRoute: typeof IssuesRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/more": {
@@ -940,6 +960,7 @@ const rootRouteChildren: RootRouteChildren = {
   ActivityRoute: ActivityRouteWithChildren,
   AutomationsRoute: AutomationsRouteWithChildren,
   DeckRoute: DeckRouteWithChildren,
+  IssuesRoute: IssuesRoute,
   MoreRoute: MoreRouteWithChildren,
   OffsetsRoute: OffsetsRouteWithChildren,
   OffshiftsRoute: OffshiftsRouteWithChildren,

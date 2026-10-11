@@ -204,6 +204,10 @@ export class WorkspaceRuntime {
       result,
     });
     if (
+      op.op === "forge.issue.list" ||
+      op.op === "forge.issue.detail" ||
+      op.op === "forge.issue.timeline" ||
+      op.op === "forge.issue.actions" ||
       op.op === "forge.pr.activity" ||
       op.op === "forge.pr.list" ||
       op.op === "forge.pr.detail" ||
@@ -343,6 +347,11 @@ export class WorkspaceRuntime {
     return this.commands.run(command, async () => {
       if (!allowed()) return { ok: false, error: "forbidden" };
       const p = command.payload;
+      if (p.type === "forge.issue.write" || p.type === "forge.issue.reconcile") {
+        const cwd = this.store.getWorkspacePath(p.workspaceId);
+        if (!cwd) throw new Error("workspace_not_found");
+        return this.forge.issueCommand(command, cwd, allowed);
+      }
       const id = "threadId" in p ? p.threadId : "link" in p ? p.link.threadId : undefined;
       if (!id) throw new Error("invalid_command");
       const threadId = ThreadId.parse(id);
@@ -378,6 +387,7 @@ export class WorkspaceRuntime {
         return { ok: true, threadId };
       }
       const cwd = this.root(threadId);
+      if (p.type === "forge.issue.link") return this.forge.issueCommand(command, cwd, allowed);
       if (p.type === "git.commit")
         return {
           ok: true,

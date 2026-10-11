@@ -54,6 +54,11 @@ export function ManageProjectItems(props: { projectId: string; name: string }) {
       >
         Pull requests
       </MenuItem>
+      <MenuItem
+        onClick={() => void navigate({ to: "/issues", search: { project: props.projectId } })}
+      >
+        Issues
+      </MenuItem>
       <MenuSub>
         <MenuSubTrigger icon={<Icon icon={ArrowSquareOutIcon} />}>Open in…</MenuSubTrigger>
         <MenuContent>

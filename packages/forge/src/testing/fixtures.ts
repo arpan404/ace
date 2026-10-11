@@ -166,3 +166,4 @@ export async function fakeGh(
     },
   };
 }
+export { issueRecord, issuePermissions } from "./issue-fixtures.ts";

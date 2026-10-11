@@ -31,6 +31,7 @@ import { dismissSend } from "@/lib/dismissed-sends.ts";
 import { rememberProvider } from "@/lib/provider-statuses.ts";
 
 export interface CreateRequest {
+  issue?: import("@ace/protocol").ForgeIssueRef | undefined;
   project: string;
   /** The composer's own draft key, retained until the original create settles. */
   draftKey?: string | undefined;
@@ -67,6 +68,7 @@ export function createPayload(request: CreateRequest): CreatePayload {
   };
   return {
     type: "thread.create",
+    ...(request.issue ? { issue: request.issue } : {}),
     workspaceId: WorkspaceId.parse(request.project),
     ...scopedSelection(request.scope, request.model),
     mode: request.mode,

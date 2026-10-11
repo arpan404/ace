@@ -1,0 +1,58 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeIssueEvent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "actor": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "at": {
+      "anyOf": [
+        {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "body": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "event": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "issue_comment",
+        "activity"
+      ],
+      "type": "string"
+    },
+    "pullRequestUrl": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "raw": {},
+    "url": {
+      "maxLength": 65536,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "event",
+    "actor",
+    "at",
+    "raw"
+  ],
+  "type": "object"
+}
