@@ -14,7 +14,7 @@ impl Accessibility {
             .get(reference)
             .cloned()
             .ok_or_else(|| Fault::new("target_gone", "Unknown or evicted accessibility ref"))?;
-        let (node, _) = self.node(&object).await?;
+        let (node, _, _) = self.node(&object).await?;
         if node
             .states
             .iter()
@@ -92,7 +92,7 @@ impl Accessibility {
             if !seen.insert(key) {
                 continue;
             }
-            let (node, count) = self.node(&object).await?;
+            let (node, count, _) = self.node(&object).await?;
             if node.states.iter().any(|s| s == "focused")
                 && node.actions.iter().any(|s| s == "setValue")
             {

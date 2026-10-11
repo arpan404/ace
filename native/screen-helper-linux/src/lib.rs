@@ -21,3 +21,4 @@ pub mod x11_capture;
 #[cfg(target_os = "linux")]
 mod x11_scale;
 pub mod frame_identity;
+pub mod references;

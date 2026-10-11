@@ -3,7 +3,7 @@ use crate::protocol::{Fault, Query, Result, internal};
 use atspi::{State, StateSet};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashSet;
 use zbus::{Connection, Proxy, zvariant::OwnedObjectPath};
 
 pub(crate) type Object = (String, OwnedObjectPath);
@@ -30,8 +30,7 @@ pub struct Node {
 }
 pub struct Accessibility {
     conn: Connection,
-    pub(crate) refs: HashMap<String, Object>,
-    order: VecDeque<String>,
+    pub(crate) refs: crate::references::References<Object>,
     pub(crate) scope: Option<Object>,
 }
 impl Accessibility {
@@ -48,8 +47,7 @@ impl Accessibility {
             .map_err(internal)?;
         Ok(Self {
             conn,
-            refs: HashMap::new(),
-            order: VecDeque::new(),
+            refs: crate::references::References::new(4096),
             scope: None,
         })
     }
@@ -182,23 +180,12 @@ impl Accessibility {
     pub fn clear(&mut self) {
         self.scope = None;
         self.refs.clear();
-        self.order.clear();
     }
     fn remember(&mut self, object: &Object) -> String {
-        let key = format!("{}{}", object.0, object.1);
-        if !self.refs.contains_key(&key) {
-            if self.refs.len() >= 4096 {
-                if let Some(old) = self.order.pop_front() {
-                    self.refs.remove(&old);
-                }
-            }
-            self.order.push_back(key.clone());
-            self.refs.insert(key.clone(), object.clone());
-        }
-        key
+        self.refs
+            .retain(format!("{}{}", object.0, object.1), object.clone())
     }
-    pub(crate) async fn node(&mut self, object: &Object) -> Result<(Node, i32)> {
-        let reference = self.remember(object);
+    pub(crate) async fn node(&mut self, object: &Object) -> Result<(Node, i32, bool)> {
         let a = self.proxy(object, "Accessible").await?;
         let name: String = a
             .get_property("Name")
@@ -209,11 +196,13 @@ impl Accessibility {
         let count: i32 = a.get_property("ChildCount").await.unwrap_or(0);
         let states: StateSet = a.call("GetState", &()).await.map_err(internal)?;
         if states.contains(State::Defunct) {
+            self.refs.remove(&format!("{}{}", object.0, object.1));
             return Err(Fault::new(
                 "target_gone",
                 "Accessibility element was destroyed",
             ));
         }
+        let mut truncated = false;
         let interfaces: Vec<String> = a.call("GetInterfaces", &()).await.unwrap_or_default();
         let has = |s: &str| interfaces.iter().any(|i| i.ends_with(s));
         let mut actions = Vec::new();
@@ -242,8 +231,9 @@ impl Accessibility {
         if has("Text") && role != "password text" {
             let text = self.proxy(object, "Text").await?;
             let length: i32 = text.get_property("CharacterCount").await.unwrap_or(0);
+            truncated |= length > 512;
             value = text
-                .call::<_, _, String>("GetText", &(0i32, length.clamp(0, 1024)))
+                .call::<_, _, String>("GetText", &(0i32, length.clamp(0, 512)))
                 .await
                 .ok();
         }
@@ -279,20 +269,20 @@ impl Accessibility {
         if !states.contains(State::Showing) {
             mapped.push("offscreen".into());
         }
-        Ok((
-            Node {
-                reference,
-                role,
-                name: clipped(&name),
-                value: value.map(|s| clipped(&s)),
-                description: clipped(&description),
-                bounds,
-                states: mapped,
-                actions,
-                children: Vec::new(),
-            },
-            count.max(0),
-        ))
+        let reference = self.remember(object);
+        let mut node = Node {
+            reference,
+            role,
+            name,
+            value,
+            description,
+            bounds,
+            states: mapped,
+            actions,
+            children: Vec::new(),
+        };
+        truncated |= bound_node(&mut node);
+        Ok((node, count.max(0), truncated))
     }
     pub async fn tree(&mut self, depth: usize, nodes: usize) -> Result<Value> {
         let mut budget = crate::traversal::Budget::new(depth, nodes)?;
@@ -315,12 +305,13 @@ impl Accessibility {
         seen: &'a mut HashSet<String>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<Node>>> + 'a>> {
         Box::pin(async move {
-            let (mut node, count) = self.node(&object).await?;
+            let (mut node, count, clipped) = self.node(&object).await?;
+            budget.truncated |= clipped;
             // Charge only this node once, not its accumulating descendants.
             if !budget.admit(serde_json::to_vec(&node).map_err(internal)?.len() + 1) {
                 return Ok(None);
             }
-            seen.insert(node.reference.clone());
+            seen.insert(format!("{}{}", object.0, object.1));
             for index in 0..count {
                 if !budget.descend(level, (count - index) as usize) {
                     break;
@@ -360,7 +351,8 @@ impl Accessibility {
             if !visited.insert(key) {
                 continue;
             }
-            let (node, count) = self.node(&object).await?;
+            let (node, count, clipped) = self.node(&object).await?;
+            truncated |= clipped;
             if matches(query, &node) {
                 let bytes = serde_json::to_vec(&node).map_err(internal)?.len() + 1;
                 if reply_bytes + bytes > 60 * 1024 {
@@ -397,8 +389,24 @@ impl Accessibility {
     }
 }
 
-fn clipped(s: &str) -> String {
-    s.chars().take(1024).collect()
+/// Return whether any field was clipped, using the shared schema's scalar counts.
+pub fn bound_node(node: &mut Node) -> bool {
+    fn bound(value: &mut String, cap: usize) -> bool {
+        let mut scalars = value.char_indices();
+        if let Some((end, _)) = scalars.nth(cap) {
+            value.truncate(end);
+            true
+        } else {
+            false
+        }
+    }
+    let mut clipped = bound(&mut node.role, 128);
+    clipped |= bound(&mut node.name, 256);
+    clipped |= bound(&mut node.description, 256);
+    if let Some(value) = &mut node.value {
+        clipped |= bound(value, 512);
+    }
+    clipped
 }
 pub fn semantic(name: &str) -> Option<&'static str> {
     match name.to_lowercase().as_str() {
