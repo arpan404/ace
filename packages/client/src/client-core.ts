@@ -114,6 +114,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   protected requests: Requests;
   #subscriptions: Subscriptions;
   #sidebar: Sidebar;
+  #collections = new Set<Sidebar>();
   #intents: Intents;
   protected notifications: Notifications;
   protected historyState: HistoryScanStatus | undefined;
@@ -168,7 +169,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             this.historyState = undefined;
             this.notifications.emit(["historyScan"]);
             this.#subscriptions.reconnect();
-            this.#sidebar.reconnect();
+            for (const sidebar of this.#collections) sidebar.reconnect();
             this.#intents.replay();
             this.#readMarkers.reconnect();
             break;
@@ -205,7 +206,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             else if (message.subscriptionId) {
               const error = new ClientError("daemon", message.code);
               this.#subscriptions.reject(message.subscriptionId, error);
-              this.#sidebar.reject(message.subscriptionId, error);
+              for (const sidebar of this.#collections)
+                sidebar.reject(message.subscriptionId, error);
             } else if (message.commandId) {
               // A refused command settles its own intent; the connection stays usable.
               if (!message.retryable)
@@ -217,7 +219,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             break;
           default:
             this.#subscriptions.receive(message);
-            this.#sidebar.receive(message);
+            for (const sidebar of this.#collections) sidebar.receive(message);
             this.#observeInputs(message);
         }
       },
@@ -227,7 +229,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         this.requests.disconnect();
         this.#subscriptions.disconnect();
         this.#intents.disconnect();
-        this.#sidebar.disconnect();
+        for (const sidebar of this.#collections) sidebar.disconnect();
       },
       (bytes) => {
         if (!this.#attachmentStreams) throw new ClientError("protocol");
@@ -246,6 +248,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       options.id,
       () => this.state === "ready",
     );
+    this.#collections.add(this.#sidebar);
     this.#intents = new Intents({
       storage: options.storage,
       device: options.deviceId,
@@ -405,6 +408,56 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   threads(): { store: Sidebar; release(): void } {
     if (this.closed) throw new ClientError("offline");
     return this.#sidebar.acquire();
+  }
+  /** A view owns its collection selection and paging while sharing this client's transport. */
+  threadsCollection() {
+    if (this.closed) throw new ClientError("offline");
+    const limits = { ...defaultLimits, ...this.options.limits };
+    if ((this.#collections.size + 1) * 2 + limits.threads > 64)
+      throw new ClientError("limit", "Thread collection subscription budget exhausted");
+    const sidebar = new Sidebar(
+      limits,
+      (message) => this.connection.send(message),
+      this.options.id,
+      () => this.state === "ready",
+    );
+    this.#collections.add(sidebar);
+    const leases = new Set<() => void>();
+    let closed = false;
+    return {
+      threads: () => {
+        if (closed) throw new ClientError("offline");
+        const lease = sidebar.acquire();
+        leases.add(lease.release);
+        return {
+          store: lease.store,
+          release: () => {
+            leases.delete(lease.release);
+            lease.release();
+          },
+        };
+      },
+      threadsWindow: async (input: {
+        project?: string | undefined;
+        archived?: boolean | undefined;
+      }) => {
+        if (closed) throw new ClientError("offline");
+        sidebar.configure(input);
+      },
+      threadsMore: async (options: RequestOptions = {}) => {
+        if (closed || this.closed || this.state !== "ready") throw new ClientError("offline");
+        const payload = sidebar.pageRequest();
+        if (payload)
+          await this.#readCore(payload, (value) => CoreServerMessage.parse(value), options);
+      },
+      close: () => {
+        if (closed) return;
+        closed = true;
+        for (const release of leases) release();
+        leases.clear();
+        this.#collections.delete(sidebar);
+      },
+    };
   }
   async enqueue(payload: CommandPayload, id = this.options.id()): Promise<string> {
     if (this.closed) throw new ClientError("offline");
