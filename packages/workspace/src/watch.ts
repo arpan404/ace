@@ -49,12 +49,24 @@ export async function watch(
       const changes = previous.apply(plan.updates, plan.removed, changed);
       if (changes.length) options.onChange(changes);
       if (mode === "polling") pollDelay = changes.length ? 1000 : Math.min(30_000, pollDelay * 2);
+      else {
+        pollDelay = 1000;
+        if (!dirty.size && !full) {
+          timer?.();
+          timer = undefined;
+        }
+      }
     } catch (error) {
       if (disposed) return;
       for (const path of changed) dirty.add(path);
       full ||= complete;
       pollDelay = Math.min(30_000, pollDelay * 2);
       warning(`Workspace watch reconciliation failed: ${String(error)}`);
+      if (mode === "native" && !timer)
+        timer = safe.runtime.clock.after(() => {
+          timer = undefined;
+          return reconcile();
+        }, pollDelay);
     }
   }
   function reconcile(): Promise<void> {
