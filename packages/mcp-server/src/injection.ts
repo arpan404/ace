@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { aceInstructions } from "./status.ts";
+import { maxToolTimeoutMs } from "./timeouts.ts";
 import type { ProviderKind } from "@ace/protocol";
 
 export const AceMcpConnectionSchema = z.strictObject({
@@ -45,7 +46,7 @@ export function codexInjection(input: AceMcpConnection) {
           "X-Ace-Instructions": "native",
           "X-Ace-Notifications": "stream",
         },
-        tool_timeout_sec: 300,
+        tool_timeout_sec: maxToolTimeoutMs / 1000,
       },
     },
     developerInstructions: developerInstructions("codex"),
@@ -54,7 +55,7 @@ export function codexInjection(input: AceMcpConnection) {
 export function claudeInjection(input: AceMcpConnection) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
   return {
-    env: { MCP_TOOL_TIMEOUT: "300000" },
+    env: { MCP_TOOL_TIMEOUT: String(maxToolTimeoutMs) },
     mcpServers: {
       ace: {
         type: "http" as const,
@@ -74,7 +75,7 @@ export function openCodeInjection(input: AceMcpConnection) {
     codemode: false,
     oauth: false as const,
     protocol: "2026-07-28" as const,
-    timeout: { execution: 300_000 },
+    timeout: { execution: maxToolTimeoutMs },
     headers: { Authorization: `Bearer ${bearer}`, "X-Ace-Notifications": "stream" },
   };
   return {

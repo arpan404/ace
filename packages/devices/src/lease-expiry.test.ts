@@ -51,3 +51,28 @@ it("disconnecting or stopping cancels expiry cleanup before a subsequent owner t
   runtime.advance(30000);
   expect(released).toEqual([]);
 });
+it("active input publishes its renewed deadline in a bounded update before displayed control expires", () => {
+  const runtime = clock();
+  const lease = new ControllerLease(runtime.now);
+  lease.claim(human);
+  const displayed: number[] = [];
+  const stop = watchDeviceLease(
+    lease,
+    runtime,
+    () => {},
+    () => {
+      const deadline = lease.status().leaseExpiresAt;
+      if (deadline !== undefined) displayed.push(deadline);
+    },
+  );
+  runtime.advance(1000);
+  lease.assert(human);
+  runtime.advance(1000);
+  lease.assert(human);
+  expect(displayed).toEqual([]);
+  runtime.advance(3000);
+  expect(displayed).toEqual([32000]);
+  runtime.advance(5000);
+  expect(displayed).toEqual([32000]);
+  stop();
+});

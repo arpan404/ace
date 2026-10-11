@@ -12,6 +12,7 @@ export function enqueueDeviceInput<T>(
   const ticket = session.lease.ticket(actor);
   if (session.pending >= 32)
     throw new DeviceError("busy", "Device input queue is full", "Wait for pending device actions.");
+  const release = session.lease.retain(actor, ticket);
   session.pending++;
   const next = session.tail
     .then(async () => {
@@ -24,10 +25,10 @@ export function enqueueDeviceInput<T>(
       const result = await run(guard);
       owner.authorize(session, actor);
       session.lease.assert(actor, ticket);
-      owner.emit(session);
       return result;
     })
     .finally(() => {
+      release();
       session.pending--;
     });
   session.tail = next.then(

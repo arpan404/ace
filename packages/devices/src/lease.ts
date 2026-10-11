@@ -3,18 +3,22 @@ export type Actor = { kind: "human" | "agent"; owner: string; threadId?: string;
 export class ControllerLease {
   private epoch = 0;
   private actor: Actor | undefined;
+  private expired: Actor | undefined;
   private deadline = 0;
+  private readonly retained = new Map<number, number>();
   private readonly now: () => number;
   constructor(now: () => number) {
     this.now = now;
   }
   claim(actor: Actor): void {
+    this.expired = undefined;
     this.actor = actor;
     this.deadline = this.now() + 30000;
     this.epoch++;
   }
   release(owner?: string): void {
-    if (owner !== undefined && this.actor?.owner !== owner) return;
+    if (owner !== undefined && this.actor?.owner !== owner && this.expired?.owner !== owner) return;
+    this.expired = undefined;
     this.actor = undefined;
     this.deadline = 0;
     this.epoch++;
@@ -24,7 +28,12 @@ export class ControllerLease {
     leaseExpiresAt?: number;
     holder?: { threadId: string; agentId: string };
   } {
-    if (this.now() >= this.deadline) this.release();
+    if (this.actor && this.retained.has(this.epoch)) this.deadline = this.now() + 30000;
+    if (this.actor && this.now() >= this.deadline) {
+      const expired = this.actor;
+      this.release();
+      this.expired = expired;
+    }
     return this.actor
       ? {
           controller: this.actor.kind,
@@ -34,6 +43,19 @@ export class ControllerLease {
             : {}),
         }
       : { controller: "none" };
+  }
+  /** Pending actions keep their ticket alive, but takeover still invalidates it. */
+  retain(actor: Actor, epoch: number): () => void {
+    this.assert(actor, epoch);
+    this.retained.set(epoch, (this.retained.get(epoch) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const count = this.retained.get(epoch) ?? 0;
+      if (count > 1) this.retained.set(epoch, count - 1);
+      else this.retained.delete(epoch);
+    };
   }
   ticket(actor: Actor): number {
     this.assert(actor);
@@ -53,6 +75,13 @@ export class ControllerLease {
     return (
       epoch === this.epoch && this.actor?.kind === actor.kind && this.actor.owner === actor.owner
     );
+  }
+  /** Resume only an expired delegation, never a revoked or transferred controller. */
+  resume(actor: Actor): boolean {
+    this.status();
+    if (actor.kind !== "agent" || this.actor || this.expired?.owner !== actor.owner) return false;
+    this.claim(actor);
+    return true;
   }
   current(): Actor | undefined {
     this.status();

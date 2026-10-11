@@ -4,6 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { expect, vi } from "vitest";
 import { harness } from "./harness.tsx";
 
+// Warm the lazy panel before test deadlines, as the browser does while idle.
+await import("@/features/shell/workspace/panel.tsx");
+
 /** One thing the page's drawing and decoding did, in the order it happened. */
 export type ScreenEvent = "drew jpeg" | "drew h264" | "decoder opened" | "decoder failed";
 
@@ -150,6 +153,7 @@ export async function openDevices() {
   const app = harness({ clock: () => Date.now() });
   app.play(flakyCheckout()).runThrough("explorer-spawned");
   await app.open("/t/thread-checkout");
+  await screen.findByRole("heading", { level: 1, name: "Fix flaky checkout test" });
   // ⌃⇧M opens the Devices tool in the side panel.
   await userEvent.keyboard("{Control>}{Shift>}m{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });

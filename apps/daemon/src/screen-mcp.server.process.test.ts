@@ -130,13 +130,10 @@ it("a configured daemon exposes scoped screen tools and returns screenshot image
     });
     await screen.mode(session.sessionId, "foreground");
     const other = createDevThread(daemon.store, workspace);
-    daemon.store.appendEvents(
-      other.id,
-      [{ type: "agent.created", agent: { ...agent, threadId: other.id } }],
-      2,
-    );
+    const otherAgent = Agent.parse({ ...agent, id: "other-root", threadId: other.id });
+    daemon.store.appendEvents(other.id, [{ type: "agent.created", agent: otherAgent }], 2);
     const otherLease = daemon.mcp.openSession(
-      { ...scope, threadId: other.id },
+      { ...scope, threadId: other.id, agentId: otherAgent.id },
       new AbortController().signal,
     );
     expect(await request(otherLease.bearer, "tools/call", "screen_ui_tree", {})).toMatchObject({

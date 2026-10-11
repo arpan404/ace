@@ -32,6 +32,8 @@ export interface LifecycleOwner {
   /** A failure nobody asked about (a live view ending on its own), for the daemon log. */
   log(message: string, session: DeviceSession, error: unknown): void;
 }
+function noop() {}
+
 export async function startDevice(
   session: DeviceSession,
   fps: number,
@@ -73,16 +75,7 @@ export async function startDevice(
     );
   session.cancelStart = cancelStart;
   const controller = new AbortController();
-  const cancel = options.runtime.after(10000, () => {
-    controller.abort();
-    firstReject?.(
-      new DeviceError(
-        "timeout",
-        "No device frame arrived",
-        "Check Screen Recording permission, ffmpeg and Android screenrecord support.",
-      ),
-    );
-  });
+  let cancel = noop;
   const opening = Promise.resolve().then(async () => {
     const device = (await owner.list()).find((candidate) => candidate.id === session.device.id);
     if (controller.signal.aborted || session.generation !== generation || !owner.enabled()) return;
@@ -134,6 +127,18 @@ export async function startDevice(
     session.capture = capture;
     if (session.startup === startup) delete session.startup;
     if (capture.streamId) session.streamId = capture.streamId;
+    cancel = options.runtime.after(10000, () => {
+      controller.abort();
+      firstReject?.(
+        new DeviceError(
+          "timeout",
+          "The live view didn't send its first frame",
+          session.device.platform === "ios"
+            ? "Restart the Simulator live view. If using the screen helper, check Screen Recording permission."
+            : "Restart the emulator live view and check that ffmpeg and Android screenrecord are installed.",
+        ),
+      );
+    });
     await first;
     if (session.generation !== generation || !owner.enabled()) {
       await session.stopping;

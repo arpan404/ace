@@ -38,7 +38,7 @@ function codexConnection(params: Record<string, unknown>) {
     .object({
       url: z.url(),
       http_headers: z.object({ Authorization: z.string() }),
-      tool_timeout_sec: z.literal(300),
+      tool_timeout_sec: z.literal(660),
     })
     .parse(native);
   return { url: server.url, headers: server.http_headers };

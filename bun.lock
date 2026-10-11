@@ -436,6 +436,7 @@
       },
       "devDependencies": {
         "@ace/files": "workspace:*",
+        "@ace/ui-core": "workspace:*",
         "@types/ws": "8.18.1",
         "ws": "8.22.0",
       },

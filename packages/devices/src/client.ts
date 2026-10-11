@@ -1,3 +1,4 @@
+import { deviceInputTimeout } from "./input-budget.ts";
 import { z } from "zod";
 import { PendingScreenshots } from "./client-screenshots.ts";
 import {
@@ -48,6 +49,7 @@ export class DeviceClientError extends Error {
 }
 export interface DeviceClientSnapshot {
   connected: boolean;
+  inventoryLoaded: boolean;
   devices: readonly Device[];
   states: readonly DeviceState[];
   issues: readonly DeviceFailure[];
@@ -87,6 +89,7 @@ export class DeviceClient {
   private readonly listeners = new Set<(snapshot: DeviceClientSnapshot) => void>();
   private readonly logListeners = new Map<string, Set<(batch: DeviceLogBatch) => void>>();
   private devices: Device[] = [];
+  private inventoryLoaded = false;
   private issues: DeviceFailure[] = [];
   private enabled: boolean | undefined;
   private connected = false;
@@ -105,9 +108,25 @@ export class DeviceClient {
       this.screenshots.retain(frame);
     });
   }
+  private acceptInventory(devices: Device[]): void {
+    this.devices = devices;
+    this.inventoryLoaded = true;
+    const ids = new Set(devices.map((device) => device.id));
+    for (const [id, state] of this.states) {
+      if (
+        !ids.has(id) &&
+        !state.approved &&
+        !state.booting &&
+        !state.cleanupRequired &&
+        ["idle", "failed"].includes(state.lifecycle)
+      )
+        this.states.delete(id);
+    }
+  }
   getSnapshot(): DeviceClientSnapshot {
     return {
       connected: this.connected,
+      inventoryLoaded: this.inventoryLoaded,
       devices: this.devices,
       issues: this.issues,
       states: [...this.states.values()],
@@ -169,6 +188,7 @@ export class DeviceClient {
     this.liveStreams.reset();
     this.states.clear();
     this.devices = [];
+    this.inventoryLoaded = false;
     this.issues = [];
     this.enabled = undefined;
     this.reader.reset();
@@ -223,7 +243,17 @@ export class DeviceClient {
             ),
           );
         },
-        operation.op === "record.stop" ? 180000 : operation.op === "boot" ? 250000 : 60000,
+        operation.op === "record.stop"
+          ? 180000
+          : operation.op === "boot"
+            ? 250000
+            : operation.op === "install"
+              ? 610000
+              : operation.op === "start"
+                ? 120000
+                : operation.op === "input"
+                  ? Math.max(60000, deviceInputTimeout(operation.input) + 5000)
+                  : 60000,
       );
       this.pending.set(message.requestId, { resolve, reject, cancel, operation });
       try {
@@ -335,7 +365,7 @@ export class DeviceClient {
         this.enabled = message.enabled;
         this.notify();
       } else if (message.type === "devices.inventory") {
-        this.devices = message.devices;
+        this.acceptInventory(message.devices);
         this.issues = message.issues;
         this.notify();
       } else if (message.type === "devices.logs") {
@@ -365,8 +395,12 @@ export class DeviceClient {
           }
           if (pending.operation.op === "list") {
             const found = inventory.parse(message.data);
-            this.devices = found.devices;
+            this.acceptInventory(found.devices);
             this.issues = found.issues;
+            this.notify();
+          }
+          if (["controller", "approve", "start", "stop"].includes(pending.operation.op)) {
+            this.putState(DeviceState.parse(message.data));
             this.notify();
           }
           if (pending.operation.op === "enable") {
@@ -397,8 +431,14 @@ export class DeviceClient {
       throw new DeviceClientError("limit", "Device state limit");
     if (previous?.streamId) this.streams.delete(previous.streamId);
     this.states.set(state.device.id, state);
-    if (state.streamId && state.lifecycle === "live")
+    if (state.streamId && state.lifecycle === "live") {
       this.streams.set(state.streamId, state.device.id);
+      if (state.streamId !== previous?.streamId || previous?.lifecycle !== "live")
+        this.liveStreams.refresh(
+          state.device.id,
+          () => void this.request({ op: "subscribe", deviceId: state.device.id }).catch(() => {}),
+        );
+    }
   }
   private failure(error: DeviceFailure | undefined): DeviceClientError {
     return error

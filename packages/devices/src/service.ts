@@ -98,7 +98,24 @@ export class DevicesService {
       if (!inventory.has(session.device.id) || device?.state !== "booted") {
         if (session.capture) await this.stop(session);
       }
-      if (changed) this.emit(session);
+      if (
+        !device &&
+        !session.threadId &&
+        !session.pending &&
+        !session.booting &&
+        !session.capture &&
+        !session.startup &&
+        !session.stopping &&
+        !session.recording &&
+        !session.recordingOpening &&
+        !session.recordingClosing &&
+        !session.completed &&
+        !session.logs.running &&
+        !session.lease.current()
+      ) {
+        await session.logs.close();
+        this.sessions.delete(session.device.id);
+      } else if (changed) this.emit(session);
     }
     this.inventory.update({ devices, issues: this.options.platform.diagnostics() });
     return devices;
@@ -118,7 +135,7 @@ export class DevicesService {
         "Device session limit",
         "Disable devices to clear idle sessions.",
       );
-    const session = createSession(Device.parse(device), this.options.runtime.now);
+    const session = createSession(Device.parse(device), this.options.runtime);
     this.sessions.set(id, session);
     return session;
   }
@@ -129,6 +146,9 @@ export class DevicesService {
       approved: session.threadId !== undefined,
       threadId: session.threadId,
       lifecycle: session.lifecycle,
+      booting: session.booting === true,
+      cleanupRequired: session.capture !== undefined && session.lifecycle === "failed",
+      recordingNotice: session.recordingNotice,
       recording: session.recording !== undefined,
       streamId: session.streamId,
       ...session.lease.status(),
@@ -318,6 +338,17 @@ export class DevicesService {
       return this.state(session);
     }
     this.authorize(session, actor);
+    if (session.lease.resume(actor)) {
+      this.watchLease(session);
+      if (session.capture?.screenSessionId && this.options.screen)
+        mirrorDeviceController(
+          session,
+          this.options.screen,
+          (control) => this.authorize(session, control),
+          () => this.emit(session),
+        );
+      this.emit(session);
+    }
     if (operation.op === "controller") {
       let requested = actor;
       if (operation.controller === "agent") {
@@ -353,21 +384,7 @@ export class DevicesService {
           () => this.emit(session),
         );
       }
-      session.leaseExpiry?.();
-      session.leaseExpiry = watchDeviceLease(session.lease, this.options.runtime, () => {
-        void session.capture
-          ?.releaseInput?.()
-          .catch((error) =>
-            this.options.log?.("warn", "Device input cleanup failed", { message: String(error) }),
-          );
-        try {
-          if (session.capture?.screenSessionId && this.options.screen)
-            this.options.screen.controller(session.capture.screenSessionId, "none");
-          this.emit(session);
-        } catch (error) {
-          this.options.log?.("warn", "Device lease cleanup failed", { message: String(error) });
-        }
-      });
+      this.watchLease(session);
       this.emit(session);
       return this.state(session);
     }
@@ -437,7 +454,8 @@ export class DevicesService {
         await this.startLogs(session, actor);
         return { started: true };
       case "logs.stop":
-        await session.logs.stop();
+        session.logOwners.delete(actor.owner);
+        if (!session.logOwners.size) await session.logs.stop();
         return { stopped: true };
       case "logs":
         await this.startLogs(session, actor);
@@ -453,14 +471,47 @@ export class DevicesService {
         return result;
       }
       default: {
-        const result = await this.enqueue(session, actor, (guard) =>
-          performDeviceAction(this.options.platform, session, actor, operation, guard),
-        );
-        // Booting changes the device's state; read it now rather than at the next poll.
-        if (operation.op === "boot") await this.settled();
+        if (operation.op === "boot") {
+          session.booting = true;
+          this.emit(session);
+        }
+        let result;
+        try {
+          result = await this.enqueue(session, actor, (guard) =>
+            performDeviceAction(this.options.platform, session, actor, operation, guard),
+          );
+          if (operation.op === "boot") await this.settled();
+        } finally {
+          if (operation.op === "boot") {
+            session.booting = false;
+            this.emit(session);
+          }
+        }
         return result;
       }
     }
+  }
+  private watchLease(session: DeviceSession): void {
+    session.leaseExpiry?.();
+    session.leaseExpiry = watchDeviceLease(
+      session.lease,
+      this.options.runtime,
+      () => {
+        void session.capture
+          ?.releaseInput?.()
+          .catch((error) =>
+            this.options.log?.("warn", "Device input cleanup failed", { message: String(error) }),
+          );
+        try {
+          if (session.capture?.screenSessionId && this.options.screen)
+            this.options.screen.controller(session.capture.screenSessionId, "none");
+          this.emit(session);
+        } catch (error) {
+          this.options.log?.("warn", "Device lease cleanup failed", { message: String(error) });
+        }
+      },
+      () => this.emit(session),
+    );
   }
   /** Read the inventory again after a lifecycle change; watchers hear the new state. */
   private async settled(): Promise<void> {
@@ -493,6 +544,9 @@ export class DevicesService {
     return result;
   }
   private async startLogs(session: DeviceSession, actor: Actor): Promise<void> {
+    if (!session.logOwners.has(actor.owner) && session.logOwners.size >= 64)
+      throw new DeviceError("limit", "Too many device log readers", "Close an unused log view.");
+    session.logOwners.add(actor.owner);
     if (session.logs.running) return;
     const generation = session.generation;
     const spec = await this.options.platform.logs(session.device);
@@ -574,7 +628,8 @@ export class DevicesService {
     viewer.guard();
     const stop = session.hub.subscribe(async (frame) => {
       viewer.guard();
-      if (session.approvalEpoch !== epoch) throw new Error("Device approval changed");
+      if (actor.kind === "agent" && session.approvalEpoch !== epoch)
+        throw new Error("Device approval changed");
       this.authorize(session, actor);
       await sink(frame);
     }, session.latest);
@@ -612,6 +667,8 @@ export class DevicesService {
   disconnect(owner: string): void {
     this.streamOwners.disconnect(owner);
     for (const session of this.sessions.values()) {
+      session.logOwners.delete(owner);
+      if (!session.logOwners.size) void session.logs.stop().catch(() => {});
       if (session.pendingController === owner) {
         session.controlRevision++;
         delete session.pendingController;
@@ -621,10 +678,11 @@ export class DevicesService {
         .catch((error) =>
           this.options.log?.("warn", "Device stream update failed", { message: String(error) }),
         );
-      if (session.lease.owned(owner)) {
+      const owned = session.lease.owned(owner);
+      session.lease.release(owner);
+      if (owned) {
         session.leaseExpiry?.();
         delete session.leaseExpiry;
-        session.lease.release(owner);
         void session.capture
           ?.releaseInput?.()
           .catch((error) =>

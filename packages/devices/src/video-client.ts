@@ -2,7 +2,8 @@
 import type { ScreenFrameHeader, ScreenStreamSettings } from "@ace/protocol";
 import type { PortableFrame } from "@ace/screen/frames-client";
 
-const even = (value: number) => Math.max(64, Math.ceil(value / 2) * 2);
+const bucket = (value: number, limit: number) =>
+  Math.min(limit, Math.max(64, Math.ceil(value / 64) * 64));
 export type DeviceConnection = "local" | "remote" | "relay";
 /** Panel dimensions are physical pixels. Preserve aspect ratio in the native capture. */
 export function deviceStreamProfile(
@@ -20,11 +21,13 @@ export function deviceStreamProfile(
   const factor = 1 / (1 + Math.max(0, Math.min(3, pressure)) * 0.5);
   return {
     codec: video ? "h264" : "jpeg",
-    maxWidth: even(
+    maxWidth: bucket(
       Math.min(panel.width, limits[0] ?? 3840) * (connection === "local" ? 1 : factor),
+      limits[0] ?? 3840,
     ),
-    maxHeight: even(
+    maxHeight: bucket(
       Math.min(panel.height, limits[1] ?? 2160) * (connection === "local" ? 1 : factor),
+      limits[1] ?? 2160,
     ),
     fps: pressure ? 30 : (limits[2] ?? 30),
     bitrate: Math.max(128000, Math.round((limits[3] ?? 2500000) * factor * factor)),
