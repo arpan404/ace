@@ -178,13 +178,22 @@ test("resolution only accepts a thread from the selected PR and host permission"
         () => true,
       ),
     ).rejects.toMatchObject({ kind: "forbidden" });
-    expect((await f.requests()).length).toBe(1);
+    expect(
+      (await f.requests()).some(
+        (r) =>
+          typeof r.body === "object" &&
+          r.body !== null &&
+          "query" in r.body &&
+          typeof r.body.query === "string" &&
+          r.body.query.trimStart().startsWith("mutation"),
+      ),
+    ).toBe(false);
   } finally {
     await f.cleanup();
   }
 });
 
-test("GitHub viewed marks are read across clients and checked against the selected head", async () => {
+test("GitHub viewed marks are read from the host and checked against the selected head", async () => {
   const viewed = {
     data: {
       repository: {

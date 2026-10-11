@@ -1,3 +1,4 @@
+import { assertGraphqlResult } from "./graphql-errors.ts";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import type { ForgePrRef } from "@ace/protocol/forge";
@@ -203,14 +204,14 @@ export class GitHubReviews {
       query: `mutation($input:${name[0]?.toUpperCase()}${name.slice(1)}Input!){ ${name}(input:$input){ clientMutationId } }`,
       variables: { input },
     });
+    assertGraphqlResult(response.body);
     const result = decode(
       z.object({
         data: z.record(z.string(), z.object({ clientMutationId: text.nullable() }).nullable()),
-        errors: z.array(z.unknown()).optional(),
       }),
       response.body,
     );
-    if (result.errors?.length || !result.data[name]) throw new ForgeError("forbidden");
+    if (!result.data[name]) throw new ForgeError("invalid_data");
   }
   async write(
     number: number,
@@ -219,9 +220,14 @@ export class GitHubReviews {
     operationId: string,
     signal: AbortSignal,
     allowed: () => boolean,
+    beforeWrite: () => void = () => {},
   ) {
     const host = await this.host(number, signal);
-    if (!allowed()) throw new ForgeError("cancelled");
+    const dispatch = () => {
+      if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
+      beforeWrite();
+    };
+    if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
     const marker = reviewWriteMarker(operationId);
     if (action.kind === "submit") {
       if (host.pr.state !== "OPEN" || host.pr.headRefOid !== action.headSha)
@@ -247,6 +253,7 @@ export class GitHubReviews {
       if (latest.pr.headRefOid !== action.headSha || latest.pr.state !== "OPEN")
         throw new ForgeError("conflict");
       if (!allowed()) throw new ForgeError("cancelled");
+      dispatch();
       const response = await this.#api.request(`${this.#root}/pulls/${number}/reviews`, signal, {
         commit_id: action.headSha,
         event: action.event,
@@ -278,6 +285,7 @@ export class GitHubReviews {
         action.kind === "reply"
           ? `pulls/${number}/comments/${action.commentId}/replies`
           : `issues/${number}/comments`;
+      dispatch();
       decode(
         Comment,
         (
@@ -294,6 +302,7 @@ export class GitHubReviews {
       if (c.body !== action.expectedBody) throw new ForgeError("conflict");
       if (!allowed()) throw new ForgeError("cancelled");
       const path = `${this.#root}/${action.source === "inline" ? "pulls" : "issues"}/comments/${action.commentId}`;
+      dispatch();
       await this.#api.request(
         path,
         signal,
@@ -306,6 +315,7 @@ export class GitHubReviews {
       const t = host.threads.find((entry) => entry.id === action.threadId);
       if (!t || !(action.kind === "thread.resolve" ? t.viewerCanResolve : t.viewerCanUnresolve))
         throw new ForgeError("forbidden");
+      dispatch();
       await this.#mutation(
         action.kind === "thread.resolve" ? "resolveReviewThread" : "unresolveReviewThread",
         { threadId: t.id, clientMutationId: operationId },
@@ -318,6 +328,7 @@ export class GitHubReviews {
       if (!(await this.viewed(number, action.headSha, signal)).some((f) => f.path === action.path))
         throw new ForgeError("not_found");
       if (!allowed()) throw new ForgeError("cancelled");
+      dispatch();
       await this.#mutation(
         action.kind === "file.view" ? "markFileAsViewed" : "unmarkFileAsViewed",
         { pullRequestId: host.pr.id, path: action.path, clientMutationId: operationId },

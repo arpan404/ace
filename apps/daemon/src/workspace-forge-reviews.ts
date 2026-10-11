@@ -1,3 +1,4 @@
+import { completePendingForgeReceipt } from "./forge-write-receipts.ts";
 import { z } from "zod";
 import {
   ForgeHostedReviewCommand,
@@ -14,12 +15,20 @@ export class WorkspaceForgeReviews {
   readonly #store: Store;
   constructor(store: Store) {
     this.#store = store;
-    store.atomic((db) =>
+    store.atomic((db) => {
       db.exec(`
       CREATE TABLE IF NOT EXISTS forge_hosted_drafts (scope TEXT NOT NULL, id TEXT NOT NULL, draft TEXT NOT NULL, PRIMARY KEY(scope,id));
       CREATE TABLE IF NOT EXISTS forge_hosted_writes (id TEXT PRIMARY KEY, scope TEXT NOT NULL, action TEXT NOT NULL, drafts TEXT NOT NULL, state TEXT NOT NULL);
-    `),
-    );
+      CREATE INDEX IF NOT EXISTS forge_hosted_write_scope ON forge_hosted_writes(scope,state);
+    `);
+      // Repair receipts left pending by the former acceptance/receipt crash window.
+      for (const row of db
+        .prepare(
+          "SELECT w.id FROM forge_hosted_writes w JOIN command_receipts c ON c.command_id=w.id WHERE w.state='accepted' AND json_extract(c.result,'$.error')='client_action_pending'",
+        )
+        .all())
+        completePendingForgeReceipt(store, z.string().parse(row.id), { ok: true });
+    });
   }
   #drafts(pr: ForgePrRef) {
     return this.#store
@@ -39,6 +48,7 @@ export class WorkspaceForgeReviews {
           draft.id,
           JSON.stringify(draft),
         );
+      completePendingForgeReceipt(this.#store, id, { ok: true });
     });
   }
   async state(
@@ -79,6 +89,27 @@ export class WorkspaceForgeReviews {
       operations,
     };
   }
+  #assertAvailable(pr: ForgePrRef, action: ForgeReviewAction) {
+    const unresolved = this.#store.atomic((db) =>
+      db
+        .prepare(
+          "SELECT action FROM forge_hosted_writes WHERE scope=? AND state='uncertain' LIMIT 101",
+        )
+        .all(scope(pr)),
+    );
+    if (unresolved.length >= 100) throw new ForgeError("limit");
+    const encoded = JSON.stringify(action);
+    if (
+      unresolved.some((row) => {
+        if (row.action === encoded) return true;
+        if (action.kind !== "submit") return false;
+        const prior = ForgeReviewAction.parse(JSON.parse(z.string().parse(row.action)));
+        return prior.kind === "submit" && prior.draftIds.some((id) => action.draftIds.includes(id));
+      })
+    )
+      throw new Error("action_outcome_uncertain");
+  }
+
   async execute(
     input: unknown,
     commandId: string,
@@ -104,24 +135,34 @@ export class WorkspaceForgeReviews {
         db.prepare(
           "INSERT INTO forge_hosted_drafts VALUES (?,?,?) ON CONFLICT(scope,id) DO UPDATE SET draft=excluded.draft",
         ).run(scope(pr), action.draft.id, JSON.stringify(action.draft));
+        completePendingForgeReceipt(this.#store, commandId, { ok: true });
       });
       return;
     }
     if (action.kind === "draft.delete") {
-      this.#store.atomic((db) =>
-        db
-          .prepare("DELETE FROM forge_hosted_drafts WHERE scope=? AND id=?")
-          .run(scope(pr), action.id),
-      );
+      this.#store.atomic((db) => {
+        db.prepare("DELETE FROM forge_hosted_drafts WHERE scope=? AND id=?").run(
+          scope(pr),
+          action.id,
+        );
+        completePendingForgeReceipt(this.#store, commandId, { ok: true });
+      });
       return;
     }
     if (action.kind === "reconcile") {
       const row = this.#store.atomic((db) =>
         db
-          .prepare("SELECT action,drafts FROM forge_hosted_writes WHERE id=? AND scope=?")
+          .prepare("SELECT action,drafts,state FROM forge_hosted_writes WHERE id=? AND scope=?")
           .get(action.operationId, scope(pr)),
       );
       if (!row) throw new ForgeError("not_found");
+      if (row.state === "accepted") {
+        this.#store.atomic(() => {
+          completePendingForgeReceipt(this.#store, action.operationId, { ok: true });
+          completePendingForgeReceipt(this.#store, commandId, { ok: true });
+        });
+        return;
+      }
       const original = ForgeReviewAction.parse(JSON.parse(z.string().parse(row.action)));
       const drafts = z
         .array(ForgeReviewDraft)
@@ -129,52 +170,38 @@ export class WorkspaceForgeReviews {
         .parse(JSON.parse(z.string().parse(row.drafts)));
       if (!(await backend.reviews.reconcile(pr.number, original, action.operationId, signal)))
         throw new Error("action_outcome_uncertain");
-      this.#accepted(action.operationId, pr, drafts);
+      this.#store.atomic(() => {
+        this.#accepted(action.operationId, pr, drafts);
+        completePendingForgeReceipt(this.#store, commandId, { ok: true });
+      });
       return;
     }
     const drafts =
       action.kind === "submit"
         ? this.#drafts(pr).filter((d) => action.draftIds.includes(d.id))
         : [];
-    // A new command must not repeat an identical unresolved write after reconnect.
-    const encoded = JSON.stringify(action);
-    const previous = this.#store.atomic((db) =>
-      db
-        .prepare(
-          "SELECT id FROM forge_hosted_writes WHERE scope=? AND action=? AND state='uncertain' LIMIT 1",
-        )
-        .get(scope(pr), encoded),
-    );
-    if (previous) throw new Error("action_outcome_uncertain");
-    const unresolved = this.#store.atomic((db) =>
-      db
-        .prepare(
-          "SELECT action FROM forge_hosted_writes WHERE scope=? AND state='uncertain' LIMIT 101",
-        )
-        .all(scope(pr)),
-    );
-    if (unresolved.length >= 100) throw new ForgeError("limit");
-    if (
-      action.kind === "submit" &&
-      unresolved.some((row) => {
-        const prior = ForgeReviewAction.parse(JSON.parse(z.string().parse(row.action)));
-        return prior.kind === "submit" && prior.draftIds.some((id) => action.draftIds.includes(id));
-      })
-    )
-      throw new Error("action_outcome_uncertain");
-    this.#store.atomic((db) =>
-      db
-        .prepare("INSERT INTO forge_hosted_writes VALUES (?,?,?,?,'uncertain')")
-        .run(commandId, scope(pr), encoded, JSON.stringify(drafts)),
-    );
+    this.#assertAvailable(pr, action);
+    let started = false;
     try {
-      await backend.reviews.write(pr.number, action, drafts, commandId, signal, allowed);
+      await backend.reviews.write(pr.number, action, drafts, commandId, signal, allowed, () => {
+        this.#store.atomic((db) => {
+          this.#assertAvailable(pr, action);
+          db.prepare("INSERT INTO forge_hosted_writes VALUES (?,?,?,?,'uncertain')").run(
+            commandId,
+            scope(pr),
+            JSON.stringify(action),
+            JSON.stringify(drafts),
+          );
+        });
+        started = true;
+      });
       this.#accepted(commandId, pr, drafts);
     } catch (error) {
+      if (!started) throw error;
       // HTTP refusals establish that GitHub rejected this write. Transport loss does not.
       if (
         error instanceof ForgeError &&
-        ["forbidden", "not_found", "conflict", "unsupported"].includes(error.kind)
+        ["forbidden", "not_found", "conflict", "unsupported", "rate_limit"].includes(error.kind)
       ) {
         this.#store.atomic((db) =>
           db.prepare("DELETE FROM forge_hosted_writes WHERE id=?").run(commandId),
