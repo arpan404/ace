@@ -58,6 +58,8 @@ export interface WorkspaceActions {
   setWorkCard(patch: Partial<WorkCardState>): void;
   toggle(): void;
   setExpanded(expanded: boolean): void;
+  setDock(dock: "side" | "bottom"): void;
+  setBottomSize(size: number, persist: boolean): void;
   /** Live while dragging; `persist` when the gesture ends. Also becomes the preferred width. */
   setSize(size: number, persist: boolean): void;
 }
@@ -239,6 +241,14 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
       if (store.get(scope).open) change((workspace) => setPanelOpen(workspace, false));
       else show();
     },
+    setDock: (dock) =>
+      change((workspace) => (workspace.dock === dock ? workspace : { ...workspace, dock })),
+    setBottomSize: (bottomSize, persist) =>
+      change(
+        (workspace) =>
+          workspace.bottomSize === bottomSize ? workspace : { ...workspace, bottomSize },
+        persist,
+      ),
     setExpanded: (expanded) => {
       if (expanded && !store.get(scope).tabs.length) show();
       change((workspace) => setExpanded(workspace, expanded));

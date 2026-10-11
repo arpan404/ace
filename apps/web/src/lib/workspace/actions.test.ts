@@ -102,3 +102,28 @@ test("when the kinds can't load, a close keeps the tab", async () => {
   expect(await actions.close("shell:live-1")).toBe(false);
   expect(keys()).toContain("shell:live-1");
 });
+
+test("docking a panel preserves its open resource and remembers separate side and bottom sizes across reloads", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+  };
+  const store = new WorkspaceStore({ storage });
+  const actions = workspaceActions(store, "pr-project");
+  actions.open({ kind: "pull-request", id: "repo/7", title: "#7" });
+  actions.setSize(520, true);
+  actions.setBottomSize(320, true);
+  actions.setDock("bottom");
+  const restored = new WorkspaceStore({ storage });
+  const workspace = restored.get("pr-project");
+  expect(workspace.dock).toBe("bottom");
+  expect(workspace.bottomSize).toBe(320);
+  expect(workspace.active).toBe("pull-request:repo/7");
+  expect(workspace.open).toBe(true);
+  workspaceActions(restored, "pr-project").setDock("side");
+  expect(restored.get("pr-project").size).toBe(520);
+  expect(restored.get("pr-project").active).toBe("pull-request:repo/7");
+});

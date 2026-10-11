@@ -2,6 +2,7 @@ import {
   ArrowsInSimpleIcon,
   ArrowsOutSimpleIcon,
   SquareSplitHorizontalIcon,
+  SquareSplitVerticalIcon,
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import type { KeymapId } from "@/lib/keymap.ts";
@@ -28,6 +29,7 @@ export function PanelControls(props: {
   actions: WorkspaceActions;
   /** In the panel's own strip (it is showing) or in the header (it is not). */
   placement: "header" | "panel";
+  dockable?: boolean | undefined;
   renderAction?: ((action: PanelControlAction) => ReactNode) | undefined;
 }) {
   const { workspace, actions } = props;
@@ -49,14 +51,32 @@ export function PanelControls(props: {
           onClick={() => withViewTransition(() => actions.setExpanded(!workspace.expanded))}
         />
       )}
-      <IconButton
-        icon={SquareSplitHorizontalIcon}
-        label={phone ? "Changes" : "Right panel"}
-        shortcut="rightPanel"
-        data-panel-toggle
-        pressed={workspace.open}
-        onClick={() => (phone ? actions.open({ kind: "changes" }) : actions.toggle())}
-      />
+      {props.dockable && props.placement === "panel" && !phone && (
+        <>
+          <IconButton
+            icon={SquareSplitVerticalIcon}
+            label="Dock panel at bottom"
+            pressed={workspace.dock === "bottom"}
+            onClick={() => actions.setDock("bottom")}
+          />
+          <IconButton
+            icon={SquareSplitHorizontalIcon}
+            label="Dock panel at side"
+            pressed={workspace.dock !== "bottom"}
+            onClick={() => actions.setDock("side")}
+          />
+        </>
+      )}
+      {(!props.dockable || props.placement === "header" || phone) && (
+        <IconButton
+          icon={SquareSplitHorizontalIcon}
+          label={phone ? "Changes" : "Right panel"}
+          shortcut="rightPanel"
+          data-panel-toggle
+          pressed={workspace.open}
+          onClick={() => (phone ? actions.open({ kind: "changes" }) : actions.toggle())}
+        />
+      )}
     </div>
   );
 }

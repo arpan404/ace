@@ -41,6 +41,8 @@ export interface ScopeWorkspace {
   size: number | undefined;
   /** The panel fills the work area and the main column steps aside. */
   expanded: boolean;
+  dock?: "side" | "bottom" | undefined;
+  bottomSize?: number | undefined;
   workCard?: WorkCardState | undefined;
 }
 
@@ -297,6 +299,8 @@ const PanelSchema = z.object({
   size: z.optional(z.number()),
 });
 const CurrentSchema = z.object({
+  dock: z.optional(z.enum(["side", "bottom"])),
+  bottomSize: z.optional(z.number().check(z.gte(0), z.lte(10_000))),
   ...PanelSchema.shape,
   expanded: z.catch(z.boolean(), false),
   workCard: z.optional(
@@ -347,6 +351,8 @@ export function sanitize(stored: Stored): ScopeWorkspace {
     active: active ?? ordered[0]?.key,
     open,
     size: workspace.size,
+    dock: workspace.dock,
+    bottomSize: workspace.bottomSize,
     expanded: workspace.expanded && open,
     ...(workspace.workCard ? { workCard: workspace.workCard } : {}),
   };

@@ -1,3 +1,4 @@
+import { DiffCode, DiffCodeScope } from "./diff-code.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { CaretDownIcon, CodeIcon, PlusIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
@@ -75,13 +76,15 @@ export function FileDiffBlock(props: {
   wrap: boolean;
   highlighted(target: LineTarget): boolean;
   renderAnnotation(target: LineTarget): ReactNode;
-  onComment(range: LineRange): void;
+  onComment?: ((range: LineRange) => void) | undefined;
   /** The lines of the comment being written here, which a shift-click extends. */
   selection?: LineRange | undefined;
   /** Marked viewed at this version of the diff: the path dims. */
-  viewed?: boolean;
+  viewed?: boolean | undefined;
   /** The header's trailing controls (Viewed, file actions). */
   actions?: ReactNode;
+  statusIcon?: ReactNode;
+  whitespace?: boolean | undefined;
 }) {
   const { file, view, onView } = props;
   const { open, expanded, asText } = view;
@@ -94,7 +97,7 @@ export function FileDiffBlock(props: {
   const indexOf = new Map(file.rows.map((row, index) => [row, index]));
   // A drag from a line's + across more lines picks them; the comment opens on release.
   const startPick = (target: LineTarget, event: PointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || !props.onComment) return;
     event.preventDefault();
     const from =
       event.shiftKey && props.selection?.side === target.side ? props.selection.start : target.line;
@@ -115,7 +118,7 @@ export function FileDiffBlock(props: {
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
       setDrag(undefined);
-      props.onComment(range);
+      props.onComment?.(range);
     };
     window.addEventListener("pointerover", move);
     window.addEventListener("pointerup", end);
@@ -130,64 +133,70 @@ export function FileDiffBlock(props: {
     if (index !== undefined) onView({ ...view, expanded: new Set(expanded).add(index) });
   };
   return (
-    <section id={props.id} aria-label={file.path} className="min-w-0">
-      <div className="sticky top-0 z-[1] flex h-8 items-center gap-1 bg-panel pr-2 shadow-[0_1px_0_var(--border)]">
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => onView({ ...view, open: !open })}
-          className="flex h-8 min-w-0 flex-1 items-center gap-2 pl-3.5 text-left font-mono text-sm text-muted-foreground outline-none hover:text-foreground focus-ring-inset"
-        >
-          <CaretDownIcon
-            aria-hidden
-            size={14}
-            className={cn(
-              "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
-              !open && "-rotate-90",
+    <DiffCodeScope path={file.path} rows={rows} whitespace={props.whitespace}>
+      <section id={props.id} aria-label={file.path} className="min-w-0">
+        <div className="sticky top-0 z-[1] flex h-8 items-center gap-1 bg-panel pr-2 shadow-[0_1px_0_var(--border)]">
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => onView({ ...view, open: !open })}
+            className="flex h-8 min-w-0 flex-1 items-center gap-2 pl-3.5 text-left font-mono text-sm text-muted-foreground outline-none hover:text-foreground focus-ring-inset"
+          >
+            <CaretDownIcon
+              aria-hidden
+              size={14}
+              className={cn(
+                "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
+                !open && "-rotate-90",
+              )}
+            />
+            {props.statusIcon ?? (
+              <CodeIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
             )}
-          />
-          <CodeIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
-          <span className={cn("min-w-0 truncate", props.viewed && "opacity-70")}>
-            {file.movedFrom && <span>{file.movedFrom} → </span>}
-            {file.path.slice(0, slash + 1)}
-            <b className="font-medium text-foreground">{file.path.slice(slash + 1)}</b>
-          </span>
-          {file.status !== "modified" && (
-            <span className="shrink-0 font-sans text-xs text-subtle-foreground">{file.status}</span>
-          )}
-          <DiffStat
-            additions={file.additions}
-            deletions={file.deletions}
-            className="ml-auto shrink-0 text-sm"
-          />
-        </button>
-        {props.actions}
-      </div>
-      {open && renderer !== "dom" && !asText && (
-        <Suspense fallback={<Spinner label="Loading the diff renderer" className="m-3.5" />}>
-          <GpuDiff
-            path={file.path}
-            rows={rows}
-            renderer={renderer}
-            onShowText={() => onView({ ...view, asText: true })}
-          />
-        </Suspense>
-      )}
-      {open && (renderer === "dom" || asText) && (
-        <div
-          className={cn(
-            "font-mono text-sm leading-5",
-            props.wrap ? "whitespace-pre-wrap break-all" : "overflow-x-auto whitespace-pre",
-          )}
-        >
-          {props.mode === "unified" ? (
-            <Unified rows={rows} expand={expand} {...props} {...picking} />
-          ) : (
-            <Split rows={rows} expand={expand} {...props} {...picking} />
-          )}
+            <span className={cn("min-w-0 truncate", props.viewed && "opacity-70")}>
+              {file.movedFrom && <span>{file.movedFrom} → </span>}
+              {file.path.slice(0, slash + 1)}
+              <b className="font-medium text-foreground">{file.path.slice(slash + 1)}</b>
+            </span>
+            {file.status !== "modified" && (
+              <span className="shrink-0 font-sans text-xs text-subtle-foreground">
+                {file.status}
+              </span>
+            )}
+            <DiffStat
+              additions={file.additions}
+              deletions={file.deletions}
+              className="ml-auto shrink-0 text-sm"
+            />
+          </button>
+          {props.actions}
         </div>
-      )}
-    </section>
+        {open && renderer !== "dom" && !asText && (
+          <Suspense fallback={<Spinner label="Loading the diff renderer" className="m-3.5" />}>
+            <GpuDiff
+              path={file.path}
+              rows={rows}
+              renderer={renderer}
+              onShowText={() => onView({ ...view, asText: true })}
+            />
+          </Suspense>
+        )}
+        {open && (renderer === "dom" || asText) && (
+          <div
+            className={cn(
+              "font-mono text-sm leading-5",
+              props.wrap ? "whitespace-pre-wrap break-all" : "overflow-x-auto whitespace-pre",
+            )}
+          >
+            {props.mode === "unified" ? (
+              <Unified rows={rows} expand={expand} {...props} {...picking} />
+            ) : (
+              <Split rows={rows} expand={expand} {...props} {...picking} />
+            )}
+          </div>
+        )}
+      </section>
+    </DiffCodeScope>
   );
 }
 
@@ -347,7 +356,7 @@ function Gutter(props: { line: DiffLine; value: number | undefined }) {
 function Code(props: {
   line: DiffLine;
   target: LineTarget | undefined;
-  onComment(range: LineRange): void;
+  onComment?: ((range: LineRange) => void) | undefined;
   onPick(target: LineTarget, event: PointerEvent<HTMLButtonElement>): void;
 }) {
   const { target } = props;
@@ -355,8 +364,8 @@ function Code(props: {
   return (
     <span className="relative min-w-0 pl-3" data-side={target?.side} data-line={target?.line}>
       <span className="sr-only">{sign}</span>
-      {props.line.text || " "}
-      {target && (
+      <DiffCode line={props.line} />
+      {target && props.onComment && (
         <Tip label={`Comment on ${target.side === "old" ? "old " : ""}line ${target.line}`}>
           <button
             type="button"
@@ -365,7 +374,7 @@ function Code(props: {
             // A pointer picks on release (above); a key press comments on this line alone.
             onClick={(event) => {
               if (event.detail === 0)
-                props.onComment({ side: target.side, start: target.line, end: target.line });
+                props.onComment?.({ side: target.side, start: target.line, end: target.line });
             }}
             className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-xs bg-ring text-white opacity-0 transition-opacity duration-(--dur-1) group-hover/line:opacity-100 focus-visible:opacity-100 pointer-coarse:bg-transparent pointer-coarse:text-muted-foreground pointer-coarse:opacity-100"
           >
