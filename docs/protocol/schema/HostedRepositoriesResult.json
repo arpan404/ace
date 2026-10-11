@@ -39,6 +39,10 @@
         },
         {
           "properties": {
+            "canStop": {
+              "default": false,
+              "type": "boolean"
+            },
             "kind": {
               "const": "publication",
               "type": "string"
@@ -52,6 +56,10 @@
                   "type": "null"
                 }
               ]
+            },
+            "running": {
+              "default": false,
+              "type": "boolean"
             }
           },
           "required": [

@@ -15,3 +15,16 @@ An empty repository creates the hosted repository and origin and reports `empty`
 Creation can remain uncertain if GitHub does not expose the exact requested repository after dispatch. ace conservatively refuses another create. It does not auto-initialize Git, commit user files, modify CLI login, collect credentials, remove remote repositories or overwrite existing origin. A user changing GitHub metadata outside ace can require manual reconciliation. Normal clone access continues through the person's Git setup.
 
 Primary contracts: [authenticated repositories / user and organization creation](https://docs.github.com/en/rest/repos/repos), [GitHub CLI API](https://cli.github.com/manual/gh_api).
+
+
+Publication safety review
+
+Before every push, the Git service pins HEAD and scans its tracked files and all newly reachable commit, tree and blob objects, excluding locally verifiable commits advertised by the destination. Historical tree names are checked separately so renaming an already-remote blob to `.env` cannot evade detection. Deleted/ignored files in unpushed history still block publication. Private-key markers, credential-bearing URLs and the shared `@ace/redaction` secret patterns are checked without logging matched content. Sensitive paths include `.env*`, private-key containers and credential stores. The public/private choice does not bypass the scan.
+
+The scan fails closed for incomplete history, missing objects, Git LFS pointers and exceeded limits: 2,000 remote tips, 100,000 objects, 8 MiB per object, 128 MiB total content and 8 MiB metadata. Users receive cleanup guidance, including rotating exposed credentials and manually preparing clean history. ace never rewrites history. Scan and push use the same pinned revision and destination.
+
+Creation admission and dispatch are separate durable facts. A synchronous transport callback records possible dispatch before spawning the write process; confirmed pre-dispatch failures restore an editable intent. An interrupted pending admission is retryable, while legacy/possibly dispatched attempts remain conservative. Confirmed create conflicts report a taken name and cannot adopt a competing writer's repository.
+
+Git mutation guards run after serial admission, after metadata reads and at process spawn. Preference changes abort pending Git work. The daemon reports running work and whether the originating device can stop it; reopened/reconnected dialogs offer Stop and disable Resume while active. Completed command receipts update reopened dialogs.
+
+Git object traversal and byte framing follow [rev-list](https://git-scm.com/docs/git-rev-list), [cat-file](https://git-scm.com/docs/git-cat-file) and [ls-remote](https://git-scm.com/docs/git-ls-remote).

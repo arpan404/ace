@@ -75,3 +75,16 @@ test("publication fails closed for an object too large to scan", async () => {
     await expect(f.git(remote, ["rev-parse", "--verify", "HEAD"])).rejects.toThrow();
   } finally { await f.cleanup(); }
 });
+
+
+test("publication cannot upload unscanned tag messages through automatic tag following", async () => {
+  const f = await setup();
+  try {
+    const remote = await configure(f);
+    await commit(f, "readme", "safe");
+    await f.git(f.path, ["config", "push.followTags", "true"]);
+    await f.git(f.path, ["tag", "-a", "secret-tag", "-m", "ghp_" + "x".repeat(32)]);
+    expect(await f.publish()).toMatchObject({ ok: true, publication: { phase: "pushed" } });
+    await expect(f.git(remote, ["rev-parse", "--verify", "refs/tags/secret-tag"])).rejects.toThrow();
+  } finally { await f.cleanup(); }
+});

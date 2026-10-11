@@ -74,6 +74,8 @@ export async function pushPublication(
       [
         ...transport,
         "push",
+        "--no-follow-tags",
+        "--recurse-submodules=no",
         "--",
         input.url,
         `${info.head}:refs/heads/${info.branch}`,
@@ -86,6 +88,7 @@ export async function pushPublication(
         timeoutMs: 120_000,
         captureBytes: 65536,
         env: {
+          GIT_NO_REPLACE_OBJECTS: "1",
           GIT_TERMINAL_PROMPT: "0",
           GCM_INTERACTIVE: "never",
           GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
