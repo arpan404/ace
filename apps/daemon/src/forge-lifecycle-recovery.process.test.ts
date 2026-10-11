@@ -280,3 +280,56 @@ test("a delayed detail read cannot reopen linked threads after a lifecycle close
     await f.cleanup();
   }
 });
+
+test("a newer lifecycle refresh after an external close fences an older detail publication", async () => {
+  let release = noop;
+  let entered = noop;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const delayed = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let hold = true;
+  const f = await setupLifecycle(makeFixtures(false), async (request, run) => {
+    const response = await run(request);
+    if (hold && request.args[1]?.includes("check-runs")) {
+      hold = false;
+      entered();
+      await held;
+    }
+    return response;
+  });
+  try {
+    const thread = Thread.parse({
+      id: "linked",
+      workspaceId: f.workspaceId,
+      provider: "codex",
+      title: "Task",
+      status: { state: "new" },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    f.store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
+    f.store.atomic((db) =>
+      new ForgeStore(db).link({ threadId: thread.id, pr: { repository, number: 7 } }),
+    );
+    await f.read();
+    const detail = f.runtime.read({
+      type: "workspace.request",
+      requestId: "delayed-detail",
+      operation: { op: "forge.pr.detail", workspaceId: f.workspaceId, repository, number: 7 },
+    });
+    await delayed;
+    // Model an external gh close: no local mutation changes the owner's revision.
+    await f.gh.replace(makeFixtures(true));
+    expect((await f.read()).snapshot.state).toBe("closed");
+    expect(f.store.getThread(thread.id)?.details?.linkedPrs?.[0]?.state).toBe("closed");
+    release();
+    expect((await detail).result).toMatchObject({ kind: "forge", data: { resource: "prDetail" } });
+    expect(f.store.getThread(thread.id)?.details?.linkedPrs?.[0]?.state).toBe("closed");
+  } finally {
+    release();
+    await f.cleanup();
+  }
+});

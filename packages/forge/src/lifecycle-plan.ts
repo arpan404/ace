@@ -74,6 +74,11 @@ export function metadataMatches(
 ): boolean {
   return Object.entries(changes).every(([key, value]) => {
     const actual = snapshot.metadata[key as keyof typeof changes];
+    if (key === "assignees" && Array.isArray(value) && Array.isArray(actual)) {
+      const expected = new Set(value.map((login) => login.toLowerCase()));
+      const observed = new Set(actual.map((login) => login.toLowerCase()));
+      return expected.size === observed.size && [...expected].every((login) => observed.has(login));
+    }
     return Array.isArray(value) && Array.isArray(actual)
       ? JSON.stringify(value.toSorted()) === JSON.stringify(actual.toSorted())
       : actual === value;

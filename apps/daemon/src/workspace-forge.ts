@@ -80,16 +80,15 @@ export class WorkspaceForge {
     const repository = operation.repository ?? (await this.repository(cwd));
     signal.throwIfAborted();
     const backend = this.backend(cwd, repository);
-    const ref = "number" in operation ? { repository, number: operation.number } : undefined;
-    const revision = ref ? this.owner.capture(ref) : undefined;
     if (operation.op === "forge.pr.lifecycle") {
+      const ref = { repository, number: operation.number };
+      const revision = this.owner.capture(ref);
       const value = await this.lifecycle.state(
         { repository, number: operation.number },
         backend,
         signal,
       );
-      if (ref && revision && this.owner.current(ref, revision))
-        this.publishLifecycle(value.snapshot);
+      if (this.owner.current(ref, revision)) this.publishLifecycle(value.snapshot);
       return { resource: "prLifecycle", value };
     }
     if (operation.op === "forge.pr.activity")
@@ -106,8 +105,10 @@ export class WorkspaceForge {
       };
     if (operation.op === "forge.pr.files")
       return { resource: "prFiles", value: await backend.prFiles(operation, signal) };
+    const ref = { repository, number: operation.number };
+    const revision = this.owner.capture(ref);
     const value = await backend.prDetail(operation.number, signal);
-    if (ref && revision && this.owner.current(ref, revision)) this.publishStatus(value.status);
+    if (this.owner.current(ref, revision)) this.publishStatus(value.status);
     const threads = this.store
       .atomic((db) =>
         db

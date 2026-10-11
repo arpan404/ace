@@ -165,7 +165,20 @@ test("definite HTTP and GraphQL rate limits release lifecycle mutations for a la
   for (const refusal of [
     { status: 429 },
     { status: 403, headers: { "x-ratelimit-remaining": "0" } },
-    { body: { data: { revertPullRequest: null }, errors: [{ type: "RATE_LIMITED" }] } },
+    {
+      code: 1,
+      stderr: "gh: API rate limit exceeded for user ID 1.",
+      body: {
+        data: { revertPullRequest: null },
+        errors: [
+          {
+            type: "RATE_LIMITED",
+            message: "API rate limit exceeded for user ID 1.",
+            path: ["revertPullRequest"],
+          },
+        ],
+      },
+    },
   ]) {
     const fixtures = mergedFixtures();
     const key = "graphql:mutation($input:RevertPullRequestInput!";
@@ -270,9 +283,17 @@ test("partial GraphQL acknowledgement keeps a lifecycle mutation uncertain until
   const fixtures = mergedFixtures();
   fixtures["graphql:mutation($input:RevertPullRequestInput!"] = [
     {
+      code: 1,
+      stderr: "gh: API rate limit exceeded for user ID 1.",
       body: {
         data: { revertPullRequest: { revertPullRequest: { number: 8 } } },
-        errors: [{ type: "RATE_LIMITED" }],
+        errors: [
+          {
+            type: "RATE_LIMITED",
+            message: "API rate limit exceeded for user ID 1.",
+            path: ["revertPullRequest"],
+          },
+        ],
       },
     },
   ];

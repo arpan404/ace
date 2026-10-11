@@ -7,10 +7,9 @@ export class ForgeResourceOwner {
   readonly #active = new Set<string>();
   readonly #revisions = new Map<string, object>();
   capture(ref: ForgePrRef): object {
-    const key = forgeResourceKey(ref);
-    let revision = this.#revisions.get(key);
-    if (!revision) revision = this.#change(key);
-    return revision;
+    // Publishing reads are sequenced at admission, including external refreshes.
+    // Only the latest admitted read may publish, regardless of completion order.
+    return this.#change(forgeResourceKey(ref));
   }
   #change(key: string): object {
     const revision = {};
