@@ -7,7 +7,7 @@ import {
   type ForgeReviewState,
 } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { runCommand } from "@/lib/daemon-command.ts";
+import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { readForge, forgeError } from "./source.ts";
 import { Button } from "@/components/ui/button.tsx";
 const Context = createContext<{
@@ -70,10 +70,11 @@ export function PrReviewWorkspace(props: {
         return true;
       } catch (error) {
         setMessage(
-          error instanceof Error
-            ? forgeError(error.message)
-            : "Couldn't save. Your draft is retained.",
+          error instanceof CommandRefused
+            ? forgeError(error.code)
+            : "Couldn't confirm the action. Refresh and reconcile its result; your draft is retained.",
         );
+        void refetch();
         return false;
       } finally {
         setPending(false);

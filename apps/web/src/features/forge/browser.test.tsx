@@ -285,3 +285,37 @@ test("new commits visibly invalidate durable hosted drafts and disable all revie
       .then((field) => field.value),
   ).toBe("Preserve my summary");
 });
+
+test("a refused GitHub review shows the daemon refusal and retains the unsent summary", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  const workspaceId = WorkspaceId.parse("api");
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId, number: 42 },
+    { resource: "prDetail", value: detail() },
+  );
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.review-state", workspaceId, repository, number: 42 },
+    {
+      resource: "prReviewState",
+      value: {
+        viewer: "reviewer",
+        headSha: "a".repeat(40),
+        drafts: [],
+        viewed: null,
+        canReview: true,
+        canComment: true,
+        resolvableThreads: [],
+        operations: [],
+      },
+    },
+  );
+  await app.open("/pull-requests?project=api&number=42");
+  const summary = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Review summary",
+  });
+  await userEvent.type(summary, "Keep my unsent review");
+  await userEvent.click(screen.getByRole("button", { name: "Submit comment review" }));
+  expect(await screen.findByText("This daemon can't do that yet: update the daemon.")).toBeTruthy();
+  expect(summary.value).toBe("Keep my unsent review");
+});
