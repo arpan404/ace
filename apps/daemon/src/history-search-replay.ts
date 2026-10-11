@@ -10,6 +10,7 @@ import {
   type OutputReader,
 } from "@ace/search";
 
+import { HistoryMessageReplay } from "./history-message-replay.ts";
 import { outputStreamId } from "@ace/projection";
 
 interface Streams {
@@ -21,7 +22,6 @@ interface Streams {
   ): { bytes: number; encoding: "utf-8" | "utf-16le" } | undefined;
   read: OutputReader;
 }
-const TextPart = z.object({ part: z.string(), source: z.string() });
 const Source = z.tuple([ThreadId, ItemId, z.number().int().nonnegative(), z.string()]);
 const Bytes = z.object({ bytes: z.instanceof(Uint8Array) });
 const Total = z.object({ category: z.string(), bytes: z.number().int().nonnegative() });
@@ -37,6 +37,7 @@ const Metadata = z.object({
   source: z.string().nullable(),
   level: z.string().nullable(),
   appendTarget: z.string().nullable(),
+  appendSource: z.string().nullable(),
 });
 
 // SQLite visits canonical leaves; raw/native data, source descriptors and attachments
@@ -71,9 +72,11 @@ const fields = `WITH revision AS (
 export class HistorySearchReplay {
   private readonly db: DatabaseSync;
   private readonly streams: Streams;
+  private readonly messages: HistoryMessageReplay;
   constructor(db: DatabaseSync, streams: Streams) {
     this.db = db;
     this.streams = streams;
+    this.messages = new HistoryMessageReplay(db, streams.read);
   }
   item(thread: ThreadId, id: ItemId, seq: number, through: number): SearchReplayItem {
     const m = Metadata.parse(
@@ -85,6 +88,7 @@ export class HistorySearchReplay {
       COALESCE(substr(json_extract(item,'$.call.title'),1,8192),'') AS title,
       json_extract(item,'$.call.detail.output.streamId') AS outputStream,
       json_extract(item,'$.source') AS source,json_extract(item,'$.level') AS level,
+      json_extract(item,'$.parts[#-1].source') AS appendSource,
       CASE json_extract(item,'$.type')
         WHEN 'message' THEN CASE WHEN json_extract(item,'$.parts[#-1].type')='text'
           THEN 'part:' || (json_array_length(item,'$.parts')-1) END
@@ -117,19 +121,14 @@ export class HistorySearchReplay {
       if (version) segments.push({ name, category, text: "", source: { streamId, ...version } });
     };
     if (m.type === "message") {
-      for (const row of this.db
-        .prepare(`SELECT CAST(p.key AS TEXT) AS part,
-        json_extract(p.value,'$.source') AS source FROM history_item_revisions r,json_each(r.item,'$.parts') p
-        WHERE r.item_id=? AND r.seq=? AND json_extract(p.value,'$.type')='text'
-        AND json_type(p.value,'$.source')='object' ORDER BY p.key`)
-        .iterate(id, seq)) {
-        const part = TextPart.parse(row);
+      const aggregate = this.messages.segment(thread, id, seq, through);
+      if (aggregate) segments.push(aggregate);
+      if (m.appendTarget && m.appendSource)
         addSource(
-          `part:${part.part}`,
+          m.appendTarget,
           "messages",
-          TextSource.parse(JSON.parse(part.source)).streamId,
+          TextSource.parse(JSON.parse(m.appendSource)).streamId,
         );
-      }
     } else if ((m.type === "notice" || m.type === "reasoning") && m.source) {
       addSource(
         "text",
@@ -143,9 +142,8 @@ export class HistorySearchReplay {
     let window = { head: "", tail: "", size: 0 };
     for (const segment of segments) {
       if (window.size) window = appendWindow(window, "\n");
-      const read: OutputReader = segment.source.streamId.startsWith("history-search:")
-        ? (_thread, stream, offset, limit) => this.read(stream, offset, limit)
-        : this.streams.read;
+      const read: OutputReader = (owner, stream, offset, limit) =>
+        this.read(owner, stream, offset, limit) ?? this.streams.read(owner, stream, offset, limit);
       const text =
         segment.source.encoding === "utf-16le"
           ? sourceText(read, thread, TextSource.parse(segment.source), segment.text)
@@ -168,9 +166,12 @@ export class HistorySearchReplay {
       segments,
     });
   }
-  read(streamId: string, offset: number, limit: number): Buffer | undefined {
+  read(thread: ThreadId, streamId: string, offset: number, limit: number): Buffer | undefined {
+    const message = this.messages.read(thread, streamId, offset, limit);
+    if (message !== undefined) return message;
     if (!streamId.startsWith("history-search:")) return;
-    const [thread, id, seq, category] = Source.parse(JSON.parse(streamId.slice(15)));
+    const [owner, id, seq, category] = Source.parse(JSON.parse(streamId.slice(15)));
+    if (owner !== thread) throw new Error("search_replay_source_thread");
     z.number().int().nonnegative().parse(offset);
     z.number().int().min(1).max(65536).parse(limit);
     const rows = this.db

@@ -168,12 +168,7 @@ export class HistoryIndex {
     offset: number,
     limit: number,
   ): Buffer | undefined {
-    if (!stream.startsWith("history-search:")) return;
-    const owner = z
-      .tuple([ThreadId, ItemId, z.number(), z.string()])
-      .parse(JSON.parse(stream.slice(15)));
-    if (owner[0] !== thread) throw new Error("search_replay_source_thread");
-    return this.searchReplay.read(stream, offset, limit);
+    return this.searchReplay.read(thread, stream, offset, limit);
   }
   private sources(event: Event, item: Item): void {
     const sources: TextSource[] = [];
