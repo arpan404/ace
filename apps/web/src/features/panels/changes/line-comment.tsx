@@ -32,17 +32,19 @@ export function linesLabel(side: "old" | "new", start: number, end = start) {
  */
 export function CommentComposer(props: {
   label: string;
-  initial?: string;
-  initialSuggestion?: string | undefined;
+  text: string;
+  suggestion: string | undefined;
+  onText(text: string): void;
+  onSuggestion(suggestion: string | undefined): void;
+  blocked?: string | undefined;
   /** The selected lines' current text; a suggestion starts from it. Absent: no suggestion. */
   suggestFrom?: string | undefined;
   onSave(text: string, suggestion: string | undefined): void;
   onCancel(): void;
 }) {
-  const [text, setText] = useState(props.initial ?? "");
-  const [suggestion, setSuggestion] = useState(props.initialSuggestion);
+  const { text, suggestion } = props;
   const save = () => {
-    if (text.trim()) props.onSave(text.trim(), suggestion);
+    if (text.trim() && !props.blocked) props.onSave(text.trim(), suggestion);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -55,6 +57,11 @@ export function CommentComposer(props: {
   };
   return (
     <div className={card}>
+      {props.blocked && (
+        <p role="alert" className="mb-2 text-subtle-foreground">
+          {props.blocked}
+        </p>
+      )}
       <textarea
         aria-label={props.label}
         // A composer opens because the person just asked to write; focus belongs in it.
@@ -63,7 +70,7 @@ export function CommentComposer(props: {
         rows={2}
         value={text}
         placeholder="Leave a comment for the agent"
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => props.onText(event.target.value)}
         onKeyDown={onKeyDown}
         className={box}
       />
@@ -72,13 +79,18 @@ export function CommentComposer(props: {
           aria-label="Suggested change"
           rows={Math.min(8, suggestion.split("\n").length)}
           value={suggestion}
-          onChange={(event) => setSuggestion(event.target.value)}
+          onChange={(event) => props.onSuggestion(event.target.value)}
           onKeyDown={onKeyDown}
           className={cn(box, suggested)}
         />
       )}
       <div className="mt-1.5 flex items-center gap-1.5">
-        <Button size="sm" variant="primary" disabled={!text.trim()} onClick={save}>
+        <Button
+          size="sm"
+          variant="primary"
+          disabled={!text.trim() || !!props.blocked}
+          onClick={save}
+        >
           Comment
         </Button>
         <Button size="sm" variant="ghost" onClick={props.onCancel}>
@@ -91,7 +103,9 @@ export function CommentComposer(props: {
             size="sm"
             pressed={suggestion !== undefined}
             className="ml-auto size-7"
-            onClick={() => setSuggestion(suggestion === undefined ? props.suggestFrom : undefined)}
+            onClick={() =>
+              props.onSuggestion(suggestion === undefined ? props.suggestFrom : undefined)
+            }
           />
         )}
       </div>

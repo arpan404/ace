@@ -1,3 +1,4 @@
+import { editorFilePath } from "@ace/ui-core/editor-url";
 import { execFile } from "node:child_process";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { shell } from "electron";
@@ -8,7 +9,7 @@ import { isPackageFolder } from "./package-folder.ts";
 /** Editor URL handlers, so no editor CLI needs to be on PATH. */
 function editorUrl(request: OpenInEditor): string | undefined {
   const position = `${request.line ? `:${request.line}${request.column ? `:${request.column}` : ""}` : ""}`;
-  const path = encodeURI(request.path);
+  const path = editorFilePath(request.path);
   switch (request.editor) {
     case "vscode":
       return `vscode://file${path}${position}`;

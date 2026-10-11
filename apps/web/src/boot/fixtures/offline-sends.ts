@@ -1,5 +1,6 @@
-import { ThreadId, type CommandPayload } from "@ace/protocol";
-import { createBrowserClient } from "../client.ts";
+import { HostId, ThreadId, type CommandPayload } from "@ace/protocol";
+import { ClientCore } from "@ace/client";
+import { browserClientOptions } from "../client.ts";
 import { workerOutbox } from "../worker-outbox.ts";
 
 /*
@@ -10,7 +11,7 @@ import { workerOutbox } from "../worker-outbox.ts";
 const target = { url: "ws://127.0.0.1:9/never", deviceId: "device", seed: null };
 
 function offlineClient() {
-  return createBrowserClient({
+  return new ClientCore({ ...browserClientOptions({
     deviceId: target.deviceId,
     // Nothing listens there: the client stays offline and keeps its sends in the outbox.
     transport: () => {
@@ -18,7 +19,7 @@ function offlineClient() {
     },
     credential: async () => "token",
     storage: workerOutbox(target),
-  });
+  }), expectedHostId: HostId.parse("fixture-host") });
 }
 
 const send = (text: string): CommandPayload => ({

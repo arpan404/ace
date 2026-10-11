@@ -79,15 +79,13 @@ export function ThreadRow(props: {
         ) : (
           <span
             className={cn(
-              "flex min-w-0 items-center gap-1.5 text-xs leading-4",
+              "flex min-w-0 items-center gap-1.5 pr-7 text-xs leading-4",
               quiet ? "text-subtle-foreground" : "text-muted-foreground",
             )}
           >
             <ProjectMark badge={card.badge} icon={data.icon} quiet={quiet} />
-            <span className="min-w-0 flex-1 truncate group-focus-within/row:pr-8 group-hover/row:pr-8">
-              {card.project}
-            </span>
-            <span className="contents group-focus-within/row:hidden group-hover/row:hidden group-has-[[data-popup-open]]/row:hidden">
+            <span className="min-w-0 flex-1 truncate">{card.project}</span>
+            <span className="contents">
               <RowStatus card={card} />
             </span>
           </span>

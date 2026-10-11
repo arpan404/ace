@@ -1,5 +1,12 @@
 import { DeviceError } from "./sdk.ts";
-export type Actor = { kind: "human" | "agent"; owner: string; threadId?: string; agentId?: string };
+export type Actor = {
+  kind: "human" | "agent";
+  owner: string;
+  threadId?: string;
+  agentId?: string;
+  /** Recheck the authenticated caller lifetime at asynchronous boundaries. */
+  guard?: () => void;
+};
 export class ControllerLease {
   private epoch = 0;
   private actor: Actor | undefined;

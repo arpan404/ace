@@ -18,7 +18,18 @@ import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
 import { cn } from "@/lib/cn.ts";
 import { CopyCommand } from "@/components/copy-command.tsx";
 
-const FormValues = z.object({ url: DaemonUrl, token: DaemonToken, remember: z.boolean() });
+const remoteToken = (url: string) => url.startsWith("wss:") || !rememberByDefault(url);
+const FormValues = z
+  .object({
+    url: DaemonUrl,
+    token: DaemonToken,
+    remember: z.boolean(),
+    pairedDeviceId: z.string().trim().max(256),
+  })
+  .refine((value) => !remoteToken(value.url) || value.pairedDeviceId.length > 0, {
+    path: ["pairedDeviceId"],
+    message: "Enter the device ID issued with this paired token, or use a pairing code.",
+  });
 
 function firstError(errors: readonly unknown[]): string | undefined {
   for (const error of errors) {
@@ -58,6 +69,7 @@ export function DaemonForm(props: {
   url: string;
   /** The token last tried, kept when an attempt fails. */
   token?: string | undefined;
+  pairedDeviceId?: string | undefined;
   remembered: boolean;
   submitLabel: string;
   onSubmit(target: DaemonTarget, remember: boolean): void;
@@ -85,12 +97,20 @@ export function DaemonForm(props: {
     defaultValues: {
       url: props.url,
       token: props.token ?? "",
+      pairedDeviceId: props.pairedDeviceId ?? "",
       remember: props.remembered || rememberByDefault(props.url),
     },
     validators: { onSubmit: FormValues },
     onSubmit: ({ value }) => {
       const parsed = FormValues.parse(value);
-      props.onSubmit({ url: parsed.url, token: parsed.token }, parsed.remember);
+      props.onSubmit(
+        {
+          url: parsed.url,
+          token: parsed.token,
+          ...(parsed.pairedDeviceId ? { pairedDeviceId: parsed.pairedDeviceId } : {}),
+        },
+        parsed.remember,
+      );
     },
   });
   const selectToken = props.selectToken;
@@ -150,8 +170,9 @@ export function DaemonForm(props: {
               label="Token"
               hint={
                 <>
-                  On the machine running ace, run <CopyCommand command="ace token" /> and paste the
-                  result.
+                  For a local daemon, run <CopyCommand command="ace token" /> on this computer. For
+                  a remote daemon, use the token issued when pairing this device and its device ID
+                  below.
                 </>
               }
               error={error}
@@ -197,6 +218,32 @@ export function DaemonForm(props: {
           );
         }}
       </form.Field>
+      <form.Subscribe selector={(state) => state.values.url}>
+        {(url) =>
+          (remoteToken(url) || !!props.pairedDeviceId) && (
+            <form.Field name="pairedDeviceId">
+              {(field) => (
+                <FieldRow
+                  id={`${ids}-device`}
+                  label="Paired device ID"
+                  error={firstError(field.state.meta.errors)}
+                  hint="Use the ID issued with this token. A pairing code fills in both for you."
+                >
+                  <Input
+                    id={`${ids}-device`}
+                    value={field.state.value}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    onBlur={field.handleBlur}
+                    readOnly={props.readOnly}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </FieldRow>
+              )}
+            </form.Field>
+          )
+        }
+      </form.Subscribe>
       <form.Field name="remember">
         {(field) => (
           <label className="flex items-center justify-between gap-4 text-ui">

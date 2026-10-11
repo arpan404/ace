@@ -30,6 +30,7 @@ export const WorkerInput = z.discriminatedUnion("type", [
   }),
 ]);
 export const WorkerOutput = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("git-group"), pid: z.number().int().positive(), active: z.boolean() }),
   z.object({ type: z.literal("closed") }),
   z.object({ type: z.literal("result"), key, result: CommandResult }),
   z.object({

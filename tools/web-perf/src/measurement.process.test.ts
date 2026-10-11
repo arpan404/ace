@@ -8,9 +8,51 @@ import {
   selectTurn,
   scrollTranscript,
   stepTurn,
+  reportBrowser,
 } from "@ace/web-perf";
 
 const launch = () => chromium.launch({ executablePath: inject("chromiumExecutable") });
+
+test("a three-second stream cannot pass a twelve-second interaction window", async () => {
+  const browser = await launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto("about:blank");
+    await page.evaluate(observe);
+    await page.evaluate(() => {
+      Object.assign(globalThis, {
+        acePerf: { events: 100, at: 500, receivedAt: 1_000 },
+        aceSampleTime: 1_000,
+      });
+      performance.now = () => Reflect.get(globalThis, "aceSampleTime");
+    });
+    const start = await resetRecord(page);
+    await page.evaluate(() => {
+      Object.assign(Reflect.get(globalThis, "acePerf"), {
+        events: 15_100,
+        at: 3_500,
+        receivedAt: 4_000,
+      });
+      Reflect.set(globalThis, "aceSampleTime", 13_000);
+    });
+    const sample = await readRecord(page, start);
+    expect(streamedRate(sample)).toBe(5_000);
+    expect(() => reportBrowser(streamedRate(sample), sample)).toThrow(
+      "Incomplete streaming workload",
+    );
+    await page.evaluate(() => {
+      Object.assign(Reflect.get(globalThis, "acePerf"), {
+        events: 60_060,
+        at: 12_492,
+        receivedAt: 12_992,
+      });
+    });
+    const continuous = await readRecord(page, start);
+    expect(() => reportBrowser(streamedRate(continuous), continuous)).not.toThrow();
+  } finally {
+    await browser.close();
+  }
+});
 
 test("streamed rate pairs completed batch counters with their delivery timestamps", async () => {
   const browser = await launch();

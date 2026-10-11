@@ -25,6 +25,7 @@ export interface PiLoginOptions {
   cwd: string;
   env: NodeJS.ProcessEnv;
   action: "login" | "logout";
+  assertCurrent?(): void;
   openTerminal?:
     | ((launch: OpenTerminalOptions) => {
         id: string;
@@ -71,6 +72,7 @@ export function piLoginDriver(options: PiLoginOptions): ProviderLoginDriver {
         if (signal.aborted) abort();
       });
       signal.throwIfAborted();
+      options.assertCurrent?.();
       if (upstream === "other") {
         if (!options.openTerminal) throw new Error("Terminal unavailable");
         terminal = options.openTerminal({
@@ -104,6 +106,7 @@ export function piLoginDriver(options: PiLoginOptions): ProviderLoginDriver {
       }
       const entry = await piLoginRuntime(options.command, options.version);
       signal.throwIfAborted();
+      options.assertCurrent?.();
       child = spawnSupervised({
         command: process.execPath,
         args: [

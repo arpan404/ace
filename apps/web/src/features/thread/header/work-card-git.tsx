@@ -1,7 +1,6 @@
 import { useThreadMeta } from "@ace/client-react";
 import { baseRecordText, nextGitStep, type Checkout } from "@ace/ui-core";
 import {
-  DotsThreeIcon,
   GitBranchIcon,
   GitCommitIcon,
   GitDiffIcon,
@@ -9,8 +8,7 @@ import {
   UploadSimpleIcon,
 } from "@phosphor-icons/react";
 import { DiffStat } from "@/components/diff-stat.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
+import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -58,7 +56,7 @@ export function ChangesSection(props: { thread: ThreadRef; git: GitFlow; onClose
         <Tip
           label={`${branch} → ${checkout.baseBranch}, ${checkout.ahead} ahead${checkout.behind ? `, ${checkout.behind} behind` : ""}${base?.note ? ` · ${base.text}. ${base.note}` : ""}`}
         >
-          <span className="min-w-0 flex-1 truncate font-mono">{branch}</span>
+          <span className="min-w-0 flex-1 [overflow-wrap:anywhere] font-mono">{branch}</span>
         </Tip>
         {(checkout.ahead > 0 || checkout.behind > 0) && (
           <span className="shrink-0 text-2xs text-subtle-foreground">
@@ -68,7 +66,7 @@ export function ChangesSection(props: { thread: ThreadRef; git: GitFlow; onClose
           </span>
         )}
       </RowNote>
-      <div className="flex h-7 min-w-0 items-center">
+      <div className="flex min-h-(--row-height) min-w-0 flex-wrap items-center gap-2">
         {checkout.changed > 0 ? (
           <RowButton
             aria-label={`Changes, ${checkout.changed} files: ${checkout.additions} added, ${checkout.deletions} removed`}
@@ -103,6 +101,10 @@ export function ChangesSection(props: { thread: ThreadRef; git: GitFlow; onClose
           >
             Commit
           </button>
+        ) : step.kind === "push" ? (
+          <button type="button" className={stepButton} disabled={git.pending} onClick={git.push}>
+            Push
+          </button>
         ) : create ? (
           <button
             type="button"
@@ -113,59 +115,61 @@ export function ChangesSection(props: { thread: ThreadRef; git: GitFlow; onClose
             Create PR
           </button>
         ) : null}
-        <GitMenu git={git} checkout={checkout} />
       </div>
     </section>
   );
 }
 
 const stepButton =
-  "focus-ring inline-flex h-5 shrink-0 items-center rounded-sm bg-secondary px-1.5 text-2xs font-medium hover:bg-accent disabled:text-muted-foreground";
+  "focus-ring relative touch-hit inline-flex h-(--control-height) shrink-0 items-center rounded-md border bg-secondary px-3 text-sm font-medium hover:bg-accent disabled:text-muted-foreground";
 
-function GitMenu(props: { git: GitFlow; checkout: Checkout }) {
+export function GitMenuItems(props: { git: GitFlow; checkout: Checkout }) {
   const { git, checkout } = props;
   return (
-    <Menu>
-      <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="Git actions" size="sm" />} />
-      <MenuContent align="end" className="w-[240px]">
-        {checkout.changed > 0 && (
-          <MenuItem
-            icon={glyph(GitCommitIcon)}
-            disabled={git.pending}
-            onClick={() => git.open("commit-push")}
-          >
-            Commit &amp; push…
-          </MenuItem>
-        )}
-        {checkout.branch && (
-          <MenuItem
-            icon={glyph(UploadSimpleIcon)}
-            disabled={!checkout.branch || git.pending}
-            onClick={git.push}
-          >
-            Push
-          </MenuItem>
-        )}
-        <MenuSeparator />
+    <>
+      {checkout.changed > 0 && (
         <MenuItem
-          icon={glyph(GitPullRequestIcon)}
-          disabled={!!git.draftBlocked || git.pending}
-          aria-description={git.draftBlocked}
-          title={git.draftBlocked}
-          onClick={() => git.open("pr")}
+          icon={glyph(GitCommitIcon)}
+          disabled={git.pending}
+          onClick={() => git.open("commit-push")}
         >
-          Create PR…
+          Commit &amp; push…
         </MenuItem>
+      )}
+      {checkout.branch && (
         <MenuItem
-          icon={glyph(GitPullRequestIcon)}
-          disabled={!!git.draftBlocked || git.pending}
-          aria-description={git.draftBlocked}
-          title={git.draftBlocked}
-          onClick={() => git.open("draft-pr")}
+          icon={glyph(UploadSimpleIcon)}
+          disabled={!checkout.branch || git.pending}
+          onClick={git.push}
         >
-          Create draft PR…
+          Push
         </MenuItem>
-      </MenuContent>
-    </Menu>
+      )}
+      {checkout.pr?.state !== "merged" &&
+        checkout.pr?.state !== "open" &&
+        checkout.pr?.state !== "draft" && (
+          <>
+            <MenuSeparator />
+            <MenuItem
+              icon={glyph(GitPullRequestIcon)}
+              disabled={!!git.draftBlocked || git.pending}
+              aria-description={git.draftBlocked}
+              title={git.draftBlocked}
+              onClick={() => git.open("pr")}
+            >
+              Create PR…
+            </MenuItem>
+            <MenuItem
+              icon={glyph(GitPullRequestIcon)}
+              disabled={!!git.draftBlocked || git.pending}
+              aria-description={git.draftBlocked}
+              title={git.draftBlocked}
+              onClick={() => git.open("draft-pr")}
+            >
+              Create draft PR…
+            </MenuItem>
+          </>
+        )}
+    </>
   );
 }

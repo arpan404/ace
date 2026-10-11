@@ -57,7 +57,12 @@ test("a device approved for another thread says so, and approval here is separat
 });
 
 test("control is yours only until the lease runs out", () => {
-  const leased = state({ lifecycle: "live", controller: "human", leaseExpiresAt: 10_000 });
+  const leased = state({
+    lifecycle: "live",
+    controller: "human",
+    ownedHere: true,
+    leaseExpiresAt: 10_000,
+  });
 
   const during = deviceControls(iphone, leased, "t", 4_000);
   expect(during.inControl).toBe(true);

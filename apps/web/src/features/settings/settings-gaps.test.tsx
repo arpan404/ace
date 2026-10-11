@@ -19,6 +19,7 @@ test("a global native permission default starts new threads in that mode", async
   await screen.findByRole("button", { name: "Project: settings-project" });
   cleanup();
   await app.open("/settings/general");
+  await userEvent.click(await screen.findByText("Per-provider defaults"));
   await choose("Claude Code permissions", "Accept edits");
   await waitFor(() =>
     expect(app.daemon.services.settings.get("permissions.providerModes")).toMatchObject({
@@ -65,6 +66,7 @@ test("project permission overrides take precedence and reset to a changed global
   await userEvent.click(screen.getByRole("button", { name: "Close" }));
   cleanup();
   await app.open("/settings/general");
+  await userEvent.click(await screen.findByText("Per-provider defaults"));
   await choose("Claude Code permissions", "Auto");
   cleanup();
   await app.open("/new");
@@ -181,6 +183,7 @@ test("provider configuration changes visibility, stars and custom model choices 
   ).toBe(true);
   cleanup();
   await app.open("/settings/general");
+  await userEvent.click(await screen.findByText("Per-provider defaults"));
   cleanup();
   await app.open("/settings/providers/claude");
   await userEvent.click(await screen.findByText("Advanced", { selector: "summary" }));
@@ -203,6 +206,7 @@ test("allowed project folders round-trip and removing one stops browsing it", as
   // Seed an actual outside directory, then restrict access as a real host does.
   app.daemon.services.settings.seed({ "projects.roots": ["/fake"] });
   await app.open("/settings/general");
+  await userEvent.click(await screen.findByText("Per-provider defaults"));
   await screen.findByRole("textbox", { name: "Folder path" });
   const denied = await app.client.request({
     type: "projects.request",
@@ -293,6 +297,7 @@ test("settle-on-close moves finished threads but keeps work in progress active",
       .runUntilBlocked();
   }
   await app.open("/settings/general");
+  await userEvent.click(await screen.findByText("Per-provider defaults"));
   await userEvent.click(await screen.findByRole("switch", { name: "Settle when the PR closes" }));
   await waitFor(() => expect(app.daemon.services.settings.get("threads.settleOnClose")).toBe(true));
   app.daemon.sweep();
@@ -307,6 +312,7 @@ test("settle-on-close moves finished threads but keeps work in progress active",
   expect(after.threads["working-pr"]?.settledReason).toBe("pr_closed");
   cleanup();
   await app.open("/settings/general");
+  await userEvent.click(await screen.findByText("Per-provider defaults"));
   expect(
     (await screen.findByRole("switch", { name: "Settle when the PR closes" })).getAttribute(
       "aria-checked",
@@ -317,15 +323,16 @@ test("settle-on-close moves finished threads but keeps work in progress active",
 test("global permissions start at the CLI default and can return to it after an explicit selection", async () => {
   const app = harness();
   await app.open("/settings/general");
+  await userEvent.click(await screen.findByText("Per-provider defaults"));
   const picker = await screen.findByRole("combobox", { name: "Claude Code permissions" });
   await waitFor(() => {
     expect(picker.textContent).toBe("Provider default");
     expect(picker).toHaveProperty("disabled", false);
   });
   await userEvent.click(picker);
-  await screen.findByRole("option", { name: "Bypass permissions" });
+  await screen.findByRole("option", { name: "Full access" });
   expect(screen.getByRole("option", { name: "Provider default" })).toBeTruthy();
-  await userEvent.click(screen.getByRole("option", { name: "Bypass permissions" }));
+  await userEvent.click(screen.getByRole("option", { name: "Full access" }));
   await waitFor(() =>
     expect(app.daemon.services.settings.get("permissions.providerModes")).toMatchObject({
       claude: "bypassPermissions",
@@ -335,4 +342,9 @@ test("global permissions start at the CLI default and can return to it after an 
   await waitFor(() =>
     expect(app.daemon.services.settings.get("permissions.providerModes")).toEqual({}),
   );
+});
+
+test("a permissions settings link opens its provider controls without another disclosure step", async () => {
+  await harness().open("/settings/general#permissions.providerModes");
+  expect(await screen.findByRole("combobox", { name: "Claude Code permissions" })).toBeTruthy();
 });

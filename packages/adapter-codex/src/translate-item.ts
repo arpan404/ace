@@ -26,7 +26,7 @@ export function translateItem(
   facts: Fact[],
 ): void {
   const { agents, tasks, discover, note } = ctx;
-  facts.push({ type: "retry.cleared", agent: agent.key });
+  if (frame.channel !== "hydration") facts.push({ type: "retry.cleared", agent: agent.key });
   const item = obj(p["item"]);
   const itemId = str(item["id"]);
   const type = str(item["type"]);
@@ -173,11 +173,12 @@ export function translateItem(
         task: shellKey(itemId),
         status: item["status"] === "failed" ? "failed" : "completed",
       });
-      agent.backgroundResult = true;
+      if (frame.channel !== "hydration") agent.backgroundResult = true;
     }
     if (
       type === "agentMessage" &&
       complete &&
+      frame.channel !== "hydration" &&
       /^(?:error:\s*)?(?:You(?:’|')ve hit your usage limit|Your usage limit has been reached|Rate limit reached|Authentication failed|Not logged in)/i.test(
         str(item["text"]),
       )

@@ -25,7 +25,8 @@ export class RemoteAgentBroker {
   private now: () => number;
   private refreshes = new Map<string, Promise<void>>();
   private importFailures = new Map<string, number>();
-  private cursor: string | undefined;
+  private routingProgress = new Map<string, number>();
+  private routeSequence = 0;
   private jobs = new Map<string, { host: string; work: Promise<void> }>();
   private onForbidden: (() => void) | undefined;
   constructor(options: {
@@ -50,6 +51,7 @@ export class RemoteAgentBroker {
     this.timer?.();
     this.cache.clear();
     this.importFailures.clear();
+    this.routingProgress.clear();
   }
   private tick() {
     if (this.closed) return;
@@ -170,12 +172,12 @@ export class RemoteAgentBroker {
     const reply = await this.primary.request({ type: "delegation.broker.poll", lease });
     if (!reply.ok || this.closed) return;
     const tasks = reply.tasks ?? [];
-    const active = new Set(tasks.map((task) => task.id));
-    for (const id of this.importFailures.keys())
-      if (!active.has(id)) this.importFailures.delete(id);
-    const after = this.cursor ? tasks.findIndex((task) => task.id === this.cursor) + 1 : 0;
-    const ordered = [...tasks.slice(after), ...tasks.slice(0, after)].toSorted(
-      (a, b) => Number(b.phase === "cancelling") - Number(a.phase === "cancelling"),
+    // Polls are bounded pages. Track last service independently of page membership
+    // so each host routes its least recently serviced visible task on every page.
+    const ordered = tasks.toSorted(
+      (a, b) =>
+        Number(b.phase === "cancelling") - Number(a.phase === "cancelling") ||
+        (this.routingProgress.get(a.id) ?? 0) - (this.routingProgress.get(b.id) ?? 0),
     );
     // Heartbeat/poll never waits for physical creation. One route per host keeps a slow
     // worktree from consuming every slot, while other hosts have independent workers.
@@ -186,7 +188,7 @@ export class RemoteAgentBroker {
         [...this.jobs.values()].some((job) => job.host === task.request.hostId)
       )
         continue;
-      this.cursor = task.id;
+      this.routingProgress.set(task.id, ++this.routeSequence);
       const work = this.route(task, lease)
         .catch(() => {})
         .finally(() => {
@@ -195,8 +197,27 @@ export class RemoteAgentBroker {
       this.jobs.set(task.id, { host: task.request.hostId, work });
     }
   }
-  private report(lease: string, report: RemoteTaskReport) {
-    return this.primary.request({ type: "delegation.broker.report", lease, report });
+  private async report(lease: string, report: RemoteTaskReport) {
+    const reply = await this.primary.request({ type: "delegation.broker.report", lease, report });
+    if (reply.ok) {
+      const current = reply.tasks?.find((task) => task.id === report.taskId);
+      if (current && this.settled(current)) this.forget(current.id);
+    } else if (reply.error === "not_found" && report.phase === "running") {
+      // A progress report cannot fail artifact admission. This confirms removal,
+      // unlike a missing poll-page entry or a rejected terminal artifact report.
+      this.forget(report.taskId);
+    }
+    return reply;
+  }
+  private settled(task: RemoteTask) {
+    return (
+      ["completed", "failed", "cancelled"].includes(task.phase) &&
+      !(task.phase === "failed" && task.cancellingAt !== undefined && task.result === undefined)
+    );
+  }
+  private forget(id: string) {
+    this.routingProgress.delete(id);
+    this.importFailures.delete(id);
   }
   private async outcome(
     client: RemoteClient,
@@ -207,10 +228,12 @@ export class RemoteAgentBroker {
     if (!reply.ok || !reply.phase) throw new ClientError("offline");
     if (["completed", "failed"].includes(reply.phase) && !reply.artifacts)
       throw new ClientError("protocol", "Remote device does not support sealed return manifests");
-    let artifactsUnavailable = false;
-    let importError: string | undefined;
+    let artifactsUnavailable = reply.artifactsUnavailable === true;
+    let importError: string | undefined = artifactsUnavailable
+      ? "Target file publication was interrupted. The answer is preserved; selected files are unavailable. Retrieve them on the remote computer."
+      : undefined;
     try {
-      if (reply.artifacts)
+      if (reply.artifacts && !artifactsUnavailable)
         await returnRemoteArtifacts(
           task,
           reply.artifacts,
@@ -226,7 +249,6 @@ export class RemoteAgentBroker {
             this.primary.state === "ready" &&
             this.pool.machine(task.request.hostId)?.status === "online",
         );
-      this.importFailures.delete(task.id);
     } catch (error) {
       const failures = (this.importFailures.get(task.id) ?? 0) + 1;
       this.importFailures.set(task.id, failures);
@@ -247,7 +269,10 @@ export class RemoteAgentBroker {
   private async route(task: RemoteTask, lease: string) {
     const reconcile =
       task.phase === "failed" && task.cancellingAt !== undefined && task.result === undefined;
-    if (["completed", "failed", "cancelled"].includes(task.phase) && !reconcile) return;
+    if (this.settled(task)) {
+      this.forget(task.id);
+      return;
+    }
     if (this.pool.machine(task.request.hostId)?.status !== "online") {
       if (!reconcile) await this.report(lease, { taskId: task.id, phase: "unavailable" });
       return;

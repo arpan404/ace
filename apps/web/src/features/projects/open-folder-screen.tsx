@@ -1,4 +1,6 @@
 import { FolderSimpleIcon, LockSimpleIcon } from "@phosphor-icons/react";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { useConnectionState } from "@ace/client-react";
 import { displayPath, folderName } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
@@ -19,6 +21,8 @@ import { useProjectDialogs } from "./projects-host.tsx";
 export function OpenFolderScreen(props: { folder: string }) {
   const ready = useConnectionState() === "ready";
   const commands = useProjectCommands();
+  const endpoint = useDaemonConnection().endpoint;
+  const target = endpoint?.kind === "daemon" ? endpoint.target : undefined;
   const land = useLandInProject();
   const projects = useProjectDialogs();
   const [failure, setFailure] = useState<ReturnType<typeof projectFailure>>();
@@ -31,9 +35,23 @@ export function OpenFolderScreen(props: { folder: string }) {
   useEffect(() => {
     if (!ready) return;
     let current = true;
-    latest.current.commands.add(props.folder).then(
+    void (async () => {
+      const picker = desktopFolders();
+      if (picker && !(await picker.local(target))) {
+        if (current)
+          setFailure({
+            code: "local_folder",
+            denied: false,
+            message:
+              "This folder is on this computer. Choose a folder on the connected machine instead.",
+          });
+        return;
+      }
+      if (!current) return;
+      return latest.current.commands.add(props.folder);
+    })().then(
       (result) => {
-        if (current) latest.current.land(result, "Opened", { replace: true });
+        if (current && result) latest.current.land(result, "Opened", { replace: true });
       },
       (error: unknown) => {
         if (current) setFailure(projectFailure(error));
@@ -42,7 +60,7 @@ export function OpenFolderScreen(props: { folder: string }) {
     return () => {
       current = false;
     };
-  }, [ready, props.folder]);
+  }, [ready, props.folder, target]);
 
   const name = folderName(props.folder);
   return (
@@ -60,7 +78,9 @@ export function OpenFolderScreen(props: { folder: string }) {
                   projects.open({
                     kind: "add",
                     tab: "open",
-                    attempt: { path: props.folder, problem: failure.message },
+                    ...(failure.code !== "local_folder"
+                      ? { attempt: { path: props.folder, problem: failure.message } }
+                      : {}),
                   })
                 }
               >

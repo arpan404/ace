@@ -1,8 +1,10 @@
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
+import { ReviewFingerprint, ReviewSource } from "@ace/protocol";
 import * as z from "zod/mini";
 import type { DiffPrefs, PanelServices, ViewedFiles } from "../services.ts";
 import type { LocalStore } from "../store.ts";
 import type { ReviewDraft } from "./drafts.ts";
+import { persistDrafts } from "./draft-persistence.ts";
 
 /*
  * The Changes tab's local state outlives a reload: unsent and sent comments (a review in
@@ -11,13 +13,10 @@ import type { ReviewDraft } from "./drafts.ts";
  */
 
 const keys = {
-  drafts: "ace.review.drafts",
   prefs: "ace.review.prefs",
   viewed: "ace.review.viewed",
 };
 
-/** The newest comments kept across reloads. */
-const maxDrafts = 400;
 /** Threads whose viewed marks are kept, the most recently changed first, and files per thread. */
 const maxViewedThreads = 64;
 const maxViewedFiles = 500;
@@ -37,6 +36,8 @@ const Draft = z.object({
   commentId: z.optional(z.string()),
   sessionId: z.optional(z.string()),
   anchor: z.optional(z.enum(["active", "outdated", "addressed-pending-review"])),
+  fingerprint: z.optional(ReviewFingerprint),
+  source: z.optional(ReviewSource),
   createdAt: z.number(),
 });
 
@@ -74,25 +75,27 @@ function persist<T>(
   store.subscribe(() => writeJson(storage, key, save(store.get())));
 }
 
-const attached = new WeakMap<PanelServices, KeyValueStorage>();
+type ReviewStores = Pick<PanelServices, "drafts" | "diffPrefs" | "viewed">;
+const attached = new WeakMap<ReviewStores, KeyValueStorage>();
 
 /** Load the review state from `storage` and keep it written there (once per services). */
-export function persistReview(services: PanelServices, storage: KeyValueStorage | undefined) {
+export function persistReview(
+  services: ReviewStores,
+  storage: KeyValueStorage | undefined,
+  subscribe: (changed: () => void) => void = (changed) => {
+    if (typeof window === "undefined") return;
+    window.addEventListener("storage", (event) => {
+      if (
+        event.storageArea === storage &&
+        (event.key === null || event.key.startsWith("ace.review."))
+      )
+        changed();
+    });
+  },
+) {
   if (!storage || attached.get(services) === storage) return;
   attached.set(services, storage);
-  persist<readonly ReviewDraft[]>(
-    services.drafts,
-    storage,
-    keys.drafts,
-    (stored) =>
-      Array.isArray(stored)
-        ? stored.flatMap((entry) => {
-            const draft = Draft.safeParse(entry);
-            return draft.success ? [settle(draft.data)] : [];
-          })
-        : undefined,
-    (drafts) => drafts.toSorted((a, b) => b.createdAt - a.createdAt).slice(0, maxDrafts),
-  );
+  persistDrafts(services.drafts, storage, Draft, settle, subscribe);
   persist<DiffPrefs>(
     services.diffPrefs,
     storage,
