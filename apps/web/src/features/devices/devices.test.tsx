@@ -472,3 +472,42 @@ test.each(["booted", "shutdown", "offline"] as const)(
     spy.mockRestore();
   },
 );
+
+test("administrator refusals explain inventory and enable access immediately", async () => {
+  const { app, panel } = await openDevices();
+  vi.spyOn(app.daemon.appDevices, "transport").mockImplementation(() => {
+    let events: Parameters<import("@ace/client/devices").DeviceTransport["open"]>[0] | undefined;
+    return {
+      open(next) {
+        events = next;
+        queueMicrotask(() => next.ready());
+      },
+      send(message) {
+        events?.message({
+          type: "devices.result",
+          requestId: message.requestId,
+          ok: false,
+          error: {
+            code: "permission_denied",
+            message: "Administrator scope is required for device access",
+            hint: "Connect with an administrator device credential to use Devices.",
+          },
+        });
+      },
+      close() {},
+    };
+  });
+  act(() => app.daemon.appDevices.dropAll());
+  await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
+  expect(
+    await within(panel).findByText("Administrator scope is required for device access"),
+  ).toBeTruthy();
+  expect(
+    within(panel).getByText("Connect with an administrator device credential to use Devices."),
+  ).toBeTruthy();
+  await userEvent.click(within(panel).getByRole("button", { name: "Enable devices" }));
+  expect(
+    await within(panel).findByText("Administrator scope is required for device access"),
+  ).toBeTruthy();
+  expect(within(panel).queryByText(/timed out/i)).toBeNull();
+});
