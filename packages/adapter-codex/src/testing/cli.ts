@@ -1,5 +1,6 @@
 // Offline provider boundary. This process never imports or starts a real Codex binary.
 import { appendFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { list, obj, str } from "../native.ts";
 if (process.env["ACE_FAKE_RESUME"] === "ignore-term") process.on("SIGTERM", () => {});
@@ -243,6 +244,17 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (text === "escaped-pipes" || text === "group-pipes") {
+      respond({ turn: { id: "turn" } });
+      notify("turn/started", { threadId: "native", turn: { id: "turn" } });
+      const helper = spawn(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], {
+        detached: text === "escaped-pipes",
+        stdio: ["ignore", "inherit", "inherit"],
+      });
+      message("accepted final output", "final-output");
+      notify("test/helper", { pid: helper.pid });
+      process.exit(0);
+    }
     if (text === "oversized-execution") {
       respond({ turn: { id: "turn" } });
       notify("turn/started", { threadId: "native", turn: { id: "turn" } });

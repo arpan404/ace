@@ -10,6 +10,7 @@ export function sessionLifetime(config: {
   ctx: CodexSessionContext;
   generation: string;
   graceMs: number;
+  schedule(callback: () => void, delayMs: number): () => void;
   cleanup(): void;
   emit(dir: "stderr" | "note", data: unknown): void;
 }) {
@@ -26,6 +27,19 @@ export function sessionLifetime(config: {
   let retirement: Retirement | null = null;
   let closePromise: Promise<void> | undefined;
   let closed = false;
+  let outputDrained = true;
+  let cancelDrain: (() => void) | undefined;
+  // Leader exit is independent of inherited pipe EOF. Preserve a bounded final prefix.
+  const drain = () => {
+    cancelDrain = config.schedule(() => {
+      outputDrained = false;
+      proc.stdout.close();
+      proc.stderr.close();
+      proc.stdin.destroy();
+    }, 250);
+  };
+  proc.signal.addEventListener("abort", drain, { once: true });
+  if (proc.signal.aborted) drain();
   proc.stderr.on("line", (line) => {
     const safe = redact(line);
     // Scrub before slicing so neither split credentials nor raw frames enter the retained tail.
@@ -49,6 +63,8 @@ export function sessionLifetime(config: {
   };
   ctx.signal.addEventListener("abort", abort, { once: true });
   void proc.exited.then((exit) => {
+    cancelDrain?.();
+    proc.signal.removeEventListener("abort", drain);
     closed = true;
     config.cleanup();
     ctx.signal.removeEventListener("abort", abort);
@@ -64,6 +80,7 @@ export function sessionLifetime(config: {
       signal: exit.signal,
       stderr,
       stderrSummary: stderr.slice(-1024),
+      outputDrained,
       ...(proc.pid !== undefined ? { pid: proc.pid } : {}),
     });
     config.emit("note", diagnostic);

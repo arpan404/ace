@@ -12,6 +12,8 @@ export const CodexExitDiagnostic = z.object({
   signal: z.string().max(32).nullable(),
   pid: z.number().int().positive().optional(),
   stderrSummary: z.string().max(1024),
+  /** False means the final descriptor drain was cut short; it makes no containment claim. */
+  outputDrained: z.boolean().optional(),
   stderr: z.string().refine((value) => new TextEncoder().encode(value).length <= 4096),
 });
 export type CodexExitDiagnostic = z.infer<typeof CodexExitDiagnostic>;

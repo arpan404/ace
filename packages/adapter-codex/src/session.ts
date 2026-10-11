@@ -306,6 +306,7 @@ export async function openCodexSession(
     ctx,
     generation: scope,
     graceMs: io.stopGraceMs,
+    schedule: io.schedule,
     emit,
     cleanup() {
       closed = true;
