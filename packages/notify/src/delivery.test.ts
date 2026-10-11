@@ -177,7 +177,7 @@ it("a revoked device loses queued jobs, presence and its address and cannot re-r
   await f.flush();
   expect(f.deliveries.slice(3).map((d) => d.device.id)).toEqual([f.desktop]);
 });
-it("vendor revocation stops future alerts while a permanent failure does not retry", async () => {
+it("vendor address expiry stops future alerts while a permanent failure does not retry", async () => {
   const f = fixture("gone");
   f.start();
   f.end();

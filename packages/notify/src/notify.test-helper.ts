@@ -85,6 +85,7 @@ export function setup(result: DeliveryResult = "accepted") {
     phone,
     history,
     deliveries,
+    transport,
     fact,
     append,
     setTime(value: number) {

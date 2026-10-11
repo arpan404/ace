@@ -64,6 +64,13 @@ export class NotificationDatabase {
         .some((row) => row.name === "last_seen")
     )
       this.db.exec("ALTER TABLE devices ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0");
+    if (
+      !this.db
+        .prepare("PRAGMA table_info(devices)")
+        .all()
+        .some((row) => row.name === "expired")
+    )
+      this.db.exec("ALTER TABLE devices ADD COLUMN expired INTEGER NOT NULL DEFAULT 0");
     this.db.exec("CREATE INDEX IF NOT EXISTS devices_seen ON devices(revoked,last_seen)");
     const version = z
       .number()
@@ -202,7 +209,7 @@ export class NotificationDatabase {
       preferences: old ? NotificationDevice.parse(JSON.parse(String(old.body))).preferences : {},
     });
     this.statement(
-      "INSERT INTO devices(id,body,revoked,last_seen) VALUES(?,?,0,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body,last_seen=excluded.last_seen",
+      "INSERT INTO devices(id,body,revoked,last_seen) VALUES(?,?,0,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body,last_seen=excluded.last_seen,expired=0",
     ).run(id, JSON.stringify(device), now);
   }
   touch(id: DeviceId, now: number): void {
@@ -240,6 +247,15 @@ export class NotificationDatabase {
       this.statement("DELETE FROM jobs WHERE device=?").run(id);
     });
   }
+  expireAddress(id: DeviceId, address: NotificationDevice["address"]): boolean {
+    return this.transaction(() => {
+      const current = this.device(id);
+      if (!current || JSON.stringify(current.address) !== JSON.stringify(address)) return false;
+      this.statement("UPDATE devices SET expired=1 WHERE id=? AND revoked=0").run(id);
+      this.statement("DELETE FROM jobs WHERE device=?").run(id);
+      return true;
+    });
+  }
   snooze(thread: ThreadId, until: number): void {
     this.thread(thread);
     z.number().int().nonnegative().parse(until);
@@ -253,7 +269,7 @@ export class NotificationDatabase {
       this.statement("DELETE FROM agent_notices WHERE expires<=?").run(now);
       if (this.statement("SELECT id FROM agent_notices WHERE id=?").get(notification.id)) return;
       const state = this.thread(notification.threadId);
-      const devices = this.statement("SELECT id FROM devices WHERE revoked=0").all();
+      const devices = this.statement("SELECT id FROM devices WHERE revoked=0 AND expired=0").all();
       if (
         this.count("jobs") + devices.length > 10_000 ||
         Number(this.statement("SELECT count(*) AS n FROM agent_notices").get()?.n) >= 10_000
@@ -288,7 +304,7 @@ export class NotificationDatabase {
         "SELECT thread,body FROM pending WHERE due<=? ORDER BY due LIMIT 64",
       ).all(now);
       if (!pending.length) return;
-      const devices = this.statement("SELECT id FROM devices WHERE revoked=0").all();
+      const devices = this.statement("SELECT id FROM devices WHERE revoked=0 AND expired=0").all();
       let jobs = this.count("jobs");
       for (const row of pending) {
         const threadId = ThreadId.parse(row.thread);
@@ -338,7 +354,7 @@ export class NotificationDatabase {
   }
   due(now: number): Job[] {
     const rows = this.statement(
-      "SELECT jobs.*,devices.body AS device_body FROM jobs JOIN devices ON devices.id=jobs.device WHERE jobs.due<=? AND devices.revoked=0 ORDER BY jobs.due LIMIT 16",
+      "SELECT jobs.*,devices.body AS device_body FROM jobs JOIN devices ON devices.id=jobs.device WHERE jobs.due<=? AND devices.revoked=0 AND devices.expired=0 ORDER BY jobs.due LIMIT 16",
     ).all(now);
     return rows.map((row) =>
       Job.parse({
