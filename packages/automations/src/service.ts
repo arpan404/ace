@@ -44,6 +44,7 @@ export class AutomationService {
       deps,
       (run) => this.publish(run),
       (error) => this.report(error),
+      () => this.arm(),
     );
     this.runtime = new AutomationRuntime(
       deps,

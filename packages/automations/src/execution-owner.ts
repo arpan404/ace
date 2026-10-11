@@ -3,11 +3,15 @@ import { ExecutionResult, type Dependencies, type ExecutionInput } from "./contr
 import type { AutomationStore } from "./store.ts";
 import { observe } from "./observation.ts";
 
+type Outcome = ExecutionResult | { status: "failed"; result: string };
+
 /** One cancellable monitor per durable run. Cancellation never stops the thread. */
 export class ExecutionOwner {
   private monitors = new Map<string, AbortController>();
   private pending = new Set<Promise<void>>();
   private deadlines = new Map<string, number>();
+  private outcomes = new Map<string, Outcome>();
+  private wake: () => void;
   private store: AutomationStore;
   private deps: Dependencies;
   private publish: (run: AutomationRun) => void;
@@ -17,11 +21,13 @@ export class ExecutionOwner {
     deps: Dependencies,
     publish: (run: AutomationRun) => void,
     report: (error: unknown) => void,
+    wake: () => void,
   ) {
     this.store = store;
     this.deps = deps;
     this.publish = publish;
     this.report = report;
+    this.wake = wake;
   }
   get hasWork(): boolean {
     return this.pending.size > 0;
@@ -52,32 +58,47 @@ export class ExecutionOwner {
   expire(): void {
     for (const [id, deadline] of this.deadlines) {
       if (this.deps.now() < deadline) continue;
-      this.deadlines.delete(id);
-      this.monitors.get(id)?.abort();
-      this.monitors.delete(id);
-      this.complete(id, { status: "failed", result: "Automation exceeded its maximum runtime" });
+      this.complete(
+        id,
+        this.outcomes.get(id) ?? {
+          status: "failed",
+          result: "Automation exceeded its maximum runtime",
+        },
+      );
     }
   }
   stop(): void {
     const monitors = [...this.monitors.values()];
     this.monitors.clear();
     this.deadlines.clear();
+    this.outcomes.clear();
     this.pending.clear();
     for (const controller of monitors) controller.abort();
   }
   async settled(): Promise<void> {
     while (this.pending.size) await Promise.all(this.pending);
   }
-  private complete(
-    id: string,
-    outcome: ExecutionResult | { status: "failed"; result: string },
-  ): void {
+  private complete(id: string, outcome: Outcome): void {
+    const controller = this.monitors.get(id);
+    if (!controller) return;
+    this.outcomes.set(id, outcome);
+    controller.abort();
+    if (this.monitors.get(id) !== controller) return;
+    let finished: AutomationRun | undefined;
     try {
-      const finished = this.store.finish(id, this.deps.now(), outcome);
-      if (finished) this.publish(finished);
+      finished = this.store.finish(id, this.deps.now(), outcome);
     } catch (error) {
+      // Retain the exact outcome and bounded ownership until SQLite accepts it.
+      this.deadlines.set(id, this.deps.now() + 1000);
       this.report(error);
+      this.wake();
+      return;
     }
+    if (this.monitors.get(id) !== controller) return;
+    this.monitors.delete(id);
+    this.deadlines.delete(id);
+    this.outcomes.delete(id);
+    if (finished) this.publish(finished);
   }
   private monitor(
     run: AutomationRun,
@@ -85,41 +106,29 @@ export class ExecutionOwner {
   ): void {
     if (this.monitors.has(run.id)) return;
     const deadline = run.startedAt + (this.deps.maxRunMs ?? 3_600_000);
-    if (this.deps.now() >= deadline) {
-      this.complete(run.id, {
-        status: "failed",
-        result: "Automation exceeded its maximum runtime",
-      });
-      return;
-    }
     if (this.monitors.size >= 256) throw new Error("Execution monitor limit reached");
     const controller = new AbortController();
     this.monitors.set(run.id, controller);
-    this.deadlines.set(run.id, run.startedAt + (this.deps.maxRunMs ?? 3_600_000));
+    this.deadlines.set(run.id, deadline);
+    if (this.deps.now() >= deadline) {
+      this.expire();
+      return;
+    }
     let request: Promise<ExecutionResult | undefined>;
     try {
       request = Promise.resolve(execute(controller.signal));
     } catch (error) {
       request = Promise.reject(error);
     }
-    const release = () => {
-      if (this.monitors.get(run.id) === controller) {
-        this.deadlines.delete(run.id);
-        this.monitors.delete(run.id);
-      }
-      this.pending.delete(tracked);
-    };
     const operation = async () => {
       try {
         const result = await observe(request, controller.signal);
         if (result !== undefined && !controller.signal.aborted) {
           const outcome = ExecutionResult.parse(result);
-          release();
           this.complete(run.id, outcome);
         }
       } catch (error) {
         if (!controller.signal.aborted) {
-          release();
           this.complete(run.id, {
             status: "failed",
             result: (error instanceof Error ? error.message : String(error)).slice(0, 8192),
@@ -127,7 +136,7 @@ export class ExecutionOwner {
         }
       }
     };
-    const tracked = operation().finally(release);
+    const tracked = operation().finally(() => this.pending.delete(tracked));
     this.pending.add(tracked);
   }
 }
