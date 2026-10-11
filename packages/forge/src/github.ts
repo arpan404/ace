@@ -1,4 +1,5 @@
 import type { WriteDispatch } from "./write-dispatch.ts";
+import { GitHubMergeState } from "./github-merge-state.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import type { ForgePrSearch } from "@ace/protocol/forge-browser";
 import { z } from "zod";
@@ -27,6 +28,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
   readonly #status = new GitHubStatusReader(this.revisions);
   readonly #root: string;
   readonly #browser: GitHubBrowser;
+  readonly #mergeState: GitHubMergeState;
   constructor(options: {
     repository: ForgeRepository;
     runner: CommandRunner;
@@ -38,6 +40,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
       throw new ForgeError("unsupported");
     this.#root = `repos/${this.repository.owner}/${this.repository.name}`;
     this.#api = new GhApi({ ...options, host: this.repository.host });
+    this.#mergeState = new GitHubMergeState(this.#api, this.repository);
     this.#browser = new GitHubBrowser(this.#api, this.repository);
   }
   #ref(number: number): ForgePrRef {
@@ -51,6 +54,19 @@ export class GitHubForge implements Forge, ForgeBrowser {
     const parsed = z.object({ login: z.string().min(1).max(100) }).safeParse(response.body);
     if (!parsed.success) throw new ForgeError("invalid_data");
     return parsed.data.login;
+  }
+  prMergeState(number: number, signal: AbortSignal) {
+    return this.#mergeState.read(number, signal);
+  }
+  changeMergeState(
+    number: number,
+    headSha: string,
+    action: "enable" | "disable" | "dequeue",
+    method: MergeMethod,
+    signal: AbortSignal,
+    allowed: () => boolean = () => true,
+  ) {
+    return this.#mergeState.change(number, headSha, action, method, signal, allowed);
   }
   prActivity(number: number, page: number, signal: AbortSignal) {
     return this.#browser.activity(number, page, signal);

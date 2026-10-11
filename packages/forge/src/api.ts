@@ -28,6 +28,17 @@ export interface Forge {
     method: MergeMethod,
     signal: AbortSignal,
   ): Promise<void>;
+  prMergeState?(
+    number: number,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol/forge-merge-state").ForgeMergeState>;
+  changeMergeState?(
+    number: number,
+    headSha: string,
+    action: "enable" | "disable" | "dequeue",
+    method: MergeMethod,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol/forge-merge-state").ForgeMergeState>;
   logTail(jobId: number, signal: AbortSignal): Promise<{ text: string; truncated: boolean }>;
 }
 

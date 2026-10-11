@@ -204,6 +204,7 @@ export class WorkspaceRuntime {
       result,
     });
     if (
+      op.op === "forge.pr.merge-state" ||
       op.op === "forge.pr.activity" ||
       op.op === "forge.pr.list" ||
       op.op === "forge.pr.detail" ||

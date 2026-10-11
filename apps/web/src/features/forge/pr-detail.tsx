@@ -7,6 +7,7 @@ import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { openExternal } from "@/boot/open-external.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { PrActivity } from "./pr-activity.tsx";
+import { PrMergeState } from "./pr-merge-state.tsx";
 import { PrActions } from "./pr-actions.tsx";
 import { PrCommits } from "./pr-commits.tsx";
 import { PrFiles } from "./pr-files.tsx";
@@ -86,6 +87,12 @@ export function PrDetail(props: {
             detail={detail}
             writeReady={!query.isError && !query.isFetching}
             onRefresh={async () => !(await query.refetch()).isError}
+          />
+          <PrMergeState
+            key={JSON.stringify(status.ref)}
+            workspaceId={props.workspaceId}
+            detail={detail}
+            onRefresh={() => void query.refetch()}
           />
           <Tabs
             value={props.tab}

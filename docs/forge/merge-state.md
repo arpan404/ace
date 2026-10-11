@@ -1,0 +1,37 @@
+# Auto-merge and merge queue
+
+The PR workspace reads auto-merge and queue state through a separate bounded
+`forge.pr.merge-state` resource. This keeps failures in newer GitHub capabilities
+visible without preventing the conversation, checks or files from loading.
+Reads poll while the workspace is open and refresh after reconnect. Cached state
+is never used to decide that a mutation succeeded.
+
+`forge.pr.merge-state.change` is a durable explicit command scoped to an existing
+thread association. It checks the selected head and GitHub capabilities before
+writing through the installed `gh api` process. Enabling auto-merge supplies
+`expectedHeadOid`. Disable and dequeue are separate GraphQL mutations. GitHub does
+not expose an expected revision on those cancellation inputs, so ace checks the
+head immediately before the mutation; GitHub still enforces its permissions.
+
+After a write, including a lost acknowledgement, ace reads authoritative state.
+It returns success only when that state confirms the requested outcome. It never
+retries the mutation. An unresolved outcome stays visible through an error
+receipt, and the UI requires an explicit refresh before another action. The
+existing async command reservation prevents replay after daemon restart.
+
+GitHub's capability fields decide auto-merge availability. Check rollup, review
+decision and merge-state status describe blockers without pretending to enumerate
+all repository rules. Queue cancellation requires repository write permission;
+GitHub makes the final authorization decision. Unknown states and provider fields
+remain available as bounded, redacted raw data.
+
+Primary contracts:
+
+- https://docs.github.com/en/graphql/reference/pulls
+- https://cli.github.com/manual/gh_api
+- https://cli.github.com/manual/gh_pr_merge
+
+Behavior tests cover state, cancellation, queue ejection, external disablement,
+changed heads, CLI/GraphQL failures, lost acknowledgements and durable receipts.
+They are not executed during development under the shared-machine policy. CI
+must run tests and the full typecheck before merge.

@@ -238,3 +238,48 @@ test("changing repositories replaces the old detail with an honest inaccessible 
     expect(screen.queryByRole("heading", { name: /Retry reconnects #42/ })).toBeNull(),
   );
 });
+
+test("the PR workspace renders authoritative auto-merge and queue state and removes externally cancelled requests on refresh", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), number: 42 },
+    { resource: "prDetail", value: detail() },
+  );
+  const operation = {
+    op: "forge.pr.merge-state",
+    workspaceId: WorkspaceId.parse("api"),
+    repository,
+    number: 42,
+  } as const;
+  const state = {
+    headSha: "a".repeat(40),
+    state: "OPEN",
+    mergeState: "BLOCKED",
+    reviewDecision: "REVIEW_REQUIRED",
+    checksState: "SUCCESS",
+    autoMerge: { method: "SQUASH", actor: "octo", enabledAt: "2026-10-11" },
+    queue: { id: "QUEUE_42", state: "AWAITING_CHECKS", position: 3, enqueuedAt: "2026-10-11" },
+    canEnable: false,
+    canDisable: true,
+    canDequeue: true,
+    blockers: ["Required reviews are outstanding."],
+    raw: {},
+  };
+  app.daemon.workspace.setForgeRead(operation, { resource: "prMergeState", value: state });
+  await app.open("/pull-requests?project=api&number=42");
+  const section = within(await screen.findByRole("region", { name: "Auto-merge and merge queue" }));
+  expect(await section.findByText(/squash by octo/)).toBeTruthy();
+  expect(section.getByText(/AWAITING_CHECKS, position 3/)).toBeTruthy();
+  expect(section.getByText("Required reviews are outstanding.")).toBeTruthy();
+  expect(
+    section.getByRole<HTMLButtonElement>("button", { name: "Cancel auto-merge" }).disabled,
+  ).toBe(true);
+  app.daemon.workspace.setForgeRead(operation, {
+    resource: "prMergeState",
+    value: { ...state, autoMerge: null, queue: null, canDisable: false, canDequeue: false },
+  });
+  await userEvent.click(section.getByRole("button", { name: "Refresh merge state" }));
+  expect(await section.findByText("Auto-merge is disabled.")).toBeTruthy();
+  expect(section.getByText("Not in the merge queue.")).toBeTruthy();
+});

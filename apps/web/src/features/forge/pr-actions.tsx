@@ -154,19 +154,6 @@ export function PrActions(props: {
           >
             Merge PR
           </Button>
-          <Button
-            disabled={!ready || pending || blocked || !active}
-            onClick={() =>
-              void run({
-                type: "forge.pr.auto-merge",
-                link,
-                method,
-                headSha: props.detail.status.headSha,
-              })
-            }
-          >
-            Enable auto-merge
-          </Button>
           <form
             className="flex items-center gap-2"
             onSubmit={(e) => {
