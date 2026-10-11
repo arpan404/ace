@@ -32,15 +32,18 @@ export function forgeError(code: string): string {
     forge_write_pending: "An action is still running for this PR. Refresh before continuing.",
     forge_write_uncertain:
       "GitHub may have accepted the action. Refresh to reconcile it before making another change.",
+    action_outcome_uncertain:
+      "GitHub may have accepted this action. Check its result before retrying; your edit is retained.",
     forge_cli: "GitHub is unavailable. Check your connection and installed gh CLI, then refresh.",
     forge_forbidden:
-      "This account cannot access the repository. Check gh login and repository permissions.",
+      "Your GitHub account cannot perform this action or access this repository. Check gh login and permissions.",
     forge_not_found: "This repository or pull request is missing or inaccessible.",
     forge_rate_limit: "GitHub's rate limit was reached. Wait before refreshing.",
     forge_limit:
       "GitHub returned more data than ace can safely display. Open GitHub for the complete resource.",
-    forge_conflict: "The pull request changed while reading. Refresh before continuing.",
-    forge_unsupported: "This repository's forge is not supported yet. Choose a GitHub project.",
+    forge_conflict:
+      "GitHub could not apply the action, or the pull request changed. Refresh and review its current state.",
+    forge_unsupported: "This forge or GitHub host does not support the requested action.",
     forge_invalid_data: "GitHub returned an unreadable response. Refresh to try again.",
   };
   return messages[code] ?? actionErrorText(code);

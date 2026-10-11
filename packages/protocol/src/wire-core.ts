@@ -1,3 +1,4 @@
+import { ForgeLifecycleReceipt } from "./forge-lifecycle.ts";
 import { Project, ProjectInspection } from "./projects.ts";
 import { z } from "zod";
 import { Agent } from "./agent.ts";
@@ -154,6 +155,7 @@ export const CommandResult = z.object({
   review: ReviewData.optional(),
   pr: ForgePrRef.optional(),
   prStatus: ForgePrStatus.optional(),
+  forgeLifecycle: ForgeLifecycleReceipt.optional(),
   editor: EditorLaunch.optional(),
   terminalId: z.string().min(1).max(128).optional(),
   commit: z

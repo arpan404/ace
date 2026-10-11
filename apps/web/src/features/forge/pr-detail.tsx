@@ -1,3 +1,4 @@
+import { PrLifecycle } from "./pr-lifecycle.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { ForgeRepository } from "@ace/protocol";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
@@ -86,6 +87,12 @@ export function PrDetail(props: {
             detail={detail}
             writeReady={!query.isError && !query.isFetching}
             onRefresh={async () => !(await query.refetch()).isError}
+          />
+          <PrLifecycle
+            key={JSON.stringify(status.ref)}
+            workspaceId={props.workspaceId}
+            detail={detail}
+            onRefresh={() => void query.refetch()}
           />
           <Tabs
             value={props.tab}

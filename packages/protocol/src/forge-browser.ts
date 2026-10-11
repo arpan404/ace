@@ -1,3 +1,4 @@
+import { ForgeLifecycleState } from "./forge-lifecycle.ts";
 import { z } from "zod";
 import { ForgePrRef, ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { WorkspaceId, ThreadId } from "./ids.ts";
@@ -107,6 +108,7 @@ export const ForgeActivity = z.object({
 });
 const scope = { workspaceId: WorkspaceId, repository: ForgeRepository.optional() };
 export const ForgeBrowserOperations = [
+  z.object({ op: z.literal("forge.pr.lifecycle"), ...scope, number: z.number().int().positive() }),
   z.object({
     op: z.literal("forge.pr.activity"),
     ...scope,
@@ -133,6 +135,7 @@ export const ForgeBrowserOperations = [
   }),
 ] as const;
 export const ForgeBrowserResult = z.discriminatedUnion("resource", [
+  z.object({ resource: z.literal("prLifecycle"), value: ForgeLifecycleState }),
   z.object({
     resource: z.literal("prActivity"),
     events: z.array(ForgeActivity).max(25),

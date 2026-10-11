@@ -12,6 +12,8 @@ export function actionErrorCode(error: unknown): string {
     error instanceof Error &&
     [
       "repository_mismatch",
+      "action_outcome_uncertain",
+      "workspace_not_found",
       "pr_link_changed",
       "forge_recovery_unavailable",
       "forbidden",

@@ -66,7 +66,10 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
       async accept(command) {
         const p = command.payload;
         const id = "threadId" in p ? p.threadId : "link" in p ? p.link.threadId : undefined;
-        if (!options.workspaceActions || !id || !canReadThread(ThreadId.parse(id))) {
+        if (
+          !options.workspaceActions ||
+          (p.type !== "forge.hosted.lifecycle" && (!id || !canReadThread(ThreadId.parse(id))))
+        ) {
           send({
             type: "commandResult",
             commandId: command.id,
@@ -80,7 +83,8 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
           () =>
             connected() &&
             authorize(p.type === "forge.pr.status" ? "read" : "operate") &&
-            canReadThread(ThreadId.parse(id)),
+            (p.type === "forge.hosted.lifecycle" ||
+              (id !== undefined && canReadThread(ThreadId.parse(id)))),
         );
         if (connected()) send({ type: "commandResult", ...result });
       },

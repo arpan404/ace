@@ -134,3 +134,59 @@ export async function fakeGh(fixtures: Fixtures, options: { maxBytes?: number } 
     },
   };
 }
+
+const lifecycleBase = {
+  id: "PR_7",
+  number: 7,
+  title: "Fix build",
+  body: "Original description",
+  state: "OPEN",
+  isDraft: false,
+  headRefOid: sha,
+  baseRefOid: nextSha,
+  baseRefName: "main",
+  updatedAt: "2026-10-10T00:00:00Z",
+  mergeCommit: null as { oid: string } | null,
+  viewerCanUpdate: true,
+  viewerCanClose: true,
+  viewerCanReopen: true,
+  viewerCanUpdateBranch: true,
+  viewerCanLabel: true,
+  viewerCanAssign: true,
+  canBeRebased: true,
+  labels: { nodes: [{ id: "L_1", name: "bug" }], pageInfo: { hasNextPage: false } },
+  assignees: { nodes: [{ id: "U_1", login: "octo" }], pageInfo: { hasNextPage: false } },
+};
+export function lifecycleRecord(overrides: Partial<typeof lifecycleBase> = {}) {
+  return { ...lifecycleBase, ...overrides };
+}
+export function lifecycleFixtures(records = [lifecycleRecord()]): Fixtures {
+  return {
+    "graphql:query AceLifecycleSnapshot": records.map((pullRequest) => ({
+      body: {
+        data: {
+          repository: { isArchived: false, viewerPermission: "WRITE", pullRequest },
+        },
+      },
+    })),
+    "graphql:mutationType:__type": [
+      {
+        body: {
+          data: {
+            mutationType: {
+              fields: [
+                "updatePullRequest",
+                "markPullRequestReadyForReview",
+                "convertPullRequestToDraft",
+                "closePullRequest",
+                "reopenPullRequest",
+                "updatePullRequestBranch",
+                "revertPullRequest",
+              ].map((name) => ({ name })),
+            },
+          },
+        },
+      },
+    ],
+  };
+}

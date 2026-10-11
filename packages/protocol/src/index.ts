@@ -126,3 +126,5 @@ export * from "./remote-delegation.ts";
 export * from "./remote-context.ts";
 
 export * from "./forge-browser.ts";
+
+export * from "./forge-lifecycle.ts";

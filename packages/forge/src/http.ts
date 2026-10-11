@@ -54,7 +54,11 @@ export class GhApi {
       "Accept: application/vnd.github+json",
     ];
     const input = body === undefined ? undefined : JSON.stringify(body);
-    const reusable = method === "GET" || (path === "graphql" && method === "POST");
+    const graphqlRead =
+      path === "graphql" &&
+      method === "POST" &&
+      z.object({ query: z.string() }).safeParse(body).data?.query.trimStart().startsWith("query");
+    const reusable = method === "GET" || Boolean(graphqlRead);
     // An unreadable acknowledgement can still follow an accepted write.
     if (!reusable) {
       this.#cache.clear();

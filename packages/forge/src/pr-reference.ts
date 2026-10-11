@@ -42,3 +42,8 @@ export function prRepository(value: string, fallback: ForgeRepository): ForgeRep
     name: parts.at(-1),
   });
 }
+
+export function prUrl(pr: ForgePrRef): string {
+  const repo = pr.repository;
+  return `https://${repo.host}/${repo.owner}/${repo.name}/${repo.forge === "github" ? "pull" : "-/merge_requests"}/${pr.number}`;
+}

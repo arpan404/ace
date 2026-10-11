@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeLifecycleState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "operations": {
+      "items": {
+        "properties": {
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "maxLength": 100,
+            "type": "string"
+          },
+          "revertPr": {
+            "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+          },
+          "state": {
+            "enum": [
+              "accepted",
+              "pending",
+              "uncertain",
+              "head_changed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "state"
+        ],
+        "type": "object"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "snapshot": {
+      "$ref": "https://ace.local/protocol/v1/ForgeLifecycleSnapshot.json"
+    }
+  },
+  "required": [
+    "snapshot",
+    "operations"
+  ],
+  "type": "object"
+}

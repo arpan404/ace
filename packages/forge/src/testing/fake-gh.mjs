@@ -14,14 +14,23 @@ let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const body = input ? JSON.parse(input) : undefined;
 const path = args[0] === "api" ? args[1] : "auto-merge";
-const count = state.counters[path] ?? 0;
-const records = config[path];
+const fixturePath =
+  path === "graphql"
+    ? (Object.keys(config).find(
+        (key) =>
+          key.startsWith("graphql:") &&
+          typeof body?.query === "string" &&
+          body.query.includes(key.slice(8)),
+      ) ?? path)
+    : path;
+const count = state.counters[fixturePath] ?? 0;
+const records = config[fixturePath];
 if (!records) {
   process.stderr.write("Unexpected request");
   process.exit(1);
 }
 const response = records[Math.min(count, records.length - 1)];
-state.counters[path] = count + 1;
+state.counters[fixturePath] = count + 1;
 state.requests.push({ path, args, ...(body === undefined ? {} : { body }) });
 writeFileSync(statePath, JSON.stringify(state));
 if (response.wait) {

@@ -1,0 +1,79 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeLifecycleSnapshot.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "actions": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeLifecycleActionName.json"
+      },
+      "maxItems": 7,
+      "type": "array"
+    },
+    "baseSha": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
+    "editableFields": {
+      "items": {
+        "enum": [
+          "title",
+          "body",
+          "baseBranch",
+          "labels",
+          "assignees"
+        ],
+        "type": "string"
+      },
+      "maxItems": 5,
+      "type": "array"
+    },
+    "headSha": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrMetadata.json"
+    },
+    "pr": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+    },
+    "state": {
+      "enum": [
+        "open",
+        "draft",
+        "closed",
+        "merged"
+      ],
+      "type": "string"
+    },
+    "unsupported": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeLifecycleActionName.json"
+      },
+      "maxItems": 7,
+      "type": "array"
+    },
+    "version": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pr",
+    "id",
+    "version",
+    "headSha",
+    "baseSha",
+    "state",
+    "metadata",
+    "editableFields",
+    "actions",
+    "unsupported"
+  ],
+  "type": "object"
+}

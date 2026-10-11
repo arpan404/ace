@@ -1,3 +1,4 @@
+import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
 import {
   GitHubForge,
   ForgeError,
@@ -26,6 +27,7 @@ import type { PrOwnerOperation } from "./agent-control/tools.ts";
 
 export class WorkspaceForge {
   private store: Store;
+  private lifecycle: WorkspaceForgeLifecycle;
   private git: Pick<GitService, "repositoryInfo">;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
@@ -41,6 +43,7 @@ export class WorkspaceForge {
     runner: (cwd: string) => CommandRunner,
   ) {
     this.store = store;
+    this.lifecycle = new WorkspaceForgeLifecycle(store);
     this.git = git;
     this.now = now;
     this.runner = runner;
@@ -75,6 +78,15 @@ export class WorkspaceForge {
     const repository = operation.repository ?? (await this.repository(cwd));
     signal.throwIfAborted();
     const backend = this.backend(cwd, repository);
+    if (operation.op === "forge.pr.lifecycle") {
+      const value = await this.lifecycle.state(
+        { repository, number: operation.number },
+        backend,
+        signal,
+      );
+      this.publishLifecycle(value.snapshot);
+      return { resource: "prLifecycle", value };
+    }
     if (operation.op === "forge.pr.activity")
       return {
         resource: "prActivity",
@@ -90,6 +102,7 @@ export class WorkspaceForge {
     if (operation.op === "forge.pr.files")
       return { resource: "prFiles", value: await backend.prFiles(operation, signal) };
     const value = await backend.prDetail(operation.number, signal);
+    this.publishStatus(value.status);
     const threads = this.store
       .atomic((db) =>
         db
@@ -377,6 +390,55 @@ export class WorkspaceForge {
     this.actions.observe(status);
     this.projection.update(id, status, generation);
     return { ok: true, pr: status.ref, prStatus: status };
+  }
+  private publishStatus(status: ForgePrStatus): void {
+    const ids = this.store.atomic((db) =>
+      db
+        .prepare("SELECT thread_id FROM forge_links WHERE repo=? AND number=?")
+        .all(repositoryKey(status.ref.repository), status.ref.number),
+    );
+    for (const row of ids) {
+      const id = ThreadId.parse(row.thread_id);
+      this.projection.update(id, status, this.links.getLinkState(id, status.ref)?.generation);
+    }
+  }
+  private publishLifecycle(snapshot: import("@ace/protocol").ForgeLifecycleSnapshot): void {
+    this.publishStatus({
+      ref: snapshot.pr,
+      title: snapshot.metadata.title,
+      url: prUrl(snapshot.pr),
+      state: snapshot.state,
+      headSha: snapshot.headSha,
+      mergeability: "unknown",
+      ci: "unknown",
+      checks: [],
+      comments: [],
+      reviewThreads: [],
+      raw: {},
+    });
+  }
+  async hostedLifecycle(
+    command: import("@ace/protocol").Command & {
+      payload: import("zod").z.infer<typeof import("@ace/protocol").ForgeHostedLifecycleCommand>;
+    },
+    cwd: string,
+    allowed: () => boolean,
+  ) {
+    const p = command.payload;
+    const backend = this.backend(cwd, p.pr.repository);
+    const receipt = await this.lifecycle.execute(
+      p,
+      command.id,
+      backend,
+      this.lifetime.signal,
+      allowed,
+    );
+    try {
+      this.publishLifecycle(await backend.lifecycle.snapshot(p.pr.number, this.lifetime.signal));
+    } catch {
+      /* The write receipt is durable even when the follow-up projection read is unavailable. */
+    }
+    return { ok: true, forgeLifecycle: receipt };
   }
   close(): void {
     this.lifetime.abort();

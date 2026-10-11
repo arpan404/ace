@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ForgePrDetail, ForgePrSearch, WorkspaceId, ThreadId } from "@ace/protocol";
+import { ForgePrDetail, ForgePrSearch, ForgeLifecycleState, WorkspaceId, ThreadId } from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;
@@ -237,4 +237,114 @@ test("changing repositories replaces the old detail with an honest inaccessible 
   await waitFor(() =>
     expect(screen.queryByRole("heading", { name: /Retry reconnects #42/ })).toBeNull(),
   );
+});
+
+test("the repository workspace shows current lifecycle permissions and reconciles outside changes on refresh", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  const workspaceId = WorkspaceId.parse("api");
+  const draft = detail();
+  draft.status.state = "draft";
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId, number: 42 },
+    { resource: "prDetail", value: draft },
+  );
+  const state = ForgeLifecycleState.parse({
+    snapshot: {
+      pr: draft.status.ref,
+      id: "PR_42",
+      version: "a".repeat(64),
+      headSha: draft.status.headSha,
+      baseSha: draft.baseSha,
+      state: "draft",
+      metadata: {
+        title: draft.status.title,
+        body: draft.body,
+        baseBranch: "main",
+        labels: [],
+        assignees: [],
+      },
+      editableFields: ["title", "body"],
+      actions: ["ready"],
+      unsupported: ["revert"],
+    },
+    operations: [],
+  });
+  const operation = { op: "forge.pr.lifecycle", workspaceId, repository, number: 42 } as const;
+  app.daemon.workspace.setForgeRead(operation, { resource: "prLifecycle", value: state });
+  await app.open("/pull-requests?project=api&number=42");
+  const region = await screen.findByRole("region", { name: "Pull request metadata and lifecycle" });
+  expect(await within(region).findByRole("button", { name: "Mark ready for review" })).toBeTruthy();
+  expect(within(region).queryByRole("button", { name: "Close PR" })).toBeNull();
+  expect(within(region).getByText(/host does not support: Create revert PR/)).toBeTruthy();
+  const closed = detail(repository, "Closed on GitHub");
+  closed.status.state = "closed";
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId, number: 42 },
+    { resource: "prDetail", value: closed },
+  );
+  app.daemon.workspace.setForgeRead(operation, {
+    resource: "prLifecycle",
+    value: {
+      ...state,
+      snapshot: {
+        ...state.snapshot,
+        version: "b".repeat(64),
+        state: "closed",
+        metadata: { ...state.snapshot.metadata, title: closed.status.title },
+        actions: ["reopen"],
+      },
+    },
+  });
+  await userEvent.click(within(region).getByRole("button", { name: "Refresh lifecycle" }));
+  expect(await screen.findByRole("heading", { name: /Closed on GitHub #42/ })).toBeTruthy();
+  expect(await within(region).findByRole("button", { name: "Reopen PR" })).toBeTruthy();
+  expect(within(region).queryByRole("button", { name: "Mark ready for review" })).toBeNull();
+});
+
+test("a refused metadata write keeps its text and shows the daemon refusal", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  const workspaceId = WorkspaceId.parse("api");
+  const pr = detail();
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId, number: 42 },
+    { resource: "prDetail", value: pr },
+  );
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.lifecycle", workspaceId, repository, number: 42 },
+    {
+      resource: "prLifecycle",
+      value: ForgeLifecycleState.parse({
+        snapshot: {
+          pr: pr.status.ref,
+          id: "PR_42",
+          version: "a".repeat(64),
+          headSha: pr.status.headSha,
+          baseSha: pr.baseSha,
+          state: "open",
+          metadata: {
+            title: pr.status.title,
+            body: pr.body,
+            baseBranch: "main",
+            labels: [],
+            assignees: [],
+          },
+          editableFields: ["body"],
+          actions: [],
+          unsupported: [],
+        },
+        operations: [],
+      }),
+    },
+  );
+  await app.open("/pull-requests?project=api&number=42");
+  await screen.findByText(/Current state: open/);
+  await userEvent.click(screen.getByText("Edit PR metadata"));
+  const body = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "PR description" });
+  await userEvent.clear(body);
+  await userEvent.type(body, "Retain my description");
+  await userEvent.click(screen.getByRole("button", { name: "Save PR metadata" }));
+  expect(await screen.findByText("This daemon can't do that yet: update the daemon.")).toBeTruthy();
+  expect(body.value).toBe("Retain my description");
 });
