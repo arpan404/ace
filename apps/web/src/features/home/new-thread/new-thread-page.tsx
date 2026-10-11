@@ -175,13 +175,13 @@ export function NewThreadPage(props: {
   const accountId = resolved.account?.id;
   const draftThread = useDraftThreadRef(scope.draftId, project, provider, accountId, scope.retry);
   const waitingForAdmission =
-    !start.loaded || !provider || defaultMode === undefined || permissions.loading;
+    !start.loaded || options === undefined || (!!provider && (defaultMode === undefined || permissions.loading));
   const admissionProblem = waitingForAdmission
     ? "Checking provider settings…"
     : permissions.failed
       ? "Couldn't check provider permissions. Reconnect and try again."
       : !resolved.model
-        ? "Choose an available model before sending."
+        ? "No model selected. Open the model menu to refresh or sign in."
         : admitted.fallback;
   const send = async (draft: Draft) => {
     if (!project || !resolved.model || admissionProblem) return false;

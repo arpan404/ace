@@ -99,7 +99,7 @@ export function ModelPicker(props: {
     tip:
       error ?? (details ? modelControlName({ ...details, provider: model.provider }) : empty.label),
     // An account without models can still move to another model or account.
-    disabled: !!error || (!model && (props.options === undefined || none)),
+    disabled: !!error || props.options === undefined,
     modelKey: model?.key,
     instance: model?.account,
     efforts,
