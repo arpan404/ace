@@ -1,11 +1,11 @@
-import { isSecretKey, sensitiveSpans } from "@ace/redaction";
+import { sensitiveSpans } from "@ace/redaction";
 import { isAlias, isMap, isScalar, isSeq, parseAllDocuments } from "yaml";
 import { GitError } from "./types.ts";
+import { isPublicationCredentialKey } from "./publication-credentials.ts";
 
 const tags = new Set(
   ["str", "int", "float", "bool", "null", "map", "seq"].map((tag) => `tag:yaml.org,2002:${tag}`),
 );
-const kubeCredential = /^(?:client-key-data|client-certificate-data|auth-provider)$/i;
 function incomplete(): never {
   throw new GitError("publication_scan_incomplete", "YAML credential scan incomplete");
 }
@@ -55,7 +55,7 @@ export function assertPublicationYaml(bytes: Buffer): void {
       for (const pair of value.items) {
         if (!isScalar(pair.key) || typeof pair.key.value !== "string") incomplete();
         const key = pair.key.value;
-        if ((isSecretKey(key) || kubeCredential.test(key)) && populated(pair.value))
+        if (isPublicationCredentialKey(key) && populated(pair.value))
           throw new GitError("sensitive_publication", "Sensitive YAML credential field");
         if (
           key.toLowerCase() === "exec" &&

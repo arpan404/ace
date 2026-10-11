@@ -5,7 +5,12 @@ import { GitError } from "./types.ts";
 const fields = z.record(z.string(), z.unknown());
 const elements = z.array(z.unknown());
 const credentialKey =
-  /^(?:_?auth(?:token)?|private[_-]?key|(?:aws[_-]?)?access[_-]?key(?:[_-]?id)?)$/i;
+  /^(?:_?auth(?:token)?|private[_-]?key|(?:aws[_-]?)?access[_-]?key(?:[_-]?id)?|client-key-data|client-certificate-data|auth-provider)$/i;
+
+/** Credential field names are shared by JSON and YAML inspection. */
+export function isPublicationCredentialKey(key: string): boolean {
+  return isSecretKey(key) || credentialKey.test(key);
+}
 
 /** Parse structured fields too: escaped keys and base64 Docker auth need no token signature. */
 function containsStructuredCredential(text: string): boolean {
@@ -35,11 +40,7 @@ function containsStructuredCredential(text: string): boolean {
             "publication_scan_incomplete",
             "Structured credential scan incomplete",
           );
-        if (
-          (isSecretKey(key) || credentialKey.test(key)) &&
-          typeof value === "string" &&
-          value.trim()
-        )
+        if (isPublicationCredentialKey(key) && typeof value === "string" && value.trim())
           return true;
         pending.push({ value, depth: next.depth + 1 });
       }

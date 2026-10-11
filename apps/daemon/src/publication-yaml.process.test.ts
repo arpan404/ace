@@ -6,6 +6,30 @@ const config = (user: string) =>
   `apiVersion: v1\nkind: Config\nusers:\n- name: fixture\n  user:\n${user}\n`;
 const samples = [
   {
+    label: "quoted Docker registry auth",
+    path: "deploy/settings.yaml",
+    text: "auths:\n  registry.example.invalid:\n    'auth': c3ludGhldGljOmNyZWRlbnRpYWw=\n",
+    deleted: false,
+  },
+  {
+    label: "quoted Docker registry auth",
+    path: "deploy/settings.yaml",
+    text: "auths:\n  registry.example.invalid:\n    'auth': c3ludGhldGljOmNyZWRlbnRpYWw=\n",
+    deleted: true,
+  },
+  {
+    label: "quoted private key",
+    path: "deploy/settings.yaml",
+    text: "'private_key': 'opaque-value'\n",
+    deleted: false,
+  },
+  {
+    label: "quoted private key",
+    path: "deploy/settings.yaml",
+    text: "'private_key': 'opaque-value'\n",
+    deleted: true,
+  },
+  {
     label: "single-quoted token in kubeconfig",
     path: "deploy/kubeconfig.yaml",
     text: config("    'token': opaque-value"),
