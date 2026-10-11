@@ -10,7 +10,12 @@ import { CompletionMigration } from "./completion-migration.ts";
 interface Source {
   headSeq(): number;
   getThread(id: ThreadId): Thread | undefined;
-  readEvents(input: { afterSeq: number; limit: number }): Event[];
+  readEvents(input: {
+    afterSeq: number;
+    limit: number;
+    threadId?: ThreadId;
+    byteLimit?: number;
+  }): Event[];
   atomic<T>(run: (db: DatabaseSync) => T): T;
   appendEvents(id: ThreadId, events: EventPayload[], at: number): unknown;
 }
