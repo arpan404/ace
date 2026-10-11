@@ -84,10 +84,13 @@ export class NotificationDatabase {
     if (version === 0 || version === 1 || version === 2 || version === 3) {
       this.transaction(() => {
         if (version !== 3) {
-          // Replay older projections to recover deletion state, preserving device policy.
+          // Replay state alerts. Accepted agent notices have no replayable source;
+          // retain their jobs and receipts until replay applies thread deletion.
           this.db.exec(`DELETE FROM threads; DELETE FROM interactions;
             DELETE FROM interaction_owners; DELETE FROM agent_status; DELETE FROM tasks;
-            DELETE FROM pending; DELETE FROM jobs; UPDATE cursor SET seq=0 WHERE id=1;`);
+            DELETE FROM pending;
+            DELETE FROM jobs WHERE json_extract(body,'$.status') IS NOT 'agent_says';
+            UPDATE cursor SET seq=0 WHERE id=1;`);
         }
         // Version 3 already projects deletion. Keep its queued jobs and retry deadlines.
         this.db.exec(`CREATE TABLE jobs_v4 (${jobColumns});
