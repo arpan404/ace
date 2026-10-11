@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { spawnRawSupervised, type RawSupervisedProcess } from "@ace/provider-kit/process";
 import type { Writable } from "node:stream";
 
 /** One long-running development process. */
@@ -64,6 +65,7 @@ export function linePrefixer(prefix: string, write: (text: string) => void) {
 export class ProcessGroup {
   readonly done: Promise<GroupResult>;
   private children = new Map<string, ChildProcess>();
+  private supervised = new Map<string, RawSupervisedProcess>();
   private exits: ProcessExit[] = [];
   private cause: ProcessExit | undefined;
   private stopping = false;
@@ -96,9 +98,24 @@ export class ProcessGroup {
   /** Kill everything immediately (second Ctrl-C). */
   kill(): void {
     for (const child of this.children.values()) signal(child, "SIGKILL");
+    for (const proc of this.supervised.values()) {
+      // The shared supervisor kills the group on leader exit. Never signal a
+      // remembered PID after that lifetime ended, when it could have been reused.
+      if (proc.pid !== undefined && !proc.signal.aborted) {
+        try {
+          process.kill(-proc.pid, "SIGKILL");
+        } catch {
+          /* Already gone. */
+        }
+      }
+    }
   }
 
   private start(spec: ProcessSpec, index: number): void {
+    if (process.platform !== "win32") {
+      this.startSupervised(spec, index);
+      return;
+    }
     const child = spawn(spec.command, [...spec.args], {
       cwd: spec.cwd,
       env: { ...(this.options.env ?? process.env), ...spec.env, FORCE_COLOR: "1" },
@@ -128,21 +145,56 @@ export class ProcessGroup {
         write(`${prefix}exited (${exitSignal ?? `code ${code}`}); stopping the others\n`);
         this.terminate();
       }
-      if (this.children.size === 0) this.finish();
+      if (this.remaining() === 0) this.finish();
     });
+  }
+
+  private startSupervised(spec: ProcessSpec, index: number): void {
+    const proc = spawnRawSupervised({
+      ...spec,
+      env: { ...(this.options.env ?? process.env), ...spec.env, FORCE_COLOR: "1" },
+    });
+    this.supervised.set(spec.name, proc);
+    proc.stdin.end();
+    const prefix = this.prefix(spec.name, index + 1);
+    const write = (text: string) => this.options.output.write(text);
+    for (const stream of [proc.stdout, proc.stderr]) {
+      const lines = linePrefixer(prefix, write);
+      stream.setEncoding("utf8");
+      stream.on("data", (chunk: string) => lines.push(chunk));
+      stream.on("end", () => lines.flush());
+    }
+    void proc.exited.then(({ code, signal: exitSignal, reason }) => {
+      this.supervised.delete(spec.name);
+      const exit = { name: spec.name, code, signal: exitSignal };
+      this.exits.push(exit);
+      if (reason === "spawn-error") write(`${prefix}failed to start\n`);
+      if (!this.stopping) {
+        this.cause = exit;
+        write(`${prefix}exited (${exitSignal ?? `code ${code}`}); stopping the others\n`);
+        this.terminate();
+      }
+      if (this.remaining() === 0) this.finish();
+    });
+  }
+
+  private remaining(): number {
+    return this.children.size + this.supervised.size;
   }
 
   private terminate(): void {
     if (this.stopping) {
-      if (this.children.size === 0) this.finish();
+      if (this.remaining() === 0) this.finish();
       return;
     }
     this.stopping = true;
-    if (this.children.size === 0) {
+    if (this.remaining() === 0) {
       this.finish();
       return;
     }
     for (const child of this.children.values()) signal(child, "SIGTERM");
+    for (const proc of this.supervised.values())
+      void proc.stop({ graceMs: this.options.graceMs ?? 5_000 });
     const timer = setTimeout(() => this.kill(), this.options.graceMs ?? 5_000);
     timer.unref();
     void this.done.then(() => clearTimeout(timer));

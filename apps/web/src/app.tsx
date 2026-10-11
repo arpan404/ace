@@ -5,7 +5,7 @@ import type { MachinePool } from "@ace/client-worker/machines";
 import { ClientProvider, type NotifyBatch } from "@ace/client-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, type RouterHistory } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { ToastProvider } from "@/components/ui/toast.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
@@ -14,6 +14,7 @@ import { LayoutProvider } from "@/lib/layout.tsx";
 import { MachinePoolProvider, MachinePoolFactoryProvider } from "@/lib/machine-pool.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
 import { ThemeProvider, type Environment } from "@/theme/theme-provider.tsx";
+import { disposePanelServices } from "@/features/panels/index.ts";
 import { organizerFor } from "@/features/organize/index.ts";
 import { createAppRouter } from "./router.ts";
 
@@ -63,6 +64,7 @@ export function App(props: {
   machines?: MachinePool | undefined;
   ensureMachines?: (() => Promise<MachinePool>) | undefined;
 }) {
+  useEffect(() => () => disposePanelServices(props.client), [props.client]);
   const [queryClient] = useState(() => props.queryClient ?? createQueryClient());
   const [router] = useState(() => {
     const project = organizerFor(props.storage).getState().project;

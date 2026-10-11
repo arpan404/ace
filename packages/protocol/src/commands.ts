@@ -106,6 +106,8 @@ export const CommandPayload = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("thread.interrupt"),
     runId: RunId.optional(),
+    /** A pre-start Stop refuses execution admitted or started after this client cursor. */
+    beforeSeq: z.number().int().nonnegative().optional(),
     threadId: ThreadId,
     /** Defaults to the root agent. */
     agentId: AgentId.optional(),

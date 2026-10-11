@@ -292,3 +292,74 @@ test("Try again recovers a fatal connection after the workspace has opened", asy
   await waitFor(() => expect(screen.queryByText(/Can't connect:/)).toBeNull());
   expect(await screen.findByRole("link", { name: /Fix flaky checkout test/ })).toBeTruthy();
 });
+
+test("a worker-style client is identified before its App can create terminal close intents", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, token, hostId: "gate-close-identity" });
+  const arrived = Promise.withResolvers<void>();
+  let release: (() => void) | undefined;
+  const client = new Client({
+    deviceId: DeviceId.parse("identity-device"),
+    credential: async () => token,
+    storage: memoryStorage(),
+    transport: () => {
+      const transport = fakeTransport(daemon);
+      return {
+        ...transport,
+        open(events) {
+          transport.open({
+            ...events,
+            message(text) {
+              const frame = ServerMessage.parse(JSON.parse(text));
+              if (frame.type === "host.identity.result") {
+                release = () => events.message(text);
+                arrived.resolve();
+              } else events.message(text);
+            },
+          });
+        },
+      };
+    },
+    scheduler: {
+      set(delay, callback) {
+        const timer = setTimeout(callback, delay);
+        return () => clearTimeout(timer);
+      },
+    },
+    random: () => 0.5,
+    id: (() => {
+      let id = 0;
+      return () => `identity-${++id}`;
+    })(),
+  });
+  // A worker's public message channel excludes welcome; correlated identity reads still work.
+  const listen = client.onMessage.bind(client);
+  client.onMessage = (listener) =>
+    listen((frame) => {
+      if (frame.type !== "welcome") listener(frame);
+    });
+  const local = memoryKeyValue();
+  local.setItem("ace.daemon.url", url);
+  local.setItem("ace.daemon.token", token);
+  const view = render(
+    <AppFrame environment={{}}>
+      <ConnectionGate
+        stores={{ local, session: memoryKeyValue() }}
+        defaultUrl={url}
+        createClient={() => client}
+      >
+        {() => <output>Identified workspace</output>}
+      </ConnectionGate>
+    </AppFrame>,
+  );
+  await act(async () => {
+    await arrived.promise;
+  });
+  expect(client.state).toBe("ready");
+  expect(screen.queryByText("Identified workspace")).toBeNull();
+  await act(async () => {
+    release?.();
+  });
+  expect(await screen.findByText("Identified workspace")).toBeTruthy();
+  view.unmount();
+  await client.close();
+});

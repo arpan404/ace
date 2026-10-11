@@ -94,7 +94,21 @@ test("arrow keys move through the catalog as one Tab stop", async () => {
   await userEvent.keyboard("{ArrowDown}");
   expect(document.activeElement?.textContent).toMatch(/^Test Driven Development/);
   await userEvent.keyboard("{End}");
-  expect(document.activeElement?.textContent).toMatch(/^Release/);
+  expect(document.activeElement?.textContent).toMatch(/^Release Notes/);
+});
+
+test("catalog categories disclose their links and filtering a kind reveals its entries", async () => {
+  await open("/skills");
+  await screen.findByRole("navigation", { name: "Skills catalog" });
+  expect(within(catalog()).queryByRole("link", { name: /^Engineering Reviewer/ })).toBeNull();
+  await userEvent.click(within(catalog()).getByText(/^Agents ·/));
+  expect(within(catalog()).getByRole("link", { name: /^Engineering Reviewer/ })).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
+  await userEvent.click(await screen.findByRole("combobox", { name: "Kind" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Agents" }));
+  await userEvent.keyboard("{Escape}");
+  expect(within(catalog()).queryByRole("link", { name: /^Code Review/ })).toBeNull();
+  expect(within(catalog()).getByRole("link", { name: /^Engineering Reviewer/ })).toBeTruthy();
 });
 
 test("a plugin's page lists what it ships and its pin, with the switch labelled", async () => {
@@ -185,7 +199,8 @@ test("installing lists the marketplace, shows what a plugin runs, and Back keeps
 
   expect(await screen.findByRole("heading", { level: 2, name: "Sentry" })).toBeTruthy();
   expect(await screen.findByText("From getsentry/sentry")).toBeTruthy();
-  const plugins = within(catalog()).getByRole("region", { name: "Plugins" });
+  await userEvent.click(within(catalog()).getByText(/^Plugins ·/));
+  const plugins = within(catalog()).getByRole("list", { name: "Plugins" });
   expect(await within(plugins).findByText("Sentry")).toBeTruthy();
   expect(within(catalog()).getByText("Triage Issue")).toBeTruthy();
 });

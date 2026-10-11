@@ -1,7 +1,7 @@
 import { useIntent, useThread } from "@ace/client-react";
-import { useSyncExternalStore } from "react";
-import { activeRootRun } from "./stop-target.ts";
+import { activeRootRun, stopFence, type StopFence } from "./stop-target.ts";
 export { activeRootRun } from "./stop-target.ts";
+import { useSyncExternalStore } from "react";
 
 /*
  * Stop, from the click until the turn ends (UX audit SY-8): the composer's button and the
@@ -42,6 +42,20 @@ export function clearStop(threadId: string): void {
 }
 
 const runKeys = ["order", "thread"] as const;
+export function useStopFence(threadId: string): StopFence | undefined {
+  return useThread(
+    threadId,
+    ["order", "thread", "cursor"],
+    stopFence,
+    (a, b) =>
+      a === b ||
+      (!!a &&
+        !!b &&
+        ("runId" in a && "runId" in b
+          ? a.runId === b.runId
+          : "beforeSeq" in a && "beforeSeq" in b && a.beforeSeq === b.beforeSeq)),
+  );
+}
 
 /** The active root run's id, for a Stop to name. */
 export function useActiveRootRun(threadId: string | undefined): string | undefined {

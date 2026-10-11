@@ -1,4 +1,4 @@
-import { HistorySession, ThreadId } from "@ace/protocol";
+import { HistorySession, ThreadId, type CommandPayload } from "@ace/protocol";
 import { longHistory, replayCursor, workbench } from "@ace/fake-daemon";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -432,4 +432,40 @@ test("Continue uses the live restart reason while an older queue page remains on
     threadId: ThreadId.parse("thread-router"),
   });
   expect(page.queue.paused).toBe(false);
+});
+
+test("Stop names the active root even after a reload retains only child output", async () => {
+  const { facts } = await import("@ace/fake-daemon");
+  const made = harness({ snapshotItems: 200 });
+  made.play(replayCursor()).runThrough("finding");
+  made.daemon.apply("thread-replay-cursor", [
+    facts.subagent("cursor", "busy-child", "Child", "search"),
+    facts.turn("busy-child", "spawn"),
+    ...Array.from({ length: 205 }, (_, index) =>
+      facts.message("busy-child", `child-output-${index}`, "assistant", `Child ${index}`),
+    ),
+  ]);
+  await made.open("/t/thread-replay-cursor");
+  const lease = made.client.thread("thread-replay-cursor");
+  try {
+    await waitFor(() => expect(lease.store.thread?.live?.rootRunId).toBeDefined());
+    const rootRun = lease.store.thread?.live?.rootRunId;
+    expect(
+      lease.store.order.every(
+        (id) => lease.store.item(id)?.agentId !== lease.store.thread?.rootAgentId,
+      ),
+    ).toBe(true);
+    let emitted: CommandPayload | undefined;
+    const receive = made.daemon.command.bind(made.daemon);
+    made.daemon.command = (command) => {
+      if (command.payload.type === "thread.interrupt") emitted = command.payload;
+      return receive(command);
+    };
+    await userEvent.click(await screen.findByRole("button", { name: "Stop the agent" }));
+    await waitFor(() =>
+      expect(emitted).toMatchObject({ type: "thread.interrupt", runId: rootRun }),
+    );
+  } finally {
+    lease.release();
+  }
 });

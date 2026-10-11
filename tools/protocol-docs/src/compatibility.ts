@@ -60,6 +60,73 @@ function values(node: JsonSchema): unknown[] | undefined {
 export function compareSnapshots(previous: Snapshot, current: Snapshot): Change[] {
   const changes: Change[] = [];
   let compared = 0;
+  // Compatibility can omit a widening; it is not an equality proof. Compare the
+  // complete schemas conservatively, including targets of nested references.
+  function unchanged(
+    inputBefore: JsonSchema,
+    inputAfter: JsonSchema,
+    initialDepth: number,
+  ): boolean {
+    // A failed candidate discards provisional agreements reached through cycles.
+    const pairs = new WeakMap<JsonSchema, WeakMap<JsonSchema, boolean | "visiting">>();
+    function visit(before: JsonSchema, after: JsonSchema, depth: number): boolean {
+      let results = pairs.get(before);
+      const cached = results?.get(after);
+      // An active pair is provisionally equal; its remaining constraints are
+      // still checked by the original visit before this candidate can succeed.
+      if (cached !== undefined) return cached !== false;
+      if (++compared > 100_000) throw new Error("Compatibility comparison exceeds 100000 nodes");
+      if (depth > 48) return false;
+      if (!results) {
+        results = new WeakMap();
+        pairs.set(before, results);
+      }
+      results.set(after, "visiting");
+      const equal = childrenEqual(before, after, depth);
+      results.set(after, equal);
+      return equal;
+    }
+    function childrenEqual(before: JsonSchema, after: JsonSchema, depth: number): boolean {
+      const a = resolve(before, previous.schemas),
+        b = resolve(after, current.schemas);
+      if (canonical(a) !== canonical(b)) return false;
+      for (const key of [
+        "additionalProperties",
+        "unevaluatedProperties",
+        "items",
+        "additionalItems",
+        "unevaluatedItems",
+        "contains",
+        "propertyNames",
+        "not",
+        "if",
+        "then",
+        "else",
+        "contentSchema",
+      ])
+        if (a[key] !== undefined && !visit(schemaNode(a[key]), schemaNode(b[key]), depth + 1))
+          return false;
+      for (const key of ["anyOf", "oneOf", "allOf", "prefixItems"]) {
+        const branches = nodes(b[key]);
+        for (const [index, branch] of nodes(a[key]).entries()) {
+          const next = branches[index];
+          if (!next || !visit(branch, next, depth + 1)) return false;
+        }
+      }
+      for (const key of [
+        "properties",
+        "patternProperties",
+        "dependentSchemas",
+        "dependencies",
+        "$defs",
+        "definitions",
+      ])
+        for (const [name, branch] of Object.entries(object(a[key])))
+          if (!visit(schemaNode(branch), schemaNode(object(b[key])[name]), depth + 1)) return false;
+      return true;
+    }
+    return visit(inputBefore, inputAfter, initialDepth);
+  }
   if (previous.protocolVersion !== current.protocolVersion)
     changes.push({
       schema: "protocol",
@@ -116,6 +183,19 @@ export function compareSnapshots(previous: Snapshot, current: Snapshot): Change[
         found.push(...compare(name, path, aSiblings, bSiblings, depth + 1));
       if (a.oneOf === undefined && b.oneOf !== undefined)
         add("review", "Union changed to exclusive oneOf");
+      else if (a.oneOf !== undefined && b.oneOf !== undefined) {
+        // Existential matching cannot prove exclusive acceptance: widening even one
+        // branch can make another branch's values match twice. Only an unchanged
+        // permutation is safe without a separate proof of disjointness.
+        const remaining = [...newBranches];
+        for (const branch of oldBranches) {
+          const index = remaining.findIndex((next) => unchanged(branch, next, depth + 1));
+          if (index < 0) break;
+          remaining.splice(index, 1);
+        }
+        if (oldBranches.length !== newBranches.length || remaining.length)
+          add("review", "Exclusive union branches changed; preserved acceptance needs review");
+      }
       return found;
     }
     const aAll = nodes(a.allOf),

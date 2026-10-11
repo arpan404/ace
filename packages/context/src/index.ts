@@ -31,4 +31,5 @@ export { deliverContext, type ContextDelivery, type ContextConsumer } from "./de
 
 export { summarizeThreadReference } from "./thread-reference.ts";
 export { canonicalContext } from "./canonical.ts";
+export { encodedContextBudget } from "./encoded-budget.ts";
 export { contextNotice } from "./notice.ts";

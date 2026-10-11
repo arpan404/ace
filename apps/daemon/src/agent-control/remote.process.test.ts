@@ -614,3 +614,54 @@ test.each([
   f.remote.journal.prune(f.clock.now());
   expect(f.remote.journal.get(task.id)).toBeUndefined();
 });
+
+test.each(["stop", "duration", "permission"])(
+  "delivered cancellation stays failed through repeated polls after %s",
+  async (cause) => {
+    const f = await world();
+    const task = await f.delegate();
+    f.remote.poll("window", f.lease);
+    if (cause === "stop")
+      expect(
+        f.service.command("stop-parent", {
+          type: "thread.interrupt",
+          threadId: f.caller.threadId,
+          cascade: true,
+        }).ok,
+      ).toBe(true);
+    else if (cause === "permission")
+      expect(
+        f.service.command("change-policy", {
+          type: "thread.permission.set",
+          threadId: f.caller.threadId,
+          permissionMode: "full-access",
+        }).ok,
+      ).toBe(true);
+    else f.clock.advance(f.clock.now() + f.service.policy.durationMs);
+    f.remote.drain();
+    f.clock.advance(f.clock.now() + 30000);
+    f.remote.drain();
+    f.remote.disconnect("window");
+    const lease = f.remote.register("replacement", [], () => true);
+    if (!lease) throw new Error("No replacement broker");
+    for (let poll = 0; poll < 3; poll++)
+      expect(f.remote.poll("replacement", lease)).toMatchObject([
+        { id: task.id, phase: "failed", delivered: true },
+      ]);
+    expect(
+      f.remote.report("replacement", lease, { taskId: task.id, phase: "running" }),
+    ).toMatchObject({ phase: "failed", delivered: true });
+    expect(
+      f.remote.report("replacement", lease, {
+        taskId: task.id,
+        phase: "completed",
+        result: "Recovered sealed answer",
+      }),
+    ).toMatchObject({ phase: "failed", delivered: true, result: "Recovered sealed answer" });
+    if (cause === "stop") {
+      await f.engine.flush();
+      expect(f.inputs.get(f.caller.threadId)?.join("\n")).not.toContain("Recovered sealed answer");
+      expect(f.store.getThread(f.caller.threadId)?.status.state).toBe("done");
+    }
+  },
+);

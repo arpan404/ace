@@ -33,6 +33,7 @@ export function setup(
   accounts?: import("@ace/accounts").AccountRegistry,
   capacity?: number,
   models?: import("@ace/models").ModelCatalogApi,
+  engineLimits?: Partial<import("../engine/limits.ts").EngineLimits>,
 ) {
   const home = path ? join(path, "..") : mkdtempSync(join(tmpdir(), "ace-control-"));
   if (!path) homes.push(home);
@@ -167,6 +168,7 @@ export function setup(
   }
   const errors: unknown[] = [];
   const engine = new Engine(store, {
+    ...(engineLimits ? { limits: engineLimits } : {}),
     registry,
     clock,
     idleMs: 100000,

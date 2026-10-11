@@ -16,6 +16,8 @@ export type RecoveryPorts = {
   liveMessages(id: string): string[];
   executionObserved: ReadonlySet<string>;
   shell(id: string, directory: string): Promise<unknown>;
+  pendingShells(): ReadonlyMap<string, string>;
+  shellSnapshot(id: string, owner: string, started: number): void;
 };
 /** Read only proven owners. No unscoped global lists or log-retention assumptions. */
 export async function recoverSessions(p: RecoveryPorts): Promise<void> {
@@ -122,6 +124,7 @@ export async function recoverSessions(p: RecoveryPorts): Promise<void> {
   }
   const observedShells = new Set<string>();
   for (const directory of new Set([...p.ownership.sessions.values()].map((s) => s.directory))) {
+    const listReadStarted = p.watermark();
     const listing = z
       .object({ location: z.object({ directory: z.literal(directory) }), data: PendingList })
       .parse(await p.client.shell.list({ location: { directory } }));
@@ -135,12 +138,17 @@ export async function recoverSessions(p: RecoveryPorts): Promise<void> {
         location: { directory },
         data: { info },
       });
+      p.shellSnapshot(string(info.id), owner, listReadStarted);
     }
   }
-  for (const [id, owner] of p.ownership.shells) {
+  const candidates = new Map(p.ownership.shells);
+  for (const [id, owner] of p.pendingShells())
+    if (p.ownership.sessions.has(owner)) candidates.set(id, owner);
+  for (const [id, owner] of candidates) {
     if (observedShells.has(id)) continue;
     const directory = p.ownership.sessions.get(owner)?.directory;
     if (!directory) throw new Error("OpenCode shell owner missing");
+    const exactReadStarted = p.watermark();
     const value = await p.shell(id, directory);
     if (value === undefined)
       p.receive({
@@ -165,5 +173,6 @@ export async function recoverSessions(p: RecoveryPorts): Promise<void> {
         data: { info },
       });
     }
+    p.shellSnapshot(id, owner, exactReadStarted);
   }
 }

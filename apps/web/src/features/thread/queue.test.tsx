@@ -31,7 +31,11 @@ async function openBusy(options: { followUp?: "steer" | "queue" } = {}) {
 
 /** The daemon's queue, oldest first, as another device would read it. */
 async function daemonQueue(app: ReturnType<typeof harness>) {
-  const reply = await app.client.request({ type: "queue.get", threadId: ThreadId.parse(threadId) });
+  const reply = await app.client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse(threadId),
+    limit: 32,
+  });
   return reply.queue.messages.map((message) =>
     message.input.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""),
   );
@@ -594,3 +598,67 @@ test("saved messages beyond the visible page do not reappear as saving rows or t
       .total,
   ).toBe(18);
 });
+
+test.each([17, 33, 257])(
+  "a fresh client can take back retained input %i without running earlier messages",
+  async (count) => {
+    const queuedCount = Math.min(count, 256);
+    const inputs = Array.from({ length: queuedCount }, (_, index) => `Retained input ${index + 1}`);
+    if (count > 256) inputs.unshift("Unconfirmed input");
+    const lastInput = `Retained input ${queuedCount}`;
+    const app = harness();
+    app.play(replayCursor()).runThrough("finding");
+    app.daemon.holdQueue(threadId, "manual");
+    const { fakeClient } = await import("@/test/harness.tsx");
+    const peer = fakeClient(app.daemon);
+    try {
+      await peer.start();
+      await waitFor(() => expect(peer.state).toBe("ready"));
+      for (let index = 1; index <= queuedCount; index++)
+        await peer.command({
+          type: "thread.send",
+          threadId: ThreadId.parse(threadId),
+          input: [{ type: "text", text: `Retained input ${index}` }],
+          delivery: "queue",
+        });
+      if (count > 256)
+        app.daemon.restoreUncertainInput(threadId, {
+          id: "unconfirmed-first",
+          input: [{ type: "text", text: "Unconfirmed input" }],
+          delivery: "queue",
+          state: "uncertain",
+        });
+      await app.open(`/t/${threadId}`);
+      await screen.findByRole("list", { name: "Queued messages" });
+      expect(
+        within(screen.getByRole("feed", { name: "Transcript" })).queryByText(lastInput),
+      ).toBeNull();
+      for (let shown = 16; shown < count; shown += 16)
+        await userEvent.click(
+          await screen.findByRole("button", { name: "Load more queued messages" }),
+        );
+      const last = await within(screen.getByRole("list", { name: "Queued messages" })).findByText(
+        lastInput,
+      );
+      const row = last.closest("li");
+      if (!row) throw new Error("Missing queued row");
+      await userEvent.click(await takeBackButton(row));
+      await waitFor(() =>
+        expect(screen.getByRole("combobox", { name: "Message" }).textContent).toContain(lastInput),
+      );
+      const remaining = await peer.request({
+        type: "queue.get",
+        threadId: ThreadId.parse(threadId),
+        limit: 32,
+      });
+      expect(remaining.queue.total).toBe(count - 1);
+      expect(
+        remaining.queue.messages.flatMap((entry) =>
+          entry.input.flatMap((part) => (part.type === "text" ? [part.text] : [])),
+        ),
+      ).toEqual(inputs.slice(0, -1).slice(0, 32));
+    } finally {
+      await peer.close();
+    }
+  },
+);

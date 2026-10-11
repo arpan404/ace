@@ -29,9 +29,11 @@ export interface ToolState {
   inputParts?: Map<string, unknown>;
   completedInput?: Data;
   finalized?: boolean;
+  retired?: boolean;
   uncertainShell?: boolean;
-  observedOutput?: string;
-  streamedOutput?: string;
+  observedOutputDigest?: string;
+  streamedOutputDigest?: string;
+  streamedOutputLength?: number;
   key: string;
   owner: AgentState;
   data: Data;
@@ -55,6 +57,8 @@ export class TranslationState {
   readonly tools = new Map<string, ToolState>();
   readonly uncertainShells = new Map<string, ToolState>();
   readonly liveTools = new Set<ToolState>();
+  readonly retiredTools = new Map<ToolState, number>();
+  retiredBytes = 0;
   readonly childBackgroundTools = new Map<string, Set<ToolState>>();
   readonly backgroundTools = new Set<ToolState>();
   readonly pendingChildren = new Map<string, AgentState>();
@@ -98,6 +102,8 @@ export class TranslationState {
     this.sent.clear();
     this.requests.clear();
     this.liveTools.clear();
+    this.retiredTools.clear();
+    this.retiredBytes = 0;
     this.backgroundTools.clear();
     this.childBackgroundTools.clear();
     this.tools.clear();

@@ -8,7 +8,6 @@ import { useForkOpener } from "../transitions/fork-opener.ts";
 import { MessageInput } from "./message-input.tsx";
 import { editorSelection, placeEditorCaret } from "./editor-dom.ts";
 import {
-  composerInput,
   editComposerTokens,
   type ComposerToken,
   type AttachmentReader,
@@ -35,7 +34,8 @@ import { AddButton, type AddHandle } from "./add-button.tsx";
 import { useShareMessage, type ComposerAnswer } from "./answer-slot.ts";
 import { AttachmentChips, maxAttachmentsPerMessage, useAttachments } from "./attachments.tsx";
 import { ComposerCompact } from "./composer-compact.ts";
-import { accept, insertAt, mentionsIn, triggerAt, type Draft, type Trigger } from "./draft.ts";
+import { accept, insertAt, triggerAt, type Draft, type Trigger } from "./draft.ts";
+import { composerContent, matchesSubmittedDraft, type SubmittedDraft } from "./submitted-draft.ts";
 import { readDraft, recentFiles, rememberFile, writeDraft } from "./draft-store.ts";
 import { PrimaryAction } from "./primary-action.tsx";
 import {
@@ -57,6 +57,8 @@ export type { Draft } from "./draft.ts";
 export interface ComposerHandle {
   /** Keep the current draft for the thread that replaces this provisional view. */
   preserveDraft(key: string): void;
+  /** A recovered send clears its matching draft and leaves any newer message alone. */
+  discardIfSubmitted(sent: SubmittedDraft): void;
   /** Open the + menu (files, images, a mention, a page) over the composer. */
   openAdd(): void;
   /** Put the caret in the message. */
@@ -337,6 +339,17 @@ function ComposerBody({
     focus: () => input.current?.focus(),
     takeFiles: intake,
     preserveDraft: (key) => writeDraft(storage, key, current),
+    discardIfSubmitted(sent) {
+      if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent)) return;
+      // The recovery owner already removed the matching persisted draft. Stop a stale
+      // unmount flush from restoring it while leaving newer drafts untouched.
+      saved.drop();
+      setText("");
+      setTokens([]);
+      setPicked(new Set());
+      setCaret(0);
+      attachments.clear();
+    },
   }));
   const rememberMention = (path: string) => {
     setPicked((paths) => new Set(paths).add(path));
@@ -506,22 +519,7 @@ function ComposerBody({
     if (blocked) return;
     const draft: Draft = {
       text,
-      input: composerInput(text, tokens),
-      threadRefs: tokens.flatMap((token) => (token.thread ? [token.thread] : [])),
-      mentions: [
-        ...mentionsIn(text, picked).filter(
-          (mention) => !tokens.some((token) => token.file?.path === mention.path),
-        ),
-        ...tokens.flatMap((token) => (token.file ? [token.file] : [])),
-      ].filter(
-        (mention, index, all) =>
-          all.findIndex(
-            (other) =>
-              other.path === mention.path &&
-              JSON.stringify(other.lines) === JSON.stringify(mention.lines),
-          ) === index,
-      ),
-      attachments: attachments.ready.map((file) => ({ sha256: file.sha256 })),
+      ...composerContent({ ...current, attachments: attachments.ready }),
       files: {
         ...attachments.handOff(),
         uploading: attachments.items.filter((file) => file.state === "uploading").length,

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { AccessClient } from "@ace/client/access";
 import { ClientError } from "@ace/client";
@@ -13,6 +14,7 @@ export function PairingForm(props: {
   url: string;
   connect(target: Target, remember: boolean, signal: AbortSignal): void | Promise<void>;
   submitLabel?: string;
+  renderActions?: (actions: ReactNode) => ReactNode;
   cancel(): void;
 }) {
   const [link, setLink] = useState(props.link ?? "");
@@ -81,6 +83,23 @@ export function PairingForm(props: {
       setPending(false);
     }
   };
+  const actions = (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => {
+          controller.current?.abort();
+          props.cancel();
+        }}
+      >
+        Cancel
+      </Button>
+      <Button type="submit" variant="primary" disabled={pending}>
+        {pending ? "Pairing…" : (props.submitLabel ?? "Pair and connect")}
+      </Button>
+    </>
+  );
   return (
     <form
       aria-label="Pair this device"
@@ -140,21 +159,11 @@ export function PairingForm(props: {
           {error}
         </p>
       )}
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => {
-            controller.current?.abort();
-            props.cancel();
-          }}
-        >
-          Cancel
-        </Button>
-        <Button type="submit" variant="primary" disabled={pending}>
-          {pending ? "Pairing…" : (props.submitLabel ?? "Pair and connect")}
-        </Button>
-      </div>
+      {props.renderActions ? (
+        props.renderActions(actions)
+      ) : (
+        <div className="flex items-center gap-2">{actions}</div>
+      )}
     </form>
   );
 }

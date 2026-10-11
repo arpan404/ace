@@ -50,6 +50,7 @@ export function QueuedTray(props: {
   const messages = [...queue.messages, ...pending];
   const hidden = Math.max(0, (queue.page?.total ?? 0) - (queue.page?.messages.length ?? 0));
   const count = messages.length + hidden;
+  const stopped = !!queue.page?.paused && queue.page.reason === "stopped";
   const order = queue.messages.map((message) => message.id).join("\n");
   const moving = queue.messages.some((message) => queue.busy(message.id));
   const uncertain = queue.messages.some((message) => message.state === "uncertain");
@@ -144,7 +145,9 @@ export function QueuedTray(props: {
                         ? "Saving queued message"
                         : ambiguous
                           ? "This message may have been sent. Sending again may deliver it twice."
-                          : "Queued message, not yet sent"
+                          : stopped
+                            ? "Queued message, paused after Stop"
+                            : "Queued message, not yet sent"
                     }
                     className="flex min-w-0 items-center gap-1 py-0.5"
                     onDragOver={(event) => {

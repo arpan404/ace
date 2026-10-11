@@ -31,17 +31,28 @@ func axBounds(_ position: CFTypeRef?, _ size: CFTypeRef?) -> UIBounds {
     return UIBounds(x: point.x.isFinite ? point.x : 0, y: point.y.isFinite ? point.y : 0, w: dimensions.width.isFinite ? max(0, dimensions.width) : 0, h: dimensions.height.isFinite ? max(0, dimensions.height) : 0)
 }
 func axBounds(_ element: AXUIElement) -> UIBounds { axBounds(axAttribute(element, kAXPositionAttribute), axAttribute(element, kAXSizeAttribute)) }
-func axText(_ value: CFTypeRef?, cap: Int) -> String? {
-    if let string = value as? String { return String(string.prefix(cap)) }
-    if let number = value as? NSNumber { return String(number.stringValue.prefix(cap)) }
-    return nil
+struct AXText { let value: String?; let truncated: Bool }
+func boundedAXText(_ value: CFTypeRef?, cap: Int) -> AXText {
+    let input: String
+    if let string = value as? String { input = string }
+    else if let number = value as? NSNumber { input = number.stringValue }
+    else { return AXText(value: nil, truncated: false) }
+    var result = "", scalars = 0
+    for character in input {
+        // Keep whole graphemes, but charge Unicode scalars like the wire validator.
+        let count = character.unicodeScalars.count
+        if scalars + count > cap { return AXText(value: result, truncated: true) }
+        result.append(character); scalars += count
+    }
+    return AXText(value: result, truncated: false)
 }
+func axText(_ value: CFTypeRef?, cap: Int) -> String? { boundedAXText(value, cap: cap).value }
 func axActionNames(_ element: AXUIElement) -> [String] {
     var names: CFArray?
     guard AXUIElementCopyActionNames(element, &names) == .success else { return [] }
     return (names as? [String] ?? []).prefix(32).map { $0 }
 }
-struct AXSnapshot { var node: UINode; let secure: Bool; var truncated: Bool }
+struct AXSnapshot { var node: UINode; let secure: Bool; var truncated: Bool; var expanded: Bool? = nil }
 func axMetadata(_ element: AXUIElement, ref: String) -> AXSnapshot {
     // Never request the unbounded AXValue of an editor/document in the batch.
     let names = [kAXRoleAttribute, kAXTitleAttribute, kAXSubroleAttribute, kAXDescriptionAttribute, kAXPositionAttribute, kAXSizeAttribute, kAXFocusedAttribute, kAXSelectedAttribute, kAXEnabledAttribute, "AXExpanded", "AXVisible"]
@@ -61,10 +72,12 @@ func axMetadata(_ element: AXUIElement, ref: String) -> AXSnapshot {
     if (value(10) as? Bool) == false || bounds.w == 0 || bounds.h == 0 { states.append("offscreen") }
     let numeric = ["AXCheckBox", "AXRadioButton", "AXSlider", "AXProgressIndicator"].contains(role) ? axAttribute(element, kAXValueAttribute) as? NSNumber : nil
     if ["AXCheckBox", "AXRadioButton"].contains(role), numeric?.intValue == 1 { states.append("checked") }
-    let rawTitle = axText(value(1), cap: 128)
-    let title = rawTitle?.isEmpty == false ? rawTitle ?? "" : axText(value(3), cap: 128) ?? ""
-    let clipped = ((value(1) as? String)?.prefix(129).count ?? 0) > 128 || ((value(3) as? String)?.prefix(129).count ?? 0) > 128
-    return AXSnapshot(node: UINode(ref: ref, role: role, name: title, value: secure ? nil : numeric?.stringValue, description: axText(value(3), cap: 128), bounds: bounds, states: states, actions: [], children: []), secure: secure, truncated: clipped)
+    let titleText = boundedAXText(value(1), cap: 128)
+    let descriptionText = boundedAXText(value(3), cap: 128)
+    let rawTitle = titleText.value
+    let title = rawTitle?.isEmpty == false ? rawTitle ?? "" : descriptionText.value ?? ""
+    let clipped = titleText.truncated || descriptionText.truncated
+    return AXSnapshot(node: UINode(ref: ref, role: role, name: title, value: secure ? nil : numeric?.stringValue, description: descriptionText.value, bounds: bounds, states: states, actions: [], children: []), secure: secure, truncated: clipped, expanded: value(9) as? Bool)
 }
 func axSnapshot(_ element: AXUIElement, ref: String) -> AXSnapshot {
     var snapshot = axMetadata(element, ref: ref)
@@ -74,7 +87,9 @@ func axSnapshot(_ element: AXUIElement, ref: String) -> AXSnapshot {
     guard let parameter = AXValueCreate(.cfRange, &range) else { return snapshot }
     var text: CFTypeRef?
     if AXUIElementCopyParameterizedAttributeValue(element, kAXStringForRangeParameterizedAttribute as CFString, parameter, &text) == .success {
-        snapshot.node.value = axText(text, cap: 256)
+        let bounded = boundedAXText(text, cap: 256)
+        snapshot.node.value = bounded.value
+        snapshot.truncated = snapshot.truncated || bounded.truncated
     }
     snapshot.truncated = snapshot.truncated || count.intValue > 256
     return snapshot

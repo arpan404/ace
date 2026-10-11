@@ -290,6 +290,7 @@ Example:
 | type | yes | `"agent.status"` |  |
 | agentId | yes | [AgentId.json](schema/AgentId.json) |  |
 | status | yes | [AgentStatus.json](schema/AgentStatus.json) |  |
+| completionRelevant | no | boolean |  |
 
 Example:
 
@@ -328,7 +329,18 @@ Example:
 ```json
 {
   "agentId": "example",
-  "fidelity": "placeholder",
+  "endedAt": 5,
+  "lineage": {
+    "lossy": false,
+    "mode": "portable",
+    "parentAgentId": "example",
+    "parentThreadId": "example",
+    "point": {
+      "itemId": "example",
+      "type": "item"
+    }
+  },
+  "spawnedBy": null,
   "type": "agent.updated"
 }
 ```
@@ -346,7 +358,6 @@ Example:
 ```json
 {
   "checkpoints": {
-    "before": "example",
     "error": "example",
     "state": "ready"
   },
@@ -387,20 +398,26 @@ Example:
 {
   "run": {
     "agentId": "example",
-    "executionSource": {
-      "nativeSessionId": "example",
-      "selection": {
-        "instanceId": "example",
+    "error": {
+      "code": "example",
+      "detail": "example",
+      "details": {
+        "code": "example",
         "model": "example",
-        "provider": "antigravity"
-      }
+        "provider": "antigravity",
+        "title": "example"
+      },
+      "kind": "network",
+      "message": "example",
+      "title": "example"
     },
     "id": "example",
     "nativeId": "example",
-    "startedAt": 6,
-    "state": "failed",
+    "provider": "antigravity",
+    "startedAt": 3,
+    "state": "interrupted",
     "threadId": "example",
-    "trigger": "parent_agent"
+    "trigger": "user"
   },
   "type": "run.started"
 }
@@ -421,9 +438,9 @@ Example:
 
 ```json
 {
-  "endedAt": 2,
+  "endedAt": 1,
   "runId": "example",
-  "state": "completed",
+  "state": "failed",
   "type": "run.ended"
 }
 ```
@@ -441,29 +458,10 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "childThreadId": "example",
-    "complete": false,
-    "createdAt": 0,
-    "executionSource": {
-      "nativeSessionId": "example",
-      "selection": {
-        "model": "example",
-        "provider": "antigravity"
-      }
-    },
-    "generation": 4,
+    "complete": true,
+    "createdAt": 2,
     "id": "example",
-    "origin": "ace",
-    "phase": "created",
-    "provider": "codex",
-    "role": "example",
-    "runId": "example",
-    "status": {
-      "state": "unresponsive"
-    },
-    "title": "example",
-    "type": "delegation.started",
-    "updatedAt": 8
+    "type": "compaction"
   },
   "type": "item.created"
 }

@@ -49,7 +49,7 @@ async function backlog() {
   const store = new Store(path, (error) => errors.push(error));
   cleanups.push(() => store.close());
   cleanups.push(() => writer.close());
-  expect(turns(store, f.thread)).toMatchObject({ ready: false, indexedSeq: 128 });
+  expect(turns(store, f.thread)).toMatchObject({ ready: false, indexedSeq: 0 });
   return { ...f, store, writer, errors };
 }
 
@@ -93,7 +93,7 @@ test("backfill waits for history publication and resumes without duplicate count
   f.store.statement("PRAGMA busy_timeout=0").get();
   f.writer.exec("BEGIN IMMEDIATE");
   await setImmediate();
-  expect(turns(f.store, f.thread)).toMatchObject({ ready: false, indexedSeq: 128 });
+  expect(turns(f.store, f.thread)).toMatchObject({ ready: false, indexedSeq: 0 });
   f.writer.exec("COMMIT");
   f.store.setHistoryWriting(false);
   await expect.poll(() => turns(f.store, f.thread).ready).toBe(true);

@@ -18,7 +18,8 @@ export async function readServerQueue(threadId: ThreadId, read: ReadQueue): Prom
   let next = first.next;
   const cursors = new Set<string>();
   while (next !== null) {
-    if (cursors.has(next) || messages.length >= 256) throw new Error("invalid_queue_cursor");
+    if (cursors.has(next) || messages.length >= first.total)
+      throw new Error("invalid_queue_cursor");
     cursors.add(next);
     const page = await read({ threadId, limit: 32, after: next, expectedRevision: first.revision });
     if (page.revision !== first.revision) throw new Error("queue_conflict");
@@ -31,7 +32,7 @@ export async function readServerQueue(threadId: ThreadId, read: ReadQueue): Prom
 /**
  * One shared read per revision follows the daemon's byte-bounded cursors. Retained inputs
  * must all be known to transcript readers, including rows beyond the visible queue page.
- * The server limits a thread to 256 retained inputs. Every cursor is fenced to its first page.
+ * Retained queues can exceed current admission limits. Every cursor is fenced to its first page.
  */
 export function useServerQueue(threadId: string): {
   page: QueuePage | undefined;
@@ -65,7 +66,7 @@ export function useServerQueue(threadId: string): {
     retained,
     failed: query.isError,
     loadingMore: query.isFetching,
-    loadMore: () => setShown({ threadId, count: Math.min(count + queuePageSize, 256) }),
+    loadMore: () => setShown({ threadId, count: Math.min(count + queuePageSize, retained.length) }),
     refresh: () => void query.refetch(),
   };
 }
