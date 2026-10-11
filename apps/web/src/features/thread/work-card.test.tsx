@@ -22,9 +22,10 @@ test("a clean worktree has a plain icon, its full branch, and Create PR", async 
   expect(toggle.getAttribute("aria-label")).toBe("Work card · Nothing pending");
   expect(screen.queryByRole("img", { name: /Work pending|Work needs you/ })).toBeNull();
   expect(within(card).getByText("fix/restart-retry").textContent).toBe("fix/restart-retry");
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toBe("relayWorktree");
+  expect(within(card).getByRole("heading", { level: 2 }).textContent).toBe("Fake machine");
   expect(within(card).getByText("Up to date")).toBeTruthy();
-  await userEvent.click(within(card).getByRole("button", { name: "Create PR" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Commit and push options" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Create PR…" }));
   expect(await screen.findByRole("dialog", { name: "Open a pull request" })).toBeTruthy();
 });
 
@@ -69,7 +70,8 @@ test("pending changes and agents get a blue mark and a spoken tooltip summary", 
     "2 changed · PR #188 · 2 agents running",
   );
   await userEvent.unhover(toggle);
-  await userEvent.click(within(card).getByRole("button", { name: "Commit" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Commit and push options" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Commit only…" }));
   const dialog = await screen.findByRole("dialog", { name: "Commit to fix/restart-retry" });
   expect(
     within(dialog)
@@ -126,17 +128,19 @@ test("the background section disappears when its last command ends", async () =>
   );
 });
 
-test("finished agents collapse after three while running agents remain visible", async () => {
+test("previous agents stay collapsed while running agents remain visible", async () => {
   const { app, card, threadId } = await open("many-agents");
   const agents = within(card).getByRole("region", { name: "Agents" });
-  expect(within(agents).getByText("2 running")).toBeTruthy();
-  await userEvent.click(within(agents).getByRole("button", { name: "7 done" }));
+  expect(within(agents).getByText("Lineage · 2 running")).toBeTruthy();
+  await userEvent.click(within(agents).getByRole("button", { name: "Previous agents (10)" }));
   expect(
     within(agents).getByRole("button", { name: "Open Read restart history 3: done" }),
   ).toBeTruthy();
   act(() => app.daemon.apply(threadId, [facts.endTurn("worker-0"), facts.endTurn("worker-1")]));
-  await waitFor(() => expect(within(agents).queryByText("2 running")).toBeNull());
-  expect(within(agents).getByRole("button", { name: "Open Write retry tests: done" })).toBeTruthy();
+  await waitFor(() => expect(within(agents).queryByText("Lineage · 2 running")).toBeNull());
+  expect(
+    within(agents).getByRole("button", { name: "Open Write retry tests 1: done" }),
+  ).toBeTruthy();
 });
 
 test("a merged branch offers no new PR and hides empty work sections", async () => {
@@ -145,7 +149,7 @@ test("a merged branch offers no new PR and hides empty work sections", async () 
   expect(within(card).queryByRole("button", { name: "Create PR" })).toBeNull();
   expect(within(card).getByRole("button", { name: /Pull request #188.*merged/ })).toBeTruthy();
   expect(within(card).queryByRole("region", { name: "Background" })).toBeNull();
-  expect(within(card).queryByRole("region", { name: "Agents" })).toBeNull();
+  expect(within(card).getByText("No child agents")).toBeTruthy();
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   expect(screen.queryByRole("menuitem", { name: "Create PR…" })).toBeNull();
 });
@@ -165,9 +169,7 @@ test("secondary Git forms replace Work details and remain reachable after its po
 
 test("the link field waits for a click and Escape returns focus to the icon", async () => {
   const { card, toggle } = await open("remote");
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain(
-    "Local · Build server",
-  );
+  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("Build server");
   expect(within(card).queryByRole("textbox", { name: "Link pull request…" })).toBeNull();
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Link a pull request" }));
@@ -184,11 +186,20 @@ test("a rejected push turns the mark amber and a successful retry clears it", as
   app.daemon.refuseCommands("git_non_fast_forward", "git.push");
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Push" }));
-  expect(await screen.findAllByText("Couldn't push")).not.toHaveLength(0);
+  const confirmation = await screen.findByRole("dialog", { name: "Push fix/restart-retry?" });
+  await userEvent.click(within(confirmation).getByRole("button", { name: "Push" }));
+  expect((await within(confirmation).findByRole("alert")).textContent).toMatch(/fast.forward/i);
+  await userEvent.click(within(confirmation).getByRole("button", { name: "Cancel" }));
   expect(await screen.findByRole("img", { name: "Work needs you" })).toBeTruthy();
   app.daemon.restoreRequests();
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Push" }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "Push fix/restart-retry?" })).getByRole(
+      "button",
+      { name: "Push" },
+    ),
+  );
   await waitFor(() => expect(screen.queryByRole("img", { name: "Work needs you" })).toBeNull());
 });
 

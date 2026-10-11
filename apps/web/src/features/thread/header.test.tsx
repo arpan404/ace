@@ -67,7 +67,8 @@ async function gitStep(name: string) {
     await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
     return screen.findByRole("menuitem", { name: name === "Push" ? "Push" : "Commit & push…" });
   }
-  return within(card).findByRole("button", { name });
+  await userEvent.click(within(card).getByRole("button", { name: "Commit and push options" }));
+  return screen.findByRole("menuitem", { name: `${name}…` });
 }
 
 /** A one-thread scenario with this checkout, and only the root agent (the thread is idle). */
@@ -140,7 +141,7 @@ test("the work card opens under its button and closes on Escape, giving focus ba
   const button = within(header()).getByRole("button", { name: /^Work card/ });
   const card = await openCard();
   expect(button.getAttribute("aria-expanded")).toBe("true");
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toBe("relayLocal");
+  expect(await within(card).findByRole("heading", { level: 2, name: "Fake machine" })).toBeTruthy();
 
   await userEvent.keyboard("{Escape}");
   await waitFor(() =>
@@ -329,15 +330,17 @@ test("the branch keeps its complete status and one commit entry point", async ()
   await app.open("/t/thread-branch");
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
-  expect(await within(card).findByText("· 3 files")).toBeTruthy();
+  expect(
+    await within(card).findByRole("button", { name: "Changes, 3 files: 38 added, 6 removed" }),
+  ).toBeTruthy();
   await userEvent.hover(
-    within(within(card).getByRole("region", { name: "Changes and branch" })).getByText(branch),
+    within(within(card).getByRole("region", { name: "Source control" })).getByText(branch),
   );
   expect((await screen.findByRole("tooltip")).textContent).toBe(`${branch} → main, 0 ahead`);
   await userEvent.unhover(
-    within(within(card).getByRole("region", { name: "Changes and branch" })).getByText(branch),
+    within(within(card).getByRole("region", { name: "Source control" })).getByText(branch),
   );
-  expect(within(card).getAllByRole("button", { name: /^Commit/ })).toHaveLength(1);
+  expect(within(card).getByRole("button", { name: "Commit & push" })).toBeTruthy();
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await screen.findByRole("menu");
   expect(screen.getByRole("menuitem", { name: /^Commit & push/ })).toBeTruthy();
@@ -350,7 +353,7 @@ test("a provider MCP server waiting for its own sign-in shows nowhere in the thr
   await app.open("/t/thread-mcp");
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
-  await within(within(card).getByRole("region", { name: "Changes and branch" })).findByText(
+  await within(within(card).getByRole("region", { name: "Source control" })).findByText(
     "sketch/parser",
   );
   expect(within(card).queryByRole("region", { name: "Sources" })).toBeNull();
@@ -652,9 +655,7 @@ test("past 500 files the list says it is cut short, and commits only what it lis
 test("project actions hide checkout moves while agents work", async () => {
   await openThread("checkout");
   const card = await openCard();
-  expect(
-    await within(within(card).getByRole("heading", { level: 2 })).findByText("Worktree"),
-  ).toBeTruthy();
+  expect(await within(card).findByRole("heading", { level: 2, name: "Fake machine" })).toBeTruthy();
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await screen.findByRole("menu");
   expect(screen.queryByRole("menuitem", { name: /Move to a worktree/ })).toBeNull();
@@ -672,7 +673,7 @@ test("from the card, an idle thread switches branch and moves into a worktree of
   expect(await screen.findByText("Switched to develop")).toBeTruthy();
   expect(
     (
-      await within(within(card).getByRole("region", { name: "Changes and branch" })).findByText(
+      await within(within(card).getByRole("region", { name: "Source control" })).findByText(
         "develop",
       )
     ).textContent,
@@ -681,9 +682,8 @@ test("from the card, an idle thread switches branch and moves into a worktree of
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to a worktree/ }));
   expect(await screen.findByText("Moved to a worktree")).toBeTruthy();
-  expect(
-    await within(within(card).getByRole("heading", { level: 2 })).findByText("Worktree"),
-  ).toBeTruthy();
+  const snapshot = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-idle") });
+  expect(snapshot && "thread" in snapshot && snapshot.thread.details?.mode).toBe("worktree");
 });
 
 // ---------------------------------------------------------------------------------------------
