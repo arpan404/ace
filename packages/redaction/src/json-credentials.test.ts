@@ -3,6 +3,26 @@ import { expect, it } from "vitest";
 import { createStreamingRedactor, createTextRedactor } from "@ace/redaction";
 
 it.each([
+  'before " {"token":"OPAQUE_CREDENTIAL"} after',
+  'before "one" " {"token":"OPAQUE_CREDENTIAL"} after',
+  'before "one" "two" " {"token":"OPAQUE_CREDENTIAL"} after',
+  'before {"note":"a \\"quoted\\" value"} " {"token":"OPAQUE_CREDENTIAL"} after',
+  'before " {"note":"a \\"quoted\\" value","token":"OPAQUE_CREDENTIAL"} after',
+])("prose quotes cannot hide a following JSON credential: %s", (input) => {
+  const expected = input.replace("OPAQUE_CREDENTIAL", "<SECRET>");
+  expect(createTextRedactor({})(input)).toBe(expected);
+  expect([...createStreamingRedactor({})(input)].join("")).toBe(expected);
+});
+
+it("streaming preserves the credential mask after a prose quote at a chunk boundary", () => {
+  const prefix = "A".repeat(4080) + ' " ';
+  const input = prefix + '{"token":"OPAQUE_CREDENTIAL"} after';
+  expect([...createStreamingRedactor({})(input)].join("")).toBe(
+    prefix + '{"token":"<SECRET>"} after',
+  );
+});
+
+it.each([
   'before {"prefix_token_suffix":"OPAQUE_CREDENTIAL","visible":"ok"} after',
   'before {"api\\u005fkey" : "OPAQUE_CREDENTIAL","visible":"ok"} after',
   'before {"authorization":"OPAQUE_CREDENTIAL \\"private quote\\" tail","visible":"ok"} after',

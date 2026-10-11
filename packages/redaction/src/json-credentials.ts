@@ -13,7 +13,8 @@ function quotedEnd(text: string, start: number): { end: number; closed: boolean 
   return { end: text.length, closed: false };
 }
 
-/** Quoted tokens and intervening whitespace are each scanned once. Key
+/** Candidate keys overlap only at their boundary quote. Each position is
+ * scanned a bounded number of times, even when prose quotes disrupt pairing. Key
  * decoding/classification is linear in that key's length, with no backtracking.
  * Value spans retain the original surrounding quotes for lexical redaction. */
 export function* jsonCredentialSpans(text: string): Generator<CredentialSpan, undefined> {
@@ -28,7 +29,12 @@ export function* jsonCredentialSpans(text: string): Generator<CredentialSpan, un
     cursor = key.end;
     if (!key.closed) return;
     while (cursor < text.length && /\s/.test(text[cursor] ?? "")) cursor++;
-    if (text[cursor] !== ":") continue;
+    if (text[cursor] !== ":") {
+      // A prose quote can pair with an actual key opener. Retry that closing
+      // quote as an opener, without rescanning the preceding token body.
+      cursor = key.end - 1;
+      continue;
+    }
     cursor++;
     let secret = false;
     try {
