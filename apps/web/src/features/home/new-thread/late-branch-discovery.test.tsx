@@ -1,10 +1,10 @@
 import { workbench } from "@ace/fake-daemon";
-import { act, cleanup, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-test("a preparation pins the base shown after late discovery even when the repository default changes", async () => {
+test.each(["reload", "refresh"])("a preparation keeps the discovered base when the repository default changes through %s", async (mode) => {
   const made = harness();
   for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
   const handle = made.daemon.services.handle.bind(made.daemon.services);
@@ -47,9 +47,17 @@ test("a preparation pins the base shown after late discovery even when the repos
     deliver();
   });
   await screen.findByRole("button", { name: "Start from: origin/main" });
-  cleanup();
   defaultBranch = "develop";
-  await made.open("/new?project=relay");
+  if (mode === "reload") {
+    cleanup();
+    await made.open("/new?project=relay");
+  } else {
+    act(() => made.daemon.disconnectAll());
+    await userEvent.click(await screen.findByRole("button", { name: "Start from: origin/main" }));
+    const dialog = await screen.findByRole("dialog", { name: "Start from a branch" });
+    await waitFor(() => expect(within(dialog).getByRole("option", { name: /^origin\/develop/ }).textContent).toContain("default"));
+    await userEvent.keyboard("{Escape}");
+  }
   expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
     "Pin the discovered base",
   );

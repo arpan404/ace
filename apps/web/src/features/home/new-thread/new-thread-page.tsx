@@ -226,11 +226,12 @@ function PreparationPage(props: {
   // The base picked here, else the one asked for by name (a local branch until the branches
   // say otherwise), else the default branch at its freshest; undefined while the branches load
   // (the daemon then starts from HEAD).
+  const savedBase = baseChoice ?? preparation(storage, props.host, draftKey)?.base;
   const base =
-    typeof baseChoice === "object"
-      ? baseChoice
-      : baseChoice !== undefined
-        ? namedBase(baseChoice, branches.refs)
+    typeof savedBase === "object"
+      ? savedBase
+      : savedBase !== undefined
+        ? namedBase(savedBase, branches.refs)
         : defaultWorktreeBase(branches.refs, branches.defaultBranch);
   const provider = resolved.provider;
 
@@ -428,13 +429,13 @@ function PreparationPage(props: {
     !permissions.modes.some((mode) => mode.id === permission);
   const missingBase =
     resolved.mode === "worktree" &&
-    baseChoice &&
+    savedBase &&
     branches.state === "ready" &&
     branches.refs.length > 0 &&
     !branches.refs.some((ref) =>
-      typeof baseChoice === "string"
-        ? ref.name === baseChoice || `${ref.remote}/${ref.name}` === baseChoice
-        : ref.name === baseChoice.ref && ref.remote === baseChoice.remote,
+      typeof savedBase === "string"
+        ? ref.name === savedBase || `${ref.remote}/${ref.name}` === savedBase
+        : ref.name === savedBase.ref && ref.remote === savedBase.remote,
     );
   const savedScope = preparation(storage, props.host, draftKey)?.draftId;
   const missingFiles =
