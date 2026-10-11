@@ -292,11 +292,15 @@ function ComposerBody({
     if (!draftKey) return;
     return takeDraftsFor(draftKey, (returned) => takeReturned(returned));
   }, [draftKey]);
-  // Whether anything was typed since a message left (for one that has to come back).
-  const typed = useRef("");
-  useLayoutEffect(() => {
-    typed.current = text;
-  }, [text]);
+  const restoreSubmission = useEffectEvent((before: ReturnedDraft, draft: Draft) => {
+    const next = mergeReturnedDraft(current, before);
+    saved.discard();
+    if (props.draftKey) writeDraft(storage, props.draftKey, next);
+    if (draft.files.restore) {
+      draft.files.restore();
+      takeText(next);
+    } else props.onReplaced(next.attachments);
+  });
   useAutosize(input, text, width);
   useTypeToFocus(input, !!props.typeToFocus && !props.unavailable);
   // After an inserted suggestion or mention has rendered, put the caret after it.
@@ -535,23 +539,16 @@ function ComposerBody({
     setPicked(new Set());
     setTokens([]);
     void props.onSubmit(draft).then((sent) => {
-      if (sent || !draftKey || typed.current.trim()) return;
-      // Couldn't be saved: back in the composer, files included (a remount restores them).
-      writeDraft(storage, draftKey, {
-        text: before.text,
-        tokens: before.tokens,
-        mentions: [...before.picked],
-        attachments: before.files,
-      });
-      if (draft.files.restore) {
-        draft.files.restore();
-        takeText({
-          text: before.text,
-          tokens: before.tokens,
-          mentions: [...before.picked],
-          attachments: before.files,
-        });
-      } else props.onReplaced(before.files);
+      if (!sent)
+        restoreSubmission(
+          {
+            text: before.text,
+            tokens: before.tokens,
+            mentions: [...before.picked],
+            attachments: before.files,
+          },
+          draft,
+        );
     });
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
