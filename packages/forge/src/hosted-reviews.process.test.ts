@@ -11,7 +11,8 @@ const host = (head = sha, own = false) => ({
         headRefOid: head,
         state: "OPEN",
         viewerDidAuthor: own,
-        viewerCanComment: true,
+        locked: false,
+        viewerCanUpdate: false,
         reviewThreads: {
           nodes: [
             { id: "T_7", isResolved: false, viewerCanResolve: true, viewerCanUnresolve: false },

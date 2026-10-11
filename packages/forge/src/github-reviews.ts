@@ -33,7 +33,8 @@ const Host = z.object({
         headRefOid: text,
         state: text,
         viewerDidAuthor: z.boolean(),
-        viewerCanComment: z.boolean(),
+        locked: z.boolean(),
+        viewerCanUpdate: z.boolean(),
         reviewThreads: z.object({
           nodes: z
             .array(
@@ -95,14 +96,19 @@ export class GitHubReviews {
     const budget = new ReadBudget();
     for (let page = 0; page < 20; page++) {
       const result = await this.#api.request("graphql", signal, {
-        query: `query($owner:String!,$name:String!,$number:Int!,$after:String){ viewer { login } repository(owner:$owner,name:$name){ pullRequest(number:$number){ id headRefOid state viewerDidAuthor viewerCanComment reviewThreads(first:100,after:$after){ nodes { id isResolved viewerCanResolve viewerCanUnresolve } pageInfo { hasNextPage endCursor } } } } }`,
+        query: `query($owner:String!,$name:String!,$number:Int!,$after:String){ viewer { login } repository(owner:$owner,name:$name){ pullRequest(number:$number){ id headRefOid state viewerDidAuthor locked viewerCanUpdate reviewThreads(first:100,after:$after){ nodes { id isResolved viewerCanResolve viewerCanUnresolve } pageInfo { hasNextPage endCursor } } } } }`,
         variables: { owner, name, number, after },
       });
       budget.add(result.bytes);
       const data = decode(Host, result.body).data;
       const pr = data.repository.pullRequest;
       threads.push(...pr.reviewThreads.nodes);
-      if (!pr.reviewThreads.pageInfo.hasNextPage) return { viewer: data.viewer.login, pr, threads };
+      if (!pr.reviewThreads.pageInfo.hasNextPage)
+        return {
+          viewer: data.viewer.login,
+          pr: { ...pr, viewerCanComment: !pr.locked || pr.viewerCanUpdate },
+          threads,
+        };
       const next = pr.reviewThreads.pageInfo.endCursor;
       if (!next || next === after) throw new ForgeError("invalid_data");
       after = next;
