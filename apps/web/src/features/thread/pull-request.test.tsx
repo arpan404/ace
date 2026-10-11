@@ -436,3 +436,20 @@ test("explicit PR addresses can link another repository and unlink only that ass
     ]);
   });
 });
+
+test("the work card links a configured Enterprise address through the worker connection", async () => {
+  const app = harness({ throughWorker: true });
+  app.play(idle("thread-pr", checkout)).runUntilBlocked();
+  await app.open("/t/thread-pr");
+  await app.client.request({ type: "settings.set", key: "sourceControl.preferences", layer: { kind: "global" }, value: {
+    hosts: [{ host: "github.com" }, { host: "git.example.com" }], host: "git.example.com", remote: "upstream",
+  } });
+  const card = await openCard();
+  await userEvent.type(await linkField(card), "https://git.example.com/octo/ace/pull/7{Enter}");
+  await waitFor(() => {
+    const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
+    expect(view && "thread" in view && view.thread.details?.linkedPrs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ number: 7, repo: { forge: "github", host: "git.example.com", owner: "octo", name: "ace" } }),
+    ]));
+  });
+});

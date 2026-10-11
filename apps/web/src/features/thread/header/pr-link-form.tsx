@@ -1,4 +1,4 @@
-import { parsePrReference } from "@ace/ui-core";
+import { usePrReference } from "../lib/use-pr-reference.ts";
 import type { ForgeRepository } from "@ace/protocol";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -12,16 +12,20 @@ export function PrLinkForm(props: {
   onLink(number: number, repository?: ForgeRepository): Promise<unknown>;
   onDone?(): void;
 }) {
+  const parseReference = usePrReference();
+  const [validating, setValidating] = useState(false);
   const [value, setValue] = useState("");
   const [error, setError] = useState<string>();
   return (
     <form
       onSubmit={async (event) => {
         event.preventDefault();
-        const parsed = parsePrReference(value, props.repository);
-        if ("error" in parsed) return setError(parsed.error);
+        if (validating || props.pending) return;
+        setValidating(true);
         setError(undefined);
         try {
+          const parsed = await parseReference(value, props.repository);
+          if ("error" in parsed) return setError(parsed.error);
           await props.onLink(parsed.number, parsed.repository);
           setValue("");
           props.onDone?.();
@@ -29,6 +33,8 @@ export function PrLinkForm(props: {
           setError(
             reason instanceof Error ? reason.message : "Couldn't link the pull request. Try again.",
           );
+        } finally {
+          setValidating(false);
         }
       }}
     >
@@ -40,11 +46,11 @@ export function PrLinkForm(props: {
           placeholder="URL or #number"
           value={value}
           maxLength={2000}
-          disabled={props.pending}
+          disabled={props.pending || validating}
           onChange={(event) => setValue(event.target.value)}
         />
         {value.trim() && (
-          <Button type="submit" variant="ghost" size="sm" disabled={props.pending}>
+          <Button type="submit" variant="ghost" size="sm" disabled={props.pending || validating}>
             Link
           </Button>
         )}
