@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
-import type { ForgePrDetail, ForgeMergeState } from "@ace/protocol";
+import type { ForgePrDetail, ForgeMergeState, ForgePrRef } from "@ace/protocol";
+import { autoMergeBlocker } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
@@ -37,10 +38,27 @@ export function PrMergeState(props: {
   detail: ForgePrDetail;
   onRefresh(): void;
 }) {
+  return (
+    <PrMergeControls
+      workspaceId={props.workspaceId}
+      pr={props.detail.status.ref}
+      relatedThreads={props.detail.relatedThreads}
+      onRefresh={props.onRefresh}
+    />
+  );
+}
+
+/** Shared by the hosted PR workspace and the linked thread's PR controls. */
+export function PrMergeControls(props: {
+  workspaceId: string;
+  pr: ForgePrRef;
+  relatedThreads: readonly { id: string; title: string }[];
+  onRefresh(): void;
+}) {
   const client = useClient();
   const ready = useConnectionState() === "ready";
-  const ref = props.detail.status.ref;
-  const [threadId, setThread] = useState(props.detail.relatedThreads[0]?.id ?? "");
+  const ref = props.pr;
+  const [threadId, setThread] = useState(props.relatedThreads[0]?.id ?? "");
   const [method, setMethod] = useState<"merge" | "squash" | "rebase">("squash");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
@@ -68,27 +86,40 @@ export function PrMergeState(props: {
     },
   });
   const state = query.data;
-  const associated = props.detail.relatedThreads.some((thread) => thread.id === threadId);
+  const associated = props.relatedThreads.some((thread) => thread.id === threadId);
   const disabled =
-    !ready || pending || query.isFetching || query.isError || !state || !associated || uncertain;
+    !ready ||
+    pending ||
+    query.isFetching ||
+    query.isError ||
+    !state ||
+    !associated ||
+    uncertain ||
+    state.writeState !== undefined;
   const run = async (action: "enable" | "disable" | "dequeue") => {
     if (disabled || !state) return;
     setPending(true);
     setMessage("");
     try {
-      await runCommand(client, {
+      const result = await runCommand(client, {
         type: "forge.pr.merge-state.change",
         link: { threadId, pr: ref },
         headSha: state.headSha,
         action,
         method,
       });
-      setMessage("GitHub confirmed the action. Refreshing current state.");
+      setMessage(
+        result.code
+          ? forgeError(result.code)
+          : "GitHub confirmed the action. Refreshing current state.",
+      );
     } catch (error) {
       setUncertain(true);
       setMessage(
         error instanceof CommandRefused
-          ? forgeError(error.code)
+          ? error.code === "action_outcome_uncertain"
+            ? "The action may have reached GitHub. Refresh merge state before taking another action."
+            : forgeError(error.code)
           : "The acknowledgement was lost. Refresh GitHub state before taking another action.",
       );
     } finally {
@@ -105,6 +136,13 @@ export function PrMergeState(props: {
       <h3 className="text-base font-medium">Auto-merge and merge queue</h3>
       <QueryState query={query} />
       {state && !query.isError && <MergeStateSummary state={state} />}
+      {state?.writeState && (
+        <p role="status">
+          {forgeError(
+            state.writeState === "pending" ? "forge_write_pending" : "forge_write_uncertain",
+          )}
+        </p>
+      )}
       <Button
         disabled={!ready || pending || query.isFetching}
         onClick={async () => {
@@ -123,7 +161,7 @@ export function PrMergeState(props: {
           className="bg-input p-1 focus-ring"
         >
           <option value="">Choose a linked task</option>
-          {props.detail.relatedThreads.map((thread) => (
+          {props.relatedThreads.map((thread) => (
             <option key={thread.id} value={thread.id}>
               {thread.title}
             </option>
@@ -152,10 +190,7 @@ export function PrMergeState(props: {
             <option value="rebase">Rebase</option>
           </select>
         </label>
-        <Button
-          disabled={disabled || !state?.canEnable || !!state.autoMerge || !!state.queue}
-          onClick={() => void run("enable")}
-        >
+        <Button disabled={disabled || !!autoMergeBlocker(state)} onClick={() => void run("enable")}>
           Enable auto-merge
         </Button>
         <Button

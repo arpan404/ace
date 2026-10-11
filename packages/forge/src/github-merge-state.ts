@@ -3,6 +3,7 @@ import { ForgeMergeState } from "@ace/protocol/forge-merge-state";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import type { GhApi } from "./http.ts";
 import { ForgeError } from "./errors.ts";
+import { mergeStateChangeObserved } from "./merge-state.ts";
 import type { MergeMethod } from "./api.ts";
 
 const text = z.string().max(65_536);
@@ -155,14 +156,7 @@ export class GitHubMergeState {
     }
     // Never retry a write after a lost acknowledgement. Observe GitHub first.
     const current = await this.read(number, signal);
-    const completed =
-      action === "enable"
-        ? current.autoMerge?.method === method.toUpperCase() ||
-          current.queue !== null ||
-          current.state === "MERGED"
-        : action === "disable"
-          ? current.autoMerge === null
-          : current.queue === null;
+    const completed = mergeStateChangeObserved(current, headSha, action, method);
     if (failure && !completed) throw failure;
     if (!completed) throw new ForgeError("conflict");
     return current;

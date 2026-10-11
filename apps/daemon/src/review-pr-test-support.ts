@@ -75,7 +75,15 @@ else if(path.endsWith('/merge')) {state.merged=true;writeFileSync(file,JSON.stri
 else if(path.endsWith('/requested_reviewers')) body={requested_reviewers:[{login:'reviewer'}]};
 else if(path.endsWith('/replies')) body={id:9};
 else if(path.includes('/check-runs?')) body={check_runs:[{id:1,name:'test',status:state.ci==='success'?'completed':'in_progress',conclusion:state.ci==='success'?'success':null,completed_at:null}]};
-else if(path==='graphql') body={data:{repository:{pullRequest:{reviewThreads:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[]}}}}};
+else if(path==='graphql') {
+  const query=JSON.parse(input).query;
+  if(query.includes('enablePullRequestAutoMerge(input:')) {
+    state.autoMerge={mergeMethod:'SQUASH',enabledAt:'2026-10-11',enabledBy:{login:'octo'}};
+    writeFileSync(file,JSON.stringify(state));body={data:{enablePullRequestAutoMerge:{clientMutationId:null}}};
+  } else if(query.includes('viewerCanEnableAutoMerge')) {
+    body={data:{repository:{viewerPermission:'WRITE',pullRequest:{id:'PR_42',number:42,headRefOid:'${"a".repeat(40)}',state:state.merged?'MERGED':'OPEN',isDraft:false,mergeStateStatus:'BLOCKED',reviewDecision:'REVIEW_REQUIRED',statusCheckRollup:{state:'SUCCESS'},autoMergeRequest:state.autoMerge??null,mergeQueueEntry:null,viewerCanEnableAutoMerge:!state.autoMerge,viewerCanDisableAutoMerge:!!state.autoMerge}}}};
+  } else body={data:{repository:{pullRequest:{reviewThreads:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[]}}}}};
+}
 if(state.code!==200) body={message:'fixture refusal'};
 process.stdout.write('HTTP/1.1 '+state.code+' Fixture\\r\\n\\r\\n'+JSON.stringify(body));
 `,

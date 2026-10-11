@@ -1,10 +1,11 @@
 import { ForgeError, WriteDispatch, repositoryKey, type GitHubForge } from "@ace/forge";
-import type { CommandResult, ForgePrRef, ForgePrStatus } from "@ace/protocol";
+import type { CommandResult, ForgePrRef, ForgePrStatus, ForgeMergeState } from "@ace/protocol";
 import { z } from "zod";
 import type { Store } from "./store.ts";
 import {
   ForgeWriteReceipt,
   observedWrite,
+  observedMergeState,
   type RemoteForgeAction,
 } from "./forge-action-observation.ts";
 
@@ -76,6 +77,28 @@ export class WorkspaceForgeActions {
     }
     return "uncertain";
   }
+  observeMergeState(pr: ForgePrRef, state: ForgeMergeState): "pending" | "uncertain" | undefined {
+    const key = this.key(pr);
+    if (this.live.has(key)) return "pending";
+    const receipt = this.read(key);
+    if (!receipt || receipt.phase === "reconciled") return undefined;
+    if (receipt.phase === "accepted" || observedMergeState(receipt.action, state)) {
+      this.save(key, { ...receipt, phase: "reconciled" });
+      return undefined;
+    }
+    return "uncertain";
+  }
+  private async status(
+    action: ForgeWriteReceipt["action"],
+    backend: GitHubForge,
+    signal: AbortSignal,
+  ): Promise<ForgePrStatus> {
+    if (!("link" in action)) throw new ForgeError("invalid_data");
+    const status = await backend.status(action.link.pr.number, signal);
+    return action.type === "forge.pr.auto-merge" || action.type === "forge.pr.merge-state.change"
+      ? { ...status, mergeState: await backend.prMergeState(action.link.pr.number, signal) }
+      : status;
+  }
   async execute(
     action: RemoteForgeAction,
     backend: GitHubForge,
@@ -92,7 +115,7 @@ export class WorkspaceForgeActions {
     try {
       if (previous && !["reconciled", "failed"].includes(previous.phase)) {
         // This command is reconciliation only. It never repeats the previous write.
-        const status = await backend.status(pr.number, signal);
+        const status = await this.status(previous.action, backend, signal);
         if (previous.phase !== "accepted" && !observedWrite(previous, status))
           return { ok: false, error: "forge_write_uncertain" };
         this.save(key, { ...previous, phase: "reconciled" });
@@ -126,6 +149,7 @@ export class WorkspaceForgeActions {
         if (!allowed()) throw new ForgeError("forbidden", undefined, false);
         this.save(key, receipt);
       });
+      let mergeState: ForgeMergeState | undefined;
       try {
         if (action.type === "forge.comment.reply")
           await backend.replyComment(pr.number, action.commentId, action.body, signal, dispatch);
@@ -134,7 +158,15 @@ export class WorkspaceForgeActions {
         else if (action.type === "forge.pr.merge")
           await backend.merge(pr.number, action.headSha, action.method, signal, dispatch);
         else
-          await backend.enableAutoMerge(pr.number, action.headSha, action.method, signal, dispatch);
+          mergeState = await backend.changeMergeState(
+            pr.number,
+            action.headSha,
+            action.type === "forge.pr.auto-merge" ? "enable" : action.action,
+            action.method,
+            signal,
+            allowed,
+            dispatch,
+          );
       } catch (error) {
         if (dispatch.definitelyFailed) {
           this.save(key, { ...receipt, phase: "failed" });
@@ -146,7 +178,10 @@ export class WorkspaceForgeActions {
       const accepted: ForgeWriteReceipt = { ...receipt, phase: "accepted" };
       this.save(key, accepted);
       try {
-        const status = await backend.status(pr.number, signal);
+        const status = {
+          ...(await backend.status(pr.number, signal)),
+          ...(mergeState ? { mergeState } : {}),
+        };
         publish(status);
         this.save(key, { ...accepted, phase: "reconciled" });
         return { ok: true, pr, prStatus: status };

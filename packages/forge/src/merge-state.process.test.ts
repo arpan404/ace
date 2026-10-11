@@ -187,3 +187,27 @@ test("a failed CLI exit without a GraphQL error envelope remains a CLI failure",
     await f.cleanup();
   }
 });
+
+test("the legacy auto-merge API uses the same authoritative guarded mutation", async () => {
+  const f = await fakeGh({
+    graphql: [
+      read(),
+      { body: { data: { enablePullRequestAutoMerge: { clientMutationId: null } } } },
+      read({ autoMergeRequest: armed }),
+    ],
+  });
+  try {
+    await f.forge.enableAutoMerge(7, sha, "squash", signal());
+    expect((await f.requests())[1]?.body).toMatchObject({
+      query: expect.stringContaining("enablePullRequestAutoMerge(input:$input)"),
+      variables: { input: { pullRequestId: "PR_7", expectedHeadOid: sha, mergeMethod: "SQUASH" } },
+    });
+    expect((await f.requests()).map((request) => request.path)).toEqual([
+      "graphql",
+      "graphql",
+      "graphql",
+    ]);
+  } finally {
+    await f.cleanup();
+  }
+});

@@ -1,0 +1,151 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeMergeState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "autoMerge": {
+      "anyOf": [
+        {
+          "properties": {
+            "actor": {
+              "anyOf": [
+                {
+                  "maxLength": 65536,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "enabledAt": {
+              "maxLength": 65536,
+              "type": "string"
+            },
+            "method": {
+              "maxLength": 65536,
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "actor",
+            "enabledAt"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "blockers": {
+      "items": {
+        "maxLength": 65536,
+        "type": "string"
+      },
+      "maxItems": 20,
+      "type": "array"
+    },
+    "canDequeue": {
+      "type": "boolean"
+    },
+    "canDisable": {
+      "type": "boolean"
+    },
+    "canEnable": {
+      "type": "boolean"
+    },
+    "checksState": {
+      "anyOf": [
+        {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "headSha": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
+    "mergeState": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "queue": {
+      "anyOf": [
+        {
+          "properties": {
+            "enqueuedAt": {
+              "maxLength": 65536,
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 65536,
+              "type": "string"
+            },
+            "position": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "state": {
+              "maxLength": 65536,
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "state",
+            "position",
+            "enqueuedAt"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "raw": {},
+    "reviewDecision": {
+      "anyOf": [
+        {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "state": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "writeState": {
+      "enum": [
+        "pending",
+        "uncertain"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "headSha",
+    "state",
+    "mergeState",
+    "reviewDecision",
+    "checksState",
+    "autoMerge",
+    "queue",
+    "canEnable",
+    "canDisable",
+    "canDequeue",
+    "blockers",
+    "raw"
+  ],
+  "type": "object"
+}

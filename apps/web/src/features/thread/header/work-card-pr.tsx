@@ -1,7 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { PrUnlinkDialog } from "./pr-unlink-dialog.tsx";
 import { PullRequestGlyph, pullRequestTone as prTone } from "@/components/pull-request-state.tsx";
-import type { ForgePrStatus } from "@ace/protocol";
 import { prOverview, pullRequestUrl, type CheckoutPr } from "@ace/ui-core";
 import {
   ArrowClockwiseIcon,
@@ -269,6 +268,8 @@ function PrDisclosure(props: {
             <PrDetails
               git={git}
               status={current}
+              workspaceId={props.workspaceId}
+              onRefresh={refresh}
               base={props.base}
               onRequestReview={
                 primary

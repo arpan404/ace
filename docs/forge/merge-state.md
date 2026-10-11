@@ -1,6 +1,6 @@
 # Auto-merge and merge queue
 
-The PR workspace reads auto-merge and queue state through a separate bounded
+The PR workspace and linked thread controls read auto-merge and queue state through a separate bounded
 `forge.pr.merge-state` resource. This keeps failures in newer GitHub capabilities
 visible without preventing the conversation, checks or files from loading.
 Reads poll while the workspace is open and refresh after reconnect. Cached state
@@ -17,7 +17,10 @@ After a write, including a lost acknowledgement, ace reads authoritative state.
 It returns success only when that state confirms the requested outcome. It never
 retries the mutation. An unresolved outcome stays visible through an error
 receipt, and the UI requires an explicit refresh before another action. The
-existing async command reservation prevents replay after daemon restart.
+PR-wide write receipt prevents replay with a new command ID or after daemon restart.
+A read that confirms completion clears that fence. Pending or uncertain writes
+keep controls disabled across reloads. The legacy `forge.pr.auto-merge` command
+and `enableAutoMerge` API use the same guarded merge-state owner.
 
 GitHub's capability fields decide auto-merge availability. Check rollup, review
 decision and merge-state status describe blockers without pretending to enumerate
@@ -27,7 +30,7 @@ remain available as bounded, redacted raw data.
 
 Primary contracts:
 
-- https://docs.github.com/en/graphql/reference/pulls
+- https://docs.github.com/en/graphql/reference/mutations
 - https://cli.github.com/manual/gh_api
 - https://cli.github.com/manual/gh_pr_merge
 

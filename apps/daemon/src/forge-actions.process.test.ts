@@ -265,11 +265,8 @@ test("an uncertain reply cannot be retried with another body or reconciled by an
   }
 });
 
-test("uncertain review requests and auto-merge intents are resolved by their hosted state without another write", async () => {
-  const actions: CommandPayload[] = [
-    { type: "forge.review.request", link, reviewers: ["octo"] },
-    { type: "forge.pr.auto-merge", link, headSha: sha, method: "squash" },
-  ];
+test("uncertain review requests are resolved by their hosted state without another write", async () => {
+  const actions: CommandPayload[] = [{ type: "forge.review.request", link, reviewers: ["octo"] }];
   for (const action of actions) {
     const records = fixtures();
     const request =

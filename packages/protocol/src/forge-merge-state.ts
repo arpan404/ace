@@ -14,6 +14,7 @@ export const ForgeMergeState = z.object({
   canDisable: z.boolean(),
   canDequeue: z.boolean(),
   blockers: z.array(text).max(20),
+  writeState: z.enum(["pending", "uncertain"]).optional(),
   raw: z.unknown(),
 });
 export type ForgeMergeState = z.infer<typeof ForgeMergeState>;

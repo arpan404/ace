@@ -1,10 +1,16 @@
-import { ForgeCommand, type ForgePrStatus } from "@ace/protocol";
+import { mergeStateChangeObserved } from "@ace/forge";
+import { ForgeCommand, type ForgePrStatus, type ForgeMergeState } from "@ace/protocol";
 import { z } from "zod";
 
 export type RemoteForgeAction = Extract<
   z.infer<typeof ForgeCommand>,
   {
-    type: "forge.pr.merge" | "forge.pr.auto-merge" | "forge.review.request" | "forge.comment.reply";
+    type:
+      | "forge.pr.merge"
+      | "forge.pr.auto-merge"
+      | "forge.pr.merge-state.change"
+      | "forge.review.request"
+      | "forge.comment.reply";
   }
 >;
 
@@ -21,6 +27,20 @@ export const ForgeWriteReceipt = z.object({
   replyBaseline: z.array(z.number().int().positive()).optional(),
 });
 export type ForgeWriteReceipt = z.infer<typeof ForgeWriteReceipt>;
+
+export function observedMergeState(
+  action: ForgeWriteReceipt["action"],
+  state: ForgeMergeState,
+): boolean {
+  if (action.type !== "forge.pr.auto-merge" && action.type !== "forge.pr.merge-state.change")
+    return false;
+  return mergeStateChangeObserved(
+    state,
+    action.headSha,
+    action.type === "forge.pr.auto-merge" ? "enable" : action.action,
+    action.method,
+  );
+}
 
 /** Absence is never proof that a write was rejected: GitHub may still be converging. */
 export function observedWrite(receipt: ForgeWriteReceipt, status: ForgePrStatus): boolean {
@@ -40,6 +60,7 @@ export function observedWrite(receipt: ForgeWriteReceipt, status: ForgePrStatus)
           comment.author === receipt.actor,
       )
     );
+  if (status.mergeState && observedMergeState(action, status.mergeState)) return true;
   const raw = z
     .object({
       pr: z.looseObject({

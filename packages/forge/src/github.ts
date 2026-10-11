@@ -227,43 +227,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     signal: AbortSignal,
     dispatch?: WriteDispatch,
   ): Promise<void> {
-    this.#ref(number);
-    shaSchema.parse(headSha);
-    mergeSchema.parse(method);
-    const metadata = z
-      .object({ node_id: z.string().min(1), head: z.object({ sha: shaSchema }) })
-      .safeParse((await this.#api.request(`${this.#root}/pulls/${number}`, signal)).body);
-    if (!metadata.success) throw new ForgeError("invalid_data");
-    if (metadata.data.head.sha !== headSha) throw new ForgeError("conflict", undefined, false);
-    const response = await this.#api.request(
-      "graphql",
-      signal,
-      {
-        query:
-          "mutation($input:EnablePullRequestAutoMergeInput!) { enablePullRequestAutoMerge(input:$input) { pullRequest { id } } }",
-        variables: {
-          input: {
-            pullRequestId: metadata.data.node_id,
-            expectedHeadOid: headSha,
-            mergeMethod: method.toUpperCase(),
-          },
-        },
-      },
-      "POST",
-      dispatch,
-    );
-    const acknowledgement = z
-      .object({
-        data: z.object({
-          enablePullRequestAutoMerge: z.object({ pullRequest: z.object({ id: z.string() }) }),
-        }),
-      })
-      .safeParse(response.body);
-    if (
-      !acknowledgement.success ||
-      acknowledgement.data.data.enablePullRequestAutoMerge.pullRequest.id !== metadata.data.node_id
-    )
-      throw new ForgeError("invalid_data");
+    await this.#mergeState.change(number, headSha, "enable", method, signal, () => true, dispatch);
   }
 
   async logTail(jobId: number, signal: AbortSignal) {

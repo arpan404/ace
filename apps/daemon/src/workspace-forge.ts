@@ -74,11 +74,19 @@ export class WorkspaceForge {
     const repository = operation.repository ?? (await this.repository(cwd));
     signal.throwIfAborted();
     const backend = this.backend(cwd, repository);
-    if (operation.op === "forge.pr.merge-state")
+    if (operation.op === "forge.pr.merge-state") {
+      const value = await backend.prMergeState(operation.number, signal);
       return {
         resource: "prMergeState",
-        value: await backend.prMergeState(operation.number, signal),
+        value: {
+          ...value,
+          writeState: this.actions.observeMergeState(
+            { repository, number: operation.number },
+            value,
+          ),
+        },
       };
+    }
     if (operation.op === "forge.pr.activity")
       return {
         resource: "prActivity",
@@ -406,27 +414,18 @@ export class WorkspaceForge {
     }
     const generation = this.links.getLinkState(id, p.link.pr)?.generation;
     const backend = this.backend(cwd, p.link.pr.repository);
-    if (p.type === "forge.pr.merge-state.change") {
-      if (generation === undefined) return { ok: false, error: "forge_not_found" };
-      const mergeState = await backend.changeMergeState(
-        p.link.pr.number,
-        p.headSha,
-        p.action,
-        p.method,
+    if (
+      (p.type === "forge.pr.merge-state.change" || p.type === "forge.pr.auto-merge") &&
+      generation === undefined
+    )
+      return { ok: false, error: "forge_not_found" };
+    if (p.type !== "forge.pr.status")
+      return this.actions.execute(
+        p,
+        backend,
         this.lifetime.signal,
         () => allowed() && this.links.getLinkState(id, p.link.pr)?.generation === generation,
-      );
-      const status = {
-        ...(await backend.status(p.link.pr.number, this.lifetime.signal)),
-        mergeState,
-      };
-      if (!allowed()) return { ok: false, error: "forbidden" };
-      this.projection.update(id, status, generation);
-      return { ok: true, pr: status.ref, prStatus: status };
-    }
-    if (p.type !== "forge.pr.status")
-      return this.actions.execute(p, backend, this.lifetime.signal, allowed, (status) =>
-        this.projection.update(id, status, generation),
+        (status) => this.projection.update(id, status, generation),
       );
     const { value } = await this.actions.readDetail(p.link.pr, async () => ({
       status: await backend.status(p.link.pr.number, this.lifetime.signal),
