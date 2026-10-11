@@ -24,7 +24,9 @@ export function redactEmbeddedText(
       let replacement = sensitive.replacement;
       sensitive = spans.next().value;
       while (sensitive && sensitive.start < end) {
-        end = Math.max(end, consumedRecordEnd(text, sensitive.start, sensitive.end));
+        // Covered spans cannot change omitted syntax. Only scan a new suffix
+        // when a span extends coverage; this cursor never moves backwards.
+        if (sensitive.end > end) end = consumedRecordEnd(text, end, sensitive.end);
         if (sensitive.replacement === "<SECRET>") replacement = "<SECRET>";
         sensitive = spans.next().value;
       }
@@ -52,7 +54,7 @@ export function redactEmbeddedText(
       let replacement = crossing.replacement;
       sensitive = spans.next().value;
       while (sensitive && sensitive.start < resume) {
-        resume = Math.max(resume, consumedRecordEnd(text, sensitive.start, sensitive.end));
+        if (sensitive.end > resume) resume = consumedRecordEnd(text, resume, sensitive.end);
         if (sensitive.replacement === "<SECRET>") replacement = "<SECRET>";
         sensitive = spans.next().value;
       }
