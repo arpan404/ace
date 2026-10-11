@@ -5,6 +5,7 @@ import type { Store } from "../store.ts";
 
 /** The originating daemon owns the sole durable task ledger; broker windows hold no run state. */
 export class RemoteTaskJournal {
+  private pollCursor = "";
   constructor(privateStore: Store) {
     this.store = privateStore;
     this.store.atomic((db) =>
@@ -41,6 +42,37 @@ export class RemoteTaskJournal {
           .all(now - 7 * 24 * 60 * 60 * 1000),
       )
       .map((row) => RemoteTask.parse(JSON.parse(z.string().parse(row.record))));
+  }
+  /** One wire-sized batch, with cancellation priority and a rotating share for all other work. */
+  poll(now: number): RemoteTask[] {
+    return this.store.atomic((db) => {
+      const priority = db
+        .prepare(`SELECT id,record FROM remote_agent_tasks WHERE terminal=0
+          AND json_extract(record,'$.phase')='cancelling' ORDER BY id LIMIT 32`)
+        .all();
+      const excluded = priority.map((row) => z.string().parse(row.id));
+      const slots = 64 - priority.length;
+      const select = (comparison: ">" | "<=", limit: number) =>
+        db
+          .prepare(`SELECT id,record FROM (
+          SELECT id,record FROM remote_agent_tasks WHERE terminal=0 AND id${comparison}?
+          UNION ALL
+          SELECT id,record FROM remote_agent_tasks WHERE terminal=1 AND id${comparison}?
+            AND json_extract(record,'$.phase')='failed'
+            AND json_extract(record,'$.cancellingAt') IS NOT NULL
+            AND json_extract(record,'$.result') IS NULL
+            AND json_extract(record,'$.finishedAt')>?
+        ) ${excluded.length ? `WHERE id NOT IN (${excluded.map(() => "?").join(",")})` : ""}
+        ORDER BY id LIMIT ?`)
+          .all(this.pollCursor, this.pollCursor, now - 7 * 24 * 60 * 60 * 1000, ...excluded, limit);
+      const rotated = select(">", slots);
+      if (rotated.length < slots) rotated.push(...select("<=", slots - rotated.length));
+      const last = rotated.at(-1);
+      if (last) this.pollCursor = z.string().parse(last.id);
+      return [...priority, ...rotated].map((row) =>
+        RemoteTask.parse(JSON.parse(z.string().parse(row.record))),
+      );
+    });
   }
   save(task: RemoteTask) {
     this.store.atomic((db) =>
