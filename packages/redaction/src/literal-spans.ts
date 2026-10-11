@@ -23,6 +23,7 @@ export function* sensitiveSpans(
         match && {
           start: match.index + (prefix === undefined ? 0 : (match[1]?.length ?? 0) + prefix),
           end: match.index + match[0].length - (suffix ?? 0),
+          replacement: "<SECRET>",
         }
       );
     };
@@ -37,6 +38,7 @@ export function* sensitiveSpans(
     if (!Number.isFinite(start)) return;
     let end = start + 1;
     let replacement = "<ENV>";
+    let preferred: SensitiveSpan | undefined;
     let extended = true;
     while (extended) {
       extended = false;
@@ -50,6 +52,11 @@ export function* sensitiveSpans(
       }
       for (const scan of scans) {
         while (scan.match && scan.match.start < end) {
+          if (
+            !preferred ||
+            (scan.match.start <= preferred.start && scan.match.end >= preferred.end)
+          )
+            preferred = scan.match;
           if (scan.match.end > end) {
             end = scan.match.end;
             extended = true;
@@ -59,7 +66,12 @@ export function* sensitiveSpans(
         }
       }
     }
-    yield { start, end, replacement };
+    yield {
+      start,
+      end,
+      replacement:
+        preferred?.start === start && preferred.end === end ? preferred.replacement : replacement,
+    };
   }
 }
 

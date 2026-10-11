@@ -1,6 +1,7 @@
 import { sensitiveSpans } from "./literal-spans.ts";
 import type { EnvironmentMatcher } from "./environment.ts";
 import { embeddedRecordEnd, consumedRecordEnd } from "./embedded-record.ts";
+import { jsonCredentialSpans } from "./json-credentials.ts";
 
 /** One forward scan; malformed embedded records omit the remaining text. */
 export function redactEmbeddedText(
@@ -15,6 +16,8 @@ export function redactEmbeddedText(
   // matching a key cannot hide its credential-container classification.
   const spans = sensitiveSpans(text, environment)[Symbol.iterator]();
   let sensitive = spans.next().value;
+  const assignments = jsonCredentialSpans(text);
+  let assignment = assignments.next().value;
   const parts: string[] = [];
   let plain = 0;
   for (let start = 0; start < text.length; start++) {
@@ -63,15 +66,35 @@ export function redactEmbeddedText(
       plain = start + 1;
       continue;
     }
-    const record = text.slice(start, end + 1);
+    const original = text.slice(start, end + 1);
     try {
       // Validation before redaction distinguishes damaged embedded data
       // from readable prose without guessing at the value's structure.
-      JSON.parse(record);
+      JSON.parse(original);
     } catch {
       parts.push(omitted);
       return parts.join("");
     }
+    // A prose quote can leave a credential value as a standalone string
+    // token. Preserve original assignment spans before decoding that token.
+    // Use the assignment spans themselves, rather than a merged lexical span
+    // that might also consume a surrounding quoted password's prefix.
+    const recordParts: string[] = [];
+    let recordPlain = start;
+    while (assignment && assignment.start < start) assignment = assignments.next().value;
+    if (first === '"') {
+      while (assignment && assignment.start <= end && assignment.end <= end + 1) {
+        if (assignment.end > recordPlain) {
+          if (assignment.start >= recordPlain)
+            recordParts.push(text.slice(recordPlain, assignment.start), assignment.replacement);
+          recordPlain = assignment.end;
+        }
+        assignment = assignments.next().value;
+      }
+    }
+    const record = recordParts.length
+      ? [...recordParts, text.slice(recordPlain, end + 1)].join("")
+      : original;
     parts.push(scrubRecord(record));
     start = end;
     plain = end + 1;
