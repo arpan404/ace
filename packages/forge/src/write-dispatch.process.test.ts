@@ -55,6 +55,27 @@ test("local reply validation leaves dispatch definitely unsent", async () => {
   }
 });
 
+for (const status of [409, 422]) {
+  test(`an HTTP ${status} refusal settles dispatch as failed and permits a later mutation`, async () => {
+    const f = await fakeGh({
+      "repos/octo/ace/pulls/7/merge": [{ status, code: 1 }, { body: { merged: true } }],
+    });
+    try {
+      const dispatch = new WriteDispatch();
+      await expect(f.forge.merge(7, sha, "squash", signal(), dispatch)).rejects.toMatchObject({
+        kind: "conflict",
+        dispatched: false,
+      });
+      expect(dispatch.definitelyFailed).toBe(true);
+      await expect(
+        f.forge.merge(7, sha, "squash", signal(), new WriteDispatch()),
+      ).resolves.toBeUndefined();
+    } finally {
+      await f.cleanup();
+    }
+  });
+}
+
 for (const code of ["RATE_LIMITED", "FORBIDDEN"]) {
   test(`a complete GraphQL ${code} refusal with gh exit 1 is definite failure`, async () => {
     const f = await fakeGh({

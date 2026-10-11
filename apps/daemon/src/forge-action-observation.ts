@@ -48,13 +48,14 @@ export function observedWrite(receipt: ForgeWriteReceipt, status: ForgePrStatus)
       }),
     })
     .safeParse(status.raw);
-  if (action.type === "forge.review.request")
-    return (
-      raw.success &&
-      action.reviewers.every((login) =>
-        raw.data.pr.requested_reviewers?.some((reviewer) => reviewer.login === login),
-      )
+  if (action.type === "forge.review.request") {
+    if (!raw.success) return false;
+    const observed = new Set(
+      raw.data.pr.requested_reviewers?.map((reviewer) => reviewer.login.toLowerCase()),
     );
+    const requested = new Set(action.reviewers.map((login) => login.toLowerCase()));
+    return [...requested].every((login) => observed.has(login));
+  }
   if (action.type === "forge.pr.auto-merge")
     return (
       status.headSha === action.headSha &&

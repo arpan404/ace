@@ -297,6 +297,53 @@ test("uncertain review requests and auto-merge intents are resolved by their hos
   }
 });
 
+test("lost reviewer acknowledgements reconcile canonical aliases after restart and release later actions", async () => {
+  const records = fixtures();
+  const reviewPath = `${path}/requested_reviewers`;
+  records[reviewPath] = [{ raw: "lost acknowledgement", code: 1 }];
+  records[mergePath] = [{ body: { merged: true } }];
+  records[path] = [
+    { body: { ...hosted, requested_reviewers: [{ login: "alice" }, { login: "carol" }] } },
+    {
+      body: {
+        ...hosted,
+        requested_reviewers: [{ login: "carol" }, { login: "bob" }, { login: "alice" }],
+      },
+    },
+    { body: merged },
+  ];
+  const app = await environment(records);
+  try {
+    expect(
+      await app.command("review-aliases", {
+        type: "forge.review.request",
+        link,
+        reviewers: ["ALICE", "Bob", "alice"],
+      }),
+    ).toMatchObject({ ok: false, error: "forge_write_uncertain" });
+    await app.restart();
+    // An unrelated reviewer cannot stand in for a still-missing requested identity.
+    expect(await app.command("missing-bob")).toMatchObject({
+      ok: false,
+      error: "forge_write_uncertain",
+    });
+    expect(await app.command("canonical-reviewers")).toMatchObject({
+      ok: true,
+      code: "forge_action_reconciled",
+    });
+    expect(await app.command("merge-after-review")).toMatchObject({
+      ok: true,
+      prStatus: { state: "merged" },
+    });
+    expect(await writes(app.gh)).toEqual([
+      expect.objectContaining({ path: reviewPath, body: { reviewers: ["ALICE", "Bob", "alice"] } }),
+      expect.objectContaining({ path: mergePath, body: { sha, merge_method: "squash" } }),
+    ]);
+  } finally {
+    await app.close();
+  }
+});
+
 for (const action of [merge, { ...merge, type: "forge.pr.auto-merge" } as const]) {
   test(`a missing gh executable does not strand ${action.type} behind a permanent fence`, async () => {
     const records = fixtures();
