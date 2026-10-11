@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { DaemonTarget, type DaemonTarget as Target } from "@/boot/connection-settings.ts";
+import { authorizeDaemonUrl } from "@/boot/daemon-network.ts";
 
 /** A person's confirmation precedes redemption. Fragment credentials never enter HTTP URLs. */
 export function PairingForm(props: {
@@ -44,6 +45,8 @@ export function PairingForm(props: {
       }
       if (!code || !name.trim())
         throw new Error("Enter the pairing link and a name for this device.");
+      await authorizeDaemonUrl(origin);
+      owned.signal.throwIfAborted();
       const access = new AccessClient({
         origin,
         fetch: (input, init) => fetch(input, init),

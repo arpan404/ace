@@ -10,7 +10,9 @@ function fixture(bufferedAmount: number) {
     get readyState() {
       return readyState;
     },
-    bufferedAmount,
+    get bufferedAmount() {
+      return bufferedAmount;
+    },
     send(data: unknown) {
       sent.push(String(data));
     },
@@ -20,6 +22,9 @@ function fixture(bufferedAmount: number) {
   } satisfies Pick<WebSocket, "readyState" | "bufferedAmount" | "send" | "terminate">;
   return {
     socket,
+    drain() {
+      bufferedAmount = 0;
+    },
     messages: () => sent.map((message) => BrowserServerMessage.parse(JSON.parse(message))),
   };
 }
@@ -74,7 +79,7 @@ it.each([success, failure, state, loss])(
     const f = fixture(5 * 1024 * 1024);
     expect(sendBrowserMessage(f.socket, message)).toBe(false);
     expect(f.socket.readyState).toBe(WebSocket.CLOSED);
-    f.socket.bufferedAmount = 0;
+    f.drain();
     expect(sendBrowserMessage(f.socket, success)).toBe(false);
     expect(f.messages()).toEqual([]);
   },
@@ -84,7 +89,7 @@ it("even heavy frame pressure leaves the socket available when the buffer drains
   const f = fixture(5 * 1024 * 1024);
   expect(sendBrowserMessage(f.socket, frame)).toBe(false);
   expect(f.socket.readyState).toBe(WebSocket.OPEN);
-  f.socket.bufferedAmount = 0;
+  f.drain();
   expect(sendBrowserMessage(f.socket, success)).toBe(true);
   expect(f.messages()).toEqual([success]);
 });

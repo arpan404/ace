@@ -84,6 +84,7 @@ export function ConnectionScreen() {
           <DaemonForm
             url={connection.url}
             token={connection.token}
+            pairedDeviceId={connection.pairedDeviceId}
             remembered={connection.remembered}
             submitLabel="Connect"
             onSubmit={connection.connect}

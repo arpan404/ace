@@ -20,6 +20,7 @@
     "@ace/diagnostics": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/service": "workspace:*",
+    "@ace/ui-core": "workspace:*",
     "zod": "^4.6.5"
   },
   "devDependencies": {

@@ -1070,6 +1070,21 @@ export class Store {
     const query = ItemsWindowRequest.parse({ type: "items.window", requestId: "window", ...input });
     this.readableThread(query.threadId);
     let target = query.aroundSeq;
+    if (query.itemId !== undefined) {
+      target = this.payloads.itemCreatedSeq(query.threadId, query.itemId);
+      if (target === undefined)
+        return ItemsWindowResponse.parse({
+          type: "items.window",
+          requestId: query.requestId,
+          threadId: query.threadId,
+          seq: this.headSeq(),
+          targetSeq: null,
+          items: [],
+          itemSeqs: {},
+          itemsBefore: null,
+          itemsAfter: null,
+        });
+    }
     if (query.turnOrdinal !== undefined) {
       const row = this.longThreads.data
         .sql(
