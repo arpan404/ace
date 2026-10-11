@@ -147,8 +147,6 @@ export class HeadlessDownloads {
             signal,
           });
           signal.throwIfAborted();
-          entry.state = "complete";
-          entry.path = path;
           await this.request.artifact?.({
             path,
             mimeType,
@@ -156,6 +154,8 @@ export class HeadlessDownloads {
             filename,
             flags: entry.flags,
           });
+          entry.state = "complete";
+          entry.path = path;
         },
         600_000,
       );
