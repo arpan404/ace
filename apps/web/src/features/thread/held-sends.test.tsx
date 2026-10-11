@@ -121,3 +121,23 @@ test("a message held for its uploads survives a reload, as a failed bubble sayin
   expect(within(alert).queryByRole("button", { name: "Retry" })).toBeNull();
   expect(within(alert).getByRole("button", { name: "Edit" })).toBeTruthy();
 });
+
+test("a staged storage refusal keeps the text and uploading file in the composer", async () => {
+  const backing = memoryKeyValue();
+  const storage = {
+    ...backing,
+    setItem(key: string, value: string) {
+      if (key.startsWith("ace.sends.staged")) throw new Error("quota");
+      backing.setItem(key, value);
+    },
+  };
+  const { app, message } = await open(storage);
+  await sendWhileUploading(app, message);
+  await screen.findByRole("heading", { name: "Message not sent" });
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+      "Why is this banner orange?",
+    ),
+  );
+  expect(screen.getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
+});

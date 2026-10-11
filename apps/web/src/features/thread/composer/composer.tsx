@@ -543,7 +543,15 @@ function ComposerBody({
         mentions: [...before.picked],
         attachments: before.files,
       });
-      props.onReplaced(before.files);
+      if (draft.files.restore) {
+        draft.files.restore();
+        takeText({
+          text: before.text,
+          tokens: before.tokens,
+          mentions: [...before.picked],
+          attachments: before.files,
+        });
+      } else props.onReplaced(before.files);
     });
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

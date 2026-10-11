@@ -1,4 +1,4 @@
-import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
+import { readJson, type KeyValueStorage } from "@ace/ui-core";
 import * as z from "zod/mini";
 import { Observable } from "./observable.ts";
 
@@ -48,6 +48,12 @@ export function heldSendStore(store: KeyValueStorage | undefined): typeof all {
 
 export function saveHeldSends(values: readonly Metadata[], persisted: readonly unknown[]): boolean {
   if (values.length > limit) return false;
+  if (!storage) return false;
+  try {
+    storage.setItem(key, JSON.stringify(persisted));
+  } catch {
+    return false;
+  }
   const kept = values;
   all.set(
     kept.map((value) => ({
@@ -58,7 +64,6 @@ export function saveHeldSends(values: readonly Metadata[], persisted: readonly u
       value,
     })),
   );
-  writeJson(storage, key, persisted);
   return true;
 }
 

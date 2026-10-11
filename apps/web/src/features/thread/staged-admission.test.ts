@@ -79,3 +79,40 @@ test("a full device refuses another upload-held message without losing accepted 
   ).toContain("offline");
   await app.client.close();
 });
+
+test("a rejected staged write refuses the handoff and a later retry survives reload", async () => {
+  const app = harness();
+  let fail = true;
+  const storage = {
+    getItem: app.storage.getItem,
+    setItem: (key: string, value: string) => {
+      if (fail) throw new Error("quota");
+      app.storage.setItem(key, value);
+    },
+  };
+  const notices: string[] = [];
+  const request = {
+    client: app.client,
+    storage,
+    threadId: "thread-a",
+    commandId: "durable",
+    draft: uploading("Keep my draft"),
+    delivery: undefined,
+    options: undefined,
+    notify: (title: string) => {
+      notices.push(title);
+    },
+  };
+  expect(await sendMessage(request)).toBe(false);
+  expect(notices).toContain("Message not sent");
+  expect(stagedSends(storage).get()).toEqual([]);
+  fail = false;
+  expect(await sendMessage(request)).toBe(true);
+  reloadPage();
+  expect(
+    stagedSends(storage)
+      .get()
+      .map((send) => send.text),
+  ).toEqual(["Keep my draft"]);
+  await app.client.close();
+});

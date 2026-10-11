@@ -114,7 +114,7 @@ function heldMessage(request: SendRequest): Omit<StagedSend, "owner" | "attachme
 function refuseStage(request: SendRequest): false {
   request.notify(
     "Message not sent",
-    "This device couldn't keep another message. Retry or edit the messages waiting to send, then try again.",
+    "This device couldn't save the message. Keep your draft, check device storage or retry the messages waiting to send, then try again.",
   );
   return false;
 }

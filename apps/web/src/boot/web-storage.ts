@@ -19,6 +19,7 @@ export function webStorage(read: () => Storage): KeyValueStorage {
 function memoryKeyValue(): KeyValueStorage {
   const values = new Map<string, string>();
   return {
+    durable: false,
     getItem: (key) => values.get(key) ?? null,
     setItem: (key, value) => void values.set(key, value),
     removeItem: (key) => void values.delete(key),
