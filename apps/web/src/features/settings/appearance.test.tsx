@@ -151,3 +151,21 @@ test("density and glass apply to the document", async () => {
   await userEvent.keyboard("{Home}");
   expect(root.style.getPropertyValue("--glass")).toBe("0");
 });
+
+test("a missing saved theme shows the rendered fallback and remains reachable by Tab", async () => {
+  const storage = memoryKeyValue();
+  storage.setItem("ace.appearance", JSON.stringify({ theme: "custom-missing" }));
+  await harness({ storage }).open("/settings/appearance");
+  const dark = await screen.findByRole("radio", { name: "Dark", checked: true });
+  expect(root.getAttribute("data-theme")).toBe("dark");
+  await waitFor(() => expect(document.activeElement?.tagName).toBe("H1"));
+  await userEvent.tab();
+  expect(document.activeElement).toBe(dark);
+  await userEvent.keyboard("{ArrowLeft}");
+  const light = screen.getByRole("radio", { name: "Light", checked: true });
+  expect(document.activeElement).toBe(light);
+  expect(root.getAttribute("data-theme")).toBe("light");
+  await waitFor(() =>
+    expect(JSON.parse(storage.getItem("ace.appearance") ?? "{}").theme).toBe("light"),
+  );
+});

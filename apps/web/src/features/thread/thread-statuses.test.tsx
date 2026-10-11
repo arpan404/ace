@@ -62,11 +62,6 @@ test("a thread that asked a question keeps the waiting state in the thread and r
       .getByRole("button", { name: /^Work card/ })
       .getAttribute("aria-label"),
   ).toContain("Needs you");
-  await userEvent.hover(row);
-  expect(within(row).getByText(/Waiting for your answer/)).toBeTruthy();
-  await userEvent.unhover(row);
-  row.focus();
-  expect(within(row).getByText(/Waiting for your answer/)).toBeTruthy();
 });
 
 test("a thread running tests keeps its activity in the composer and row without repeating it in the transcript", async () => {

@@ -170,3 +170,61 @@ test.describe("touch archive actions", () => {
     await expect(restore).toHaveCount(0);
   });
 });
+
+test("an unavailable saved theme shows Dark and keyboard users can Tab into the chooser", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem("ace.appearance"))
+      localStorage.setItem("ace.appearance", JSON.stringify({ theme: "custom-missing" }));
+  });
+  await page.goto("/settings/general");
+  await page.getByRole("link", { name: "Appearance", exact: true }).click();
+  const themes = page.getByRole("radiogroup", { name: "Theme", exact: true });
+  const dark = themes.getByRole("radio", { name: "Dark", exact: true });
+  await expect(dark).toBeChecked();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(dark).toBeFocused();
+  await page.keyboard.press("ArrowLeft");
+  const light = themes.getByRole("radio", { name: "Light", exact: true });
+  await expect(light).toBeChecked();
+  await expect(light).toBeFocused();
+  await expect
+    .poll(() =>
+      page.evaluate(() => JSON.parse(localStorage.getItem("ace.appearance") ?? "{}").theme),
+    )
+    .toBe("light");
+  await page.reload();
+  await expect(light).toBeChecked();
+});
+
+test("a waiting thread keeps its visible Answer status during hover and keyboard focus", async ({
+  page,
+}) => {
+  const fixture = askingQuestion();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript((scenario) => {
+    Object.assign(globalThis, {
+      aceFakeSetup: (daemon: FakeDaemon) => {
+        daemon.createThread(scenario.thread);
+        for (const step of scenario.steps)
+          if (step.kind === "facts") daemon.apply(scenario.thread.id, step.facts);
+      },
+    });
+  }, fixture);
+  await page.goto(`/t/${fixture.thread.id}`);
+  const row = page.getByRole("navigation", { name: "Threads", exact: true }).getByRole("link", {
+    name: new RegExp(`^${fixture.thread.title}`),
+  });
+  const status = row.getByText("Answer", { exact: true });
+  await expect(row).toHaveAccessibleName(/Waiting for your answer/);
+  await expect(status).toBeVisible();
+  await row.hover();
+  await expect(status).toBeVisible();
+  await page.mouse.move(1400, 800);
+  await row.focus();
+  await expect(row).toBeFocused();
+  await expect(status).toBeVisible();
+});

@@ -39,7 +39,8 @@ function ThemeSample(props: { theme: Theme }) {
 }
 
 export function ThemeChooser() {
-  const { appearance, update, themes } = useTheme();
+  const { appearance, update, theme: renderedTheme, themes } = useTheme();
+  const selected = appearance.theme === "system" ? "system" : renderedTheme.id;
   const system = themes.filter((theme) => theme.id === "light" || theme.id === "dark");
   const options = [
     { id: "system", name: "System", previews: system },
@@ -58,8 +59,8 @@ export function ThemeChooser() {
           type="button"
           role="radio"
           aria-label={option.name}
-          aria-checked={appearance.theme === option.id}
-          tabIndex={appearance.theme === option.id ? 0 : -1}
+          aria-checked={selected === option.id}
+          tabIndex={selected === option.id ? 0 : -1}
           onClick={() => update({ theme: option.id })}
           className="focus-ring min-w-0 rounded-lg border p-2 text-left aria-checked:border-ring aria-checked:bg-accent hover:bg-accent"
         >
@@ -70,7 +71,7 @@ export function ThemeChooser() {
           </span>
           <span className="mt-2 flex min-w-0 items-center justify-between gap-2 text-sm">
             <span className="truncate">{option.name}</span>
-            {appearance.theme === option.id && (
+            {selected === option.id && (
               <CheckIcon aria-hidden size={14} className="shrink-0 text-link" />
             )}
           </span>
