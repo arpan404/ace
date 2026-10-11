@@ -191,7 +191,7 @@ export function RowIdentity(props: {
   );
 }
 
-/** Match the sibling cluster's intrinsic width without subscribing or rendering its icons twice. */
+/** Reserve room for the provider glyph and adjacent account mark without rendering them twice. */
 export function RowIdentitySpace(props: { card: ThreadCard }) {
   return (
     <span aria-hidden className="invisible inline-flex shrink-0 items-center gap-1.5">
@@ -199,13 +199,13 @@ export function RowIdentitySpace(props: { card: ThreadCard }) {
         {props.card.subagents > 0 && (
           <span className="text-2xs tabular-nums">⑂ {props.card.subagents}</span>
         )}
-        <span className="size-4" />
+        <span className="h-4 w-8" />
       </span>
     </span>
   );
 }
 
-/** Task context stays visible while the project-line status gives way to the hover action. */
+/** Task context reserves identity space while status and hover actions remain readable. */
 export function RowDetail(props: {
   card: ThreadCard;
   machinePrimary: boolean;

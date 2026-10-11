@@ -111,6 +111,8 @@ export type Fact =
       outcome: "completed" | "interrupted" | "failed";
       trigger?: RunTrigger;
       error?: AgentError;
+      /** Historical settlement records outcomes without applying current quota policy. */
+      historical?: boolean;
     }
   /** A live native wait tool blocks on targets, or all live children when targets is empty. */
   | { type: "subagents.waiting"; agent: Key; item: Key; targets: Key[] }

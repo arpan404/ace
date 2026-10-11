@@ -1,6 +1,7 @@
 pub mod accessibility;
-pub mod endpoint;
 mod accessibility_actions;
+mod accessibility_lifecycle;
+pub mod endpoint;
 #[cfg(target_os = "linux")]
 pub mod pipewire;
 pub mod policy;
@@ -20,3 +21,6 @@ pub mod x11;
 pub mod x11_capture;
 #[cfg(target_os = "linux")]
 mod x11_scale;
+
+pub mod frame_identity;
+pub mod references;

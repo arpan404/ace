@@ -1,4 +1,4 @@
-import { ForgeError, repositoryKey, type GitHubForge } from "@ace/forge";
+import { ForgeError, WriteDispatch, repositoryKey, type GitHubForge } from "@ace/forge";
 import type { CommandResult, ForgePrRef, ForgePrStatus } from "@ace/protocol";
 import { z } from "zod";
 import type { Store } from "./store.ts";
@@ -19,6 +19,15 @@ export class WorkspaceForgeActions {
       resource TEXT PRIMARY KEY, receipt TEXT NOT NULL
     )`),
     );
+    const columns = store.atomic((db) =>
+      db.prepare("PRAGMA table_info(forge_action_receipts)").all(),
+    );
+    if (!columns.some((column) => column.name === "generation"))
+      store.atomic((db) =>
+        db.exec(
+          "ALTER TABLE forge_action_receipts ADD COLUMN generation INTEGER NOT NULL DEFAULT 0",
+        ),
+      );
   }
   private key(pr: ForgePrRef): string {
     return JSON.stringify([repositoryKey(pr.repository), pr.number]);
@@ -33,16 +42,34 @@ export class WorkspaceForgeActions {
     this.store.atomic((db) =>
       db
         .prepare(
-          "INSERT INTO forge_action_receipts(resource,receipt) VALUES (?,?) ON CONFLICT(resource) DO UPDATE SET receipt=excluded.receipt",
+          "INSERT INTO forge_action_receipts(resource,receipt) VALUES (?,?) ON CONFLICT(resource) DO UPDATE SET receipt=excluded.receipt,generation=forge_action_receipts.generation+1",
         )
         .run(key, JSON.stringify(receipt)),
     );
   }
-  observe(status: ForgePrStatus): "pending" | "uncertain" | undefined {
+  private generation(key: string): number {
+    const row = this.store.atomic((db) =>
+      db.prepare("SELECT generation FROM forge_action_receipts WHERE resource=?").get(key),
+    );
+    return row ? z.number().int().nonnegative().parse(row.generation) : -1;
+  }
+  async readDetail<T extends { status: ForgePrStatus }>(pr: ForgePrRef, read: () => Promise<T>) {
+    const key = this.key(pr);
+    const generation = this.generation(key);
+    const duringWrite = this.live.has(key);
+    const value = await read();
+    // No await separates validation from observation. A stale read cannot retire a newer fence.
+    return this.store.atomic(() => {
+      if (generation !== this.generation(key) || (duringWrite && !this.live.has(key)))
+        throw new ForgeError("conflict");
+      return { value, writeState: this.observe(value.status) };
+    });
+  }
+  private observe(status: ForgePrStatus): "pending" | "uncertain" | undefined {
     const key = this.key(status.ref);
     if (this.live.has(key)) return "pending";
     const receipt = this.read(key);
-    if (!receipt || receipt.phase === "reconciled") return undefined;
+    if (!receipt || ["reconciled", "failed"].includes(receipt.phase)) return undefined;
     if (receipt.phase === "accepted" || observedWrite(receipt, status)) {
       this.save(key, { ...receipt, phase: "reconciled" });
       return undefined;
@@ -63,7 +90,7 @@ export class WorkspaceForgeActions {
     const previous = this.read(key);
     this.live.add(key);
     try {
-      if (previous && previous.phase !== "reconciled") {
+      if (previous && !["reconciled", "failed"].includes(previous.phase)) {
         // This command is reconciliation only. It never repeats the previous write.
         const status = await backend.status(pr.number, signal);
         if (previous.phase !== "accepted" && !observedWrite(previous, status))
@@ -76,22 +103,37 @@ export class WorkspaceForgeActions {
         action.type === "forge.comment.reply" ? await backend.currentUser(signal) : undefined;
       signal.throwIfAborted();
       if (!allowed()) return { ok: false, error: "forbidden" };
-      const receipt: ForgeWriteReceipt = { action, phase: "pending", ...(actor ? { actor } : {}) };
-      this.save(key, receipt);
+      const baseline =
+        action.type === "forge.comment.reply" ? await backend.status(pr.number, signal) : undefined;
+      signal.throwIfAborted();
+      if (!allowed()) return { ok: false, error: "forbidden" };
+      const receipt: ForgeWriteReceipt = {
+        action,
+        phase: "pending",
+        ...(actor ? { actor } : {}),
+        ...(baseline && action.type === "forge.comment.reply"
+          ? {
+              replyBaseline: baseline.comments
+                .filter(
+                  (comment) => comment.kind === "inline" && comment.replyTo === action.commentId,
+                )
+                .map((comment) => comment.id),
+            }
+          : {}),
+      };
+      const dispatch = new WriteDispatch(() => this.save(key, receipt));
       try {
         if (action.type === "forge.comment.reply")
-          await backend.replyComment(pr.number, action.commentId, action.body, signal);
+          await backend.replyComment(pr.number, action.commentId, action.body, signal, dispatch);
         else if (action.type === "forge.review.request")
-          await backend.requestReviews(pr.number, action.reviewers, signal);
+          await backend.requestReviews(pr.number, action.reviewers, signal, dispatch);
         else if (action.type === "forge.pr.merge")
-          await backend.merge(pr.number, action.headSha, action.method, signal);
-        else await backend.enableAutoMerge(pr.number, action.headSha, action.method, signal);
+          await backend.merge(pr.number, action.headSha, action.method, signal, dispatch);
+        else
+          await backend.enableAutoMerge(pr.number, action.headSha, action.method, signal, dispatch);
       } catch (error) {
-        if (
-          error instanceof ForgeError &&
-          ["not_found", "forbidden", "rate_limit", "conflict", "unsupported"].includes(error.kind)
-        ) {
-          this.save(key, { ...receipt, phase: "reconciled" });
+        if (dispatch.definitelyFailed) {
+          this.save(key, { ...receipt, phase: "failed" });
           throw error;
         }
         return { ok: false, error: "forge_write_uncertain" };

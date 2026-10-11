@@ -132,6 +132,16 @@ export class InteractionLedger {
       !["pending", "running", "awaiting_approval"].includes(item.call.status)
     )
       return [];
+    const interaction = state.interactions[key];
+    const execution = interaction?.request.kind === "approval" && item.call.kind !== "ask_user";
+    const resolution = event.resolution;
+    const decision =
+      interaction?.request.kind === "approval" && execution && resolution?.kind === "approval"
+        ? interaction.request.options.find((option) => option.id === resolution.optionId)?.kind
+        : undefined;
+    const declined = decision === "deny" || decision === "deny_always";
+    const cancelled = decision === "cancel";
+    const allowed = execution && event.state === "resolved" && !declined && !cancelled;
     return [
       {
         type: "item.upsert",
@@ -139,10 +149,16 @@ export class InteractionLedger {
         item: row.native_item,
         draft: {
           type: "tool_call",
-          complete: true,
+          complete: !allowed,
           call: {
-            status: event.state === "resolved" ? "succeeded" : "cancelled",
-            endedAt: event.closedAt,
+            status: allowed
+              ? "running"
+              : declined
+                ? "declined"
+                : event.state === "resolved" && !cancelled
+                  ? "succeeded"
+                  : "cancelled",
+            ...(!allowed ? { endedAt: event.closedAt } : {}),
           },
         },
       },

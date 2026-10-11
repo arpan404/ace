@@ -9,7 +9,7 @@ export interface DeviceSession {
   threadId?: string;
   booting?: boolean;
   recordingNotice?: string;
-  logOwners: Set<string>;
+  logOwners: Map<string, object>;
   lifecycle: "idle" | "starting" | "live" | "stopping" | "failed";
   streamId?: string;
   error?: DeviceFailure;
@@ -47,7 +47,7 @@ export function createSession(
     lifecycle: "idle",
     hub: new FrameHub(),
     logs: new DeviceLogs(runtime.after),
-    logOwners: new Set(),
+    logOwners: new Map(),
     lease: new ControllerLease(runtime.now),
     tail: Promise.resolve(),
     pending: 0,

@@ -56,6 +56,18 @@ it("sessions in one account share a server and cancelling one keeps its peer usa
     });
     await changed.send([{ type: "text", text: "changed environment" }], "queue");
     expect(await boundary.control("/test/instance")).toEqual({ instance: "changed" });
+    const changedPeer = await adapter.openSession({
+      cwd: "/account",
+      threadId: ThreadId.parse("changed_peer"),
+      instanceId: "account-a",
+      env: { ACE_TEST_INSTANCE: "changed" },
+      signal: new AbortController().signal,
+      onFrame: () => {},
+      onExit: () => {},
+    });
+    expect(changedPeer.nativeSessionId).not.toBe(changed.nativeSessionId);
+    await changed.close("user");
+    await changedPeer.send([{ type: "text", text: "changed peer survives" }], "queue");
     await peer.send([{ type: "text", text: "still same account" }], "queue");
     expect(await boundary.control("/test/instance")).toEqual({ instance: "account-a" });
   } finally {

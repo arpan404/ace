@@ -1,12 +1,13 @@
 import type { CancelTimer } from "./runtime.ts";
 import { type FSWatcher } from "node:fs";
-import { sep, relative, dirname, basename, isAbsolute } from "node:path";
+import { sep } from "node:path";
+import { WatchMetadata } from "./watch-metadata.ts";
 import type { SafeRoot } from "./safety.ts";
 import { internal, validRelativePath } from "./safety.ts";
 import type { GitIgnore } from "./ignore.ts";
 import { changedSnapshot, fullSnapshot } from "./watch-snapshot.ts";
 import { VisibleTree } from "./visible-tree.ts";
-import { type WatchOptions, type WorkspaceWatcher } from "./types.ts";
+import { type Entry, type WatchOptions, type WorkspaceWatcher } from "./types.ts";
 
 export async function watch(
   safe: SafeRoot,
@@ -17,30 +18,51 @@ export async function watch(
   let disposed = false;
   const lifetime = new AbortController();
   let native: FSWatcher | undefined;
-  const metadataWatchers: FSWatcher[] = [];
-  function closeMetadata() {
-    for (const watcher of metadataWatchers.splice(0)) watcher.close();
-  }
   let timer: CancelTimer | undefined;
   let interval: CancelTimer | undefined;
   let pollDelay = 1000;
   let mode: "native" | "polling" = "native";
   let previous = new VisibleTree([]);
   let full = false;
+  let metadataDirty = false;
   let dirty = new Set<string>();
   let tail: Promise<void> | undefined;
   let requested = false;
   let initializing = true;
+  const metadata = new WatchMetadata(
+    safe,
+    ignore,
+    lifetime.signal,
+    (kind) => {
+      if (disposed) return;
+      full ||= kind === "visibility";
+      metadataDirty = true;
+      schedule();
+    },
+    polling,
+  );
   const warning = options.onWarning ?? ((message: string) => console.warn(message));
   async function scan(): Promise<void> {
     const changed = dirty;
     dirty = new Set();
-    const complete = full || mode === "polling";
+    let complete = full || mode === "polling";
+    const refreshMetadata = metadataDirty;
+    metadataDirty = false;
     full = false;
     try {
+      // New sources must be subscribed before the inventory reads their rules.
+      // Notifications arriving during either step remain queued for the drain.
+      if (refreshMetadata && mode === "native") {
+        const configurationChanged = await metadata.refresh();
+        complete ||= configurationChanged;
+      }
+      if (disposed) return;
+      complete ||= mode === "polling";
       const plan = complete
         ? { updates: await fullSnapshot(safe, ignore, lifetime.signal), removed: new Set<string>() }
-        : await changedSnapshot(safe, ignore, previous, changed, lifetime.signal);
+        : changed.size
+          ? await changedSnapshot(safe, ignore, previous, changed, lifetime.signal)
+          : { updates: new Map<string, Entry>(), removed: new Set<string>() };
       if (disposed) return;
       if (complete) {
         for (const before of previous.values())
@@ -49,12 +71,25 @@ export async function watch(
       const changes = previous.apply(plan.updates, plan.removed, changed);
       if (changes.length) options.onChange(changes);
       if (mode === "polling") pollDelay = changes.length ? 1000 : Math.min(30_000, pollDelay * 2);
+      else {
+        pollDelay = 1000;
+        if (!dirty.size && !full && !metadataDirty) {
+          timer?.();
+          timer = undefined;
+        }
+      }
     } catch (error) {
       if (disposed) return;
       for (const path of changed) dirty.add(path);
       full ||= complete;
+      metadataDirty ||= refreshMetadata;
       pollDelay = Math.min(30_000, pollDelay * 2);
       warning(`Workspace watch reconciliation failed: ${String(error)}`);
+      if (mode === "native" && !timer)
+        timer = safe.runtime.clock.after(() => {
+          timer = undefined;
+          return reconcile();
+        }, pollDelay);
     }
   }
   function reconcile(): Promise<void> {
@@ -91,7 +126,7 @@ export async function watch(
     if (disposed || mode === "polling") return;
     mode = "polling";
     native?.close();
-    closeMetadata();
+    metadata.close();
     native = undefined;
     warning(
       `Workspace recursive watch unavailable; falling back to polling with backoff: ${reason}`,
@@ -107,37 +142,27 @@ export async function watch(
           if (filename !== null) {
             const path = filename.toString().split(sep).join("/");
             if (!validRelativePath(path)) return;
-            if (path === ".git/info/exclude" || path === ".git/index" || path === ".git/index.lock")
+            const kind = metadata.notification(path);
+            if (kind === "head") {
+              metadataDirty = true;
+              schedule();
+              return;
+            }
+            if (kind === "visibility") {
               full = true;
-            else if (internal(path)) return;
+              metadataDirty = true;
+            } else if (internal(path)) return;
             if (!path || path.split("/").at(-1) === ".gitignore") full = true;
             if (dirty.size < 100_000) dirty.add(path);
             else full = true;
-          } else full = true;
+          } else {
+            full = true;
+            metadataDirty = true;
+          }
           schedule();
         });
         native.on("error", (error) => polling(error.message));
-        const folders = new Map<string, Set<string>>();
-        for (const path of await ignore.metadataPaths(lifetime.signal)) {
-          const rel = relative(root, path);
-          if (rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel)) continue;
-          const dir = dirname(path);
-          const names = folders.get(dir) ?? new Set<string>();
-          names.add(basename(path));
-          names.add(basename(path) + ".lock");
-          folders.set(dir, names);
-        }
-        for (const [dir, names] of folders) {
-          if (!native) break;
-          const subscription = safe.runtime.watch(dir, { recursive: false }, (_event, filename) => {
-            if (filename === null || names.has(filename)) {
-              full = true;
-              schedule();
-            }
-          });
-          subscription.on("error", (error) => polling(error.message));
-          metadataWatchers.push(subscription);
-        }
+        await metadata.refresh();
       } catch (error) {
         polling(String(error));
       }
@@ -145,11 +170,11 @@ export async function watch(
     // Subscribe first, then scan, retaining notifications that race initialization.
     previous = new VisibleTree((await fullSnapshot(safe, ignore, lifetime.signal)).values());
     initializing = false;
-    if (dirty.size || full) schedule();
+    if (dirty.size || full || metadataDirty) schedule();
   } catch (error) {
     disposed = true;
     native?.close();
-    closeMetadata();
+    metadata.close();
     interval?.();
     timer?.();
     throw error;
@@ -168,7 +193,7 @@ export async function watch(
       disposed = true;
       lifetime.abort();
       native?.close();
-      closeMetadata();
+      metadata.close();
       interval?.();
       timer?.();
       await tail;

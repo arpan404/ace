@@ -16,8 +16,9 @@ export const ForgeWriteReceipt = z.object({
       action.type !== "forge.pr.unlink" &&
       action.type !== "forge.pr.create",
   ),
-  phase: z.enum(["pending", "accepted", "reconciled"]),
+  phase: z.enum(["pending", "accepted", "reconciled", "failed"]),
   actor: z.string().optional(),
+  replyBaseline: z.array(z.number().int().positive()).optional(),
 });
 export type ForgeWriteReceipt = z.infer<typeof ForgeWriteReceipt>;
 
@@ -29,8 +30,10 @@ export function observedWrite(receipt: ForgeWriteReceipt, status: ForgePrStatus)
   if (action.type === "forge.comment.reply")
     return (
       receipt.actor !== undefined &&
+      receipt.replyBaseline !== undefined &&
       status.comments.some(
         (comment) =>
+          !receipt.replyBaseline?.includes(comment.id) &&
           comment.kind === "inline" &&
           comment.replyTo === action.commentId &&
           comment.body === action.body &&

@@ -91,3 +91,79 @@ test("a conflicting prompt save explains how to reload and preserves the other e
     ).toBe("The other editor's change"),
   );
 });
+
+test("structured prompt edits preserve source metadata when saved and reopened", async () => {
+  const app = await open();
+  app.daemon.seedServices({
+    promptFiles: [
+      {
+        name: "structured.md",
+        scope: { kind: "global" },
+        text: "---\n# Keep this comment\nname: review\ndescription: Review changes\nprovider: codex\ncustom: preserved\n---\nRead the diff.\n",
+      },
+    ],
+  });
+  // Reopen through the page's public file list after refreshing its query.
+  cleanup();
+  await app.open("/settings/prompts");
+  await userEvent.click(await screen.findByRole("button", { name: "review" }));
+  const body = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Prompt content" });
+  expect(body.value).toBe("Read the diff.\n");
+  expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Prompt provider" }).value).toBe(
+    "codex",
+  );
+  await userEvent.clear(body);
+  await userEvent.type(body, "Read the diff.\nSkip generated files.");
+  await userEvent.click(screen.getByRole("button", { name: "Edit source" }));
+  expect(body.value).toContain("custom: preserved");
+  expect(body.value).toContain("# Keep this comment");
+  await userEvent.click(screen.getByRole("button", { name: "Save prompt" }));
+  await screen.findByText("Prompt saved.");
+  await userEvent.click(screen.getByRole("button", { name: "review" }));
+  await waitFor(() =>
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Prompt content" }).value).toBe(
+      "Read the diff.\nSkip generated files.",
+    ),
+  );
+});
+
+test("cancelling a dirty prompt can keep the draft or discard it without changing the saved prompt", async () => {
+  await open();
+  await userEvent.click(screen.getByRole("button", { name: /explain/ }));
+  const body = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Prompt content" });
+  const saved = body.value;
+  await userEvent.clear(body);
+  await userEvent.type(body, "Unsaved instructions");
+  expect(screen.getByRole("combobox", { name: "Prompt location" }).hasAttribute("disabled")).toBe(
+    true,
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  const dialog = await screen.findByRole("dialog", { name: "Discard changes to this prompt?" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+  expect(body.value).toBe("Unsaved instructions");
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Discard" }));
+  await userEvent.click(await screen.findByRole("button", { name: /explain/ }));
+  await waitFor(() =>
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Prompt content" }).value).toBe(
+      saved,
+    ),
+  );
+});
+
+test("leaving prompt settings asks before discarding an unsaved edit", async () => {
+  await open();
+  await userEvent.click(screen.getByRole("button", { name: /explain/ }));
+  const body = await screen.findByRole("textbox", { name: "Prompt content" });
+  await userEvent.clear(body);
+  await userEvent.type(body, "Keep this draft");
+  await userEvent.click(screen.getByRole("link", { name: "Appearance" }));
+  const dialog = await screen.findByRole("dialog", { name: "Discard changes to this prompt?" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+  expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Prompt content" }).value).toBe(
+    "Keep this draft",
+  );
+  await userEvent.click(screen.getByRole("link", { name: "Appearance" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Discard" }));
+  expect(await screen.findByRole("radiogroup", { name: "Theme" })).toBeTruthy();
+});

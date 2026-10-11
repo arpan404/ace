@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
+import { compactPolicyEvent } from "./policy-events.ts";
 
 const Paused = z.object({
   responseStatusCode: z.number().optional(),
@@ -51,7 +52,10 @@ export async function installOriginGuard(
     if (frame.success && !frame.data.frame.parentId) mainFrame = frame.data.frame.id;
   };
   cdp.on("Page.frameNavigated", frameChanged);
-  const children = new Map<string, { send: Send; parent: Send; cdp: BrowserCdp; type: string }>();
+  const children = new Map<
+    string,
+    { send: Send; parent: Send; cdp: BrowserCdp; type: string; targetId: string }
+  >();
   const childEvents = new Map<string, EventEmitter>();
   const pending = new Map<
     number,
@@ -141,7 +145,13 @@ export async function installOriginGuard(
       on: (method, listener) => events.on(method, listener),
       off: (method, listener) => events.off(method, listener),
     };
-    children.set(sessionId, { send, parent, cdp: childCdp, type: targetInfo.type });
+    children.set(sessionId, {
+      send,
+      parent,
+      cdp: childCdp,
+      type: targetInfo.type,
+      targetId: targetInfo.targetId,
+    });
     childEvents.set(sessionId, events);
     const init = (async () => {
       await send("Fetch.enable", {
@@ -161,26 +171,37 @@ export async function installOriginGuard(
     initializing = Promise.all([initializing, init]).then(() => undefined);
   }
   function received(raw: unknown): void {
-    const event = Received.safeParse(raw);
-    if (!event.success) return;
-    const child = children.get(event.data.sessionId);
+    const envelope = z.object({ sessionId: z.string() }).safeParse(raw);
+    if (!envelope.success) return;
+    const child = children.get(envelope.data.sessionId);
     if (!child) return;
+    let event: z.infer<typeof Received>;
+    try {
+      event = Received.parse(compactPolicyEvent("Target.receivedMessageFromTarget", raw));
+      if (Buffer.byteLength(event.message) > 1024 * 1024)
+        throw new Error("Browser policy event payload limit");
+    } catch {
+      // A paused request requires a decision. Destroy only its target if it cannot be decoded.
+      void root("Target.closeTarget", { targetId: child.targetId }).catch(() => {});
+      detached({ sessionId: envelope.data.sessionId });
+      return;
+    }
     let message: z.infer<typeof Response>;
     try {
-      message = Response.parse(JSON.parse(event.data.message));
+      message = Response.parse(JSON.parse(event.message));
     } catch {
       return;
     }
     if (message.id !== undefined) {
       const waiter = pending.get(message.id);
-      if (waiter?.sessionId === event.data.sessionId) {
+      if (waiter?.sessionId === event.sessionId) {
         pending.delete(message.id);
         clearTimeout(waiter.timer);
         if (message.error) waiter.reject(new Error("Browser target command failed"));
         else waiter.resolve(message.result);
       }
     }
-    if (message.method) childEvents.get(event.data.sessionId)?.emit(message.method, message.params);
+    if (message.method) childEvents.get(event.sessionId)?.emit(message.method, message.params);
     if (message.method === "Fetch.requestPaused") paused(child.send, message.params);
     if (message.method === "Target.attachedToTarget") attached(child.send, message.params);
     if (message.method === "Target.receivedMessageFromTarget") received(message.params);

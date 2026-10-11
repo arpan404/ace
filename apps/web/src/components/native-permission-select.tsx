@@ -1,3 +1,4 @@
+import { permissionModeLabel } from "@ace/ui-core";
 import type { ProviderKind } from "@ace/protocol";
 import { usePermissionModes } from "@/lib/use-permission-modes.ts";
 import { Select } from "./ui/select.tsx";
@@ -7,7 +8,8 @@ export function NativePermissionSelect(props: {
   onChange(value: string | undefined): void;
 }) {
   const { modes, loading } = usePermissionModes(props.provider);
-  const value = modes.some((mode) => mode.id === props.value) ? props.value : "";
+  const value = props.value ?? "";
+  const unavailable = value && !modes.some((mode) => mode.id === value);
   return (
     <Select
       label="Permissions"
@@ -15,7 +17,8 @@ export function NativePermissionSelect(props: {
       disabled={loading}
       options={[
         { value: "", label: "Provider default" },
-        ...modes.map((mode) => ({ value: mode.id, label: mode.label })),
+        ...modes.map((mode) => ({ value: mode.id, label: permissionModeLabel(mode) })),
+        ...(unavailable ? [{ value, label: `Unavailable mode: ${value}`, disabled: true }] : []),
       ]}
       onValueChange={(id) => props.onChange(id || undefined)}
     />

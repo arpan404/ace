@@ -164,3 +164,63 @@ test("the catalog keeps an authored human title alongside the skill's invocation
     await f.close();
   }
 });
+
+test("subscribed composer catalogs follow skill policy and existing sessions keep their projection", async () => {
+  const f = await fixture(files);
+  try {
+    await f.manager.accept(await f.prepare());
+    const service = new PluginService(f.manager);
+    const existing = await projected(f, "claude");
+    try {
+      let invalidated = false;
+      const unsubscribe = service.subscribeCatalog(() => {
+        invalidated = true;
+      });
+      const request = {
+        type: "plugins.skillAvailability",
+        plugin: "sample",
+        name: "review",
+        enabled: false,
+        providers: ["claude"],
+      };
+      for (const policy of [request, { ...request, enabled: true, providers: ["codex"] }]) {
+        invalidated = false;
+        await service.handle(policy);
+        expect(invalidated).toBe(true);
+        const extensions = await service.extensions("claude");
+        expect(extensions.some((entry) => entry.name === "sample:review")).toBe(false);
+        expect(extensions.some((entry) => entry.name === "sample:write")).toBe(true);
+        expect(await existing.read("review")).toContain("Check the behavior.");
+        const fresh = await preparePluginSession(
+          f.manager,
+          "claude",
+          join(f.root, `fresh-${policy.enabled}`),
+        );
+        try {
+          await expect(
+            readFile(
+              join(
+                f.root,
+                `fresh-${policy.enabled}`,
+                "generated/plugins/sample/skills/review/SKILL.md",
+              ),
+            ),
+          ).rejects.toMatchObject({ code: "ENOENT" });
+        } finally {
+          await fresh.close();
+        }
+      }
+      invalidated = false;
+      await service.handle({ ...request, enabled: true });
+      expect(invalidated).toBe(true);
+      expect(await service.extensions("claude")).toContainEqual(
+        expect.objectContaining({ name: "sample:review" }),
+      );
+      unsubscribe();
+    } finally {
+      await existing.session.close();
+    }
+  } finally {
+    await f.close();
+  }
+});

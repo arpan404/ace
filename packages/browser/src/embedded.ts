@@ -99,6 +99,7 @@ export class EmbeddedBackend implements BrowserBackend {
     if (signal?.aborted) return Promise.reject(signal.reason);
     if (this.closed) return Promise.reject(new Error("Desktop browser backend lost"));
     const session = this.sessions.get(sessionId);
+    if (session?.lost) return Promise.reject(new Error("Desktop browser session lost"));
     if (!session && operation.kind !== "purge")
       return Promise.reject(new Error("Desktop browser session closed"));
     if (this.pending.size >= 128) return Promise.reject(new Error("Browser relay request limit"));
@@ -427,11 +428,12 @@ export class EmbeddedBackend implements BrowserBackend {
         this.rejectPending(remote, "Desktop browser session closed");
         // A disconnected bridge has already destroyed all pending commands.
         try {
-          if (!this.closed && this.sessions.has(sessionId)) await call({ kind: "close" });
+          if (!this.closed && !remote.lost && this.sessions.has(sessionId))
+            await call({ kind: "close" });
         } catch (error) {
           // Shutdown may disconnect the relay after sending close. That loss already
           // cancels every pending command, and must not turn teardown into a failure.
-          if (!this.closed && this.sessions.has(sessionId)) throw error;
+          if (!this.closed && !remote.lost && this.sessions.has(sessionId)) throw error;
         } finally {
           this.sessions.delete(sessionId);
           remote.events.removeAllListeners();

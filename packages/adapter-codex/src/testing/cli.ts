@@ -1,5 +1,6 @@
 // Offline provider boundary. This process never imports or starts a real Codex binary.
 import { appendFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { list, obj, str } from "../native.ts";
 if (process.env["ACE_FAKE_RESUME"] === "ignore-term") process.on("SIGTERM", () => {});
@@ -47,6 +48,9 @@ let nativePermissions = ":danger-full-access";
 let queued = 0;
 let policyTurn = 0;
 let discoveryFailed = false;
+let heldRead: unknown;
+let overlapTurn = 0;
+let overlapLists = 0;
 const sourceHistory = [
   { id: "prior-turn", text: "private native earlier context" },
   { id: "source-turn", text: "private native selected context" },
@@ -243,6 +247,119 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (
+      ["complete-before-ack", "missing-start-ack"].includes(process.env["ACE_FAKE_RESUME"] ?? "")
+    ) {
+      const turnId = `late-${++policyTurn}`;
+      if (policyTurn === 2) {
+        notify("turn/completed", {
+          threadId: "native",
+          turn: {
+            id: turnId,
+            status: "failed",
+            error: { message: "Usage limit reached", codexErrorInfo: "usageLimitExceeded" },
+          },
+        });
+        if (process.env["ACE_FAKE_RESUME"] === "missing-start-ack") {
+          if (text === "quota-with-late-boundaries") {
+            // Repeated turn boundaries cannot identify the request whose acknowledgement is missing.
+            notify("turn/started", { threadId: "native", turn: { id: turnId } });
+            notify("turn/completed", {
+              threadId: "native",
+              turn: {
+                id: turnId,
+                status: "failed",
+                error: { message: "Usage limit reached", codexErrorInfo: "usageLimitExceeded" },
+              },
+            });
+          }
+          notify("test/provider-alive", { pid: process.pid });
+        } else respond({ turn: { id: turnId } });
+      } else {
+        respond({ turn: { id: turnId } });
+        active.set("native", turnId);
+        notify("turn/started", { threadId: "native", turn: { id: turnId } });
+        end();
+      }
+      continue;
+    }
+    if (process.env["ACE_FAKE_RESUME"] === "overlap-reads") {
+      const turnId = `overlap-${++overlapTurn}`;
+      respond({ turn: { id: turnId } });
+      active.set("native", turnId);
+      notify("turn/started", { threadId: "native", turn: { id: turnId } });
+      if (text === "hidden-child") {
+        item("native", turnId, {
+          id: "spawn-hidden",
+          type: "subAgentActivity",
+          kind: "started",
+          agentThreadId: "hidden",
+        });
+        active.set("hidden", "A");
+        notify("turn/started", { threadId: "hidden", turn: { id: "A" } });
+        end("hidden");
+        active.set("hidden", "B");
+      } else if (text === "newer") {
+        active.set("hidden", "C");
+        notify("turn/started", { threadId: "hidden", turn: { id: "C" } });
+        end("hidden");
+      } else if (text === "release-read") {
+        write({
+          id: heldRead,
+          result: {
+            thread: {
+              id: "hidden",
+              parentThreadId: "native",
+              status: { type: "active" },
+              turns: [{ id: "B", status: "inProgress", items: [] }],
+            },
+          },
+        });
+      }
+      end();
+      continue;
+    }
+    if (text === "escaped-pipes" || text === "group-pipes") {
+      respond({ turn: { id: "turn" } });
+      notify("turn/started", { threadId: "native", turn: { id: "turn" } });
+      const helper = spawn(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], {
+        detached: text === "escaped-pipes",
+        stdio: ["ignore", "inherit", "inherit"],
+      });
+      message("accepted final output", "final-output");
+      notify("test/helper", { pid: helper.pid });
+      process.exit(0);
+    }
+    if (text === "oversized-execution") {
+      respond({ turn: { id: "turn" } });
+      notify("turn/started", { threadId: "native", turn: { id: "turn" } });
+      item(
+        "native",
+        "turn",
+        { type: "commandExecution", id: "large-shell", command: "offline", status: "inProgress" },
+        false,
+      );
+      write({
+        id: 100,
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId: "native",
+          turnId: "turn",
+          itemId: "large-shell",
+          command: "offline",
+          availableDecisions: ["accept", "decline"],
+        },
+      });
+      item("native", "turn", {
+        type: "commandExecution",
+        id: "large-shell",
+        command: "offline",
+        status: "completed",
+        aggregatedOutput: "x".repeat(1_100_000),
+      });
+      end();
+      continue;
+    }
     if (text === "native-permissions-proof") {
       respond({ turn: { id: "turn" } });
       active.set("native", "turn");
@@ -552,6 +669,17 @@ for await (const line of createInterface({ input: process.stdin })) {
         text: "early transcript",
       });
     } else if (text === "hidden-child") {
+      if (process.env["ACE_FAKE_RESUME"]?.startsWith("read-after-observed")) {
+        item("native", "turn", {
+          id: "spawn-hidden",
+          type: "subAgentActivity",
+          kind: "started",
+          agentThreadId: "hidden",
+        });
+        active.set("hidden", "observed-A");
+        notify("turn/started", { threadId: "hidden", turn: { id: "observed-A" } });
+        end("hidden");
+      }
       active.set("hidden", "hidden-turn");
       end();
     } else if (["unrelated", "failed-discovery", "delta-shell"].includes(text)) {
@@ -645,6 +773,11 @@ for await (const line of createInterface({ input: process.stdin })) {
       });
     }
   } else if (method === "thread/loaded/list") {
+    if (process.env["ACE_FAKE_RESUME"] === "overlap-reads") {
+      respond({ data: ["native", "hidden"], nextCursor: null });
+      if (++overlapLists === 2) notify("test/overlap-loaded", {});
+      continue;
+    }
     if (pendingKind === "failed-discovery" && !discoveryFailed) {
       discoveryFailed = true;
       active.set("hidden", "hidden-turn");
@@ -661,6 +794,52 @@ for await (const line of createInterface({ input: process.stdin })) {
     }
     respond({ data: active.has("hidden") ? ["native", "hidden"] : ["native"], nextCursor: null });
   } else if (method === "thread/read") {
+    if (
+      process.env["ACE_FAKE_RESUME"] === "read-after-observed-item" &&
+      p["threadId"] === "hidden"
+    ) {
+      if (!discoveryFailed) {
+        discoveryFailed = true;
+        item("hidden", "hidden-turn", {
+          id: "mid-turn",
+          type: "agentMessage",
+          text: "Still working",
+        });
+      }
+      respond({
+        thread: {
+          id: "hidden",
+          parentThreadId: "native",
+          status: { type: "active" },
+          turns: [{ id: "hidden-turn", status: "inProgress", items: [] }],
+        },
+      });
+      continue;
+    }
+    if (process.env["ACE_FAKE_RESUME"] === "overlap-reads" && p["threadId"] === "hidden") {
+      if (heldRead === undefined) {
+        heldRead = id;
+        notify("test/read-held", {});
+      } else write({ id, error: { code: -32000, message: "overlapping read failed" } });
+      continue;
+    }
+    if (
+      process.env["ACE_FAKE_RESUME"] === "read-after-observed-stale" &&
+      p["threadId"] === "hidden"
+    ) {
+      notify("turn/started", { threadId: "hidden", turn: { id: "newer-C" } });
+      active.set("hidden", "newer-C");
+      end("hidden");
+      respond({
+        thread: {
+          id: "hidden",
+          parentThreadId: "native",
+          status: { type: "active" },
+          turns: [{ id: "hidden-turn", status: "inProgress", items: [] }],
+        },
+      });
+      continue;
+    }
     if (process.env["ACE_FAKE_RESUME"] === "read-completed" && p["threadId"] === "hidden") {
       active.delete("hidden");
       const turn = { id: "hidden-turn", status: "inProgress", items: [] };

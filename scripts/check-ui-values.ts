@@ -23,6 +23,20 @@ import { readFileSync, writeFileSync } from "node:fs";
  */
 
 const strict = process.argv.includes("--strict");
+// Status feedback must never schedule perpetual decorative rendering by default.
+for (const path of execFileSync("git", ["ls-files", "--", "apps/web/src/styles/*.css"], {
+  encoding: "utf8",
+})
+  .trim()
+  .split("\n")) {
+  if (
+    /\b(animation|animation-iteration-count)\s*:[^;{}]*\binfinite\b/.test(
+      readFileSync(path, "utf8"),
+    )
+  ) {
+    throw new Error(`${path}: continuous CSS animation violates the central static motion policy`);
+  }
+}
 const theme = readFileSync("apps/web/src/styles/index.css", "utf8");
 const colors = new Set([...theme.matchAll(/--color-([\w-]+):/g)].map((match) => match[1]));
 const tokens = (prefix: string) =>

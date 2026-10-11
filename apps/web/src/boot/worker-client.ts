@@ -10,12 +10,13 @@ import { outboxKey, type WorkerTarget } from "./worker-target.ts";
  * where neither exists, and the caller runs the client in the page.
  */
 export function createWorkerClient(target: DaemonTarget, deviceId: string): ClientApi | undefined {
-  const port = workerPort();
-  if (!port) return undefined;
+  const worker = workerPort();
+  if (!worker) return undefined;
   const key = outboxKey({ url: target.url, deviceId });
   const config: WorkerTarget = { ...target, deviceId, seed: readLegacy(key) };
   const liveness = tabLiveness();
-  return new RemoteClient(port, config, {
+  return new RemoteClient(worker.port, config, {
+    workerFailure: worker.failure,
     ...(liveness ? { liveness } : {}),
     scheduler: {
       set(delayMs, callback) {
@@ -41,20 +42,59 @@ export function createWorkerClient(target: DaemonTarget, deviceId: string): Clie
   });
 }
 
-function workerPort(): PortLike | undefined {
+let sharedFailed = false;
+function workerPort():
+  | { port: PortLike; failure: { watch(lost: () => void): () => void; close(): void } }
+  | undefined {
   // Vite bundles each worker from these literal constructor calls.
-  if (typeof SharedWorker === "function") {
-    const worker = new SharedWorker(new URL("./client-worker.ts", import.meta.url), {
-      type: "module",
-      name: "ace-client",
-    });
-    return worker.port;
+  if (!sharedFailed && typeof SharedWorker === "function") {
+    try {
+      const worker = new SharedWorker(new URL("./client-worker.ts", import.meta.url), {
+        type: "module",
+        name: "ace-client",
+      });
+      return {
+        port: worker.port,
+        failure: {
+          watch(lost) {
+            const fail = () => {
+              sharedFailed = true;
+              lost();
+            };
+            worker.addEventListener("error", fail);
+            worker.port.addEventListener("messageerror", fail);
+            return () => {
+              worker.removeEventListener("error", fail);
+              worker.port.removeEventListener("messageerror", fail);
+            };
+          },
+          close: () => worker.port.close(),
+        },
+      };
+    } catch {
+      sharedFailed = true;
+    }
   }
-  if (typeof Worker === "function")
-    return new Worker(new URL("./client-worker.ts", import.meta.url), {
+  if (typeof Worker === "function") {
+    const worker = new Worker(new URL("./client-worker.ts", import.meta.url), {
       type: "module",
       name: "ace-client",
     });
+    return {
+      port: worker,
+      failure: {
+        watch(lost) {
+          worker.addEventListener("error", lost);
+          worker.addEventListener("messageerror", lost);
+          return () => {
+            worker.removeEventListener("error", lost);
+            worker.removeEventListener("messageerror", lost);
+          };
+        },
+        close: () => worker.terminate(),
+      },
+    };
+  }
   return undefined;
 }
 

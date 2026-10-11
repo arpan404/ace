@@ -37,6 +37,7 @@ interface Tab {
 export class EmbeddedTabs {
   private entries = new Map<string, Tab>();
   private activeId = "";
+  private targetGeneration = 0;
   private stopped = false;
   private sequence = 0;
   private reservations = new Set<() => void>();
@@ -139,18 +140,26 @@ export class EmbeddedTabs {
     this.entries.get(this.activeId)?.events.emit("ace.permissionDenied", raw);
   };
   private popup = (raw: unknown) => {
-    const parsed = z.object({ url: z.string().max(8192) }).safeParse(raw);
-    if (!parsed.success) return;
-    void (async () => {
-      if (
-        !(await this.request.allowed(parsed.data.url, {
-          navigation: true,
-          human: this.request.initiator?.() ?? false,
-        }))
-      )
-        return;
-      await this.current().cdp.send("Page.navigate", { url: parsed.data.url });
-    })().catch(() => {});
+    const parsed = z
+      .object({ url: z.string().max(8192), tabId: z.string().optional() })
+      .safeParse(raw);
+    if (!parsed.success || this.stopped) return;
+    const id = parsed.data.tabId ?? this.activeId;
+    const tab = this.entries.get(id);
+    if (!tab || id !== this.activeId) return;
+    const generation = this.targetGeneration;
+    void this.request
+      .popup?.(parsed.data.url, {
+        current: () =>
+          !this.stopped &&
+          this.entries.get(id) === tab &&
+          this.activeId === id &&
+          this.targetGeneration === generation,
+        navigate: async () => {
+          await tab.cdp.send("Page.navigate", { url: parsed.data.url });
+        },
+      })
+      .catch(() => {});
   };
   private async update(state: z.infer<typeof NativeTabs>): Promise<void> {
     if (this.stopped) return;
@@ -202,6 +211,7 @@ export class EmbeddedTabs {
       })();
     }
     const changed = this.activeId !== state.activeTabId;
+    if (changed) this.targetGeneration++;
     this.activeId = state.activeTabId;
     await Promise.all([...this.entries.values()].map((tab) => tab.ready));
     if (changed) this.request.navigation();

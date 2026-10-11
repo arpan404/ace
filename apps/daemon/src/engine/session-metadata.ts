@@ -81,16 +81,16 @@ export class SessionMetadata {
   }
   nativeSession(
     id: ThreadId,
-    nativeId: string,
+    nativeId: string | undefined,
     backend?: ProviderBackend,
     instanceId?: string,
   ): void {
     this.repo.store.atomic((_db) => {
       this.repo.store
         .statement(
-          "UPDATE engine_sessions SET native_session_id = ?, backend = COALESCE(?,backend), instance_id = COALESCE(?,instance_id) WHERE thread_id = ?",
+          "UPDATE engine_sessions SET native_session_id = COALESCE(?,native_session_id), backend = COALESCE(?,backend), instance_id = COALESCE(?,instance_id) WHERE thread_id = ?",
         )
-        .run(nativeId, backend ?? null, instanceId ?? null, id);
+        .run(nativeId ?? null, backend ?? null, instanceId ?? null, id);
       const thread = this.repo.store.getThread(id);
       if (thread && instanceId && thread.live?.account !== instanceId)
         this.repo.store.appendEvents(id, [

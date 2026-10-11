@@ -14,6 +14,8 @@ export interface ProviderLoginDriver {
   input?(input: ProviderLoginInput): boolean;
   apiKey?(key: Buffer): boolean;
   drain?(): Promise<void>;
+  /** Completion still belongs to the effective configuration admitted by this driver. */
+  isCurrent?(): boolean;
   changed?(signal: AbortSignal): Promise<void>;
   release?(): void;
 }
@@ -270,6 +272,10 @@ export class ProviderLoginSessions {
     }
     try {
       await job.driver?.drain?.();
+      if (success && job.driver?.isCurrent?.() === false) {
+        success = false;
+        await job.driver.drain?.();
+      }
     } catch {
       this.emit(job, {
         state: "verifying",

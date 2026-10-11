@@ -22,6 +22,18 @@
   --transcript-gutter: 0px;
   --transcript-size: 15.5px;
 
+  /* Shared control and detail surfaces. Density changes rows, never minimum touch targets. */
+  --control-height: 30px;
+  --control-height-sm: 26px;
+  --row-height: 36px;
+  --surface-inset: 12px;
+  --surface-gap: 8px;
+  --theme-preview-height: 88px;
+  --work-details-width: 360px;
+  --setting-row-padding: 14px;
+  --picker-row-padding: 12px;
+  --picker-row-height: 48px;
+
   /* Glass intensity (Appearance slider) times the OS transparency preference. */
   --glass: 1;
   --glass-on: 1;
@@ -49,4 +61,10 @@
   :root {
     --glass-on: 0;
   }
+}
+
+:root[data-density="compact"] {
+  --row-height: 32px;
+  --setting-row-padding: 8px;
+  --picker-row-padding: 10px;
 }

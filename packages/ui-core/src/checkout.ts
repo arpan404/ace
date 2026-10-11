@@ -19,6 +19,8 @@ export interface Checkout {
   /** Null on a detached HEAD. */
   branch: string | null;
   baseBranch: string;
+  /** Git ref for source comparisons; a remote base must not resolve to a local namesake. */
+  baseRef?: string | undefined;
   head: string | null;
   /** Files with uncommitted changes, and their line counts. */
   changed: number;
@@ -46,6 +48,11 @@ export function checkoutOf(
     branch: details.branch ?? null,
     // The branch a PR merges into: a remote base names its branch on the forge, not `origin/…`.
     baseBranch: details.base?.ref ?? details.baseBranch ?? "main",
+    baseRef: details.base
+      ? details.base.remote
+        ? `refs/remotes/${details.base.remote}/${details.base.ref}`
+        : `refs/heads/${details.base.ref}`
+      : (details.baseBranch ?? "main"),
     head: details.head ?? null,
     changed: details.diff?.files ?? 0,
     additions: details.diff?.additions ?? 0,

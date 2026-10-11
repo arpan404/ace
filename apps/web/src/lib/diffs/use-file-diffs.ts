@@ -16,6 +16,8 @@ export interface FileDiffs {
   files: FileDiff[];
   /** Files still being diffed in the worker. */
   pending: number;
+  /** Content identities owned by the diff cache, including both sides and provider patches. */
+  versions: ReadonlyMap<string, string>;
 }
 
 /**
@@ -34,13 +36,14 @@ const keyed = (files: readonly FileChanges[]): Keyed[] =>
 export function useFileChanges(files: readonly FileChanges[]): FileDiffs {
   const groups = useMemo(() => keyed(files), [files]);
   const diffs = useReadyDiffs(groups);
-  return useMemo(
-    () => ({
-      files: diffs.filter((diff): diff is FileDiff => diff !== undefined),
-      pending: diffs.filter((diff) => diff === undefined).length,
-    }),
-    [diffs],
+  const versions = useMemo(
+    () => new Map(groups.map(({ file, key }) => [file.path, key])),
+    [groups],
   );
+  return useMemo(() => {
+    const ready = diffs.filter((diff): diff is FileDiff => diff !== undefined);
+    return { files: ready, pending: diffs.length - ready.length, versions };
+  }, [diffs, versions]);
 }
 
 /** Diffs of the files `edits` touched, computed in the diff worker and cached by content. */

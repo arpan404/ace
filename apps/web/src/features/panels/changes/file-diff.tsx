@@ -77,6 +77,7 @@ export function FileDiffBlock(props: {
   highlighted(target: LineTarget): boolean;
   renderAnnotation(target: LineTarget): ReactNode;
   onComment?: ((range: LineRange) => void) | undefined;
+  onExtend?: ((range: LineRange) => void) | undefined;
   /** The lines of the comment being written here, which a shift-click extends. */
   selection?: LineRange | undefined;
   /** Marked viewed at this version of the diff: the path dims. */
@@ -99,8 +100,8 @@ export function FileDiffBlock(props: {
   const startPick = (target: LineTarget, event: PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0 || !props.onComment) return;
     event.preventDefault();
-    const from =
-      event.shiftKey && props.selection?.side === target.side ? props.selection.start : target.line;
+    const extending = event.shiftKey && props.selection?.side === target.side;
+    const from = extending ? (props.selection?.start ?? target.line) : target.line;
     let range = ordered(target.side, from, target.line);
     setDrag(range);
     const move = (over: globalThis.PointerEvent) => {
@@ -118,7 +119,8 @@ export function FileDiffBlock(props: {
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
       setDrag(undefined);
-      props.onComment?.(range);
+      if (extending && props.onExtend) props.onExtend(range);
+      else props.onComment?.(range);
     };
     window.addEventListener("pointerover", move);
     window.addEventListener("pointerup", end);

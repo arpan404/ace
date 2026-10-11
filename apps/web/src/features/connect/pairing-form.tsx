@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { AccessClient } from "@ace/client/access";
 import { ClientError } from "@ace/client";
@@ -5,6 +6,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { DaemonTarget, type DaemonTarget as Target } from "@/boot/connection-settings.ts";
+import { authorizeDaemonUrl } from "@/boot/daemon-network.ts";
 
 /** A person's confirmation precedes redemption. Fragment credentials never enter HTTP URLs. */
 export function PairingForm(props: {
@@ -12,6 +14,7 @@ export function PairingForm(props: {
   url: string;
   connect(target: Target, remember: boolean, signal: AbortSignal): void | Promise<void>;
   submitLabel?: string;
+  renderActions?: (actions: ReactNode) => ReactNode;
   cancel(): void;
 }) {
   const [link, setLink] = useState(props.link ?? "");
@@ -44,6 +47,8 @@ export function PairingForm(props: {
       }
       if (!code || !name.trim())
         throw new Error("Enter the pairing link and a name for this device.");
+      await authorizeDaemonUrl(origin);
+      owned.signal.throwIfAborted();
       const access = new AccessClient({
         origin,
         fetch: (input, init) => fetch(input, init),
@@ -78,6 +83,23 @@ export function PairingForm(props: {
       setPending(false);
     }
   };
+  const actions = (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => {
+          controller.current?.abort();
+          props.cancel();
+        }}
+      >
+        Cancel
+      </Button>
+      <Button type="submit" variant="primary" disabled={pending}>
+        {pending ? "Pairing…" : (props.submitLabel ?? "Pair and connect")}
+      </Button>
+    </>
+  );
   return (
     <form
       aria-label="Pair this device"
@@ -137,21 +159,11 @@ export function PairingForm(props: {
           {error}
         </p>
       )}
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => {
-            controller.current?.abort();
-            props.cancel();
-          }}
-        >
-          Cancel
-        </Button>
-        <Button type="submit" variant="primary" disabled={pending}>
-          {pending ? "Pairing…" : (props.submitLabel ?? "Pair and connect")}
-        </Button>
-      </div>
+      {props.renderActions ? (
+        props.renderActions(actions)
+      ) : (
+        <div className="flex items-center gap-2">{actions}</div>
+      )}
     </form>
   );
 }
