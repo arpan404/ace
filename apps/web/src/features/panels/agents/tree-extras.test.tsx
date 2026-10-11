@@ -44,7 +44,7 @@ test("a mounted Agents summary follows each child's status without calling failu
   store.snapshot(view);
   let id = 0;
   const client = new Client({
-    deviceId: "test",
+    deviceId: DeviceId.parse("test"),
     transport: () => ({ open() {}, send() {}, close() {} }),
     credential: async () => "a".repeat(64),
     storage: { load: async () => null, save: async () => {} },
