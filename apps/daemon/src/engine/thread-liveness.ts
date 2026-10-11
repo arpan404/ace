@@ -160,7 +160,7 @@ export function reconcileStoppedThread(repo: EngineRepository, id: ThreadId, at:
   const state = repo.state(id);
   if (!state) return;
   repo.store.atomic(() => {
-    if (!state.processExit && lostWork(state)) {
+    if (!state.processExit && lostWork(state, 0, undefined, at)) {
       repo.apply(
         id,
         [

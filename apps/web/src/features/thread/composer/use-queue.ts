@@ -83,6 +83,8 @@ export interface QueueControls {
   /** A queue-wide action (resume, hold, a limit choice) is on its way. */
   acting: boolean;
   refresh(): void;
+  loadingMore?: boolean;
+  loadMore?(): void;
   remove(message: QueuedMessage): void;
   /** Remove on the daemon first, then restore the message alongside the person's draft. */
   takeBack(message: QueuedMessage): void;
@@ -106,7 +108,7 @@ export function useQueue(threadId: string): QueueControls {
   const canSteer = useThreadMeta(threadId)?.capabilities?.steer === true;
   const toast = useToast();
   const { storage } = useLayout();
-  const { page, failed, refresh } = useServerQueue(threadId);
+  const { page, failed, refresh, loadingMore, loadMore } = useServerQueue(threadId);
   const [edits, setEdits] = useState<ReadonlyMap<string, QueueEdit>>(new Map());
   const [acting, setActing] = useState(false);
   const inFlight = useRef(new Set<string>());
@@ -162,6 +164,8 @@ export function useQueue(threadId: string): QueueControls {
     },
     acting,
     refresh,
+    loadingMore,
+    loadMore,
     resend: (message) =>
       void change(
         message.id,

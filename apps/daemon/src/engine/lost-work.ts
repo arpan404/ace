@@ -4,6 +4,7 @@ export function lostWork(
   state: ThreadState,
   pendingNativeInputs = 0,
   backend?: ProviderBackend,
+  now = state.statusObservedAt ?? 0,
 ): string | undefined {
   if (!Object.keys(state.runs).length) return undefined;
   const lines: string[] = [];
@@ -16,7 +17,8 @@ export function lostWork(
   let active = state.queueSources.provider > 0 || pendingNativeInputs > 0;
   for (const record of Object.values(state.agents)) {
     if (record.externalStatus) continue;
-    active ||= record.activeRun !== undefined || record.wakeUntil !== undefined;
+    active ||=
+      record.activeRun !== undefined || (record.wakeUntil !== undefined && record.wakeUntil > now);
     if (
       record.agent.origin === "root" ||
       ["idle", "interrupted", "failed"].includes(record.agent.status.state)

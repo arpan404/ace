@@ -88,6 +88,15 @@ function completionRelevance(
   return relevant;
 }
 
+/** Read completion evidence from an already-derived, persisted agent tree. */
+export function completionRelevanceReader(state: ThreadState): (key: Key) => boolean {
+  return completionRelevance(state, (key) => {
+    const record = lookup(state.agents, key);
+    if (!record) throw new Error(`Unknown agent key: ${key}`);
+    return record.agent.status;
+  });
+}
+
 /** Deadline eligibility uses current completion relevance, memoized bottom-up.
  * A descendant's wake/silence transition is scheduled before an ancestor can
  * become newly eligible. No future timestamp needs a second tree derivation.
@@ -359,10 +368,7 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
     )
   )
     return { state: "waiting", on: "queue" };
-  const holdsCompletion = completionRelevance(
-    state,
-    (key) => lookup(state.agents, key)!.agent.status,
-  );
+  const holdsCompletion = completionRelevanceReader(state);
   if (
     Object.keys(state.agents).some(
       (key) =>
@@ -390,13 +396,17 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
 export function recomputeStatuses(state: ThreadState, now: number, events: EventPayload[]): void {
   state.statusObservedAt = now;
   const resolve = statusResolver(state, now);
+  const relevant = completionRelevance(state, resolve);
   for (const [key, record] of Object.entries(state.agents)) {
     const status = resolve(key);
-    if (equal(record.agent.status, status)) continue;
+    const completionRelevant = relevant(key);
+    if (equal(record.agent.status, status) && record.completionRelevant === completionRelevant)
+      continue;
     if (isSettled(record.agent.status) && !isSettled(status))
       announceAgentBranch(state, key, events);
     record.agent.status = status;
-    emit(events, { type: "agent.status", agentId: record.agent.id, status });
+    record.completionRelevant = completionRelevant;
+    emit(events, { type: "agent.status", agentId: record.agent.id, status, completionRelevant });
   }
   const status = deriveThreadStatus(state);
   if (equal(state.status, status)) return;
