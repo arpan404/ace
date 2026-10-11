@@ -1,4 +1,5 @@
 import { delegationRequest } from "./cursor-request.ts";
+import { incomingRemoteRoot } from "./incoming-root.ts";
 import { cursorDefaultInstanceId } from "@ace/provider-kit/cursor-selection";
 import { AgentControlError, controlAdmissionError } from "./failure.ts";
 import { delegationModel } from "./models.ts";
@@ -39,6 +40,12 @@ export class DelegationAdmission {
   validate(caller: McpAttribution, input: DelegationRequest) {
     if (!this.admits()) throw new AgentControlError("admission_closed", "Admission closed");
     callerThread(this.deps.store, caller);
+    const root = this.journal.get(caller.threadId)?.rootId ?? caller.threadId;
+    if (incomingRemoteRoot(this.deps.store, root))
+      throw new AgentControlError(
+        "delegation_denied",
+        "Incoming remote tasks cannot allocate children without a durable source subtree budget",
+      );
     if (this.deps.providerEnabled?.(input.provider, input.accountId ?? input.instanceId) === false)
       throw new AgentControlError("provider_disabled", `Provider ${input.provider} is disabled`);
     if (!this.deps.engine.providerAvailability(input.provider).installed)

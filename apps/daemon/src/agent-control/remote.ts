@@ -1,4 +1,5 @@
 import { admitDelegation } from "@ace/orchestrator";
+import { incomingRemoteRoot } from "./incoming-root.ts";
 import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -483,16 +484,7 @@ export class RemoteDelegations {
       if (!mode) return { ok: false, code: "forbidden" };
       const tree = this.admission(parent.id);
       if (!tree) return { ok: false, code: "limit" };
-      const incoming = this.store.atomic((db) =>
-        db.prepare("SELECT name FROM sqlite_master WHERE name='remote_agent_incoming'").get(),
-      );
-      if (
-        incoming &&
-        this.store.atomic((db) =>
-          db.prepare("SELECT id FROM remote_agent_incoming WHERE thread_id=?").get(tree.root),
-        )
-      )
-        return { ok: false, code: "forbidden" };
+      if (incomingRemoteRoot(this.store, tree.root)) return { ok: false, code: "forbidden" };
       const task: RemoteTask = {
         id,
         sourceHostId: HostId.parse(this.hostId),

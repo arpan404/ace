@@ -79,9 +79,11 @@ cancellation and failed imports. Result text is bounded to 4,096 UTF-16 units an
 truncation propagates through the broker. Both devices need this protocol version; an older target lacking a
 sealed manifest is reported unavailable rather than treated as a completed task.
 
-Remote task roots and their local descendants cannot recursively delegate to a
-third device. This keeps parent budgets, cancellation ownership and the current
-context scope enforceable without a distributed ancestry protocol.
+Incoming remote task roots cannot create local children or delegate to a third
+device. The durable incoming ownership fence also applies to any existing local
+descendants. This interim restriction keeps source child and depth budgets
+enforceable until source-owned subtree allocation crosses the device boundary.
+Unrelated target roots retain their own delegation policy.
 
 ## Verification
 
