@@ -375,15 +375,30 @@ export class DaemonSupervisor {
   }
 
   private async running(daemon: LocalDaemon, source: Source, generation: number): Promise<void> {
-    let admission;
-    try {
-      admission = await this.ports.maintenance(daemon);
-    } catch (error) {
-      if (!this.stale(generation))
-        this.couldNotStart(`Cannot read daemon admission: ${String(error)}`);
-      return;
+    const deadline = this.ports.now() + this.options.readyTimeoutMs;
+    let admission: { draining: boolean } | undefined;
+    while (!this.stale(generation)) {
+      if (source === "app" && (!this.child || this.child.done)) return;
+      try {
+        admission = await this.ports.maintenance(daemon);
+        break;
+      } catch (error) {
+        if (this.stale(generation) || (source === "app" && (!this.child || this.child.done)))
+          return;
+        if (this.ports.now() >= deadline) {
+          this.couldNotStart(`Cannot read daemon admission: ${String(error)}`);
+          return;
+        }
+        this.ports.log("warn", `Cannot read daemon admission yet: ${String(error)}`);
+        await new Promise<void>((resolve) => this.ports.timers.set(200, resolve));
+      }
     }
-    if (this.stale(generation) || (source === "app" && (!this.child || this.child.done))) return;
+    if (
+      !admission ||
+      this.stale(generation) ||
+      (source === "app" && (!this.child || this.child.done))
+    )
+      return;
     this.daemon = daemon;
     this.runningSince = this.ports.now();
     const { message: _message, ...rest } = this.status;

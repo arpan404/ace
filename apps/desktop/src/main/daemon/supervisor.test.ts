@@ -22,6 +22,7 @@ function machine() {
     external: false,
     blockers: 0,
     maintenance: false,
+    admissionAvailable: true,
   };
   class FakeChild implements DaemonProcess {
     exit:
@@ -64,7 +65,10 @@ function machine() {
       return state.blockers;
     },
     blockers: async () => state.blockers,
-    maintenance: async () => ({ draining: state.maintenance }),
+    maintenance: async () => {
+      if (!state.admissionAvailable) throw new Error("Admission request timed out");
+      return { draining: state.maintenance };
+    },
     timers: {
       set(delayMs, callback) {
         const timer = { at: now + delayMs, callback, cancelled: false };
@@ -102,6 +106,83 @@ function track(supervisor: DaemonSupervisor): DaemonStatus[] {
 }
 
 describe("daemon supervisor", () => {
+  it.each(["external", "app"] as const)(
+    "recovers %s readiness after a transient admission timeout and resumes health monitoring",
+    async (source) => {
+      const m = machine();
+      m.state.answering = source === "external";
+      m.state.external = source === "external";
+      m.state.maintenance = true;
+      m.state.admissionAvailable = false;
+      const supervisor = new DaemonSupervisor(m.ports, {
+        healthIntervalMs: 1000,
+        healthFailures: 1,
+      });
+      const starting = supervisor.start();
+      await m.advance(0);
+      m.state.answering = true;
+      await m.advance(400);
+      expect(supervisor.current().state).toBe("starting");
+      m.state.admissionAvailable = true;
+      await m.advance(400);
+      await starting;
+      expect(await supervisor.reachable()).toEqual(local);
+      expect(supervisor.current()).toMatchObject({ state: "running", source, paused: true });
+      m.state.answering = false;
+      m.state.external = false;
+      await m.advance(1000);
+      expect(supervisor.current().state).not.toBe("running");
+    },
+  );
+
+  it("quit during admission discovery cannot publish a late running status", async () => {
+    const m = machine();
+    m.state.answering = true;
+    m.state.external = true;
+    m.state.admissionAvailable = false;
+    const supervisor = new DaemonSupervisor(m.ports);
+    const starting = supervisor.start();
+    await m.advance(0);
+    const stopping = supervisor.stop();
+    m.state.admissionAvailable = true;
+    await m.advance(400);
+    await Promise.all([starting, stopping]);
+    expect(supervisor.current().state).toBe("stopped");
+    expect(m.children.every((child) => !child.alive)).toBe(true);
+  });
+
+  it("persistent admission failure is reported only after the readiness deadline", async () => {
+    const m = machine();
+    m.state.answering = true;
+    m.state.external = true;
+    m.state.admissionAvailable = false;
+    const supervisor = new DaemonSupervisor(m.ports, { readyTimeoutMs: 600 });
+    const starting = supervisor.start();
+    await m.advance(400);
+    expect(supervisor.current().state).toBe("starting");
+    await m.advance(400);
+    await starting;
+    await expect(supervisor.reachable()).rejects.toThrow("Cannot read daemon admission");
+  });
+
+  it("an update drain timeout preserves an already-paused daemon until the person resumes it", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    await supervisor.pause(true);
+    m.state.blockers = 2;
+    const draining = supervisor.drain(5000);
+    await m.advance(6000);
+    expect(await draining).toBe(false);
+    expect(m.state.maintenance).toBe(true);
+    expect(supervisor.current().paused).toBe(true);
+    await supervisor.pause(false);
+    expect(m.state.maintenance).toBe(false);
+    expect(supervisor.current().paused).toBe(false);
+  });
+
   it("discovers a surviving daemon's pause and lets the user resume it", async () => {
     const m = machine();
     m.state.answering = true;
