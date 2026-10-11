@@ -4,6 +4,7 @@ import type { Store } from "./store.ts";
 
 const Resource = z.object({
   id: ThreadId,
+  owner_id: ThreadId.nullable().default(null),
   repo: z.string().min(1).max(4096),
   path: z.string().min(1).max(4096),
   branch: z.string().min(1).max(256),
@@ -30,6 +31,10 @@ export class CreationWorkspaceJournal {
     const columns = store.atomic((db) =>
       db.prepare("PRAGMA table_info(workspace_creation_resources)").all(),
     );
+    if (!columns.some((column) => column.name === "owner_id"))
+      store.atomic((db) =>
+        db.exec("ALTER TABLE workspace_creation_resources ADD COLUMN owner_id TEXT"),
+      );
     if (!columns.some((column) => column.name === "ran_setup"))
       store.atomic((db) =>
         db.exec(
@@ -55,7 +60,7 @@ export class CreationWorkspaceJournal {
       );
       if (count >= 16) throw new Error("workspace_busy");
       db.prepare(
-        "INSERT INTO workspace_creation_resources (id,repo,path,branch,base_head,cleanup_head,uncertain,ran_setup) VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO workspace_creation_resources (id,repo,path,branch,base_head,cleanup_head,uncertain,ran_setup,owner_id) VALUES (?,?,?,?,?,?,?,?,?)",
       ).run(
         row.id,
         row.repo,
@@ -65,6 +70,7 @@ export class CreationWorkspaceJournal {
         row.cleanup_head,
         row.uncertain,
         row.ran_setup,
+        row.owner_id,
       );
     });
   }

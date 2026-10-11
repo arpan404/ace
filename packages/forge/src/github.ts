@@ -1,4 +1,6 @@
 import type { WriteDispatch } from "./write-dispatch.ts";
+import { ForgePrCheckout } from "@ace/protocol/forge-worktree";
+import { BrowserPr } from "./github-browser-schemas.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import type { ForgePrSearch } from "@ace/protocol/forge-browser";
 import { z } from "zod";
@@ -51,6 +53,40 @@ export class GitHubForge implements Forge, ForgeBrowser {
     const parsed = z.object({ login: z.string().min(1).max(100) }).safeParse(response.body);
     if (!parsed.success) throw new ForgeError("invalid_data");
     return parsed.data.login;
+  }
+  async prCheckout(number: number, signal: AbortSignal): Promise<ForgePrCheckout> {
+    this.#ref(number);
+    const parsed = BrowserPr.safeParse(
+      (await this.#api.request(`${this.#root}/pulls/${number}`, signal)).body,
+    );
+    if (!parsed.success || parsed.data.number !== number) throw new ForgeError("invalid_data");
+    const pr = parsed.data;
+    const sourceRepository = pr.head.repo
+      ? ForgeRepository.safeParse({
+          ...this.repository,
+          owner: pr.head.repo.owner.login,
+          name: pr.head.repo.name,
+        })
+      : undefined;
+    if (sourceRepository && !sourceRepository.success) throw new ForgeError("invalid_data");
+    const headRepository = sourceRepository?.success ? sourceRepository.data : null;
+    if (headRepository) {
+      const source = `repos/${headRepository.owner}/${headRepository.name}/git/ref/heads/${encodeURIComponent(pr.head.ref)}`;
+      const branch = z
+        .object({ object: z.object({ sha: shaSchema }) })
+        .safeParse((await this.#api.request(source, signal)).body);
+      if (!branch.success) throw new ForgeError("invalid_data");
+      if (branch.data.object.sha !== pr.head.sha) throw new ForgeError("conflict");
+    }
+    signal.throwIfAborted();
+    return ForgePrCheckout.parse({
+      ref: this.#ref(number),
+      headSha: pr.head.sha,
+      baseSha: pr.base.sha,
+      headBranch: pr.head.ref,
+      baseBranch: pr.base.ref,
+      headRepository,
+    });
   }
   prActivity(number: number, page: number, signal: AbortSignal) {
     return this.#browser.activity(number, page, signal);

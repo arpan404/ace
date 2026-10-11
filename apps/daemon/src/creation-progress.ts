@@ -18,6 +18,8 @@ export class CreationProgress {
   readonly controller = new AbortController();
   action: "cancel" | "local" | undefined;
   active = true;
+  private prOnly: boolean;
+  private existingPr: boolean;
   private decoder = new StringDecoder("utf8");
   private line = "";
   private oversized = false;
@@ -36,6 +38,10 @@ export class CreationProgress {
     this.publish = publish;
     this.redact = createRedactor({ home: homedir(), env: process.env });
     const p = command.payload;
+    this.existingPr = p.type === "forge.pr.worktree";
+    this.prOnly =
+      this.existingPr ||
+      ((p.type === "thread.create" || p.type === "thread.prepare") && Boolean(p.pullRequest));
     this.progress = {
       commandId: command.id,
       ...("threadId" in p && p.threadId ? { threadId: ThreadId.parse(p.threadId) } : {}),
@@ -47,7 +53,7 @@ export class CreationProgress {
       steps: [],
       details: [],
       cleanupComplete: false,
-      actions: ["cancel", "local"],
+      actions: this.prOnly ? ["cancel"] : ["cancel", "local"],
     };
     this.update("preparing");
   }
@@ -108,12 +114,21 @@ export class CreationProgress {
     this.progress.state = state;
     this.progress.cleanupComplete = cleanupComplete;
     this.progress.actions =
-      cleanupComplete && (state === "failed" || state === "cancelled") ? ["retry", "local"] : [];
+      cleanupComplete && (state === "failed" || state === "cancelled")
+        ? this.existingPr
+          ? []
+          : this.prOnly
+            ? ["retry"]
+            : ["retry", "local"]
+        : [];
     if (state === "failed")
-      this.progress.message =
-        "We couldn't create the worktree. Try again or use the local checkout.";
+      this.progress.message = this.prOnly
+        ? "Could not prepare the selected PR head. Refresh the PR and try Work on PR again."
+        : "We couldn't create the worktree. Try again or use the local checkout.";
     if (state === "cancelled")
-      this.progress.message = "Worktree creation cancelled. Your first message is still queued.";
+      this.progress.message = this.existingPr
+        ? "PR preparation cancelled. The previous checkout is retained."
+        : "Worktree creation cancelled. Your first message is still queued.";
     if (!cleanupComplete)
       this.progress.message = "Worktree cleanup needs attention before this checkout can be used.";
     this.emit();
@@ -151,17 +166,25 @@ export class CreationDrafts {
         .get(id, device),
     );
     if (!row || typeof row.command !== "string" || typeof row.progress !== "string") return;
+    const command = Command.parse(JSON.parse(row.command));
+    const p = command.payload;
+    const prOnly =
+      p.type === "forge.pr.worktree" ||
+      ((p.type === "thread.create" || p.type === "thread.prepare") && Boolean(p.pullRequest));
     const progress = WorktreeCreationProgress.parse(JSON.parse(row.progress));
     const operation = this.live.get(id);
     if (!operation && ["running", "cancelling"].includes(progress.state)) {
       progress.state = "failed";
-      progress.message = "Worktree creation was interrupted. Try again or use the local checkout.";
-      progress.actions = ["retry", "local"];
+      progress.message = prOnly
+        ? "PR preparation was interrupted. Refresh the PR and try Work on PR again."
+        : "Worktree creation was interrupted. Try again or use the local checkout.";
+      progress.actions =
+        p.type === "forge.pr.worktree" ? [] : prOnly ? ["retry"] : ["retry", "local"];
       // The creation journal and Git admission fence are checked again before either action.
       progress.cleanupComplete = true;
     }
     return {
-      command: Command.parse(JSON.parse(row.command)),
+      command,
       progress,
       ...(operation ? { operation } : {}),
     };
@@ -174,6 +197,30 @@ export class CreationDrafts {
         .prepare("SELECT device FROM worktree_creation_drafts WHERE id=?")
         .get(command.id);
       if (owner && owner.device !== device) throw new Error("forbidden");
+      if (command.payload.type === "forge.pr.worktree") {
+        const target = command.payload.threadId;
+        for (const row of db
+          .prepare("SELECT id,command,progress FROM worktree_creation_drafts WHERE device=?")
+          .all(device)) {
+          if (
+            typeof row.id !== "string" ||
+            row.id === command.id ||
+            this.live.has(row.id) ||
+            typeof row.command !== "string" ||
+            typeof row.progress !== "string"
+          )
+            continue;
+          const old = Command.parse(JSON.parse(row.command)).payload;
+          const progress = WorktreeCreationProgress.parse(JSON.parse(row.progress));
+          if (
+            old.type === "forge.pr.worktree" &&
+            old.threadId === target &&
+            progress.cleanupComplete &&
+            ["cancelled", "failed"].includes(progress.state)
+          )
+            db.prepare("DELETE FROM worktree_creation_drafts WHERE id=?").run(row.id);
+        }
+      }
       if (
         !previous &&
         Number(db.prepare("SELECT COUNT(*) AS count FROM worktree_creation_drafts").get()?.count) >=
@@ -191,7 +238,12 @@ export class CreationDrafts {
             .prepare("INSERT OR REPLACE INTO worktree_creation_drafts VALUES (?,?,?,?)")
             .run(command.id, device, JSON.stringify(command), JSON.stringify(progress)),
         );
-        if ((progress.state === "done" || progress.state === "local") && progress.threadId) {
+        if (
+          (command.payload.type === "forge.pr.worktree" ||
+            progress.state === "done" ||
+            progress.state === "local") &&
+          progress.threadId
+        ) {
           const thread = this.store.getThread(progress.threadId);
           if (thread)
             this.store.appendEvents(

@@ -118,6 +118,39 @@ export class WorkspaceForge {
       },
     };
   }
+  async checkoutDetail(
+    cwd: string,
+    selection: import("@ace/protocol").ForgePrWorktree,
+    signal: AbortSignal,
+  ) {
+    const detail = await this.backend(cwd, selection.ref.repository).prDetail(
+      selection.ref.number,
+      signal,
+    );
+    if (!detail.headRepository) throw new ForgeError("not_found");
+    if (detail.status.headSha !== selection.headSha) throw new ForgeError("conflict");
+    return detail;
+  }
+  async checkout(
+    cwd: string,
+    selection: import("@ace/protocol").ForgePrWorktree,
+    signal: AbortSignal,
+  ) {
+    const value = await this.backend(cwd, selection.ref.repository).prCheckout(
+      selection.ref.number,
+      signal,
+    );
+    if (!value.headRepository) throw new ForgeError("not_found");
+    if (value.headSha !== selection.headSha) throw new ForgeError("conflict");
+    return value;
+  }
+  admitCheckout(id: ThreadId, status: ForgePrStatus): void {
+    this.store.atomic(() => {
+      this.links.link({ threadId: id, pr: status.ref });
+      this.projection.update(id, status, this.links.getLinkState(id, status.ref)?.generation);
+      this.projection.publish(id);
+    });
+  }
   async link(
     id: ThreadId,
     cwd: string,

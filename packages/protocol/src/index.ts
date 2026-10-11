@@ -127,3 +127,5 @@ export * from "./remote-context.ts";
 
 export * from "./forge-browser.ts";
 export * from "./source-control-draft.ts";
+
+export * from "./forge-worktree.ts";

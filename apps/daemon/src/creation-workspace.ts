@@ -1,3 +1,4 @@
+import type { PreparePrBase } from "./pr-worktree-resolution.ts";
 import type { CreationProgress } from "./creation-progress.ts";
 import { listScripts } from "./workspace-scripts.ts";
 import { GitError } from "@ace/git";
@@ -17,6 +18,7 @@ type Prepared = NonNullable<CommandContext["preparedWorkspace"]>;
 export interface CreationWorkspace {
   workspace: Prepared;
   release(): Promise<void>;
+  verify?(): Promise<void>;
 }
 /** Physical worktree ownership lasts through acceptance, cancellation and cleanup. */
 export class WorkspaceCreations {
@@ -30,7 +32,15 @@ export class WorkspaceCreations {
   private git: WorkspaceGit;
   private directory: string;
   private fetchTimeoutMs: number;
-  constructor(store: Store, git: WorkspaceGit, directory: string, fetchTimeoutMs: number) {
+  private preparePr: PreparePrBase | undefined;
+  constructor(
+    store: Store,
+    git: WorkspaceGit,
+    directory: string,
+    fetchTimeoutMs: number,
+    preparePr?: PreparePrBase,
+  ) {
+    this.preparePr = preparePr;
     this.store = store;
     this.git = git;
     this.directory = directory;
@@ -62,11 +72,37 @@ export class WorkspaceCreations {
       throw error;
     }
   }
+  async prepareExisting(command: Command, progress?: CreationProgress): Promise<CreationWorkspace> {
+    const p = command.payload;
+    if (p.type !== "forge.pr.worktree") throw new Error("invalid_command");
+    const thread = this.store.getThread(p.threadId);
+    if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
+    const project = this.store.getWorkspacePath(thread.workspaceId);
+    if (!project) throw new Error("workspace_not_found");
+    const requested: RequestedBase = { kind: "pull-request", selection: p.pullRequest };
+    const id = ThreadId.parse(
+      `pr-worktree:${createHash("sha256")
+        .update(JSON.stringify([p.threadId, command.id, requestedBaseKey(requested)]))
+        .digest("hex")}`,
+    );
+    await this.ready(id);
+    if (this.closing || this.pending.size >= 16 || this.pending.has(id))
+      throw new Error("workspace_busy");
+    const task = this.create(id, project, requested, progress, p.threadId);
+    this.pending.set(id, task);
+    try {
+      return await task;
+    } catch (error) {
+      this.pending.delete(id);
+      throw error;
+    }
+  }
   private async create(
     id: ThreadId,
     root: string,
     requested: RequestedBase,
     progress?: CreationProgress,
+    ownerId: ThreadId = id,
   ): Promise<CreationWorkspace> {
     const project = await realpath(root);
     const key = createHash("sha256").update(id).digest("hex");
@@ -86,15 +122,22 @@ export class WorkspaceCreations {
     // A remote base is fetched here, before any physical work; only its remote-tracking ref moves.
     progress?.controller.signal.throwIfAborted();
     if (requested.kind === "branch" && requested.remote) progress?.update("fetching");
-    const { head, record } = await resolveWorktreeBase(
-      this.git,
-      project,
-      requested,
-      this.fetchTimeoutMs,
-      progress ? { signal: progress.controller.signal, stderr: progress.stderr } : {},
-    );
+    if (requested.kind === "pull-request") progress?.update("fetching");
+    const io = progress ? { signal: progress.controller.signal, stderr: progress.stderr } : {};
+    const preparedPr =
+      requested.kind === "pull-request"
+        ? await this.preparePr?.(project, requested.selection, io)
+        : undefined;
+    if (requested.kind === "pull-request" && !preparedPr)
+      throw new Error("forge_recovery_unavailable");
+    const resolved =
+      requested.kind === "pull-request"
+        ? { head: preparedPr?.head ?? "", record: undefined }
+        : await resolveWorktreeBase(this.git, project, requested, this.fetchTimeoutMs, io);
+    const { head, record } = resolved;
     const resource: CreationResource = {
       id,
+      owner_id: ownerId,
       repo: project,
       path,
       branch,
@@ -135,6 +178,7 @@ export class WorkspaceCreations {
           ...(progress ? { stderr: progress.stderr, signal: progress.controller.signal } : {}),
         });
       }
+      await preparedPr?.verify(path);
       progress?.controller.signal.throwIfAborted();
     } catch (error) {
       if (
@@ -156,14 +200,27 @@ export class WorkspaceCreations {
     // The new branch starts at the commit, not the base's ref, so it gets no upstream: its
     // first push sets a same-named one and can never land on the base branch.
     const workspace: Prepared = {
-      id,
+      id: ownerId,
       path,
       branch,
       project,
       requestedBase: requestedBaseKey(requested),
       ...(record ? { base: record } : {}),
+      ...(preparedPr
+        ? { pullRequestWorkspace: preparedPr.pullRequestWorkspace, prStatus: preparedPr.prStatus }
+        : {}),
     };
-    const lease: CreationWorkspace = { workspace, release: () => this.cleanup(resource) };
+    const lease: CreationWorkspace = {
+      workspace,
+      release: async () => {
+        try {
+          await this.cleanup(resource);
+        } catch (error) {
+          throw new Error("workspace_cleanup_required", { cause: error });
+        }
+      },
+      ...(preparedPr ? { verify: () => preparedPr.verify(path) } : {}),
+    };
     if (this.closing) {
       await lease.release();
       throw new Error("workspace_closed");
@@ -198,7 +255,9 @@ export class WorkspaceCreations {
     resource: CreationResource,
     options: { force?: boolean },
   ): Promise<void> {
-    if (this.store.getThread(resource.id)?.details?.worktree !== resource.path) {
+    if (
+      this.store.getThread(resource.owner_id ?? resource.id)?.details?.worktree !== resource.path
+    ) {
       await cleanupOwnedWorktree(
         this.git,
         {

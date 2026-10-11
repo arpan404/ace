@@ -1,3 +1,4 @@
+import { ForgePrWorktree } from "./forge-worktree.ts";
 import { ProjectCommands } from "./projects.ts";
 import { ThreadMarkReadCommand } from "./thread-mark-read.ts";
 import { PermissionMode } from "./permissions.ts";
@@ -66,6 +67,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
   OrchestrationPickCommand,
   z.object({
     type: z.literal("thread.create"),
+    pullRequest: ForgePrWorktree.optional(),
     permissionMode: PermissionMode.optional(),
     /** Explicit portable fork/migration, preserving the source and allocating fresh native state. */
     handoffFrom: ThreadId.optional(),

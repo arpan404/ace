@@ -139,6 +139,9 @@
       ],
       "type": "string"
     },
+    "pullRequestWorkspace": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrWorkspace.json"
+    },
     "repository": {
       "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
     },

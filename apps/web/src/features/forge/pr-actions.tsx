@@ -1,3 +1,4 @@
+import { PrTaskActions } from "./pr-task-actions.tsx";
 import { useClient, useConnectionState, useSidebarAll } from "@ace/client-react";
 import type { ForgePrDetail, CommandPayload } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
@@ -9,6 +10,7 @@ import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { forgeError } from "./source.ts";
 
 export function PrActions(props: {
+  workspaceId: string;
   detail: ForgePrDetail;
   writeReady: boolean;
   onRefresh(): Promise<boolean>;
@@ -68,6 +70,12 @@ export function PrActions(props: {
       className="space-y-3 border-t border-border py-4"
     >
       <h3 className="text-base font-medium">Agent tasks</h3>
+      <PrTaskActions
+        key={JSON.stringify([props.workspaceId, ref])}
+        workspaceId={props.workspaceId}
+        detail={props.detail}
+        onRefresh={props.onRefresh}
+      />
       {props.detail.relatedThreads.length ? (
         <ul>
           {props.detail.relatedThreads.map((thread) => (

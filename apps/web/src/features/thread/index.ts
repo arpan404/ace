@@ -31,3 +31,5 @@ export {
   sameSubmittedDraft,
   type SubmittedDraft,
 } from "./composer/submitted-draft.ts";
+export { useWorktreeCreation } from "./worktree/use-worktree-creation.ts";
+export { WorktreeCreationCard } from "./worktree/creation-card.tsx";

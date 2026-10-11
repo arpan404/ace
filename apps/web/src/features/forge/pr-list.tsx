@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import type { ForgePrList, ForgePrSearch } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -6,6 +7,7 @@ import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs.tsx";
 import { useState } from "react";
 
 export function PrList(props: {
+  workspaceId: string;
   value?: ForgePrList | undefined;
   query: ForgePrSearch;
   selected?: number;
@@ -102,10 +104,10 @@ export function PrList(props: {
           ) : (
             <ul className="divide-y divide-border">
               {props.value.items.map((pr) => (
-                <li key={pr.ref.number}>
+                <li key={pr.ref.number} className="flex items-center gap-3">
                   <button
                     type="button"
-                    className="flex w-full items-start gap-3 rounded-sm py-3 text-left focus-ring hover:bg-accent"
+                    className="flex min-w-0 flex-1 items-start gap-3 rounded-sm py-3 text-left focus-ring hover:bg-accent"
                     aria-current={pr.ref.number === props.selected ? "page" : undefined}
                     onClick={() => props.onOpen(pr.ref.number)}
                   >
@@ -117,6 +119,13 @@ export function PrList(props: {
                       </span>
                     </span>
                   </button>
+                  <Link
+                    className="shrink-0 text-sm text-link hover:underline focus-ring"
+                    to="/new"
+                    search={{ project: props.workspaceId, pullRequest: pr.url }}
+                  >
+                    Work on PR
+                  </Link>
                 </li>
               ))}
             </ul>

@@ -42,7 +42,7 @@ function notFound(requested: { ref: string; remote?: string }): WorktreeBaseErro
 export async function resolveWorktreeBase(
   git: BaseGit,
   project: string,
-  requested: RequestedBase,
+  requested: Exclude<RequestedBase, { kind: "pull-request" }>,
   fetchTimeoutMs: number,
   io: { signal?: AbortSignal; stderr?: (chunk: Buffer) => void } = {},
 ): Promise<{ head: string; record?: WorktreeBaseRecord }> {

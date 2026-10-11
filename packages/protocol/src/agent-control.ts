@@ -1,3 +1,4 @@
+import { ForgePrWorktree } from "./forge-worktree.ts";
 import { RemoteContextSelection } from "./remote-context.ts";
 import { PermissionMode } from "./permissions.ts";
 import { z } from "zod";
@@ -243,6 +244,7 @@ export type AgentControlResult = z.infer<typeof AgentControlResult>;
 
 export const ThreadPrepareCommand = z.object({
   type: z.literal("thread.prepare"),
+  pullRequest: ForgePrWorktree.optional(),
   handoffFrom: ThreadId.optional(),
   mode: z.enum(["local", "worktree"]).optional(),
   baseBranch: z.string().min(1).max(1024).optional(),

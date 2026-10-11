@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgePrWorktree.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "headSha": {
+      "pattern": "^[a-f0-9]{40,64}$",
+      "type": "string"
+    },
+    "ref": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+    }
+  },
+  "required": [
+    "ref",
+    "headSha"
+  ],
+  "type": "object"
+}

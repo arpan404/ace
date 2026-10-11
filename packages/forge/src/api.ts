@@ -33,6 +33,11 @@ export interface Forge {
 
 /** Hosted repository resources, separate from a thread's primary association. */
 export interface ForgeBrowser {
+  /** Fresh head/base facts used to validate an isolated checkout before provider admission. */
+  prCheckout(
+    number: number,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol/forge-worktree").ForgePrCheckout>;
   listPrs(
     query: import("@ace/protocol/forge-browser").ForgePrSearch,
     signal: AbortSignal,

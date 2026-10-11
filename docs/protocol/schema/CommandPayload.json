@@ -80,6 +80,9 @@
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
         },
+        "pullRequest": {
+          "$ref": "https://ace.local/protocol/v1/ForgePrWorktree.json"
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
@@ -620,6 +623,26 @@
         "type",
         "threadId",
         "until"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "pullRequest": {
+          "$ref": "https://ace.local/protocol/v1/ForgePrWorktree.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "forge.pr.worktree",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "pullRequest"
       ],
       "type": "object"
     },
@@ -1551,6 +1574,9 @@
         },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "pullRequest": {
+          "$ref": "https://ace.local/protocol/v1/ForgePrWorktree.json"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"

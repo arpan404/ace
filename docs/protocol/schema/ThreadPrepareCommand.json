@@ -52,6 +52,9 @@
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
+    "pullRequest": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrWorktree.json"
+    },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },

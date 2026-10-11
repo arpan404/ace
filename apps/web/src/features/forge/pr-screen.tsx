@@ -176,6 +176,7 @@ export function PrScreen(props: { location: PrLocation; onLocation(location: PrL
               <>
                 <QueryState query={query} />
                 <PrList
+                  workspaceId={workspaceId}
                   key={`${workspaceId}/${location.repo}/${location.search}/${location.author}/${location.reviewer}`}
                   value={query.data}
                   query={location}

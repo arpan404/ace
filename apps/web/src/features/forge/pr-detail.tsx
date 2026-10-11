@@ -82,6 +82,7 @@ export function PrDetail(props: {
             </div>
           </div>
           <PrActions
+            workspaceId={props.workspaceId}
             key={JSON.stringify(status.ref)}
             detail={detail}
             writeReady={!query.isError && !query.isFetching}

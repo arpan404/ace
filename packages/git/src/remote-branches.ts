@@ -146,12 +146,54 @@ export async function fetchBranch(
   repository: Repository,
   options: FetchBranchOptions,
 ): Promise<void> {
+  const root = await repository.root(options.repo);
+  await assertBranchName(repository, root, options.branch);
+  await fetchOneRef(
+    repository,
+    root,
+    options,
+    `refs/heads/${options.branch}`,
+    `refs/remotes/${options.remote}/${options.branch}`,
+  );
+}
+
+export type FetchPrHeadOptions = Omit<FetchBranchOptions, "branch"> & { number: number };
+/** Fetch the base repository's advertised PR ref, including fork PRs, into a private ref. */
+export async function fetchPrHead(
+  repository: Repository,
+  options: FetchPrHeadOptions,
+): Promise<string> {
+  z.number().int().positive().max(Number.MAX_SAFE_INTEGER).parse(options.number);
+  const root = await repository.root(options.repo);
+  const ref = `refs/ace/pr/${options.remote}/${options.number}/head`;
+  await fetchOneRef(repository, root, options, `refs/pull/${options.number}/head`, ref);
+  return hash(
+    textOutput(
+      await repository.cli.call(root, [
+        "rev-parse",
+        "--verify",
+        "--end-of-options",
+        `${ref}^{commit}`,
+      ]),
+    ),
+  );
+}
+
+async function fetchOneRef(
+  repository: Repository,
+  root: string,
+  options: Omit<FetchBranchOptions, "branch">,
+  source: string,
+  target: string,
+) {
   const deadline = timeout.safeParse(options.timeoutMs);
   if (!deadline.success)
     throw new GitError("invalid_argument", "timeoutMs must be an integer between 1 and 2147483647");
-  const root = await repository.root(options.repo);
-  await assertBranchName(repository, root, options.branch);
   await assertRemote(repository, root, options.remote);
+  const checked = await repository.cli.call(root, ["check-ref-format", target], {
+    allowFailure: true,
+  });
+  if (checked.exitCode !== 0) throw new GitError("invalid_ref", "Invalid fetch destination");
   // Only replace ssh's command when the person hasn't configured their own.
   const configured = await repository.cli.call(root, ["config", "--get", "core.sshCommand"], {
     allowFailure: true,
@@ -173,7 +215,7 @@ export async function fetchBranch(
         "--no-auto-maintenance",
         "--end-of-options",
         options.remote,
-        `+refs/heads/${options.branch}:refs/remotes/${options.remote}/${options.branch}`,
+        `+${source}:${target}`,
       ],
       {
         write: true,

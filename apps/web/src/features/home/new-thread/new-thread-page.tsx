@@ -1,3 +1,4 @@
+import { usePrSource } from "@/features/forge/index.ts";
 import { PastSessions } from "@/features/history/index.ts";
 import { ProjectPicker } from "./project-picker.tsx";
 import type { BranchRef, PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
@@ -86,6 +87,7 @@ export function NewThreadPage(props: {
   project?: string | undefined;
   base?: string | undefined;
   skill?: string | undefined;
+  pullRequest?: string | undefined;
 }) {
   const { storage } = useLayout();
   const readinessId = useId();
@@ -94,6 +96,7 @@ export function NewThreadPage(props: {
   const [choices, setChoices] = useState<Choices>(() => loadChoices(storage));
   const [requested, setRequested] = useState(props.project);
   const project = pickProject(projects, requested, choices.project, filter);
+  const prSource = usePrSource(project, props.pullRequest);
   const [baseChoice, setBase] = useState<WorktreeBase | string | undefined>(props.base);
   const page = useRef<HTMLDivElement>(null);
   const composer = useRef<ComposerHandle>(null);
@@ -108,12 +111,13 @@ export function NewThreadPage(props: {
   const options = start.loaded ? catalog : undefined;
   const [picked, setPicked] = useState<ProviderKind>();
   const [useWorktree] = useDaemonSetting("threads.useWorktree");
-  const resolved = resolve(
+  const selected = resolve(
     options,
     choices,
     picked ?? start.provider,
     useWorktree === false ? "local" : "worktree",
   );
+  const resolved = props.pullRequest ? { ...selected, mode: "worktree" as const } : selected;
   const branches = useBaseRefs(project);
   // The base picked here, else the one asked for by name (a local branch until the branches
   // say otherwise), else the default branch at its freshest; undefined while the branches load
@@ -183,7 +187,7 @@ export function NewThreadPage(props: {
           ? "Choose an available model before sending."
           : admitted.fallback;
   const send = async (draft: Draft) => {
-    if (!project || !resolved.model || admissionProblem) return false;
+    if (!project || !resolved.model || admissionProblem || prSource.problem) return false;
     choose({ project });
     const draftId = scope.draftId;
     // The new thread takes the draft scope over: keep it when this page closes, which is now.
@@ -192,7 +196,8 @@ export function NewThreadPage(props: {
     void draft.files.settled.then((ready) => rememberAttachments(draft.files.local, ready));
     return create({
       project,
-      draftKey: draftKeyFor(project),
+      draftKey: `${draftKeyFor(project)}${props.pullRequest ? `:pr:${props.pullRequest}` : ""}`,
+      pullRequest: prSource.selection,
       scope: resolved.model.scope,
       model: resolved.model.id,
       mode: resolved.mode,
@@ -262,17 +267,21 @@ export function NewThreadPage(props: {
           <div className="shrink-0">
             <Composer
               ref={composer}
-              key={project}
+              key={`${project}:${prSource.selection ? JSON.stringify(prSource.selection) : ""}`}
               onPlan={() => {
                 if (provider) setPermission("plan");
               }}
               thread={draftThread}
-              draftKey={project ? draftKeyFor(project) : undefined}
-              initialText={props.skill ? `/${props.skill} ` : undefined}
+              draftKey={
+                project
+                  ? `${draftKeyFor(project)}${props.pullRequest ? `:pr:${props.pullRequest}` : ""}`
+                  : undefined
+              }
+              initialText={prSource.text ?? (props.skill ? `/${props.skill} ` : undefined)}
               busy={false}
               sendBlocked={
-                admissionProblem
-                  ? { reason: admissionProblem, describedBy: readinessId }
+                admissionProblem || prSource.problem
+                  ? { reason: admissionProblem || prSource.problem || "", describedBy: readinessId }
                   : undefined
               }
               onSubmit={send}
@@ -290,6 +299,14 @@ export function NewThreadPage(props: {
                         project={project}
                         onProject={chooseProject}
                       />
+                    }
+                    pullRequest={
+                      props.pullRequest
+                        ? {
+                            number: prSource.selection?.ref.number,
+                            headSha: prSource.selection?.headSha,
+                          }
+                        : undefined
                     }
                     mode={resolved.mode}
                     onMode={(mode) => choose({ mode })}
@@ -351,9 +368,9 @@ export function NewThreadPage(props: {
                 />
               }
             />
-            {admissionProblem && (
+            {(admissionProblem || prSource.problem) && (
               <p id={readinessId} role="status" className="mt-2 px-4 text-xs text-muted-foreground">
-                {admissionProblem}
+                {admissionProblem || prSource.problem}
               </p>
             )}
             <SignInNotice provider={provider} />

@@ -27,6 +27,8 @@ import {
   branchHead,
   branchRefs,
   fetchBranch,
+  fetchPrHead,
+  type FetchPrHeadOptions,
   type BranchRefs,
   type FetchBranchOptions,
 } from "./remote-branches.ts";
@@ -40,8 +42,8 @@ export { spawnGitProcess } from "./process-runtime.ts";
 export type * from "./types.ts";
 export type { MutationState } from "./mutation-state.ts";
 export type { CreateWorktreeOptions, WorktreeProgress } from "./worktrees.ts";
-export type { BranchRefs, FetchBranchOptions } from "./remote-branches.ts";
 export type { RevisionLineOptions } from "./revision-lines.ts";
+export type { BranchRefs, FetchBranchOptions, FetchPrHeadOptions } from "./remote-branches.ts";
 
 export class GitService {
   private readonly repository: Repository;
@@ -187,6 +189,9 @@ export class GitService {
   /** Fetch one branch into its remote-tracking ref only, bounded by `timeoutMs`. */
   fetchBranch(options: FetchBranchOptions): Promise<void> {
     return fetchBranch(this.repository, options);
+  }
+  fetchPrHead(options: FetchPrHeadOptions): Promise<string> {
+    return fetchPrHead(this.repository, options);
   }
   async repositoryInfo(repo: string) {
     const root = await this.repository.root(repo);

@@ -22,6 +22,7 @@ test("changing workspace fences sends until a fresh session can use the new root
       return { mode: "worktree", worktree: root, branch: "feature" };
     });
     expect(h.store.getThread(id)?.details?.workspaceChange?.state).toBe("preparing");
+    expect(h.store.getThread(id)?.status).toMatchObject({ state: "waiting", on: "queue" });
     expect(
       h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "racing" }] }),
     ).toMatchObject({ ok: false, error: "workspace_change_in_progress" });
@@ -29,6 +30,7 @@ test("changing workspace fences sends until a fresh session can use the new root
     release();
     await change;
     expect(h.store.executionWorkspace(id)).toMatchObject({ path: root, ready: true });
+    expect(h.store.getThread(id)?.status.state).toBe("done");
     expect(h.store.getThread(id)?.details).toMatchObject({
       mode: "worktree",
       branch: "feature",
@@ -76,6 +78,7 @@ test("dirty validation preserves the original binding but an uncertain mutation 
       h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "next" }] }),
     ).toMatchObject({ ok: false });
     expect(() => h.store.executionWorkspace(id)).toThrow();
+    expect(h.store.getThread(id)?.status).toMatchObject({ state: "waiting", on: "queue" });
   } finally {
     await h.close();
   }
