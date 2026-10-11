@@ -1,5 +1,5 @@
 import { pluginCatalog } from "./extension-catalog.ts";
-import { mkdir, opendir, rename, rm } from "node:fs/promises";
+import { lstat, mkdir, opendir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { withDirectoryLock } from "./lock.ts";
 import {
@@ -85,7 +85,13 @@ export class PluginManager {
     if (installs.length > limits.installs || reviews.length > limits.pending)
       throw new Error("Registry exceeds limits");
     for (const [directory, keep] of [
-      ["versions", new Set(installs.map(({ install }) => install.hash))],
+      [
+        "versions",
+        new Set([
+          ...installs.map(({ install }) => install.hash),
+          ...reviews.map((review) => review.hash),
+        ]),
+      ],
       ["staging", new Set(reviews.map((review) => review.id))],
       ["fetch", new Set<string>()],
     ] as const) {
@@ -214,14 +220,24 @@ export class PluginManager {
       if (approval.commit !== review.commit || approval.hash !== review.hash)
         throw new Error("Consent does not match reviewed version");
       const stage = join(this.root, "staging", review.id);
-      if ((await inspectPackage(stage)).hash !== review.hash) throw new Error("Integrity mismatch");
+      const destination = join(this.root, "versions", review.hash);
+      let payload = stage;
+      try {
+        await lstat(stage);
+      } catch (error) {
+        if (!isMissing(error)) throw error;
+        // Publication may have failed after promotion. The pending review still
+        // authorizes only these exact bytes, never a new fetch of its mutable ref.
+        payload = destination;
+      }
+      if ((await inspectPackage(payload)).hash !== review.hash)
+        throw new Error("Integrity mismatch");
       const installed = this.registry.installs();
       if (
         installed.length >= limits.installs &&
         !installed.some((value) => value.install.name === review.name)
       )
         throw new Error("Install limit");
-      const destination = join(this.root, "versions", review.hash);
       await assertNoSymlinks(destination);
       try {
         if ((await inspectPackage(destination)).hash !== review.hash)
