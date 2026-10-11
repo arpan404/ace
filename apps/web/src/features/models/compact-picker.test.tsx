@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import { openModelControl, openModelPicker } from "@/test/model-control.ts";
+import { closeModelControl, openModelControl, openModelPicker } from "@/test/model-control.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -50,6 +50,67 @@ test.each([1, 2, 3, 4, 5, 6, 7, 8, 9])(
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose model" })).toBeNull());
   },
 );
+
+test("⌘1–9 leave the selected model alone after the searched picker closes", async () => {
+  const { popover } = await openCatalog();
+  await userEvent.type(
+    within(popover).getByRole("combobox", { name: "Search models" }),
+    "Shortcut model",
+  );
+  await closeModelControl();
+  const modelName = screen
+    .getByRole("button", { name: /^Model: Opus 5\.5, Personal/ })
+    .getAttribute("aria-label");
+  for (const number of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+    await userEvent.keyboard(`{Meta>}${number}{/Meta}`);
+    expect(
+      screen
+        .getByRole("button", { name: /^Model: Opus 5\.5, Personal/ })
+        .getAttribute("aria-label"),
+    ).toBe(modelName);
+    expect(screen.queryByRole("dialog", { name: "Choose model" })).toBeNull();
+  }
+});
+
+test.each([55, 120])(
+  "expanded legacy rows omit nonexistent controls targets in a virtual catalog with %i added models",
+  async (count) => {
+    const { popover, list } = await openCatalog(count);
+    const search = within(popover).getByRole("combobox", { name: "Search models" });
+    await userEvent.keyboard("{ArrowUp}");
+    await waitFor(() =>
+      expect(within(list).getByRole("option", { name: "Legacy models, 6" })).toBeTruthy(),
+    );
+    await userEvent.keyboard("{ArrowRight}");
+    await waitFor(() => {
+      const active = document.getElementById(search.getAttribute("aria-activedescendant") ?? "");
+      expect(active?.getAttribute("aria-label")).toMatch(/^Opus 5, /);
+    });
+    // Keep the disclosure in the rendered window, even without layout in jsdom.
+    await userEvent.keyboard("{ArrowUp}");
+    await waitFor(() => {
+      const toggle = within(list).getByRole("option", { name: "Legacy models, 6" });
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      expect(toggle.getAttribute("aria-controls")).toBeNull();
+    });
+    await userEvent.keyboard("{ArrowDown}{ArrowLeft}");
+    expect(
+      within(list).getByRole("option", { name: "Legacy models, 6" }).getAttribute("aria-expanded"),
+    ).toBe("false");
+    await userEvent.keyboard("{ArrowRight}{Enter}");
+    expect(await screen.findByRole("button", { name: /^Model: Opus 5, Personal/ })).toBeTruthy();
+  },
+);
+
+test("a nonvirtual legacy disclosure controls its actual labeled model region", async () => {
+  const { list } = await openCatalog();
+  const toggle = within(list).getByRole("option", { name: "Legacy models, 6" });
+  await userEvent.click(toggle);
+  const legacy = within(list).getByRole("group", { name: "Legacy models" });
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(document.getElementById(toggle.getAttribute("aria-controls") ?? "")).toBe(legacy);
+  expect(within(legacy).getByRole("option", { name: /^Opus 5, / })).toBeTruthy();
+});
 
 test("Tab reaches the account rail and arrows filter it before returning to search", async () => {
   const { popover, list } = await openCatalog();

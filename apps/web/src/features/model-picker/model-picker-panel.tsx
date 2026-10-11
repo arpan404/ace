@@ -272,7 +272,7 @@ export function ModelPickerPanel(props: {
     }
   };
 
-  const row = (item: PickerItem, index: number, nested: boolean, section = 0) => {
+  const row = (item: PickerItem, index: number, nested: boolean, section?: number) => {
     const id = `${listId}-${index}`;
     if (item.kind === "legacy")
       return (
@@ -282,7 +282,10 @@ export function ModelPickerPanel(props: {
           count={item.group.legacy.length}
           expanded={item.expanded}
           highlighted={index === active}
-          controls={item.expanded ? `${listId}-legacy-${section}` : undefined}
+          // Only the nonvirtual list mounts a single region for this section.
+          controls={
+            item.expanded && section !== undefined ? `${listId}-legacy-${section}` : undefined
+          }
           onHighlight={() => setHighlight(index)}
           onToggle={() => activate(index)}
         />

@@ -80,7 +80,7 @@ test("each account has a rail entry and selecting it switches the catalog", asyn
   await selectAccount(popover, "Team");
   expect(within(list).getByRole("option", { name: /^GPT-6\.2 Sol/ })).toBeTruthy();
   expect(within(list).queryByRole("option", { name: /^GPT-6 Luna/ })).toBeNull();
-  expect(within(list).getByText("NEW")).toBeTruthy();
+  expect(within(list).getByRole("option", { name: /^GPT-6\.2 Sol, New,/ })).toBeTruthy();
   await userEvent.type(within(popover).getByRole("combobox", { name: "Search models" }), "gpt-6");
   expect(within(list).getAllByRole("option", { name: /Codex · Team/ }).length).toBeGreaterThan(0);
   expect(within(list).getAllByRole("option", { name: /Codex · Personal/ }).length).toBeGreaterThan(
