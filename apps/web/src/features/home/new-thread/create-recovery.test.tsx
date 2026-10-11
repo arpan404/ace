@@ -1,11 +1,123 @@
 import { workbench } from "@ace/fake-daemon";
-import { configure, cleanup, screen, waitFor } from "@testing-library/react";
+import { act, configure, cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { memoryStorage } from "@/boot/client.ts";
 
 configure({ asyncUtilTimeout: 30000 });
+
+test("a second new thread after a successful creation can upload and adopt its own files", async () => {
+  const made = harness();
+  for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
+  await made.open("/new?project=relay");
+  await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "First creation");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
+      "true",
+    ),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => {
+    const view = made.daemon.snapshot({ kind: "threads" });
+    expect(
+      view?.kind === "threads" &&
+        Object.values(view.threads).some((row) => row.title === "First creation"),
+    ).toBe(true);
+  });
+  cleanup();
+  await made.open("/new?project=relay");
+  await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "Second creation");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
+      "true",
+    ),
+  );
+  await userEvent.upload(
+    screen.getByLabelText("Files to attach"),
+    new File(["second"], "second.txt", { type: "text/plain" }),
+  );
+  await screen.findByRole("button", { name: "Remove second.txt" });
+  await waitFor(() =>
+    expect(screen.queryByRole("progressbar", { name: "Uploading second.txt" })).toBeNull(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => {
+    const view = made.daemon.snapshot({ kind: "threads" });
+    expect(
+      view?.kind === "threads" &&
+        Object.values(view.threads).some((row) => row.title === "Second creation"),
+    ).toBe(true);
+  });
+  const view = made.daemon.snapshot({ kind: "threads" });
+  const created =
+    view?.kind === "threads" &&
+    Object.values(view.threads).find((row) => row.title === "Second creation");
+  if (!created) throw new Error("second creation did not succeed");
+  const reply = await made.client.request({
+    type: "context.request",
+    operation: { op: "attachment.list", threadId: created.id },
+  });
+  expect(
+    reply.result.kind === "attachments" && reply.result.attachments.map((file) => file.name),
+  ).toEqual(["second.txt"]);
+});
+
+test("a refusal after composer remount joins the current prompt and retains the submitted file", async () => {
+  const gate = Promise.withResolvers<void>();
+  const outbox = memoryStorage();
+  let hold = false;
+  const made = harness({
+    outbox: {
+      load: outbox.load,
+      async save(value) {
+        if (hold) {
+          await gate.promise;
+          throw new Error("storage full");
+        }
+        await outbox.save(value);
+      },
+    },
+  });
+  for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
+  await made.open("/new?project=relay");
+  await userEvent.upload(
+    screen.getByLabelText("Files to attach"),
+    new File(["original"], "original.txt", { type: "text/plain" }),
+  );
+  await screen.findByRole("button", { name: "Remove original.txt" });
+  await waitFor(() =>
+    expect(screen.queryByRole("progressbar", { name: "Uploading original.txt" })).toBeNull(),
+  );
+  await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "Original prompt");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
+      "true",
+    ),
+  );
+  hold = true;
+  await userEvent.keyboard("{Enter}");
+  for (const project of ["billing-api", "relay"]) {
+    await userEvent.click(await screen.findByRole("button", { name: /^Project:/ }));
+    await userEvent.click(await screen.findByRole("option", { name: project }));
+    await screen.findByRole("combobox", { name: "Message" });
+  }
+  await userEvent.clear(screen.getByRole("combobox", { name: "Message" }));
+  await userEvent.type(screen.getByRole("combobox", { name: "Message" }), "Newer prompt");
+  await act(async () => gate.resolve());
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+      "Newer prompt\n\nOriginal prompt",
+    ),
+  );
+  expect(screen.getByRole("button", { name: "Remove original.txt" })).toBeTruthy();
+  cleanup();
+  await made.open("/new?project=relay");
+  expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
+    "Newer prompt\n\nOriginal prompt",
+  );
+  expect(screen.getByRole("button", { name: "Remove original.txt" })).toBeTruthy();
+});
 
 test("a new thread whose outbox cannot save restores its draft across reload", async () => {
   const storage = memoryKeyValue();

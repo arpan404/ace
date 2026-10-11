@@ -45,7 +45,7 @@ import {
 } from "./deferred-parts.tsx";
 import { carriesFiles, takeTransfer, type Intake } from "./file-intake.ts";
 import { takeDraftsFor, type ReturnedDraft } from "./send-store.ts";
-import { mergeReturnedDraft } from "./returned-draft.ts";
+import { mergeReturnedDraft, restoreReturnedDraft } from "./returned-draft.ts";
 import { useSuggestions, type Suggestion } from "./suggestions.tsx";
 import { useAutosize } from "./use-autosize.ts";
 import { useDraftPersistence } from "./use-draft-persistence.ts";
@@ -539,16 +539,17 @@ function ComposerBody({
     setPicked(new Set());
     setTokens([]);
     void props.onSubmit(draft).then((sent) => {
-      if (!sent)
-        restoreSubmission(
-          {
-            text: before.text,
-            tokens: before.tokens,
-            mentions: [...before.picked],
-            attachments: before.files,
-          },
-          draft,
-        );
+      const returned = {
+        text: before.text,
+        tokens: before.tokens,
+        mentions: [...before.picked],
+        attachments: before.files,
+      };
+      if (!saved.finish()) {
+        if (!sent && draftKey) restoreReturnedDraft(storage, draftKey, returned);
+        return;
+      }
+      if (!sent) restoreSubmission(returned, draft);
     });
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

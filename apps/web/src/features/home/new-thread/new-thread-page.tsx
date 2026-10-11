@@ -212,7 +212,7 @@ export function NewThreadPage(props: {
     scope.adopt();
     // Its first bubble shows the files as they were attached, until the daemon echoes them.
     void draft.files.settled.then((ready) => rememberAttachments(draft.files.local, ready));
-    return create({
+    const sent = await create({
       project,
       scope: resolved.model.scope,
       model: resolved.model.id,
@@ -230,6 +230,10 @@ export function NewThreadPage(props: {
         attachments: draft.attachments,
       },
     });
+    // Durable admission hands this scope to the thread. Later composition must allocate its own.
+    // A refused save still needs the original scope to restore and resubmit its files.
+    if (sent && scopeKey && readScope() === draftId) writeJson(storage, scopeKey, null);
+    return sent;
   };
 
   const toMessage = () =>
