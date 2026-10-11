@@ -1,4 +1,5 @@
 export { aceToolAction } from "./actions.ts";
+export { maxToolTimeoutMs } from "./timeouts.ts";
 export { CredentialRegistry, type Principal, type SessionLease } from "./credentials.ts";
 export {
   ToolRegistry,

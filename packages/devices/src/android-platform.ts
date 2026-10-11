@@ -1,6 +1,7 @@
+import { z } from "zod";
 import { AndroidInputShell } from "./android-input-shell.ts";
 import { AppDevice as DeviceSchema, type AppDevice as Device } from "@ace/protocol/devices";
-import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
+import { probeOutput, spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { DeviceError, resolveAndroidSDK, type SDKOptions } from "./sdk.ts";
 import {
   adbDevices,
@@ -16,12 +17,14 @@ export type DeviceCommand = (
   maxBytes?: number,
   timeoutMs?: number,
   signal?: AbortSignal,
+  authorize?: () => void,
 ) => Promise<{ stdout: string; stderr: string; code: number | null }>;
 export class AndroidPlatform {
   private readonly options: SDKOptions;
   private readonly run: DeviceCommand;
   private readonly spawn: typeof spawnSupervised;
   private readonly emulators = new Map<string, SupervisedProcess>();
+  private readonly ownedSerials = new Map<string, string>();
   private readonly serialNames = new Map<string, string>();
   private readonly inventory = new Map<string, Device>();
   private readonly transportWatchers = new Set<{
@@ -31,6 +34,18 @@ export class AndroidPlatform {
   }>();
   private readonly pendingBoots = new Set<string>();
   private readonly ports = new Set<number>();
+  private duplicate = false;
+  diagnostics() {
+    return this.duplicate
+      ? [
+          new DeviceError(
+            "busy",
+            "An Android emulator has duplicate instances",
+            "Close duplicate emulator windows before controlling that device.",
+          ),
+        ]
+      : [];
+  }
   private closed = false;
   private readonly inputs = new Map<string, AndroidInputShell>();
   private readonly openingInputs = new Map<string, Promise<AndroidInputShell>>();
@@ -58,24 +73,26 @@ export class AndroidPlatform {
     const connectedSerials = new Set(transports.map(({ serial }) => serial));
     for (const serial of this.serialNames.keys())
       if (!connectedSerials.has(serial)) this.serialNames.delete(serial);
-    for (const { serial, state } of transports) {
-      let name = this.serialNames.get(serial) ?? serial;
-      if (state === "booted") {
-        const resolved = await this.emulatorName(adb, serial);
-        if (resolved) {
-          name = resolved;
-          this.serialNames.set(serial, name);
-        } else {
-          name = serial;
+    const named = await Promise.all(
+      transports.map(async ({ serial, state }) => {
+        let name = this.serialNames.get(serial);
+        if (!name && state === "booted") {
+          name = await this.emulatorName(adb, serial);
+          if (name) this.serialNames.set(serial, name);
         }
-      }
+        return { serial, state, name: name ?? serial };
+      }),
+    );
+    this.duplicate = false;
+    const bootingSerials = new Set([...this.pendingBoots].map((id) => this.ownedSerials.get(id)));
+    for (const { serial, state, name } of named) {
+      if (state === "offline" && bootingSerials.has(serial)) continue;
       const existing = devices.get(name);
-      if (existing?.serial && existing.serial !== serial)
-        throw new DeviceError(
-          "busy",
-          "Multiple emulator instances use the same AVD",
-          "Close duplicate instances before selecting this AVD in ace.",
-        );
+      if (existing?.serial && existing.serial !== serial) {
+        this.duplicate = true;
+        devices.set(name, { ...existing, state: "offline" });
+        continue;
+      }
       devices.set(name, { id: `android:${name}`, platform: "android", name, state, serial });
     }
     for (const [id, shell] of this.inputs) {
@@ -85,7 +102,12 @@ export class AndroidPlatform {
         void shell.close();
       }
     }
-    const result = [...devices.values()].map((device) => DeviceSchema.parse(device));
+    const result = [...devices.values()].map((device) =>
+      DeviceSchema.parse({
+        ...device,
+        name: /^emulator-\d+$/.test(device.name) ? "Android emulator" : device.name,
+      }),
+    );
     this.inventory.clear();
     for (const device of result) this.inventory.set(device.id, device);
     for (const watcher of this.transportWatchers) {
@@ -128,19 +150,30 @@ export class AndroidPlatform {
       );
     return current.serial;
   }
-  async adb(device: Device, args: readonly string[], maxBytes?: number, authorize?: () => void) {
+  async adb(
+    device: Device,
+    args: readonly string[],
+    maxBytes?: number,
+    authorize?: () => void,
+    timeoutMs?: number,
+  ) {
     const serial = await this.serial(device);
     const { adb } = await this.resolve();
     authorize?.();
-    return this.run(adb, ["-s", serial, ...args], maxBytes);
+    return this.run(adb, ["-s", serial, ...args], maxBytes, timeoutMs, undefined, authorize);
   }
-  async input(device: Device, args: readonly string[], authorize: () => void): Promise<void> {
+  async input(
+    device: Device,
+    args: readonly string[],
+    authorize: () => void,
+    timeoutMs = 5000,
+  ): Promise<void> {
     if (args[0] !== "shell" || args.length !== 2 || !args[1])
       throw new Error("Expected quoted Android shell input");
     authorize();
     const shell = await this.inputShell(device, authorize);
     try {
-      await shell.send(args[1], authorize);
+      await shell.send(args[1], authorize, timeoutMs);
     } catch (error) {
       if (this.inputs.get(device.id) === shell) this.inputs.delete(device.id);
       await shell.close();
@@ -162,10 +195,12 @@ export class AndroidPlatform {
         serial,
         env: this.options.env,
         spawn: this.spawn,
-        after: (ms, run) => {
-          const timer = setTimeout(run, ms);
-          return () => clearTimeout(timer);
-        },
+        after:
+          this.options.after ??
+          ((ms, run) => {
+            const timer = setTimeout(run, ms);
+            return () => clearTimeout(timer);
+          }),
       });
       this.inputs.set(device.id, shell);
       return shell;
@@ -192,7 +227,7 @@ export class AndroidPlatform {
     ]) {
       try {
         const name = avdNameOrUndefined(
-          (await this.run(adb, ["-s", serial, ...args], 4096)).stdout,
+          (await this.run(adb, ["-s", serial, ...args], 4096, 3000)).stdout,
         );
         if (name) return name;
       } catch {
@@ -215,7 +250,34 @@ export class AndroidPlatform {
     await this.verifyTransport(adb, device, serial);
     const result = await this.run(adb, ["-s", serial, ...adbShell(["wm", "size"])], 4096);
     await this.verifyTransport(adb, device, serial);
-    return { adb, serial, ...androidDimensions(result.stdout) };
+    const orientation = await this.run(
+      adb,
+      ["-s", serial, ...adbShell(["dumpsys", "input"])],
+      128 * 1024,
+      3000,
+    );
+    const rawRotation = /SurfaceOrientation:\s*([0-3])/.exec(orientation.stdout)?.[1];
+    const rotation =
+      rawRotation === undefined
+        ? z.coerce
+            .number()
+            .int()
+            .min(0)
+            .max(3)
+            .parse(
+              (
+                await this.run(
+                  adb,
+                  ["-s", serial, ...adbShell(["settings", "get", "system", "user_rotation"])],
+                  4096,
+                  3000,
+                )
+              ).stdout.trim(),
+            )
+        : Number(rawRotation);
+    await this.verifyTransport(adb, device, serial);
+    const size = androidDimensions(result.stdout);
+    return { adb, serial, ...(rotation % 2 ? { width: size.height, height: size.width } : size) };
   }
   watchCaptureTransport(device: Device, serial: string, fail: (error: DeviceError) => void) {
     if (this.transportWatchers.size >= 4)
@@ -252,8 +314,8 @@ export class AndroidPlatform {
     }
   }
   async captureDimensions(device: Device): Promise<{ width: number; height: number }> {
-    const { stdout } = await this.adb(device, adbShell(["wm", "size"]), 4096);
-    return androidDimensions(stdout);
+    const { width, height } = await this.captureTransport(device);
+    return { width, height };
   }
 
   async boot(input: Device, authorize?: () => void): Promise<void> {
@@ -313,11 +375,15 @@ export class AndroidPlatform {
         throw error;
       }
       this.emulators.set(device.id, proc);
+      this.ownedSerials.set(device.id, `emulator-${port}`);
       const controller = new AbortController();
       void proc.exited.then(() => {
         controller.abort();
         this.ports.delete(port);
-        if (this.emulators.get(device.id) === proc) this.emulators.delete(device.id);
+        if (this.emulators.get(device.id) === proc) {
+          this.emulators.delete(device.id);
+          this.ownedSerials.delete(device.id);
+        }
       });
       try {
         await Promise.race([
@@ -351,7 +417,7 @@ export class AndroidPlatform {
           }),
         ]);
       } catch (error) {
-        await proc.stop({ graceMs: 0 });
+        await proc.stop({ graceMs: 30_000 });
         throw error;
       }
     } finally {
@@ -361,44 +427,79 @@ export class AndroidPlatform {
   async shutdown(device: Device, authorize?: () => void): Promise<void> {
     // Retain this process identity: another boot may replace the map entry while adb waits.
     const emulator = this.emulators.get(device.id);
+    const serial = await this.serial(device);
+    const { adb } = await this.resolve();
+    await this.verifyTransport(adb, device, serial);
+    authorize?.();
     try {
-      const serial = await this.serial(device);
-      const { adb } = await this.resolve();
-      await this.verifyTransport(adb, device, serial);
-      authorize?.();
-      try {
-        await this.run(adb, ["-s", serial, "emu", "kill"]);
-      } catch {
-        // Emulator console unreachable or already dead; fall through to the wait below.
-      }
-      authorize?.();
-      await emulator?.stop({ graceMs: 0 });
-      if (await this.transportGone(adb, serial)) {
-        this.serialNames.delete(serial);
-        return;
-      }
-      // A lease or an emulator console port may have changed during the disconnect wait.
-      // Fence both outside the best-effort command catch so either failure stops shutdown.
-      await this.verifyTransport(adb, device, serial);
-      authorize?.();
-      try {
-        await this.run(adb, ["-s", serial, "shell", "reboot", "-p"], 4096, 10_000);
-      } catch {
-        // Power-off is best effort; the second wait decides the outcome.
-      }
-      if (await this.transportGone(adb, serial)) {
-        this.serialNames.delete(serial);
-        return;
-      }
-      throw new DeviceError(
-        "command_failed",
-        "Emulator did not shut down",
-        "Close the emulator window, then refresh the device list.",
+      await this.run(
+        adb,
+        ["-s", serial, "emu", "kill"],
+        undefined,
+        undefined,
+        undefined,
+        authorize,
       );
-    } finally {
-      authorize?.();
-      await emulator?.stop({ graceMs: 0 });
+    } catch {
+      // Emulator console unreachable or already dead; fall through to the wait below.
     }
+    authorize?.();
+    if (await this.transportGone(adb, serial)) {
+      await this.waitForExit(emulator);
+      this.serialNames.delete(serial);
+      return;
+    }
+    // A lease or an emulator console port may have changed during the disconnect wait.
+    // Fence both outside the best-effort command catch so either failure stops shutdown.
+    await this.verifyTransport(adb, device, serial);
+    authorize?.();
+    try {
+      await this.run(
+        adb,
+        ["-s", serial, "shell", "reboot", "-p"],
+        4096,
+        10_000,
+        undefined,
+        authorize,
+      );
+    } catch {
+      // Power-off is best effort; the second wait decides the outcome.
+    }
+    if (await this.transportGone(adb, serial)) {
+      await this.waitForExit(emulator);
+      this.serialNames.delete(serial);
+      return;
+    }
+    authorize?.();
+    if (emulator) {
+      await emulator.stop({ graceMs: 30_000 });
+      if (await this.transportGone(adb, serial)) {
+        this.serialNames.delete(serial);
+        return;
+      }
+    }
+    throw new DeviceError(
+      "command_failed",
+      "Emulator did not shut down",
+      "Close the emulator window, then refresh the device list.",
+    );
+  }
+  private async waitForExit(proc: SupervisedProcess | undefined): Promise<void> {
+    if (!proc) return;
+    let cancel: (() => void) | undefined;
+    const after =
+      this.options.after ??
+      ((ms: number, run: () => void) => {
+        const timer = setTimeout(run, ms);
+        return () => clearTimeout(timer);
+      });
+    const exited = await Promise.race([
+      proc.exited.then(() => true),
+      new Promise<false>((resolve) => {
+        cancel = after(30_000, () => resolve(false));
+      }),
+    ]).finally(() => cancel?.());
+    if (!exited) await proc.stop({ graceMs: 30_000 });
   }
   private async transportGone(adb: string, serial: string): Promise<boolean> {
     try {
@@ -415,10 +516,31 @@ export class AndroidPlatform {
   }
   async close(): Promise<void> {
     this.closed = true;
-    await Promise.all([...this.emulators.values()].map((proc) => proc.stop({ graceMs: 0 })));
+    await Promise.all(
+      [...this.emulators.entries()].map(async ([id, proc]) => {
+        const serial = this.ownedSerials.get(id);
+        if (serial) {
+          try {
+            const { adb } = await this.resolve();
+            const result = await (this.options.probe ?? probeOutput)(
+              adb,
+              ["-s", serial, "emu", "kill"],
+              { env: this.options.env, maxBytes: 4096, timeoutMs: 10_000 },
+            );
+            if (result.code !== 0) throw new Error("Emulator console shutdown failed");
+            await this.waitForExit(proc);
+            return;
+          } catch {
+            /* Fall back to a generous process shutdown window. */
+          }
+        }
+        await proc.stop({ graceMs: 30_000 });
+      }),
+    );
     await Promise.all([...this.inputs.values()].map((shell) => shell.close()));
     this.inputs.clear();
     this.emulators.clear();
+    this.ownedSerials.clear();
     this.serialNames.clear();
     this.inventory.clear();
     this.transportWatchers.clear();

@@ -200,12 +200,14 @@ Capacity, cancellation and result-limit failures also return readable text.
 Stack traces, input dumps and echoed ace bearer credentials are not returned.
 Read the error before retrying; delegation and approval failures require a human.
 
-Daemon tool deadlines include lazy browser startup and origin approval. Codex
-gets `mcp_servers.ace.tool_timeout_sec=300`; Claude gets `MCP_TOOL_TIMEOUT=300000`;
-OpenCode 2.0.22 gets the remote server's `timeout.execution=300000`. These settings
+Daemon tool deadlines include lazy browser startup and origin approval. Device installs
+allow ten minutes of native execution and another 30 seconds for dispatch and completion.
+Codex gets `mcp_servers.ace.tool_timeout_sec=660`; Claude gets `MCP_TOOL_TIMEOUT=660000`;
+OpenCode 2.0.22 gets the remote server's `timeout.execution=660000`. These settings
 come from the installed provider interfaces; Pi uses advertised `ace/timeoutMs`.
 ACP defines no portable execution-timeout override. Its provider must permit the
 advertised daemon deadline. SDK/CLI versions can still impose their own limits.
+The ace ACP stdio bridge allows up to eleven minutes for tool calls.
 
 Codex sends `mcp_servers.ace` with `http_headers.Authorization` in the native
 `thread/start`, `thread/resume`, or `thread/fork` RPC configuration. The bearer is

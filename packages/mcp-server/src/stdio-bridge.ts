@@ -4,6 +4,7 @@ import type { Readable, Writable } from "node:stream";
 import { outputGate, RpcWriter, SseParser } from "@ace/provider-kit/streams";
 import { nodeScheduler, type Scheduler } from "./registry.ts";
 import { AceMcpConnectionSchema, type AceMcpConnection } from "./injection.ts";
+import { maxToolTimeoutMs } from "./timeouts.ts";
 const Message = z
   .object({
     jsonrpc: z.literal("2.0"),
@@ -83,7 +84,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     let timedOut = false;
     // Registry tools may run for five minutes. A bridge deadline settles only
     // this request, preserving the provider's connection for subsequent tools.
-    const cancelTimer = (options.scheduler ?? nodeScheduler).after(330_000, () => {
+    const cancelTimer = (options.scheduler ?? nodeScheduler).after(message.method === "tools/call" ? maxToolTimeoutMs : 120_000, () => {
       timedOut = true;
       controller.abort();
     });

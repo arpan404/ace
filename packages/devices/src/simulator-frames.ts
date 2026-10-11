@@ -12,6 +12,7 @@ export class SimulatorFrames {
   private pending: Image | undefined;
   private running: Promise<void> | undefined;
   private last = -Infinity;
+  private cancel: (() => void) | undefined;
   private readonly waiters = new Set<{
     revision: number;
     resolve(): void;
@@ -20,6 +21,7 @@ export class SimulatorFrames {
   private readonly options: {
     fps: number;
     now(): number;
+    after(ms: number, run: () => void): () => void;
     publish(image: Image, scale: number): void;
     failure(error: unknown): void;
   };
@@ -30,7 +32,18 @@ export class SimulatorFrames {
   push(bytes: Buffer, width: number, height: number): void {
     if (this.stopped) return;
     this.latest = { bytes, width, height };
-    if (this.options.now() - this.last < 1000 / this.settings.fps) return;
+    const remaining = 1000 / this.settings.fps - (this.options.now() - this.last);
+    if (remaining > 0) {
+      this.cancel ??= this.options.after(remaining, () => {
+        this.cancel = undefined;
+        this.publishLatest();
+      });
+    } else this.publishLatest();
+  }
+  private publishLatest(): void {
+    if (this.stopped) return;
+    this.cancel?.();
+    this.cancel = undefined;
     this.last = this.options.now();
     this.pending = this.latest;
     this.start();
@@ -101,6 +114,8 @@ export class SimulatorFrames {
   async stop(): Promise<void> {
     for (const waiter of this.waiters) waiter.reject(new Error("Simulator frames stopped"));
     this.waiters.clear();
+    this.cancel?.();
+    this.cancel = undefined;
     this.stopped = true;
     this.revision++;
     this.pending = undefined;

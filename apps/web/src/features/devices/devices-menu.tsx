@@ -61,16 +61,16 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
               <MenuSeparator />
             </>
           )}
-          {controls?.running && controls.live && (
+          {controls?.running && (controls.live || controls.cleanupRequired) && (
             <MenuItem
               icon={<StopIcon aria-hidden size={16} />}
               disabled={view.pending}
               onClick={devices.stop}
             >
-              Stop live view
+              {controls.cleanupRequired ? "Retry cleanup" : "Stop live view"}
             </MenuItem>
           )}
-          {controls?.running && !controls.live && (
+          {controls?.running && !controls.live && !controls.cleanupRequired && (
             <MenuItem
               icon={<PlayIcon aria-hidden size={16} />}
               disabled={view.pending || controls.busy}
@@ -91,7 +91,7 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
             ) : (
               <MenuItem
                 icon={<PowerIcon aria-hidden size={16} />}
-                disabled={view.pending}
+                disabled={view.pending || controls.busy}
                 onClick={devices.boot}
               >
                 Boot

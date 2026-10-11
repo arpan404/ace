@@ -1,3 +1,4 @@
+import { useToast } from "@/components/ui/toast.tsx";
 import { DeviceClientError } from "@ace/client/devices";
 import type { DeviceInput, DeviceOperation, DevicePermission, DeviceSettings } from "@ace/protocol";
 import { AgentId, ThreadId, ScreenFrameHeader } from "@ace/protocol";
@@ -44,6 +45,7 @@ function useSeconds(active: boolean): number {
 
 export interface DevicesView {
   connected: boolean;
+  loading: boolean;
   /** Set when the channel closed on an error; the panel offers to reconnect. */
   failure: DeviceProblem | undefined;
   enabled: boolean;
@@ -71,6 +73,9 @@ export function useDevices(threadId: string, deviceId?: string) {
   const [pending, setPending] = useState(0);
   const [failed, setFailed] = useState<DeviceProblem | undefined>();
   const connected = snapshot.connected;
+  const { add: notify } = useToast();
+  const claim = useRef<Promise<unknown> | undefined>(undefined);
+  const noticed = useRef<string | undefined>(undefined);
 
   // Read the inventory each time the channel comes up, and keep it current while this channel
   // (open only while a devices view is) stays up.
@@ -92,6 +97,11 @@ export function useDevices(threadId: string, deviceId?: string) {
     (snapshot.states.length
       ? snapshot.states.some((entry) => entry.enabled)
       : (enabledLocally ?? false));
+  const notice = state?.recordingNotice;
+  useEffect(() => {
+    if (notice && notice !== noticed.current) notify({ title: notice });
+    noticed.current = notice;
+  }, [notice, notify, noticed]);
   const now = useSeconds(state?.controller === "human");
   const controls = device && deviceControls(device, state, threadId, now);
 
@@ -141,14 +151,29 @@ export function useDevices(threadId: string, deviceId?: string) {
   };
   /** Boot, shutdown and input need a control lease; take it first when it isn't held. */
   const withControl = async (operation: DeviceOperation) => {
-    if (!controls?.inControl && selected)
-      await run({ op: "controller", deviceId: selected.id, controller: "human" });
+    const current = session?.client
+      .getSnapshot()
+      .states.find((entry) => entry.device.id === selected?.id);
+    if (
+      selected &&
+      !(current?.controller === "human" && (current.leaseExpiresAt ?? 0) > Date.now())
+    ) {
+      claim.current ??= run({
+        op: "controller",
+        deviceId: selected.id,
+        controller: "human",
+      }).finally(() => {
+        claim.current = undefined;
+      });
+      await claim.current;
+    }
     return run(operation);
   };
   const target = selected?.id;
 
   const view: DevicesView = {
     connected,
+    loading: !snapshot.inventoryLoaded,
     failure: connected
       ? undefined
       : snapshot.error
@@ -165,7 +190,7 @@ export function useDevices(threadId: string, deviceId?: string) {
     selected,
     controls,
     pending: pending > 0,
-    problem: failed,
+    problem: failed ?? (snapshot.issues[0] && deviceProblem(snapshot.issues[0])),
     session,
     holder: state?.controller === "agent" ? state.holder : undefined,
   };

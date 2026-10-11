@@ -1,4 +1,4 @@
-import { deviceImageStream } from "./stream-control.ts";
+import { deviceImageStream, sameDeviceStream } from "./stream-control.ts";
 import { simulatorCapture } from "./simulator-capture.ts";
 import type { DeviceInput } from "@ace/protocol/devices";
 import { H264AccessUnits } from "./h264.ts";
@@ -46,7 +46,7 @@ export async function startCapture(options: {
     );
     checkAbort();
     if (command) {
-      const device = await options.platform.simulatorCaptureDevice(options.device);
+      const device = await options.platform.simulatorDevice(options.device);
       checkAbort();
       return simulatorCapture({ ...options, device, command });
     }
@@ -164,7 +164,7 @@ export async function startCapture(options: {
   let stopped = false;
   let sequence = 0;
   let settings: ScreenStreamSettings = { ...deviceImageStream, fps: options.fps };
-  let lastKeyframe = -Infinity;
+  let terminated = false;
   type Cycle = {
     input: RawSupervisedProcess;
     output: RawSupervisedProcess;
@@ -187,6 +187,7 @@ export async function startCapture(options: {
       current.output.stop({ graceMs: 0 }),
     ]);
     await current.done;
+    if (intent === "stop") terminated = true;
     const failures = results.flatMap((result) =>
       result.status === "rejected" ? [result.reason] : [],
     );
@@ -421,16 +422,19 @@ export async function startCapture(options: {
   return {
     stop,
     restart,
+    get terminated() {
+      return terminated;
+    },
     async configure(next) {
-      settings = next;
-      await restart();
-      return { codec: next.codec };
+      // Latest-frame delivery is safe for JPEG; Android H.264 needs a GOP-aware transport.
+      const images = { ...next, codec: "jpeg" as const };
+      if (!sameDeviceStream(settings, images)) {
+        settings = images;
+        await restart();
+      }
+      return { codec: "jpeg" };
     },
-    async keyframe() {
-      if (runtime.now() - lastKeyframe < 1000) return;
-      lastKeyframe = runtime.now();
-      await restart();
-    },
+    async keyframe() {},
   };
 }
 /**

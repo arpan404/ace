@@ -1,7 +1,12 @@
 import type { DeviceOperation } from "@ace/protocol/devices";
 import { DeviceLogs } from "./logs.ts";
 import { DeviceError } from "./sdk.ts";
-import { stopDevice, type LifecycleOptions, type LifecycleOwner } from "./lifecycle.ts";
+import {
+  startDevice,
+  stopDevice,
+  type LifecycleOptions,
+  type LifecycleOwner,
+} from "./lifecycle.ts";
 import type { DeviceSession } from "./session.ts";
 export async function approveDevice(
   session: DeviceSession,
@@ -13,12 +18,14 @@ export async function approveDevice(
     throw new DeviceError("busy", "Approval is changing", "Wait for approval cleanup.");
   session.changingApproval = true;
   const approvalEpoch = ++session.approvalEpoch;
+  const wasLive = session.lifecycle === "live";
   const previousThread = session.threadId;
   delete session.threadId;
   const oldLogs = session.logs;
   // Close deactivates subscribers synchronously before awaiting subprocess exit.
   const closingLogs = oldLogs.close();
-  session.logs = new DeviceLogs();
+  session.logs = new DeviceLogs(options.runtime.after);
+  session.logOwners.clear();
   const revokeGrant = async (threadId: string | undefined) => {
     if (
       threadId &&
@@ -72,6 +79,8 @@ export async function approveDevice(
   } finally {
     session.changingApproval = false;
   }
+  if (wasLive && operation.allowed && session.approvalEpoch === approvalEpoch)
+    await startDevice(session, 60, options, owner);
 }
 
 /** Disable revokes each grant before independently terminating its owned resources. */

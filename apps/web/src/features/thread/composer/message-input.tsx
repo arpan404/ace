@@ -57,7 +57,8 @@ export function MessageInput({
     if (document.activeElement === el) placeEditorCaret(el, Math.min(caret, text.length));
   }, [input, text, tokens]);
   useLayoutEffect(() => {
-    if (autoFocus) input.current?.focus();
+    const el = input.current;
+    if (autoFocus && el && !el.closest('[inert], [aria-hidden="true"]')) el.focus();
   }, [autoFocus, input]);
   return (
     <>

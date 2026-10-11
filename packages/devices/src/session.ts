@@ -7,6 +7,9 @@ import type { DeviceCapture } from "./capture.ts";
 export interface DeviceSession {
   device: Device;
   threadId?: string;
+  booting?: boolean;
+  recordingNotice?: string;
+  logOwners: Set<string>;
   lifecycle: "idle" | "starting" | "live" | "stopping" | "failed";
   streamId?: string;
   error?: DeviceFailure;
@@ -35,13 +38,17 @@ export interface DeviceSession {
   stopping?: Promise<void>;
   cancelStart?: () => void;
 }
-export function createSession(device: Device, now: () => number): DeviceSession {
+export function createSession(
+  device: Device,
+  runtime: { now(): number; after(ms: number, run: () => void): () => void },
+): DeviceSession {
   return {
     device,
     lifecycle: "idle",
     hub: new FrameHub(),
-    logs: new DeviceLogs(),
-    lease: new ControllerLease(now),
+    logs: new DeviceLogs(runtime.after),
+    logOwners: new Set(),
+    lease: new ControllerLease(runtime.now),
     tail: Promise.resolve(),
     pending: 0,
     generation: 0,

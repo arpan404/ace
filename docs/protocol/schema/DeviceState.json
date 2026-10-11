@@ -5,6 +5,12 @@
     "approved": {
       "type": "boolean"
     },
+    "booting": {
+      "type": "boolean"
+    },
+    "cleanupRequired": {
+      "type": "boolean"
+    },
     "controller": {
       "enum": [
         "none",
@@ -53,6 +59,10 @@
     },
     "recording": {
       "type": "boolean"
+    },
+    "recordingNotice": {
+      "maxLength": 256,
+      "type": "string"
     },
     "streamId": {
       "$ref": "https://ace.local/protocol/v1/ScreenId.json"

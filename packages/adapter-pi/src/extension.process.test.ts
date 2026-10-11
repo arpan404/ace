@@ -6,7 +6,7 @@ import { AgentId, ThreadId } from "@ace/protocol";
 import { CredentialRegistry, ToolRegistry, nodeScheduler, startMcpServer } from "@ace/mcp-server";
 import { registerAcePiExtension, type PiExtensionApi } from "./index.ts";
 import { obj } from "./native.ts";
-test("Pi extension forwards scoped tools, structured results and MCP errors across real HTTP", async () => {
+test("Pi forwards scoped tools with long install deadlines, structured results and MCP errors across real HTTP", async () => {
   const registry = new ToolRegistry({ scheduler: nodeScheduler });
   const credentials = new CredentialRegistry(() => randomBytes(32).toString("hex"));
   let effect = "";
@@ -16,7 +16,7 @@ test("Pi extension forwards scoped tools, structured results and MCP errors acro
     input: z.object({ value: z.string() }),
     output: z.object({ value: z.string() }),
     capability: null,
-    timeoutMs: 1000,
+    timeoutMs: 630000,
     async run(args) {
       effect = args.value;
       return { value: `observed:${args.value}` };

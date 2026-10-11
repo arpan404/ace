@@ -203,8 +203,8 @@ it("decoder overload discards deltas until a fresh keyframe arrives", async () =
 });
 it("panel and network budgets reduce pixels and bitrate under pressure with JPEG fallback", () => {
   const small = deviceStreamProfile({ width: 350, height: 650 }, "local", true);
-  expect(small.maxWidth).toBe(350);
-  expect(small.maxHeight).toBe(650);
+  expect(small.maxWidth).toBe(384);
+  expect(small.maxHeight).toBe(704);
   expect(small.fps).toBe(60);
   const large = deviceStreamProfile({ width: 3000, height: 4000 }, "local", true);
   const relay = deviceStreamProfile({ width: 3000, height: 4000 }, "relay", true);
@@ -292,8 +292,8 @@ it("resize and reconnect dispose the previous decoder and ignore its late output
 it("local decode pressure drops cadence without lowering the viewer's pixel density", () => {
   const panel = { width: 1051, height: 1951 };
   const stream = deviceStreamProfile(panel, "local", true, 3);
-  expect(stream.maxWidth).toBe(1052);
-  expect(stream.maxHeight).toBe(1952);
+  expect(stream.maxWidth).toBe(1088);
+  expect(stream.maxHeight).toBe(1984);
   expect(stream.fps).toBe(30);
   expect(stream.codec).toBe("h264");
 });
@@ -301,8 +301,8 @@ it("local decode pressure drops cadence without lowering the viewer's pixel dens
 it("a portrait viewer at DPR three keeps its full physical height", () => {
   expect(deviceStreamProfile({ width: 1440, height: 3300 }, "local", true)).toMatchObject({
     codec: "h264",
-    maxWidth: 1440,
-    maxHeight: 3300,
+    maxWidth: 1472,
+    maxHeight: 3328,
     fps: 60,
   });
 });
@@ -385,4 +385,10 @@ it("repeated corrupt IDRs wait before requesting another frame and cancel recove
   delayed?.();
   expect(f.keys).toBe(2);
   expect(f.resources.size).toBe(0);
+});
+
+it("small panel resizes keep the same capture budget until the next size bucket", () => {
+  expect(deviceStreamProfile({ width: 390, height: 844 }, "local", true)).toEqual(
+    deviceStreamProfile({ width: 400, height: 850 }, "local", true),
+  );
 });

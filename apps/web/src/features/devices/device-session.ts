@@ -83,6 +83,7 @@ function openSession(endpoint: DaemonEndpoint): DeviceSession {
 
 const offline: DeviceSessionSnapshot = {
   connected: false,
+  inventoryLoaded: false,
   closed: false,
   devices: [],
   states: [],

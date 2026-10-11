@@ -1,14 +1,18 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { deviceBrowser, openDevice, openDevices } from "@/test/device-browser.ts";
 
+function noop() {}
 // jsdom has no WebCodecs: every screen here is JPEG, as in a browser without it.
 let browser: ReturnType<typeof deviceBrowser>;
 beforeEach(() => {
   browser = deviceBrowser("none");
 });
-afterEach(() => browser.restore());
+afterEach(() => {
+  browser.restore();
+  vi.restoreAllMocks();
+});
 
 /** Wait until the device's screen has drawn at least one frame. */
 async function shows(screenImage: HTMLElement) {
@@ -324,4 +328,142 @@ test("Simulator can restart its live view without granting agent access", async 
   await userEvent.click(await screen.findByRole("menuitem", { name: /Stop live view/ }));
   await userEvent.click(await within(iphone).findByRole("button", { name: "Start live view" }));
   await shows(await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" }));
+});
+
+function interceptDeviceRequests(
+  app: Awaited<ReturnType<typeof openDevices>>["app"],
+  handle: (
+    message: import("@ace/protocol").DeviceClientMessage,
+    send: (message: import("@ace/protocol").DeviceClientMessage) => void,
+    push: (data: unknown) => void,
+  ) => boolean,
+) {
+  const create = app.daemon.appDevices.transport.bind(app.daemon.appDevices);
+  return vi.spyOn(app.daemon.appDevices, "transport").mockImplementation(() => {
+    const transport = create();
+    let push: (data: unknown) => void = noop;
+    return {
+      ...transport,
+      open(events) {
+        push = events.message;
+        transport.open(events);
+      },
+      send(message) {
+        if (
+          !handle(
+            message,
+            (next) => {
+              void transport.send(next);
+            },
+            push,
+          )
+        )
+          return transport.send(message);
+      },
+    };
+  });
+}
+test("a device tab says loading during a slow inventory read and then returns to its screen", async () => {
+  const { app, panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await openDevice(panel, "iPhone 16 Pro");
+  let resume: (() => void) | undefined;
+  const spy = interceptDeviceRequests(app, (message, send) => {
+    if (message.operation.op !== "list") return false;
+    resume = () => send(message);
+    return true;
+  });
+  act(() => app.daemon.appDevices.dropAll());
+  await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
+  expect(await within(panel).findByLabelText("Loading iPhone 16 Pro")).toBeTruthy();
+  expect(within(panel).queryByText(/isn't on this machine any more/)).toBeNull();
+  act(() => resume?.());
+  expect(await within(panel).findByRole("img", { name: "iPhone 16 Pro screen" })).toBeTruthy();
+  spy.mockRestore();
+});
+test("booting has a visible status until the emulator finishes", async () => {
+  const { app, panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  let pixel = await openDevice(panel, "Pixel 9");
+  let resume: (() => void) | undefined;
+  const spy = interceptDeviceRequests(app, (message, send, push) => {
+    if (message.operation.op !== "boot") return false;
+    push({
+      type: "devices.state",
+      state: {
+        device: {
+          id: "android:Pixel_9_API_35",
+          name: "Pixel 9",
+          platform: "android",
+          state: "shutdown",
+        },
+        enabled: true,
+        approved: false,
+        lifecycle: "idle",
+        booting: true,
+        controller: "human",
+        leaseExpiresAt: Date.now() + 30000,
+      },
+    });
+    resume = () => send(message);
+    return true;
+  });
+  act(() => app.daemon.appDevices.dropAll());
+  await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
+  pixel = await within(panel).findByRole("region", { name: "Pixel 9" });
+  await userEvent.click(within(pixel).getByRole("button", { name: /^Boot$/ }));
+  expect(await within(pixel).findAllByText(/Booting…/)).toHaveLength(2);
+  expect(
+    within(pixel)
+      .getByRole("button", { name: /^Boot$/ })
+      .hasAttribute("disabled"),
+  ).toBe(true);
+  act(() => resume?.());
+  expect(await within(pixel).findByRole("img", { name: "Pixel 9 screen" })).toBeTruthy();
+  spy.mockRestore();
+});
+test("a failed stop offers cleanup retry, which allows the live view to start again", async () => {
+  const { app, panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  let iphone = await openDevice(panel, "iPhone 16 Pro");
+  await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
+  let fail = true;
+  const spy = interceptDeviceRequests(app, (message, _send, push) => {
+    if (message.operation.op !== "stop" || !fail) return false;
+    fail = false;
+    const error = {
+      code: "command_failed",
+      message: "Capture cleanup failed",
+      hint: "Retry cleanup.",
+    };
+    push({
+      type: "devices.state",
+      state: {
+        device: {
+          id: "ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b",
+          name: "iPhone 16 Pro",
+          platform: "ios",
+          state: "booted",
+        },
+        enabled: true,
+        approved: false,
+        lifecycle: "failed",
+        cleanupRequired: true,
+        controller: "none",
+        error,
+      },
+    });
+    push({ type: "devices.result", requestId: message.requestId, ok: false, error });
+    return true;
+  });
+  act(() => app.daemon.appDevices.dropAll());
+  await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
+  iphone = await within(panel).findByRole("region", { name: "iPhone 16 Pro" });
+  await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
+  await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Stop live view" }));
+  await userEvent.click(await within(iphone).findByRole("button", { name: "Retry cleanup" }));
+  await userEvent.click(await within(iphone).findByRole("button", { name: "Start live view" }));
+  expect(await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" })).toBeTruthy();
+  spy.mockRestore();
 });

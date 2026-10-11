@@ -39,6 +39,7 @@ export class Recording {
   private exhausted = false;
   private dir: string;
   private limit: number;
+  private outputLimit: number;
   private spawn: ProcessSpawner;
   private ffmpeg: string | undefined;
   private constructor(
@@ -46,11 +47,13 @@ export class Recording {
     ffmpeg: string | undefined,
     limit: number,
     spawn: ProcessSpawner,
+    outputLimit: number,
   ) {
     this.spawn = spawn;
     this.dir = dir;
     this.ffmpeg = ffmpeg;
     this.limit = limit;
+    this.outputLimit = outputLimit;
     this.manifest = createWriteStream(join(dir, "frames.jsonl"), { mode: 0o600 });
     this.concat = createWriteStream(join(dir, "frames.ffconcat"), { mode: 0o600 });
     this.manifest.on("error", (error) => {
@@ -60,15 +63,17 @@ export class Recording {
       this.failure = error;
     });
   }
+  /** JPEG admission and encoded output can have separate byte budgets. */
   static async start(
     dir: string,
     ffmpeg: string | undefined,
     limit = 256 * 1024 * 1024,
     spawn: ProcessSpawner = spawnProcess,
+    outputLimit = limit,
   ): Promise<Recording> {
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await writeFile(join(dir, "player.html"), player, { mode: 0o600 });
-    const recording = new Recording(dir, ffmpeg, limit, spawn);
+    const recording = new Recording(dir, ffmpeg, limit, spawn, outputLimit);
     await append(recording.concat, "ffconcat version 1.0\n");
     return recording;
   }
@@ -157,7 +162,7 @@ export class Recording {
         "-pix_fmt",
         "yuv420p",
         "-fs",
-        String(this.limit),
+        String(this.outputLimit),
         "-movflags",
         "+faststart",
         "recording.mp4",

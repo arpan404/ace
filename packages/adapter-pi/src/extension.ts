@@ -5,6 +5,7 @@ import {
   readPrivateMcpConfig,
   AceMcpConnectionSchema,
   developerInstructions,
+  maxToolTimeoutMs,
 } from "@ace/mcp-server";
 import { obj, str } from "./native.ts";
 import type { PiExtensionApi } from "./extension-api.ts";
@@ -20,7 +21,7 @@ const Tools = z.object({
         description: z.string().max(16384).optional(),
         inputSchema: z.record(z.string(), z.unknown()),
         _meta: z
-          .object({ "ace/timeoutMs": z.number().int().min(1).max(300000).optional() })
+          .object({ "ace/timeoutMs": z.number().int().min(1).max(maxToolTimeoutMs).optional() })
           .passthrough()
           .optional(),
       }),

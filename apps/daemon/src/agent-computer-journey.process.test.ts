@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import { ScreenManager, framePacket, type Frame } from "@ace/screen";
-import { DevicesService, DevicePlatform } from "@ace/devices";
+import { DevicesService, DevicePlatform, agentOwner } from "@ace/devices";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { Agent, McpScope } from "@ace/protocol";
 import { DeviceOperation } from "@ace/protocol/devices";
@@ -28,7 +28,7 @@ const Tree = z.object({
 const data = (result: z.infer<typeof Reply>["result"]) =>
   JSON.parse(result.content[0]?.text ?? "null");
 
-it("screen and device agents edit, submit, read results and respect takeover, expiry and revocation through daemon MCP", async () => {
+it("screen and device agents edit, submit, resume expired leases and respect takeover, disconnect and revocation through daemon MCP", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-computer-journey-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
   for (const path of ["platform-tools/adb", "emulator/emulator"]) {
@@ -250,8 +250,17 @@ it("screen and device agents edit, submit, read results and respect takeover, ex
   await delegate();
   await call("device_tap", { deviceId: "android:Pixel", x: 1, y: 2 });
   now += 30_001;
+  await call("device_type", { deviceId: "android:Pixel", text: "late" });
   expect(
-    data(await call("device_type", { deviceId: "android:Pixel", text: "late" }, true)),
+    Buffer.from(
+      (await call("device_screenshot", { deviceId: "android:Pixel" })).content[0]?.data ?? "",
+      "base64",
+    ).toString(),
+  ).toBe("Saved:late");
+  now += 30_001;
+  devices.disconnect(agentOwner(scope.threadId, scope.agentId));
+  expect(
+    data(await call("device_type", { deviceId: "android:Pixel", text: "disconnected" }, true)),
   ).toMatchObject({ code: "lease_required" });
   await delegate();
   await call("device_stop", { deviceId: "android:Pixel" });

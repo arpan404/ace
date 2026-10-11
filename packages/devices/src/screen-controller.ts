@@ -21,7 +21,6 @@ export function mirrorDeviceController(
     authorize() {
       authorize(control);
       session.lease.assert(control, ticket);
-      emit();
     },
     released() {
       if (session.lease.holds(control, ticket)) {

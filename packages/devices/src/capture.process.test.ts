@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { ScreenManager, type Frame } from "@ace/screen";
 import { ScreenFrameReader } from "@ace/screen/frames-client";
 import { spawnRawSupervised, type RawSupervisedProcess } from "@ace/provider-kit/process";
+import { devicePoint } from "@ace/ui-core";
 import { DevicePlatform, startCapture } from "./index.ts";
 import type { DeviceRuntime } from "./runtime.ts";
 
@@ -54,6 +55,7 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
     await chmod(path, 0o700);
   }
   let guest = "640x1280";
+  let rotation = 0;
   let serial = initialSerial;
   let oldName = "Pixel";
   const probes: string[][] = [];
@@ -69,8 +71,9 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
         serial = "emulator-5556";
         oldName = "OtherAVD";
       }
-      const stdout =
-        command === "-list-avds"
+      const stdout = command.includes("'dumpsys' 'input'")
+        ? `SurfaceOrientation: ${rotation}`
+        : command === "-list-avds"
           ? "Pixel"
           : command === "devices -l"
             ? `List of devices attached\n${serial} device`
@@ -82,6 +85,7 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
   });
   cleanup.push(() => platform.close());
   const captureSerials: string[] = [];
+  const sizes: (string | undefined)[] = [];
   const processes: RawSupervisedProcess[] = [];
   const inputs: RawSupervisedProcess[] = [];
   const outputs: RawSupervisedProcess[] = [];
@@ -107,6 +111,7 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
       const child = spawnRawSupervised(options);
       processes.push(child);
       if (options.name === "device-h264") {
+        sizes.push(options.args?.[(options.args?.indexOf("--size") ?? -1) + 1]);
         captureSerials.push(options.args?.[1] ?? "");
         inputs.push(child);
         spawned.get(inputs.length)?.resolve();
@@ -153,6 +158,7 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
   return {
     capture,
     captureSerials,
+    sizes,
     processes,
     inputs,
     outputs,
@@ -184,9 +190,9 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
       return ready.promise;
     },
     rotate() {
-      guest = "800x400";
-      env.WIDTH = "400";
-      env.HEIGHT = "200";
+      rotation = 1;
+      env.WIDTH = "640";
+      env.HEIGHT = "320";
     },
   };
 }
@@ -236,13 +242,18 @@ it("rotation replaces both capture processes while retaining stream identity and
   await Promise.all([restart(), restart()]);
   expect(await Promise.all(previous.map((child) => child.exited))).toHaveLength(2);
   f.send(3);
-  expect((await f.frame()).header).toMatchObject({
+  const landscape = (await f.frame()).header;
+  expect(landscape).toMatchObject({
     sessionId: "shared-capture",
     sequence: 1,
-    width: 400,
-    height: 200,
+    width: 640,
+    height: 320,
     scale: 0.5,
   });
+  expect(f.sizes.at(-1)).toBe("1280x640");
+  expect(
+    devicePoint(landscape, { left: 0, top: 0, width: 640, height: 320 }, { x: 320, y: 160 }),
+  ).toEqual({ x: 640, y: 320 });
   expect(f.failures).toEqual([]);
   await f.capture.stop();
   expect(
@@ -493,38 +504,25 @@ it("an Android transport changing during dimension lookup cannot start a capture
   await expect(fixture("dimensionmove")).rejects.toMatchObject({ code: "not_found" });
 });
 
-it("video negotiation forwards hardware access units and restores JPEG for image viewers", async () => {
+it("Android video requests keep independent JPEG frames and a keyframe request preserves the pipeline", async () => {
   const f = await fixture();
-  const configure = f.capture.configure;
-  if (!configure) throw new Error("Capture cannot negotiate video");
   const settings = {
     codec: "h264" as const,
-    maxWidth: 320,
-    maxHeight: 640,
-    fps: 30,
-    bitrate: 1000000,
+    maxWidth: 640,
+    maxHeight: 1280,
+    fps: 10,
+    bitrate: 4000000,
   };
-  await configure(settings);
+  expect(await f.capture.configure?.(settings)).toEqual({ codec: "jpeg" });
   f.send(3);
-  const key = await f.frame();
-  expect(key.header).toMatchObject({
-    codec: "h264",
-    keyframe: true,
-    videoCodec: "avc1.42e01f",
-    width: 320,
-    height: 640,
-    scale: 0.5,
-  });
-  expect(key.payload).toEqual(
-    Buffer.from([0, 0, 0, 1, 103, 66, 224, 31, 0, 0, 0, 1, 104, 1, 0, 0, 0, 1, 101, 3]),
-  );
-  const delta = await f.frame();
-  expect(delta.header).toMatchObject({ codec: "h264", keyframe: false });
-  expect(delta.payload).toEqual(Buffer.from([0, 0, 0, 1, 65, 4]));
-  await configure({ ...settings, codec: "jpeg" });
+  const first = await f.frame();
+  const running = f.inputs.at(-1);
+  await f.capture.keyframe?.();
+  await f.capture.configure?.({ ...settings });
   f.send(3);
-  const image = await f.frame();
-  expect(image.header).toMatchObject({ codec: "jpeg", width: 320, height: 640, scale: 0.5 });
-  expect(image.header.sequence).toBeGreaterThan(key.header.sequence);
-  expect(f.failures).toEqual([]);
+  const second = await f.frame();
+  expect(first.header.codec).toBe("jpeg");
+  expect(second.header.sequence).toBe(first.header.sequence + 1);
+  expect(running?.signal.aborted).toBe(false);
+  expect(f.inputs.at(-1)?.pid).toBe(running?.pid);
 });

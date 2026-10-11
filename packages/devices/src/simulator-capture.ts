@@ -169,6 +169,7 @@ export async function simulatorCapture(options: {
     frames = new SimulatorFrames({
       fps: options.fps,
       now: runtime.now,
+      after: runtime.after,
       failure: failed,
       publish(image, scale) {
         if (stopped) return;

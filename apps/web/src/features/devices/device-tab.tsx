@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { DeviceInput } from "@ace/protocol";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { leaseLeft } from "@ace/ui-core";
 import {
   AndroidLogoIcon,
@@ -166,7 +167,12 @@ function SelectedDevice(props: { devices: Devices }) {
         />
         <p className="min-w-0 flex-1 truncate text-sm text-subtle-foreground">
           <span className="font-medium text-foreground">{selected.name}</span>
-          {` · ${controls.status}`}
+          {" · "}
+          <StatusLabel
+            tone={controls.busy ? "working" : controls.error ? "failed" : "idle"}
+            label={controls.status}
+            mark={controls.busy ? <Spinner /> : undefined}
+          />
         </p>
         {controlled && (
           <span className="text-xs text-subtle-foreground tabular-nums">
@@ -249,17 +255,21 @@ function SelectedDevice(props: { devices: Devices }) {
           <div className="grid min-h-40 flex-1 place-items-center">
             <div className="flex flex-col items-center gap-2 text-center">
               <p className="text-sm text-muted-foreground">
-                {controls.running ? "The live view is off." : `${selected.name} is off.`}
+                {controls.busy
+                  ? controls.status
+                  : controls.running
+                    ? "The live view is off."
+                    : `${selected.name} is off.`}
               </p>
               {controls.running ? (
                 <Button
                   size="sm"
                   variant="outline"
                   disabled={view.pending || controls.busy}
-                  onClick={devices.start}
+                  onClick={controls.cleanupRequired ? devices.stop : devices.start}
                 >
                   {controls.busy && <Spinner />}
-                  Start live view
+                  {controls.cleanupRequired ? "Retry cleanup" : "Start live view"}
                 </Button>
               ) : (
                 <Button size="sm" variant="outline" disabled={view.pending} onClick={devices.boot}>
@@ -316,6 +326,19 @@ export function DeviceTab(props: {
         <Spinner label={`Connecting to ${name}`} />
       </div>
     );
+  if (view.loading)
+    return view.problem ? (
+      <EmptyState
+        icon={DeviceMobileIcon}
+        title={`Couldn't load ${name}`}
+        description={`${view.problem.message} ${view.problem.hint}`.trim()}
+        action={<Button onClick={devices.reconnect}>Try again</Button>}
+      />
+    ) : (
+      <div className="grid h-full place-items-center">
+        <Spinner label={`Loading ${name}`} />
+      </div>
+    );
   if (!view.enabled)
     return (
       <EmptyState
@@ -336,8 +359,12 @@ export function DeviceTab(props: {
     return (
       <EmptyState
         icon={DeviceMobileIcon}
-        title={`${name} isn't on this machine any more`}
-        description="The simulator or emulator was deleted, or its SDK went away. Close this tab, or pick another device."
+        title={view.problem ? `Couldn't load ${name}` : `${name} isn't on this machine any more`}
+        description={
+          view.problem
+            ? `${view.problem.message} ${view.problem.hint}`.trim()
+            : "The simulator or emulator was deleted, or its SDK went away. Close this tab, or pick another device."
+        }
         action={backToDevices}
       />
     );

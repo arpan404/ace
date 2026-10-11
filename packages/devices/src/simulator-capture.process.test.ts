@@ -49,7 +49,15 @@ it("native Simulator frames and input follow UDID without a window or macOS scre
             ? "/Applications/Xcode.app/Contents/Developer"
             : JSON.stringify({
                 devices: {
-                  iOS: [{ udid, name: "Duplicate name", state: "Booted", isAvailable: true }],
+                  iOS: [
+                    { udid, name: "Duplicate name", state: "Booted", isAvailable: true },
+                    {
+                      udid: "22222222-2222-4222-8222-222222222222",
+                      name: "Duplicate name",
+                      state: "Booted",
+                      isAvailable: true,
+                    },
+                  ],
                 },
               }),
         stderr: "",

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { deviceInstallTimeoutMs } from "./action-budget.ts";
 import { DeviceOperation, AppDeviceId } from "@ace/protocol/devices";
 import { ScreenUITreeOptions, ScreenUIFindOptions, ScreenUIActOptions } from "@ace/protocol";
 import {
@@ -162,7 +163,7 @@ export function devicesToolkit(
               : name === "device_boot"
                 ? 250000
                 : name === "device_install"
-                  ? 120000
+                  ? deviceInstallTimeoutMs + 30_000
                   : 120000,
           description: action.description,
           riskClass: action.riskClass,

@@ -55,7 +55,7 @@ export class AndroidInputShell {
     pending?.cancel();
     pending?.reject(this.failure());
   }
-  send(command: string, authorize: () => void): Promise<void> {
+  send(command: string, authorize: () => void, timeoutMs = 5000): Promise<void> {
     if (this.closed || this.queued >= 32) return Promise.reject(this.failure());
     this.queued++;
     const action = this.tail
@@ -64,7 +64,7 @@ export class AndroidInputShell {
         authorize();
         const marker = `ACE_INPUT_${++this.sequence}:`;
         await new Promise<void>((resolve, reject) => {
-          const cancel = this.after(5000, () => {
+          const cancel = this.after(timeoutMs, () => {
             this.reject();
             void this.close();
           });

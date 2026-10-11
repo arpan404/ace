@@ -44,6 +44,35 @@ it("rapid panel resizing retains the newest size while a native update is blocke
   expect(applied).toEqual([fast, { ...slow, maxWidth: 598 }]);
   await control.close();
 });
+it("a resize following an unchanged update applies before either acknowledgement completes", async () => {
+  let native = fast;
+  const control = new DeviceStreamControl(async (settings) => {
+    native = settings;
+    return { codec: settings.codec };
+  });
+  await control.set("view", fast);
+  const unchanged = control.set("view", { ...fast });
+  const resized = control.set("view", slow);
+  await Promise.all([unchanged, resized]);
+  expect(native).toEqual(slow);
+  await control.close();
+});
+it("recording readiness applies its image cap after an unchanged viewer update", async () => {
+  let native = fast;
+  const control = new DeviceStreamControl(async (settings) => {
+    native = settings;
+    return { codec: settings.codec };
+  });
+  await control.set("view", fast);
+  const unchanged = control.refresh();
+  const recording = control.acquireRecording();
+  await recording.ready;
+  expect(native).toEqual({ ...fast, codec: "jpeg", maxHeight: 720, fps: 15 });
+  await unchanged;
+  await recording.release();
+  expect(native).toEqual(fast);
+  await control.close();
+});
 it("the shared capture fits every viewer instead of letting the latest subscriber increase traffic", () => {
   const mixed = commonDeviceStream([
     fast,
