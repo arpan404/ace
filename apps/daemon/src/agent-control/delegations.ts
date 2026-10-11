@@ -236,7 +236,7 @@ export class DelegationService {
   ) {
     return this.admission.commit(caller, reservation, workspace, ownership);
   }
-  watchReservation(reservation: DelegationReservation) {
+  watchReservation(reservation: DelegationReservation): ReturnType<ReservationLifetimes["watch"]> {
     return this.reservationLifetimes.watch(reservation);
   }
   releaseReservation(reservation: DelegationReservation) {

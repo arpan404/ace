@@ -415,7 +415,7 @@ export class ScreenManager {
   async mode(
     id: string,
     mode: ScreenState["mode"],
-    signal = new AbortController().signal,
+    signal: AbortSignal = new AbortController().signal,
     reason = "This app requires foreground input",
   ) {
     const session = this.live(id),

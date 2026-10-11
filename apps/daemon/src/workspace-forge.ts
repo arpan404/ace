@@ -70,7 +70,7 @@ export class WorkspaceForge {
     cwd: string,
     input: ForgePrRef,
     allowed: () => boolean = () => true,
-    signal = this.lifetime.signal,
+    signal: AbortSignal = this.lifetime.signal,
   ): Promise<ForgePrStatus> {
     const pr = ForgePrRef.parse(input);
     signal.throwIfAborted();
