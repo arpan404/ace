@@ -116,6 +116,21 @@ export function compareSnapshots(previous: Snapshot, current: Snapshot): Change[
         found.push(...compare(name, path, aSiblings, bSiblings, depth + 1));
       if (a.oneOf === undefined && b.oneOf !== undefined)
         add("review", "Union changed to exclusive oneOf");
+      else if (a.oneOf !== undefined && b.oneOf !== undefined) {
+        // Existential matching cannot prove exclusive acceptance: widening even one
+        // branch can make another branch's values match twice. Only an unchanged
+        // permutation is safe without a separate proof of disjointness.
+        const remaining = [...newBranches];
+        for (const branch of oldBranches) {
+          const index = remaining.findIndex(
+            (next) => compare(name, path, branch, next, depth + 1).length === 0,
+          );
+          if (index < 0) break;
+          remaining.splice(index, 1);
+        }
+        if (oldBranches.length !== newBranches.length || remaining.length)
+          add("review", "Exclusive union branches changed; preserved acceptance needs review");
+      }
       return found;
     }
     const aAll = nodes(a.allOf),

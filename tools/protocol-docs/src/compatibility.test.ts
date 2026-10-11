@@ -20,6 +20,21 @@ const raw = (value: JsonSchema): Snapshot => ({
 });
 
 describe("release compatibility", () => {
+  it("refuses exclusive union widening that rejects an accepted value", () => {
+    const before = z.xor([z.literal("a"), z.literal("b")]);
+    const after = z.xor([z.string(), z.literal("b")]);
+    expect(before.safeParse("b").success).toBe(true);
+    expect(after.safeParse("b").success).toBe(false);
+    expect(rejected(before, after)).toBe(true);
+  });
+  it("reviews overlapping exclusive additions but accepts unchanged and reordered branches", () => {
+    const a = z.literal("a"),
+      b = z.literal("b");
+    expect(rejected(z.xor([a, b]), z.xor([a, b, z.string()]))).toBe(true);
+    expect(rejected(z.xor([a, b]), z.xor([a, b]))).toBe(false);
+    expect(rejected(z.xor([a, b]), z.xor([b, a]))).toBe(false);
+    expect(rejected(z.union([a, b]), z.union([z.string(), b]))).toBe(false);
+  });
   it("accepts optional additions, wider enums and wider number bounds", () => {
     const before = z.object({ state: z.enum(["working", "done"]), count: z.number().max(10) });
     const after = z.object({
