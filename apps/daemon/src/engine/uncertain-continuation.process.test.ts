@@ -91,10 +91,14 @@ test("possibly consumed continuation refuses another resume until late correlate
         nativeInputId: "native-continuation",
         commandId: "recovery-command",
       },
-      start,
-      end,
     ),
   );
+  await h.engine.flush();
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "uncertain" });
+  h.contexts.at(-1)?.onFrame(frames.frame(start));
+  await h.engine.flush();
+  expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, messages: [], paused: false });
+  h.contexts.at(-1)?.onFrame(frames.frame(end));
   await h.engine.flush();
   expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, messages: [], paused: false });
   expect(h.store.getThread(id)?.status.state).toBe("done");

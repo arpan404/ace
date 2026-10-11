@@ -287,7 +287,7 @@ export function foldProviderFacts(
     repo.queue.set(id, { continuation: null, trigger: null }, now);
     repo.pending.finishContinuation(id);
   }
-  if (admittedUncertainty) {
+  if (admittedUncertainty || continuationStarted) {
     const queue = repo.queue.get(id);
     if (queue.reason === "uncertain" && !repo.queue.hasUncertain(id))
       repo.queue.set(
