@@ -1,3 +1,4 @@
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { isSecretKey } from "@ace/redaction";
 import { errorSummary, ownData } from "./error-summary.ts";
 class Fields {
@@ -116,8 +117,10 @@ export function boundedMetadata(value: unknown): unknown {
   return normalize(value, metadataFields);
 }
 
+const redactMetadata = createDiagnosticRedactor({});
+
 /** Bounded evidence for nested external metadata; redaction precedes serialization. */
 export function logMetadata(value: unknown): string {
-  const json = JSON.stringify(boundedMetadata(value)) ?? "null";
+  const json = redactMetadata(JSON.stringify(boundedMetadata(value)) ?? "null");
   return json.length > 2000 ? json.slice(0, 1980) + "<TRUNCATED>" : json;
 }

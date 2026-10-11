@@ -2,7 +2,8 @@ import { createWriteStream } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { writeSupportBundle, recentThreadEvents } from "@ace/diagnostics";
-import { createRedactor, type RedactionContext } from "@ace/redaction";
+import type { RedactionContext } from "@ace/redaction";
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 
 /** Reuse the diagnostics owner; remote exports never invoke provider/doctor probes. */
 export function supportBundleWriter(
@@ -12,7 +13,7 @@ export function supportBundleWriter(
   now: () => number,
   details?: { settings: unknown; report: () => Promise<import("@ace/protocol").DiagnosticReport> },
 ) {
-  const redact = createRedactor(context);
+  const redact = createDiagnosticRedactor(context);
   return async (temporary: string, includeThreads = false) => {
     await writeSupportBundle({
       logsDirectory: join(dataDir, "logs"),

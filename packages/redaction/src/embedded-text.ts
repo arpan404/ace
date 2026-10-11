@@ -49,6 +49,7 @@ export function redactEmbeddedText(
     plain = end + 1;
   }
   parts.push(scrubPlain(text.slice(plain)));
-  const result = parts.join("");
+  // Reassembled quoted prose can contain a configured secret spanning scan segments.
+  const result = scrubPlain(parts.join(""));
   return result.length > 262144 ? "<OVERSIZED REDACTED>" : result;
 }

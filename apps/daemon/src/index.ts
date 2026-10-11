@@ -13,7 +13,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { createRedactor } from "@ace/redaction";
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import {
   logError,
   logFields,
@@ -175,7 +175,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const log = createLogger({
       sink,
       now,
-      redact: createRedactor(context),
+      redact: createDiagnosticRedactor(context),
       level: config.logLevel,
     });
     resources.own(() => log.close());
