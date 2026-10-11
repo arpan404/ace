@@ -2,6 +2,7 @@ import type { TranslatorIdentity } from "./identity.ts";
 import { promptStop } from "./settlement.ts";
 import { retainToolRaw } from "./tool-raw.ts";
 import { finalizeTool } from "./tool-final.ts";
+import { retireTool, renewTool } from "./completed-tools.ts";
 import { appendShellOutput } from "./shell-output.ts";
 import { decodeContent } from "./content.ts";
 import type { Fact } from "@ace/core";
@@ -217,6 +218,7 @@ class AcpTranslator implements Translator {
       const id = string(update["toolCallId"]);
       if (!id) return false;
       let tool = s.tool(agent, id);
+      const retainedRaw = tool?.retired === true && !Object.hasOwn(update, "rawInput");
       const priorStatus = tool?.status;
       const priorDefinition = tool && {
         title: tool.data["title"],
@@ -264,6 +266,7 @@ class AcpTranslator implements Translator {
       if (["pending", "running", "awaiting_approval"].includes(tool.status)) s.liveTools.add(tool);
       else s.liveTools.delete(tool);
       const live = s.liveTools.has(tool);
+      if (live) renewTool(s, tool);
       const definitionChanged =
         Object.hasOwn(update, "content") ||
         Object.hasOwn(update, "_meta") ||
@@ -275,6 +278,7 @@ class AcpTranslator implements Translator {
           ([key, value]) =>
             ["exitCode", "totalFiles", "isBackground"].includes(key) && value !== priorOutput[key],
         );
+      if (definitionChanged) renewTool(s, tool);
       if (
         tool.finalized &&
         !tool.uncertainShell &&
@@ -285,6 +289,7 @@ class AcpTranslator implements Translator {
         s.notice(facts, frame, "session/update", undefined, agent);
         if (toolDetail(tool.data, s.quirks).kind === "shell")
           appendShellOutput(s, tool, update, facts);
+        retireTool(s, tool);
         return true;
       }
       if (!tool.task && (priorStatus === undefined || live || !tool.finalized))
@@ -311,7 +316,7 @@ class AcpTranslator implements Translator {
                 ? { childAgent: tool.child.key }
                 : {}),
             },
-            raw: [...tool.raw],
+            ...(!retainedRaw ? { raw: [...tool.raw] } : {}),
           },
         },
       });
@@ -339,6 +344,7 @@ class AcpTranslator implements Translator {
       }
       if (["succeeded", "failed", "declined", "cancelled"].includes(tool.status))
         facts.push({ type: "activity", agent: agent.key, activity: "starting_turn" });
+      retireTool(s, tool);
       return true;
     }
     if (["agent_message_chunk", "agent_thought_chunk", "user_message_chunk"].includes(kind)) {
