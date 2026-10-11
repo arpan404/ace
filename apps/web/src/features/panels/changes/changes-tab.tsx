@@ -277,6 +277,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
             const draft = forFile.find((each) => each.key === composition.key);
             return (
               <CommentComposer
+                key={composition.id}
                 label={`Comment on ${linesLabel(writing.side, writing.start, writing.end)}`}
                 {...textOf(draft)}
                 suggestFrom={

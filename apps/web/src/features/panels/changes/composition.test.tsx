@@ -1,6 +1,6 @@
 import { coldStartReplay, facts } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { configure, screen, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -92,4 +92,74 @@ test("changing to a cached diff scope cancels its historical suggestion and a fr
       }),
     }),
   ]);
+}, 30000);
+
+function conversation(block: HTMLElement, text: string) {
+  const found = within(block)
+    .getAllByRole("article")
+    .find((card) => within(card).queryByText(text));
+  if (!found) throw new Error(`Missing conversation: ${text}`);
+  return found;
+}
+
+test("switching between same-line draft editors saves only the selected comment's text and suggestion", async () => {
+  const { panel } = await openChanges();
+  const block = within(panel).getByRole("region", { name: path });
+  await begin(block, "First finding", "const b = 4;");
+  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+  await begin(block, "Second finding", "const b = 5;");
+  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+  await userEvent.click(
+    within(conversation(block, "First finding")).getByRole("button", { name: "Edit" }),
+  );
+  const firstText = within(block).getByRole("textbox", { name: "Comment on line 2" });
+  await userEvent.clear(firstText);
+  await userEvent.type(firstText, "Unsaved first edit");
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Comments" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /Second finding/ }));
+  const dialog = await screen.findByRole("dialog", { name: "Review comment" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Edit" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review comment" })).toBeNull());
+  const secondText = within(block).getByRole("textbox", { name: "Comment on line 2" });
+  const secondSuggestion = within(block).getByRole("textbox", { name: "Suggested change" });
+  expect(secondText).toHaveProperty("value", "Second finding");
+  expect(secondSuggestion).toHaveProperty("value", "const b = 5;");
+  await userEvent.clear(secondText);
+  await userEvent.type(secondText, "Second finding revised");
+  await userEvent.clear(secondSuggestion);
+  await userEvent.type(secondSuggestion, "const b = 6;");
+  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+
+  expect(within(block).getAllByRole("article")).toHaveLength(2);
+  expect(
+    within(conversation(block, "First finding")).getByLabelText("Suggested change").textContent,
+  ).toBe("const b = 4;");
+  expect(
+    within(conversation(block, "Second finding revised")).getByLabelText("Suggested change")
+      .textContent,
+  ).toBe("const b = 6;");
+}, 30000);
+
+test("starting a new comment on an edited line clears the earlier editor without changing its draft", async () => {
+  const { panel } = await openChanges();
+  const block = within(panel).getByRole("region", { name: path });
+  await begin(block, "Existing finding", "const b = 4;");
+  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+  await userEvent.click(
+    within(conversation(block, "Existing finding")).getByRole("button", { name: "Edit" }),
+  );
+  await userEvent.click(within(block).getByRole("button", { name: "Comment on line 2" }));
+  const fresh = within(block).getByRole("textbox", { name: "Comment on line 2" });
+  expect(fresh).toHaveProperty("value", "");
+  expect(within(block).queryByRole("textbox", { name: "Suggested change" })).toBeNull();
+  await userEvent.type(fresh, "New finding");
+  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+  expect(within(block).getAllByRole("article")).toHaveLength(2);
+  expect(
+    within(conversation(block, "Existing finding")).getByLabelText("Suggested change").textContent,
+  ).toBe("const b = 4;");
+  expect(
+    within(conversation(block, "New finding")).queryByLabelText("Suggested change"),
+  ).toBeNull();
 }, 30000);
