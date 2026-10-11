@@ -141,14 +141,9 @@ export function mergeToolData(data: Data, update: Data): void {
     } else data[field] = value;
   }
 }
-const outputFields = [
-  "exitCode",
-  "totalFiles",
-  "error",
-  "permissionDenied",
-  "rejected",
-  "isBackground",
-];
+// Failure payloads only determine the compact tool status in toolStatus. Their full
+// evidence belongs to canonical raw data or diagnostics, never retained tool data.
+const outputFields = ["exitCode", "totalFiles", "isBackground"];
 const inputFields = [
   "_toolName",
   "command",
