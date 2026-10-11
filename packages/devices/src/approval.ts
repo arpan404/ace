@@ -13,7 +13,9 @@ export async function approveDevice(
   operation: Extract<DeviceOperation, { op: "approve" }>,
   options: LifecycleOptions,
   owner: LifecycleOwner,
+  guard: () => void = () => {},
 ): Promise<void> {
+  guard();
   if (session.changingApproval)
     throw new DeviceError("busy", "Approval is changing", "Wait for approval cleanup.");
   session.changingApproval = true;
@@ -50,6 +52,7 @@ export async function approveDevice(
       result.status === "rejected" ? [result.reason] : [],
     );
     if (errors.length) throw new AggregateError(errors, "Device approval cleanup failed");
+    guard();
     if (!owner.enabled() || session.approvalEpoch !== approvalEpoch)
       throw new DeviceError(
         "busy",
@@ -59,6 +62,7 @@ export async function approveDevice(
     if (operation.allowed) {
       if (session.device.platform === "ios" && options.screen) {
         await options.screen.enable(true);
+        guard();
         await options.screen.approve(
           "com.apple.iphonesimulator",
           true,
@@ -66,6 +70,7 @@ export async function approveDevice(
           operation.threadId,
         );
       }
+      guard();
       if (!owner.enabled() || session.approvalEpoch !== approvalEpoch) {
         await revokeGrant(operation.threadId);
         throw new DeviceError(
@@ -76,9 +81,14 @@ export async function approveDevice(
       }
       session.threadId = operation.threadId;
     }
+  } catch (error) {
+    if (operation.allowed && session.approvalEpoch === approvalEpoch)
+      await revokeGrant(operation.threadId);
+    throw error;
   } finally {
     session.changingApproval = false;
   }
+  guard();
   if (wasLive && operation.allowed && session.approvalEpoch === approvalEpoch)
     await startDevice(session, 60, options, owner);
 }
