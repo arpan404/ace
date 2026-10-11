@@ -17,3 +17,5 @@ export * from "./readiness.ts";
 export { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
 export type { ReplyReceipts } from "./reply-receipts.ts";
 export { replyIntent } from "./reply-receipts.ts";
+
+export { ForgeIntents } from "./intents.ts";

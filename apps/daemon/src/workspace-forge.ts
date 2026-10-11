@@ -2,6 +2,7 @@ import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
 import {
   GitHubForge,
+  ForgeIntents,
   ForgeError,
   ForgeMutationOutcome,
   replyIntent,
@@ -30,6 +31,7 @@ import type { PrOwnerOperation } from "./agent-control/tools.ts";
 export class WorkspaceForge {
   private store: Store;
   private replyReceipts: ForgeReplyReceipts;
+  private intents = new ForgeIntents();
   private git: Pick<GitService, "repositoryInfo">;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
@@ -362,6 +364,7 @@ export class WorkspaceForge {
       const status = await this.link(id, cwd, p.link.pr, allowed);
       return { ok: true, pr: p.link.pr, prStatus: status };
     }
+    const executeIntent = async (): Promise<Omit<CommandResult, "commandId">> => {
     const generation = this.links.getLinkState(id, p.link.pr)?.generation;
     const backend = await this.backend(cwd, p.link.pr.repository);
     if (p.type === "forge.comment.reply")
@@ -385,7 +388,13 @@ export class WorkspaceForge {
         .scope(cwd, p.link.pr.repository, "")
         .remove(replyIntent(p.link.pr.repository, p.link.pr.number, p.commentId, p.body));
     return { ok: true, pr: status.ref, prStatus: status };
+    };
+    if (p.type !== "forge.comment.reply") return executeIntent();
+    const key = JSON.stringify([cwd, repositoryKey(p.link.pr.repository),
+      replyIntent(p.link.pr.repository, p.link.pr.number, p.commentId, p.body)]);
+    return this.intents.run(key, executeIntent);
   }
+
   close(): void {
     this.stopPreferences?.();
     this.lifetime.abort();

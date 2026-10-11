@@ -137,3 +137,23 @@ test("case-equivalent repositories reconcile the same uncertain reply after a re
     expect((await f.facts()).replies).toHaveLength(1);
   } finally { await restarted?.close(); await f.close(); }
 });
+
+
+test("a concurrent retry cannot reconcile or clear a receipt while its writer is waiting for a lost response", async () => {
+  const f = await forgeIdentityFixture();
+  try {
+    await f.update({ lostReply: true, holdReply: true });
+    const writer = f.runtime.execute(reply("active-writer", "Octo", "Ace"));
+    await f.held();
+    let reconciled = false;
+    const retry = f.runtime.execute(reply("concurrent-reconciliation"))
+      .then((result) => { reconciled = true; return result; });
+    // Real filesystem/Git work yields while the second command can enter the daemon.
+    await f.runtime.details(f.thread.id);
+    expect(reconciled).toBe(false);
+    await f.release();
+    expect(await writer).toMatchObject({ ok: false, error: "forge_outcome_uncertain" });
+    expect(await retry).toMatchObject({ ok: true });
+    expect((await f.facts()).replies).toHaveLength(1);
+  } finally { await f.release(); await f.close(); }
+});

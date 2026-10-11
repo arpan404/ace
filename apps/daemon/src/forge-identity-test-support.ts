@@ -25,6 +25,7 @@ const stateSchema = z.object({
   ),
   switchAfterReply: z.boolean(),
   lostReply: z.boolean(),
+  holdReply: z.boolean(),
   holdPath: z.string(),
   users: z.number(),
   holdUser: z.number(),
@@ -48,7 +49,7 @@ else {
    let input=''; for await(const chunk of process.stdin) input+=chunk;
    const body=JSON.parse(input).body;
    f=JSON.parse(readFileSync(file,'utf8')); const reply={id:31+f.replies.length,body,user:{login:f.account},in_reply_to_id:13,updated_at:"2026-10-11T12:00:00Z"}; f.replies.push(reply);
-   if(f.switchAfterReply) f.account='other'; const lost=f.lostReply; f.lostReply=false; save(); if(lost) process.exit(1); http(reply);
+   if(f.switchAfterReply) f.account='other'; const lost=f.lostReply; f.lostReply=false; save(); if(f.holdReply) await hold(); if(lost) process.exit(1); http(reply);
  } else if(path.includes('/pulls/comments/')) http(f.replies.find(r=>r.id===Number(path.split('/').at(-1))));
  else if(path.includes('/pulls/7/comments?')) http(f.replies);
  else if(path.includes('/pulls?')) http([]);
@@ -81,6 +82,7 @@ export async function forgeIdentityFixture(options: { timeoutMs?: number } = {})
       replies: [],
       switchAfterReply: false,
       lostReply: false,
+      holdReply: false,
       holdPath: "",
       users: 0,
       holdUser: 0,
