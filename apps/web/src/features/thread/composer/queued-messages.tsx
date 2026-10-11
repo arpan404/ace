@@ -1,7 +1,6 @@
 import { QueuedTray } from "./queued.tsx";
 import { useThread } from "@ace/client-react";
 import type { ThreadReader } from "@ace/client";
-import { useCallback } from "react";
 import { useActiveRootRun, useStopping } from "./stop-state.ts";
 import { useQueuedPending } from "./queued-pending.ts";
 import { useQueue } from "./use-queue.ts";
@@ -13,12 +12,7 @@ export function QueuedMessages(props: { threadId: string }) {
   const queue = useQueue(props.threadId);
   const pending = useQueuedPending(props.threadId, queue.page, queue.retained);
   const hold = useThread(props.threadId, ["queue"], queueOf);
-  const run = useActiveRootRun(props.threadId);
-  const active = useThread(
-    props.threadId,
-    run ? [`run:${run}`] : [],
-    useCallback((reader: ThreadReader) => !!run && reader.run(run)?.state === "active", [run]),
-  );
+  const active = !!useActiveRootRun(props.threadId);
   const stopping = useStopping(props.threadId);
   const steerReason = !queue.canSteer
     ? "This provider doesn't support steering."

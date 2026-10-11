@@ -23252,6 +23252,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| rootRunId | no | [RunId.json](schema/RunId.json) or null |  |
 | workingSince | no | [Timestamp.json](schema/Timestamp.json) |  |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | model | no | string | {"maxLength":256} |

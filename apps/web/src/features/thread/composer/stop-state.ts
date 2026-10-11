@@ -1,6 +1,7 @@
-import type { ThreadReader } from "@ace/client";
 import { useIntent, useThread } from "@ace/client-react";
 import { useSyncExternalStore } from "react";
+import { activeRootRun } from "./stop-target.ts";
+export { activeRootRun } from "./stop-target.ts";
 
 /*
  * Stop, from the click until the turn ends (UX audit SY-8): the composer's button and the
@@ -38,19 +39,6 @@ export function clearStop(threadId: string): void {
   const next = new Map(stops);
   next.delete(threadId);
   publish(next);
-}
-
-/** The root agent's turn in flight: the newest item's run, while that run is active. */
-export function activeRootRun(reader: ThreadReader): string | undefined {
-  const root = reader.thread?.rootAgentId;
-  for (let index = reader.order.length - 1; index >= 0; index--) {
-    const runId = reader.item(reader.order[index] ?? "")?.runId;
-    if (!runId) continue;
-    const run = reader.run(runId);
-    if (run?.agentId !== root) continue;
-    return run?.state === "active" ? runId : undefined;
-  }
-  return undefined;
 }
 
 const runKeys = ["order", "thread"] as const;
