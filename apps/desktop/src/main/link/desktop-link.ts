@@ -17,7 +17,7 @@ export interface LinkOptions {
   deviceId: string;
   pairedDeviceId?: string;
   /** Durable outbox for notification actions, so an Approve survives a reconnect. */
-  storage: { load(): Promise<string | null>; save(value: string): Promise<void> };
+  storage: import("@ace/client").Storage;
   quietHours(): { timeZone: string; startMinute: number; endMinute: number } | null;
   onAlert(alert: Alert): void;
   onSummary(summary: WorkSummary): void;
