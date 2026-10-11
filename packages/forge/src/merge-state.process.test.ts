@@ -69,6 +69,10 @@ test("enable and cancel return GitHub state and a subsequent external disablemen
     expect(requests[1]?.body).toMatchObject({
       variables: { input: { pullRequestId: "PR_7", expectedHeadOid: sha, mergeMethod: "SQUASH" } },
     });
+    expect(requests[4]?.body).toMatchObject({
+      query: expect.stringContaining("disablePullRequestAutoMerge(input:$input)"),
+      variables: { input: { pullRequestId: "PR_7" } },
+    });
   } finally {
     await f.cleanup();
   }
@@ -100,6 +104,10 @@ test("queue cancellation is separate from auto-merge cancellation and observes q
     expect(
       (await cancel.forge.changeMergeState(7, sha, "dequeue", "squash", signal())).queue,
     ).toBeNull();
+    expect((await cancel.requests())[1]?.body).toMatchObject({
+      query: expect.stringContaining("dequeuePullRequest(input:$input)"),
+      variables: { input: { id: "PR_7" } },
+    });
   } finally {
     await cancel.cleanup();
   }
@@ -136,7 +144,13 @@ test("a lost acknowledgement is reconciled without repeating the enable mutation
 test.each(["FORBIDDEN", "RATE_LIMITED", "UNSUPPORTED"])(
   "%s failure remains visible if a fresh read does not confirm the write",
   async (type) => {
-    const f = await fakeGh({ graphql: [read(), { body: { errors: [{ type }] } }, read()] });
+    const f = await fakeGh({
+      graphql: [
+        read(),
+        { body: { errors: [{ type, message: "GitHub rejected this mutation." }] }, code: 1 },
+        read(),
+      ],
+    });
     try {
       await expect(
         f.forge.changeMergeState(7, sha, "enable", "squash", signal()),
@@ -153,3 +167,23 @@ test.each(["FORBIDDEN", "RATE_LIMITED", "UNSUPPORTED"])(
     }
   },
 );
+
+test("a nonzero GraphQL read reports the host's forbidden classification", async () => {
+  const f = await fakeGh({
+    graphql: [{ body: { errors: [{ type: "FORBIDDEN", message: "Access denied." }] }, code: 1 }],
+  });
+  try {
+    await expect(f.forge.prMergeState(7, signal())).rejects.toMatchObject({ kind: "forbidden" });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a failed CLI exit without a GraphQL error envelope remains a CLI failure", async () => {
+  const f = await fakeGh({ graphql: [{ ...read(), code: 1 }] });
+  try {
+    await expect(f.forge.prMergeState(7, signal())).rejects.toMatchObject({ kind: "cli" });
+  } finally {
+    await f.cleanup();
+  }
+});

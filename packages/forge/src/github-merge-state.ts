@@ -39,26 +39,6 @@ const responseSchema = z.looseObject({
 });
 const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){viewerPermission pullRequest(number:$number){id number headRefOid state isDraft mergeStateStatus reviewDecision statusCheckRollup{state} autoMergeRequest{mergeMethod enabledAt enabledBy{login}} mergeQueueEntry{id state position enqueuedAt} viewerCanEnableAutoMerge viewerCanDisableAutoMerge}}}`;
 
-/** HTTP 200 can still contain a GraphQL failure. Never accept partial mutation data. */
-export function checkedGraphql(body: unknown): unknown {
-  const envelope = z
-    .looseObject({
-      errors: z
-        .array(z.looseObject({ type: text.optional() }))
-        .max(100)
-        .optional(),
-    })
-    .safeParse(body);
-  if (!envelope.success) throw new ForgeError("invalid_data");
-  if (envelope.data.errors?.length) {
-    const types = new Set(envelope.data.errors.map((error) => error.type));
-    if (types.has("RATE_LIMITED")) throw new ForgeError("rate_limit");
-    if (types.has("FORBIDDEN") || types.has("UNAUTHORIZED")) throw new ForgeError("forbidden");
-    if (types.has("NOT_FOUND")) throw new ForgeError("not_found");
-    throw new ForgeError("unsupported");
-  }
-  return body;
-}
 function mapState(
   pr: z.infer<typeof source>,
   permission: string | null,
@@ -108,7 +88,7 @@ export class GitHubMergeState {
       query,
       variables: { owner: this.#repository.owner, name: this.#repository.name, number },
     });
-    const parsed = responseSchema.safeParse(checkedGraphql(page.body));
+    const parsed = responseSchema.safeParse(page.body);
     if (!parsed.success) throw new ForgeError("invalid_data");
     const repo = parsed.data.data.repository;
     const pr = repo?.pullRequest;
@@ -168,9 +148,7 @@ export class GitHubMergeState {
         query: `mutation($input:${mutation[0]?.toUpperCase()}${mutation.slice(1)}Input!){${mutation}(input:$input){clientMutationId}}`,
         variables: { input },
       });
-      const result = z
-        .object({ data: z.record(z.string(), z.unknown()) })
-        .safeParse(checkedGraphql(page.body));
+      const result = z.object({ data: z.record(z.string(), z.unknown()) }).safeParse(page.body);
       if (!result.success || !result.data.data[mutation]) throw new ForgeError("invalid_data");
     } catch (error) {
       failure = error;
