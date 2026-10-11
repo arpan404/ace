@@ -10,7 +10,7 @@ import {
 } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { baseName, provisionalTitle } from "@ace/ui-core";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { rememberTitle, sameSubmittedDraft, type SubmittedDraft } from "@/features/thread/index.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { withBrowserLock } from "@/boot/web-locks.ts";
@@ -110,6 +110,11 @@ export function useCreateThread(
   const recoveryKey = createAttemptKey(connection.url, deviceId);
   const [error, setError] = useState<string>();
 
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const flight = useRef<{ payload: SubmittedDraft; promise: Promise<boolean> } | undefined>(
     undefined,
   );
@@ -159,7 +164,7 @@ export function useCreateThread(
         void settleCreateAttempt(client, storage, recoveryKey, attempt).catch(() => {
           /* Reconnect recovers the saved payload under its original ID. */
         });
-        if (canNavigate?.() !== false)
+        if (mounted.current && canNavigate?.() !== false)
           void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
         return sameSubmittedDraft(requested, attempt.payload);
       } catch (failure) {

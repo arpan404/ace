@@ -21,6 +21,10 @@ const DeferredStartedRows = deferredComponent(() =>
   import("./started-rows.tsx").then((module) => module.StartedRows),
 );
 
+const DeferredDraftRows = deferredComponent(() =>
+  import("./new-thread/draft-rows.tsx").then((module) => module.DraftRows),
+);
+
 /**
  * Home's list in the sidebar: one list of tasks across projects, pinned first, then in the order
  * of what is owed, with Settled folded away at the end. The toolbar pairs the project filter
@@ -55,6 +59,7 @@ export function HomeSidebar() {
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
           <Suspense fallback={null}>
+            <DeferredDraftRows.Component />
             <DeferredStartedRows.Component />
           </Suspense>
         )}
