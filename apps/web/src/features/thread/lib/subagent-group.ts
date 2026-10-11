@@ -94,6 +94,7 @@ export function readSubagentGroup(
     for (const child of reader.children(id)) collect(child);
   };
   for (const root of direct) if (root.agent) collect(root.agent.id);
+  const work = facts.treeWork(watched);
   const cached = new Map<string, { state: SubagentState; end?: number }>();
   const visiting = new Set<string>();
   const branch = (id: string): { state: SubagentState; end?: number } => {
@@ -102,13 +103,17 @@ export function readSubagentGroup(
     const agent = reader.agent(id);
     if (!agent || visiting.has(id)) return { state: "working" };
     visiting.add(id);
-    let state: SubagentState = facts.actionable(id) ? "human" : subagentState(agent.status);
+    let state = subagentState(agent.status);
     let end = agent.endedAt ?? facts.endedAt(id);
+    const taskEnd = facts.taskEndedAt(id);
+    if (taskEnd !== undefined) end = Math.max(end ?? taskEnd, taskEnd);
     for (const child of reader.children(id)) {
       const below = branch(child);
       state = rollupSubagent(state, below.state);
       if (below.end !== undefined) end = Math.max(end ?? below.end, below.end);
     }
+    if (work.needsYou.has(id)) state = "human";
+    else if (subagentTerminal(state) && work.running.has(id)) state = "working";
     visiting.delete(id);
     const result = { state, ...(end === undefined ? {} : { end }) };
     cached.set(id, result);
@@ -150,7 +155,7 @@ export function readSubagentGroup(
     watch: [
       ...itemIds.map((id) => `item:${id}`),
       ...[...watched].map((id) => `agent:${id}`),
-      ...[...watched].flatMap((id) => [`attention:${id}`, `end:${id}`]),
+      ...[...watched].flatMap((id) => [`attention:${id}`, `work:${id}`, `end:${id}`]),
       ...itemIds.map((id) => `spawn:${id}`),
       ...[...launches.keys()].map((id) => `childThread:${id}`),
       ...[...spawns.values()].flatMap((spawn) =>

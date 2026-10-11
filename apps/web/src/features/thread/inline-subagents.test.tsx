@@ -1,5 +1,6 @@
 import { delegatedDocs, delegatedDocsIds, facts, type Scenario, type Step } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
+import { ThreadStore } from "@ace/client";
+import { BackgroundTask, Event, ThreadId } from "@ace/protocol";
 import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -52,6 +53,98 @@ function scenario(output: Fact[]): Scenario {
 
 const group = (feed: HTMLElement, title: string) =>
   within(feed).findByRole("region", { name: title });
+
+test.each(["child", "descendant"])(
+  "owned background task updates keep an idle %s's card working until the task completes",
+  async (owner) => {
+    const app = harness();
+    const nested: Fact[] =
+      owner === "descendant"
+        ? [
+            facts.tool("first", "spawn-nested", {
+              kind: "agent.spawn",
+              title: "Nested review",
+              detail: { kind: "agent.spawn", childAgent: "nested" },
+            }),
+            facts.subagent("codex", "nested", "Nested review", "spawn-nested", { parent: "first" }),
+            facts.turn("nested", "spawn"),
+            facts.endTurn("nested"),
+          ]
+        : [];
+    app.play(scenario([...spawn("first"), ...nested, facts.endTurn("first")])).runUntilBlocked();
+    await app.open("/t/inline-subagents");
+    const feed = await screen.findByRole("feed", { name: "Transcript" });
+    const card = await group(feed, "1 subagent");
+    await within(card).findByText("1 done");
+    await userEvent.click(within(card).getByRole("button", { name: "1 subagent" }));
+    expect(within(card).getByRole("button", { name: "Open Review first, Finished" })).toBeTruthy();
+
+    const lease = app.client.thread("inline-subagents");
+    try {
+      const source = lease.store;
+      if (!(source instanceof ThreadStore)) throw new Error("Expected the in-process thread store");
+      const name = owner === "descendant" ? "Nested review" : "Review first";
+      const agent = source
+        .agentIds()
+        .map((id) => source.agent(id))
+        .find((entry) => entry?.name === name);
+      if (!agent) throw new Error("Missing task owner");
+      expect(agent.status.state).toBe("idle");
+      const task = BackgroundTask.parse({
+        id: "owned-shell",
+        agentId: agent.id,
+        kind: "shell",
+        title: "Build review",
+        status: "running",
+        stoppable: true,
+        startedAt: 2000,
+      });
+      // Canonical task-only deliveries deliberately leave the idle owner unchanged.
+      const deliver = async (payload: unknown, at = 3000) =>
+        act(async () => {
+          const seq = (source.cursor ?? 0) + 1;
+          source.delivery({
+            type: "events",
+            subscriptionId: "idle-task",
+            afterSeq: seq - 1,
+            throughSeq: seq,
+            events: [
+              Event.parse({
+                id: `idle-task-${seq}`,
+                threadId: "inline-subagents",
+                seq,
+                at,
+                payload,
+              }),
+            ],
+          });
+        });
+      await deliver({ type: "background_task.started", task });
+      await within(card).findByText("1 working");
+      expect(within(card).getByRole("button", { name: "Open Review first, Running" })).toBeTruthy();
+      expect(within(card).queryByText("Finished")).toBeNull();
+      expect(source.agent(agent.id)?.status.state).toBe("idle");
+      await deliver({ type: "background_task.updated", taskId: task.id, status: "unknown" });
+      expect(within(card).getByText("1 working")).toBeTruthy();
+      await deliver(
+        {
+          type: "background_task.updated",
+          taskId: task.id,
+          status: "completed",
+          endedAt: 7000,
+        },
+        7000,
+      );
+      await within(card).findByText("1 done");
+      expect(
+        within(card).getByRole("button", { name: "Open Review first, Finished" }),
+      ).toBeTruthy();
+      expect(source.agent(agent.id)?.status.state).toBe("idle");
+    } finally {
+      lease.release();
+    }
+  },
+);
 
 const mcpLaunch = (id: string): Fact[] => [
   facts.tool("root", `mcp-${id}`, {

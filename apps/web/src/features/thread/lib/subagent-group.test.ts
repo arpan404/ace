@@ -1,6 +1,6 @@
 import { ThreadStore, defaultLimits, type ThreadSource } from "@ace/client";
 import { createThreadView } from "@ace/projection";
-import { Agent, Event, Item, Run, Thread, type AgentStatus } from "@ace/protocol";
+import { Agent, BackgroundTask, Event, Item, Run, Thread, type AgentStatus } from "@ace/protocol";
 import { subagentLabels, subagentStatusLine, subagentTerminal } from "@ace/ui-core";
 import { expect, test } from "vitest";
 import { agentFactsOf } from "@/lib/agent-facts.ts";
@@ -48,10 +48,11 @@ const spawn = (id: string) =>
     },
   });
 
-function store(agents: Agent[], items: Item[]) {
+function store(agents: Agent[], items: Item[], tasks: BackgroundTask[] = []) {
   const view = createThreadView(thread);
   for (const entry of agents) view.agents[entry.id] = entry;
   for (const item of items) view.items[item.id] = item;
+  for (const task of tasks) view.backgroundTasks[task.id] = task;
   view.itemOrder = items.map((item) => item.id);
   const reader = new ThreadStore(defaultLimits);
   reader.snapshot(view);
@@ -59,6 +60,34 @@ function store(agents: Agent[], items: Item[]) {
 }
 const line = (reader: ThreadStore, ids = ["spawn-review"]) =>
   subagentStatusLine(readSubagentGroup(reader, ids).value.map((entry) => entry.state));
+
+test.each(["running", "unknown", "completed"] as const)(
+  "a loaded idle branch includes its descendant's %s background task in settlement",
+  (status) => {
+    const reader = store(
+      [agent("review", { state: "idle" }), agent("nested", { state: "idle" }, "review")],
+      [spawn("review")],
+      [
+        BackgroundTask.parse({
+          id: "build",
+          agentId: "nested",
+          kind: "shell",
+          title: "Build",
+          status,
+          stoppable: true,
+          startedAt: 2000,
+          ...(status === "completed" ? { endedAt: 7000 } : {}),
+        }),
+      ],
+    );
+    const entry = readSubagentGroup(reader, ["spawn-review"]).value[0];
+    expect(line(reader)).toBe(status === "completed" ? "1 done" : "1 working");
+    expect(entry && subagentLabels[entry.state]).toBe(
+      status === "completed" ? "Finished" : "Running",
+    );
+    expect(entry?.endedAt).toBe(status === "completed" ? 7000 : undefined);
+  },
+);
 
 test("an idle child cannot finish its group while a grandchild waits for a human", () => {
   const reader = store(
@@ -190,6 +219,7 @@ test("appending unrelated output does no historical or membership reads for 50 m
   );
   let historicalReads = 0;
   let membershipReads = 0;
+  let taskMembershipReads = 0;
   let appended = false;
   const source: ThreadSource = new Proxy(reader, {
     get(target, key) {
@@ -202,6 +232,11 @@ test("appending unrelated output does no historical or membership reads for 50 m
         return () => {
           if (appended) membershipReads++;
           return target.agentIds();
+        };
+      if (key === "taskIds")
+        return () => {
+          if (appended) taskMembershipReads++;
+          return target.taskIds();
         };
       const value = Reflect.get(target, key, target);
       return typeof value === "function" ? value.bind(target) : value;
@@ -248,6 +283,7 @@ test("appending unrelated output does no historical or membership reads for 50 m
     expect(reader.item("new-output")?.type).toBe("message");
     expect(historicalReads).toBe(0);
     expect(membershipReads).toBe(0);
+    expect(taskMembershipReads).toBe(0);
     for (const [at, selection] of selections.entries())
       expect(selection.getSnapshot()).toBe(before[at]);
   } finally {

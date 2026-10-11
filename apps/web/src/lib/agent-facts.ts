@@ -1,6 +1,6 @@
 import type { Selection, ThreadReader, ThreadSource } from "@ace/client";
-import { isActionableInteraction } from "@ace/core/human";
-import type { Agent, Interaction, Item, Run } from "@ace/protocol";
+import { agentTreeWork } from "@ace/ui-core";
+import type { Agent, BackgroundTask, Interaction, Item, Run } from "@ace/protocol";
 import type { Watched } from "./use-watched.ts";
 
 type Launch = Extract<Item, { type: "delegation.started" }>;
@@ -17,7 +17,7 @@ const remove = (map: Map<string, Set<string>>, key: string | null | undefined, i
   if (!ids?.size) map.delete(key);
 };
 
-/** Shared indexes of canonical links, pending attention and run endpoints. No transcript copy. */
+/** Shared indexes of canonical links, owned work and run endpoints. No transcript copy. */
 export class AgentFacts {
   readonly bySpawn = new Map<string, Set<string>>();
   readonly byThread = new Map<string, Set<string>>();
@@ -25,6 +25,8 @@ export class AgentFacts {
   private agents = new Map<string, Agent>();
   private questions = new Map<string, Interaction>();
   private pending = new Map<string, Set<string>>();
+  private tasks = new Map<string, BackgroundTask>();
+  private ownedTasks = new Map<string, Set<string>>();
   private launchItems = new Map<string, Launch>();
   private runs = new Map<string, Run>();
   private ends = new Map<string, Map<string, number>>();
@@ -43,12 +45,15 @@ export class AgentFacts {
     this.agents.clear();
     this.questions.clear();
     this.pending.clear();
+    this.tasks.clear();
+    this.ownedTasks.clear();
     this.launchItems.clear();
     this.runs.clear();
     this.ends.clear();
     this.latest.clear();
     for (const id of this.reader.agentIds()) this.agent(id, new Set());
     for (const id of this.reader.interactionIds()) this.interaction(id, new Set());
+    for (const id of this.reader.taskIds()) this.task(id, new Set());
     for (const id of this.reader.order) this.item(id, new Set());
   }
 
@@ -63,6 +68,7 @@ export class AgentFacts {
       if (key.startsWith("agent:")) this.agent(key.slice(6), changed);
       else if (key.startsWith("interaction:")) this.interaction(key.slice(12), changed);
       else if (key.startsWith("item:")) this.item(key.slice(5), changed);
+      else if (key.startsWith("task:")) this.task(key.slice(5), changed);
       else if (key.startsWith("run:")) this.run(key.slice(4), changed);
     }
     return changed;
@@ -98,13 +104,47 @@ export class AgentFacts {
     if (next) changed.add(`attention:${next.agentId}`);
   }
 
-  actionable(agentId: string): boolean {
-    for (const id of this.pending.get(agentId) ?? []) {
-      const question = this.questions.get(id);
-      if (question && isActionableInteraction(question, this.reader.agent(agentId)?.status))
-        return true;
+  private task(id: string, changed: Set<string>) {
+    const before = this.tasks.get(id);
+    const next = this.reader.task(id);
+    if (before === next) return;
+    remove(this.ownedTasks, before?.agentId, id);
+    if (next) {
+      this.tasks.set(id, next);
+      add(this.ownedTasks, next.agentId, id);
+    } else this.tasks.delete(id);
+    // Ancestor cards subscribe to the work of every member of their subtree.
+    if (before) changed.add(`work:${before.agentId}`);
+    if (next) changed.add(`work:${next.agentId}`);
+  }
+
+  /** Reuse the shared settlement rule, reading only the requested branches' owned facts. */
+  treeWork(agentIds: ReadonlySet<string>): ReturnType<typeof agentTreeWork> {
+    const agents: Agent[] = [];
+    const tasks: BackgroundTask[] = [];
+    const interactions: Interaction[] = [];
+    for (const id of agentIds) {
+      const agent = this.reader.agent(id);
+      if (agent) agents.push(agent);
+      for (const taskId of this.ownedTasks.get(id) ?? []) {
+        const task = this.tasks.get(taskId);
+        if (task) tasks.push(task);
+      }
+      for (const interactionId of this.pending.get(id) ?? []) {
+        const interaction = this.questions.get(interactionId);
+        if (interaction) interactions.push(interaction);
+      }
     }
-    return false;
+    return agentTreeWork(agents, tasks, interactions);
+  }
+
+  taskEndedAt(agentId: string): number | undefined {
+    let latest: number | undefined;
+    for (const id of this.ownedTasks.get(agentId) ?? []) {
+      const end = this.tasks.get(id)?.endedAt;
+      if (end !== undefined) latest = Math.max(latest ?? end, end);
+    }
+    return latest;
   }
 
   private item(id: string, changed: Set<string>) {
