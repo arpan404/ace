@@ -1,10 +1,5 @@
 import { ForgeMutationOutcome } from "./mutation.ts";
-import {
-  replyIntent,
-  replyCutoff,
-  reconcileReply,
-  type ReplyReceipts,
-} from "./reply-receipts.ts";
+import { replyIntent, replyCutoff, reconcileReply, type ReplyReceipts } from "./reply-receipts.ts";
 import { z } from "zod";
 import {
   ForgeRepository,
@@ -149,7 +144,9 @@ export class GitHubForge implements Forge {
     } catch (error) {
       if (
         error instanceof ForgeError &&
-        ["forbidden", "preferences_changed", "not_found", "conflict", "rate_limit"].includes(error.kind)
+        ["forbidden", "preferences_changed", "not_found", "conflict", "rate_limit"].includes(
+          error.kind,
+        )
       ) {
         this.#replyReceipts?.remove(intent);
         throw error;

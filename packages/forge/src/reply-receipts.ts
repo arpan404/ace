@@ -43,7 +43,10 @@ export async function replyCutoff(
   number: number,
   signal: AbortSignal,
 ): Promise<number> {
-  return (await comments(api, root, number, signal)).reduce((last, value) => Math.max(last, value.id), 0);
+  return (await comments(api, root, number, signal)).reduce(
+    (last, value) => Math.max(last, value.id),
+    0,
+  );
 }
 /** An outstanding receipt is reconciled before any further reply write, including lost responses. */
 export async function reconcileReply(

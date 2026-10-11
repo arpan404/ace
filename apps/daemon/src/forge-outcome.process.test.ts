@@ -71,15 +71,20 @@ test("a lost reply response reconciles a new comment instead of an identical old
   try {
     await f.update({
       lostReply: true,
-      replies: [{
-        id: 31,
-        body: "Fixed",
-        user: { login: "octo" },
-        in_reply_to_id: 13,
-        updated_at: "2026-10-10T12:00:00Z",
-      }],
+      replies: [
+        {
+          id: 31,
+          body: "Fixed",
+          user: { login: "octo" },
+          in_reply_to_id: 13,
+          updated_at: "2026-10-10T12:00:00Z",
+        },
+      ],
     });
-    expect(await f.runtime.execute(reply("lost"))).toMatchObject({ ok: false, error: "forge_outcome_uncertain" });
+    expect(await f.runtime.execute(reply("lost"))).toMatchObject({
+      ok: false,
+      error: "forge_outcome_uncertain",
+    });
     expect((await f.facts()).replies).toHaveLength(2);
     expect(await f.runtime.execute(reply("reconciled"))).toMatchObject({ ok: true });
     expect((await f.facts()).replies).toHaveLength(2);
