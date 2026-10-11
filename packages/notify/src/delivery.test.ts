@@ -384,3 +384,39 @@ it("revoked device tombstones do not consume capacity or regain authority after 
   expect(f.service.getPreferences(newDevice)).toMatchObject({ includePreview: false });
   expect(() => f.service.connectDevice(DeviceId.parse("revoked-0"))).toThrow("revoked");
 });
+
+it("deleting a completed thread cancels its coalesced alert and suppresses later notices after restart", async () => {
+  const f = fixture();
+  f.start();
+  f.end();
+  f.append([{ type: "thread.client.updated", changes: { deletedAt: 1000 } }]);
+  await f.reopen();
+  await f.flush();
+  expect(f.deliveries).toEqual([]);
+  f.service.notify({
+    id: "late-notice",
+    threadId: f.threadId,
+    title: "Late notice",
+    status: "agent_says",
+    backgroundCount: 0,
+    actions: [],
+  });
+  f.start();
+  f.end();
+  await f.flush();
+  expect(f.deliveries).toEqual([]);
+});
+
+it("deleting a thread cancels queued offline delivery across restart", async () => {
+  const f = fixture("retry");
+  f.start();
+  f.end();
+  await f.flush();
+  expect(f.deliveries).toHaveLength(2);
+  f.append([{ type: "thread.client.updated", changes: { deletedAt: 6000 } }]);
+  await f.reopen();
+  f.setOutcome("accepted");
+  f.setTime(7000);
+  await f.service.drain();
+  expect(f.deliveries).toHaveLength(2);
+});

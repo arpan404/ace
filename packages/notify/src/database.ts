@@ -69,13 +69,13 @@ export class NotificationDatabase {
       .number()
       .int()
       .parse(this.db.prepare("PRAGMA user_version").get()?.user_version);
-    if (version === 0 || version === 1) {
-      // Rebuild older projections with owner eligibility and thread snoozes, preserving device policy.
+    if (version === 0 || version === 1 || version === 2) {
+      // Replay older projections to recover deletion state, preserving device policy.
       this.db.exec(`BEGIN IMMEDIATE; DELETE FROM threads; DELETE FROM interactions;
         DELETE FROM interaction_owners; DELETE FROM agent_status; DELETE FROM tasks;
         DELETE FROM pending; DELETE FROM jobs; UPDATE cursor SET seq=0 WHERE id=1;
-        PRAGMA user_version=2; COMMIT;`);
-    } else if (version !== 2) throw new Error("Unsupported notification database version");
+        PRAGMA user_version=3; COMMIT;`);
+    } else if (version !== 3) throw new Error("Unsupported notification database version");
   }
   private statement(sql: string): StatementSync {
     let value = this.statements.get(sql);
@@ -118,12 +118,14 @@ export class NotificationDatabase {
         cursor = event.seq;
         if (event.threadId.length > 200) throw new Error("Thread id too long");
         if (event.payload.type === "thread.client.updated") {
-          this.snooze(event.threadId, event.payload.snoozedUntil ?? 0);
-          continue;
+          if (event.payload.snoozedUntil !== undefined)
+            this.snooze(event.threadId, event.payload.snoozedUntil ?? 0);
+          if (event.payload.deletedAt === undefined) continue;
         }
         if (event.payload.type === "thread.created") {
           const state = CompactThread.parse({
             archived: event.payload.thread.archivedAt !== undefined,
+            deleted: event.payload.thread.deletedAt !== undefined,
             title: event.payload.thread.title.slice(0, 200),
             status: event.payload.thread.status,
           });
@@ -152,6 +154,7 @@ export class NotificationDatabase {
           JSON.stringify(CompactThread.parse(state)),
           event.threadId,
         );
+        if (state.deleted) this.statement("DELETE FROM jobs WHERE thread=?").run(event.threadId);
         if (pending) {
           if (!prior && this.count("pending") >= 10_000)
             // Disk spool eviction keeps replay advancing even during sustained overload.
@@ -258,7 +261,7 @@ export class NotificationDatabase {
         throw new Error("Notification queue full");
       const expires = now + 86_400_000;
       this.statement("INSERT INTO agent_notices VALUES(?,?)").run(notification.id, expires);
-      if (state.archived || this.snoozed(notification.threadId, now)) return;
+      if (state.archived || state.deleted || this.snoozed(notification.threadId, now)) return;
       for (const device of devices)
         this.statement(
           "INSERT INTO jobs(device,thread,body,due,expires,generation) VALUES(?,?,?,?,?,?)",
@@ -323,7 +326,7 @@ export class NotificationDatabase {
   }
   current(notification: Notification, generation: number): boolean {
     const state = this.thread(notification.threadId);
-    if (state.archived) return false;
+    if (state.archived || state.deleted) return false;
     if (notification.status === "background_done" || notification.status === "agent_says")
       return true;
     return (
