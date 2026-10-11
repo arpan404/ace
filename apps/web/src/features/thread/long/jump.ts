@@ -68,6 +68,9 @@ export class Jump {
   toSeq(seq: number, options: { turn?: number | null; query?: string } = {}): Promise<void> {
     return this.run((controller) => controller.toSeq(seq, options));
   }
+  toItem(itemId: string): Promise<void> {
+    return this.run((controller) => controller.toItem(itemId));
+  }
   older(): Promise<void> {
     return this.controller?.older() ?? Promise.resolve();
   }

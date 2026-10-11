@@ -140,7 +140,7 @@ export type DeepLink = z.infer<typeof DeepLink>;
 export function deepLinkRoute(link: DeepLink): string {
   switch (link.kind) {
     case "thread":
-      return `/t/${encodeURIComponent(link.threadId)}`;
+      return `/t/${encodeURIComponent(link.threadId)}${link.itemId ? `?item=${encodeURIComponent(link.itemId)}` : ""}`;
     case "settings":
       return `/settings/${link.page ?? "general"}`;
     case "new-thread":

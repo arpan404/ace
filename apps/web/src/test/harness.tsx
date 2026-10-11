@@ -3,7 +3,7 @@ import { Client, type ClientApi } from "@ace/client";
 import { ClientHost, RemoteClient } from "@ace/client-worker";
 import { FakeDaemon, ScenarioPlayer, fakeTransport, type Scenario } from "@ace/fake-daemon";
 import { DeviceId } from "@ace/protocol";
-import { createMemoryHistory } from "@tanstack/react-router";
+import { createMemoryHistory, type RouterHistory } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { App, AppFrame, createQueryClient } from "@/app.tsx";
@@ -78,6 +78,7 @@ export function harness(
   options: {
     snapshotItems?: number;
     connection?: DaemonConnection;
+    history?: RouterHistory;
     storage?: KeyValueStorage;
     matchMedia?: (query: string) => MediaQueryList;
     /** Run the client the way a browser with workers does: behind a ClientHost and a port. */
@@ -169,7 +170,7 @@ export function harness(
               client={client}
               queryClient={createQueryClient()}
               storage={storage}
-              history={createMemoryHistory({ initialEntries: [path] })}
+              history={options.history ?? createMemoryHistory({ initialEntries: [path] })}
               machines={machines}
             />
           </DaemonConnectionContext.Provider>
