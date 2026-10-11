@@ -4,7 +4,7 @@ import {
   publicationError,
 } from "./publication-state.ts";
 import { z } from "zod";
-import { GitHubRepositories, ForgeMutationOutcome } from "@ace/forge";
+import { GitHubRepositories, ForgeMutationOutcome, ForgeError } from "@ace/forge";
 import {
   HostedRepository,
   RepositoryPublication,
@@ -129,6 +129,7 @@ export class RepositoryPublications {
             // Release the creation reservation and preserve the failure so the form can retry.
             publication.phase = "prepared";
             this.save(device, publication);
+            if (error instanceof ForgeError && error.kind === "conflict") throw new Error("publication_name_taken");
             throw error;
           }
           const receipt = HostedRepository.safeParse(error.receipt);

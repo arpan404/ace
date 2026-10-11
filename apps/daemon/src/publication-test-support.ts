@@ -15,6 +15,8 @@ const stateSchema = z.object({
   remote: z.json().nullable(),
   users: z.number(),
   invalidUser: z.number(),
+  conflict: z.boolean(),
+  wrongUser: z.number(),
 });
 /** Only gh is substituted: SQLite, filesystem, Git and command receipts remain real. */
 export async function publicationCli(options: { loseReply?: boolean; hold?: boolean } = {}) {
@@ -31,6 +33,8 @@ export async function publicationCli(options: { loseReply?: boolean; hold?: bool
       remote: null,
       users: 0,
       invalidUser: 0,
+      conflict: false,
+      wrongUser: 0,
     }),
   );
   await writeFile(join(root, "package.json"), '{"type":"module"}');
@@ -42,11 +46,11 @@ const path=process.env.ACE_PUBLICATION_STATE;
 const state=JSON.parse(readFileSync(path,'utf8'));
 const args=process.argv.slice(2);
 let text=''; for await (const chunk of process.stdin) text+=chunk;
-if(args[0]==='api' && args[1]==='user'){ state.users++;writeFileSync(path,JSON.stringify(state));console.log(JSON.stringify(state.users===state.invalidUser?{}:{login:state.account})); }
+if(args[0]==='api' && args[1]==='user'){ state.users++;writeFileSync(path,JSON.stringify(state));console.log(JSON.stringify(state.users===state.invalidUser?{}:{login:state.users===state.wrongUser?'other':state.account})); }
 else {
  const reply=(status,body)=>{console.log('HTTP/2.0 '+status+' status\\r\\n\\r'); console.log(JSON.stringify(body)); if(status>=400) process.exitCode=1;};
  if(args[1]==='user/repos' || args[1]?.startsWith('orgs/')) {
-   const body=JSON.parse(text); state.creates++;
+   const body=JSON.parse(text); if(state.conflict){state.remote={id:777,name:body.name,owner:{login:state.account},description:body.description,private:body.private,archived:false,fork:false};writeFileSync(path,JSON.stringify(state));reply(422,{message:'name already exists'});process.exit(1)} state.creates++;
    state.remote={id:state.creates,name:body.name,owner:{login:args[1]==='user/repos'?state.account:args[1].split('/')[1]},description:body.description,private:body.private,archived:false,fork:false};
    writeFileSync(path,JSON.stringify(state));
    if(state.hold) await new Promise(resolve=>{ const w=watch(path,()=>{try { if(!JSON.parse(readFileSync(path,'utf8')).hold){w.close();resolve()} }catch{}}); });

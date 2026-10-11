@@ -290,3 +290,17 @@ test("case-equivalent publication intents resume the saved repository without an
     await f.cleanup();
   }
 });
+
+
+test("a confirmed creation conflict never adopts the other writer's matching repository", async () => {
+  const f = await setup();
+  try {
+    await f.cli.update({ conflict: true });
+    expect(await f.publish()).toMatchObject({ ok: false, error: "publication_name_taken",
+      publication: { phase: "prepared", remote: null } });
+    expect((await f.cli.state()).creates).toBe(0);
+    expect((await f.git(f.path, ["remote"])).stdout.trim()).toBe("");
+    expect(await f.publish()).toMatchObject({ ok: false, error: "publication_name_taken" });
+    expect((await f.git(f.path, ["remote"])).stdout.trim()).toBe("");
+  } finally { await f.cleanup(); }
+});
