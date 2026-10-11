@@ -181,3 +181,35 @@ test("account badges accept a complete emoji and reject more than two text chara
   const saved = await app.client.request({ type: "accounts.list" });
   expect(saved.accounts.find((account) => account.id === "claude-personal")?.shortLabel).toBe("👩‍💻");
 });
+
+test.each([1, 2])(
+  "the composer's account marker appears only with multiple provider accounts (%s)",
+  async (count) => {
+    const app = harness();
+    if (count === 1) {
+      app.daemon.services.accounts = app.daemon.services.accounts.filter(
+        (account) => account.provider !== "claude" || account.id === "claude-personal",
+      );
+      app.daemon.services.models = app.daemon.services.models.filter(
+        (model) => model.provider !== "claude" || model.instance === "claude-personal",
+      );
+    }
+    const scenario = replayCursor();
+    app
+      .play({
+        ...scenario,
+        thread: {
+          ...scenario.thread,
+          live: { account: "claude-personal", model: "claude-opus-5-5" },
+        },
+      })
+      .runThrough("finding");
+    await app.open(`/t/${thread}`);
+    const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Personal/ });
+    await waitFor(() => {
+      const marker = within(chip).queryByText("P", { exact: true });
+      if (count === 1) expect(marker).toBeNull();
+      else expect(marker).toBeTruthy();
+    });
+  },
+);

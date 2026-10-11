@@ -124,3 +124,40 @@ test("Full access selects the unchanged native id and switching catalogs removes
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Execute plan" }));
   expect(selected).toEqual(["yolo", "execute"]);
 });
+
+test("provider default has an icon-only trigger with its name and mode choices still reachable", async () => {
+  const selected: (string | null)[] = [];
+  render(
+    <TooltipProvider delay={0}>
+      <PermissionPicker
+        current={permissionOption(null, native)}
+        menu={{ options: permissionOptions(native), value: "", loading: false }}
+        onChange={(id) => selected.push(id)}
+      />
+    </TooltipProvider>,
+  );
+  const trigger = screen.getByRole("button", { name: "Approvals: Provider default" });
+  expect(trigger.textContent).toBe("");
+  trigger.focus();
+  await userEvent.keyboard("{Enter}");
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Inspect project" }));
+  expect(selected).toEqual(["inspect"]);
+});
+
+test("a non-default pending permission keeps its label and application timing", () => {
+  render(
+    <TooltipProvider>
+      <PermissionPicker
+        current={permissionOption(null, native)}
+        next={permissionOption("execute", native)}
+        note="Applies at the agent's next turn"
+        menu={{ options: permissionOptions(native), value: "execute", loading: false }}
+        onChange={() => {}}
+      />
+    </TooltipProvider>,
+  );
+  const trigger = screen.getByRole("button", {
+    name: "Approvals: Execute plan, applies at the agent's next turn",
+  });
+  expect(trigger.textContent).toBe("Execute plan");
+});

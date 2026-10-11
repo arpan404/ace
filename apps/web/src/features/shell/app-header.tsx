@@ -11,7 +11,7 @@ import { useHistoryNav } from "@/lib/history-nav.ts";
 import { useViewFrame } from "./sidebar-frame.tsx";
 
 export interface HeaderProps {
-  /** 14px semibold. Rendered as the view's h1. */
+  /** 13px medium. Rendered as the view's h1. */
   title: ReactNode;
   /** Muted beside the title: the project on a thread, the page in Settings. */
   subtitle?: ReactNode;
@@ -83,7 +83,7 @@ export function HeaderNav() {
 /**
  * The one header every screen uses: sidebar toggle and history, then the title and its
  * subtitle; on the right the actions, the ⋯ menu, the screen's tools and the side panel's
- * toggle. 50px, a drag region in Electron, hairline only once the content scrolls. Every control
+ * toggle. 44px, a drag region in Electron, hairline only once the content scrolls. Every control
  * is a 30px box on one centre line. On a phone it keeps the sidebar toggle, the title (two lines
  * if need be), the status mark, screen tools and one ⋯; the panel toggle moves into that ⋯.
  */
@@ -111,7 +111,7 @@ export function AppHeader(
     <header
       ref={header}
       className={cn(
-        // The hairline is drawn with box-shadow, not a border, so the 50px row keeps its exact centre.
+        // The hairline is drawn with box-shadow, not a border, so the 44px row keeps its exact centre.
         "@container/header relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 shadow-[inset_0_-1px_0_transparent] transition-shadow duration-(--dur-2) [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
         props.scrolled && "shadow-[inset_0_-1px_0_var(--border)]",
       )}
@@ -124,7 +124,7 @@ export function AppHeader(
           )}
           <h1
             className={cn(
-              "min-w-0 text-base font-semibold tracking-[-0.005em]",
+              "min-w-0 text-ui font-medium",
               phone ? "line-clamp-2 leading-[18px] break-words" : "truncate",
             )}
           >
@@ -134,7 +134,7 @@ export function AppHeader(
         {phone && props.status}
         {props.subtitle && (
           // The title keeps the room: a long subtitle (a worktree's branch) truncates first.
-          <span className="hidden min-w-0 shrink-[3] truncate text-base font-normal text-muted-foreground md:inline @max-[45rem]/header:hidden">
+          <span className="hidden min-w-0 shrink-[3] truncate text-xs font-normal text-muted-foreground md:inline @max-[45rem]/header:hidden">
             {props.subtitle}
           </span>
         )}
