@@ -1,6 +1,7 @@
 import { useClient } from "@ace/client-react";
 import { useEffect } from "react";
-import { endPanelTerminal, loadedPanelServices } from "../services.ts";
+import { loadedPanelServices } from "../services.ts";
+import { bindTerminalEndDelivery, endPanelTerminal } from "./end-delivery.ts";
 import { onTerminalEnd, setTerminalProbe } from "./closing.ts";
 
 /**
@@ -11,6 +12,7 @@ import { onTerminalEnd, setTerminalProbe } from "./closing.ts";
 export function TerminalClient() {
   const client = useClient();
   useEffect(() => {
+    const delivery = bindTerminalEndDelivery(client);
     const unprobe = setTerminalProbe((threadId, terminalId) => {
       // Not loaded: this client never attached the terminal, so it can't say it ended.
       const terminals = loadedPanelServices(client)?.terminals;
@@ -23,6 +25,7 @@ export function TerminalClient() {
     return () => {
       unprobe();
       unend();
+      delivery.release();
     };
   }, [client]);
   return null;

@@ -21,3 +21,5 @@ export const loadAuthTerminal = () => import("./terminal/auth-terminal.tsx");
 export type { AuthTerminalProps } from "./terminal/auth-terminal.tsx";
 
 export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");
+
+export { bindTerminalEndDelivery } from "./terminal/end-delivery.ts";

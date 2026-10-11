@@ -1,8 +1,8 @@
 /*
  * Closing a terminal tab ends its shell. The tab kinds' `onClose` runs outside React with only
- * the thread and the tab, while the shells belong to the panel services of a daemon client, so
- * this hands the request across: the showing client listens (`TerminalClient`), and a request
- * made while none does waits for the next to.
+ * the thread and the tab. This hands the request to the showing client (`TerminalClient`).
+ * Authenticated close delivery outlives its App and does not depend on optional panel services.
+ * A request made before any client listens waits for the first to.
  */
 
 export interface TerminalEnd {
@@ -12,7 +12,7 @@ export interface TerminalEnd {
 
 const listeners = new Set<(end: TerminalEnd) => void>();
 const waiting: TerminalEnd[] = [];
-/** Requests kept while no client's services have loaded yet. */
+/** Requests kept before any client has started listening. */
 const keptWaiting = 64;
 
 /** End a terminal's shell because its tab closed. */
