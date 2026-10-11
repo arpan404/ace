@@ -1,9 +1,12 @@
-import { facts, type Scenario } from "@ace/fake-daemon";
+import { App, AppFrame } from "@/app.tsx";
+import { createMemoryHistory } from "@tanstack/react-router";
+import { ClientMessage, ServerMessage } from "@ace/protocol";
+import { FakeDaemon, ScenarioPlayer, facts, type Scenario } from "@ace/fake-daemon";
 import type { ClientApi } from "@ace/client";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
-import { fakeClient, harness } from "@/test/harness.tsx";
+import { fakeClient, harness, memoryKeyValue } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10_000 });
 
@@ -235,3 +238,88 @@ test("renaming a project keeps its detected favicon and offers no artwork editin
   await screen.findByRole("button", { name: "Project filter: Website" });
   expect(made.daemon.projects.list().workspaces[0]?.defaultIcon).toBe(favicon);
 });
+
+/** Hold correlated removal receipts at the network boundary; other messages keep flowing. */
+class DelayedRemovalDaemon extends FakeDaemon {
+  private removals = new Set<string>();
+  private delayedReceipts: (() => void)[] = [];
+  get awaitingReceipt() {
+    return this.delayedReceipts.length > 0;
+  }
+  releaseReceipts() {
+    for (const send of this.delayedReceipts.splice(0)) send();
+  }
+  override connect(wire: Parameters<FakeDaemon["connect"]>[0]) {
+    const connection = super.connect({
+      ...wire,
+      send: (text) => {
+        const frame = ServerMessage.parse(JSON.parse(text));
+        if (frame.type === "commandResult" && this.removals.delete(frame.commandId))
+          this.delayedReceipts.push(() => wire.send(text));
+        else wire.send(text);
+      },
+    });
+    const receive = connection.receive.bind(connection);
+    connection.receive = (text: string) => {
+      const frame = ClientMessage.parse(JSON.parse(text));
+      if (frame.type === "command" && frame.command.payload.type === "workspace.remove")
+        this.removals.add(frame.command.id);
+      receive(text);
+    };
+    return connection;
+  }
+}
+
+test.each(["success", "refusal"] as const)(
+  "a delayed removal %s cannot close or change a dialog opened after cancellation",
+  async (result) => {
+    const daemon = new DelayedRemovalDaemon({ clock: () => 1000 });
+    new ScenarioPlayer(
+      daemon,
+      thread("thread-docs", "docs", result === "refusal"),
+    ).runUntilBlocked();
+    daemon.projects.seedFolders("/home/dev", [{ path: "/home/dev/site", git: true }]);
+    daemon.services.providerLogin.dismiss("test-device");
+    const client = fakeClient(daemon);
+    await ready(client);
+    await client.projects.add({ path: "/home/dev/site" });
+    const storage = memoryKeyValue();
+    const view = render(
+      <AppFrame environment={{ storage }}>
+        <App
+          client={client}
+          storage={storage}
+          history={createMemoryHistory({ initialEntries: ["/new"] })}
+        />
+      </AppFrame>,
+    );
+    await filterTo("docs");
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Remove…" }));
+    const old = await screen.findByRole("dialog", { name: "Remove docs?" });
+    await userEvent.click(within(old).getByRole("button", { name: "Remove project" }));
+    await waitFor(() => expect(daemon.awaitingReceipt).toBe(true));
+    await userEvent.click(within(old).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await filterTo("site");
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Remove…" }));
+    await screen.findByRole("dialog", { name: "Remove site?" });
+    const receipt = Promise.withResolvers<void>();
+    const stop = client.onMessage((frame) => {
+      if (frame.type === "commandResult") receipt.resolve();
+    });
+    await act(async () => {
+      daemon.releaseReceipts();
+      await receipt.promise;
+    });
+    const current = screen.getByRole("dialog", { name: "Remove site?" });
+    expect(within(current).queryByRole("alert")).toBeNull();
+    expect(within(current).getByRole("button", { name: "Remove project" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    expect(daemon.projects.list().workspaces.map((project) => project.name)).toContain("site");
+    expect(screen.queryByText("Removed docs")).toBeNull();
+    stop();
+    view.unmount();
+  },
+);
