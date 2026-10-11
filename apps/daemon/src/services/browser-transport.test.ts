@@ -6,7 +6,7 @@ import { BrowserServerMessage } from "@ace/protocol";
 function fixture(bufferedAmount: number) {
   const sent: string[] = [];
   let readyState: WebSocket["readyState"] = WebSocket.OPEN;
-  const socket: Pick<WebSocket, "readyState" | "bufferedAmount" | "send" | "terminate"> = {
+  const socket = {
     get readyState() {
       return readyState;
     },
@@ -17,7 +17,7 @@ function fixture(bufferedAmount: number) {
     terminate() {
       readyState = WebSocket.CLOSED;
     },
-  };
+  } satisfies Pick<WebSocket, "readyState" | "bufferedAmount" | "send" | "terminate">;
   return {
     socket,
     messages: () => sent.map((message) => BrowserServerMessage.parse(JSON.parse(message))),
