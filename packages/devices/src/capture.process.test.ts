@@ -59,6 +59,9 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
   let serial = initialSerial;
   let oldName = "Pixel";
   const probes: string[][] = [];
+  let lookup:
+    | { entered: ReturnType<typeof deferred<void>>; release: ReturnType<typeof deferred<void>> }
+    | undefined;
   const env = { PATH: root, ANDROID_HOME: root, MODE: mode, WIDTH: "320", HEIGHT: "640" };
   const platform = new DevicePlatform({
     platform: "linux",
@@ -67,6 +70,12 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
     async probe(_command, args) {
       probes.push([...args]);
       const command = args.join(" ");
+      if (lookup && command.includes("'wm' 'size'")) {
+        const held = lookup;
+        lookup = undefined;
+        held.entered.resolve();
+        await held.release.promise;
+      }
       if (mode === "dimensionmove" && command.includes("'wm' 'size'")) {
         serial = "emulator-5556";
         oldName = "OtherAVD";
@@ -87,6 +96,10 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
   const captureSerials: string[] = [];
   const sizes: (string | undefined)[] = [];
   const processes: RawSupervisedProcess[] = [];
+  const exited = new Set<RawSupervisedProcess>();
+  cleanup.push(async () => {
+    await Promise.all(processes.map((child) => child.stop({ graceMs: 0 })));
+  });
   const inputs: RawSupervisedProcess[] = [];
   const outputs: RawSupervisedProcess[] = [];
   const prefix = deferred<void>();
@@ -110,6 +123,7 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
     spawn(options) {
       const child = spawnRawSupervised(options);
       processes.push(child);
+      void child.exited.then(() => exited.add(child));
       if (options.name === "device-h264") {
         sizes.push(options.args?.[(options.args?.indexOf("--size") ?? -1) + 1]);
         captureSerials.push(options.args?.[1] ?? "");
@@ -157,9 +171,15 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
   }
   return {
     capture,
+    holdLookup() {
+      const held = { entered: deferred<void>(), release: deferred<void>() };
+      lookup = held;
+      return held;
+    },
     captureSerials,
     sizes,
     processes,
+    exited,
     inputs,
     outputs,
     failures,
@@ -526,3 +546,73 @@ it("Android video requests keep independent JPEG frames and a keyframe request p
   expect(running?.signal.aborted).toBe(false);
   expect(f.inputs.at(-1)?.pid).toBe(running?.pid);
 });
+
+it.each(["configure", "rotation"] as const)(
+  "a natural restart overlapping %s owns one pair and stops every child",
+  async (change) => {
+    const f = await fixture();
+    f.end();
+    await f.timer.promise;
+    const held = f.holdLookup();
+    const natural = [...f.timers][0];
+    if (!natural) throw new Error("Missing natural restart");
+    natural();
+    await held.entered.promise;
+    f.rotate();
+    const explicit =
+      change === "rotation"
+        ? f.capture.restart?.()
+        : f.capture.configure?.({
+            codec: "jpeg",
+            maxWidth: 640,
+            maxHeight: 320,
+            fps: 10,
+            bitrate: 4000000,
+          });
+    held.release.resolve();
+    await explicit;
+    f.send(3);
+    expect((await f.frame()).header).toMatchObject({ sequence: 0, width: 640, height: 320 });
+    await f.capture.stop();
+    expect(f.capture.terminated).toBe(true);
+    // Stop must account for all native children, including any overlapping startup.
+    expect(f.exited.size).toBe(f.processes.length);
+    expect(f.failures).toEqual([]);
+  },
+);
+
+it.each(["configure", "rotation"] as const)(
+  "stop joins a pending natural restart and %s without spawning after shutdown",
+  async (change) => {
+    const f = await fixture();
+    f.end();
+    await f.timer.promise;
+    const held = f.holdLookup();
+    const natural = [...f.timers][0];
+    if (!natural) throw new Error("Missing natural restart");
+    natural();
+    await held.entered.promise;
+    const explicit =
+      change === "rotation"
+        ? f.capture.restart?.()
+        : f.capture.configure?.({
+            codec: "jpeg",
+            maxWidth: 640,
+            maxHeight: 320,
+            fps: 10,
+            bitrate: 4000000,
+          });
+    let stopped = false;
+    const stop = f.capture.stop().then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+    held.release.resolve();
+    await Promise.all([explicit, stop]);
+    expect(f.capture.terminated).toBe(true);
+    expect(f.exited.size).toBe(f.processes.length);
+    expect(f.inputs).toHaveLength(1);
+    expect(f.failures).toEqual([]);
+  },
+);
