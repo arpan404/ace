@@ -43,7 +43,7 @@ export class RemotePublications {
     hostId: string;
     usage?(threadId: ThreadId): RemoteTaskUsage;
   };
-  private pending = new Set<string>();
+  private pending = new Map<string, AbortSignal>();
   private unsubscribe: () => void;
   constructor(options: RemotePublications["options"]) {
     this.options = options;
@@ -93,7 +93,7 @@ export class RemotePublications {
   }
   close() {
     this.unsubscribe();
-    for (const id of this.pending) this.interrupted(id);
+    for (const id of this.pending.keys()) this.interrupted(id);
   }
   /** Capture aggregate completion synchronously, before another turn can be admitted. */
   capture(threadId: string) {
@@ -223,7 +223,12 @@ export class RemotePublications {
       this.save(record);
     }
     const publication = record;
-    this.pending.add(task.id);
+    this.pending.set(task.id, signal);
+    // Finalize completion independently of suspended reads, writes or cleanup.
+    // The sealed row also fences a producer that resumes after this abort.
+    const abort = () => this.interrupted(task.id);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
     try {
       const attachments = await freezeRemoteAttachments(
         {
@@ -257,6 +262,7 @@ export class RemotePublications {
       signal.throwIfAborted();
       return { ok: false, code: "unavailable" };
     } finally {
+      signal.removeEventListener("abort", abort);
       this.pending.delete(task.id);
       this.interrupted(task.id);
       this.discardPending(task.id);
@@ -291,7 +297,9 @@ export class RemotePublications {
     record.completion ??= record.sealed ?? outcome;
     if (record.artifacts) record.sealed ??= record.completion;
     this.save(record);
-    return record.sealed ? { ...record.sealed, artifacts: record.artifacts } : undefined;
+    // Abort may precede completion while the producer remains suspended.
+    if (this.pending.get(task.id)?.aborted) this.interrupted(task.id);
+    return this.outcome(task.id);
   }
   outcome(id: string) {
     const record = this.read(id);

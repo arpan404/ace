@@ -47,8 +47,9 @@ test.each(["abort", "I/O failure", "replacement owner"])(
           engine: f.target.daemon.engine!,
           hostId: f.hostId,
         });
+      } else if (failure === "abort") {
+        controller.abort();
       } else {
-        if (failure === "abort") controller.abort();
         gate.resolve();
         expect((await finished)?.ok).not.toBe(true);
       }
