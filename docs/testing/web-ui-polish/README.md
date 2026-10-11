@@ -29,19 +29,21 @@ An opt-in, fake-only observer is provided at `tools/web-perf/src/steady-motion.t
 
 ## Behavior coverage written for CI
 
-- Permission presentation keeps native IDs/risk/enforcement, uses Full access only for verified unrestricted modes, and explicitly displays unavailable saved choices.
-- Work details preserve checkout commands, primary next action, full context, nested agent/background attention, root-agent pending state, dismissal focus and scroll/draft persistence.
+- Permission presentation keeps native IDs/risk/enforcement, uses Full access only for verified unrestricted modes, and explicitly displays unavailable saved choices. New-thread account/provider switching blocks sending until explicit replacement/reset, including an account with an empty catalog.
+- Work details preserve checkout commands, primary next action, full context, nested agent/background attention, root-agent pending state, dismissal focus and scroll/draft persistence. Outside dismissal preserves composer focus; Escape restores the trigger. Browser regressions exercise the final action in 220px/320px-high windows.
 - Copy preserves multiline visible text and mention names while excluding injected provider text.
 - Search keeps active scope visible when filters close and Clear restores all kinds.
 - Structured prompt edits preserve unknown YAML/comments; cancellation and route navigation protect unsaved drafts.
 - Skills filtering/disclosure reveals only the chosen groups, and source can be read as Markdown or inspected raw.
-- Browser checks cover real theme/custom preview colors, selected/keyboard states, actual density geometry, phone/tablet/desktop bounds, unobscured question controls, static status loops, and screenshots for owner review.
+- Browser checks cover real theme/custom preview colors, missing-theme fallback selection and Tab recovery, actual density geometry, phone/tablet/desktop bounds, sidebar status visibility during hover/focus, unobscured question controls, static status loops, and screenshots for owner review.
 
 Per the latest orchestrator instruction, tests were written but not run locally after the override. CI must run full typecheck, behavioral tests, dependency/UI/size/protocol guards, browser checks and the remaining performance verification. Local final verification is limited to formatting, lint and sequential typechecks of changed workspace packages.
 
 ## Local command results
 
 Formatting completed before the final small diagnostic corrections. Lint reported a shadowed preview parameter and a hook dependency; both were corrected without repeating the root command. Sequential typechecks passed for `@ace/protocol`, `@ace/provider-kit`, `@ace/ui-core`, `@ace/adapter-acp`, `@ace/adapter-codex`, `@ace/models`, `@ace/commands` and `@ace/web-e2e`. Web typecheck found test-fixture typing errors, and web-perf found two Playwright API typing errors; those diagnostics were corrected without rerunning those packages. These results are not a claim that the final full gate passed. CI must verify the final source.
+
+PR #525 review follow-up: formatting completed, and sequential `@ace/web` and `@ace/web-e2e` typechecks passed. Lint reported three shadowed names introduced by the fallback-theme binding; that binding was renamed without repeating the command. Tests, browser checks, full typecheck and final matched rendering traces remain unexecuted locally under the orchestrator restriction. CI must verify the final source.
 
 ## #412 scope retained for parallel owners
 
