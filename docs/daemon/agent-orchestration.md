@@ -69,12 +69,23 @@ a child agent to the caller or deliver a result wake. The caller can finish whil
 the conversation continues. Use `delegate_task` when that work must hold the
 parent open.
 
+Ordinary conversations share the caller's admission budget. Their own usage and
+child usage count through the same provider counter accounting as delegations.
+Durable activity leases keep token/cost limits and the original elapsed deadline
+in force after reservation release, across completed turns and daemon restart.
+Queue, steer, restart, resume and model switches must pass admission again.
+A budget breach cancels the participating conversations and child trees. Stopping
+the caller alone does not stop ordinary conversations or disable their deadlines.
+Budget membership grants no write authority and creates no completion wake.
+
 Workspace strategies are explicit for conversation launch, optional for children:
 
 - `{ "kind": "project" }` selects the project's registered root.
 - `{ "kind": "new_worktree", "base": { "ref": "main", "remote": "origin" } }`
   prepares a daemon-owned worktree through the existing Git creation owner.
-  Omit `remote` for a local branch. Creation and failed-acceptance cleanup survive
+  Omit `remote` for a local branch. Agent preparation never fetches. A remote base
+  must already exist at `refs/remotes/<remote>/<ref>`; fetch it in ace first if
+  preparation reports that the branch is missing. Creation and failed-acceptance cleanup survive
   restart. Capacity is reserved before Git effects.
   Agent requests skip automatic setup scripts. Preparation and compensating
   cleanup use the shared Git policy that disables hooks, fsmonitor and configured

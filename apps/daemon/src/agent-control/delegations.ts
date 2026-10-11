@@ -111,6 +111,9 @@ export class DelegationService {
         changed: () => this.arm(),
         suspending: (thread) => this.suspending.has(thread),
         capacity: (parent) => this.admission.capacity(parent, deps.clock.now()),
+        conversationAccepted: (thread) => {
+          this.journal.activity(thread, 1);
+        },
         conversationAdmission: (thread) => {
           const owner = this.conversations.get(thread);
           if (!owner) return undefined;
@@ -118,18 +121,26 @@ export class DelegationService {
           const capacity = this.admission.capacity(owner.ownerThreadId, deps.clock.now());
           const rejected = delegationBudget(capacity, this.policy, deps.clock.now());
           if (rejected) return rejected;
-          const state = deps.store.getThread(thread)?.status.state;
-          return state &&
-            ["done", "failed", "new"].includes(state) &&
-            capacity.concurrent >= this.policy.maxConcurrent
+          return !this.journal.participant(thread)?.active &&
+            (capacity.concurrent >= this.policy.maxConcurrent || this.journal.activeCount() >= 64)
             ? "concurrency_limit"
             : undefined;
         },
       }),
     );
     this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
-    // Recovery visits current work only, never transcript history or old receipts.
-    for (const edge of [...this.journal.active(), ...this.journal.revived()]) this.reconcile(edge);
+    // Upgrade old ownership metadata once without decoding prompts or transcripts.
+    for (const conversation of this.conversations.unenrolledMembers()) {
+      this.journal.enroll(conversation.thread_id, conversation.root_id);
+      this.journal.activity(conversation.thread_id, conversation.active);
+    }
+    // Recovery visits indexed current work, never transcript history or old receipts.
+    for (const participant of this.journal.activeParticipants()) {
+      this.reconcileConversation(participant.thread_id);
+    }
+    for (const edge of [...this.journal.active(), ...this.journal.revived()]) {
+      this.reconcile(edge);
+    }
     this.arm();
   }
   authorize(caller: McpAttribution, target: ThreadId, write: boolean): boolean {
@@ -143,8 +154,47 @@ export class DelegationService {
       (!write ||
         target === caller.threadId ||
         this.journal.isDescendant(target, caller.threadId) ||
-        this.conversations.owns(caller, this.journal.get(target)?.rootId ?? target))
+        this.ownsConversationTree(caller, target))
     );
+  }
+  private ownsConversationTree(caller: McpAttribution, target: ThreadId): boolean {
+    let thread = target;
+    for (let depth = 0; depth <= 8; depth++) {
+      if (this.conversations.owns(caller, thread)) return true;
+      const edge = this.journal.get(thread);
+      if (!edge) return false;
+      thread = edge.parentId;
+    }
+    return false;
+  }
+  private reconcileConversation(threadId: ThreadId): void {
+    const thread = this.deps.store.getThread(threadId);
+    this.journal.activity(
+      threadId,
+      thread &&
+        thread.deletedAt === undefined &&
+        !["done", "failed", "new"].includes(thread.status.state)
+        ? 1
+        : 0,
+    );
+  }
+  /** Cancel every budget participant through its existing cancellation owner. */
+  private cancelBudget(root: ThreadId): void {
+    this.deps.store.atomic(() => {
+      for (const thread of this.journal.participants(root)) {
+        this.cancelDescendants(thread);
+        if (!this.journal.participant(thread)?.active) continue;
+        this.deps.engine.cancelDelegatedInputs(thread);
+        const result = this.command(this.deps.id(), {
+          type: "thread.interrupt",
+          threadId: thread,
+          cascade: true,
+        });
+        if (!result.ok) throw controlAdmissionError(result.error ?? "Budget interrupt failed");
+      }
+      this.cancelDescendants(root);
+      this.journal.endBudget(root);
+    });
   }
   catalog(
     caller: McpAttribution,
@@ -302,6 +352,7 @@ export class DelegationService {
         prepared,
       );
       this.journal.release(reservation);
+      this.journal.enroll(child.id, reservation.record.rootId);
       return child;
     });
   }
@@ -314,6 +365,12 @@ export class DelegationService {
       throw new Error("Forbidden restart");
     const id = controlCommandId(caller.threadId, requestId, "thread.restart_message");
     return this.deps.store.recordCommand(CommandId.parse(id), DeviceId.parse("ace-agent"), () => {
+      const participant = this.journal.participant(threadId);
+      if (participant) {
+        const capacity = this.admission.capacity(threadId, this.deps.clock.now());
+        const rejection = delegationBudget(capacity, this.policy, this.deps.clock.now());
+        if (rejection) return { commandId: CommandId.parse(id), ok: false, error: rejection };
+      }
       this.cancelPreparations(threadId);
       const tree = this.journal.tree(threadId, this.deps.clock.now());
       for (const child of this.journal
@@ -563,7 +620,8 @@ export class DelegationService {
         }
       }
       const edge = this.journal.get(event.threadId);
-      if (!edge) {
+      const participant = this.journal.participant(event.threadId);
+      if (!edge && !participant) {
         // Incoming roots have no local parent edge. Reuse the durable counter owner
         // so terminal snapshots never depend on asynchronous analytics catch-up.
         if (
@@ -577,16 +635,30 @@ export class DelegationService {
           });
         continue;
       }
+      const root = edge?.rootId ?? participant?.root_id;
+      if (!root) continue;
       changed = true;
       if (event.payload.type === "run.started") {
-        if (edge) this.journal.account(edge.rootId, event);
-        this.reconcile(edge);
-      } else if (event.payload.type === "usage.updated" && edge) {
-        this.journal.account(edge.rootId, event);
-        const tree = this.admission.capacity(edge.rootId, this.deps.clock.now());
-        if (delegationBudget(tree, this.policy, this.deps.clock.now()))
-          this.cancelDescendants(edge.rootId);
-      } else if (edge) this.reconcile(edge);
+        this.deps.store.atomic(() => {
+          this.journal.account(root, event);
+          if (participant) this.journal.activity(event.threadId, 1);
+        });
+        if (edge) this.reconcile(edge);
+      } else if (event.payload.type === "usage.updated") {
+        this.journal.account(root, event);
+        const tree = this.admission.capacity(root, this.deps.clock.now());
+        if (delegationBudget(tree, this.policy, this.deps.clock.now())) {
+          try {
+            this.cancelBudget(root);
+          } catch (error) {
+            this.journal.deferExpiry(root, this.deps.clock.now() + 1000);
+            this.report(error);
+          }
+        }
+      } else {
+        if (participant) this.reconcileConversation(event.threadId);
+        if (edge) this.reconcile(edge);
+      }
     }
     if (changed) this.arm();
   }
@@ -667,7 +739,7 @@ export class DelegationService {
     let expiry: ReturnType<DelegationJournal["nextExpiry"]>;
     try {
       next = this.journal.nextWake();
-      expiry = this.journal.nextExpiry(this.policy.durationMs);
+      expiry = this.journal.nextExpiry(this.policy, this.deps.clock.now());
     } catch (error) {
       this.report(error);
       this.cancelTimer = this.deps.clock.setTimer(() => this.timer(), 1000);
@@ -703,10 +775,10 @@ export class DelegationService {
   drain() {
     if (this.closed) return;
     for (let limit = 0; limit < 64; limit++) {
-      const expiry = this.journal.nextExpiry(this.policy.durationMs);
+      const expiry = this.journal.nextExpiry(this.policy, this.deps.clock.now());
       if (!expiry || expiry.due > this.deps.clock.now()) break;
       try {
-        this.cancelDescendants(expiry.root_id);
+        this.cancelBudget(expiry.root_id);
       } catch (error) {
         this.deps.store.atomic(() =>
           this.journal.deferExpiry(

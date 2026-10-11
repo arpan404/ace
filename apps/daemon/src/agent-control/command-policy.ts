@@ -16,6 +16,7 @@ export function delegationCommandPolicy(deps: {
   changed(): void;
   suspending?(thread: ThreadId): boolean;
   capacity?(parent: ThreadId): ReturnType<DelegationJournal["tree"]> & { concurrent: number };
+  conversationAccepted?(thread: ThreadId): void;
   conversationAdmission?(thread: ThreadId): string | undefined;
 }) {
   return (command: Command, accept: () => CommandResult): CommandResult => {
@@ -50,10 +51,13 @@ export function delegationCommandPolicy(deps: {
     if (!edge) {
       const rejected = deps.conversationAdmission?.(p.threadId);
       if (rejected) return fail(rejected);
-      if (!deps.journal.stopped(p.threadId)) return accept();
-      if (!explicit) return fail("cancelled");
+      if (deps.journal.stopped(p.threadId) && !explicit) return fail("cancelled");
       const accepted = accept();
-      if (accepted.ok) deps.journal.resumeRoot(p.threadId);
+      if (accepted.ok) {
+        if (deps.journal.stopped(p.threadId)) deps.journal.resumeRoot(p.threadId);
+        deps.conversationAccepted?.(p.threadId);
+        deps.changed();
+      }
       return accepted;
     }
     if (!deps.admits()) return fail("Admission closed");
