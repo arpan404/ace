@@ -147,8 +147,7 @@ test("the account row moves the thread to another account and blocks one at its 
   await userEvent.click(within(dialog).getByRole("button", { name: /^Switch to/ }));
   const codex = await openModelControl(/^Model: GPT-5 Codex, Personal/);
   await openModelPicker(codex);
-  await userEvent.click(within(codex).getByRole("combobox", { name: "Account" }));
-  const team = await screen.findByRole("option", { name: "Team" });
+  const team = within(codex).getByRole("tab", { name: "Codex · Team" });
   expect(team.getAttribute("aria-disabled")).toBe("true");
   await userEvent.click(team);
   expect(screen.getByRole("button", { name: /^Model: GPT-5 Codex, Personal/ })).toBeTruthy();
@@ -236,5 +235,9 @@ test("approvals and predefined effort keep their readable modes on a phone", asy
   expect(model.textContent).toContain("Opus 5.5");
   expect(within(model).getByRole("img", { name: "Claude Code · Personal" })).toBeTruthy();
   expect(model.getAttribute("aria-label")).toContain("Personal");
-  expect(within(model).getByRole("img", { name: "Medium reasoning · default" })).toBeTruthy();
+  expect(
+    within(screen.getByRole("button", { name: "Reasoning: Medium" })).getByRole("img", {
+      name: "Medium reasoning · default",
+    }),
+  ).toBeTruthy();
 });
