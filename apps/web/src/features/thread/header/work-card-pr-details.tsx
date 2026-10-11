@@ -47,9 +47,14 @@ export function PrDetails(props: {
 }) {
   const { git, status } = props;
   const toast = useToast();
-  const membership = useStackMemberships(props.workspaceId, status.ref.repository, [status.ref.number]);
-  const nativeStackOrUnknown = !membership.data || membership.isError || !!membership.data[0]?.stack;
-  const stackReason = nativeStackOrUnknown ? "Open the full PR workspace to inspect native stack merge rules." : undefined;
+  const membership = useStackMemberships(props.workspaceId, status.ref.repository, [
+    status.ref.number,
+  ]);
+  const nativeStackOrUnknown =
+    !membership.data || membership.isError || !!membership.data[0]?.stack;
+  const stackReason = nativeStackOrUnknown
+    ? "Open the full PR workspace to inspect native stack merge rules."
+    : undefined;
   const view = prOverview(status, props.base);
   const [method, setMethod] = useState<MergeMethod>("squash");
   const label = mergeMethods.find((each) => each.method === method)?.label ?? "Merge";

@@ -43,7 +43,6 @@ export async function readStackChecks(
   repository: ForgeRepository,
   layers: ForgeStackLayer[],
   signal: AbortSignal,
-  checked: (body: unknown) => unknown,
 ): Promise<{ layers: ForgeStackLayer[]; raw: unknown }> {
   const fields = layers.map(
     (layer) =>
@@ -53,7 +52,7 @@ export async function readStackChecks(
     query: `query StackChecks($owner:String!,$name:String!){repository(owner:$owner,name:$name){${fields.join(" ")}}}`,
     variables: { owner: repository.owner, name: repository.name },
   });
-  const parsed = response.safeParse(checked(page.body));
+  const parsed = response.safeParse(page.body);
   if (!parsed.success) throw new ForgeError("invalid_data");
   if (!parsed.data.data.repository) throw new ForgeError("not_found");
   return {

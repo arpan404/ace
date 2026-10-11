@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GitHubForge, ForgeError, ForgeCommandError, repositoryKey } from "@ace/forge";
+import { GitHubForge, ForgeError, WriteDispatch, repositoryKey } from "@ace/forge";
 import {
   ForgeStackOperation,
   ForgeStackExpected,
@@ -18,6 +18,7 @@ const saved = z.object({
   number: z.number().int().positive(),
   operation: ForgeStackOperation,
   expected: ForgeStackExpected,
+  // Retain legacy fields for compare-and-swap of receipts written before shared certainty.
   dispatched: z.boolean().optional(),
   version: z.number().int().nonnegative().optional(),
 });
@@ -248,8 +249,26 @@ export class WorkspaceForgeStacks {
     if (this.#active.has(key)) throw new ForgeError("conflict");
     this.#active.add(key);
     let started = false;
-    let dispatched = false;
     let stage: "rebase" | "push" | undefined;
+    const dispatch = new WriteDispatch(() => {
+      if (!allowed()) throw new ForgeError("forbidden");
+      stage = action === "merge" ? undefined : "rebase";
+      this.#save(backend.repository, expected.id, {
+        cwd,
+        number,
+        expected,
+        operation: {
+          action,
+          state: "pending",
+          ...(stage ? { stage } : {}),
+          message:
+            action === "merge"
+              ? "GitHub merge request is being submitted."
+              : "gh stack is updating local branches. Publication is disabled.",
+        },
+      });
+      started = true;
+    });
     try {
       const current = await this.read(cwd, backend, number, signal);
       const previous =
@@ -268,62 +287,29 @@ export class WorkspaceForgeStacks {
       } else if (action === "continue" || action === "abort" || action === "push")
         throw new ForgeError("conflict");
       if (!current.stack || current.stack.id !== expected.id) throw new ForgeError("conflict");
-      const begin = (nextStage?: "rebase" | "push") => {
-        stage = nextStage;
-        if (!allowed()) throw new ForgeError("forbidden");
-        this.#save(backend.repository, expected.id, {
-          cwd,
-          number,
-          expected,
-          dispatched: false,
-          operation: {
-            action,
-            state: "pending",
-            ...(stage ? { stage } : {}),
-            message:
-              action === "merge"
-                ? "GitHub merge request is being submitted."
-                : "gh stack is updating local branches. Publication is disabled.",
-          },
-        });
-        started = true;
-      };
-      const onDispatch = () => {
-        dispatched = true;
-        const entry = this.#get(backend.repository, expected.id);
-        if (entry) this.#save(backend.repository, expected.id, { ...entry, dispatched });
-      };
       const operation =
         action === "merge"
-          ? await backend.mergeStack(number, expected, method, signal, allowed, begin, onDispatch)
-          : await backend.rebaseStack(number, expected, action, signal, allowed, begin, onDispatch);
-      this.#save(backend.repository, expected.id, { cwd, number, expected, operation, dispatched });
+          ? await backend.mergeStack(number, expected, method, signal, allowed, dispatch)
+          : await backend.rebaseStack(number, expected, action, signal, allowed, dispatch);
+      this.#save(backend.repository, expected.id, { cwd, number, expected, operation });
       return operation;
     } catch (error) {
-      if (error instanceof ForgeCommandError) dispatched = error.dispatched;
       if (started)
         this.#save(backend.repository, expected.id, {
           cwd,
           number,
           expected,
-          dispatched,
           operation: {
             action,
-            state: !dispatched
+            state: dispatch.definitelyFailed
               ? "failed"
               : stage === "push"
                 ? "push_partial"
-                : error instanceof ForgeError &&
-                    ["forbidden", "not_found", "rate_limit", "unsupported"].includes(error.kind)
-                  ? "failed"
-                  : "uncertain",
+                : "uncertain",
             ...(stage ? { stage } : {}),
-            message: !dispatched
-              ? "The command did not start. No write was dispatched. Restore the installed gh CLI and refresh before retrying."
-              : error instanceof ForgeError &&
-                  ["forbidden", "not_found", "rate_limit", "unsupported"].includes(error.kind)
-                ? "GitHub refused this request. Refresh account permissions and host state before another action."
-                : "The acknowledgement was lost. ace will not repeat the write. Refresh the host and local stack before recovery.",
+            message: dispatch.definitelyFailed
+              ? "The operation failed before taking effect. Restore the installed gh CLI or refresh GitHub's refusal before retrying."
+              : "The acknowledgement was lost. ace will not repeat the write. Refresh the host and local stack before recovery.",
           },
         });
       throw error;

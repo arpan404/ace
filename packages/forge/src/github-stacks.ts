@@ -1,3 +1,4 @@
+import type { WriteDispatch } from "./write-dispatch.ts";
 import { sameStack, stackPrState } from "./stack-plan.ts";
 import { readStackMergeScope } from "./github-stack-scope.ts";
 import { readStackChecks } from "./github-stack-checks.ts";
@@ -66,23 +67,6 @@ const operationSchema = z.looseObject({
   details: z.looseObject({ uuid: z.uuid().optional(), message: text }),
 });
 
-function checkedStackGraphql(body: unknown): unknown {
-  const result = z
-    .looseObject({
-      errors: z
-        .array(z.looseObject({ type: text.optional() }))
-        .max(100)
-        .optional(),
-    })
-    .safeParse(body);
-  if (!result.success) throw new ForgeError("invalid_data");
-  const errors = new Set(result.data.errors?.map((error) => error.type));
-  if (errors.has("RATE_LIMITED")) throw new ForgeError("rate_limit");
-  if (errors.has("FORBIDDEN") || errors.has("UNAUTHORIZED")) throw new ForgeError("forbidden");
-  if (errors.has("NOT_FOUND")) throw new ForgeError("not_found");
-  if (errors.size) throw new ForgeError("unsupported");
-  return body;
-}
 function mergeOperation(body: unknown): ForgeStackOperation {
   const result = operationSchema.safeParse(body);
   if (!result.success || (result.data.status === "pending" && !result.data.details.uuid))
@@ -126,9 +110,8 @@ export class GitHubStacks {
         data: z.object({ repository: z.record(z.string(), membership.nullable()).nullable() }),
         errors: z.array(z.unknown()).max(100).optional(),
       })
-      .safeParse(checkedStackGraphql(page.body));
+      .safeParse(page.body);
     if (!result.success) throw new ForgeError("invalid_data");
-    if (result.data.errors?.length) throw new ForgeError("unsupported");
     if (!result.data.data.repository) throw new ForgeError("not_found");
     return unique.map((number) => {
       const pr = result.data.data.repository?.[`pr${number}`];
@@ -150,7 +133,7 @@ export class GitHubStacks {
     });
   }
   mergeScope(numbers: readonly number[], signal: AbortSignal) {
-    return readStackMergeScope(this.#api, this.#repo, numbers, signal, checkedStackGraphql);
+    return readStackMergeScope(this.#api, this.#repo, numbers, signal);
   }
   async read(number: number, signal: AbortSignal): Promise<ForgeStack | null> {
     positive.parse(number);
@@ -158,9 +141,8 @@ export class GitHubStacks {
       query: `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){viewerPermission pullRequest(number:$number){number stack{id number baseRefName size entries(first:100){pageInfo{hasNextPage} nodes{position pullRequest{${layerFields}}}}}}}}`,
       variables: { owner: this.#repo.owner, name: this.#repo.name, number },
     });
-    const result = stateSchema.safeParse(checkedStackGraphql(page.body));
+    const result = stateSchema.safeParse(page.body);
     if (!result.success) throw new ForgeError("invalid_data");
-    if (result.data.errors?.length) throw new ForgeError("unsupported");
     const repo = result.data.data.repository;
     if (!repo?.pullRequest) throw new ForgeError("not_found");
     if (repo.pullRequest.number !== number) throw new ForgeError("invalid_data");
@@ -196,13 +178,7 @@ export class GitHubStacks {
         queueState: pr.mergeQueueEntry?.state ?? null,
       });
     });
-    const checks = await readStackChecks(
-      this.#api,
-      this.#repo,
-      layers,
-      signal,
-      checkedStackGraphql,
-    );
+    const checks = await readStackChecks(this.#api, this.#repo, layers, signal);
     return ForgeStack.parse({
       id: stack.id,
       number: stack.number,
@@ -218,8 +194,7 @@ export class GitHubStacks {
     method: MergeMethod,
     signal: AbortSignal,
     allowed: () => boolean = () => true,
-    started: () => void = () => {},
-    onDispatch?: () => void,
+    dispatch?: WriteDispatch,
   ): Promise<ForgeStackOperation> {
     const expected = ForgeStackExpected.parse(input);
     z.enum(["merge", "squash", "rebase"]).parse(method);
@@ -245,7 +220,6 @@ export class GitHubStacks {
     if (scope.some((entry) => entry.state !== "OPEN" && entry.state !== "MERGED"))
       throw new ForgeError("conflict");
     // One native host operation includes the downstack, applies rules, and uses its queue.
-    started();
     return mergeOperation(
       (
         await this.#api.request(
@@ -253,7 +227,7 @@ export class GitHubStacks {
           signal,
           { sha: head, merge_method: method, merge_action: "default", bypass_rules: false },
           "PUT",
-          onDispatch,
+          dispatch,
         )
       ).body,
     );

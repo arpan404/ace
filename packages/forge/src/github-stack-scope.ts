@@ -19,7 +19,6 @@ export async function readStackMergeScope(
   repository: ForgeRepository,
   numbers: readonly number[],
   signal: AbortSignal,
-  checkedGraphql: (body: unknown) => unknown,
 ): Promise<(Pick<ForgeStackLayer, "number" | "state" | "queueState"> & { raw: unknown })[]> {
   z.array(positive).max(100).parse(numbers);
   const unique = [...new Set(numbers)];
@@ -32,7 +31,7 @@ export async function readStackMergeScope(
     .object({
       data: z.object({ repository: z.record(z.string(), facts.nullable()).nullable() }),
     })
-    .safeParse(checkedGraphql(page.body));
+    .safeParse(page.body);
   if (!result.success) throw new ForgeError("invalid_data");
   if (!result.data.data.repository) throw new ForgeError("not_found");
   return unique.map((number) => {

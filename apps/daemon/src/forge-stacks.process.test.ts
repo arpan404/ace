@@ -246,7 +246,7 @@ test("a delayed refresh cannot overwrite a newer merge request's durable UUID", 
     ],
     [path]: [
       {
-        release: "release-result",
+        barrier: "release-result",
         body: { status: "enqueued", details: { message: "Old result" } },
       },
       { body: { status: "failed", details: { message: "Rejected by GitHub" } } },
@@ -292,7 +292,7 @@ test("a pre-queue host snapshot cannot downgrade a concurrently accepted queue r
     graphql: [
       stackResponse(),
       stackResponse(),
-      { ...stackResponse(), release: "release-snapshot" },
+      { ...stackResponse(), barrier: "release-snapshot" },
       stackResponse(8, queued),
     ],
     "stack-view": [{ code: 1 }],
@@ -364,7 +364,7 @@ test.each(["merge", "rebase"] as const)(
             value: {
               operation: {
                 state: "failed",
-                message: expect.stringContaining("No write was dispatched"),
+                message: expect.stringContaining("failed before taking effect"),
               },
             },
           },
@@ -490,3 +490,28 @@ test.each([
     }
   },
 );
+
+test("a definite HTTP 422 stack merge refusal releases the receipt for a reviewed retry", async () => {
+  const f = await fixture({
+    graphql: [stackResponse()],
+    "stack-view": [{ code: 1 }],
+    "repos/octo/ace/pulls/8/merge-async": [
+      { status: 422, code: 1, body: { message: "Validation failed" } },
+      { body: { status: "pending", details: { uuid: stackUuid, message: "Requested" } } },
+    ],
+  });
+  try {
+    expect(await f.command("rejected")).toMatchObject({ ok: false, error: "forge_conflict" });
+    expect(await f.read()).toMatchObject({
+      result: { kind: "forge", data: { value: { operation: { state: "failed" } } } },
+    });
+    await f.restart();
+    expect(await f.command("retry")).toMatchObject({
+      ok: true,
+      stackOperation: { state: "pending", uuid: stackUuid },
+    });
+    expect((await f.gh.requests()).filter((r) => r.args.includes("PUT"))).toHaveLength(2);
+  } finally {
+    await f.close();
+  }
+});

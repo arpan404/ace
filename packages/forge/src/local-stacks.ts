@@ -1,3 +1,4 @@
+import { WriteDispatch } from "./write-dispatch.ts";
 import {
   ForgeLocalStack,
   type ForgeStack,
@@ -46,8 +47,7 @@ export class LocalStacks {
     stack: ForgeStack,
     signal: AbortSignal,
     allowed: () => boolean,
-    started: (stage: "rebase" | "push") => void = () => {},
-    onDispatch?: () => void,
+    dispatch = new WriteDispatch(),
   ): Promise<ForgeStackOperation> {
     const current = await this.read(signal);
     if (
@@ -77,18 +77,23 @@ export class LocalStacks {
     if (!allowed()) throw new ForgeError("forbidden");
     if (action === "push")
       return { action, state: "push_partial", message: stackPublicationUnavailable };
-    started("rebase");
-    const response = await this.#runner({
-      command: this.#command,
-      ...(onDispatch ? { onDispatch } : {}),
-      args: [
-        "stack",
-        "rebase",
-        ...(action === "rebase" ? ["--remote", "origin"] : [`--${action}`]),
-      ],
-      mode: "json",
-      signal,
-    });
+    dispatch.begin();
+    let response;
+    try {
+      response = await this.#runner({
+        command: this.#command,
+        args: [
+          "stack",
+          "rebase",
+          ...(action === "rebase" ? ["--remote", "origin"] : [`--${action}`]),
+        ],
+        mode: "json",
+        signal,
+      });
+    } catch (error) {
+      dispatch.reject(error);
+      throw error;
+    }
     if (response.code === 3 || response.code === 7)
       return {
         action,

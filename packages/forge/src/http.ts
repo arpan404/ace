@@ -147,9 +147,12 @@ export class GhApi {
     if (code === 404) throw new ForgeError("not_found", undefined, false);
     if (code === 401 || code === 403) throw new ForgeError("forbidden", undefined, false);
     // Native async merges can acknowledge an existing request with HTTP 409.
-    const mergeResult = (code === 409 || code === 400) && method === "PUT" &&
+    const mergeResult =
+      (code === 409 || code === 400) &&
+      method === "PUT" &&
       /^repos\/[\w.-]+\/[\w.-]+\/pulls\/[1-9]\d*\/merge-async$/.test(path);
-    if ((code === 409 && !mergeResult) || code === 422) throw new ForgeError("conflict", undefined, false);
+    if ((code === 409 && !mergeResult) || code === 422)
+      throw new ForgeError("conflict", undefined, false);
     if (!mergeResult && (code < 200 || code >= 300)) throw new ForgeError("cli");
     const graphqlResponse = path === "graphql";
     if (output.code !== 0 && !graphqlResponse && !mergeResult) throw new ForgeError("cli");

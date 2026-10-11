@@ -287,10 +287,13 @@ test("an unrelated local stack cannot rebase the selected host layers", async ()
     await f.cleanup();
   }
 });
-test.each(["FORBIDDEN", "RATE_LIMITED", "UNSUPPORTED"])(
+test.each(["FORBIDDEN", "RATE_LIMITED", "GRAPHQL_VALIDATION_FAILED"])(
   "%s host capability failure remains explicit",
   async (type) => {
-    const f = await fakeGh({ ...stackChecksFixture, graphql: [{ body: { errors: [{ type }] } }] });
+    const f = await fakeGh({
+      ...stackChecksFixture,
+      graphql: [{ code: 1, body: { errors: [{ type, message: "Request refused" }] } }],
+    });
     try {
       await expect(f.forge.prStack(8, signal())).rejects.toMatchObject({
         kind:
@@ -298,7 +301,7 @@ test.each(["FORBIDDEN", "RATE_LIMITED", "UNSUPPORTED"])(
             ? "forbidden"
             : type === "RATE_LIMITED"
               ? "rate_limit"
-              : "unsupported",
+              : "invalid_data",
       });
     } finally {
       await f.cleanup();
@@ -376,7 +379,7 @@ test.each(["collaborator commit", "queue entry"])(
       ...stackChecksFixture,
       graphql: [stackResponse(), stackResponse(8, changed)],
       "stack-view": [{ body: localStack }],
-      "stack-rebase": [{ code: 0, release: "release-rebase" }],
+      "stack-rebase": [{ code: 0, barrier: "release-rebase" }],
       // The unsafe CLI would fetch and accept the new tip or skip the queued branch.
       "stack-push": [{ code: 0 }],
     });
