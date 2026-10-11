@@ -7,8 +7,8 @@ import { mkdir, readFile, writeFile, cp, chmod, readdir, stat, rm } from "node:f
 import { join, resolve } from "node:path";
 import { createPublicKey } from "node:crypto";
 import { z } from "zod";
-import { ReleaseTarget, ReleaseVersion } from "@ace/protocol";
-import { hashFile } from "@ace/service";
+import { ReleaseTarget } from "@ace/protocol";
+import { hashFile, installableVersion } from "@ace/service";
 import { nodeVersion, stageNodeRuntime } from "./node-runtime.ts";
 const NativeInputs = z.record(ReleaseTarget, LinuxNativeInput.optional());
 async function files(root: string, prefix = ""): Promise<string[]> {
@@ -21,9 +21,9 @@ async function files(root: string, prefix = ""): Promise<string[]> {
   return result;
 }
 async function main() {
+  const version = installableVersion(process.argv[2]);
   if (process.versions.node !== nodeVersion)
     throw new Error(`Release builds require Node ${nodeVersion}; use that runtime on PATH`);
-  const version = ReleaseVersion.parse(process.argv[2]);
   const target = ReleaseTarget.parse(process.argv[3]);
   const publicKeyPath = process.argv[4];
   if (!publicKeyPath)

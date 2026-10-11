@@ -16,7 +16,7 @@ export {
 } from "./files.ts";
 export { snapshotDatabases, restoreDatabases } from "./migration.ts";
 export { applyUpdate, recoverUpdate, type UpdatePorts, type UpdateRequest } from "./update.ts";
-export { isNewer } from "./version.ts";
+export { isNewer, installableVersion } from "./version.ts";
 export { releaseFetch } from "./feed.ts";
 export { BoundedLog } from "./log.ts";
 export { localService, serviceCommand } from "./local.ts";
