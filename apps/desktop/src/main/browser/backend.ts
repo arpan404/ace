@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { traceBatches } from "./trace-batches.ts";
 import {
   type BrowserOpen,
   type BrowserBackendClientMessage,
@@ -75,6 +76,12 @@ export interface BackendOptions {
   onTakeover?(threadId: string): void;
   log(message: string): void;
 }
+
+const TabTrace = z.looseObject({
+  tabId: z.string().max(256),
+  method: z.literal("Tracing.dataCollected"),
+  params: z.unknown(),
+});
 
 const Frame = z.object({ data: z.string(), sessionId: z.number().int() });
 
@@ -320,37 +327,17 @@ export class BrowserBackend {
     const link = this.link;
     if (!link || this.sessions.get(session.id) !== session) return;
     if (method === "Page.screencastFrame") return this.frame(session, params);
-    if (method === "Tracing.dataCollected") {
-      const batch = z.object({ value: z.array(z.unknown()) }).safeParse(params);
-      if (!batch.success) return;
-      let value: unknown[] = [],
-        bytes = 0,
-        truncated = false;
-      const flush = () => {
-        if (!value.length && !truncated) return;
+    const nested = method === "ace.tabs.event" ? TabTrace.safeParse(params) : undefined;
+    if (method === "Tracing.dataCollected" || nested?.success) {
+      for (const batch of traceBatches(nested?.success ? nested.data.params : params)) {
         this.send({
           type: "browser.backend.event",
           backendId: link.backendId,
           sessionId: session.id,
           method,
-          params: { value, ...(truncated ? { aceTruncated: true } : {}) },
+          params: nested?.success ? { ...nested.data, params: batch } : batch,
         });
-        value = [];
-        bytes = 0;
-        truncated = false;
-      };
-      for (const event of batch.data.value) {
-        const text = JSON.stringify(event);
-        const size = text === undefined ? 0 : Buffer.byteLength(text);
-        if (size > 256 * 1024) {
-          truncated = true;
-          continue;
-        }
-        if (bytes + size > 256 * 1024 || value.length >= 1000) flush();
-        value.push(event);
-        bytes += size;
       }
-      flush();
       return;
     }
     this.send({
