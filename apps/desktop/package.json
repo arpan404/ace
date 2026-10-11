@@ -15,6 +15,7 @@
     "measure:memory": "node scripts/measure-memory.ts"
   },
   "dependencies": {
+    "@ace/browser": "workspace:*",
     "@ace/client": "workspace:*",
     "@ace/diagnostics": "workspace:*",
     "@ace/protocol": "workspace:*",
@@ -23,7 +24,6 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@ace/browser": "workspace:*",
     "@ace/daemon": "workspace:*",
     "@ace/release": "workspace:*",
     "@electron/rebuild": "4.2.0",

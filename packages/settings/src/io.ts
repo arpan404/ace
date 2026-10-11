@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import { mkdir, open, rename } from "node:fs/promises";
 import { dirname, basename, join } from "node:path";
 import { createFileWatcher } from "./file-watch.ts";
@@ -27,16 +28,20 @@ function missing(error: unknown): boolean {
 export async function readBounded(
   path: string,
   allocate: (bytes: number) => Buffer = Buffer.alloc,
+  openFile: typeof open = open,
 ): Promise<string | undefined> {
   let file;
   try {
-    file = await open(path, "r");
+    file = await openFile(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
   } catch (error) {
     if (missing(error)) return undefined;
     throw error;
   }
   try {
-    const size = (await file.stat()).size;
+    const info = await file.stat();
+    if (!info.isFile())
+      throw new SettingsError("validation", "Settings file must be a regular file");
+    const size = info.size;
     if (size > MAX_DOCUMENT_BYTES)
       throw new SettingsError("size", "Settings document exceeds 1 MiB");
     let buffer = allocate(Math.max(1, size + 1));
