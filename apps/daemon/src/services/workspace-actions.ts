@@ -1,3 +1,4 @@
+import { commandNotDispatched } from "../command-not-dispatched.ts";
 import { createWritingCli } from "../source-control-cli.ts";
 import { loadHostId } from "../local-files.ts";
 import { computerName } from "../computer-name.ts";
@@ -93,9 +94,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
         ) {
           send({
             type: "commandResult",
-            commandId: command.id,
-            ok: false,
-            error: "workspace_unavailable",
+            ...commandNotDispatched(command, "workspace_unavailable"),
           });
           return;
         }

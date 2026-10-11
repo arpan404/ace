@@ -1,4 +1,6 @@
+import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
+import { actionErrorCode } from "./action-errors.ts";
 import { IssueActions } from "./issue-actions.ts";
 import type { Command } from "@ace/protocol";
 import {
@@ -154,13 +156,15 @@ export class WorkspaceForge {
     }
     if (p.type !== "forge.issue.write" && p.type !== "forge.issue.reconcile")
       throw new Error("invalid_command");
-    return this.issueActions.execute(
-      command,
-      this.backend(cwd, p.repository),
-      allowed,
-      this.lifetime.signal,
-    );
+    let backend: GitHubForge;
+    try {
+      backend = this.backend(cwd, p.repository);
+    } catch (error) {
+      return commandNotDispatched(command, actionErrorCode(error));
+    }
+    return this.issueActions.execute(command, backend, allowed, this.lifetime.signal);
   }
+
   async link(
     id: ThreadId,
     cwd: string,

@@ -1,3 +1,4 @@
+import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { createWritingCli } from "./source-control-cli.ts";
 import {
   SourceControlContext,
@@ -345,11 +346,11 @@ export class WorkspaceRuntime {
   }
   execute(command: Command, allowed: () => boolean = allowLocalAction): Promise<CommandResult> {
     return this.commands.run(command, async () => {
-      if (!allowed()) return { ok: false, error: "forbidden" };
+      if (!allowed()) return commandNotDispatched(command, "forbidden");
       const p = command.payload;
       if (p.type === "forge.issue.write" || p.type === "forge.issue.reconcile") {
         const cwd = this.store.getWorkspacePath(p.workspaceId);
-        if (!cwd) throw new Error("workspace_not_found");
+        if (!cwd) return commandNotDispatched(command, "workspace_not_found");
         return this.forge.issueCommand(command, cwd, allowed);
       }
       const id = "threadId" in p ? p.threadId : "link" in p ? p.link.threadId : undefined;

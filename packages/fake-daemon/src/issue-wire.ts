@@ -12,13 +12,22 @@ import {
 export class FakeIssueWire {
   private reads: Map<string, ForgeBrowserResult>;
   private journal = new Map<string, { scope: string; number: number; result: ForgeIssueAction }>();
-  private outcome: "succeeded" | "uncertain" | "unsent" = "succeeded";
+  private outcome:
+    | "succeeded"
+    | "uncertain"
+    | "unsent"
+    | "busy"
+    | "unauthorized"
+    | "invalid"
+    | "unknown" = "succeeded";
   private now: () => number;
   constructor(reads: Map<string, ForgeBrowserResult>, now: () => number) {
     this.reads = reads;
     this.now = now;
   }
-  setOutcome(outcome: "succeeded" | "uncertain" | "unsent"): void {
+  setOutcome(
+    outcome: "succeeded" | "uncertain" | "unsent" | "busy" | "unauthorized" | "invalid" | "unknown",
+  ): void {
     this.outcome = outcome;
   }
   read(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
@@ -53,6 +62,10 @@ export class FakeIssueWire {
       issueAction: { id: CommandId.parse(id), action: input.action, state: "failed", error },
     });
     if (this.outcome === "unsent") return unsent("forge_write_pending");
+    if (this.outcome === "busy") return unsent("action_busy");
+    if (this.outcome === "unauthorized") return unsent("forbidden");
+    if (this.outcome === "invalid") return unsent("workspace_not_found");
+    if (this.outcome === "unknown") return { ok: false, error: "action_outcome_uncertain" };
     if (
       [...this.journal.values()].some(
         (entry) =>

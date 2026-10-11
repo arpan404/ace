@@ -1,3 +1,4 @@
+import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { shutdownDeadline } from "./shutdown.ts";
 import type { HistoryScanStatus } from "@ace/protocol/history";
 import { startTransports, startLocalTransports } from "./services/transports.ts";
@@ -587,21 +588,30 @@ export async function startServer(options: ServerOptions): Promise<{
               commandId: message.command.id,
               ...(retryable ? { retryable } : {}),
             });
+          const refuseBeforeAccept = (code: string, text: string, retryable = false) => {
+            if (message.command.payload.type === "forge.issue.write")
+              send({ type: "commandResult", ...commandNotDispatched(message.command, code) });
+            else refuse(code, text, retryable);
+          };
           if (!authorize(scope)) {
-            refuse("forbidden", `${scope} scope required`);
+            refuseBeforeAccept("forbidden", `${scope} scope required`);
             break;
           }
           if (socket.readyState !== WebSocket.OPEN || !authenticated.has(socket)) break;
           if (!authorize(scope)) {
-            refuse("forbidden", `${scope} scope required`);
+            refuseBeforeAccept("forbidden", `${scope} scope required`);
             break;
           }
           if (message.command.deviceId !== device) {
-            refuse("device_mismatch", "Command device must match hello");
+            refuseBeforeAccept("device_mismatch", "Command device must match hello");
             break;
           }
           if (!maintenance.admitCommand(message.command)) {
-            refuse("maintenance", "New work is paused. Resume new work in ace to continue.", true);
+            refuseBeforeAccept(
+              "maintenance",
+              "New work is paused. Resume new work in ace to continue.",
+              true,
+            );
             break;
           }
           try {
@@ -609,9 +619,7 @@ export async function startServer(options: ServerOptions): Promise<{
             else
               send({
                 type: "commandResult",
-                commandId: message.command.id,
-                ok: false,
-                error: "not_implemented",
+                ...commandNotDispatched(message.command, "not_implemented"),
               });
           } catch (error) {
             options.log?.(error);

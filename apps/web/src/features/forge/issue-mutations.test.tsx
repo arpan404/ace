@@ -75,30 +75,59 @@ async function submit(name: string) {
   await userEvent.click(button);
 }
 
-test("an unsent refusal releases the submission association while preserving the draft across remount and retry", async () => {
+for (const refusal of ["unsent", "busy", "unauthorized", "invalid"] as const) {
+  test(`a ${refusal} refusal releases only the submission association and preserves the draft across remount and retry`, async () => {
+    const app = harness();
+    seed(app);
+    app.daemon.workspace.setIssueOutcome(refusal);
+    await app.open("/issues?project=api&number=42");
+    let comment = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+      name: "Issue comment",
+    });
+    await userEvent.type(comment, "Keep this unsent comment");
+    await submit("Post issue comment");
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>("button", { name: "Post issue comment" }).disabled,
+      ).toBe(false),
+    );
+    expect(comment.value).toBe("Keep this unsent comment");
+    expect(screen.queryByRole("button", { name: "Check submission" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Back to issues" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Original issue #42" }));
+    comment = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Issue comment" });
+    expect(comment.value).toBe("Keep this unsent comment");
+    app.daemon.workspace.setIssueOutcome("succeeded");
+    await submit("Post issue comment");
+    await screen.findByText("Saved on GitHub.");
+    expect(comment.value).toBe("");
+    expect(await screen.findAllByText("Keep this unsent comment")).toHaveLength(1);
+  });
+}
+
+test("an unknown admission outcome keeps its draft submission fenced across remount", async () => {
   const app = harness();
   seed(app);
-  app.daemon.workspace.setIssueOutcome("unsent");
+  app.daemon.workspace.setIssueOutcome("unknown");
   await app.open("/issues?project=api&number=42");
-  let comment = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Issue comment" });
-  await userEvent.type(comment, "Keep this unsent comment");
-  await submit("Post issue comment");
-  await waitFor(() =>
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Post issue comment" }).disabled,
-    ).toBe(false),
+  await userEvent.type(
+    await screen.findByRole("textbox", { name: "Issue comment" }),
+    "Possibly submitted",
   );
-  expect(comment.value).toBe("Keep this unsent comment");
-  expect(screen.queryByRole("button", { name: "Check submission" })).toBeNull();
+  await submit("Post issue comment");
+  await screen.findByRole("button", { name: "Check submission" });
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Post issue comment" }).disabled,
+  ).toBe(true);
   await userEvent.click(screen.getByRole("button", { name: "Back to issues" }));
   await userEvent.click(await screen.findByRole("button", { name: "Original issue #42" }));
-  comment = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Issue comment" });
-  expect(comment.value).toBe("Keep this unsent comment");
-  app.daemon.workspace.setIssueOutcome("succeeded");
-  await submit("Post issue comment");
-  await screen.findByText("Saved on GitHub.");
-  expect(comment.value).toBe("");
-  expect(await screen.findAllByText("Keep this unsent comment")).toHaveLength(1);
+  expect(
+    (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Issue comment" })).value,
+  ).toBe("Possibly submitted");
+  await screen.findByRole("button", { name: "Check submission" });
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Post issue comment" }).disabled,
+  ).toBe(true);
 });
 
 test("an edit draft keeps its original version across refresh and remount until explicitly reloaded", async () => {

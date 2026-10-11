@@ -1,3 +1,4 @@
+import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { z } from "zod";
 import { WriteDispatch, repositoryKey, type GitHubForge } from "@ace/forge";
 import {
@@ -67,7 +68,7 @@ export class IssueActions {
     if (p.type !== "forge.issue.write" && p.type !== "forge.issue.reconcile")
       throw new Error("invalid_command");
     if (!allowed()) {
-      if (p.type === "forge.issue.write") return this.#unsent(command, p.input.action, "forbidden");
+      if (p.type === "forge.issue.write") return commandNotDispatched(command, "forbidden");
       throw new Error("forbidden");
     }
     if (p.type === "forge.issue.reconcile") {
@@ -114,11 +115,11 @@ export class IssueActions {
     const number = p.input.action === "create" ? 0 : p.input.number;
     const scope = JSON.stringify([repositoryKey(p.repository), number]);
     if (!this.#flights.acquire(scope, command.id))
-      return this.#unsent(command, p.input.action, "forge_write_pending");
+      return commandNotDispatched(command, "forge_write_pending");
     try {
       // Retire a reservation that crashed before reaching mutation dispatch.
-      this.list(p.repository, number);
       try {
+        this.list(p.repository, number);
         this.#store.atomic((db) => {
           if (
             db
@@ -143,7 +144,7 @@ export class IssueActions {
           );
         });
       } catch (error) {
-        return this.#unsent(command, p.input.action, actionErrorCode(error));
+        return commandNotDispatched(command, actionErrorCode(error));
       }
       let result: ForgeIssueAction;
       const dispatch = new WriteDispatch(() => {
@@ -179,16 +180,6 @@ export class IssueActions {
     } finally {
       this.#flights.release(scope);
     }
-  }
-  #unsent(
-    command: Command,
-    action: ForgeIssueWrite["action"],
-    error: string,
-  ): Omit<CommandResult, "commandId"> {
-    return {
-      ...this.#receipt({ id: command.id, action, state: "failed", error }),
-      code: "action_not_dispatched",
-    };
   }
   #receipt(result: ForgeIssueAction): Omit<CommandResult, "commandId"> {
     return {

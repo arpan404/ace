@@ -38,7 +38,9 @@ export class FakeWorkspaceWire {
   }
   private forgeReads = new Map<string, ForgeBrowserResult>();
   private issues: FakeIssueWire;
-  setIssueOutcome(outcome: "succeeded" | "uncertain" | "unsent"): void {
+  setIssueOutcome(
+    outcome: "succeeded" | "uncertain" | "unsent" | "busy" | "unauthorized" | "invalid" | "unknown",
+  ): void {
     this.issues.setOutcome(outcome);
   }
   setForgeRead(operation: ForgeBrowserOperation, result: ForgeBrowserResult): void {

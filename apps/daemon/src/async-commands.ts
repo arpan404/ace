@@ -1,4 +1,5 @@
 import { actionErrorCode } from "./action-errors.ts";
+import { commandNotDispatched } from "./command-not-dispatched.ts";
 import type { Command, CommandResult } from "@ace/protocol";
 import type { Store } from "./store.ts";
 
@@ -20,14 +21,38 @@ export class AsyncCommands {
     if (existing)
       return existing.deviceId === command.deviceId
         ? existing.promise
-        : Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
+        : Promise.resolve(commandNotDispatched(command, "forbidden"));
+    // Capacity cannot turn a replay of an already admitted write into an unsent refusal.
+    let previous: CommandResult | undefined;
+    try {
+      previous = this.store.commandReceipt(command.id, command.deviceId);
+    } catch {
+      return Promise.resolve({
+        commandId: command.id,
+        ok: false,
+        error: "action_outcome_uncertain",
+      });
+    }
+    if (previous)
+      return Promise.resolve(
+        previous.error === "client_action_pending"
+          ? { commandId: command.id, ok: false, error: "action_outcome_uncertain" }
+          : previous,
+      );
     if (this.flights.size >= 16)
-      return Promise.resolve({ commandId: command.id, ok: false, error: "action_busy" });
+      return Promise.resolve(commandNotDispatched(command, "action_busy"));
     let reserved = false;
-    const receipt = this.store.recordCommand(command.id, command.deviceId, () => {
-      reserved = true;
-      return { commandId: command.id, ok: false, error: "client_action_pending" };
-    });
+    let receipt: CommandResult;
+    try {
+      receipt = this.store.recordCommand(command.id, command.deviceId, () => {
+        reserved = true;
+        return { commandId: command.id, ok: false, error: "client_action_pending" };
+      });
+    } catch (error) {
+      return Promise.resolve(commandNotDispatched(command, actionErrorCode(error)));
+    }
+    if (!reserved && !this.store.commandReceipt(command.id, command.deviceId))
+      return Promise.resolve(commandNotDispatched(command, "forbidden"));
     if (!reserved && receipt.error !== "client_action_pending") return Promise.resolve(receipt);
     const flight = Promise.resolve()
       .then(async (): Promise<CommandResult> => {

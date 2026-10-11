@@ -87,3 +87,34 @@ test("a connected device recovers notification enrollment without reconnecting",
     await f.close();
   }
 });
+
+test("socket authorization refuses an issue write as definitely unsent before either journal reserves it", async () => {
+  const f = await setup();
+  try {
+    const paired = await f.pair(["read"]);
+    const client = await f.connectTicket(paired.device.id, (await f.ticket(paired.token)).ticket);
+    expect(await client.next()).toMatchObject({ type: "welcome" });
+    const command = Command.parse({
+      id: "unauthorized-issue",
+      deviceId: paired.device.id,
+      payload: {
+        type: "forge.issue.write",
+        workspaceId: "workspace",
+        repository: { forge: "github", host: "github.com", owner: "octo", name: "ace" },
+        input: { action: "create", title: "Keep this draft", body: "Not sent" },
+      },
+    });
+    client.send({ type: "command", command });
+    expect(await client.next()).toMatchObject({
+      type: "commandResult",
+      commandId: command.id,
+      ok: false,
+      error: "forbidden",
+      code: "action_not_dispatched",
+      issueAction: { id: command.id, action: "create", state: "failed" },
+    });
+    expect(f.store.commandReceipt(command.id, command.deviceId)).toBeUndefined();
+  } finally {
+    await f.close();
+  }
+});
