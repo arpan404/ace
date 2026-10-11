@@ -217,6 +217,7 @@ export class WorkspaceRoots {
   }
   async details(id: ThreadId): Promise<ThreadDetails> {
     for (let attempt = 0; attempt < 2; attempt++) {
+      const check = await this.sourceControl?.guard();
       const root = this.root(id);
       const info = await this.git.repositoryInfo(root);
       const changed = await this.git.changeSummary(root);
@@ -226,6 +227,7 @@ export class WorkspaceRoots {
       if (!project) throw new Error("workspace_not_found");
       const projectPath = await realpath(project.path);
       const repository = workspaceRepository(info.remotes, await this.sourceControl?.preferences());
+      check?.();
       // Never publish a read from an old binding. There is no await between comparison and write.
       if (this.root(id) !== root) continue;
       const current = this.store.getThread(id);

@@ -37,15 +37,20 @@ export function identityRunner(
   runner: CommandRunner,
   host: string,
   account: string,
+  assertCurrent: () => void | Promise<void> = () => {},
 ): CommandRunner {
   return async (request: CommandRequest) => {
+    await assertCurrent();
     if (request.command !== "gh") return runner(request);
     if ((await githubIdentity(runner, host, request.signal)) !== account)
       throw new ForgeError("forbidden");
+    // Preferences may change while the identity process is running.
+    await assertCurrent();
     const result = await runner(request);
     try {
       if ((await githubIdentity(runner, host, request.signal)) !== account)
         throw new ForgeError("forbidden");
+      await assertCurrent();
     } catch (error) {
       // Preserve the response from a dispatched write even if the probe fails or is cancelled.
       if (isForgeMutation(request)) return { ...result, identityChanged: true };

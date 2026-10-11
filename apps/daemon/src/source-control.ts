@@ -14,6 +14,28 @@ import type { WorkspaceGit } from "./workspace-roots.ts";
 /** Machine-local nonsecret preferences. Every scan reads fresh CLI facts. */
 export class SourceControl {
   private settings: SettingsService;
+  private currentRevision = 0;
+  private closed = false;
+  private stop: () => void;
+  private listeners = new Set<() => void>();
+  get revision(): number { return this.currentRevision; }
+  listen(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+  async guard(): Promise<() => void> {
+    await this.preferences();
+    const revision = this.currentRevision;
+    return () => {
+      if (this.closed || this.currentRevision !== revision) throw new ForgeError("preferences_changed");
+    };
+  }
+  close(): void {
+    this.closed = true;
+    this.stop();
+    for (const listener of this.listeners) listener();
+    this.listeners.clear();
+  }
   readonly root: string;
   readonly runner: (cwd: string) => CommandRunner;
   constructor(
@@ -24,6 +46,11 @@ export class SourceControl {
     this.settings = settings;
     this.root = root;
     this.runner = runner;
+    this.stop = settings.onChange((layer, keys) => {
+      if (layer.kind !== "global" || !keys.includes("sourceControl.preferences")) return;
+      this.currentRevision++;
+      for (const listener of this.listeners) listener();
+    });
   }
   async preferences(): Promise<SourceControlPreferences> {
     return SourceControlPreferences.parse(
@@ -32,26 +59,35 @@ export class SourceControl {
   }
   async identity(cwd: string, host: string, signal: AbortSignal) {
     const preferences = await this.preferences();
+    const revision = this.currentRevision;
+    const check = () => {
+      if (this.closed || this.currentRevision !== revision) throw new ForgeError("preferences_changed");
+    };
+    const assertCurrent = async () => { await this.preferences(); check(); };
     const configured = preferences.hosts.find((entry) => entry.host === host);
     if (!configured) throw new ForgeError("unsupported");
     const runner = this.runner(cwd);
     const account = await githubIdentity(runner, host, signal);
+    await assertCurrent();
     if (configured.account && configured.account !== account) throw new ForgeError("forbidden");
-    return { account, runner: identityRunner(runner, host, account) };
+    return { account, revision, check, runner: identityRunner(runner, host, account, assertCurrent) };
   }
   async readiness(
     cwd: string,
     signal: AbortSignal,
     git?: WorkspaceGit,
   ): Promise<SourceControlReadiness> {
+    const check = await this.guard();
     const preferences = await this.preferences();
     const runner = this.runner(cwd);
     const status = await githubReadiness(runner, preferences, signal);
+    check();
     if (!git) return status;
     const info = await git.repositoryInfo(cwd);
     const remote = info.remotes.find((entry) => entry.name === preferences.remote)?.fetchUrls[0];
     status.transport = "no_remote";
     status.transportInstructions = `This project has no ${preferences.remote} remote.`;
+    check();
     if (!remote) return status;
     try {
       // Reject arbitrary or credential-bearing URLs before probing transport.
@@ -81,6 +117,7 @@ export class SourceControl {
       status.transportInstructions =
         "Git transport check failed. Check the configured host, remote URL, network and Git credentials on this computer.";
     }
+    check();
     return status;
   }
 }

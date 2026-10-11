@@ -73,6 +73,6 @@ export async function forgeIdentityFixture() {
       });
     },
     release: () => writeFile(join(root, "release"), "release"),
-    async close() { await runtime.close(); await settings.close(); await store.close(); await rm(root, { recursive: true, force: true }); },
+    async close() { await runtime.close(); sourceControl.close(); await settings.close(); await store.close(); await rm(root, { recursive: true, force: true }); },
   };
 }
