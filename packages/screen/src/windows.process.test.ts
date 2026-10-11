@@ -163,7 +163,7 @@ it("capture suspends without viewers and a fresh screenshot resumes it", async (
     await received.promise;
     unsubscribe();
     expect((await manager.targets()).windows[0]?.title).toMatch(/:false$/);
-    const fresh = await manager.screenshotFresh(session.sessionId);
+    const fresh = await manager.captureScreenshot(session.sessionId);
     expect(fresh.payload.toString()).toMatch(/^v2-jpeg-/);
     expect((await manager.targets()).windows[0]?.title).toMatch(/:false$/);
   } finally {
@@ -184,17 +184,12 @@ it("a crashed Windows helper clears screenshots and cannot retain agent ownershi
     const session = await manager.start(target);
     manager.controller(session.sessionId, "agent", "a");
     await allowForeground(manager, session.sessionId);
-    await manager.screenshotFresh(session.sessionId);
+    await manager.captureScreenshot(session.sessionId);
     await expect(
       manager.action(session.sessionId, "agent", { kind: "type", text: "crash" }, "a"),
     ).rejects.toThrow();
-    expect(manager.state(session.sessionId)).toMatchObject({
-      lifecycle: "failed",
-      controller: "none",
-      indicator: false,
-    });
+    expect(manager.states()).toEqual([]);
     expect(() => manager.screenshot(session.sessionId)).toThrow();
-    await manager.stop(session.sessionId);
     const replacement = await manager.start(target);
     expect(replacement.controller).toBe("none");
   } finally {

@@ -47,7 +47,9 @@ export class Simulators {
     const device = (await this.list()).find((candidate) => candidate.udid === udid);
     if (!device) throw new Error("Unknown available simulator");
     if (device.state !== "Booted") {
-      if ((await this.runProbe("xcrun", ["simctl", "boot", udid])).code !== 0)
+      if (
+        (await this.runProbe("xcrun", ["simctl", "boot", udid], { timeoutMs: 120_000 })).code !== 0
+      )
         throw new Error("Simulator boot failed");
     }
     await this.show(udid);

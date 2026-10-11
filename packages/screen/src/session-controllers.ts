@@ -73,6 +73,7 @@ export class SessionControllers {
     binding?: ControllerBinding,
   ): void {
     const session = this.live(id);
+    delete session.frameAuthorization;
     if (controller === "agent" && session.humanView) throw new ScreenDelegationError();
     if (controller === "agent" && session.state.controller === "agent" && session.owner !== owner)
       throw new TargetBusyError(

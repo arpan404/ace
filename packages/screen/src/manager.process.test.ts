@@ -114,13 +114,8 @@ it("a crashed helper clears cached frames and controller state and can be explic
   });
   await expect(screen.action(id, "agent", { kind: "type", text: "crash" })).rejects.toThrow();
   await failed.promise;
-  expect(screen.state(id)).toMatchObject({
-    lifecycle: "failed",
-    indicator: false,
-    controller: "none",
-  });
-  expect(() => screen.screenshot(id)).toThrow("not live");
-  await screen.stop(id);
+  expect(screen.states()).toEqual([]);
+  expect(() => screen.screenshot(id)).toThrow("Unknown");
   const restarted = await screen.start(target);
   expect(restarted.controller).toBe("none");
   expect(restarted.sessionId).not.toBe(id);
@@ -136,7 +131,8 @@ it("human takeover cancels queued input before it can update permission state", 
 });
 it("an app lease cannot be acquired twice and disabling stops its capture", async () => {
   const screen = await setup();
-  await ready(screen);
+  const state = await ready(screen);
+  screen.controller(state.sessionId, "agent", "owner");
   await expect(screen.start(target)).rejects.toThrow("target_busy");
   await screen.enable(false);
   await expect(screen.start(target)).rejects.toThrow("disabled");

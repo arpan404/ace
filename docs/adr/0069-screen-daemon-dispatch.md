@@ -76,3 +76,13 @@ non-gating medians in milliseconds against commit `88805977`.
 These measure daemon round trips with a controlled fake, not native input speed.
 The shared host was under high load. The native-helper worker owns real fixture
 measurements; no real-helper timings are claimed for this daemon worktree.
+
+## Amendment: helper selection fallback, 2026-10-10
+
+If a helper does not advertise window selection, `screen_select_window` and
+`screen_open_app` with a different window stop the existing capture and start a
+replacement on an enumerated, usable window of the same approved app. Ownership
+is rechecked after enumeration. Capture-stop acknowledgement fences the old
+frames, and the result returns the replacement session ID. Callers must use that
+ID for subsequent explicitly scoped requests. Helpers with atomic native
+selection retain the existing session ID.

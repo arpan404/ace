@@ -2,6 +2,7 @@ import type { ScreenAgentScope, ScreenGrant, ScreenState } from "@ace/protocol";
 
 /** Daemon-owned persistence and host approvals; screen has no SQLite or engine dependency. */
 export interface ScreenAccess {
+  currentTurn?(threadId: string): string | undefined;
   enabled(): boolean;
   enable(enabled: boolean): void;
   list(threadId?: string): ScreenGrant[];

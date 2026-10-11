@@ -13,6 +13,7 @@ extension Capture {
         if mode == "foreground" { try await foregroundWindow(window) }
         let element = try resolver.resolve(window)
         guard let button = windowButton(element, named: name, clock: runtime.nanos) else { throw HelperError("The window has no \(name) button", code: "not_supported") }
+        try requireMenuConsent(mode: mode, action: "press", role: axAttribute(button, kAXRoleAttribute) as? String ?? "")
         dispatched = true
         guard AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else { throw HelperError("Could not press \(name)", code: "internal") }
         deliveryConfirmed = true
@@ -146,7 +147,7 @@ extension Capture {
         case "click":
             guard action.button == "left" || action.button == "right" else { throw HelperError("Invalid mouse button") }
             let right = action.button == "right"
-            if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [right ? "AXShowMenu" : kAXPressAction], beforeDispatch: { self.dispatched = true; self.measurementInputMark?() }) { deliveryConfirmed = true; return }
+            if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [right ? "AXShowMenu" : kAXPressAction], mode: mode, beforeDispatch: { self.dispatched = true; self.measurementInputMark?() }) { deliveryConfirmed = true; return }
             for type: NSEvent.EventType in right ? [.rightMouseDown, .rightMouseUp] : [.leftMouseDown, .leftMouseUp] {
                 try post(try pointer(type))
             }
@@ -237,7 +238,7 @@ extension Capture {
             guard let dx = action.deltaX, let dy = action.deltaY, abs(Int(dx)) <= 1000, abs(Int(dy)) <= 1000 else { throw HelperError("Invalid scroll", code: "bounds") }
             if dx != 0 || dy != 0 {
                 let name = abs(Int(dx)) > abs(Int(dy)) ? (dx > 0 ? "AXScrollRightByPage" : "AXScrollLeftByPage") : (dy > 0 ? "AXScrollUpByPage" : "AXScrollDownByPage")
-                if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [name], beforeDispatch: { self.dispatched = true; self.measurementInputMark?() }) { deliveryConfirmed = true; return }
+                if !humanDeviceInput, try performTargetedAXAction(inputWindow, at: location, names: [name], mode: mode, beforeDispatch: { self.dispatched = true; self.measurementInputMark?() }) { deliveryConfirmed = true; return }
             }
             let event = try pointer(.leftMouseDown)
             event.type = .scrollWheel

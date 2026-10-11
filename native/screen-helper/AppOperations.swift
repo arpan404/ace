@@ -6,6 +6,7 @@ import ApplicationServices
           let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) else { throw HelperError("Approved installed application required", code: "permission_denied") }
     guard let raw = request.url, raw.utf8.count <= 8192, !raw.contains("\0"), let url = URL(string: raw), url.scheme != nil else { throw HelperError("Absolute URL required", code: "bounds") }
     let guardState = FocusGuard()
+    defer { _ = guardState.warning(targetPID: NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first?.processIdentifier) }
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.activates = false; configuration.promptsUserIfNeeded = false; configuration.addsToRecentItems = false
     let app: NSRunningApplication
@@ -18,6 +19,7 @@ import ApplicationServices
 }
 
 @MainActor func pressMenu(_ request: Request, beforeDispatch: () -> Void) throws {
+    try requireMenuConsent(mode: request.mode, action: "menu.press")
     guard AXIsProcessTrusted() else { throw HelperError("Accessibility permission denied", code: "permission_denied") }
     guard CGPreflightScreenCaptureAccess() else { throw HelperError("Screen Recording permission denied", code: "permission_denied") }
     guard let target = request.target, let bundle = target.bundleId, request.allowlist?.contains(bundle) == true else { throw HelperError("Application approval required", code: "permission_denied") }

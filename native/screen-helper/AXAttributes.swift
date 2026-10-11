@@ -99,3 +99,10 @@ func axWindows(_ application: AXUIElement) -> [AXUIElement] {
     }
     return windows
 }
+
+/// Inspection may wait for a busy app; always restore the short input-path budget.
+func withInspectionTimeout<T>(install: (Float) -> Void, read: () throws -> T) rethrows -> T {
+    install(0.2)
+    defer { install(0.05) }
+    return try read()
+}

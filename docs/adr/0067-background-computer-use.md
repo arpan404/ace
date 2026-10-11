@@ -122,3 +122,33 @@ writes, background typing/paste, menu/URL delivery, raw event destinations, reje
 foreground pointer input and independent command lanes. It does not drive Safari,
 other owner apps, real documents or provider CLIs. Release signing/notarization,
 locked-Mac behavior and actual Safari compatibility remain unverified.
+
+## Amendment: audit recovery and consent boundaries, 2026-10-10
+
+A failed or stopped session releases its application after capture cleanup. An
+approved caller can replace an ownerless live session. Capture startup still
+reserves the application until it finishes or is cancelled. A request timeout
+rejects that request; a failed stop probes helper liveness on the inspection lane
+before considering process termination. Native stream failure reports a
+`session.failed` event with `target_gone` for its own session, leaving other
+captures running.
+
+Foreground consent binds to the current root turn and returns to background at
+turn end or change. Background actions refuse tracking menus and popup presses.
+After an observed target activation or window-focus change, the focus guard
+attempts to restore the former app or AX focus, unless HID input occurred during
+the action. This supersedes the 2026-10-07 no-restoration choice. Restoration is
+best effort and does not move the cursor. Newly launched background apps remain
+visible for capture, with activation disabled.
+
+Permission inspections have their own helper lane. Swift checks permissions at
+command boundaries and emits changed facts, retaining independent native checks
+at input dispatch. Frame authorization caches the policy/grant revision; grant
+changes and turn events synchronously invalidate it before revalidation. Tree
+and find inspections use a 200 ms AX messaging budget, restoring the 50 ms global
+input budget after the synchronous read. Node/request bounds remain unchanged.
+
+Provider-native permission modes remain independent of ace computer consent,
+as established in ADR 0069 on provider-native permission modes. The current
+engine's `permissionAuthority` is always `ask` for these tools; there is no ace
+read-only authority to enforce through screen grants.

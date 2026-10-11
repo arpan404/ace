@@ -177,10 +177,14 @@ it("revoked capture permission discards the shared helper before a replacement s
     const state = await manager.start(target);
     manager.controller(state.sessionId, "agent", "agent");
     await expect(
-      manager.namedKey(state.sessionId, { key: "Enter", modifiers: [] }, "agent"),
+      manager.input(
+        state.sessionId,
+        "agent",
+        { kind: "key.press", key: "Enter", modifiers: [] },
+        "agent",
+      ),
     ).rejects.toThrow("permission denied");
-    expect(manager.state(state.sessionId).lifecycle).toBe("failed");
-    await manager.stop(state.sessionId);
+    expect(manager.states()).toEqual([]);
     const replacement = await manager.start(target);
     expect((await manager.capabilities())?.pid).not.toEqual(before?.pid);
     await manager.stop(replacement.sessionId);

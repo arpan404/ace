@@ -82,6 +82,8 @@ export function executeSessionAction<T>(
       });
     })
     .catch(async (error: unknown) => {
+      if (error instanceof HelperCommandError && error.code === "timeout")
+        runtime.fail(session, error);
       if (session.failureCleanup) await session.failureCleanup;
       throw error;
     })

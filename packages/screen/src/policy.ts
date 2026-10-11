@@ -28,6 +28,13 @@ export function bundles(target: ScreenTarget): string[] {
   return target.kind === "display" ? target.bundleIds : [target.bundleId];
 }
 export type Control = { state: ScreenState; epoch: number; owner: string | undefined };
+/** A capture still starting reserves its app until startup cleanup finishes. */
+export function replaceableSession(control: Pick<Control, "state" | "owner">): boolean {
+  return (
+    ["stopping", "failed", "stopped"].includes(control.state.lifecycle) ||
+    (control.state.lifecycle === "live" && control.owner === undefined)
+  );
+}
 export function takeControl(
   control: Control,
   controller: ScreenState["controller"],

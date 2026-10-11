@@ -423,7 +423,7 @@ function processRequest(request: ScreenHelperRequest) {
           windowId: 1,
           bundleId: "dev.ace.test",
           title: v2
-            ? `capture:${capturing};actions:${actions};held:${Boolean(heldUI)};heldInput:${Boolean(held)};pointerHeld:${pointerHeld};pointerUps:${pointerUps};pid:${process.pid}`
+            ? `capture:${capturing};actions:${actions};clicked:${clickedTarget};held:${Boolean(heldUI)};heldInput:${Boolean(held)};pointerHeld:${pointerHeld};pointerUps:${pointerUps};pid:${process.pid}`
             : process.env.MODEL_FRAME_WIDTH
               ? `Test;clicked:${clickedTarget}`
               : "Test",
@@ -473,7 +473,7 @@ function processRequest(request: ScreenHelperRequest) {
       process.exit(7);
     }
     actions++;
-    if (request.action?.kind === "click") {
+    if (request.action?.kind === "click" || request.action?.kind === "scroll") {
       const nativeScale = Number(process.env.MODEL_NATIVE_SCALE ?? 1);
       const point = request.action.x / nativeScale;
       const pointY = request.action.y / nativeScale;

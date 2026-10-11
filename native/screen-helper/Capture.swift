@@ -271,11 +271,12 @@ struct ShareableContent {
         if let settings { await output?.configure(settings, targetWidth: frame.width) }
         output?.markInitial()
     }
+    var onFailure: (Error) -> Void = { _ in }
     private func captureStopped(_ failed: SCStream, error: Error) {
         guard stream === failed, capturing else { return }
         stoppedStream = failed
         FileHandle.standardError.write(Data("screen-helper: capture stopped: \(error)\n".utf8))
-        guard recoverableCaptureError(error as NSError) else { exit(1) }
+        guard recoverableCaptureError(error as NSError) else { onFailure(error); return }
         recovery?.cancel()
         recovery = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -303,7 +304,7 @@ struct ShareableContent {
                     self.stream = replacement; self.configuration = (filter, configuration.config); self.stoppedStream = nil; self.recovery = nil
                     return
                 } catch is CancellationError { return }
-                catch { if attempt == 2 { FileHandle.standardError.write(Data("screen-helper: capture recovery failed: \(error)\n".utf8)); exit(1) } }
+                catch { if attempt == 2 { FileHandle.standardError.write(Data("screen-helper: capture recovery failed: \(error)\n".utf8)); self.onFailure(error) } }
             }
         }
     }

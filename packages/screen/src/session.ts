@@ -12,6 +12,8 @@ export interface ControllerBinding {
 }
 import type { ModelCoordinates } from "./model-coordinates.ts";
 export type Session = {
+  foregroundTurn?: string | undefined;
+  frameAuthorization?: { policy: number; revision: number };
   modelCoordinates: ModelCoordinates | undefined;
   state: ScreenState;
   helper: HelperPort;

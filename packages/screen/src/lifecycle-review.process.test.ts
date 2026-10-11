@@ -10,7 +10,7 @@ it("a backpressured old packet cannot fail a replacement session", async () => {
     const first = await f.start();
     await f.manager.stop(first.sessionId);
     const next = await f.start();
-    const frame = await f.manager.screenshotFresh(next.sessionId);
+    const frame = await f.manager.captureScreenshot(next.sessionId);
     expect(frame.header.sessionId).toBe(next.sessionId);
     expect(f.manager.state(next.sessionId).lifecycle).toBe("live");
   } finally {
@@ -21,9 +21,9 @@ it("a paused packet cannot satisfy a post-resume snapshot", async () => {
   const f = await windowsFixture({ env: { RETIRED_ON_RESUME: "1" } });
   try {
     const session = await f.start();
-    const first = await f.manager.screenshotFresh(session.sessionId);
+    const first = await f.manager.captureScreenshot(session.sessionId);
     await f.manager.targets();
-    const fresh = await f.manager.screenshotFresh(session.sessionId);
+    const fresh = await f.manager.captureScreenshot(session.sessionId);
     expect(fresh.payload.toString()).toBe("fresh");
     expect(fresh.header.sequence).toBeGreaterThan(first.header.sequence);
     expect(f.manager.state(session.sessionId).lifecycle).toBe("live");
@@ -99,7 +99,7 @@ it("recording completion at its cap releases capture demand and permits another 
   });
   try {
     const session = await f.start();
-    await f.manager.screenshotFresh(session.sessionId);
+    await f.manager.captureScreenshot(session.sessionId);
     await f.manager.startRecording(session.sessionId);
     expect((await published.promise).bytes).toBe(0);
     expect((await f.manager.targets()).windows[0]?.title).toMatch(/:false$/);
@@ -148,7 +148,7 @@ it("a failed frame subscriber releases the last capture viewer", async () => {
     });
     await failed.promise;
     // Snapshot also provides a command/frame barrier after the rejected send callback.
-    await f.manager.screenshotFresh(session.sessionId);
+    await f.manager.captureScreenshot(session.sessionId);
     await f.manager.targets();
     expect((await f.manager.targets()).windows[0]?.title).toMatch(/:false$/);
     unsubscribe();

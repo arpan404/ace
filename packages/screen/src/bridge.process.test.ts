@@ -30,9 +30,14 @@ it("human devices can discover sessions, delegate to a scoped agent and observe 
       sessionId: state.sessionId,
       controller: "agent",
       agentId: "agent-1",
+      threadId: "thread-1",
     },
   });
-  const tool = computerUseHandler(test.screen, state.sessionId, "agent-1");
+  const tool = computerUseHandler(
+    test.screen,
+    state.sessionId,
+    JSON.stringify(["thread-1", "agent-1"]),
+  );
   await tool("screen_type", { text: "hello" });
   await connection.request({
     type: "screen.request",
@@ -92,7 +97,7 @@ it("status exposes enablement without sessions and changes reach every human con
     data: {
       enabled: false,
       sessions: 0,
-      permissions: { screenRecording: true, accessibility: true },
+      permissions: { screenRecording: false, accessibility: false },
     },
   });
   await request({ op: "enable", enabled: true });

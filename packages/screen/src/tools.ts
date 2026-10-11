@@ -399,8 +399,6 @@ export function computerUseHandler(
         {
           const scroll = Scroll.parse(payload);
           if ("dx" in scroll) v2 = { kind: "scroll", ...scroll };
-          else if (negotiated)
-            v2 = { kind: "scroll", x: scroll.x, y: scroll.y, dx: scroll.deltaX, dy: scroll.deltaY };
           else action = { kind: "scroll", ...scroll };
         }
         break;

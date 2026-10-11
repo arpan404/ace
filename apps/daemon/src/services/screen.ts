@@ -29,7 +29,10 @@ export async function startScreen({
       store,
       now,
       (threadId) => services.engine?.screenTurn(importThreadId.parse(threadId)),
-      () => services.mcp?.toolsChanged(),
+      () => {
+        services.mcp?.toolsChanged();
+        void manager?.revalidate().catch(() => {});
+      },
     );
     const approvals = new ScreenApprovals({
       store,
@@ -47,6 +50,7 @@ export async function startScreen({
       enabled: () => grants.enabled(),
       enable: (enabled) => grants.enable(enabled),
       list: (threadId) => grants.list(threadId),
+      currentTurn: (threadId) => grants.currentTurn(threadId),
       allows: (bundleId, scope) => grants.allows(bundleId, scope),
       approve: (bundleId, allowed, scope, threadId) =>
         grants.approve(bundleId, allowed, scope, threadId),
@@ -58,6 +62,9 @@ export async function startScreen({
     });
     resources.own(
       store.subscribe((events) => {
+        for (const event of events)
+          if (event.payload.type === "run.ended")
+            manager.turnEnded(event.threadId, event.payload.runId);
         if (
           events.some(
             (event) =>
