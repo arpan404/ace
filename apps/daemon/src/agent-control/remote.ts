@@ -560,17 +560,44 @@ export class RemoteDelegations {
         this.finish(cancelled);
       });
     }
-    if (operation.op === "device.task_wait") {
-      this.waiters.set(task.id, (this.waiters.get(task.id) ?? 0) + 1);
-      try {
+    const waiting = operation.op === "device.task_wait";
+    if (waiting) this.waiters.set(task.id, (this.waiters.get(task.id) ?? 0) + 1);
+    try {
+      if (waiting) {
         while (!remoteTerminal(task)) {
           await delay(250, undefined, { signal });
           task = this.journal.get(operation.taskId);
           if (!task) return { ok: false, code: "not_found" };
         }
+      }
+      const returnedFiles = task.artifacts?.attachments.length
+        ? await this.resolveArtifacts?.(task)
+        : undefined;
+      signal.throwIfAborted();
+      if (
+        !this.store.getMcpAgent(caller.threadId, caller.agentId) ||
+        this.store.getThread(caller.threadId)?.deletedAt !== undefined
+      )
+        return { ok: false, code: "forbidden" };
+      // The observer owns delivery through every asynchronous response-preparation boundary.
+      if (waiting) {
         task.delivered = true;
         this.journal.save(task);
-      } finally {
+      }
+      const targetHost = task.request.hostId;
+      return {
+        ok: true,
+        data: {
+          ...task,
+          ...(returnedFiles ? { returnedFiles } : {}),
+          ...(!remoteTerminal(task) &&
+          !this.current()?.hosts.some((host) => host.hostId === targetHost)
+            ? { phase: task.phase === "cancelling" ? "cancelling" : "unavailable" }
+            : {}),
+        },
+      };
+    } finally {
+      if (waiting) {
         const remaining = (this.waiters.get(operation.taskId) ?? 1) - 1;
         if (remaining) this.waiters.set(operation.taskId, remaining);
         else this.waiters.delete(operation.taskId);
@@ -578,25 +605,5 @@ export class RemoteDelegations {
         if (current) this.finish(current);
       }
     }
-    const returnedFiles = task.artifacts?.attachments.length
-      ? await this.resolveArtifacts?.(task)
-      : undefined;
-    signal.throwIfAborted();
-    if (
-      !this.store.getMcpAgent(caller.threadId, caller.agentId) ||
-      this.store.getThread(caller.threadId)?.deletedAt !== undefined
-    )
-      return { ok: false, code: "forbidden" };
-    return {
-      ok: true,
-      data: {
-        ...task,
-        ...(returnedFiles ? { returnedFiles } : {}),
-        ...(!remoteTerminal(task) &&
-        !this.current()?.hosts.some((host) => host.hostId === task.request.hostId)
-          ? { phase: task.phase === "cancelling" ? "cancelling" : "unavailable" }
-          : {}),
-      },
-    };
   }
 }
