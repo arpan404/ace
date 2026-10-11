@@ -2,7 +2,8 @@ import { ClientProvider } from "@ace/client-react";
 import { FakeDaemon, ScenarioPlayer, facts, type Scenario } from "@ace/fake-daemon";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { ServerMessage } from "@ace/protocol";
+import { expect, test, vi } from "vitest";
 import { fakeClient } from "@/test/fake-client.ts";
 import { ThreadNavProvider } from "./nav.tsx";
 import { useTurnHead, useTurnSummary } from "./turn-index.ts";
@@ -189,4 +190,95 @@ test("late work on an old visible full block refreshes that summary without read
   stop();
   view.unmount();
   cache.clear();
+});
+
+/** Delay replies at the socket boundary, after the daemon has taken the read's snapshot. */
+class SlowTurnsDaemon extends FakeDaemon {
+  delayed = false;
+  reads = 0;
+  override connect(wire: Parameters<FakeDaemon["connect"]>[0]) {
+    return super.connect({
+      ...wire,
+      send: (text) => {
+        const message = ServerMessage.parse(JSON.parse(text));
+        if (this.delayed && message.type === "turns.page") {
+          this.reads++;
+          setTimeout(() => wire.send(text), 300);
+        } else wire.send(text);
+      },
+    });
+  }
+}
+
+test("slow visible summaries make progress during sustained revisions and catch changes made while reading", async () => {
+  let time = 1000;
+  const daemon = new SlowTurnsDaemon({ clock: () => ++time });
+  new ScenarioPlayer(daemon, {
+    thread: {
+      id: "turn-freshness",
+      workspaceId: "project",
+      provider: "codex",
+      title: "Slow summaries",
+    },
+    steps: [
+      {
+        kind: "facts",
+        facts: [
+          facts.rootAgent("codex"),
+          facts.turn("root"),
+          facts.message("root", "ask", "user", "Work"),
+          facts.message("root", "answer", "assistant", "Draft answer", false),
+        ],
+      },
+    ],
+  }).runUntilBlocked();
+  const client = fakeClient(daemon);
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  let view: ReturnType<typeof render> | undefined;
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    await act(async () => {
+      await client.start();
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    view = render(
+      <ClientProvider client={client}>
+        <QueryClientProvider client={cache}>
+          <ThreadNavProvider threadId="turn-freshness">
+            <Summaries />
+          </ThreadNavProvider>
+        </QueryClientProvider>
+      </ClientProvider>,
+    );
+    // Drain initial snapshot revisions using the same clock as the later slow reads.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(screen.getByLabelText("block").textContent).toContain("Draft answer");
+    daemon.delayed = true;
+    for (let revision = 1; revision <= 10; revision++) {
+      await act(async () => {
+        daemon.apply("turn-freshness", [
+          facts.message("root", "answer", "assistant", `Revision ${revision}`, false),
+        ]);
+        await vi.advanceTimersByTimeAsync(100);
+      });
+    }
+    // Events have never paused for a full read, but earlier snapshots must still land.
+    expect(screen.getByLabelText("block").textContent).toMatch(/Revision [1-9]/);
+    expect(daemon.reads).toBeLessThanOrEqual(8);
+    await act(async () => {
+      daemon.apply("turn-freshness", [
+        facts.message("root", "answer", "assistant", "Final answer"),
+        facts.endTurn("root"),
+      ]);
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(screen.getByLabelText("block").textContent).toBe("completed: Final answer stopped");
+    expect(screen.getByLabelText("head").textContent).toBe("completed");
+  } finally {
+    view?.unmount();
+    cache.clear();
+    vi.useRealTimers();
+  }
 });
