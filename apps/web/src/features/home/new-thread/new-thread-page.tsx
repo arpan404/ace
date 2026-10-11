@@ -24,8 +24,8 @@ import {
   defaultWorktreeBase,
   permissionUnavailable,
   permissionCoverage,
-  composerPermissionOption,
-  composerPermissionOptions,
+  permissionOption,
+  permissionOptions,
   providerNames,
   speedOffTier,
 } from "@ace/ui-core";
@@ -141,7 +141,8 @@ export function NewThreadPage(props: {
         )
       : undefined,
   };
-  const chosen = defaultMode === undefined || permissions.loading ? undefined : admitted.mode;
+  const chosen =
+    permission && permissions.modes.some((mode) => mode.id === permission) ? permission : undefined;
 
   const choose = (patch: Partial<Choices>) => {
     const next = { ...choices, ...patch };
@@ -165,7 +166,8 @@ export function NewThreadPage(props: {
   const scope = useDraftScope(project);
   const accountId = resolved.account?.id;
   const draftThread = useDraftThreadRef(scope.draftId, project, provider, accountId);
-  const waitingForAdmission = defaultMode === undefined || permissions.loading;
+  const waitingForAdmission =
+    !start.loaded || !provider || defaultMode === undefined || permissions.loading;
   const admissionProblem = waitingForAdmission
     ? "Checking provider settings…"
     : permissions.failed
@@ -316,48 +318,4 @@ export function NewThreadPage(props: {
               }
               controls={
                 <PermissionPicker
-                  current={
-                    !start.loaded || permissions.loading || defaultMode === undefined
-                      ? undefined
-                      : composerPermissionOption(
-                          provider,
-                          admitted.mode ?? null,
-                          permissions.capabilities,
-                        )
-                  }
-                  detail={
-                    admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
-                  }
-                  inherited={!chosen}
-                  menu={{
-                    options: composerPermissionOptions(provider, permissions.capabilities),
-                    value: admitted.mode,
-                    loading: !start.loaded || permissions.loading || defaultMode === undefined,
-                    unavailable: permissions.failed
-                      ? "Couldn't load permission modes. Reconnect and try again."
-                      : undefined,
-
-                    fallback: admitted.fallback,
-                  }}
-                  onChange={permissions.setCurrentId}
-                />
-              }
-            />
-            {admissionProblem && (
-              <p id={readinessId} role="status" className="mt-2 px-4 text-xs text-muted-foreground">
-                {admissionProblem}
-              </p>
-            )}
-            <SignInNotice provider={provider} />
-            {project && <PastSessions projectId={project} />}
-            {error && (
-              <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
-                {error}
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-    </Screen>
-  );
-}
+                    loading: waitingForAdmission,

@@ -224,8 +224,8 @@ test("a wide composer spells out the @ and / hints", async () => {
 test("approvals and predefined effort keep their readable modes on a phone", async () => {
   layoutWidth(358);
   await open("busy");
-  const approvals = await screen.findByRole("button", { name: /^Approvals: Auto review/ });
-  expect(approvals.textContent).toBe("Auto review");
+  const approvals = await screen.findByRole("button", { name: /^Approvals: Provider default/ });
+  expect(approvals.textContent).toBe("Provider default");
   // The model chip retains identity and honestly marks the next-turn preset as a default.
   const model = await screen.findByRole("button", { name: /^Model: Opus 5\.5/ });
   expect(model.textContent).toContain("Opus 5.5");

@@ -515,6 +515,12 @@ const server = createServer(async (req, res) => {
       empty();
       return;
     }
+    if (suffix === "/agent" && req.method === "POST") {
+      const info = sessions.get(id);
+      info.agent = body.agent;
+      empty();
+      return;
+    }
     if (suffix === "/model" && req.method === "POST") {
       const info = sessions.get(id);
       if (!info) {

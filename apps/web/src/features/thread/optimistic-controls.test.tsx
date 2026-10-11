@@ -46,19 +46,19 @@ async function chooseApprovals(from: string, mode: string) {
 test("an approval mode chosen offline shows at once and reaches the daemon once it's back", async () => {
   const app = await open();
   await offline(app);
-  await chooseApprovals("Auto review", "Full access");
+  await chooseApprovals("Provider default", "Bypass permissions");
 
   const pending = await screen.findByRole("button", {
-    name: "Approvals: Full access, will apply when reconnected",
+    name: "Approvals: Bypass permissions, will apply when reconnected",
   });
-  expect(pending.textContent).toBe("Full access");
+  expect(pending.textContent).toBe("Bypass permissions");
   expect(thread(app)?.permission?.override).toBeNull();
 
   await online(app);
   await waitFor(() => expect(thread(app)?.permission?.override).toBe("bypassPermissions"));
   expect(
     await screen.findByRole("button", {
-      name: "Approvals: Full access, applies at the agent's next turn",
+      name: "Approvals: Bypass permissions, applies at the agent's next turn",
     }),
   ).toBeTruthy();
 });
@@ -66,12 +66,12 @@ test("an approval mode chosen offline shows at once and reaches the daemon once 
 test("an approval mode the daemon refuses goes back to the one in effect, with a toast", async () => {
   const app = await open();
   app.daemon.refuseCommands("forbidden", "thread.permission.set");
-  await chooseApprovals("Auto review", "Manual");
+  await chooseApprovals("Provider default", "Manual");
 
   expect(await screen.findByText("Couldn't change approvals")).toBeTruthy();
   expect(screen.getByText("This device isn't allowed to do that.")).toBeTruthy();
-  const restored = await screen.findByRole("button", { name: "Approvals: Auto review" });
-  expect(restored.textContent).toBe("Auto review");
+  const restored = await screen.findByRole("button", { name: "Approvals: Provider default" });
+  expect(restored.textContent).toBe("Provider default");
   expect(thread(app)?.permission?.override).toBeNull();
 });
 
@@ -130,4 +130,14 @@ test("a model switch the daemon refuses goes back to the model in effect, with a
   const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5, Personal/ });
   expect(chip.getAttribute("aria-description")).toBeNull();
   expect(thread(app)?.switch).toBeUndefined();
+});
+
+test("returning to the provider default is shown while the native change waits", async () => {
+  const app = await open();
+  await chooseApprovals("Provider default", "Accept edits");
+  await waitFor(() => expect(thread(app)?.permission?.override).toBe("acceptEdits"));
+  await userEvent.click(await screen.findByRole("button", { name: /^Approvals: Accept edits/ }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Provider default" }));
+  await waitFor(() => expect(thread(app)?.permission?.override).toBeNull());
+  expect(await screen.findByRole("button", { name: /^Approvals: Provider default/ })).toBeTruthy();
 });

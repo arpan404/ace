@@ -384,3 +384,21 @@ custom ACP catalogs depend on the actual provider instance. The native provider
 remains the authority and may reject a selected mode. Fake contract tests cannot
 prove a sandbox or classifier's real runtime enforcement. Recording and paid
 provider turns remain separate owner-authorized work.
+
+## Audit correction: native defaults and OpenCode agents
+
+Accepted owner rule, re-applied 2026-10-10. Composer menus render the advertised
+native descriptors directly. Absence never selects automatic review or a manual
+fallback. New-thread requests omit `permissionMode` unless the composer has an
+explicit selection; scoped provider settings remain resolved at execution.
+
+OpenCode's picker uses its native Build and Plan agents, via session creation's
+`agent` and the native `session.switchAgent` API on resume. It never writes
+session permission arrays. This supersedes the wildcard-effect picker described
+above. Existing saved OpenCode effects (`allow`, `ask`, `deny`) and ace presets
+restore absence; they cannot faithfully represent a native agent or mixed rules.
+Other providers' explicit legacy presets retain the existing native migration.
+
+Primary interfaces: installed `@opencode/client` 2.0.22 `SessionCreateInput` and
+`SessionSwitchAgentInput`; [OpenCode agents](https://opencode.ai/v2/docs/agents/)
+and [permission rules](https://opencode.ai/v2/docs/permissions/).

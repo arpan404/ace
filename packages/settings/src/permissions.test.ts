@@ -7,16 +7,16 @@ test("new settings leave native defaults alone and provider overrides survive re
     expect((await f.service.get("permissions.providerModes")).value).toEqual({});
     await f.service.set(
       "permissions.providerModes",
-      { claude: "acceptEdits", opencode: "deny" },
+      { claude: "acceptEdits", opencode: "plan" },
       { kind: "global" },
     );
     expect((await f.service.get("permissions.providerModes")).value).toEqual({
       claude: "acceptEdits",
-      opencode: "deny",
+      opencode: "plan",
     });
     expect(
       JSON.parse(await readFile(f.globalPath, "utf8")).settings["permissions.providerModes"],
-    ).toEqual({ claude: "acceptEdits", opencode: "deny" });
+    ).toEqual({ claude: "acceptEdits", opencode: "plan" });
   } finally {
     await f.close();
   }
@@ -70,7 +70,7 @@ test("a project overrides one provider and keeps following other global defaults
   try {
     await f.service.set(
       "permissions.providerModes",
-      { claude: "default", opencode: "deny" },
+      { claude: "default", opencode: "plan" },
       { kind: "global" },
     );
     await f.service.set(
@@ -80,23 +80,23 @@ test("a project overrides one provider and keeps following other global defaults
     );
     expect((await f.service.get("permissions.providerModes", scope)).value).toEqual({
       claude: "acceptEdits",
-      opencode: "deny",
+      opencode: "plan",
     });
     await f.service.set(
       "permissions.providerModes",
-      { claude: "auto", opencode: "ask" },
+      { claude: "auto", opencode: "build" },
       { kind: "global" },
     );
     expect((await f.service.get("permissions.providerModes", scope)).value).toEqual({
       claude: "acceptEdits",
-      opencode: "ask",
+      opencode: "build",
     });
     const { SettingsService } = await import("./index.ts");
     const restarted = new SettingsService({ dataDir: f.dataDir });
     try {
       expect((await restarted.get("permissions.providerModes", scope)).value).toEqual({
         claude: "acceptEdits",
-        opencode: "ask",
+        opencode: "build",
       });
     } finally {
       await restarted.close();
@@ -117,6 +117,35 @@ test("a legacy null permission default remains absence rather than a saved choic
   try {
     await f.write(f.globalPath, { "permissions.defaultMode": null });
     expect((await f.service.get("permissions.providerModes")).value).toEqual({});
+  } finally {
+    await f.close();
+  }
+});
+
+test("preset ids stored per provider migrate once and removed OpenCode effects restore native defaults", async () => {
+  const f = await fixture();
+  try {
+    await f.write(f.globalPath, {
+      "permissions.providerModes": {
+        claude: "auto-review",
+        codex: "full-access",
+        cursor: "ask",
+        opencode: "allow",
+        acp: "ask",
+      },
+      "future.setting": "retained",
+    });
+    const expected = {
+      claude: "auto",
+      codex: ":danger-full-access",
+      cursor: '{"sandboxOptions":{"enabled":true},"autoReview":false}',
+    };
+    expect((await f.service.get("permissions.providerModes")).value).toEqual(expected);
+    const stored = JSON.parse(await readFile(f.globalPath, "utf8"));
+    expect(stored.settings["permissions.providerModes"]).toEqual(expected);
+    expect(stored.settings["future.setting"]).toBe("retained");
+    await f.service.set("threads.autoSettleAfter", "1w", { kind: "global" });
+    expect((await f.service.get("permissions.providerModes")).value).toEqual(expected);
   } finally {
     await f.close();
   }

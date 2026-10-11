@@ -3,6 +3,7 @@ import { CheckIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { MenuGroup } from "@/components/ui/menu.tsx";
 import { menuItem } from "@/components/ui/menu-styles.ts";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { riskIcons } from "./permission-icons.ts";
@@ -20,7 +21,7 @@ function Note(props: { children: string; pending?: boolean }) {
   );
 }
 
-/** Three compact permission presets; unsupported choices explain why inline. */
+/** Native labels in compact rows; descriptions stay in tooltips. */
 export function PermissionMenu(props: {
   view: PermissionMenuView;
   onChange(id: string | null): void;
@@ -30,6 +31,15 @@ export function PermissionMenu(props: {
   if (view.loading) return <Note pending>Checking available approval modes…</Note>;
   if (!view.options.length)
     return <Note>This provider doesn't report approval modes, so they can't be changed here.</Note>;
+  const options = [
+    {
+      id: "",
+      label: "Provider default",
+      description: "Uses the provider's configured permissions.",
+      risk: "medium" as const,
+    },
+    ...view.options,
+  ];
   return (
     <>
       <MenuGroup>
@@ -42,34 +52,31 @@ export function PermissionMenu(props: {
             if (option && !option.unavailable) props.onChange(option.id);
           }}
         >
-          {view.options.map((option) => {
+          {options.map((option) => {
             const attention = option.risk === "high";
             return (
-              <MenuPrimitive.RadioItem
-                key={option.id}
-                value={option.id}
-                aria-label={option.label}
-                aria-description={option.unavailable ?? option.description}
-                disabled={!!option.unavailable}
-                closeOnClick
-                className={cn(menuItem, "h-auto items-start gap-2.5 px-2.5 py-2")}
-              >
-                <Icon
-                  icon={riskIcons[option.risk]}
-                  className={cn("mt-px", attention && "text-status-needs-you!")}
-                />
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5 whitespace-normal">
-                  <span className={cn(attention && "text-status-needs-you")}>{option.label}</span>
-                  <span className="text-xs leading-4 text-muted-foreground">
-                    {option.unavailable ?? option.description}
+              <Tip key={option.id} label={option.description} side="right">
+                <MenuPrimitive.RadioItem
+                  value={option.id}
+                  aria-label={option.label}
+                  aria-description={option.description}
+                  closeOnClick
+                  className={cn(menuItem, "gap-2.5 px-2.5")}
+                >
+                  <Icon
+                    icon={riskIcons[option.risk]}
+                    className={cn(attention && "text-status-needs-you!")}
+                  />
+                  <span className={cn("min-w-0 flex-1", attention && "text-status-needs-you")}>
+                    {option.label}
                   </span>
-                </span>
-                <span className="grid size-4 shrink-0 place-items-center">
-                  <MenuPrimitive.RadioItemIndicator>
-                    <CheckIcon aria-hidden size={14} />
-                  </MenuPrimitive.RadioItemIndicator>
-                </span>
-              </MenuPrimitive.RadioItem>
+                  <span className="grid size-4 shrink-0 place-items-center">
+                    <MenuPrimitive.RadioItemIndicator>
+                      <CheckIcon aria-hidden size={14} />
+                    </MenuPrimitive.RadioItemIndicator>
+                  </span>
+                </MenuPrimitive.RadioItem>
+              </Tip>
             );
           })}
         </MenuPrimitive.RadioGroup>

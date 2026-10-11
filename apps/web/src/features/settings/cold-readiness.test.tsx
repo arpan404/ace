@@ -54,16 +54,16 @@ test("a free model whose name says Free carries that word once in the visible mo
   expect(within(row).queryByText("Free", { exact: true })).toBeNull();
 });
 
-test("Pi General permissions reports its unavailable modes before the native adapter is admitted", async () => {
+test("Pi General permissions keeps the provider default when no selector is supported", async () => {
   const app = fixture();
   app.daemon.services.installed.delete("pi");
   await app.open("/settings/general");
   const permissions = await screen.findByRole("combobox", { name: "Pi permissions" });
-  expect(await within(permissions).findByText("Permissions unavailable")).toBeTruthy();
+  expect(await within(permissions).findByText("Provider default")).toBeTruthy();
   expect(permissions.hasAttribute("disabled")).toBe(true);
   const row = screen.getByText("Pi", { exact: true }).parentElement;
   if (!row) throw new Error("Missing Pi permission setting");
-  expect(within(row).getByText("No supported permission mode is available.")).toBeTruthy();
+  expect(within(row).getByText("Uses the provider’s configured permissions.")).toBeTruthy();
   expect(screen.queryByText("Use provider default")).toBeNull();
   expect(screen.queryByText("Couldn't load permission modes. Reconnect and try again.")).toBeNull();
 });

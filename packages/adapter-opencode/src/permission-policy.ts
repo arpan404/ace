@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { PermissionMode } from "@ace/protocol";
-export function opencodePermissionRules(
-  mode: PermissionMode,
-): { action: string; resource: string; effect: "allow" | "ask" | "deny" }[] {
-  return [{ action: "*", resource: "*", effect: z.enum(["allow", "ask", "deny"]).parse(mode) }];
+
+/** Native agents own their permissions; never replace configured rules on a session. */
+export function opencodePermissionAgent(mode: PermissionMode): "build" | "plan" {
+  return z.enum(["build", "plan"]).parse(mode);
 }

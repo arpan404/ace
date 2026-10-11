@@ -32,7 +32,7 @@ interface PermissionPickerProps {
 /** Pure display projection: pending selection and effective state stay distinct in the tip. */
 function permissionDisplay(props: PermissionPickerProps) {
   const { current, next, menu } = props;
-  const selected = next ?? current;
+  const selected = menu.loading || menu.unavailable ? undefined : (next ?? current);
   const label = selected?.label ?? (menu.loading ? "Approvals…" : "Approvals");
   const Glyph = riskIcons[selected?.risk ?? "medium"];
   const attention = selected?.risk === "high";
@@ -40,7 +40,8 @@ function permissionDisplay(props: PermissionPickerProps) {
   const tip = [
     selected ? `Approvals: ${label}` : label,
     next && current ? `In effect: ${current.label}` : undefined,
-    props.detail,
+    selected?.description ?? props.detail,
+    menu.loading ? "Loading provider permission modes…" : undefined,
     menu.fallback,
     waits,
     props.inherited && !next ? "default" : undefined,
