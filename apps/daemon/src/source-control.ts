@@ -63,8 +63,8 @@ export class SourceControl {
     );
   }
   async identity(cwd: string, host: string, signal: AbortSignal) {
-    const preferences = await this.preferences();
     const revision = this.currentRevision;
+    const preferences = await this.preferences();
     const check = () => {
       if (this.closed || this.currentRevision !== revision)
         throw new ForgeError("preferences_changed");
@@ -73,6 +73,7 @@ export class SourceControl {
       await this.preferences();
       check();
     };
+    check();
     const configured = preferences.hosts.find((entry) => entry.host === host);
     if (!configured) throw new ForgeError("unsupported");
     const runner = this.runner(cwd);

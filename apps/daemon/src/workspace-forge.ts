@@ -365,8 +365,11 @@ export class WorkspaceForge {
       return { ok: true, pr: p.link.pr, prStatus: status };
     }
     const executeIntent = async (): Promise<Omit<CommandResult, "commandId">> => {
+    this.lifetime.signal.throwIfAborted();
+    if (!allowed()) throw new Error("forbidden");
     const generation = this.links.getLinkState(id, p.link.pr)?.generation;
     const backend = await this.backend(cwd, p.link.pr.repository);
+    if (!allowed()) throw new Error("forbidden");
     if (p.type === "forge.comment.reply")
       await backend.replyComment(p.link.pr.number, p.commentId, p.body, this.lifetime.signal);
     if (p.type === "forge.review.request")
