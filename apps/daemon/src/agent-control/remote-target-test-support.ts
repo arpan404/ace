@@ -7,6 +7,7 @@ import {
   RemoteAgentHost,
   RemoteTask,
   type ClientMessage,
+  type DelegationPolicy,
   type RemoteDelegationResult,
 } from "@ace/protocol";
 import { Client } from "../socket-test-support.ts";
@@ -18,7 +19,7 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
 
-export async function remoteTarget(policy: { maxChildren?: number; maxDepth?: number } = {}) {
+export async function remoteTarget(policy: Partial<DelegationPolicy> = {}) {
   const source = setup(policy);
   const parent = await source.parent();
   const target = await daemonFixture();
@@ -133,5 +134,6 @@ export async function remoteTarget(policy: { maxChildren?: number; maxDepth?: nu
     emit,
     complete,
     hostId: welcome.hostId,
+    lease,
   };
 }

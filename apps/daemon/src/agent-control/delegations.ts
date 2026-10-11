@@ -29,6 +29,7 @@ import { DelegationAdmission } from "./admission.ts";
 import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
 import { incomingRemoteRoot } from "./incoming-root.ts";
+import { recoverIncomingUsage } from "./incoming-usage-recovery.ts";
 
 export interface DelegationDependencies {
   store: Store;
@@ -68,6 +69,7 @@ export class DelegationService {
     this.deps = deps;
     this.policy = DelegationPolicy.parse(deps.policy ?? {});
     this.journal = new DelegationJournal(deps.store, deps.journalCapacity);
+    recoverIncomingUsage(deps.store, this.journal, deps.clock.now());
     this.admission = new DelegationAdmission(
       deps,
       this.journal,
