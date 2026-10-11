@@ -39,7 +39,8 @@ strictness, and erasable syntax requirements remain in place.
 
 A few existing cross-workspace relative imports in benchmark and test tooling
 still consume sources. The source-based browser guard also deliberately revisits
-its dependency sources. Ordinary `@ace/*` imports consume declarations.
+its dependency sources. Ordinary `@ace/*` imports consume declarations except
+when the automatic source fallback below applies.
 
 Four explicit `AbortSignal` annotations in screen/daemon exports are required for
 portable declaration names. They do not change runtime behavior.
@@ -66,7 +67,41 @@ by the runner; TypeScript owns diagnostic reuse and incremental invalidation.
 Generated config comments include content fingerprints, forcing a fresh build
 when input bytes change even if their source timestamps were preserved. Check
 fingerprints cover their own roots and globals; dependency declarations drive
-downstream compiler invalidation.
+downstream compiler invalidation. Source fallback programs fingerprint the entire
+original graph, including dependency implementations.
+
+## Automatic source fallback
+
+Keeping an augmentation file alone does not preserve implementation checking.
+An augmented dependency interface can invalidate a default parameter initializer,
+which its declaration file omits. The planner selects the original source program
+for every repository augmentation and global script. This includes augmentations
+of external interfaces, since dependency implementations may use them. For
+augmentations in external declarations, it resolves their targets with the
+compiler and falls back when the target belongs to a workspace. No package list
+is maintained by hand.
+
+TypeScript 7.0.2 also has a confirmed declaration-emit defect:
+[microsoft/TypeScript#64059](https://github.com/microsoft/TypeScript/issues/64059).
+Const-generic inference can lose nested `readonly` properties. The issue also
+reports an affected 7.1 development build; its closure does not identify a fixed
+release. Until a fixed compiler is verified, the planner inspects calls accepting
+object literals and their resolved signatures, including imported declaration
+helpers and generic constructors. A const type parameter or an unresolved/synthetic
+signature selects the original source program. Object literals behind other calls
+or function bodies are inspected at their own calls. This conservatively covers
+more calls than the known defect requires.
+
+Fallbacks apply to the whole consumer program, including transitive re-exports.
+This preserves a single module identity and checks dependency implementations in
+that consumer's environment. They deliberately give up declaration reuse for that
+consumer; separate incremental compiler caches still bound subsequent work.
+
+`node scripts/typecheck-regressions.ts` runs small compiler fixtures, with one
+native compiler at a time. It verifies augmentation-induced initializer errors
+and const-generic readonly assignment errors through a workspace re-export, cold,
+warm with preserved source mtimes, from cached failures, and after recovery. CI
+runs these probes after the normal typecheck. It does not invoke a test runner.
 
 The runner uses `typescript/unstable/sync`, the installed package's public config
 API export. TypeScript is pinned to 7.0.2 because that API is explicitly unstable.

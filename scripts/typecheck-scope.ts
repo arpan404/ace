@@ -3,12 +3,14 @@ import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { API } from "typescript/unstable/sync";
 import { z } from "zod";
+import { needsSourceCheck } from "./typecheck-fallbacks.ts";
 
 const scopeSchema = z.object({
   fingerprint: z.string(),
   files: z.array(z.string()),
   globals: z.array(z.string()),
   libs: z.array(z.string()),
+  sourceCheck: z.boolean(),
 });
 const cacheSchema = z.record(z.string(), scopeSchema);
 type Scope = z.infer<typeof scopeSchema>;
@@ -22,12 +24,14 @@ export class TypecheckScopes {
   private root: string;
   private manifests: string[];
   private inventory: string;
+  private workspaceDirectories: string[];
   private shapes = new Map<string, { global: boolean; libs: string[] }>();
 
   constructor(api: API, root: string, manifests: string[], cacheFile: string) {
     this.api = api;
     this.root = root;
     this.manifests = manifests;
+    this.workspaceDirectories = manifests.map((file) => resolve(file, ".."));
     const names: string[] = [];
     function visit(directory: string): void {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -79,6 +83,7 @@ export class TypecheckScopes {
         ...this.manifests,
         resolve(this.root, "bun.lock"),
         resolve(this.root, "scripts/typecheck-scope.ts"),
+        resolve(this.root, "scripts/typecheck-fallbacks.ts"),
       ]),
     ].toSorted())
       hash.update(file).update(this.content(file));
@@ -94,8 +99,14 @@ export class TypecheckScopes {
 
   checkFingerprint(config: ConfigResponse, scope: Scope): string {
     return createHash("sha256")
-      .update(this.contentFingerprint(config, [...config.fileNames, ...scope.globals]))
+      .update(
+        this.contentFingerprint(
+          config,
+          scope.sourceCheck ? scope.files : [...config.fileNames, ...scope.globals],
+        ),
+      )
       .update(JSON.stringify(scope.libs))
+      .update(String(scope.sourceCheck))
       .digest("hex");
   }
 
@@ -114,6 +125,7 @@ export class TypecheckScopes {
       const files = [...project.program.getSourceFileNames()];
       const globals: string[] = [];
       const libs = new Set<string>();
+      let sourceCheck = false;
       for (const file of files) {
         const shapeKey = JSON.stringify([
           file,
@@ -121,10 +133,12 @@ export class TypecheckScopes {
           config.options.module,
           config.options.jsx,
         ]);
+        const source = project.program.getSourceFile(file);
+        if (!source) throw new Error(`TypeScript did not load ${file}`);
+        if (!sourceCheck)
+          sourceCheck = needsSourceCheck(project, source, this.workspaceDirectories, this.root);
         let shape = this.shapes.get(shapeKey);
         if (!shape) {
-          const source = project.program.getSourceFile(file);
-          if (!source) throw new Error(`TypeScript did not load ${file}`);
           shape = {
             global:
               !source.externalModuleIndicator ||
@@ -141,6 +155,7 @@ export class TypecheckScopes {
         files,
         globals,
         libs: [...libs].toSorted(),
+        sourceCheck,
         fingerprint: this.graphFingerprint(config, files),
       };
       this.cache[configFile] = scope;

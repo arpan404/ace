@@ -182,7 +182,10 @@ export function prepareTypecheck(
           compilerOptions: {
             noCheck: false,
             incremental: true,
-            paths: { ...declarationPaths([...wanted], workspace), ...paths },
+            paths: {
+              ...(scope.sourceCheck ? {} : declarationPaths([...wanted], workspace)),
+              ...paths,
+            },
             tsBuildInfoFile: join(dirname(workspace.checks), "checks.tsbuildinfo"),
           },
           files: [...new Set([...parsed.fileNames, ...scope.globals, libs])],
@@ -223,7 +226,7 @@ export function prepareTypecheck(
           extends: config,
           compilerOptions: {
             noCheck: false,
-            paths: declarationPaths(workspaces),
+            ...(scope.sourceCheck ? {} : { paths: declarationPaths(workspaces) }),
             tsBuildInfoFile: join(cache, "root-checks.tsbuildinfo"),
           },
           files: [...new Set([...parsed.fileNames, ...scope.globals, libs])],
