@@ -3,8 +3,8 @@ import { QueueNotice } from "./queue-notice.tsx";
 import { useQueue } from "./use-queue.ts";
 
 /**
- * Above the composer: why the queue is held, with its way out. Pending messages themselves
- * live at the transcript's tail so a long queue never covers the input or its attached cards.
+ * Above the composer: why the queue is held, with its way out. The bounded queue tray
+ * sits directly on the input, below any attached cards.
  * Loads after the thread has painted, with the rest of the composer's parts.
  */
 export function QueueArea(props: {

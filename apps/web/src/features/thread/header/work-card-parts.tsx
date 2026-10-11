@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn.ts";
 export const rowIcon = "shrink-0 text-muted-foreground";
 
 const row =
-  "flex min-h-(--row-height) w-full min-w-0 items-center gap-(--surface-gap) rounded-md px-2 text-left text-xs text-foreground";
+  "flex min-h-(--row-height) w-full min-w-0 items-center gap-(--surface-gap) rounded-md px-2 text-left text-sm text-foreground";
 
 /** A row that does something: opens a tab, runs a script, opens a pull request. */
 export function RowButton({ className, ...props }: ComponentProps<"button">) {
