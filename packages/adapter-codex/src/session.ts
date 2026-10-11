@@ -340,11 +340,12 @@ export async function openCodexSession(
       const builtins = nativePermissionModes("codex");
       const permissionModes = listing.data
         .filter((profile) => profile.allowed)
-        .map((profile) => ({
+        .map<import("@ace/protocol").NativePermissionMode>((profile) => ({
           id: profile.id,
           label: builtins.find((mode) => mode.id === profile.id)?.label ?? profile.id,
           description: profile.description ?? "",
           risk: builtins.find((mode) => mode.id === profile.id)?.risk ?? ("medium" as const),
+          presentation: builtins.find((mode) => mode.id === profile.id)?.presentation,
         }));
       if (permissionModes.some((mode) => mode.id === ":workspace"))
         permissionModes.push(...builtins.filter((mode) => mode.id.startsWith("{")));

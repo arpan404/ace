@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "e2e": "playwright test --project=fake --project=real-daemon",
+    "e2e:fake": "playwright test --config playwright.fake.config.ts --project=fake",
     "screens": "playwright test --project=screens",
     "walkthrough": "playwright test --project=walkthrough",
     "daemon": "node src/real-daemon.ts",

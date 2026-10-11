@@ -130,6 +130,7 @@
         "@ace/client": "workspace:*",
         "@ace/client-react": "workspace:*",
         "@ace/client-worker": "workspace:*",
+        "@ace/commands": "workspace:*",
         "@ace/project-picker": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",

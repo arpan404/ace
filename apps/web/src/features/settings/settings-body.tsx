@@ -20,7 +20,7 @@ export function SettingsBody(props: {
   return (
     <Screen title="Settings" actions={props.actions}>
       <div className="h-full overflow-auto">
-        <div className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
+        <div className="@container mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
           {props.back}
           <div className="flex items-center gap-4">
             {props.icon}

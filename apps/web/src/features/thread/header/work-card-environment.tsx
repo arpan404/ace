@@ -16,7 +16,7 @@ import {
   LaptopIcon,
   TerminalWindowIcon,
 } from "@phosphor-icons/react";
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,
@@ -179,21 +179,30 @@ function EnvironmentItems(props: { thread: ThreadRef; move(move: Move): void; on
 function EnvironmentMenu(props: {
   thread: ThreadRef;
   trigger: ReactElement;
+  actions?: ReactNode;
+  menuFocus?: (() => HTMLElement | boolean) | undefined;
   move(move: Move): void;
   onClose(): void;
 }) {
   return (
     <Menu>
       <MenuTrigger render={props.trigger} />
-      <MenuContent align="end" className="w-[300px]">
+      <MenuContent align="end" className="w-[300px]" finalFocus={props.menuFocus}>
         <EnvironmentItems thread={props.thread} move={props.move} onClose={props.onClose} />
+        {props.actions}
       </MenuContent>
     </Menu>
   );
 }
 
 /** The project's name and checkout actions. Environment details live in the composer. */
-export function ProjectRow(props: { thread: ThreadRef; move(move: Move): void; onClose(): void }) {
+export function ProjectRow(props: {
+  thread: ThreadRef;
+  move(move: Move): void;
+  onClose(): void;
+  actions?: ReactNode;
+  menuFocus?: (() => HTMLElement | boolean) | undefined;
+}) {
   const meta = useThreadMeta(props.thread.id);
   const project = useProjectName()(meta?.workspaceId ?? props.thread.workspaceId);
   const machine = useMachineIdentity(meta?.details?.machine);
@@ -201,20 +210,22 @@ export function ProjectRow(props: { thread: ThreadRef; move(move: Move): void; o
   const mode = meta?.details?.mode === "worktree" ? "Worktree" : "Local";
   const summary = `${project} · ${mode}${machine.primary ? "" : ` · ${machine.name}`}`;
   return (
-    <div className="flex h-7 min-w-0 items-center gap-2 px-1.5 text-xs">
+    <div className="flex min-w-0 items-start gap-(--surface-gap) pb-2 text-sm">
       <ProjectMark
         badge={projectBadge({ name: project, id: props.thread.workspaceId })}
         icon={metadata?.icon ?? metadata?.defaultIcon}
         quiet
       />
-      <h2 className="min-w-0 flex-1 truncate" title={summary}>
-        <strong className="font-semibold">{project}</strong>{" "}
-        <span className="text-subtle-foreground">
-          · {mode}
+      <h2 className="min-w-0 flex-1 [overflow-wrap:anywhere]" title={summary}>
+        <strong className="block text-base font-semibold">{project}</strong>
+        <span className="block pt-1 text-xs text-subtle-foreground">
+          {mode}
           {!machine.primary && ` · ${machine.name}`}
         </span>
       </h2>
       <EnvironmentMenu
+        actions={props.actions}
+        menuFocus={props.menuFocus}
         thread={props.thread}
         move={props.move}
         onClose={props.onClose}

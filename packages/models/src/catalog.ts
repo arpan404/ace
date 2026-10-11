@@ -1,3 +1,4 @@
+import { matchProfile } from "@ace/agent-registry";
 import { nativePermissionModes, acpPermissionModes } from "@ace/provider-kit/permission-modes";
 import { DiscoveryBackoff } from "./discovery-backoff.ts";
 import { connectionRevision } from "./discovery-revision.ts";
@@ -553,7 +554,12 @@ export class ModelCatalog implements ModelCatalogApi {
     if (!state || cacheRevision(state.config) !== cacheRevision(instance))
       return Promise.reject(new Error("Session model generation changed"));
     const models = normalizeAcp(metadata, instance);
-    const permissionModes = acpPermissionModes(metadata);
+    const permissionModes = acpPermissionModes(metadata, {
+      provider: instance.provider,
+      profile: instance.acpAgentId?.startsWith("official:")
+        ? matchProfile(instance.acpAgentId.slice(9), instance.installationVersion ?? "")?.id
+        : undefined,
+    });
     const entry = CachedEntry.parse({
       provider: instance.provider,
       instance: instance.id,
