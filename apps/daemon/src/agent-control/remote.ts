@@ -213,7 +213,7 @@ export class RemoteDelegations {
   poll(session: string, lease: string): RemoteTask[] | undefined {
     if (!this.owns(session, lease)) return undefined;
     return this.store.atomic(() =>
-      [...this.journal.active(), ...this.journal.reconciling(this.now())].map((task) => {
+      this.journal.poll(this.now()).map((task) => {
         this.revalidate(task);
         if (remoteTerminal(task)) {
           this.finish(task);
