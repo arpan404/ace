@@ -28,10 +28,12 @@ const scenario: Scenario = {
 };
 async function open(kind: "commit" | "pr" = "commit", details: Partial<ThreadDetails> = {}) {
   const app = harness();
-  app.play({
-    ...scenario,
-    thread: { ...scenario.thread, details: { ...scenario.thread.details, ...details } },
-  }).runThrough("ready");
+  app
+    .play({
+      ...scenario,
+      thread: { ...scenario.thread, details: { ...scenario.thread.details, ...details } },
+    })
+    .runThrough("ready");
   app.daemon.workspace.setGitStatus(
     "draft-thread",
     ["selected.ts", "excluded.ts"].map((path) => ({
@@ -200,10 +202,12 @@ test("PR generation sends the recorded remote Git base while the form names its 
   await form.findByLabelText("Generated draft");
   await userEvent.click(form.getByRole("button", { name: "Use draft" }));
   expect(form.getByRole("textbox", { name: "Pull request title" })).toHaveProperty(
-    "value", "Compared refs/remotes/origin/release",
+    "value",
+    "Compared refs/remotes/origin/release",
   );
   expect(form.getByRole("textbox", { name: "Pull request description" })).toHaveProperty(
-    "value", "Merge into release",
+    "value",
+    "Merge into release",
   );
 });
 

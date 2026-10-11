@@ -41,6 +41,11 @@ diff. Binary changes still participate in the tree fingerprint. The daemon check
 the fingerprint before and after generation, and before publishing an applied
 draft. Commit validation shares the Git mutation lease with the actual commit.
 PR submission validates before the existing push action and again before create.
+The final PR check belongs to the forge publication owner, after its existing-PR
+lookup. Validation and creation share the checkout's Git mutation lease, so daemon
+commits and pushes on that checkout wait until the guarded create settles. A
+changed source discovered after lookup refuses creation. Existing PRs still link
+through the durable receipt path without submitting the draft text again.
 Generation does not freeze files against edits made by external programs.
 
 ## CLI boundary

@@ -27,10 +27,12 @@ test("nothing is known about a thread whose checkout the daemon hasn't read", ()
 });
 
 test("a remote PR base keeps its Git ref separate from its forge branch name", () => {
-  const checkout = checkoutOf(details({
-    baseBranch: "origin/release",
-    base: { ref: "release", remote: "origin", head: "b".repeat(40), fetch: "fetched" },
-  }));
+  const checkout = checkoutOf(
+    details({
+      baseBranch: "origin/release",
+      base: { ref: "release", remote: "origin", head: "b".repeat(40), fetch: "fetched" },
+    }),
+  );
   expect(checkout?.baseBranch).toBe("release");
   expect(checkout?.baseRef).toBe("refs/remotes/origin/release");
 });

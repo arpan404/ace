@@ -33,6 +33,11 @@
           "minLength": 1,
           "type": "string"
         },
+        "baseRef": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "type": "string"
+        },
         "branch": {
           "maxLength": 256,
           "minLength": 1,

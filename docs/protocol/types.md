@@ -22368,6 +22368,7 @@ Example:
 | kind | yes | `"pr"` |  |
 | branch | yes | string | {"minLength":1,"maxLength":256} |
 | base | yes | string | {"minLength":1,"maxLength":256} |
+| baseRef | no | string | {"minLength":1,"maxLength":1200} |
 
 Example:
 
@@ -22413,11 +22414,12 @@ Example:
 ```json
 {
   "confidence": "medium",
+  "droppedFrames": 3,
   "frames": 3,
-  "hitchRatioMsPerS": 3,
-  "hitchTimeMs": 5,
+  "hitchRatioMsPerS": 5,
   "hitches": [],
-  "layoutShift": 8,
+  "latencyMs": 0,
+  "longTasks": [],
   "notes": [],
   "refreshHz": 9,
   "repeat": {
@@ -22454,15 +22456,14 @@ Example:
       }
     ]
   },
-  "settleMs": 0,
   "source": "browser-trace",
   "target": {
-    "kind": "browser-tab",
-    "tabId": "example",
-    "threadId": "example"
+    "bundleId": "example",
+    "kind": "window",
+    "windowId": 9
   },
   "verdict": "minor_hitches",
-  "windowMs": 8
+  "windowMs": 9
 }
 ```
 

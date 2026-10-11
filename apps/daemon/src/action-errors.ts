@@ -18,6 +18,7 @@ export function actionErrorCode(error: unknown): string {
       "draft_cancelled",
       "draft_busy",
       "draft_changes_moved",
+      "draft_guard_unavailable",
       "repository_mismatch",
       "pr_link_changed",
       "forge_recovery_unavailable",

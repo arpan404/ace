@@ -20,6 +20,11 @@
     },
     {
       "properties": {
+        "draftBaseRef": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "type": "string"
+        },
         "draftFingerprint": {
           "pattern": "^[a-f0-9]{64}$",
           "type": "string"

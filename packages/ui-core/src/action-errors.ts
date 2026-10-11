@@ -38,6 +38,8 @@ const copy: Record<string, string> = {
   draft_timeout: "Draft generation timed out. Your text is unchanged.",
   draft_cancelled: "Draft generation was cancelled. Your text is unchanged.",
   draft_busy: "Draft generation is busy. Wait, then try again.",
+  draft_guard_unavailable:
+    "This daemon can't validate a draft before publication: update it, then retry.",
   draft_changes_moved:
     "The selected changes moved. Generate again, or discard the draft to use your own text.",
   // Git.

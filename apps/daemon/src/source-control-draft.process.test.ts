@@ -1,108 +1,12 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile, chmod } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
 import { expect, test } from "vitest";
-import { Command, Thread, ThreadId } from "@ace/protocol";
-import { Store } from "./store.ts";
-import { WorkspaceRuntime } from "./workspace-runtime.ts";
+import { Command } from "@ace/protocol";
 import { createWritingCli } from "./source-control-cli.ts";
-
-const threadId = ThreadId.parse("writing-thread");
-async function fixture(provider: "claude" | "codex" = "claude", behavior = "success") {
-  const root = await mkdtemp(join(tmpdir(), "ace-writing-test-"));
-  const repo = join(root, "repo");
-  await mkdir(repo);
-  const git = (...args: string[]) =>
-    execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
-  git("init", "-b", "main");
-  git("config", "user.name", "Test");
-  git("config", "user.email", "test@example.invalid");
-  await writeFile(join(repo, "selected.txt"), "before\n");
-  await writeFile(join(repo, "excluded.txt"), "private before\n");
-  await writeFile(join(repo, "AGENTS.md"), "Use imperative subjects and explain intent.\n");
-  git("add", ".");
-  git("commit", "-m", "fix: initial behavior");
-  const initialHead = git("rev-parse", "HEAD");
-  git("switch", "-c", "feature");
-  await writeFile(join(repo, "selected.txt"), "after selected\n");
-  await writeFile(join(repo, "excluded.txt"), "private excluded change\n");
-  git("add", "excluded.txt");
-  const cli = join(root, "provider.mjs");
-  await writeFile(
-    cli,
-    `#!/usr/bin/env node
-import fs from 'node:fs';
-let prompt=''; for await (const bytes of process.stdin) prompt+=bytes;
-fs.writeFileSync(${JSON.stringify(join(root, "prompt.txt"))}, prompt);
-fs.writeFileSync(${JSON.stringify(join(root, "args.json"))}, JSON.stringify(process.argv.slice(2)));
-if (${JSON.stringify(behavior)} === 'wait') { setInterval(()=>{},1000); await new Promise(()=>{}); }
-if (${JSON.stringify(behavior)} === 'move') fs.writeFileSync(${JSON.stringify(join(repo, "selected.txt"))}, 'changed while generating\\n');
-if (${JSON.stringify(behavior)} === 'fail') { console.error('Authorization: Bearer private-diagnostic'); process.exit(1); }
-const draft = JSON.stringify({subject:'fix: update selected behavior',body:'Explain the selected change.'});
-if (${JSON.stringify(behavior)} === 'invalid') console.log(JSON.stringify({result:'not valid JSON'}));
-else if (${JSON.stringify(provider)} === 'claude') console.log(JSON.stringify({result:draft}));
-else { console.log(JSON.stringify({type:'unknown.future',item:'future-shape',other:{retained:true}})); console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:draft}})); console.log(JSON.stringify({type:'turn.completed'})); }
-`,
-  );
-  await chmod(cli, 0o700);
-  const store = new Store(join(root, "store.sqlite"));
-  const workspaceId = store.createWorkspace(repo, "Repo");
-  const thread = Thread.parse({
-    id: threadId,
-    workspaceId,
-    title: "Explain selected behavior",
-    provider,
-    status: { state: "new" },
-    createdAt: 1,
-    updatedAt: 1,
-  });
-  store.appendEvents(threadId, [{ type: "thread.created", thread }]);
-  const runtime = new WorkspaceRuntime(store, root, () => 1, {
-    writingCli: createWritingCli({
-      discover: async () => ({ path: cli, installed: true, auth: "logged_in", loginHint: "" }),
-      tempRoot: root,
-    }),
-  });
-  const selection = { kind: "commit" as const, paths: ["selected.txt"] };
-  const context = () => runtime.draftContext(threadId, selection);
-  const generate = async (signal?: AbortSignal) =>
-    runtime.read(
-      {
-        type: "workspace.request",
-        requestId: "generate",
-        operation: {
-          op: "git.draft.generate",
-          threadId,
-          input: {
-            generationId: "generation",
-            selection,
-            fingerprint: (await context()).fingerprint,
-            provider,
-            model: "test-model",
-            preference: "Use conventional commits",
-          },
-        },
-      },
-      signal,
-    );
-  return {
-    root,
-    repo,
-    store,
-    runtime,
-    git,
-    initialHead,
-    selection,
-    context,
-    generate,
-    close: async () => {
-      await runtime.close();
-      await store.close();
-      await rm(root, { recursive: true, force: true });
-    },
-  };
-}
+import {
+  writingFixture as fixture,
+  writingThreadId as threadId,
+} from "./source-control-test-support.ts";
 
 test.each(["claude", "codex"] as const)(
   "%s drafts from selected bytes and conventions without committing or staging excluded files",
@@ -186,17 +90,26 @@ test.each(["remote-only", "divergent-local"])(
       f.git("update-ref", "refs/remotes/origin/release", f.initialHead);
       if (kind === "divergent-local") f.git("branch", "release", "feature");
       const selection = {
-        kind: "pr" as const, branch: "feature", base: "release",
+        kind: "pr" as const,
+        branch: "feature",
+        base: "release",
         baseRef: "refs/remotes/origin/release",
       };
       const context = await f.runtime.draftContext(threadId, selection);
       expect(context.base).toBe(f.initialHead);
       expect(context.paths).toEqual(["excluded.txt", "selected.txt"]);
       const result = await f.runtime.read({
-        type: "workspace.request", requestId: "remote-base", operation: {
-          op: "git.draft.generate", threadId, input: {
-            generationId: "remote-base", selection, fingerprint: context.fingerprint,
-            provider: "claude", preference: "",
+        type: "workspace.request",
+        requestId: "remote-base",
+        operation: {
+          op: "git.draft.generate",
+          threadId,
+          input: {
+            generationId: "remote-base",
+            selection,
+            fingerprint: context.fingerprint,
+            provider: "claude",
+            preference: "",
           },
         },
       });
@@ -335,44 +248,6 @@ test("submitting a reviewed draft commits the edited message and only its unchan
     expect(f.git("show", "HEAD:selected.txt")).toBe("after selected");
     expect(f.git("show", "HEAD:excluded.txt")).toBe("private before");
     expect(f.git("diff", "--cached", "--name-only")).toBe("excluded.txt");
-  } finally {
-    await f.close();
-  }
-});
-
-test("a moved PR base refuses publication of the old summary before contacting the forge", async () => {
-  const f = await fixture();
-  try {
-    f.git("add", "selected.txt");
-    f.git("commit", "-m", "fix: selected behavior");
-    const context = await f.runtime.draftContext(threadId, {
-      kind: "pr",
-      branch: "feature",
-      base: "main",
-    });
-    f.git("branch", "-f", "main", "feature");
-    const result = await f.runtime.execute(
-      Command.parse({
-        id: "moved-pr",
-        deviceId: "test",
-        payload: {
-          type: "forge.pr.create",
-          threadId,
-          repository: { forge: "github", host: "github.com", owner: "acme", name: "repo" },
-          draftFingerprint: context.fingerprint,
-          input: {
-            branch: "feature",
-            base: "main",
-            title: "Reviewed title",
-            summary: "Reviewed summary",
-            template: { title: "{{title}}", body: "{{summary}}" },
-            draft: false,
-          },
-        },
-      }),
-    );
-    expect(result).toMatchObject({ ok: false, error: "git_invalid_argument" });
-    expect(f.store.getThread(threadId)?.details?.linkedPr).toBeUndefined();
   } finally {
     await f.close();
   }

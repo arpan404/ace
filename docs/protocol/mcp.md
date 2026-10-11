@@ -37,91 +37,37 @@ Example:
 ```json
 {
   "thread": {
-    "archivedAt": 5,
-    "capabilities": {
-      "attachmentInput": {
-        "documents": [],
-        "embeddedContext": true,
-        "format": "claude",
-        "maxInlineBytes": 0
-      },
-      "backgroundTaskControl": false,
-      "backgroundVisibility": "partial",
-      "childFidelity": "summary",
-      "fork": true,
-      "forkMode": "context-handoff",
-      "forkSubagents": true,
-      "imageInput": true,
-      "interruptCascades": false,
-      "planMode": true,
-      "resume": false,
-      "rewindFiles": true,
-      "sessionOptions": false,
-      "steer": false,
-      "subagentTranscripts": true,
-      "tokenUsage": false
-    },
-    "continuation": {
-      "actionId": "thread.continue_new",
-      "reason": "cursor_cli_retired",
-      "state": "read_only"
-    },
-    "createdAt": 7,
-    "deletedAt": 4,
-    "details": {
-      "baseBranch": "example",
-      "branch": "example",
-      "workspace": {
-        "defaultIcon": null,
-        "id": "example",
-        "name": "example",
-        "path": "example"
-      },
-      "worktree": "example"
-    },
-    "effectiveCapabilities": {
-      "approvals": "sandbox-only",
-      "backgroundTaskControl": true,
-      "backgroundVisibility": "full",
-      "fork": false,
-      "imageInput": false,
-      "interruptCascades": true,
-      "permissionModes": [],
-      "permissions": {
-        "modes": [],
-        "nativeAutoReview": false,
-        "toolGate": true
-      },
-      "planMode": false,
-      "resume": true,
-      "rewindFiles": true,
-      "steer": false,
-      "subagentTranscripts": false,
-      "tokenUsage": true
-    },
+    "acpAgentId": "example",
+    "archivedAt": 7,
+    "createdAt": 4,
+    "deletedAt": 3,
     "execution": {
       "instanceId": "example",
       "options": {},
       "provider": "antigravity"
     },
-    "handoff": {
-      "bytes": 8,
-      "sourceThreadId": "example",
-      "truncated": true
-    },
-    "hasSentMessage": true,
     "id": "example",
     "instanceId": "example",
-    "pinOrder": 8,
-    "provider": "cursor",
-    "settledAt": 4,
-    "snoozedUntil": 1,
+    "lineage": {
+      "lossy": false,
+      "mode": "portable",
+      "parentAgentId": "example",
+      "parentThreadId": "example",
+      "point": {
+        "itemId": "example",
+        "type": "item"
+      }
+    },
+    "provider": "acp",
+    "readAt": 1,
+    "settledAt": 6,
+    "snoozedUntil": 8,
     "status": {
-      "on": "rate_limit",
-      "state": "waiting"
+      "state": "unresponsive"
     },
     "title": "example",
-    "updatedAt": 8,
+    "titleSource": "provisional",
+    "updatedAt": 3,
     "workspaceId": "example"
   }
 }

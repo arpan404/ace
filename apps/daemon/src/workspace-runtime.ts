@@ -362,15 +362,6 @@ export class WorkspaceRuntime {
         return { ok: true, threadId };
       }
       const cwd = this.root(threadId);
-      if (p.type === "forge.pr.create" && p.draftFingerprint) {
-        const context = await this.draftContext(threadId, {
-          kind: "pr",
-          branch: p.input.branch,
-          base: p.input.base,
-          ...(p.draftBaseRef ? { baseRef: p.draftBaseRef } : {}),
-        });
-        if (context.fingerprint !== p.draftFingerprint) throw new Error("draft_changes_moved");
-      }
       if (p.type === "git.commit")
         return {
           ok: true,

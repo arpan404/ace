@@ -68,7 +68,9 @@ export function GitDialog(props: {
       : undefined
     : checkout.branch
       ? {
-          kind: "pr", branch: checkout.branch, base: checkout.baseBranch,
+          kind: "pr",
+          branch: checkout.branch,
+          base: checkout.baseBranch,
           ...(checkout.baseRef ? { baseRef: checkout.baseRef } : {}),
         }
       : undefined;
