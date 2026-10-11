@@ -11,8 +11,10 @@ worker.onmessage = (event: MessageEvent<unknown>) => {
   output.textContent = typeof event.data === "string" ? event.data : "Invalid response";
 };
 for (const [label, action] of [
-  ["Probe selected", () => worker.postMessage(selected)],
-  ["Probe other", () => worker.postMessage(other)],
+  ["Probe selected HTTPS", () => worker.postMessage({ origin: selected, protocol: "HTTPS" })],
+  ["Probe selected WSS", () => worker.postMessage({ origin: selected, protocol: "WSS" })],
+  ["Probe other HTTPS", () => worker.postMessage({ origin: other, protocol: "HTTPS" })],
+  ["Probe other WSS", () => worker.postMessage({ origin: other, protocol: "WSS" })],
   [
     "Select daemon",
     async () => {

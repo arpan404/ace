@@ -78,16 +78,17 @@ it.skipIf(!enabled)(
       await writeFile(
         join(out, "worker.js"),
         `
-      onmessage = async ({ data: origin }) => {
+      onmessage = async ({ data: { origin, protocol } }) => {
         try {
-          const data = await (await fetch(origin)).text();
-          const message = await new Promise((resolve, reject) => {
-            const socket = new WebSocket(origin.replace(/^https:/, "wss:"));
-            socket.onmessage = (event) => { socket.close(); resolve(event.data); };
-            socket.onerror = () => { socket.close(); reject(new Error("Blocked socket")); };
-          });
-          postMessage(data + " / " + message);
-        } catch { postMessage("Blocked"); }
+          const message = protocol === "HTTPS"
+            ? await (await fetch(origin)).text()
+            : await new Promise((resolve, reject) => {
+                const socket = new WebSocket(origin.replace(/^https:/, "wss:"));
+                socket.onmessage = (event) => { socket.close(); resolve(event.data); };
+                socket.onerror = () => { socket.close(); reject(new Error("Blocked socket")); };
+              });
+          postMessage(protocol + ": " + message);
+        } catch { postMessage(protocol + ": Blocked"); }
       };
     `,
       );
@@ -106,14 +107,20 @@ it.skipIf(!enabled)(
       try {
         const page = await app.firstWindow();
         const status = page.getByRole("status");
-        await page.getByRole("button", { name: "Probe selected" }).click();
-        await expect.poll(() => status.textContent()).toBe("Blocked");
+        for (const protocol of ["HTTPS", "WSS"]) {
+          await page.getByRole("button", { name: `Probe selected ${protocol}` }).click();
+          await expect.poll(() => status.textContent()).toBe(`${protocol}: Blocked`);
+        }
         await page.getByRole("button", { name: "Select daemon" }).click();
         await expect.poll(() => status.textContent()).toBe("Selected");
-        await page.getByRole("button", { name: "Probe selected" }).click();
-        await expect.poll(() => status.textContent()).toBe("Selected data / Selected socket");
-        await page.getByRole("button", { name: "Probe other" }).click();
-        await expect.poll(() => status.textContent()).toBe("Blocked");
+        await page.getByRole("button", { name: "Probe selected HTTPS" }).click();
+        await expect.poll(() => status.textContent()).toBe("HTTPS: Selected data");
+        await page.getByRole("button", { name: "Probe selected WSS" }).click();
+        await expect.poll(() => status.textContent()).toBe("WSS: Selected socket");
+        for (const protocol of ["HTTPS", "WSS"]) {
+          await page.getByRole("button", { name: `Probe other ${protocol}` }).click();
+          await expect.poll(() => status.textContent()).toBe(`${protocol}: Blocked`);
+        }
       } finally {
         await app.close();
       }
