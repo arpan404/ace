@@ -1,4 +1,4 @@
-import { scopedSelection, type ModelScope } from "@ace/client";
+import { ClientError, scopedSelection, type ModelScope } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import {
   AgentLaunchOptions,
@@ -12,6 +12,14 @@ import { useNavigate } from "@tanstack/react-router";
 import { baseName, provisionalTitle } from "@ace/ui-core";
 import { useCallback, useState } from "react";
 import { rememberTitle } from "@/features/thread/index.ts";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import {
+  createAttemptKey,
+  forgetCreateAttempt,
+  readCreateAttempt,
+  sameCreate,
+  saveCreateAttempt,
+} from "./create-attempt.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { dismissSend } from "@/lib/dismissed-sends.ts";
 import { rememberProvider } from "@/lib/provider-statuses.ts";
@@ -72,42 +80,72 @@ export const pendingThreadId = (commandId: string) => `pending:${commandId}`;
  * Start a thread the way a message is sent (UX audit SY-2, SY-4): `thread.create` goes into the
  * client's durable outbox under a command id made here, and the thread opens after the local save on its
  * pending route (`/t/pending:<commandId>`) with the person's message as its first bubble. The
- * pending view moves to the real thread when the daemon's receipt names it. Offline or slow is
- * never a failure, and a retry reuses nothing, so one Enter can never start two threads.
+ * pending view moves to the real thread when the daemon's receipt names it. A lost worker leaves an unresolved attempt under its original id; resubmission reconciles
+ * that attempt before a new command can be allocated.
  */
 export function useCreateThread(): {
-  /** Resolves false only when this device couldn't save the request. */
+  /** Resolves false when the composer must keep its draft, including uncertain worker delivery. */
   create(request: CreateRequest): Promise<boolean>;
   error: string | undefined;
 } {
   const client = useClient();
   const navigate = useNavigate();
   const { storage } = useLayout();
+  const connection = useDaemonConnection();
+  const deviceId = connection.endpoint?.kind === "daemon" ? connection.endpoint.deviceId : "fake";
+  const recoveryKey = createAttemptKey(connection.url, deviceId);
   const [error, setError] = useState<string>();
 
   const create = useCallback(
     async (request: CreateRequest) => {
       setError(undefined);
-      const commandId = crypto.randomUUID();
-      const payload = createPayload(request);
-      // Its header and row read the provisional title at once (the daemon titles it the same way).
-      rememberTitle(commandId, provisionalTitle(payload.input));
-      // Keep the composer mounted until the outbox owns a reload-safe copy.
-      const saved = client.enqueue(payload, commandId);
-      rememberProvider(storage, payload.provider);
+      const requested = createPayload(request);
+      let commandId: string | undefined;
+      let submitted = false;
       try {
-        await saved;
+        const previous = readCreateAttempt(storage, recoveryKey);
+        if (previous && !sameCreate(previous.payload, requested)) {
+          setError(
+            "The previous thread start still needs recovery. Restore that message and retry before starting another.",
+          );
+          return false;
+        }
+        const attempt = previous ?? { commandId: crypto.randomUUID(), payload: requested };
+        commandId = attempt.commandId;
+        saveCreateAttempt(storage, recoveryKey, attempt);
+        rememberTitle(commandId, provisionalTitle(attempt.payload.input));
+        rememberProvider(storage, attempt.payload.provider);
+        submitted = true;
+        await client.enqueue(attempt.payload, commandId);
+        // The outbox now owns the payload. Failure to remove a recovery record is safe:
+        // a later submission still reconciles the same command rather than creating another.
+        try {
+          forgetCreateAttempt(storage, recoveryKey);
+        } catch {
+          /* Keep its original ID. */
+        }
         void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
         return true;
-      } catch {
-        // A failed local write leaves only an in-memory send. The composer restores
-        // the original draft, so hide that duplicate recovery entry.
-        dismissSend(storage, commandId);
+      } catch (failure) {
+        if (submitted && failure instanceof ClientError && failure.code === "offline") {
+          setError(
+            "Thread delivery is uncertain. Reconnect and send this message again to recover the same thread.",
+          );
+          return false;
+        }
+        if (submitted && commandId) {
+          try {
+            forgetCreateAttempt(storage, recoveryKey);
+          } catch {
+            /* Retry remains idempotent. */
+          }
+          dismissSend(storage, commandId);
+        }
         setError("This device couldn't save the new thread. Try again.");
         return false;
       }
     },
-    [client, navigate, storage],
+    [client, navigate, storage, recoveryKey],
   );
   return { create, error };
 }
