@@ -91,6 +91,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Full source typecheck safety net
+        run: bun run typecheck:full
+
       - name: Typecheck cache regression probes
         run: node scripts/typecheck-regressions.ts
 

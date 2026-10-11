@@ -12,6 +12,19 @@ closures can still pull in many packages.
 `bun run typecheck:clean` removes all generated configs, declarations, compiler
 build info, and scope metadata. It is safe to delete these caches at any time.
 
+`bun run typecheck:full` is CI's independent source-checking safety net. It checks
+every original workspace config, additional runtime guard, and root test program
+directly with `tsc -p`, using source exports and the original checking options.
+It does not prepare declaration projects, inspect scopes, or apply declaration
+paths. It uses fresh temporary build info for every invocation and removes it
+afterward, so previous diagnostics cannot replace these checks. One compiler and
+one checker run at a time with `GOMAXPROCS=2`.
+
+For a focused source check, pass original config paths to
+`node scripts/typecheck-full.ts path/to/tsconfig.json`. CI invokes the command
+without arguments to cover every program. Workspace discovery reads the current
+manifests, so new workspace packages join both command graphs automatically.
+
 ## Build and check stages
 
 The runner reads the workspace manifests and the original tsconfigs. These remain
@@ -75,11 +88,12 @@ original graph, including dependency implementations.
 Keeping an augmentation file alone does not preserve implementation checking.
 An augmented dependency interface can invalidate a default parameter initializer,
 which its declaration file omits. The planner selects the original source program
-for every repository augmentation and global script. This includes augmentations
-of external interfaces, since dependency implementations may use them. For
-augmentations in external declarations, it resolves their targets with the
-compiler and falls back when the target belongs to a workspace. No package list
-is maintained by hand.
+for every reachable global/module augmentation, including external declaration
+files, and for repository global scripts. A consumer-only external augmentation
+can invalidate an implementation that passed in its own package's environment.
+Ambient module declarations also trigger the conservative fallback. No package
+list is maintained by hand. Common Node and test-library augmentations can cause
+many programs to use sources; correctness takes priority over declaration reuse.
 
 TypeScript 7.0.2 also has a confirmed declaration-emit defect:
 [microsoft/TypeScript#64059](https://github.com/microsoft/TypeScript/issues/64059).
@@ -92,6 +106,11 @@ signature selects the original source program. Object literals behind other call
 or function bodies are inspected at their own calls. This conservatively covers
 more calls than the known defect requires.
 
+This inference detection is a heuristic. CI always runs `typecheck:full` as a
+separate required step in addition to the incremental runner, so missed local
+fallbacks cannot let a source type error pass the merge gate. The incremental
+command remains the bounded local workflow.
+
 Fallbacks apply to the whole consumer program, including transitive re-exports.
 This preserves a single module identity and checks dependency implementations in
 that consumer's environment. They deliberately give up declaration reuse for that
@@ -99,9 +118,11 @@ consumer; separate incremental compiler caches still bound subsequent work.
 
 `node scripts/typecheck-regressions.ts` runs small compiler fixtures, with one
 native compiler at a time. It verifies augmentation-induced initializer errors
-and const-generic readonly assignment errors through a workspace re-export, cold,
-warm with preserved source mtimes, from cached failures, and after recovery. CI
-runs these probes after the normal typecheck. It does not invoke a test runner.
+and const-generic readonly assignment errors through a workspace re-export, plus
+a consumer-only external `ErrorOptions` augmentation. Each case runs cold, warm
+with preserved source mtimes, from cached failures, and after recovery. The same
+fixtures also exercise the separate full source CLI. CI runs these probes after
+both typecheck steps. It does not invoke a test runner.
 
 The runner uses `typescript/unstable/sync`, the installed package's public config
 API export. TypeScript is pinned to 7.0.2 because that API is explicitly unstable.
@@ -119,7 +140,9 @@ CI restores these directories with OS/architecture, lockfile, manifests,
 tsconfigs, runner code, and commit in the key. The restore prefix reuses a prior
 commit with matching tooling; TypeScript and the scope planner still validate the
 current inputs. Source changes are not treated as a cache hit that skips checking.
-The normal CI typecheck step runs after restoration.
+The normal CI typecheck step runs after restoration. The separate full source
+step uses fresh temporary build info and consumes no restored declaration or
+diagnostic cache.
 
 ## TypeScript 7 support checked
 

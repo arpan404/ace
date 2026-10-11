@@ -4,7 +4,6 @@ import {
   isCallExpression,
   isObjectLiteralExpression,
   isNewExpression,
-  isStringLiteral,
   isTypeParameterDeclaration,
   SyntaxKind,
   type Node,
@@ -43,28 +42,9 @@ export function needsSourceCheck(
   const local =
     source.fileName.startsWith(`${root}${sep}`) &&
     !source.fileName.includes(`${sep}node_modules${sep}`);
-  // Augmenting an external interface can also change a workspace implementation
-  // that uses it. Conservatively retain sources for every repository augmentation.
-  if (local && source.moduleAugmentations.length) return true;
-  for (const augmentation of source.moduleAugmentations) {
-    // `declare global` can change any dependency implementation's environment.
-    if (!isStringLiteral(augmentation)) {
-      if (inWorkspace(source.fileName)) return true;
-      continue;
-    }
-    const symbol = project.checker.getSymbolAtLocation(augmentation);
-    if (
-      symbol?.declarations.some((declaration) => {
-        const target = declaration.resolve();
-        // The merged symbol also includes the augmentation itself. Only its
-        // original source module establishes that the target is a workspace.
-        return (
-          target?.kind === SyntaxKind.SourceFile && inWorkspace(target.getSourceFile().fileName)
-        );
-      })
-    )
-      return true;
-  }
+  // Every reachable augmentation can change dependency implementations, including
+  // global/module augmentations supplied only by external declaration packages.
+  if (source.moduleAugmentations.length || source.ambientModuleNames.length) return true;
   if (local && !source.externalModuleIndicator) return true;
   if (!inWorkspace(source.fileName)) return false;
   if (source.isDeclarationFile) return false;

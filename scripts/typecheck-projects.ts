@@ -95,6 +95,14 @@ export function cleanTypecheck(root: string): void {
   }
 }
 
+/** Original source programs, independent of declaration maps and scope heuristics. */
+export function sourceTypecheckConfigs(root: string): string[] {
+  const configs: string[] = [];
+  for (const workspace of discover(root)) configs.push(workspace.config, ...workspace.guards);
+  configs.push(join(root, "tsconfig.tests.json"));
+  return configs;
+}
+
 /** Final checks keep every original root file and option. Only dependency package imports use declarations. */
 export function prepareTypecheck(
   root: string,

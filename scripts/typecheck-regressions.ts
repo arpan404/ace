@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
@@ -49,12 +49,27 @@ function build(): { status: number | null; output: string } {
 function passes(): void {
   const result = build();
   assert.equal(result.status, 0, result.output);
+  const full = fullSourceCheck();
+  assert.equal(full.status, 0, full.stdout + full.stderr);
 }
 
 function rejects(diagnostic: RegExp): void {
   const result = build();
   assert.notEqual(result.status, 0, result.output);
   assert.match(result.output, diagnostic);
+  const full = fullSourceCheck();
+  assert.notEqual(full.status, 0, full.stdout + full.stderr);
+  assert.match(full.stdout + full.stderr, diagnostic);
+}
+
+function fullSourceCheck(): SpawnSyncReturns<string> {
+  const result = spawnSync(
+    process.execPath,
+    [join(root, "scripts/typecheck-full.ts"), join(fixture, "packages/consumer/tsconfig.json")],
+    { cwd: root, encoding: "utf8" },
+  );
+  if (result.error) throw result.error;
+  return result;
 }
 
 try {
@@ -151,6 +166,40 @@ try {
   );
   passes();
   console.log("Const-generic readonly: warm, cached failure, cold, and recovery passed.");
+
+  // A consumer-only external global must recheck the producer's erased initializer.
+  config("node_modules/probe-env/package.json", {
+    name: "probe-env",
+    type: "module",
+    exports: "./index.d.ts",
+  });
+  const environment = "node_modules/probe-env/index.d.ts";
+  write(environment, "export {};\n");
+  write(
+    producer,
+    "export function discover(options: ErrorOptions = {}): ErrorOptions { return options; }\n",
+  );
+  write(
+    consumer,
+    'import "probe-env";\nimport { discover } from "@ace/probe-producer";\nexport { discover };\n',
+  );
+  write("packages/wrapper/src/index.ts", 'export { discover } from "@ace/probe-producer";\n');
+  passes();
+  const environmentTimestamp = statSync(join(fixture, environment));
+  write(
+    environment,
+    "export {};\ndeclare global { interface ErrorOptions { requiredProbe: string } }\n",
+  );
+  utimesSync(join(fixture, environment), environmentTimestamp.atime, environmentTimestamp.mtime);
+  rejects(/producer\/src\/index\.ts.*error TS2741/);
+  rejects(/producer\/src\/index\.ts.*error TS2741/);
+  cleanTypecheck(fixture);
+  rejects(/producer\/src\/index\.ts.*error TS2741/);
+  write(environment, "export {};\n");
+  passes();
+  console.log(
+    "External global augmentation: warm preserved-mtime, cached failure, cold, and recovery passed.",
+  );
 } finally {
   rmSync(fixture, { recursive: true, force: true });
 }

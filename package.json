@@ -13,6 +13,7 @@
     "fmt:check": "oxfmt --check",
     "lint": "oxlint --deny-warnings",
     "typecheck": "node scripts/typecheck.ts",
+    "typecheck:full": "node scripts/typecheck-full.ts",
     "test": "vitest run",
     "check": "bun run fmt:check && bun run docs:protocol --check && bun run lint && bun run check:size && bun run check:ui && bun run check:deps && bun run typecheck && bun run test && bun run check:perf",
     "record": "bun run --filter @ace/recorder record",

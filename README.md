@@ -121,6 +121,8 @@ compiler runs at a time, with at most two project builders and two CPU threads.
 `bun run --filter @ace/protocol typecheck` checks a workspace and its dependencies.
 Use `bun run typecheck:clean` to remove the caches. See
 [incremental typechecking](docs/build/typecheck.md) for the design and cache rules.
+CI also runs `bun run typecheck:full`, checking every original program from source
+with fresh build info as an independent safety net for declaration inference.
 
 Tests run in separate unit and process projects with bounded concurrency. See
 [process test reliability](docs/testing/process-tests.md) for the real-I/O suite
