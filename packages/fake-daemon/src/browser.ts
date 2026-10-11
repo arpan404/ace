@@ -29,6 +29,7 @@ export interface BrowserView {
   /** Where the page runs: the desktop app's embedded view, or the daemon's headless Chromium. */
   backend?: "embedded" | "headless";
   status?: "ready" | "paused" | "recovering";
+  pageStateLost?: boolean;
   takeoverMode?: "shared" | "private";
   tabs?: BrowserTab[];
   activeTabId?: string;
@@ -163,6 +164,22 @@ export class FakeBrowser {
     }
     this.changed();
   }
+  lose(threadId: string): void {
+    const view = this.view(threadId);
+    if (!view) return;
+    view.status = "paused";
+    view.pageStateLost = true;
+    view.controller = "none";
+    this.changed();
+  }
+  reopen(threadId: string): void {
+    const view = this.view(threadId);
+    if (!view?.pageStateLost) return;
+    view.status = "ready";
+    view.pageStateLost = false;
+    view.controller = view.owner ? "human" : view.takeoverMode === "private" ? "none" : "agent";
+    this.changed();
+  }
   disconnect(owner: string): void {
     for (const [threadId, entry] of this.entries)
       if (entry.view?.owner === owner) {
@@ -270,7 +287,8 @@ export class FakeBrowser {
     const origin = browserOrigin(url);
     if (!origin || !["http:", "https:"].includes(parsed.protocol))
       throw new BrowserOriginError(url, "invalid_origin", "Browser requires an HTTP(S) address");
-    this.originsGrant(threadId, origin, grantedAt);
+    this.originsClearPage(threadId);
+    this.originsPageGrant(threadId, origin, grantedAt);
     const port = Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80));
     if ([1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25].includes(port))
       throw new Error(`net::ERR_UNSAFE_PORT at ${url}`);
@@ -338,7 +356,7 @@ export class FakeBrowser {
     if (!tabId) throw new Error("Browser tab unavailable");
     return this.history.capabilities(tabId);
   }
-  navigateHistory(threadId: string, direction: "back" | "forward" | "reload") {
+  navigateHistory(threadId: string, direction: "back" | "forward" | "reload" | "stop") {
     const entry = this.entries.get(threadId);
     const view = entry?.view;
     if (!entry || !view || view.closed || !view.activeTabId) throw new Error("Browser closed");
@@ -358,18 +376,13 @@ export class FakeBrowser {
   tabOpen(threadId: string, url = "about:blank"): void {
     const view = this.view(threadId);
     if (!view || view.closed) throw new Error("Browser closed");
-    if (
-      (view.tabs?.length ?? 0) >= 8 ||
-      [...this.entries.values()].reduce(
-        (sum, entry) => sum + (entry.view?.closed ? 0 : (entry.view?.tabs?.length ?? 0)),
-        0,
-      ) >= 32
-    )
-      throw new Error("Browser tab limit");
-    const tabId = `tab-${++this.tabSequence}`;
-    view.tabs = [...(view.tabs ?? []), { tabId, url, title: "Fixture page" }];
-    this.history.visit(tabId, url);
-    this.tabSwitch(threadId, tabId);
+    if (!view.activeTabId) throw new Error("Browser page unavailable");
+    view.url = url;
+    this.history.visit(view.activeTabId, url);
+    const entry = this.entry(threadId);
+    this.updateTab(entry);
+    entry.page = "site";
+    this.paint(entry, entry.typed);
   }
   tabSwitch(threadId: string, tabId: string): void {
     const entry = this.entries.get(threadId),

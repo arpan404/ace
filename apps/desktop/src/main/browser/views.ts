@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   BaseWindow as AppWindow,
   WebContentsView,
@@ -56,11 +56,12 @@ const persistentName = (workspaceId: string, threadId: string) =>
  * The app's in-app browser: Electron's own Chromium in `WebContentsView`s drawn inside a
  * thread's Browser panel. Persistent profiles get one partition per workspace/thread pair and ephemeral
  * ones an in-memory partition from a pool, cleared before it is lent again; never the app's
- * session or the person's Chrome profile. Popups stay in managed tabs, dialogs await answers and downloads wait for
+ * session or the person's Chrome profile. Auth popups retain their opener, dialogs await answers and downloads wait for
  * daemon consent. Permissions and service workers remain refused and audited. A hidden view the agent is not driving is background-throttled.
  */
 export class EmbeddedViews implements ViewHost {
   private pages = new Map<string, EmbeddedPageGroup>();
+  private popupContents = new Set<number>();
   private byContents = new Map<number, EmbeddedPage>();
   /** Partitions already given their handlers: the pool's few, plus one per persistent thread. */
   private configured = new Set<string>();
@@ -92,6 +93,14 @@ export class EmbeddedViews implements ViewHost {
     const partition = ephemeral
       ? pool.acquire()
       : `persist:${persistentName(workspaceId, threadId)}`;
+    if (
+      !ephemeral &&
+      !this.configured.has(partition) &&
+      [...this.configured].filter((name) => name.startsWith("persist:")).length >= 32
+    )
+      throw new Error(
+        "The desktop browser profile limit was reached. Restart ace to open another profile.",
+      );
     const partitionSession = this.configure(partition);
     const group = new EmbeddedPageGroup(
       async () => {
@@ -114,6 +123,9 @@ export class EmbeddedViews implements ViewHost {
         window.contentView.addChildView(view);
         const page = new EmbeddedPage({
           view,
+          authPreload: this.options.preload
+            ? join(dirname(this.options.preload), "browser-auth-preload.cjs")
+            : undefined,
           downloadDir: request.downloadDir,
           session: partitionSession,
           released: undefined,
@@ -123,6 +135,14 @@ export class EmbeddedViews implements ViewHost {
           log: this.options.log,
           forward: (accelerator) => this.forward(threadId, accelerator),
           forget: () => this.byContents.delete(view.webContents.id),
+          rememberPopup: (contents) => {
+            this.byContents.set(contents.id, page);
+            this.popupContents.add(contents.id);
+            return () => {
+              this.byContents.delete(contents.id);
+              this.popupContents.delete(contents.id);
+            };
+          },
         });
         this.byContents.set(view.webContents.id, page);
         try {
@@ -267,7 +287,6 @@ export class EmbeddedViews implements ViewHost {
     const window = host?.window;
     const generation = (this.generations.get(threadId) ?? 0) + 1;
     this.generations.set(threadId, generation);
-    this.ready.delete(threadId);
     page.place({
       window: window && !window.isDestroyed() ? window : undefined,
       bounds: placement.bounds,
@@ -276,6 +295,8 @@ export class EmbeddedViews implements ViewHost {
       device: placement.device,
     });
     this.options.onClaim?.(threadId, placement.owner);
+    if (page.isShown()) this.ready.set(threadId, generation);
+    else this.ready.delete(threadId);
     this.reportVisibility(threadId);
     void page.placementReady().then(
       () => {
@@ -296,14 +317,18 @@ export class EmbeddedViews implements ViewHost {
       partitionSession.registerPreloadScript({ type: "frame", filePath: this.options.preload });
     const page = (contents: WebContents | null | undefined) =>
       contents ? this.byContents.get(contents.id) : undefined;
-    partitionSession.setPermissionRequestHandler((contents, permission, callback, details) => {
-      callback(false);
-      page(contents)?.emit("ace.permissionDenied", {
-        origin: originOf(details.requestingUrl || contents.getURL()),
-        permission,
-      });
-    });
-    partitionSession.setPermissionCheckHandler(() => false);
+    const permit = (contents: WebContents | null, permission: string, url: string) => {
+      const owned = page(contents);
+      if (permission === "clipboard-sanitized-write" && owned?.allowsClipboard()) return true;
+      owned?.emit("ace.permissionDenied", { origin: originOf(url), permission });
+      return false;
+    };
+    partitionSession.setPermissionRequestHandler((contents, permission, callback, details) =>
+      callback(permit(contents, permission, details.requestingUrl || contents.getURL())),
+    );
+    partitionSession.setPermissionCheckHandler((contents, permission, origin) =>
+      permit(contents, permission, origin),
+    );
     partitionSession.setDevicePermissionHandler(() => false);
     partitionSession.on("will-download", (event, item, contents) => {
       if (page(contents)?.download(item)) return;
@@ -326,6 +351,16 @@ export class EmbeddedViews implements ViewHost {
         return callback({ cancel: true });
       }
       if (url.username || url.password) return callback({ cancel: true });
+      if (
+        fetched.has(url.protocol) &&
+        details.webContentsId !== undefined &&
+        (this.popupContents.has(details.webContentsId) ||
+          this.byContents.get(details.webContentsId)?.isRestarting())
+      ) {
+        const owner = this.byContents.get(details.webContentsId);
+        if (!owner) return callback({ cancel: true });
+        return owner.checkPopupRequest(details.url, (allowed) => callback({ cancel: !allowed }));
+      }
       if (passive.has(url.protocol) || fetched.has(url.protocol)) return callback({});
       if (sockets.has(url.protocol)) {
         const owner =

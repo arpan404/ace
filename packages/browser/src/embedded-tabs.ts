@@ -1,3 +1,4 @@
+import { pageStatus } from "./page-status.ts";
 import { pageFrames } from "./page-frames.ts";
 import { EmbeddedDownloads } from "./embedded-downloads.ts";
 import { EventEmitter } from "node:events";
@@ -30,6 +31,7 @@ interface Tab {
   ready: Promise<void>;
   viewport: { width: number; height: number };
   dialog?: BrowserDialog;
+  status: ReturnType<typeof pageStatus>;
 }
 /** Per-target CDP and guards keep background tabs isolated from active-page commands. */
 export class EmbeddedTabs {
@@ -55,6 +57,31 @@ export class EmbeddedTabs {
     if (!tab) return;
     const { method, params } = event.data;
     this.downloadsManager.handle(event.data.tabId, method, params);
+    if (method === "ace.rendererRestarted") {
+      void (async () => {
+        tab.guard?.close();
+        this.inspection.detach(tab.cdp);
+        tab.guard = await installOriginGuard(
+          tab.cdp,
+          this.request.allowed,
+          this.request.initiator,
+          {
+            attach: (child) => this.inspection.attach(child, tab.state.tabId),
+            detach: (child) => this.inspection.detach(child),
+          },
+        );
+        await this.inspection.attach(tab.cdp, tab.state.tabId);
+        await tab.cdp.send("ace.rendererReady");
+        this.request.restarted?.();
+      })().catch(() => this.request.lost("The page could not reconnect after it crashed"));
+    }
+    if (method === "Page.fileChooserOpened") {
+      this.request.log({
+        kind: "console",
+        type: "file.chooser",
+        text: "The page needs a file. Use ace_browser_upload with the file input's snapshot ref.",
+      });
+    }
     if (method === "ace.viewport") {
       const parsed = z
         .object({ width: z.number().positive(), height: z.number().positive() })
@@ -86,7 +113,8 @@ export class EmbeddedTabs {
       delete tab.dialog;
       this.request.changed?.();
     }
-    if (method === "Page.frameNavigated") this.request.navigation();
+    if (method === "Page.frameNavigated" || method === "Page.navigatedWithinDocument")
+      this.request.navigation();
     if (method === "ace.webSocketRequested") {
       const check = z.object({ id: z.string(), url: z.string() }).safeParse(params);
       if (check.success)
@@ -107,6 +135,9 @@ export class EmbeddedTabs {
     if (target.success && (!target.data.aceTabId || target.data.aceTabId === this.activeId))
       this.entries.get(this.activeId)?.events.emit("Page.screencastFrame", raw);
   };
+  private permission = (raw: unknown) => {
+    this.entries.get(this.activeId)?.events.emit("ace.permissionDenied", raw);
+  };
   private popup = (raw: unknown) => {
     const parsed = z.object({ url: z.string().max(8192) }).safeParse(raw);
     if (!parsed.success) return;
@@ -118,8 +149,6 @@ export class EmbeddedTabs {
         }))
       )
         return;
-      const id = await this.open();
-      await this.switch(id);
       await this.current().cdp.send("Page.navigate", { url: parsed.data.url });
     })().catch(() => {});
   };
@@ -128,6 +157,7 @@ export class EmbeddedTabs {
     for (const [id, tab] of this.entries)
       if (!state.tabs.some((entry) => entry.tabId === id)) {
         tab.guard?.close();
+        tab.status.close();
         this.inspection.detach(tab.cdp);
         tab.release();
         tab.events.removeAllListeners();
@@ -158,6 +188,7 @@ export class EmbeddedTabs {
         events,
         release: this.takeReservation(),
         ready: Promise.resolve(),
+        status: pageStatus(cdp, () => this.request.changed?.()),
         viewport: item.viewport ?? { width: 1280, height: 720 },
       };
       this.entries.set(item.tabId, tab);
@@ -181,12 +212,16 @@ export class EmbeddedTabs {
     this.root.on("ace.tabs.changed", this.change);
     this.root.on("Page.screencastFrame", this.frame);
     this.root.on("ace.popupRequested", this.popup);
+    this.root.on("ace.permissionDenied", this.permission);
     await this.update(state);
   }
   current(): Tab {
     const tab = this.entries.get(this.activeId);
     if (!tab) throw new Error("Browser tab unavailable");
     return tab;
+  }
+  pageStatus() {
+    return this.entries.get(this.activeId)?.status.read();
   }
   active() {
     return this.activeId;
@@ -208,18 +243,7 @@ export class EmbeddedTabs {
     return this.request.reserveTab?.() ?? (() => {});
   }
   async open() {
-    const release = this.request.reserveTab?.() ?? (() => {});
-    this.reservations.add(release);
-    try {
-      const before = new Set(this.entries.keys());
-      const state = NativeTabs.parse(await this.root.send("ace.tabs.open"));
-      await this.update(state);
-      const id = state.tabs.find((tab) => !before.has(tab.tabId))?.tabId;
-      if (!id) throw new Error("Browser tab unavailable");
-      return id;
-    } finally {
-      if (this.reservations.delete(release)) release();
-    }
+    return this.activeId;
   }
   async switch(tabId: string) {
     await this.update(NativeTabs.parse(await this.root.send("ace.tabs.switch", { tabId })));
@@ -260,8 +284,10 @@ export class EmbeddedTabs {
     this.root.off("ace.tabs.changed", this.change);
     this.root.off("Page.screencastFrame", this.frame);
     this.root.off("ace.popupRequested", this.popup);
+    this.root.off("ace.permissionDenied", this.permission);
     for (const tab of this.entries.values()) {
       tab.guard?.close();
+      tab.status.close();
       tab.release();
       tab.events.removeAllListeners();
     }

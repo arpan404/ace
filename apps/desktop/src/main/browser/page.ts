@@ -1,3 +1,5 @@
+import { NativeBasicAuth } from "./basic-auth.ts";
+import { NativePopups } from "./popups.ts";
 import { PageMetrics } from "./page-metrics.ts";
 import { findNativeText } from "./find.ts";
 import { NativeDialogs } from "./dialogs.ts";
@@ -28,6 +30,8 @@ export interface PageOptions {
   /** Replays an app shortcut the person pressed in the page into the app's own page. */
   forward(accelerator: string): void;
   forget(): void;
+  authPreload?: string | undefined;
+  rememberPopup?(contents: WebContents): () => void;
 }
 
 export class EmbeddedPage implements ViewPage {
@@ -35,9 +39,17 @@ export class EmbeddedPage implements ViewPage {
   private contents: WebContents;
   private listeners = new Set<(method: string, params: unknown) => void>();
   private blocked = new Set<() => void>();
-  private gate = new WebSocketGate();
+  private gate = new WebSocketGate(new Set(["http:", "https:", "ws:", "wss:"]));
+  private restarting = false;
+  private restartTimer: ReturnType<typeof setTimeout> | undefined;
+  private pageZoom = 1;
+  private appliedZoom = 1;
+  private appZoom = 1;
   private nativeInput = false;
   private agentControl = true;
+  allowsClipboard(): boolean {
+    return this.nativeInput;
+  }
   /**
    * Set only while this page itself dispatches an input event (a relayed CDP `Input.*`
    * command or a key press). Chromium runs Electron's input hooks synchronously inside that
@@ -55,6 +67,8 @@ export class EmbeddedPage implements ViewPage {
   private metrics = new PageMetrics();
   private target: { bounds: Rect; zoom: number; device?: NativeDevice | undefined } | undefined;
   private downloads: NativeDownloads;
+  private popups: NativePopups;
+  private auth: NativeBasicAuth;
   private dialogs: NativeDialogs;
   private closing: Promise<void> | undefined;
   private detachedSent = false;
@@ -71,16 +85,50 @@ export class EmbeddedPage implements ViewPage {
     this.contents = options.view.webContents;
     this.home = options.window;
     const contents = this.contents;
+    this.auth = new NativeBasicAuth(contents, () => this.nativeInput, options.authPreload);
     this.dialogs = new NativeDialogs(contents, (method, params) => this.emit(method, params));
-    contents.setWindowOpenHandler(({ url }) => {
-      this.emit("ace.popupRequested", { url: url.slice(0, 8192) });
-      return { action: "deny" };
+    this.popups = new NativePopups({
+      contents,
+      authPreload: options.authPreload,
+      allowed: () => this.nativeInput,
+      emit: (method, params) => this.emit(method, params),
+      remember: (popup) => options.rememberPopup?.(popup) ?? (() => {}),
+      navigate: (url) => this.emit("ace.popupRequested", { url: url.slice(0, 8192) }),
     });
     contents.on("page-title-updated", (_event, title) =>
       this.emit("ace.title", { title: title.slice(0, 1024) }),
     );
     contents.on("will-attach-webview", (event) => event.preventDefault());
     contents.on("before-input-event", (event, input) => {
+      if (
+        this.injecting === 0 &&
+        (options.platform === "darwin" ? input.meta : input.control) &&
+        ["+", "=", "-", "0"].includes(input.key)
+      ) {
+        event.preventDefault();
+        if (input.type === "keyDown") {
+          const zoom =
+            input.key === "0"
+              ? this.appZoom
+              : Math.min(
+                  5,
+                  Math.max(
+                    0.25,
+                    this.contents.getZoomFactor() * (input.key === "-" ? 1 / 1.2 : 1.2),
+                  ),
+                );
+          this.contents.setZoomFactor(zoom);
+          if (this.target)
+            this.place({
+              window: this.home,
+              bounds: this.target.bounds,
+              visible: this.placed,
+              zoom: this.appZoom,
+              device: this.target.device,
+            });
+        }
+        return;
+      }
       // The app's shortcuts keep working while the page has focus, whoever controls it; keys
       // an agent sends are the page's.
       const chord =
@@ -94,21 +142,57 @@ export class EmbeddedPage implements ViewPage {
       }
       if (this.allowInput()) return;
       event.preventDefault();
-      if (input.type === "keyDown") this.reportBlocked();
     });
     contents.on("before-mouse-event", (event, mouse) => {
       if (this.allowInput()) return;
       event.preventDefault();
-      if (mouse.type === "mouseDown" || mouse.type === "mouseWheel") this.reportBlocked();
+      if (mouse.type === "mouseDown") this.reportBlocked();
     });
     contents.debugger.on("message", (_event, method: string, params: unknown, sessionId) => {
       // Flattened child sessions are not part of the relay; the daemon uses
       // Target.sendMessageToTarget, whose replies arrive on the root session.
       if (sessionId) return;
+      if (method === "Inspector.detached") {
+        setImmediate(() => {
+          if (!this.restarting) this.detached("The browser page disconnected");
+        });
+        return;
+      }
       this.emit(method, params);
     });
-    contents.debugger.on("detach", (_event, reason) => this.detached(reason));
-    contents.on("render-process-gone", (_event, details) => this.detached(details.reason));
+    contents.debugger.on("detach", (_event, reason) => {
+      queueMicrotask(() => {
+        if (!this.restarting) this.detached(reason);
+      });
+    });
+    contents.on("render-process-gone", () => {
+      if (this.restarting || this.closing) {
+        this.detached("The browser page stopped responding");
+        return;
+      }
+      this.restarting = true;
+      this.restartTimer = setTimeout(
+        () => this.detached("The browser page could not restart. Reopen it to continue."),
+        30_000,
+      );
+      contents.once("did-finish-load", () => {
+        void (async () => {
+          if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
+          await this.send("Page.enable");
+          await this.send("Runtime.enable");
+          await this.send("Page.setInterceptFileChooserDialog", { enabled: this.agentControl });
+          await this.send("Page.addScriptToEvaluateOnNewDocument", {
+            source: blockServiceWorkers,
+            runImmediately: true,
+          });
+          this.emit("ace.rendererRestarted", {});
+        })().catch(() => this.detached("The browser page could not restart"));
+      });
+      // Drop stale Fetch interception before the replacement renderer loads. The session's
+      // webRequest gate checks reload requests until CDP is guarded again.
+      if (contents.debugger.isAttached()) contents.debugger.detach();
+      contents.reload();
+    });
     contents.on("destroyed", () => this.detached("Browser view destroyed"));
   }
 
@@ -133,6 +217,14 @@ export class EmbeddedPage implements ViewPage {
     return this.downloads.accept(item);
   }
 
+  isRestarting(): boolean {
+    return this.restarting;
+  }
+
+  checkPopupRequest(url: string, reply: (allowed: boolean) => void): void {
+    this.popups.request(url, reply);
+  }
+
   checkSocket(url: string, reply: (allowed: boolean) => void): void {
     this.gate.request(url, (method, params) => this.emit(method, params), reply);
   }
@@ -147,13 +239,17 @@ export class EmbeddedPage implements ViewPage {
   }) {
     const view = this.options.view;
     const generation = ++this.placementGeneration;
-    this.placementPending = target.visible;
+
     if (target.window) this.home = target.window;
     this.placed = target.visible && target.bounds !== undefined && !this.home.isDestroyed();
     if (this.placed) this.attach(this.home);
     if (target.bounds && (this.placed || this.presence !== "parked")) view.setBounds(target.bounds);
     if (target.visible && target.bounds) {
-      const zoom = target.zoom ?? 1;
+      const observedZoom = this.contents.getZoomFactor();
+      if (observedZoom !== this.appliedZoom) this.pageZoom = observedZoom / this.appZoom;
+      this.appZoom = target.zoom ?? 1;
+      const zoom = this.appZoom * this.pageZoom;
+      this.appliedZoom = zoom;
       if (this.contents.getZoomFactor() !== zoom) this.contents.setZoomFactor(zoom);
       this.target = { bounds: target.bounds, zoom, device: target.device };
       const params = target.device
@@ -165,7 +261,10 @@ export class EmbeddedPage implements ViewPage {
             scale: target.bounds.width / (target.device.width * zoom),
           }
         : undefined;
-      const key = JSON.stringify(params ?? { zoom, ...target.bounds });
+      const key = JSON.stringify(
+        params ?? { zoom, width: target.bounds.width, height: target.bounds.height },
+      );
+      this.placementPending = !this.metrics.matches(key);
       this.emit("ace.viewport", this.viewport());
       void this.metrics
         .place(key, () =>
@@ -230,6 +329,10 @@ export class EmbeddedPage implements ViewPage {
       method === "Emulation.clearDeviceMetricsOverride"
     ) {
       return this.metrics.override(() => {
+        if (this.placed && this.agentControl)
+          throw new Error(
+            "The visible panel sets the page size. Hide the panel before emulating a device.",
+          );
         if (this.placed && this.target) {
           const { device, bounds, zoom } = this.target;
           return device
@@ -245,7 +348,11 @@ export class EmbeddedPage implements ViewPage {
         return this.send(method, params);
       });
     }
-    if (this.dialogs.answer(method, params)) return {};
+    if (method === "ace.rendererReady") {
+      this.restarting = false;
+      return {};
+    }
+    if (this.popups.command(method, params) || this.dialogs.answer(method, params)) return {};
     if (this.downloads.command(method, params)) return {};
     if (method === "ace.findText") {
       const { text, forward } = z
@@ -349,7 +456,11 @@ export class EmbeddedPage implements ViewPage {
 
   async resize(width: number, height: number): Promise<void> {
     this.driven();
-    if (this.placed) return;
+    if (this.placed) {
+      if (this.agentControl)
+        throw new Error("The visible panel sets the page size. Hide the panel before resizing.");
+      return;
+    }
     await this.metrics.override(() =>
       this.placed
         ? Promise.resolve()
@@ -368,11 +479,18 @@ export class EmbeddedPage implements ViewPage {
 
   setNativeInput(enabled: boolean): void {
     this.nativeInput = enabled;
+    if (!enabled) {
+      this.popups.close();
+      this.auth.close();
+    }
     this.updateThrottle();
   }
 
   setAgentControl(agent: boolean): void {
     this.agentControl = agent;
+    void this.send("Page.setInterceptFileChooserDialog", { enabled: agent }).catch((error) =>
+      this.options.log(String(error)),
+    );
     this.updateThrottle();
   }
 
@@ -398,6 +516,8 @@ export class EmbeddedPage implements ViewPage {
   }
 
   private async destroy(): Promise<void> {
+    this.popups.close();
+    this.auth.close();
     this.dialogs.close();
     this.options.forget();
     this.gate.close();
@@ -405,6 +525,7 @@ export class EmbeddedPage implements ViewPage {
     this.listeners.clear();
     this.blocked.clear();
     clearTimeout(this.throttleTimer);
+    clearTimeout(this.restartTimer);
     const { view, window, session, released } = this.options;
     if (!window.isDestroyed()) window.contentView.removeChildView(view);
     const contents = this.contents;

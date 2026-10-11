@@ -26,10 +26,25 @@ interface Response {
 /** No bodies/headers retained. CDP lengths bound body retrieval before requesting bytes. */
 export class BrowserInspection {
   private enabled = true;
+  private epoch = 0;
   privacy(enabled: boolean): void {
-    this.enabled = !enabled;
+    const epoch = ++this.epoch;
+    this.enabled = false;
     this.responses.clear();
     this.requests.clear();
+    // Drop Chromium's retained bodies before accepting another shared response.
+    void Promise.all(
+      [...this.stops.keys()].map(async (cdp) => {
+        await cdp.send("Network.disable");
+        if (!enabled && epoch === this.epoch) await this.enable(cdp);
+      }),
+    )
+      .then(() => {
+        if (epoch === this.epoch) this.enabled = !enabled;
+      })
+      .catch(() => {
+        /* Inspection stays disabled if the buffer cannot be cleared. */
+      });
   }
   private requests = new Map<string, { cdp: BrowserCdp; url: string }>();
   private responses = new Map<string, Response>();
@@ -87,6 +102,7 @@ export class BrowserInspection {
       if (!parsed.success) return;
       const { requestId, response } = parsed.data,
         key = `${tabId}:${requestId}`;
+      if (!this.requests.has(key)) return;
       if (this.responses.size >= 200)
         this.responses.delete(this.responses.keys().next().value ?? "");
       this.responses.set(key, {
@@ -131,17 +147,22 @@ export class BrowserInspection {
       }
     });
     try {
-      await cdp.send("Network.enable", {
-        maxTotalBufferSize: 1024 * 1024,
-        maxResourceBufferSize: 256 * 1024,
-        maxPostDataSize: 0,
-      });
+      if (this.enabled) await this.enable(cdp);
     } catch (error) {
       this.detach(cdp);
       throw error;
     }
   }
+  private enable(cdp: BrowserCdp): Promise<unknown> {
+    return cdp.send("Network.enable", {
+      maxTotalBufferSize: 1024 * 1024,
+      maxResourceBufferSize: 256 * 1024,
+      maxPostDataSize: 0,
+    });
+  }
   async body(requestId: string): Promise<unknown> {
+    const epoch = this.epoch;
+    if (!this.enabled) throw new Error("Response unavailable");
     const entry = this.responses.get(requestId);
     if (!entry?.done) throw new Error("Response unavailable or still loading");
     if (entry.bytes > 256 * 1024 || !/text|json|javascript|xml|svg/i.test(entry.mime))
@@ -149,6 +170,7 @@ export class BrowserInspection {
     const raw = z
       .object({ body: z.string().max(512 * 1024), base64Encoded: z.boolean() })
       .parse(await entry.cdp.send("Network.getResponseBody", { requestId: entry.id }));
+    if (!this.enabled || epoch !== this.epoch) throw new Error("Response unavailable");
     const body = raw.base64Encoded ? Buffer.from(raw.body, "base64").toString("utf8") : raw.body;
     if (Buffer.byteLength(body) > 256 * 1024) throw new Error("Response body exceeds limit");
     return { requestId, mimeType: entry.mime, body: redactBrowserText(body), redacted: true };

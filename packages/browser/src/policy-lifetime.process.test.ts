@@ -4,7 +4,7 @@ import { Snapshot } from "./test-support.ts";
 import { executablePath, fixture } from "./test-support.ts";
 
 describe.skipIf(!executablePath)("approval lifetime across threads", () => {
-  it("keeps timed-out hooks admitted until they settle and rejects another thread's approval", async () => {
+  it("queues another thread behind timed-out hooks until those hooks settle", async () => {
     const closed = Promise.withResolvers<void>();
     const server = createServer((_request, response) => {
       response.setHeader("Access-Control-Allow-Origin", "*");
@@ -33,21 +33,18 @@ describe.skipIf(!executablePath)("approval lifetime across threads", () => {
       }void 0`);
       await closed.promise;
       expect(approvals).toBe(32);
-      await expect(
-        f.service.execute("other", { action: "navigate", url: "https://example.invalid" }),
-      ).rejects.toThrow("admission limit");
+      const queued = f.service.execute("other", {
+        action: "navigate",
+        url: "https://example.invalid",
+      });
+      const refused = expect(queued).rejects.toThrow("Browser origin requires approval");
       expect(approvals).toBe(32);
-      // Settlement, rather than caller expiry, releases the shared capacity.
       uncooperative.resolve(false);
-      // A native CDP round trip lets settled-hook microtasks finish and proves
-      // the existing page remains usable after caller expiry.
+      await refused;
       const snapshot = Snapshot.parse(await f.execute({ action: "snapshot" }));
       expect(snapshot.nodes.some((node) => node.name === "Name" && node.role === "textbox")).toBe(
         true,
       );
-      await expect(
-        f.service.execute("other", { action: "navigate", url: "https://example.invalid" }),
-      ).rejects.toThrow("Browser origin requires approval");
       expect(approvals).toBe(33);
     } finally {
       uncooperative.resolve(false);

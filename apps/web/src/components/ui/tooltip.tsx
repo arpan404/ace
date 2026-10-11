@@ -1,6 +1,8 @@
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
 import { cn } from "@/lib/cn.ts";
-import type { ReactElement, ReactNode } from "react";
+import { createContext, useContext, type ReactElement, type ReactNode } from "react";
+
+export const TooltipSide = createContext<TooltipPrimitive.Positioner.Props["side"]>("bottom");
 import type { KeymapId } from "@/lib/keymap.ts";
 import { Kbd } from "./kbd.tsx";
 import { layers } from "./menu-styles.ts";
@@ -20,6 +22,7 @@ function TooltipContent({
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Positioner
         side={side}
+        collisionAvoidance={side === "top" ? { side: "none" } : undefined}
         sideOffset={sideOffset}
         className={cn(layers.tooltip, "isolate [-webkit-app-region:no-drag]")}
       >
@@ -57,10 +60,11 @@ function Tip(props: {
   disabled?: boolean;
   children: ReactElement;
 }) {
+  const side = useContext(TooltipSide);
   return (
     <TooltipPrimitive.Root disabled={props.disabled}>
       <TooltipPrimitive.Trigger render={props.children} closeOnClick />
-      <TooltipContent side={props.side ?? "bottom"}>
+      <TooltipContent side={props.side ?? side}>
         <div className="min-w-0 break-words">{props.label}</div>
         {props.shortcut ? (
           <Kbd shortcut={props.shortcut} />

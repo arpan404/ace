@@ -143,7 +143,7 @@ export class BrowserOrigins {
     const threadId = ThreadId.parse(request.threadId),
       { origin } = request;
     if (request.human) {
-      if (request.navigation) this.grant(threadId, origin);
+      if (request.navigation) this.pageGrant(threadId, origin);
       return true;
     }
     const mode = await this.mode(threadId);

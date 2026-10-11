@@ -22,6 +22,7 @@ export function browserState(
     ...(ownership.owner ? { owner: ownership.owner } : {}),
     url: (lifecycle.lastUrl ?? options.backend.url()).slice(0, 8192),
     backend: options.backendKind,
+    ...options.backend.pageStatus?.(),
     status: lifecycle.paused ? "paused" : "ready",
     ...(lifecycle.reason ? { reason: lifecycle.reason } : {}),
     ...(lifecycle.pageStateLost ? { pageStateLost: true } : {}),

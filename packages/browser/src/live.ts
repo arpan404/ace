@@ -67,6 +67,7 @@ export class LiveCapture {
     await this.cdp.send("Page.startScreencast", {
       format: "jpeg",
       quality: this.settings.quality,
+      everyNthFrame: this.settings.everyNthFrame,
       maxWidth: this.settings.maxWidth,
       maxHeight: this.settings.maxHeight,
     });
@@ -132,6 +133,7 @@ export class LiveCapture {
           await cdp.send("Page.startScreencast", {
             format: "jpeg",
             quality: settings.quality,
+            everyNthFrame: settings.everyNthFrame,
             maxWidth: settings.maxWidth,
             maxHeight: settings.maxHeight,
           });

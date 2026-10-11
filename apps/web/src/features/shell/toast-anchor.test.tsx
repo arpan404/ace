@@ -84,8 +84,9 @@ test("full view anchors to the visible sidebar, uses the viewport while it is hi
 
   // Collapsing the sidebar changes its visibility rather than the hidden main's size.
   await userEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
-  await waitFor(() => expect(center()).toBe(""));
-  expect(paneWidth()).toBe("");
+  await waitFor(() => expect(center()).toBe("226px"));
+  expect(paneWidth()).toBe("420px");
+  expect(document.documentElement.style.getPropertyValue("--toast-pane-bottom")).toBe("16px");
   await userEvent.click(screen.getByRole("button", { name: "Show sidebar" }));
   await waitFor(() => expect(center()).toBe("140px"));
 

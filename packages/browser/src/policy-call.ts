@@ -30,18 +30,42 @@ export function callPolicy<T>(
  * slot until they settle, even after their caller's deadline or cancellation. */
 export class PolicyGate {
   private active = 0;
+  private waiting: (() => void)[] = [];
   run<T>(signal: AbortSignal, work: () => T | Promise<T>, timeoutMs = 10_000): Promise<T> {
     if (signal.aborted) return Promise.reject(new Error("Browser service shutting down"));
-    if (this.active >= 32) return Promise.reject(new Error("Browser policy admission limit"));
-    this.active++;
-    const task = Promise.resolve()
-      .then(() => {
-        if (signal.aborted) throw new Error("Browser service shutting down");
-        return work();
-      })
-      .finally(() => {
-        this.active--;
-      });
-    return callPolicy(signal, () => task, timeoutMs);
+    if (this.waiting.length >= 1024) return Promise.reject(new Error("Browser policy queue full"));
+    const task = new Promise<T>((resolve, reject) => {
+      const start = () => {
+        signal.removeEventListener("abort", abort);
+        if (signal.aborted) {
+          reject(signal.reason);
+          this.next();
+          return;
+        }
+        this.active++;
+        const running = Promise.resolve().then(work);
+        void running
+          .finally(() => {
+            this.active--;
+            this.next();
+          })
+          .catch(() => {});
+        callPolicy(signal, () => running, timeoutMs).then(resolve, reject);
+      };
+      const abort = () => {
+        const index = this.waiting.indexOf(start);
+        if (index >= 0) this.waiting.splice(index, 1);
+        reject(signal.reason);
+      };
+      if (this.active < 32) start();
+      else {
+        this.waiting.push(start);
+        signal.addEventListener("abort", abort, { once: true });
+      }
+    });
+    return task;
+  }
+  private next(): void {
+    if (this.active < 32) this.waiting.shift()?.();
   }
 }

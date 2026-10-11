@@ -64,7 +64,6 @@ export async function installOriginGuard(
   >();
   const root: Send = (method, params) => cdp.send(method, params);
   let nextId = 0,
-    checks = 0,
     stopped = false;
   let initializing: Promise<unknown> = Promise.resolve();
 
@@ -111,8 +110,7 @@ export async function installOriginGuard(
     }
     void (async () => {
       let approved = false;
-      if (checks < 32 && !stopped) {
-        checks++;
+      if (!stopped) {
         try {
           approved = await allowed(request.data.request.url, {
             navigation,
@@ -120,8 +118,6 @@ export async function installOriginGuard(
           });
         } catch {
           /* Deny policy errors. */
-        } finally {
-          checks--;
         }
       }
       await send(approved ? "Fetch.continueRequest" : "Fetch.failRequest", {

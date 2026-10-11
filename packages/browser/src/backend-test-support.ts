@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { EventEmitter, once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -166,7 +167,10 @@ export class GuardedHeadless extends FakeHeadless {
     };
   }
 }
-export async function backendFixture(options: Partial<BrowserServiceOptions> = {}) {
+export async function backendFixture(
+  options: Partial<BrowserServiceOptions> = {},
+  fixture: { nativeTabs?: boolean } = {},
+) {
   const home = await mkdtemp(join(tmpdir(), "ace-backend-"));
   const headless = new FakeHeadless();
   const service = new BrowserService({ dataDir: home, headlessBackend: headless, ...options });
@@ -214,7 +218,13 @@ export async function backendFixture(options: Partial<BrowserServiceOptions> = {
     }
     const op = message.operation;
     requests.emit(op.kind === "cdp" ? op.method : op.kind, message);
-    if (op.kind === "cdp" && hold === op.method) return;
+    if (op.kind === "cdp" && op.method === "ace.tabs.cdp" && typeof op.params?.method === "string")
+      requests.emit(op.params.method, message);
+    if (
+      op.kind === "cdp" &&
+      (hold === op.method || (op.method === "ace.tabs.cdp" && hold === op.params?.method))
+    )
+      return;
     let result: unknown = {};
     // A failed open is closed by the daemon; there is no view left to close.
     const settled = op.kind === "close" && !pages.has(message.sessionId);
@@ -232,18 +242,42 @@ export async function backendFixture(options: Partial<BrowserServiceOptions> = {
     }
     if (op.kind === "open") {
       pages.set(message.sessionId, new FakePage());
-      result = { url: "about:blank" };
+      result = {
+        url: "about:blank",
+        ...(fixture.nativeTabs
+          ? {
+              activeTabId: "native-tab",
+              tabs: [{ tabId: "native-tab", url: "about:blank", title: "" }],
+            }
+          : {}),
+      };
     }
     const page = pages.get(message.sessionId);
     if (!page) throw new Error("Unknown desktop session");
     if (op.kind === "cdp") {
-      result = page.command(op.method, op.params);
-      if (op.method === "Page.navigate") {
-        page.url = redirectUrl ?? String(op.params?.["url"]);
+      const method = op.method === "ace.tabs.cdp" ? String(op.params?.method) : op.method;
+      const params =
+        op.method === "ace.tabs.cdp"
+          ? z.record(z.string(), z.unknown()).optional().parse(op.params?.params)
+          : op.params;
+      result = page.command(method, params);
+      if (method === "Page.navigate") {
+        page.url = redirectUrl ?? String(params?.["url"]);
         result = { frameId: "main" };
-        sendEvent(message.sessionId, "Page.frameNavigated", {
-          frame: { id: "main", url: page.url },
-        });
+        if (fixture.nativeTabs) {
+          sendEvent(message.sessionId, "ace.tabs.changed", {
+            activeTabId: "native-tab",
+            tabs: [{ tabId: "native-tab", url: page.url, title: "" }],
+          });
+          sendEvent(message.sessionId, "ace.tabs.event", {
+            tabId: "native-tab",
+            method: "Page.frameNavigated",
+            params: { frame: { id: "main", url: page.url } },
+          });
+        } else
+          sendEvent(message.sessionId, "Page.frameNavigated", {
+            frame: { id: "main", url: page.url },
+          });
       }
     }
     if (op.kind === "controller" && !controllerError) page.lease = op.lease;

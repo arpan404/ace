@@ -16,7 +16,7 @@ import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
 import { addressHost } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
-import { closePage, nextBrowserId, setLoading } from "./browser/loading.ts";
+import { setLoading } from "./browser/loading.ts";
 import { AgentBadge, AgentTabIcon } from "./agents/agent-badge.tsx";
 import { ThreadDiffStat } from "./changes/diff-stat.tsx";
 import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
@@ -102,12 +102,12 @@ export const sideChatKind = defineTabKind({
 });
 
 /**
- * A page in the thread's browser: one tab per page of the thread's browser session, each with
- * its own address and history. Addresses from the launcher open here; pages an agent opens get
- * a tab of their own, marked as the agent's.
+ * The thread's single browser page. Addresses, links and agent navigation reuse its panel
+ * tab and document history.
  */
 export const browserKind = defineTabKind({
   kind: "browser",
+  singleton: true,
   label: "Browser",
   icon: GlobeSimpleIcon,
   TabIcon: (props) => (
@@ -125,16 +125,12 @@ export const browserKind = defineTabKind({
   title: (tab) => addressHost(field(tab.data, "url") ?? "") ?? "New page",
   Badge: LoadingBadge,
   load: () => import("./browser/browser-tab.tsx"),
-  fromUrl: (url, workspace) => ({
+  fromUrl: (url) => ({
     kind: "browser",
-    id: nextBrowserId(workspace.tabs.map((tab) => tab.key)),
     data: { url, go: true },
   }),
   onClose: (scope, tab) => {
     setLoading(scope, tab.key, false);
-    // Its page closes with it, unless it is the thread's last (that one stays for its agents).
-    const page = field(tab.data, "page");
-    if (page) closePage(scope, page);
   },
 });
 

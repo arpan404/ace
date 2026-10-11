@@ -24,6 +24,10 @@ it.each([false, true])(
       const inspection = new BrowserInspection(request.log);
       await inspection.attach(cdp, "tab");
       inject = () => {
+        page.events.emit("Network.requestWillBeSent", {
+          requestId: "oversized",
+          request: { url: "http://localhost/body" },
+        });
         page.events.emit("Network.responseReceived", {
           requestId: "oversized",
           response: { url: "http://localhost/body", status: 200, mimeType: "text/plain" },

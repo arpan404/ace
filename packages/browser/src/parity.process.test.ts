@@ -7,36 +7,19 @@ import { ref, Snapshot } from "./test-support.ts";
 import { setup, tabs, executablePath, cleanups } from "./parity-test-support.ts";
 
 it.skipIf(!executablePath)(
-  "background tabs preserve their own page and enforce thread and daemon caps",
+  "new-tab requests and agent popups reuse the thread's page",
   async () => {
-    const f = await setup({ maxTabs: 9 });
+    const f = await setup();
     const initial = tabs.parse(await f.execute({ action: "tabs" }));
-    await f.execute({
-      action: "type",
-      ref: ref(await f.execute({ action: "snapshot" }), "Name"),
-      text: "first",
-    });
-    const second = tabs.parse(
-      await f.execute({ action: "tabs", operation: "open", url: f.url + "/other" }),
-    );
-    expect(second.tabs).toHaveLength(2);
-    expect(second.activeTabId).not.toBe(initial.activeTabId);
-    expect(await f.evaluate("document.querySelector('input').value")).toBe("");
-    await f.execute({ action: "tabs", operation: "switch", tabId: initial.activeTabId });
-    expect(await f.evaluate("document.querySelector('input').value")).toBe("first");
+    const next = tabs.parse(await f.execute({ action: "tabs", operation: "open", url: f.url }));
+    expect(next.tabs).toHaveLength(1);
+    expect(next.activeTabId).toBe(initial.activeTabId);
     await f.execute({
       action: "click",
       ref: ref(await f.execute({ action: "snapshot" }), "Popup"),
     });
-    await expect.poll(() => f.service.state("thread").tabs?.length).toBe(3);
-    for (let n = 3; n < 8; n++) await f.execute({ action: "tabs", operation: "open" });
-    await expect(f.execute({ action: "tabs", operation: "open" })).rejects.toThrow(/tab limit/);
-    await f.service.open({ threadId: "second", workspaceId: "workspace", background: true });
-    await expect(
-      f.service.execute("second", { action: "tabs", operation: "open" }),
-    ).rejects.toThrow(/tab limit/);
-    await f.execute({ action: "tabs", operation: "close", tabId: second.activeTabId });
-    await f.service.execute("second", { action: "tabs", operation: "open" });
+    await expect.poll(() => f.service.state("thread").url).toBe(f.url + "/other");
+    expect(f.service.state("thread").tabs).toHaveLength(1);
   },
 );
 it.skipIf(!executablePath)(
@@ -279,7 +262,7 @@ it.skipIf(!executablePath)("attachment-like reads cannot authorize a later downl
   await expect.poll(() => f.service.downloadsList("thread")[0]?.state).toBe("denied");
   expect(f.artifacts).toEqual([]);
 });
-it.skipIf(!executablePath)("a dialog on A can be answered after a read targets B", async () => {
+it.skipIf(!executablePath)("a pending dialog survives a read on the reused page", async () => {
   const f = await setup(),
     a = f.service.state("thread").activeTabId;
   const b = tabs.parse(

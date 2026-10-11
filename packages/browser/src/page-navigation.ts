@@ -10,9 +10,14 @@ export async function pageHistory(cdp: BrowserCdp) {
 }
 export async function traverseHistory(
   cdp: BrowserCdp,
-  direction: "back" | "forward" | "reload",
+  direction: "back" | "forward" | "reload" | "stop",
   check: () => void,
 ) {
+  if (direction === "stop") {
+    check();
+    await cdp.send("Page.stopLoading");
+    return { ok: true };
+  }
   if (direction === "reload") {
     check();
     await cdp.send("Page.reload");

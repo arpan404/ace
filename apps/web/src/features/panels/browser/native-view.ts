@@ -21,9 +21,9 @@ const intersects = (a: PageBox, b: PageBox) =>
 
 /**
  * Where the desktop's embedded view of a page goes, in the page's CSS pixels: the tab's whole
- * page area, or a device-sized box centred in it, never past the window's edges. It hides while
- * anything drawn over the app (a menu, a dialog, a toast) covers it, since a native view would
- * be drawn on top of that; the last screencast frame shows in its place meanwhile.
+ * page area, or a device-sized box centred in it, never past the window's edges. Overlays clip
+ * the native view to its largest clear rectangle so menus and notifications stay readable.
+ * A fully covered page falls back to its last screencast frame.
  */
 export function nativeViewPlacement(input: {
   area: PageBox;
@@ -52,16 +52,37 @@ export function nativeViewPlacement(input: {
   const top = Math.max(0, box.y);
   const right = Math.min(input.window.width, box.x + box.width);
   const bottom = Math.min(input.window.height, box.y + box.height);
-  const bounds = {
+  let bounds = {
     x: left,
     y: top,
     width: Math.max(0, right - left),
     height: Math.max(0, bottom - top),
   };
+  for (const overlay of input.overlays) {
+    if (!intersects(overlay, bounds)) continue;
+    // Keep painting the largest unobstructed rectangle beside a portal.
+    const edgeRight = bounds.x + bounds.width,
+      edgeBottom = bounds.y + bounds.height;
+    const candidates = [
+      { ...bounds, width: Math.max(0, overlay.x - bounds.x) },
+      {
+        ...bounds,
+        x: overlay.x + overlay.width,
+        width: Math.max(0, edgeRight - overlay.x - overlay.width),
+      },
+      { ...bounds, height: Math.max(0, overlay.y - bounds.y) },
+      {
+        ...bounds,
+        y: overlay.y + overlay.height,
+        height: Math.max(0, edgeBottom - overlay.y - overlay.height),
+      },
+    ];
+    bounds = candidates.toSorted((a, b) => b.width * b.height - a.width * a.height)[0] ?? bounds;
+  }
   const empty = bounds.width <= 0 || bounds.height <= 0;
   return {
     bounds,
-    visible: !empty && !input.overlays.some((overlay) => intersects(overlay, bounds)),
+    visible: !empty,
   };
 }
 
@@ -125,24 +146,57 @@ export function useNativeView(
         ...placement,
         ...(held ? { owner: held } : {}),
         ...(size ? { device: size } : {}),
-        dpr: devicePixelRatio,
       };
       controller.place(next);
     };
     replace.current = place;
-    // Layout can move without resizing, including transforms during panel transitions.
-    // One read per displayed native page; unchanged geometry never crosses IPC.
     let frame = 0;
+    const transitions = new Set<string>();
     const measure = () => {
+      frame = 0;
       const next = element.getBoundingClientRect();
       rect = { x: next.x, y: next.y, width: next.width, height: next.height };
       place();
-      frame = requestAnimationFrame(measure);
+      if (transitions.size) frame = requestAnimationFrame(measure);
     };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    const ancestors: HTMLElement[] = [];
+    for (let node: HTMLElement | null = element; node; node = node.parentElement)
+      ancestors.push(node);
+    const resize = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(schedule);
+    const mutations = new MutationObserver(schedule);
+    for (const node of ancestors) {
+      resize?.observe(node);
+      mutations.observe(node, {
+        attributes: true,
+        attributeFilter: ["class", "style", "hidden", "aria-hidden"],
+      });
+    }
+    const transition = (event: TransitionEvent) => {
+      if (!(event.target instanceof HTMLElement) || !ancestors.includes(event.target)) return;
+      const key = `${ancestors.indexOf(event.target)}:${event.propertyName}`;
+      if (event.type === "transitionrun") transitions.add(key);
+      else transitions.delete(key);
+      schedule();
+    };
+    for (const type of ["transitionrun", "transitionend", "transitioncancel"] as const)
+      document.addEventListener(type, transition);
+    addEventListener("resize", schedule);
+    document.addEventListener("scroll", schedule, true);
     measure();
-    const stopRect = () => cancelAnimationFrame(frame);
+    const stopRect = () => {
+      cancelAnimationFrame(frame);
+      resize?.disconnect();
+      mutations.disconnect();
+      removeEventListener("resize", schedule);
+      document.removeEventListener("scroll", schedule, true);
+      for (const type of ["transitionrun", "transitionend", "transitioncancel"] as const)
+        document.removeEventListener(type, transition);
+    };
     const stopVisibility = views.onVisibility((id, visible) => controller.visibility(id, visible));
-    const stopOverlays = observeOverlays(element, place);
+    const stopOverlays = observeOverlays(element, schedule);
     const stopWants = views.onWantsControl((id) => {
       if (id === threadId) wantsControl();
     });

@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { pageStatus } from "./page-status.ts";
 import type { BrowserContext, Page, CDPSession, Dialog } from "playwright-core";
 import { BrowserDialog, type BrowserTab } from "@ace/protocol";
 import type { BackendOpen, BrowserCdp } from "./backend.ts";
@@ -15,14 +17,16 @@ interface Tab {
   cdp: CDPSession;
   guard: Guard;
   release(): void;
+  status: ReturnType<typeof pageStatus>;
   dialog?: { state: BrowserDialog; native: Dialog } | undefined;
 }
-/** One context, bounded pages. Background pages share only this thread's profile. */
+/** One main page, plus a temporary human auth popup in the same profile. */
 export class HeadlessTabs {
   private tabs = new Map<string, Tab>();
   private starting = new Map<Page, Promise<Tab>>();
   private sequence = 0;
   private activeId = "";
+  private popupKinds = new Map<Page, boolean[]>();
   private controller: "agent" | "human" | "none" = "agent";
   private stopped = false;
   readonly downloads: HeadlessDownloads;
@@ -52,7 +56,7 @@ export class HeadlessTabs {
     }));
   }
   private async attach(page: Page): Promise<Tab> {
-    if (this.stopped || this.tabs.size + this.starting.size >= 8)
+    if (this.stopped || this.tabs.size + this.starting.size >= 2)
       throw new Error("Browser tab limit");
     const release = this.request.reserveTab?.() ?? (() => {});
     const id = `tab-${this.request.id?.() ?? ++this.sequence}`;
@@ -83,23 +87,58 @@ export class HeadlessTabs {
     try {
       const cdp = await this.context.newCDPSession(page);
       await cdp.send("Page.enable");
+      cdp.on("Page.windowOpen", (raw: unknown) => {
+        const popup = z
+          .object({
+            url: z.string().max(8192),
+            windowName: z.string().optional(),
+            windowFeatures: z.array(z.string()).optional(),
+          })
+          .safeParse(raw);
+        if (!popup.success) return;
+        const reuse =
+          this.controller === "agent" ||
+          ((!popup.data.windowName || popup.data.windowName.startsWith("_")) &&
+            !popup.data.windowFeatures?.length);
+        const kinds = this.popupKinds.get(page) ?? [];
+        if (kinds.length < 8) kinds.push(reuse);
+        this.popupKinds.set(page, kinds);
+        if (reuse)
+          void this.request
+            .allowed(popup.data.url, { navigation: true, human: this.controller === "human" })
+            .then((allowed) =>
+              allowed ? page.goto(popup.data.url, { waitUntil: "domcontentloaded" }) : undefined,
+            )
+            .catch(() => {});
+      });
       const viewport = page.viewportSize();
       if (viewport) await sizeHeadlessContents(cdp, viewport.width, viewport.height);
       const guard = await installOriginGuard(cdp, this.request.allowed, this.request.initiator, {
         attach: (child) => this.inspection.attach(child, id),
         detach: (child) => this.inspection.detach(child),
       });
-      const tab: Tab = { title: "", id, page, cdp, guard, release, ...(dialog ? { dialog } : {}) };
+      const tab: Tab = {
+        status: pageStatus(cdp, () => this.request.changed?.()),
+        title: "",
+        id,
+        page,
+        cdp,
+        guard,
+        release,
+        ...(dialog ? { dialog } : {}),
+      };
       if (this.stopped) {
         guard.close();
         throw new Error("Browser closed");
       }
       this.tabs.set(id, tab);
-      if (!this.activeId) this.activeId = id;
+      if (!this.activeId || (await page.opener())) this.activeId = id;
       page.once("close", () => {
         this.tabs.delete(id);
+        this.popupKinds.delete(page);
         guard.close();
         this.inspection.detach(cdp);
+        tab.status.close();
         release();
         if (this.activeId === id) {
           this.activeId = this.tabs.keys().next().value ?? "";
@@ -152,7 +191,28 @@ export class HeadlessTabs {
     await this.context.route("**/*", async (route) => {
       try {
         const req = route.request();
-        const page = req.frame().page();
+        let page: Page;
+        try {
+          page = req.frame().page();
+        } catch {
+          // Chromium's first popup request can precede its Frame. Guard it before
+          // continuing; agents' popup URLs already navigate the main page.
+          const reusing = [...this.popupKinds.values()].some((kinds) => kinds[0] === true);
+          if (
+            this.controller !== "human" ||
+            reusing ||
+            this.tabs.size + this.starting.size >= 2 ||
+            !(await this.request.allowed(req.url(), { navigation: true, human: true }))
+          )
+            await route.abort();
+          else await route.continue();
+          return;
+        }
+        const opener = await page.opener();
+        if (opener && (this.controller === "agent" || this.popupKinds.get(opener)?.[0] === true)) {
+          await route.abort();
+          return;
+        }
         const tab = await this.enroll(page);
         if (this.stopped || !this.tabs.has(tab.id)) {
           await route.abort();
@@ -171,7 +231,14 @@ export class HeadlessTabs {
       }
     });
     this.context.on("page", (page) => {
-      void this.enroll(page).catch(() => page.close().catch(() => {}));
+      void page
+        .opener()
+        .then(async (opener) => {
+          const reuse = opener ? this.popupKinds.get(opener)?.shift() : undefined;
+          if (opener && (reuse || this.controller === "agent")) return page.close();
+          await this.enroll(page);
+        })
+        .catch(() => page.close().catch(() => {}));
     });
     this.context.on("response", (response) => {
       this.downloads.response(
@@ -183,6 +250,7 @@ export class HeadlessTabs {
     if (!this.tabs.size) await this.open();
   }
   async open(): Promise<string> {
+    if (this.activeId) return this.activeId;
     return (await this.enroll(await this.context.newPage())).id;
   }
   async switch(id: string): Promise<void> {

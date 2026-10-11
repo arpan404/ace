@@ -45,7 +45,7 @@ export class BrowserService {
   private headless: BrowserBackend;
   private acquisition: ReturnType<typeof ownedHeadless>;
   private recoveries = new Map<string, Promise<void>>();
-  /** Sessions paused by desktop loss, and how to move each into headless for agent work. */
+  /** Sessions paused by desktop loss, with a single-flight recovery on the available backend. */
   private resumable = new Map<string, () => Promise<void>>();
   downloadProgress(listener: (progress: BrowserDownloadProgress) => void): () => void {
     return this.acquisition.subscribe(listener);
@@ -78,14 +78,20 @@ export class BrowserService {
     if (existing && !existing.state.closed) {
       // Every client and the agent share the thread's one page, on whichever backend it runs.
       const resume = this.resumable.get(options.threadId);
-      if (options.background && resume && agentResumes(existing.state)) await resume();
+      if (resume && (!options.background || agentResumes(existing.state))) await resume();
       return existing.state;
     }
     if (existing) await existing.close();
     const pending = this.opening.get(options.threadId);
     if (pending) return (await pending).state;
-    if (this.sessions.size + this.opening.size >= (this.options.maxSessions ?? 8))
-      throw new Error("Browser session limit");
+    if (this.sessions.size + this.opening.size >= (this.options.maxSessions ?? 8)) {
+      const idle = [...this.sessions.values()]
+        .filter((session) => session.evictable)
+        .toSorted((a, b) => a.lastActivity - b.lastActivity)[0];
+      if (idle) await idle.close();
+      if (this.sessions.size + this.opening.size >= (this.options.maxSessions ?? 8))
+        throw new Error("All browser pages are in use. Close an idle thread's page and try again.");
+    }
     const scope = new AbortController();
     this.policyScopes.set(options.threadId, scope);
     const task = this.launch(options, scope);
@@ -99,7 +105,7 @@ export class BrowserService {
   }
   private async launch(requested: BrowserOpen, scope: AbortController): Promise<BrowserSession> {
     const signal = AbortSignal.any([scope.signal, this.lifetime.signal]);
-    setMaxListeners(33, signal);
+    setMaxListeners(1057, signal);
     const options: BrowserOpen = {
       ...requested,
       profile:
@@ -134,24 +140,44 @@ export class BrowserService {
       if (this.resumable.get(options.threadId) === resume) this.resumable.delete(options.threadId);
       if (recoveryProfile) await rm(recoveryProfile, { recursive: true, force: true });
     };
-    /** Reopen the last URL headlessly; single-flight, and owned by this session. */
+    /** Reopen the last URL; use the same desktop profile whenever the desktop is available. */
     const resume = (): Promise<void> => {
       const owned = session;
       const running = this.recoveries.get(options.threadId);
       if (running) return running;
       if (!owned || !opening) return Promise.resolve();
+      const recoveryRequest = opening;
       this.resumable.delete(options.threadId);
-      const recovery = recoverHeadless({
-        request: opening,
-        backend: this.headless,
-        session: owned,
-        root,
-        url: owned.state.url,
-        profileCreated: (path) => {
-          recoveryProfile = path;
-        },
-      })
+      const native = this.embedded;
+      const recover = async () => {
+        if (!native)
+          return recoverHeadless({
+            request: recoveryRequest,
+            backend: this.headless,
+            session: owned,
+            root,
+            url: owned.state.url,
+            profileCreated: (path) => {
+              recoveryProfile = path;
+            },
+          });
+        await owned.releaseLostBackend();
+        const replacement = await native.open(recoveryRequest);
+        try {
+          replacement.privateMode?.(owned.state.takeoverMode === "private");
+          const url = owned.state.url;
+          if (url !== "about:blank") await replacement.navigate(url, 10_000);
+          await owned.replace(replacement, "embedded");
+          backend = native;
+          backendLost = false;
+        } catch (error) {
+          await replacement.close().catch(() => {});
+          throw error;
+        }
+      };
+      const recovery = recover()
         .catch((error) => {
+          this.resumable.set(options.threadId, resume);
           if (!signal.aborted)
             owned.recoveryFailed(
               error instanceof Error ? error.message : "Browser recovery failed",
@@ -186,6 +212,7 @@ export class BrowserService {
         allowed: policies.allowed,
         initiator: () => session?.initiatingHuman() ?? false,
         navigation: () => session?.navigation(),
+        restarted: () => session?.restarted(),
         log: (entry) => session?.log(entry),
         permissionDenied: (denial) =>
           session?.log({
@@ -291,7 +318,10 @@ export class BrowserService {
     );
     this.embedded = backend;
     // After this returns the caller sends the registration reply; requests follow it.
-    queueMicrotask(() => this.options.onEmbeddedRegistered?.());
+    queueMicrotask(() => {
+      this.options.onEmbeddedRegistered?.();
+      for (const resume of this.resumable.values()) void resume();
+    });
     return backend;
   }
   /**

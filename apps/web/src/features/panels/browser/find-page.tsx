@@ -10,7 +10,6 @@ export function FindPage(props: { source: PreviewSource; threadId: string; onClo
   const find = async (forward: boolean) => {
     const current = ++generation.current;
     try {
-      if (!props.source.heldAs(props.threadId)) await props.source.takeover(props.threadId);
       const raw = await props.source.findText?.(props.threadId, text, forward);
       if (current !== generation.current) return;
       if (
@@ -19,7 +18,11 @@ export function FindPage(props: { source: PreviewSource; threadId: string; onClo
         "matches" in raw &&
         typeof raw.matches === "number"
       )
-        setMessage(`${raw.matches} matches`);
+        setMessage(
+          "active" in raw && typeof raw.active === "number" && raw.matches > 0
+            ? `${raw.active} of ${raw.matches}`
+            : `${raw.matches} ${raw.matches === 1 ? "match" : "matches"}`,
+        );
       else if (typeof raw === "object" && raw !== null && "found" in raw)
         setMessage(raw.found ? "Match found" : "No matches");
     } catch (error) {
@@ -28,6 +31,7 @@ export function FindPage(props: { source: PreviewSource; threadId: string; onClo
     }
   };
   useEffect(() => {
+    if (!text) return;
     const timer = setTimeout(() => void find(true), 200);
     return () => clearTimeout(timer); // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [text]);

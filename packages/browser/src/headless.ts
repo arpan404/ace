@@ -112,6 +112,7 @@ export class HeadlessBackend implements BrowserBackend {
           downloads: () => ownedTabs.downloads.list(),
         },
         frames: () => ownedTabs.frames(),
+        pageStatus: () => ownedTabs.current().status.read(),
         privateMode: (enabled) => {
           ownedTabs.inspection.privacy(enabled);
           ownedTabs.downloads.privacy(enabled);

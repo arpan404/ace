@@ -1,63 +1,54 @@
 import { desktopBrowserViews, type BrowserAccelerator } from "@/boot/desktop-browser.ts";
-import { displayAddress } from "@ace/ui-core";
+import { WarningCircleIcon } from "@phosphor-icons/react";
+import { Tip } from "@/components/ui/tooltip.tsx";
+import { displayAddress, describeBrowserFailure } from "@ace/ui-core";
 import { useEffectEvent, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
-import { useScopeWorkspace, type TabViewProps } from "@/lib/workspace/index.ts";
+import { type TabViewProps } from "@/lib/workspace/index.ts";
 import { reportBrowserControl } from "@/lib/browser-control.ts";
 import { usePanelServices } from "../services.ts";
 import { WithServices } from "../with-services.tsx";
 import { FindPage } from "./find-page.tsx";
 import { AddressBar } from "./address-bar.tsx";
 import { BrowserControl, controlState, PrivateToggle, useControl } from "./browser-control.tsx";
-import { browserTabData } from "./browser-state.ts";
 import { PageDialog } from "./page-dialog.tsx";
 import { useBrowserFeatures } from "./use-browser-features.ts";
 import { BrowserActions } from "./browser-actions.tsx";
 import { PageNav, PageToolbar } from "./page-toolbar.tsx";
 import { useNativeView } from "./native-view.ts";
-import { Background, LoadFailed, Offline, Opening, Reopen, StartPage } from "./page-states.tsx";
+import { LoadFailed, Offline, Opening, Reopen, StartPage } from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
 import { SiteAccess } from "./site-access.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
-import { useNewBrowserTab, usePageSync } from "./use-page-sync.ts";
+import { usePageSync } from "./use-page-sync.ts";
 import { viewportById } from "./viewports.ts";
+
+const permissionLabel = (permission: string) =>
+  ({
+    media: "camera or microphone",
+    geolocation: "location",
+    notifications: "notifications",
+    "clipboard-sanitized-write": "clipboard",
+  })[permission] ?? "a site permission";
 
 /**
  * A browser tab: one page of the thread's browser, with an editable address, Back, Forward,
  * Reload, who drives it (Take over, Hand back, Make private), device sizes and opening the page
  * in this device's own browser. The page fills the panel on ace's own surface; a failed load
- * keeps its address with Reload; a tab whose page is in the background shows it on request.
+ * keeps its address with Reload; a disconnected page has an explicit Reopen action.
  */
 function Browser(props: TabViewProps) {
   const [finding, setFinding] = useState(false);
   const threadId = props.scope;
   const { preview: source } = usePanelServices();
   const browser = useBrowserFeatures(source, threadId);
-  const page = useBrowserTab(source, threadId, props.tab, browser.features);
+  const page = useBrowserTab(source, threadId, props.tab);
   const toast = useToast();
   const control = useControl(source, threadId, page.live);
-  const newTab = useNewBrowserTab(threadId);
-  usePageSync(source, threadId, page.live, browser);
-  const workspace = useScopeWorkspace(threadId);
-  const shown = workspace.open && workspace.active === props.tab.key;
-  // Shown while the person holds the page, a background page becomes the live one.
-  const background = page.background?.tabId;
-  const switchable = !!page.heldAs && page.live?.controller === "human";
-  useEffect(() => {
-    if (!shown || !background || !switchable) return;
-    // The daemon may get there by itself (closing the live page makes another one live): ask
-    // only if it still hasn't, and quietly, since a page that just closed is no failure.
-    const timer = setTimeout(() => {
-      if (source.view(threadId)?.activeTabId !== background)
-        void browser.features.switchTab(threadId, background).catch(() => {});
-    }, 50);
-    return () => clearTimeout(timer);
-    // Only showing the tab (or getting control while it shows) switches.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [shown, background, switchable]);
+  usePageSync(threadId, page.live);
   // The rail's indicator: an agent drives this page, or it is held privately.
   const live = page.live;
   const reported = live && {
@@ -75,7 +66,7 @@ function Browser(props: TabViewProps) {
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, reportKey]);
   useEffect(() => () => reportBrowserControl(threadId, undefined), [threadId]);
-  const loading = page.state.phase === "loading";
+  const loading = page.state.phase === "loading" || !!page.live?.loading;
   const viewport = viewportById(page.data.viewport);
   const shownUrl =
     page.state.phase === "idle" ? (page.bound ? page.live?.url : page.data.url) : page.state.url;
@@ -96,14 +87,21 @@ function Browser(props: TabViewProps) {
     {
       device: viewport.emulation,
       owner: page.heldAs,
-      // A click on the page while an agent drives it takes control the way the button does;
-      // the page takes input only once the daemon has granted it. Another device's control
-      // isn't taken away.
+      // A blocked click offers an explicit take-over action; scrolling keeps the agent in control.
       onWantsControl: () => {
-        if (page.live && page.live.controller !== "human") control.toggle();
+        if (page.live?.controller === "agent")
+          toast.add({
+            title: "Take over to use the page",
+            actionProps: { children: "Take over", onClick: control.toggle },
+          });
       },
     },
   );
+
+  useEffect(() => {
+    source.nativeShown?.(threadId, nativeShown);
+    return () => source.nativeShown?.(threadId, !!desktopBrowserViews());
+  }, [source, threadId, nativeShown]);
 
   const root = useRef<HTMLDivElement>(null);
   // Focus leaves the renderer when the person clicks into the desktop's native page (or another
@@ -123,8 +121,7 @@ function Browser(props: TabViewProps) {
     return () => removeEventListener("blur", release);
   }, []);
   const shortcut = (accelerator: BrowserAccelerator) => {
-    if (accelerator === "CmdOrCtrl+T") newTab();
-    else if (accelerator === "CmdOrCtrl+L")
+    if (accelerator === "CmdOrCtrl+L")
       root.current?.querySelector<HTMLInputElement>('input[aria-label="Address"]')?.focus();
     else if (accelerator === "CmdOrCtrl+F") setFinding(true);
     else if (accelerator === "CmdOrCtrl+R") page.reload();
@@ -140,8 +137,7 @@ function Browser(props: TabViewProps) {
     const mod = event.metaKey || event.ctrlKey;
     if (!mod || event.altKey) return;
     const key = event.key.toLowerCase();
-    if (key === "t" && !event.shiftKey) shortcut("CmdOrCtrl+T");
-    else if (key === "l") shortcut("CmdOrCtrl+L");
+    if (key === "l") shortcut("CmdOrCtrl+L");
     else if (key === "f" && !event.shiftKey) shortcut("CmdOrCtrl+F");
     else if (key === "r" && !event.shiftKey) shortcut("CmdOrCtrl+R");
     else if (event.code === "BracketLeft" && !event.shiftKey) shortcut("CmdOrCtrl+[");
@@ -164,8 +160,8 @@ function Browser(props: TabViewProps) {
       await source.emulate(
         threadId,
         next.emulation ?? {
-          width: 800,
-          height: 600,
+          width: Math.max(100, Math.round(pageArea.current?.clientWidth ?? 800)),
+          height: Math.max(100, Math.round(pageArea.current?.clientHeight ?? 600)),
           deviceScaleFactor: 1,
           mobile: false,
           touch: false,
@@ -186,6 +182,14 @@ function Browser(props: TabViewProps) {
     content = (
       <LoadFailed url={page.state.url} failure={page.state.failure} onReload={page.reload} />
     );
+  else if (page.bound && page.live?.loadError)
+    content = (
+      <LoadFailed
+        url={page.live.url}
+        failure={describeBrowserFailure(page.live.loadError, page.live.url)}
+        onReload={page.reload}
+      />
+    );
   else if (page.bound && page.live && page.frame)
     content = (
       <PageView
@@ -202,15 +206,6 @@ function Browser(props: TabViewProps) {
   else if (!page.online) content = <Offline />;
   else if (loading || (page.bound && page.live && !page.frame))
     content = <Opening download={page.download} />;
-  else if (page.background)
-    content = (
-      <Background
-        url={page.background.url}
-        agent={page.live?.controller === "agent"}
-        disabled={offline}
-        onShow={() => background && void browser.switchTab(background)}
-      />
-    );
   else if (page.data.url && !page.bound)
     content = (
       <Reopen
@@ -224,14 +219,6 @@ function Browser(props: TabViewProps) {
 
   const held = page.bound ? page.live : undefined;
   const privately = held?.takeoverMode === "private";
-  // A page's question shows in its own tab, or in the live one when no tab shows its page.
-  const dialogTab = page.live?.pendingDialog?.tabId;
-  const dialogHere =
-    dialogTab === page.data.page ||
-    (page.bound &&
-      !workspace.tabs.some(
-        (each) => each.kind === "browser" && browserTabData(each).page === dialogTab,
-      ));
   return (
     <div ref={root} className="flex h-full min-h-0 flex-col" onKeyDownCapture={onKeyDown}>
       <PageToolbar
@@ -260,6 +247,10 @@ function Browser(props: TabViewProps) {
               keys: "mod+r",
               reason: !page.online ? "ace is offline" : shownUrl ? undefined : "open a page first",
             }}
+            stop={{
+              onClick: () => void source.navigateHistory?.(threadId, "stop"),
+              reason: !page.heldAs ? "Take over to stop loading" : undefined,
+            }}
             loading={loading}
           />
         }
@@ -278,14 +269,28 @@ function Browser(props: TabViewProps) {
             onGo={page.go}
             lead={<SiteAccess threadId={threadId} browser={browser} url={shownUrl} />}
             trail={
-              held && (
-                <PrivateToggle
-                  view={held}
-                  heldHere={!!page.heldAs}
-                  busy={control.busy}
-                  onPrivate={control.takePrivately}
-                />
-              )
+              <>
+                {page.live?.permissionDenied && (
+                  <Tip
+                    label={`Site access blocked: ${permissionLabel(page.live.permissionDenied.permission)}. Open the page in your browser to allow it.`}
+                  >
+                    <span
+                      role="status"
+                      aria-label={`Site access blocked: ${permissionLabel(page.live.permissionDenied.permission)}`}
+                    >
+                      <WarningCircleIcon aria-hidden size={14} />
+                    </span>
+                  </Tip>
+                )}
+                {held && (
+                  <PrivateToggle
+                    view={held}
+                    heldHere={!!page.heldAs}
+                    busy={control.busy}
+                    onPrivate={control.takePrivately}
+                  />
+                )}
+              </>
             }
             tone={privately ? "private" : undefined}
           />
@@ -297,6 +302,7 @@ function Browser(props: TabViewProps) {
                 view={held}
                 heldHere={!!page.heldAs}
                 busy={control.busy}
+                onResume={page.reopen}
                 onToggle={control.toggle}
                 onPrivate={control.takePrivately}
               />
@@ -315,7 +321,6 @@ function Browser(props: TabViewProps) {
               onFind={() => setFinding(true)}
               downloads={page.live?.downloads ?? []}
               privately={page.live?.takeoverMode === "private"}
-              onNewTab={newTab}
               onPrivate={
                 held && controlState(held, !!page.heldAs, undefined).canPrivate
                   ? control.takePrivately
@@ -327,9 +332,7 @@ function Browser(props: TabViewProps) {
         agent={held?.controller === "agent"}
         progress={loading ? `Loading ${displayAddress(shownUrl ?? "")}` : undefined}
       />
-      {page.live && !page.live.closed && dialogHere && (
-        <PageDialog view={page.live} browser={browser} />
-      )}
+      {page.live && !page.live.closed && <PageDialog view={page.live} browser={browser} />}
       {finding && page.live && (
         <FindPage source={source} threadId={threadId} onClose={() => setFinding(false)} />
       )}

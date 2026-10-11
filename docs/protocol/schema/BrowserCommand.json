@@ -22,6 +22,23 @@
     {
       "properties": {
         "action": {
+          "const": "selection",
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
           "const": "history",
           "type": "string"
         },
@@ -29,7 +46,8 @@
           "enum": [
             "back",
             "forward",
-            "reload"
+            "reload",
+            "stop"
           ],
           "type": "string"
         },

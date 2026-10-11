@@ -40,9 +40,11 @@ describe("where the embedded view goes", () => {
     expect(visible).toBe(true);
   });
 
-  test("it steps aside while a menu or dialog is drawn over it", () => {
+  test("it keeps the page visible beside a menu without covering the menu", () => {
     const menu = { x: 1200, y: 100, width: 200, height: 160 };
-    expect(nativeViewPlacement({ area, window: screenSize, overlays: [menu] }).visible).toBe(false);
+    const placement = nativeViewPlacement({ area, window: screenSize, overlays: [menu] });
+    expect(placement.visible).toBe(true);
+    expect(placement.bounds.y).toBeGreaterThanOrEqual(menu.y + menu.height);
   });
 
   test("something drawn elsewhere doesn't hide it", () => {
@@ -128,7 +130,6 @@ test("in the desktop app the browser tab draws the embedded page over its page a
       threadId: "thread-cold-start",
       bounds: { x: 500, y: 100, width: 400, height: 600 },
       visible: true,
-      dpr: devicePixelRatio,
     }),
   );
 });
@@ -141,13 +142,13 @@ test("switching to another tool hides the embedded page", async () => {
   expect(last()?.threadId).toBe("thread-cold-start");
 });
 
-test("the embedded page steps aside while the tab's menu is open over it", async () => {
+test("the embedded page stays visible outside the open menu", async () => {
   const { panel } = await openEmbeddedBrowser();
   await waitFor(() => expect(last()?.visible).toBe(true));
   await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
   await screen.findByRole("menu");
-  await waitFor(() => expect(last()?.visible).toBe(false));
-  expect(within(panel).getByRole("img", { name: /^Live view of / })).toBeTruthy();
+  await waitFor(() => expect(last()?.bounds.y).toBe(250));
+  expect(last()?.visible).toBe(true);
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   await waitFor(() => expect(last()?.visible).toBe(true));
@@ -171,13 +172,17 @@ test("a page from the daemon's own headless browser is never placed natively", a
   expect(placed).toEqual([]);
 });
 
-test("a click on the agent's page takes control, and the page takes input once it's granted", async () => {
+test("a click on the agent's page asks before taking control", async () => {
   const { panel } = await openEmbeddedBrowser();
   await waitFor(() => expect(last()?.visible).toBe(true));
   // The agent drives the page: nothing names this client as its holder.
   expect(last()?.owner).toBeUndefined();
   const count = placed.length;
   act(() => wantsControl?.({ threadId: "thread-cold-start" }));
+  await waitFor(() => expect(screen.getAllByRole("button", { name: "Take over" }).length).toBe(2));
+  const question = screen.getAllByRole("button", { name: "Take over" }).at(-1)!;
+  expect(last()?.owner).toBeUndefined();
+  await userEvent.click(question);
   await within(panel).findByText("You're browsing", { exact: false });
   // The connection the daemon's take-control reply named, which the desktop checks the lease
   // against before any input reaches the page.
@@ -219,9 +224,10 @@ test("a panel move without a resize updates the native page before its next pain
   await openEmbeddedBrowser();
   await waitFor(() => expect(last()?.bounds.x).toBe(500));
   pageX = 610;
+  act(() => window.dispatchEvent(new Event("resize")));
   await waitFor(() => expect(last()?.bounds.x).toBe(610));
 });
-test("inline address suggestions hide the native page until they close", async () => {
+test("inline address suggestions leave the native page clear of the list", async () => {
   const { panel } = await openEmbeddedBrowser();
   await waitFor(() => expect(last()?.visible).toBe(true));
   suggestionVisible = true;
@@ -230,7 +236,8 @@ test("inline address suggestions hide the native page until they close", async (
   await userEvent.clear(input);
   await userEvent.type(input, "localhost");
   await within(panel).findByRole("listbox");
-  await waitFor(() => expect(last()?.visible).toBe(false));
+  await waitFor(() => expect(last()?.bounds.y).toBe(250));
+  expect(last()?.visible).toBe(true);
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(last()?.visible).toBe(true));
 });
@@ -269,10 +276,11 @@ test("an old show acknowledgment cannot hide the fallback beneath an open menu",
   });
   const { panel } = await openEmbeddedBrowser();
   await waitFor(() => expect(last()?.visible).toBe(true));
+  const originalReceipt = resolve;
   await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
   await screen.findByRole("menu");
-  await waitFor(() => expect(last()?.visible).toBe(false));
-  await act(async () => resolve?.(true));
+  await waitFor(() => expect(last()?.bounds.y).toBe(250));
+  await act(async () => originalReceipt?.(true));
   expect(within(panel).getByRole("img", { name: /^Live view of / })).toBeTruthy();
 });
 
@@ -343,10 +351,11 @@ test("an older same-bounds refusal cannot replace a newer acknowledged view", as
   await waitFor(() => expect(receipts.length).toBe(1));
   await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
   await screen.findByRole("menu");
-  await waitFor(() => expect(last()?.visible).toBe(false));
+  await waitFor(() => expect(last()?.bounds.y).toBe(250));
+  expect(last()?.visible).toBe(true);
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(receipts.length).toBe(2));
-  await act(async () => receipts[1]?.("shown"));
+  await waitFor(() => expect(receipts.length).toBe(3));
+  await act(async () => receipts[2]?.("shown"));
   await waitFor(() =>
     expect(within(panel).queryByRole("img", { name: /^Live view of / })).toBeNull(),
   );

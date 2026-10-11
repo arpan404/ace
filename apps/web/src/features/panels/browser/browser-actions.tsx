@@ -42,7 +42,6 @@ export function BrowserActions(props: {
   onFind(): void;
   downloads: NonNullable<BrowserView["downloads"]>;
   privately: boolean;
-  onNewTab(): void;
   /** Make private, when the page can be made private from here. */
   onPrivate?: (() => void) | undefined;
 }) {
@@ -97,10 +96,6 @@ export function BrowserActions(props: {
           <DotsThreeIcon aria-hidden size={16} weight="bold" />
         </MenuTrigger>
         <MenuContent align="end">
-          <MenuItem icon={icon(PlusIcon)} keys="mod+t" resolve={false} onClick={props.onNewTab}>
-            New browser tab
-          </MenuItem>
-          <MenuSeparator />
           <MenuItem
             icon={icon(MagnifyingGlassIcon)}
             keys="mod+f"

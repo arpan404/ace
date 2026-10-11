@@ -13,11 +13,13 @@ export class BrowserDocumentHistory {
     const history = this.tabs.get(tabId) ?? emptyHistory;
     return { back: canStep(history, -1), forward: canStep(history, 1) };
   }
-  move(tabId: string, direction: "back" | "forward" | "reload") {
+  move(tabId: string, direction: "back" | "forward" | "reload" | "stop") {
     const history = this.tabs.get(tabId) ?? emptyHistory;
     const next =
-      direction === "reload" ? history : stepHistory(history, direction === "back" ? -1 : 1);
-    if (direction !== "reload" && next === history) return undefined;
+      direction === "reload" || direction === "stop"
+        ? history
+        : stepHistory(history, direction === "back" ? -1 : 1);
+    if (direction !== "reload" && direction !== "stop" && next === history) return undefined;
     this.tabs.set(tabId, next);
     return next.entries[next.index];
   }

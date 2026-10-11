@@ -27,16 +27,32 @@ it("denies invalid URLs, requests over capacity, lost views and unanswered reque
     const reply = (allowed: boolean) => decisions.push(allowed);
     for (const url of ["https://app.example", "ws://user:pass@app.example", "invalid"])
       gate.request(url, () => {}, reply);
-    for (let count = 0; count < 33; count++)
+    for (let count = 0; count < 1025; count++)
       gate.request("wss://app.example/socket", () => {}, reply);
     expect(decisions).toEqual([false, false, false, false]);
-    vi.advanceTimersByTime(10_000);
-    expect(decisions).toHaveLength(36);
+    vi.advanceTimersByTime(95_000);
+    expect(decisions).toHaveLength(1028);
     expect(decisions.every((value) => value === false)).toBe(true);
     gate.request("wss://app.example/socket", () => {}, reply);
     gate.close();
-    expect(decisions).toHaveLength(37);
+    expect(decisions).toHaveLength(1029);
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("an auth page's asset burst waits for decisions instead of losing requests after 32", () => {
+  const gate = new WebSocketGate(new Set(["https:"]), "popup-");
+  const ids: string[] = [];
+  const decisions: boolean[] = [];
+  for (let index = 0; index < 40; index++)
+    gate.request(
+      `https://site.example/asset-${index}`,
+      (_method, raw) => ids.push(Request.parse(raw).id),
+      (allowed) => decisions.push(allowed),
+    );
+  expect(decisions).toEqual([]);
+  for (const id of ids) gate.command("ace.webSocketDecision", { id, allowed: true });
+  expect(decisions).toEqual(Array.from({ length: 40 }, () => true));
+  gate.close();
 });

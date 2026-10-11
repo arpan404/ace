@@ -13,7 +13,12 @@ import {
 } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
-import { threadWorkspace, ThreadPartsProvider, useThreadParts } from "@/features/panels/index.ts";
+import {
+  loadThreadBrowser,
+  threadWorkspace,
+  ThreadPartsProvider,
+  useThreadParts,
+} from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
 import type { ComposerHandle } from "./composer/composer.tsx";
@@ -25,6 +30,8 @@ import { ThreadLink } from "./transitions/thread-link.tsx";
 import { ForkOpener } from "./transitions/fork-opener.ts";
 import { ThreadLoadError } from "./thread-load-error.tsx";
 import { useLatestForkPoint } from "./transitions/use-fork-point.ts";
+
+const ThreadBrowser = lazy(loadThreadBrowser);
 
 // Loaded on first open, off the route's first paint.
 const PendingThreadView = lazy(() =>
@@ -241,6 +248,9 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                 <Transcript threadId={id} />
               </div>
               <TargetJump target={props.target} />
+              <Suspense fallback={null}>
+                <ThreadBrowser threadId={id} />
+              </Suspense>
               {thread && (
                 <ThreadComposer thread={thread} status={meta?.status} composer={composer} />
               )}

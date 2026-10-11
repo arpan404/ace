@@ -24,6 +24,18 @@ function overlayRoots(under: Element): Element[] {
 export function overlayBoxes(under: Element): DOMRectReadOnly[] {
   const boxes: DOMRectReadOnly[] = [];
   const visit = (element: Element, depth: number) => {
+    // Base UI's transparent pointer guard spans the viewport around a menu. It is
+    // an input shield, not a painted backdrop; only the popup needs native clearance.
+    if (element.hasAttribute("data-base-ui-focus-guard")) return;
+    if (element.hasAttribute("data-base-ui-inert") && element.childElementCount === 0) {
+      const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+      if (
+        style?.clipPath &&
+        style.clipPath !== "none" &&
+        style.backgroundColor === "rgba(0, 0, 0, 0)"
+      )
+        return;
+    }
     const rect = element.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
       boxes.push(rect);
@@ -39,8 +51,8 @@ export function overlayBoxes(under: Element): DOMRectReadOnly[] {
 
 /**
  * Calls back (once per frame at most) whenever something drawn over the app may have
- * appeared, moved or gone. Only <body>'s own children and the overlays' subtrees are watched,
- * never the app's root, so the app's own rendering costs nothing here.
+ * appeared, moved or gone. Portal subtrees are watched directly; changes in the app
+ * only matter when they add or remove an explicitly marked inline overlay.
  */
 export function observeOverlays(under: Element, onChange: () => void): () => void {
   if (typeof MutationObserver === "undefined") return () => {};
@@ -54,7 +66,10 @@ export function observeOverlays(under: Element, onChange: () => void): () => voi
   const inside = new MutationObserver(schedule);
   const watchRoots = () => {
     inside.disconnect();
-    for (const root of overlayRoots(under))
+    for (const root of [
+      ...overlayRoots(under),
+      ...under.ownerDocument.querySelectorAll("[data-native-overlay]"),
+    ])
       inside.observe(root, { childList: true, subtree: true, attributes: true });
   };
   const top = new MutationObserver(() => {
@@ -62,8 +77,26 @@ export function observeOverlays(under: Element, onChange: () => void): () => voi
     schedule();
   });
   top.observe(under.ownerDocument.body, { childList: true });
+  const inline = new MutationObserver((records) => {
+    if (
+      !records.some((record) =>
+        [...record.addedNodes, ...record.removedNodes].some(
+          (node) =>
+            node instanceof Element &&
+            (node.matches("[data-native-overlay]") || node.querySelector("[data-native-overlay]")),
+        ),
+      )
+    )
+      return;
+    watchRoots();
+    schedule();
+  });
+  const app = under.ownerDocument.body.children;
+  for (const root of app)
+    if (root.contains(under)) inline.observe(root, { childList: true, subtree: true });
   watchRoots();
   return () => {
+    inline.disconnect();
     top.disconnect();
     inside.disconnect();
     cancel?.();

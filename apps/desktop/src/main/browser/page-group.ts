@@ -14,6 +14,7 @@ interface Tab {
   page: EmbeddedPage;
   title: string;
   url: string;
+  mainFrame?: string;
   stop(): void;
   blocked(): void;
 }
@@ -68,7 +69,8 @@ export class EmbeddedPageGroup implements ViewPage {
     this.emit("ace.tabs.changed", this.snapshot());
   }
   async openTab(): Promise<string> {
-    if (this.closed || this.tabs.size + this.opening >= 8) throw new Error("Browser tab limit");
+    if (this.active) return this.active;
+    if (this.closed || this.opening >= 1) throw new Error("Browser tab limit");
     this.opening++;
     const id = `native-tab-${++this.sequence}`;
     try {
@@ -114,11 +116,25 @@ export class EmbeddedPageGroup implements ViewPage {
         if (method === "Page.frameNavigated") {
           const nav = z
             .object({
-              frame: z.object({ url: z.string().max(8192), parentId: z.string().optional() }),
+              frame: z.object({
+                id: z.string(),
+                url: z.string().max(8192),
+                parentId: z.string().optional(),
+              }),
             })
             .safeParse(params);
           if (nav.success && !nav.data.frame.parentId) {
+            tab.mainFrame = nav.data.frame.id;
             tab.url = nav.data.frame.url;
+            this.changed();
+          }
+        }
+        if (method === "Page.navigatedWithinDocument") {
+          const nav = z
+            .object({ frameId: z.string(), url: z.string().max(8192) })
+            .safeParse(params);
+          if (nav.success && nav.data.frameId === tab.mainFrame) {
+            tab.url = nav.data.url;
             this.changed();
           }
         }
