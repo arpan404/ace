@@ -38,6 +38,10 @@ Each agent CLI owns its credentials. ace can start its login or hand a pasted AP
 The [agent browser and computer tool contract](docs/daemon/agent-tools.md) documents
 scoped MCP calls, navigation waits, origin approval and control handback.
 
+The [source-control draft workflow](docs/daemon/source-control-drafts.md) documents
+editable commit and PR text generated through the user's own CLI, source revisions
+and cancellation.
+
 The generated [protocol reference](docs/protocol/README.md) covers WebSocket messages, canonical events and built-in MCP tools. Regenerate it with `bun run docs:protocol`.
 
 ## Development

@@ -1,3 +1,4 @@
+import { writingContext } from "./writing-context.ts";
 import { z } from "zod";
 import type { Repository } from "./repository.ts";
 import { GitError } from "./types.ts";
@@ -29,6 +30,7 @@ export async function commitChanges(
     worktree: string;
     message: string;
     expectedHead: string | null;
+    draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
   },
 ): Promise<string> {
@@ -42,6 +44,14 @@ export async function commitChanges(
     const info = await repository.info(root);
     if (info.head !== expected)
       throw new GitError("head_moved", "HEAD changed; refresh before committing");
+    if (options.draftFingerprint) {
+      if (
+        !paths ||
+        (await writingContext(repository, root, { kind: "commit", paths: paths.data }))
+          .fingerprint !== options.draftFingerprint
+      )
+        throw new GitError("head_moved", "Draft changes moved; regenerate or discard the draft");
+    }
     const status = await repository.status(root);
     if (status.conflicted.length)
       throw new GitError("conflicts", "Resolve conflicts before committing");
