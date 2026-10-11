@@ -118,6 +118,8 @@ function ComposerContent({
    * `useComposerCompact()` too.
    */
   attached?: ReactNode;
+  /** The queue shares the input's width and sits directly on its top edge. */
+  queued?: ReactNode;
   /** Quiet environment controls below the box, sharing its compact-width context. */
   environment?: ReactNode;
   /**
@@ -670,6 +672,7 @@ function ComposerBody({
       )}
       <ComposerCompact value={compact}>
         {props.attached}
+        {props.queued}
         <div
           data-slot="composer"
           onDragOver={(event) => {

@@ -29,6 +29,7 @@ import {
   DeferredModelControl,
   DeferredPermissionControl,
   DeferredQueueArea,
+  DeferredQueuedMessages,
 } from "./deferred-parts.tsx";
 import {
   DeferredEnvironmentStrip,
@@ -244,6 +245,11 @@ export function ThreadComposer({
         typeToFocus
         reader={reader}
         sendsWhileUploading
+        queued={
+          <Suspense fallback={null}>
+            <DeferredQueuedMessages.Component key={props.thread.id} threadId={props.thread.id} />
+          </Suspense>
+        }
         attached={
           <Suspense fallback={null}>
             <UsageNotice threadId={props.thread.id} />

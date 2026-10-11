@@ -1,10 +1,42 @@
-import { QueuedBubbles } from "./queued.tsx";
+import { QueuedTray } from "./queued.tsx";
+import { useThread } from "@ace/client-react";
+import type { ThreadReader } from "@ace/client";
+import { useCallback } from "react";
+import { useActiveRootRun, useStopping } from "./stop-state.ts";
 import { useQueuedPending } from "./queued-pending.ts";
 import { useQueue } from "./use-queue.ts";
 
-/** Pending messages follow the current output, distinct from the confirmed virtual feed. */
+const queueOf = (reader: ThreadReader) => reader.queue;
+
+/** Pending sends and daemon entries share the tray, keeping their stable command ids. */
 export function QueuedMessages(props: { threadId: string }) {
   const queue = useQueue(props.threadId);
-  const pending = useQueuedPending(props.threadId, queue.page);
-  return <QueuedBubbles queue={queue} pending={pending} />;
+  const pending = useQueuedPending(props.threadId, queue.page, queue.retained);
+  const hold = useThread(props.threadId, ["queue"], queueOf);
+  const run = useActiveRootRun(props.threadId);
+  const active = useThread(
+    props.threadId,
+    run ? [`run:${run}`] : [],
+    useCallback((reader: ThreadReader) => !!run && reader.run(run)?.state === "active", [run]),
+  );
+  const stopping = useStopping(props.threadId);
+  const steerReason = !queue.canSteer
+    ? "This provider doesn't support steering."
+    : stopping
+      ? "The turn is stopping."
+      : (hold?.paused ?? queue.page?.paused)
+        ? "Resume the queue before steering."
+        : !active
+          ? "There is no running turn to steer."
+          : queue.failed || !queue.page || (hold && hold.revision !== queue.page.revision)
+            ? "Wait for the queue to refresh."
+            : undefined;
+  return (
+    <QueuedTray
+      threadId={props.threadId}
+      queue={queue}
+      pending={pending}
+      steerReason={steerReason}
+    />
+  );
 }
