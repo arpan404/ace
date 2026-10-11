@@ -144,7 +144,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
       if (op.op === "git.draft.generate")
         generations.set(op.input.generationId, { threadId: op.threadId, controller });
       const task = options.workspaceActions
-.read(message, AbortSignal.any([lifetime.signal, controller.signal]))
+        .read(message, AbortSignal.any([lifetime.signal, controller.signal]))
         .then((result) => {
           if (
             connected() &&

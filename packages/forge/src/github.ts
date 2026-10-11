@@ -153,7 +153,12 @@ export class GitHubForge implements Forge, ForgeBrowser {
     if (!z.object({ id: positive }).safeParse(response.body).success)
       throw new ForgeError("invalid_data");
   }
-  async requestReviews(number: number, reviewers: string[], signal: AbortSignal, dispatch?: WriteDispatch): Promise<void> {
+  async requestReviews(
+    number: number,
+    reviewers: string[],
+    signal: AbortSignal,
+    dispatch?: WriteDispatch,
+  ): Promise<void> {
     this.#ref(number);
     const names = z
       .array(z.string().regex(/^[\w-]+$/))

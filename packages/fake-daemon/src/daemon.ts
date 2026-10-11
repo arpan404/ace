@@ -333,7 +333,12 @@ export class FakeDaemon implements Host {
   /** Threads' checkouts behind `workspace.request` and the git commands (`git.status`). */
   get workspace(): Pick<
     FakeWorkspaceWire,
-    "gitStatus" | "setGitStatus" | "setGitDiff" | "setEditors" | "setForgeRead" | "setDraftGenerator"
+    | "gitStatus"
+    | "setGitStatus"
+    | "setGitDiff"
+    | "setEditors"
+    | "setForgeRead"
+    | "setDraftGenerator"
   > {
     return this.servicesWire.workspace;
   }

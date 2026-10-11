@@ -15,7 +15,6 @@ export class WriteDispatch {
     this.#failed = false;
   }
   reject(error: unknown): void {
-    if (error instanceof ForgeError && error.dispatched === false)
-      this.#failed = true;
+    if (error instanceof ForgeError && error.dispatched === false) this.#failed = true;
   }
 }

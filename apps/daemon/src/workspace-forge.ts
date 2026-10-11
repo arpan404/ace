@@ -88,7 +88,10 @@ export class WorkspaceForge {
       };
     if (operation.op === "forge.pr.files")
       return { resource: "prFiles", value: await backend.prFiles(operation, signal) };
-    const value = await backend.prDetail(operation.number, signal);
+    const { value, writeState } = await this.actions.readDetail(
+      { repository, number: operation.number },
+      () => backend.prDetail(operation.number, signal),
+    );
     const threads = this.store
       .atomic((db) =>
         db
@@ -105,7 +108,7 @@ export class WorkspaceForge {
       resource: "prDetail",
       value: {
         ...value,
-        writeState: this.actions.observe(value.status),
+        writeState,
         relatedThreads: threads.slice(0, 100).map((thread) => ({
           id: thread.id,
           title: thread.title,
@@ -402,8 +405,10 @@ export class WorkspaceForge {
       return this.actions.execute(p, backend, this.lifetime.signal, allowed, (status) =>
         this.projection.update(id, status, generation),
       );
-    const status = await backend.status(p.link.pr.number, this.lifetime.signal);
-    this.actions.observe(status);
+    const { value } = await this.actions.readDetail(p.link.pr, async () => ({
+      status: await backend.status(p.link.pr.number, this.lifetime.signal),
+    }));
+    const status = value.status;
     this.projection.update(id, status, generation);
     return { ok: true, pr: status.ref, prStatus: status };
   }

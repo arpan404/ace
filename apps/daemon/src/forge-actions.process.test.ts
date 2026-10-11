@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -229,7 +229,8 @@ test("an uncertain reply cannot be retried with another body or reconciled by an
   };
   records[`${path}/comments?per_page=100`] = [
     { body: [reply] },
-    { body: [{ ...reply, user: { login: "octo" } }] },
+    { body: [reply] },
+    { body: [{ ...reply, id: 31, user: { login: "octo" } }] },
   ];
   const app = await environment(records);
   const action = { type: "forge.comment.reply", link, commentId: 13, body: "Fixed" } as const;
@@ -293,5 +294,116 @@ test("uncertain review requests and auto-merge intents are resolved by their hos
     } finally {
       await app.close();
     }
+  }
+});
+
+for (const action of [merge, { ...merge, type: "forge.pr.auto-merge" } as const]) {
+  test(`a missing gh executable does not strand ${action.type} behind a permanent fence`, async () => {
+    const records = fixtures();
+    records[mergePath] = [{ body: { merged: true } }];
+    records["auto-merge"] = [{ body: null }];
+    records[path] = [{ body: hosted }, { body: merged }];
+    const app = await environment(records);
+    const backup = `${app.gh.executable}.saved`;
+    try {
+      await rename(app.gh.executable, backup);
+      expect(await app.command("not-installed", action)).toMatchObject({
+        ok: false,
+        error: "forge_cli",
+      });
+      await rename(backup, app.gh.executable);
+      const detail = await app.detail();
+      if (detail.result.kind !== "forge" || detail.result.data.resource !== "prDetail")
+        throw new Error("Missing detail");
+      expect(detail.result.data.value.writeState).toBeUndefined();
+      expect(await app.command("installed-now", action)).toMatchObject({ ok: true });
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+test("an empty reply fails locally without fencing a later valid reply", async () => {
+  const records = fixtures();
+  records.user = [{ body: { login: "octo" } }];
+  records[`${path}/comments/13/replies`] = [{ body: { id: 31 } }];
+  const app = await environment(records);
+  const action = { type: "forge.comment.reply", link, commentId: 13, body: "" } as const;
+  try {
+    expect(await app.command("empty", action)).toMatchObject({ ok: false });
+    expect(await app.command("valid", { ...action, body: "Fixed" })).toMatchObject({ ok: true });
+    expect(await writes(app.gh)).toEqual([expect.objectContaining({ body: { body: "Fixed" } })]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a pre-merge detail read cannot retire an accepted merge fence after its status read fails", async () => {
+  const records = fixtures();
+  records[path] = [{ body: hosted }, { status: 503 }, { body: merged }];
+  records[mergePath] = [{ body: { merged: true } }];
+  const first = records.graphql?.[0];
+  records.graphql = [{ ...first, barrier: "old-read" }, first ?? {}];
+  const app = await environment(records);
+  try {
+    const oldRead = app.detail().then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    await app.gh.waitForRequest("graphql");
+    expect(await app.command("merge-spanning-read")).toMatchObject({
+      ok: true,
+      code: "forge_status_unavailable",
+    });
+    await app.gh.release("old-read");
+    expect(await oldRead).toMatchObject({ error: { kind: "conflict" } });
+    expect(await app.command("reconcile-only")).toMatchObject({
+      ok: true,
+      code: "forge_action_reconciled",
+      prStatus: { state: "merged" },
+    });
+    expect(await writes(app.gh)).toEqual([expect.objectContaining({ path: mergePath })]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a pre-existing identical reply cannot reconcile a later reply whose acknowledgement was lost", async () => {
+  const records = fixtures();
+  records.user = [{ body: { login: "octo" } }];
+  records[`${path}/comments/13/replies`] = [{ raw: "lost acknowledgement" }];
+  const old = {
+    id: 30,
+    body: "Fixed",
+    in_reply_to_id: 13,
+    user: { login: "octo" },
+    path: "src/main.ts",
+    line: 12,
+    updated_at: "2026-10-11",
+  };
+  records[`${path}/comments?per_page=100`] = [
+    { body: [old] },
+    { body: [old] },
+    { body: [old, { ...old, id: 31 }] },
+  ];
+  const app = await environment(records);
+  const action = { type: "forge.comment.reply", link, commentId: 13, body: "Fixed" } as const;
+  try {
+    expect(await app.command("reply-again", action)).toMatchObject({
+      ok: false,
+      error: "forge_write_uncertain",
+    });
+    await app.restart();
+    expect(await app.command("old-match", action)).toMatchObject({
+      ok: false,
+      error: "forge_write_uncertain",
+    });
+    expect(await app.command("new-match", action)).toMatchObject({
+      ok: true,
+      code: "forge_action_reconciled",
+    });
+    expect(await writes(app.gh)).toEqual([expect.objectContaining({ body: { body: "Fixed" } })]);
+  } finally {
+    await app.close();
   }
 });
