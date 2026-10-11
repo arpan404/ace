@@ -81,3 +81,16 @@ async fn removal_signals_retire_refs_even_if_no_read_observes_the_missing_object
     fixture.ui.act(&replacement, "press", None).await.unwrap();
     assert_eq!(fixture.control.lock().unwrap().presses, 1);
 }
+
+#[tokio::test]
+async fn a_clipped_final_match_keeps_find_truncated_when_no_more_children_remain() {
+    let mut fixture = Fixture::new().await;
+    fixture.control.lock().unwrap().name = "x".repeat(257);
+    let query = Query { role: Some("button".into()), ..Default::default() };
+    let found = fixture.ui.find(&query, 1).await.unwrap();
+    assert_eq!(found["nodes"].as_array().unwrap().len(), 1);
+    assert_eq!(found["nodes"][0]["name"].as_str().unwrap(), "x".repeat(256));
+    assert_eq!(found["truncated"], true);
+    fixture.control.lock().unwrap().name = "ordinary".into();
+    assert_eq!(fixture.ui.find(&query, 1).await.unwrap()["truncated"], false);
+}

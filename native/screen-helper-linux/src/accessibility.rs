@@ -403,7 +403,7 @@ impl Accessibility {
                 reply_bytes += bytes;
                 found.push(node);
                 if found.len() == limit {
-                    truncated = count > 0 || !stack.is_empty();
+                    truncated |= count > 0 || !stack.is_empty();
                     break;
                 }
             }
