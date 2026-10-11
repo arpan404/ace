@@ -16,6 +16,7 @@ interface HeldRecord extends Metadata {
 }
 const key = "ace.sends.staged";
 const limit = 32;
+const prefix = `${key}\0`;
 const RawEntries = z.array(z.unknown());
 const all = new Observable<readonly HeldRecord[]>([]);
 let storage: KeyValueStorage | undefined;
@@ -25,14 +26,29 @@ export let pageId: string = crypto.randomUUID();
 const ownerLock = (owner: string) => `ace-staged-${owner}`;
 let holdingLock = false;
 
-function read(): readonly HeldRecord[] {
-  return readJson(storage, key, RawEntries, []).flatMap((value) => {
+function entries(values: readonly unknown[]): readonly HeldRecord[] {
+  return values.flatMap((value) => {
     const metadata = Metadata.safeParse(value);
     return metadata.success ? [{ ...metadata.data, value }] : [];
   });
 }
+function read(): readonly HeldRecord[] {
+  const legacy = readJson(storage, key, RawEntries, []);
+  if (!storage?.key || storage.length === undefined) return entries(legacy);
+  const values: unknown[] = [];
+  for (let index = 0; index < storage.length; index++) {
+    const name = storage.key(index);
+    if (name?.startsWith(prefix)) {
+      const record = readJson(storage, name, z.unknown(), undefined);
+      if (record !== undefined) values.push(record);
+    }
+  }
+  const records = new Map(entries(legacy).map((entry) => [entry.commandId, entry]));
+  for (const entry of entries(values)) records.set(entry.commandId, entry);
+  return [...records.values()];
+}
 function changed(event: StorageEvent): void {
-  if (event.key === key) all.set(read());
+  if (event.key === null || event.key === key || event.key.startsWith(prefix)) all.set(read());
 }
 
 /** The one persisted hold store, shared by recovery metadata and deferred payload readers. */
@@ -46,25 +62,71 @@ export function heldSendStore(store: KeyValueStorage | undefined): typeof all {
   return all;
 }
 
-export function saveHeldSends(values: readonly Metadata[], persisted: readonly unknown[]): boolean {
-  if (values.length > limit) return false;
-  if (!storage) return false;
+/** Read durable ownership before a mutation, without relying on asynchronous storage events. */
+export function refreshHeldSends(): void {
+  all.set(read());
+}
+
+function migrate(): void {
+  if (!storage?.key || storage.length === undefined) return;
+  for (const entry of entries(readJson(storage, key, RawEntries, []))) {
+    const name = prefix + entry.commandId;
+    if (storage.getItem(name) === null) storage.setItem(name, JSON.stringify(entry.value));
+  }
+  // Only remove the old aggregate after every record is independently durable.
+  storage.removeItem?.(key);
+}
+
+/** Change just this command's durable record. Other tabs never replace its neighbours. */
+export function saveHeldSend(value: Metadata, persisted: unknown): boolean {
+  if (!storage || storage.durable === false) return false;
   try {
-    storage.setItem(key, JSON.stringify(persisted));
+    const current = read();
+    if (current.length >= limit && !current.some((entry) => entry.commandId === value.commandId))
+      return false;
+    migrate();
+    if (storage.key && storage.length !== undefined)
+      storage.setItem(prefix + value.commandId, JSON.stringify(persisted));
+    else
+      storage.setItem(
+        key,
+        JSON.stringify([
+          ...current
+            .filter((entry) => entry.commandId !== value.commandId)
+            .map((entry) => entry.value),
+          persisted,
+        ]),
+      );
+    all.set(read());
+    return true;
   } catch {
     return false;
   }
-  const kept = values;
-  all.set(
-    kept.map((value) => ({
-      commandId: value.commandId,
-      threadId: value.threadId,
-      owner: value.owner,
-      failed: value.failed,
-      value,
-    })),
-  );
-  return true;
+}
+
+export function deleteHeldSend(commandId: string): boolean {
+  if (!storage) return false;
+  try {
+    migrate();
+    if (storage.key && storage.length !== undefined) {
+      // A null tombstone also works with injected stores without removeItem.
+      storage.setItem(prefix + commandId, "null");
+      storage.removeItem?.(prefix + commandId);
+    } else {
+      storage.setItem(
+        key,
+        JSON.stringify(
+          read()
+            .filter((entry) => entry.commandId !== commandId)
+            .map((entry) => entry.value),
+        ),
+      );
+    }
+    all.set(read());
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function holdPageLock(): void {

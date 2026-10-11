@@ -1,4 +1,4 @@
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { Client } from "@ace/client";
 import { DeviceId } from "@ace/protocol";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
@@ -70,12 +70,12 @@ test("a full device refuses another upload-held message without losing accepted 
   reloadPage();
   const retained = stagedSends(app.storage).get();
   expect(retained).toHaveLength(32);
-  expect(retained.find((send) => send.commandId === "held-0")?.text).toBe("Message 0");
+  expect(retained.find((entry) => entry.commandId === "held-0")?.text).toBe("Message 0");
   await sendWhenUploaded(app.client, "held-0", Promise.resolve([{ error: "offline" }]));
   expect(
     stagedSends(app.storage)
       .get()
-      .find((send) => send.commandId === "held-0")?.failed,
+      .find((entry) => entry.commandId === "held-0")?.failed,
   ).toContain("offline");
   await app.client.close();
 });
@@ -114,5 +114,68 @@ test("a rejected staged write refuses the handoff and a later retry survives rel
       .get()
       .map((send) => send.text),
   ).toEqual(["Keep my draft"]);
+  await app.client.close();
+});
+
+const makeStaged = (commandId: string, text: string) => ({
+  commandId,
+  threadId: "thread-a",
+  text,
+  mentions: [],
+  attachments: [{ name: "notes.txt", mimeType: "text/plain", bytes: 4 }],
+});
+
+test("two initialized tabs retain both uploads and one tab's removal cannot erase the other's draft", async () => {
+  localStorage.clear();
+  const app = harness();
+  await app.client.start();
+  vi.resetModules();
+  const first = await import("./composer/staged-sends.ts");
+  first.stagedSends(localStorage);
+  vi.resetModules();
+  const second = await import("./composer/staged-sends.ts");
+  second.stagedSends(localStorage);
+  expect(first.stage(makeStaged("alpha", "Alpha"), { files: [], previews: [] })).toBe(true);
+  expect(second.stage(makeStaged("beta", "Beta"), { files: [], previews: [] })).toBe(true);
+  // Neither page has received a storage event. A reload reads only durable records.
+  first.reloadPage();
+  expect(
+    first
+      .stagedSends(localStorage)
+      .get()
+      .map((send) => send.text)
+      .toSorted(),
+  ).toEqual(["Alpha", "Beta"]);
+  expect(
+    await first.sendWhenUploaded(
+      app.client,
+      "alpha",
+      Promise.resolve([{ sha256: "a".repeat(64) }]),
+    ),
+  ).toBe(true);
+  expect(second.stage(makeStaged("gamma", "Gamma"), { files: [], previews: [] })).toBe(true);
+  expect(
+    await second.sendWhenUploaded(
+      app.client,
+      "beta",
+      Promise.resolve([{ sha256: "b".repeat(64) }]),
+    ),
+  ).toBe(true);
+  expect(
+    app.client
+      .pendingSends()
+      .getSnapshot()
+      .map((send) => send.payload.input),
+  ).toEqual([[{ type: "text", text: "Alpha" }], [{ type: "text", text: "Beta" }]]);
+  first.reloadPage();
+  expect(
+    first
+      .stagedSends(localStorage)
+      .get()
+      .map((send) => send.text),
+  ).toEqual(["Gamma"]);
+  first.reloadPage();
+  second.reloadPage();
+  localStorage.clear();
   await app.client.close();
 });
