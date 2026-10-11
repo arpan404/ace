@@ -314,6 +314,7 @@ export class DelegationService {
       throw new Error("Forbidden restart");
     const id = controlCommandId(caller.threadId, requestId, "thread.restart_message");
     return this.deps.store.recordCommand(CommandId.parse(id), DeviceId.parse("ace-agent"), () => {
+      this.cancelPreparations(threadId);
       const tree = this.journal.tree(threadId, this.deps.clock.now());
       for (const child of this.journal
         .family(tree.root)
@@ -486,15 +487,24 @@ export class DelegationService {
     }
   }
   onRemoteCancel: ((thread: ThreadId) => void) | undefined;
+  private cancelPreparations(thread: ThreadId): void {
+    this.reservationLifetimes.cancel(thread, (target, ancestor) =>
+      this.journal.isDescendant(target, ancestor),
+    );
+    for (const reservation of this.journal.reservations())
+      if (
+        reservation.record.parentId === thread ||
+        this.journal.isDescendant(reservation.record.parentId, thread)
+      )
+        this.journal.release(reservation);
+  }
   cancelDescendants(thread: ThreadId, request = this.deps.id()) {
     this.deps.store.atomic(() => {
       this.onRemoteCancel?.(thread);
       const tree = this.journal.tree(thread, this.deps.clock.now());
       this.journal.cancel(thread);
       if (this.deps.store.getThread(thread)) this.deps.engine.discardRecovery(thread);
-      this.reservationLifetimes.cancel(thread, (target, ancestor) =>
-        this.journal.isDescendant(target, ancestor),
-      );
+      this.cancelPreparations(thread);
       const own = this.journal.get(thread);
       if (own && own.phase !== "settled") {
         own.phase = "cancelling";

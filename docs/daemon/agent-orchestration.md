@@ -76,6 +76,9 @@ Workspace strategies are explicit for conversation launch, optional for children
   prepares a daemon-owned worktree through the existing Git creation owner.
   Omit `remote` for a local branch. Creation and failed-acceptance cleanup survive
   restart. Capacity is reserved before Git effects.
+  Agent requests skip automatic setup scripts. Preparation and compensating
+  cleanup use the shared Git policy that disables hooks, fsmonitor and configured
+  filters, including LFS. Retained checkouts keep this policy across owner restart.
 - `{ "kind": "existing_worktree", "path": "/absolute/registered/path" }` reuses
   a worktree registered to that Git project. Arbitrary directories are rejected.
 
@@ -84,6 +87,8 @@ provider's existing fallback to queue. Restart atomically accepts a cascade
 interrupt and replacement input, clears obsolete recovery holds and puts the
 new input before retained queued messages. Retrying its request ID cannot issue
 another interrupt or duplicate its input. Descendant child work is cancelled;
+pending preparation signals are cancelled and their durable reservations revoked,
+so an obsolete child cannot launch after restart acceptance;
 the target thread remains available for the replacement turn.
 
 `ace_thread_interrupt` stops an owned thread tree. `ace_thread_configure` changes
@@ -101,7 +106,11 @@ raise that captured ceiling. The engine checks creation, permission changes and
 session resolution, including provider/model transitions. Catalog risk labels
 are display metadata and are never used as a containment ordering.
 
-Known unrestricted modes can launch any native policy. Pi has no native sandbox
+Opaque modes require the same agent, approved installation, account instance and
+backend. The captured identity survives restart. Older ceiling records without
+that identity fail closed rather than inferring it from later caller settings.
+
+Known unrestricted native CLI modes can launch any native policy. Pi has no native sandbox
 or permission mode, as recorded in ADR 0050; its process has the user's OS rights.
 Conservative same-provider reductions are supported. Other cross-provider policies
 or unknown CLI defaults fail closed when containment cannot be established.
