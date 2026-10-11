@@ -42,7 +42,10 @@ test.each(["completed", "inProgress"])(
   (status) => {
     const h = setup();
     h.start();
-    h.item({ id: "spawn", type: "subAgentActivity", kind: "started", agentThreadId: "child" }, true);
+    h.item(
+      { id: "spawn", type: "subAgentActivity", kind: "started", agentThreadId: "child" },
+      true,
+    );
     h.start("child", "newer");
     if (status === "completed") h.end("completed", "child", "newer");
     h.end();

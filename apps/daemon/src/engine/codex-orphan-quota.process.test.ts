@@ -14,31 +14,35 @@ test("a delayed orphaned Codex quota end cannot pause the durable queue after su
   const boundary = (method: string, id: string, status?: string) =>
     frame({ method, params: { threadId: "native", turn: { id, status } } });
   const h = await harness(
-    [{
-      on: "send",
-      frames: [
-        frame({ method: "thread/started", params: { thread: { id: "native" } } }),
-        boundary("turn/started", "new"),
-        boundary("turn/completed", "new", "completed"),
-      ],
-    }],
+    [
+      {
+        on: "send",
+        frames: [
+          frame({ method: "thread/started", params: { thread: { id: "native" } } }),
+          boundary("turn/started", "new"),
+          boundary("turn/completed", "new", "completed"),
+        ],
+      },
+    ],
     scriptFrames(),
     { createTranslator: createCodexAdapter().createTranslator },
   );
   let reopened: Engine | undefined;
   try {
     const id = await h.create();
-    h.contexts[0]?.onFrame(frame({
-      method: "turn/completed",
-      params: {
-        threadId: "native",
-        turn: {
-          id: "old",
-          status: "failed",
-          error: { message: "Usage limit reached", codexErrorInfo: "usageLimitExceeded" },
+    h.contexts[0]?.onFrame(
+      frame({
+        method: "turn/completed",
+        params: {
+          threadId: "native",
+          turn: {
+            id: "old",
+            status: "failed",
+            error: { message: "Usage limit reached", codexErrorInfo: "usageLimitExceeded" },
+          },
         },
-      },
-    }));
+      }),
+    );
     await h.engine.flush();
     expect(h.store.getThread(id)?.status.state).toBe("done");
     expect(h.engine.queue(id)).toMatchObject({ paused: false, reason: null });

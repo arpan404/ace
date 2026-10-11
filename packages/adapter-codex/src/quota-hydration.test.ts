@@ -4,28 +4,28 @@ import { setup } from "./translator.test-helper.ts";
 test.each(["missing start", "late acknowledgement"])(
   "an orphaned older quota completion with %s preserves the newer successful outcome",
   (mode) => {
-  const h = setup();
-  if (mode === "late acknowledgement") h.send("turn/start", { threadId: "native" }, 41);
-  h.start("native", "new");
-  h.end("completed", "native", "new");
-  if (mode === "late acknowledgement")
-    h.feed({
-      seq: 41,
-      t: 41,
-      dir: "recv",
-      channel: "stdio",
-      data: { id: 41, result: { turn: { id: "old" } } },
+    const h = setup();
+    if (mode === "late acknowledgement") h.send("turn/start", { threadId: "native" }, 41);
+    h.start("native", "new");
+    h.end("completed", "native", "new");
+    if (mode === "late acknowledgement")
+      h.feed({
+        seq: 41,
+        t: 41,
+        dir: "recv",
+        channel: "stdio",
+        data: { id: 41, result: { turn: { id: "old" } } },
+      });
+    h.recv("turn/completed", {
+      threadId: "native",
+      turn: {
+        id: "old",
+        status: "failed",
+        error: { message: "Usage limit reached", codexErrorInfo: "usageLimitExceeded" },
+      },
     });
-  h.recv("turn/completed", {
-    threadId: "native",
-    turn: {
-      id: "old",
-      status: "failed",
-      error: { message: "Usage limit reached", codexErrorInfo: "usageLimitExceeded" },
-    },
-  });
-  expect(h.state.status.state).toBe("done");
-  expect(Object.values(h.state.runs).find((r) => r.nativeId === "old")?.state).toBe("failed");
+    expect(h.state.status.state).toBe("done");
+    expect(Object.values(h.state.runs).find((r) => r.nativeId === "old")?.state).toBe("failed");
   },
 );
 

@@ -264,6 +264,17 @@ for await (const line of createInterface({ input: process.stdin })) {
         { type: "commandExecution", id: "large-shell", command: "offline", status: "inProgress" },
         false,
       );
+      write({
+        id: 100,
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId: "native",
+          turnId: "turn",
+          itemId: "large-shell",
+          command: "offline",
+          availableDecisions: ["accept", "decline"],
+        },
+      });
       item("native", "turn", {
         type: "commandExecution",
         id: "large-shell",

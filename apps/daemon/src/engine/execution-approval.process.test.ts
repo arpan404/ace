@@ -47,7 +47,10 @@ test.each(["shell", "file.write", "mcp"] as const)(
           on: "resolve",
           frames: [
             frames.frame(
-              { ...tool, draft: { type: "tool_call", complete: false, call: { status: "running" } } },
+              {
+                ...tool,
+                draft: { type: "tool_call", complete: false, call: { status: "running" } },
+              },
               { type: "interaction.closed", interaction: "permission", state: "resolved" },
             ),
           ],
