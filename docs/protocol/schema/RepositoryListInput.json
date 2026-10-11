@@ -1,0 +1,52 @@
+{
+  "$id": "https://ace.local/protocol/v1/RepositoryListInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "account": {
+      "$ref": "https://ace.local/protocol/v1/GitHubAccount.json"
+    },
+    "archived": {
+      "enum": [
+        "all",
+        "yes",
+        "no"
+      ],
+      "type": "string"
+    },
+    "fork": {
+      "enum": [
+        "all",
+        "yes",
+        "no"
+      ],
+      "type": "string"
+    },
+    "host": {
+      "$ref": "https://ace.local/protocol/v1/GitHubHost.json"
+    },
+    "owner": {
+      "$ref": "https://ace.local/protocol/v1/GitHubAccount.json"
+    },
+    "query": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "visibility": {
+      "enum": [
+        "all",
+        "public",
+        "private"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "host",
+    "account",
+    "query",
+    "visibility",
+    "archived",
+    "fork"
+  ],
+  "type": "object"
+}

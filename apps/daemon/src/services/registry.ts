@@ -1,3 +1,4 @@
+import { createRepositoriesSession } from "./repositories.ts";
 import { createSourceControlSession } from "./source-control.ts";
 import { createRemoteIncomingSession } from "../agent-control/remote-incoming.ts";
 import { createRemoteDelegationSession } from "./remote-delegation.ts";
@@ -45,6 +46,7 @@ import { createActivityReadsSession } from "./activity-reads.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
   createSourceControlSession,
+  createRepositoriesSession,
   createRemoteDelegationSession,
   createRemoteIncomingSession,
   createHostIdentitySession,

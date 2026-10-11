@@ -2,6 +2,7 @@ import { parseCloneUrl } from "@ace/project-picker";
 import { fakeSearch, fakeComplete } from "./project-picker.ts";
 import {
   Project,
+  RepositoryPublication,
   ProjectCloneUrl,
   ProjectCommand,
   ProjectInspection,
@@ -37,6 +38,10 @@ export class FakeProjects {
   private hasOwnedWork: (id: string) => boolean;
   private projects = new Map<string, Project>();
   private nextProject = 0;
+  private publications = new Map<string, RepositoryPublication>();
+  publication(id: string) {
+    return this.publications.get(id) ?? null;
+  }
   private opened = new Map<string, number>();
   /** The host user's home, canonical; the only allowed root unless `seedFolders` names others. */
   private home = "/fake";
@@ -261,6 +266,51 @@ export class FakeProjects {
       }
       const project = this.projects.get(p.workspaceId);
       if (!project) throw new Error("workspace_not_found");
+      if (p.type === "workspace.publish") {
+        const directory = this.directories.get(project.path);
+        const previous = this.publications.get(project.id);
+        if (!directory?.git) throw new Error("not_a_repo");
+        if (directory.remote && directory.remote !== previous?.remote?.cloneUrl)
+          throw new Error("publication_origin_exists");
+        const publicationInput = p.input;
+        const path = `${publicationInput.owner}/${publicationInput.name}`;
+        const publication = RepositoryPublication.parse({
+          workspaceId: project.id,
+          input: publicationInput,
+          phase: "empty",
+          error: null,
+          updatedAt: this.context.now(),
+          remote: {
+            id: 101,
+            repository: {
+              forge: "github",
+              host: publicationInput.host,
+              owner: publicationInput.owner,
+              name: publicationInput.name,
+            },
+            description: publicationInput.description,
+            visibility: publicationInput.visibility,
+            archived: false,
+            fork: false,
+            url: `https://${publicationInput.host}/${path}`,
+            cloneUrl: `https://${publicationInput.host}/${path}.git`,
+          },
+        });
+        if (publication.remote) directory.remote = publication.remote.cloneUrl;
+        this.publications.set(project.id, publication);
+        this.emit({
+          type: "workspace.changed",
+          workspaceId: project.id,
+          change: "updated",
+          workspace: project,
+        });
+        return {
+          ok: true,
+          workspace: project,
+          publication,
+          inspection: this.inspection(project.path),
+        };
+      }
       const threads = this.context
         .threads()
         .filter((t) => t.workspaceId === project.id && t.deletedAt === undefined);

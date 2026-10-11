@@ -63,11 +63,12 @@ export function CloneProjectTab(props: {
   machine: Machine;
   machines: readonly Machine[];
   clone: CloneControl;
+  initialUrl?: string;
 }) {
   const { machine, clone } = props;
   const { run } = clone;
   const previous = run.status === "failed" ? run.input : undefined;
-  const [url, setUrl] = useState(previous?.url ?? "");
+  const [url, setUrl] = useState(props.initialUrl ?? previous?.url ?? "");
   const [name, setName] = useState<string>();
   const [touched, setTouched] = useState(false);
   const only = useMemo(() => [machine], [machine]);

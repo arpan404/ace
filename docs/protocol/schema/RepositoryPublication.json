@@ -1,0 +1,57 @@
+{
+  "$id": "https://ace.local/protocol/v1/RepositoryPublication.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "input": {
+      "$ref": "https://ace.local/protocol/v1/RepositoryPublishInput.json"
+    },
+    "phase": {
+      "enum": [
+        "prepared",
+        "creating",
+        "remote_created",
+        "origin_added",
+        "empty",
+        "pushed"
+      ],
+      "type": "string"
+    },
+    "remote": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/HostedRepository.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "updatedAt": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "workspaceId",
+    "input",
+    "phase",
+    "remote",
+    "error",
+    "updatedAt"
+  ],
+  "type": "object"
+}

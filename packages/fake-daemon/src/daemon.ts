@@ -1089,6 +1089,7 @@ export class FakeDaemon implements Host {
         "workspace.add",
         "workspace.create",
         "workspace.clone",
+        "workspace.publish",
         "workspace.rename",
         "workspace.update",
         "workspace.remove",

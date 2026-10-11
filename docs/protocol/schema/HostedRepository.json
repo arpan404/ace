@@ -1,0 +1,53 @@
+{
+  "$id": "https://ace.local/protocol/v1/HostedRepository.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "archived": {
+      "type": "boolean"
+    },
+    "cloneUrl": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "description": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "fork": {
+      "type": "boolean"
+    },
+    "id": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "raw": {
+      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema1"
+    },
+    "repository": {
+      "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+    },
+    "url": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "visibility": {
+      "enum": [
+        "public",
+        "private"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "repository",
+    "description",
+    "visibility",
+    "archived",
+    "fork",
+    "url",
+    "cloneUrl"
+  ],
+  "type": "object"
+}

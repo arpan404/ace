@@ -918,6 +918,9 @@
       "$ref": "https://ace.local/protocol/v1/SourceControlRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/HostedRepositoriesRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/TerminalRequest.json"
     },
     {

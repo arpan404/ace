@@ -1,3 +1,4 @@
+import { HostedRepositoriesRequest, HostedRepositoriesResult } from "./hosted-repositories.ts";
 import { SourceControlRequest, SourceControlResult } from "./source-control.ts";
 import { RemoteDelegationClient, RemoteDelegationResult } from "./remote-delegation.ts";
 import { PromptFilesRequest, PromptFilesResponse } from "./prompt-files.ts";
@@ -192,6 +193,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   WorkspaceActionRequest,
   ProjectsRequest,
   SourceControlRequest,
+  HostedRepositoriesRequest,
   TerminalRequest,
   TerminalCredit,
   PluginClientMessage,
@@ -267,6 +269,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   WorkspaceActionResult,
   ProjectsResult,
   SourceControlResult,
+  HostedRepositoriesResult,
   WorkspaceChanged,
   WorkspaceCloneProgress,
   TerminalResult,

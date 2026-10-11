@@ -19,3 +19,4 @@ export type { ReplyReceipts } from "./reply-receipts.ts";
 export { replyIntent } from "./reply-receipts.ts";
 
 export { ForgeIntents } from "./intents.ts";
+export * from "./repositories.ts";
