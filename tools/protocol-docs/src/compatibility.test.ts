@@ -5,6 +5,7 @@ import {
   convertSchemas,
   parseSnapshot,
   schemaId,
+  jsonValidator,
   type Snapshot,
   type JsonSchema,
 } from "./index.ts";
@@ -20,6 +21,61 @@ const raw = (value: JsonSchema): Snapshot => ({
 });
 
 describe("release compatibility", () => {
+  it("reviews an exclusive object branch widened by removing its additional-property schema", () => {
+    const before = raw({
+      oneOf: [
+        { type: "object", additionalProperties: { type: "string" } },
+        { type: "object", additionalProperties: { type: "number" } },
+      ],
+    });
+    const after = raw({
+      oneOf: [{ type: "object" }, { type: "object", additionalProperties: { type: "number" } }],
+    });
+    const witness = { x: 1 };
+    expect(jsonValidator(before).getSchema(schemaId("Message"))?.(witness)).toBe(true);
+    expect(jsonValidator(after).getSchema(schemaId("Message"))?.(witness)).toBe(false);
+    expect(compareSnapshots(before, after)).toContainEqual(
+      expect.objectContaining({ schema: "Message", kind: "review" }),
+    );
+  });
+  it("reviews exclusive overlap caused by a widened nested reference with an unchanged ref string", () => {
+    const before = {
+      protocolVersion: 1,
+      schemas: {
+        Strings: {
+          $id: schemaId("Strings"),
+          type: "object",
+          additionalProperties: { type: "string" },
+        },
+        Message: {
+          $id: schemaId("Message"),
+          oneOf: [
+            {
+              type: "object",
+              properties: { value: { $ref: schemaId("Strings") } },
+              required: ["value"],
+            },
+            {
+              type: "object",
+              properties: { value: { type: "object", additionalProperties: { type: "number" } } },
+              required: ["value"],
+            },
+          ],
+        },
+      },
+    } satisfies Snapshot;
+    const after: Snapshot = {
+      ...before,
+      schemas: { ...before.schemas, Strings: { $id: schemaId("Strings"), type: "object" } },
+    };
+    const witness = { value: { x: 1 } };
+    expect(jsonValidator(before).getSchema(schemaId("Message"))?.(witness)).toBe(true);
+    expect(jsonValidator(after).getSchema(schemaId("Message"))?.(witness)).toBe(false);
+    expect(compareSnapshots(before, after)).toContainEqual(
+      expect.objectContaining({ schema: "Message", kind: "review" }),
+    );
+    expect(compareSnapshots(before, before)).toEqual([]);
+  });
   it("refuses exclusive union widening that rejects an accepted value", () => {
     const before = z.xor([z.literal("a"), z.literal("b")]);
     const after = z.xor([z.string(), z.literal("b")]);

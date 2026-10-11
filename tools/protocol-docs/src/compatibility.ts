@@ -60,6 +60,50 @@ function values(node: JsonSchema): unknown[] | undefined {
 export function compareSnapshots(previous: Snapshot, current: Snapshot): Change[] {
   const changes: Change[] = [];
   let compared = 0;
+  // Compatibility can omit a widening; it is not an equality proof. Compare the
+  // complete schemas conservatively, including targets of nested references.
+  function unchanged(before: JsonSchema, after: JsonSchema, depth: number): boolean {
+    if (++compared > 100_000) throw new Error("Compatibility comparison exceeds 100000 nodes");
+    if (depth > 48) return false;
+    const a = resolve(before, previous.schemas),
+      b = resolve(after, current.schemas);
+    if (canonical(a) !== canonical(b)) return false;
+    for (const key of [
+      "additionalProperties",
+      "unevaluatedProperties",
+      "items",
+      "additionalItems",
+      "unevaluatedItems",
+      "contains",
+      "propertyNames",
+      "not",
+      "if",
+      "then",
+      "else",
+      "contentSchema",
+    ])
+      if (a[key] !== undefined && !unchanged(schemaNode(a[key]), schemaNode(b[key]), depth + 1))
+        return false;
+    for (const key of ["anyOf", "oneOf", "allOf", "prefixItems"]) {
+      const branches = nodes(b[key]);
+      for (const [index, branch] of nodes(a[key]).entries()) {
+        const next = branches[index];
+        if (!next || !unchanged(branch, next, depth + 1)) return false;
+      }
+    }
+    for (const key of [
+      "properties",
+      "patternProperties",
+      "dependentSchemas",
+      "dependencies",
+      "$defs",
+      "definitions",
+    ])
+      for (const [name, branch] of Object.entries(object(a[key])))
+        if (!unchanged(schemaNode(branch), schemaNode(object(b[key])[name]), depth + 1))
+          return false;
+    return true;
+  }
   if (previous.protocolVersion !== current.protocolVersion)
     changes.push({
       schema: "protocol",
@@ -122,9 +166,7 @@ export function compareSnapshots(previous: Snapshot, current: Snapshot): Change[
         // permutation is safe without a separate proof of disjointness.
         const remaining = [...newBranches];
         for (const branch of oldBranches) {
-          const index = remaining.findIndex(
-            (next) => compare(name, path, branch, next, depth + 1).length === 0,
-          );
+          const index = remaining.findIndex((next) => unchanged(branch, next, depth + 1));
           if (index < 0) break;
           remaining.splice(index, 1);
         }
