@@ -17,13 +17,19 @@ interface Source {
   }): Event[];
 }
 
+interface Replay {
+  id: ThreadId;
+  afterSeq: number;
+  evidence: CanonicalCompletionEvidence;
+}
+
 /** Correct already-indexed diagnostics through canonical appends so all counter,
  * range, settlement and client projections use their existing mutation owners.
  * The cursor and appends commit together; restart never applies a correction twice.
  */
 export class CompletionMigration {
   private readonly data: LongThreadDatabase;
-  private replay: { id: ThreadId; afterSeq: number; evidence: CanonicalCompletionEvidence } | undefined;
+  private replay: Replay | undefined;
   constructor(data: LongThreadDatabase) {
     this.data = data;
   }
