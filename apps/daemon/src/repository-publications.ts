@@ -4,8 +4,13 @@ import {
   publicationError,
 } from "./publication-state.ts";
 import { z } from "zod";
-import { GitHubRepositories } from "@ace/forge";
-import { RepositoryPublication, RepositoryPublishInput, type WorkspaceId } from "@ace/protocol";
+import { GitHubRepositories, ForgeMutationOutcome } from "@ace/forge";
+import {
+  HostedRepository,
+  RepositoryPublication,
+  RepositoryPublishInput,
+  type WorkspaceId,
+} from "@ace/protocol";
 import { publicationOriginMatches, type GitService, type ProjectGitPolicy } from "@ace/git";
 import type { Store } from "./store.ts";
 import type { SourceControl } from "./source-control.ts";
@@ -75,14 +80,18 @@ export class RepositoryPublications {
     const controller = new AbortController();
     this.flights.set(id, { device, controller });
     const signal = controller.signal;
+    let checkIdentity: (() => void) | undefined;
     const check = () => {
       signal.throwIfAborted();
+      checkIdentity?.();
       if (!allowed()) throw new Error("forbidden");
       directory.verify();
     };
     try {
       check();
       const identity = await this.source.identity(directory.path, value.host, signal);
+      checkIdentity = identity.check;
+      check();
       if (identity.account !== value.account) throw new Error("publication_account_changed");
       check();
       const remote = new GitHubRepositories({
@@ -103,6 +112,7 @@ export class RepositoryPublications {
       )
         throw new Error("publication_origin_exists");
       this.save(device, publication);
+      let uncertain: ForgeMutationOutcome | undefined;
       if (publication.phase === "prepared") {
         const found = await remote.find(value.owner, value.name, signal);
         check();
@@ -113,9 +123,15 @@ export class RepositoryPublications {
         // Intent is durable before admission; even a lost CLI response must use exact-name lookup.
         try {
           publication.remote = await remote.create(value, signal);
-        } catch {
-          signal.throwIfAborted();
-          publication.remote = await remote.find(value.owner, value.name, signal);
+        } catch (error) {
+          if (error instanceof ForgeMutationOutcome) {
+            publication.remote = HostedRepository.parse(error.receipt);
+            uncertain = error;
+          } else {
+            signal.throwIfAborted();
+            check();
+            publication.remote = await remote.find(value.owner, value.name, signal);
+          }
         }
       } else if (publication.phase === "creating") {
         publication.remote = await remote.find(value.owner, value.name, signal);
@@ -128,6 +144,7 @@ export class RepositoryPublications {
         publication.phase = "remote_created";
         this.save(device, publication);
       }
+      if (uncertain) throw uncertain;
       check();
       const reconciled = await remote.find(value.owner, value.name, signal);
       check();

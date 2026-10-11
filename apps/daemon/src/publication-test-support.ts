@@ -33,7 +33,7 @@ export async function publicationCli(options: { loseReply?: boolean; hold?: bool
   await writeFile(
     join(root, "gh"),
     `#!${process.execPath}
-import {readFileSync,writeFileSync} from 'node:fs';
+import {readFileSync,writeFileSync,watch} from 'node:fs';
 const path=process.env.ACE_PUBLICATION_STATE;
 const state=JSON.parse(readFileSync(path,'utf8'));
 const args=process.argv.slice(2);
@@ -45,7 +45,8 @@ else {
    const body=JSON.parse(text); state.creates++;
    state.remote={id:state.creates,name:body.name,owner:{login:args[1]==='user/repos'?state.account:args[1].split('/')[1]},description:body.description,private:body.private,archived:false,fork:false};
    writeFileSync(path,JSON.stringify(state));
-   if(state.hold) setInterval(()=>{},1000); else reply(state.loseReply?500:201,state.remote);
+   if(state.hold) await new Promise(resolve=>{ const w=watch(path,()=>{try { if(!JSON.parse(readFileSync(path,'utf8')).hold){w.close();resolve()} }catch{}}); });
+   reply(state.loseReply?500:201,state.remote);
  } else reply(state.remote?200:404,state.remote??{message:'missing'});
 }`,
     { mode: 0o755 },
@@ -60,6 +61,7 @@ else {
   return {
     root,
     source,
+    settings,
     async state() {
       return stateSchema.parse(JSON.parse(await readFile(path, "utf8")));
     },
@@ -92,6 +94,7 @@ else {
     },
     async close() {
       for (const watcher of watchers) watcher.close();
+      source.close();
       await settings.close();
       await rm(root, { recursive: true, force: true });
     },

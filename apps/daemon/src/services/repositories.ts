@@ -46,6 +46,7 @@ export function createRepositoriesSession(context: SocketContext): SocketService
           });
           const found = await repositories.list(input, controller.signal);
           controller.signal.throwIfAborted();
+          identity.check();
           if (allowed())
             reply({
               kind: "repositories",

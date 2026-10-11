@@ -1,5 +1,9 @@
 /** Stable daemon error codes never surface raw CLI stderr or credential-bearing URLs. */
 export function publicationProblem(code: string): string {
+  if (code === "forge_outcome_uncertain")
+    return "GitHub completed creation before the account or settings changed. The created repository is preserved. Restore the intended Source control identity and Resume publication to verify it before adding origin or pushing.";
+  if (code === "forge_preferences_changed")
+    return "Source control settings changed during publication. Rescan this computer, confirm the intended host and account, then Resume publication.";
   if (code === "publication_git_transport_failed")
     return "The repository was created, but Git could not push. Check this computer's Git credential helper, SSH keys and repository push permission, then Resume publication. GitHub API sign-in alone does not grant Git access.";
   if (code === "publication_not_repository")

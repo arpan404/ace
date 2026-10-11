@@ -2,7 +2,13 @@ import { SourceControl } from "../source-control.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
-export function startSourceControl({ services, options, resources, config, now }: ServiceContext): void {
+export function startSourceControl({
+  services,
+  options,
+  resources,
+  config,
+  now,
+}: ServiceContext): void {
   if (!services.settings) throw new Error("settings_unavailable");
   services.sourceControl = new SourceControl(
     services.settings,

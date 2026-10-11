@@ -236,3 +236,46 @@ test("an origin edited after publication is preserved while resume refuses to pu
     await f.cleanup();
   }
 });
+
+test("preferences changed during creation retain the remote receipt and stop local publication until reconciliation", async () => {
+  const f = await setup({ hold: true });
+  try {
+    const pending = f.publish();
+    await f.cli.created();
+    await f.cli.settings.set(
+      "sourceControl.preferences",
+      {
+        hosts: [{ host: "github.com", account: "other" }],
+        host: "github.com",
+        remote: "origin",
+      },
+      { kind: "global" },
+    );
+    await f.cli.update({ hold: false });
+    expect(await pending).toMatchObject({
+      ok: false,
+      error: "forge_outcome_uncertain",
+      publication: {
+        phase: "remote_created",
+        remote: { id: 1 },
+      },
+    });
+    expect((await f.git(f.path, ["remote"])).stdout.trim()).toBe("");
+    await f.cli.settings.set(
+      "sourceControl.preferences",
+      {
+        hosts: [{ host: "github.com", account: "octo" }],
+        host: "github.com",
+        remote: "origin",
+      },
+      { kind: "global" },
+    );
+    expect(await f.publish()).toMatchObject({
+      ok: true,
+      publication: { phase: "empty", remote: { id: 1 } },
+    });
+    expect((await f.cli.state()).creates).toBe(1);
+  } finally {
+    await f.cleanup();
+  }
+});

@@ -1,3 +1,4 @@
+import { ForgeMutationOutcome } from "./mutation.ts";
 import { ReadBudget } from "./read-budget.ts";
 import { z } from "zod";
 import { HostedRepository, RepositoryListInput, RepositoryPublishInput } from "@ace/protocol";
@@ -104,6 +105,8 @@ export class GitHubRepositories {
       private: value.visibility === "private",
       auto_init: false,
     });
-    return hosted(this.host, response.body);
+    const repository = hosted(this.host, response.body);
+    if (response.identityChanged) throw new ForgeMutationOutcome(repository);
+    return repository;
   }
 }
