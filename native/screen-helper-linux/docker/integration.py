@@ -1,4 +1,8 @@
 """Public JSON/IPC integration against real Xvfb, Openbox, GTK and accessibility bus."""
+import sys
+if "--pointer" in sys.argv:
+    import pointer_integration
+    sys.exit(0)
 import io
 import json
 import os

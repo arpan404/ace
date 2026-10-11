@@ -42,3 +42,13 @@ Test on both a current GNOME session and a current KDE Plasma session, as the sa
 6. Leave the target unchanged, then animate it at 10 fps. Run session benchmarks and report CPU/RSS/latencies. Disconnect all viewers and explicitly stop the session; confirm the portal/PipeWire session closes while the helper identity remains stable.
 
 macOS and Windows release packaging must retain stable identities as well: macOS Developer ID, hardened runtime and notarization of an `.app` with Info.plist and stable bundle id; Windows Authenticode. Development signing must use a stable identity. This Linux task does not change the existing Swift v1 implementation or supply Windows UI Automation.
+
+### Pointer routing regression
+
+`cargo test --manifest-path native/screen-helper-linux/Cargo.toml --test pointer_route`
+runs the injected pointer policy on any host. For real XTest routing, run
+`native/screen-helper-linux/test-in-docker.sh --pointer`. The disposable Xvfb fixture
+starts two separate applications and checks scroll routing with the cursor over the
+unapproved app, covering windows, explicit pointer grabs, normal clicks and bounds.
+Set `ACE_TEST_PLATFORM=linux/arm64` on an Apple Silicon host. The runner removes only
+its own container and image after completion or failure.

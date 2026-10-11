@@ -213,7 +213,7 @@ impl X11 {
             .map_err(internal)?;
         self.conn.flush().map_err(internal)
     }
-    fn fake(&self, kind: u8, detail: u8, x: i16, y: i16) -> Result<()> {
+    pub(crate) fn fake(&self, kind: u8, detail: u8, x: i16, y: i16) -> Result<()> {
         self.conn
             .xtest_fake_input(kind, detail, 0, self.root, x, y, 0)
             .map_err(internal)?
@@ -235,18 +235,29 @@ impl X11 {
             "right" => 3,
             _ => return Err(Fault::new("bounds", "Unknown button")),
         };
-        self.motion(w, x, y)?;
-        self.fake(BUTTON_PRESS_EVENT, b, 0, 0)?;
-        self.fake(BUTTON_RELEASE_EVENT, b, 0, 0)
+        crate::pointer_route::click(
+            &mut crate::x11_pointer::TargetPointer {
+                backend: self,
+                target: w,
+            },
+            x,
+            y,
+            b,
+        )
     }
     pub fn drag(&self, w: &Window, x: f64, y: f64, to_x: f64, to_y: f64) -> Result<()> {
         let live = self.check(w)?;
         point(to_x, to_y, live.bounds.w as u32, live.bounds.h as u32)?;
-        self.motion(w, x, y)?;
-        self.fake(BUTTON_PRESS_EVENT, 1, 0, 0)?;
-        let moved = self.motion(w, to_x, to_y);
-        let released = self.fake(BUTTON_RELEASE_EVENT, 1, 0, 0);
-        moved.and(released)
+        crate::pointer_route::drag(
+            &mut crate::x11_pointer::TargetPointer {
+                backend: self,
+                target: w,
+            },
+            x,
+            y,
+            to_x,
+            to_y,
+        )
     }
     fn keycode(&self, symbol: u32) -> Result<u8> {
         let setup = self.conn.setup();
@@ -314,14 +325,17 @@ impl X11 {
         if !dx.is_finite() || !dy.is_finite() || dx.abs() > 1000. || dy.abs() > 1000. {
             return Err(Fault::new("bounds", "Scroll exceeds limit"));
         }
-        for (delta, negative, positive) in [(dy, 4, 5), (dx, 6, 7)] {
-            for _ in 0..delta.abs().ceil() as u32 {
-                let b = if delta < 0. { negative } else { positive };
-                self.fake(BUTTON_PRESS_EVENT, b, 0, 0)?;
-                self.fake(BUTTON_RELEASE_EVENT, b, 0, 0)?;
-            }
-        }
-        Ok(())
+        let live = self.check(w)?;
+        crate::pointer_route::scroll(
+            &mut crate::x11_pointer::TargetPointer {
+                backend: self,
+                target: w,
+            },
+            f64::from(live.bounds.w) / 2.,
+            f64::from(live.bounds.h) / 2.,
+            dx,
+            dy,
+        )
     }
 }
 pub fn keysym(key: &str) -> Result<u32> {
