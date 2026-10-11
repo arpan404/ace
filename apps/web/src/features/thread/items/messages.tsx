@@ -56,7 +56,9 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
       {answer.partial && (
         <div className="mt-2 text-xs text-muted-foreground">
           <p>Showing a preview of this answer.</p>
-          {answer.status === "loading" ? (
+          {streaming ? (
+            <p>Full text can be loaded once streaming stops.</p>
+          ) : answer.status === "loading" ? (
             <p role="status">Loading full answer…</p>
           ) : (
             <Button size="sm" onClick={answer.load}>
@@ -66,7 +68,7 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
           {answer.problem && <p role="alert">{answer.problem}</p>}
         </div>
       )}
-      {item.complete && (
+      {(item.complete || (answer.truncated && !streaming)) && (
         <div className="mt-1 flex opacity-0 transition-opacity duration-(--dur-1) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
           <Suspense fallback={null}>
             <CopyAnswer
@@ -75,14 +77,15 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
               label={answer.partial ? "Copy preview" : "Copy answer"}
             />
           </Suspense>
-          {!name &&
+          {item.complete &&
+            !name &&
             item.nativeId &&
             (item.executionSource?.selection.provider ?? agent?.native.provider) === "pi" && (
               <Suspense fallback={null}>
                 <RewindControl threadId={props.threadId} entryId={item.nativeId} />
               </Suspense>
             )}
-          {!name && <ForkHere threadId={props.threadId} itemId={props.itemId} />}
+          {item.complete && !name && <ForkHere threadId={props.threadId} itemId={props.itemId} />}
         </div>
       )}
     </div>

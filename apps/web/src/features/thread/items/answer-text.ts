@@ -50,8 +50,8 @@ type ReadState = {
 export function useAnswerText(item: Item | undefined) {
   const client = useClient();
   const parts = item?.type === "message" ? item.parts : empty;
-  const truncated = item?.complete === true && parts.some(isPreview);
-  const key = truncated ? JSON.stringify([item.id, parts]) : "";
+  const truncated = parts.some(isPreview);
+  const key = truncated ? JSON.stringify([item?.id, parts]) : "";
   const [state, setState] = useState<ReadState>();
   const active = useRef<
     { client: ClientApi; key: string; controller: AbortController } | undefined
@@ -86,6 +86,7 @@ export function useAnswerText(item: Item | undefined) {
   };
   return {
     text: current?.text ?? preview,
+    truncated,
     partial: truncated && current?.status !== "ready",
     status: current?.status,
     problem: current?.problem,
