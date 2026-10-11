@@ -8,6 +8,7 @@ import {
   findRunningDaemon,
   healthy,
   maintenanceBlockers,
+  maintenanceStatus,
   readLocalDaemon,
   setMaintenance,
   type LocalDaemon,
@@ -112,6 +113,7 @@ export class DaemonRuntime {
           service: this.target.kind === "managed" ? loginService(home) : undefined,
           setMaintenance,
           blockers: maintenanceBlockers,
+          maintenance: maintenanceStatus,
           timers: {
             set(delayMs, callback) {
               const timer = setTimeout(callback, delayMs);

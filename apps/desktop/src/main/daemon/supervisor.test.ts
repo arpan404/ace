@@ -64,6 +64,7 @@ function machine() {
       return state.blockers;
     },
     blockers: async () => state.blockers,
+    maintenance: async () => ({ draining: state.maintenance }),
     timers: {
       set(delayMs, callback) {
         const timer = { at: now + delayMs, callback, cancelled: false };
@@ -101,6 +102,50 @@ function track(supervisor: DaemonSupervisor): DaemonStatus[] {
 }
 
 describe("daemon supervisor", () => {
+  it("discovers a surviving daemon's pause and lets the user resume it", async () => {
+    const m = machine();
+    m.state.answering = true;
+    m.state.external = true;
+    m.state.maintenance = true;
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    expect(supervisor.current().paused).toBe(true);
+    await supervisor.pause(false);
+    expect(m.state.maintenance).toBe(false);
+    expect(supervisor.current().paused).toBe(false);
+  });
+
+  it("reports resumed admission after replacing a paused app daemon", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    await supervisor.pause(true);
+    await supervisor.restart();
+    m.state.maintenance = false; // A new daemon starts with open admission.
+    m.state.answering = true;
+    await m.advance(300);
+    expect(supervisor.current()).toMatchObject({ state: "running", paused: false });
+  });
+
+  it("ignores a delayed pause reply from the replaced daemon", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    const oldReply = Promise.withResolvers<number>();
+    m.ports.setMaintenance = () => oldReply.promise;
+    const pause = supervisor.pause(true);
+    await supervisor.restart();
+    m.state.answering = true;
+    await m.advance(300);
+    oldReply.resolve(0);
+    await pause;
+    expect(supervisor.current()).toMatchObject({ state: "running", paused: false });
+  });
+
   it("reuses a daemon that is already running instead of starting another", async () => {
     const m = machine();
     m.state.answering = true;
