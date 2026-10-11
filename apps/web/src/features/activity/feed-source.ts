@@ -1,3 +1,4 @@
+import { readPullRequest } from "./pr-read.ts";
 /*
  * The Activity feed from the daemon: pull-request, CI and mention events from the forge for
  * threads with a linked PR (`workspace.request` `pr.status`). What has been read is the daemon's Activity read cursor
@@ -112,13 +113,7 @@ function usePullRequestEvents(): {
       enabled: ready,
       staleTime: prRefreshMs / 2,
       refetchInterval: prRefreshMs,
-      queryFn: async ({ signal }: { signal: AbortSignal }) => {
-        const reply = await client.request(
-          { type: "workspace.request", operation: { op: "pr.status", threadId: thread.id } },
-          { signal },
-        );
-        return reply.result.kind === "pr" ? reply.result.status : null;
-      },
+      queryFn: ({ signal }: { signal: AbortSignal }) => readPullRequest(client, thread.id, signal),
     })),
   });
   return {

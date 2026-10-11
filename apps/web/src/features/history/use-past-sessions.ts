@@ -1,4 +1,4 @@
-import { useClient } from "@ace/client-react";
+import { useClient, useConnectionState } from "@ace/client-react";
 import {
   WorkspaceId,
   type HistorySession,
@@ -16,6 +16,14 @@ export function usePastSessions(
 ) {
   const client = useClient();
   const [scan, setScan] = useState<HistoryScanStatus>();
+  const connection = useConnectionState();
+  useEffect(
+    () =>
+      client.connectionState().subscribe(() => {
+        if (client.state === "ready") setScan(undefined);
+      }),
+    [client],
+  );
   const query = useDaemonQuery({
     queryKey: ["past-sessions", project.path, page],
     staleTime: 30_000,
@@ -26,6 +34,9 @@ export function usePastSessions(
       ),
   });
   const { refetch } = query;
+  useEffect(() => {
+    if (connection === "ready") void refetch({ cancelRefetch: false });
+  }, [connection, refetch]);
   useEffect(
     () =>
       client.onMessage((message) => {

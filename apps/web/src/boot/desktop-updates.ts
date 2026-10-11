@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 
 /** `UpdateStatus` from the desktop's preload (apps/desktop/src/shared/contract.ts). */
@@ -73,49 +73,40 @@ export function parseUpdateStatus(value: unknown): UpdateStatus | undefined {
  */
 export function useDesktopUpdates(scope: object = globalThis): void {
   const toast = useToast();
-  const shown = useRef<string | undefined>(undefined);
   useEffect(() => {
     const bridge = updatesBridge(scope);
     if (!bridge) return;
     return bridge.onStatus((value) => {
       const status = parseUpdateStatus(value);
       if (!status || status.state === "idle") return;
+      const common = {
+        kind: "desktop-update",
+      };
+      if (status.state === "error") {
+        toast.error({
+          ...common,
+          title: "Couldn't check for updates",
+          description: "Check your connection and try Check for Updates again.",
+        });
+        return;
+      }
       const options =
         status.state === "checking"
           ? { title: "Checking for updates…", timeout: 0 }
           : status.state === "current"
             ? { title: `ace is up to date (${status.version})`, timeout: 5000 }
-            : status.state === "available"
-              ? {
-                  title: `ace ${status.version} is available`,
-                  timeout: 0,
-                  actionProps: {
-                    children: "Download",
-                    onClick: () => {
-                      if (bridge.openExternal) void bridge.openExternal(status.url);
-                      else window.open(status.url, "_blank", "noopener");
-                    },
+            : {
+                title: `ace ${status.version} is available`,
+                timeout: 0,
+                actionProps: {
+                  children: "Download",
+                  onClick: () => {
+                    if (bridge.openExternal) void bridge.openExternal(status.url);
+                    else window.open(status.url, "_blank", "noopener");
                   },
-                }
-              : {
-                  // WP-1: switch to toast.error() once the shared error toast lands.
-                  title: "Couldn't check for updates",
-                  description: status.message,
-                  priority: "high" as const,
-                  timeout: 8000,
-                };
-      // One toast follows a check through: checking, then its result.
-      if (shown.current) {
-        toast.update(shown.current, options);
-        return;
-      }
-      const id = toast.add({
-        ...options,
-        onRemove: () => {
-          if (shown.current === id) shown.current = undefined;
-        },
-      });
-      shown.current = id;
+                },
+              };
+      toast.add({ ...common, ...options });
     });
   }, [scope, toast]);
 }

@@ -107,7 +107,7 @@ function LimitedAccount(props: { group: LimitedGroup; accounts: readonly Account
                 .then(
                   (result) => toast.add({ title: describeMove(result) }),
                   (error: unknown) =>
-                    toast.add({
+                    toast.error({
                       title: error instanceof Error ? error.message : "Couldn't move the threads.",
                     }),
                 )

@@ -140,7 +140,7 @@ export function useQueue(threadId: string): QueueControls {
       })
       .catch((error: unknown) => {
         put(id, undefined);
-        toast.add({ title: `Couldn't ${failure}`, description: failureMessage(error) });
+        toast.error({ title: `Couldn't ${failure}`, description: failureMessage(error) });
         refresh();
         return false;
       })
@@ -273,7 +273,7 @@ export function useQueue(threadId: string): QueueControls {
         await runCommand(client, payload, crypto.randomUUID());
       })()
         .catch((error: unknown) => {
-          toast.add({ title: "Couldn't do that", description: failureMessage(error) });
+          toast.error({ title: "Couldn't do that", description: failureMessage(error) });
           refresh();
         })
         .finally(() => {

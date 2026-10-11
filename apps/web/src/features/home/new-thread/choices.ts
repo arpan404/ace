@@ -59,6 +59,7 @@ export function resolve(
   options: NewThreadOptions | undefined,
   choices: Choices,
   provider: ProviderKind | undefined,
+  defaultMode: WorkMode = "worktree",
 ): Resolved {
   const models = options?.models ?? [];
   const chosen =
@@ -89,7 +90,7 @@ export function resolve(
     provider: chosen,
     model,
     account,
-    mode: choices.mode ?? "worktree",
+    mode: choices.mode ?? defaultMode,
     effort,
     fast: model?.fastTier !== undefined && (choices.fast ?? model.fastDefault),
     ...(legacy ? { upgradedModel: legacy.key } : {}),

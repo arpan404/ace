@@ -208,7 +208,7 @@ function Download(props: { file: PreviewFile }) {
           // The download holds the bytes once it starts; the URL can go after that.
           setTimeout(() => URL.revokeObjectURL(url), 60_000);
         },
-        () => toast.add({ title: "Couldn't download the file" }),
+        () => toast.error({ title: "Couldn't download the file" }),
       )
       .finally(() => setBusy(false));
   };

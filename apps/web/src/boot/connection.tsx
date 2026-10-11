@@ -22,6 +22,7 @@ export type ConnectionStatus =
   | { kind: "editing"; problem?: ConnectionProblem | undefined }
   /** A client is trying the target and hasn't been welcomed yet. */
   | { kind: "connecting" }
+  | { kind: "starting" }
   /** The first attempt failed or is taking too long; the client keeps retrying meanwhile. */
   | { kind: "unreachable"; offline: boolean }
   | { kind: "ready" };

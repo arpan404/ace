@@ -1,5 +1,6 @@
 import { ChatCircleTextIcon } from "@phosphor-icons/react";
 import { Activity, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { crowdedQuery, overlayPanelsQuery, usePhone } from "@/lib/breakpoints.ts";
@@ -81,9 +82,13 @@ function KindOverlays(props: { scope: string; definition: WorkspaceDefinition })
 }
 
 function Overlays(props: { scope: string; definition: WorkspaceDefinition }) {
-  return props.definition
-    .kinds()
-    .map((kind) => (kind.Overlay ? <kind.Overlay key={kind.kind} scope={props.scope} /> : null));
+  return props.definition.kinds().map((kind) =>
+    kind.Overlay ? (
+      <LocalBoundary key={kind.kind} label={kind.label} fallback={null}>
+        <kind.Overlay scope={props.scope} />
+      </LocalBoundary>
+    ) : null,
+  );
 }
 
 /**
@@ -163,9 +168,11 @@ export function Workspace(props: {
       <WorkspaceHotkeys workspace={workspace} definition={definition} actions={actions} />
       <KindOverlays scope={scope} definition={definition} />
       {shown && (
-        <Suspense fallback={null}>
-          <CloseConfirm />
-        </Suspense>
+        <LocalBoundary label="the close confirmation" fallback={null}>
+          <Suspense fallback={null}>
+            <CloseConfirm />
+          </Suspense>
+        </LocalBoundary>
       )}
       <div className="relative flex min-h-0 flex-1">
         {/* In full view the column steps aside but stays mounted: the transcript keeps its place. */}

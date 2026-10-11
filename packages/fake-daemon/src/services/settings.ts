@@ -127,6 +127,14 @@ export class FakeSettings {
         diagnostics: ok ? [] : [{ layer: "global", code: "validation", message: refusal }],
       }) satisfies ServerMessage;
     switch (message.type) {
+      case "settings.reset": {
+        const keys = [...this.global.keys()].filter(
+          (key) => key !== "projects.roots" && key !== "clients.theme",
+        );
+        for (const key of keys) this.global.delete(key);
+        for (const key of keys) this.notify(key);
+        return reply(true);
+      }
       case "settings.get":
         return reply(true, this.entries([message.key], message.scope));
       case "settings.subscribe": {

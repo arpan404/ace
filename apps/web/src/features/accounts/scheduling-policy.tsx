@@ -50,7 +50,7 @@ export function SchedulingPolicySection() {
           const picked = choices.find((choice) => choice.value === value);
           if (picked)
             void setPolicy(picked.value).catch((error: unknown) =>
-              toast.add({
+              toast.error({
                 title: error instanceof Error ? error.message : "Couldn't save that policy.",
               }),
             );

@@ -65,7 +65,7 @@ export function FailedTurn(props: {
         trigger: "user",
       });
     } catch {
-      toast.add({ title: "Couldn't retry the turn" });
+      toast.error({ title: "Couldn't retry the turn" });
     } finally {
       setSending(false);
     }

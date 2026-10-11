@@ -1,3 +1,5 @@
+import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { useSidebarLoaded } from "@ace/client-react";
 import { ChecksIcon } from "@phosphor-icons/react";
 import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
@@ -112,7 +114,7 @@ function FeedList(props: { id: string }) {
   const wide = useSidebarInline();
   const { tab } = useActivityState();
   const needs = useNeedsYou();
-  const { items, loaded } = useFeedItems();
+  const { items, loaded, failed, retry } = useFeedItems();
   const sidebarLoaded = useSidebarLoaded();
   const source = useFeedSource();
   const now = useNow();
@@ -139,7 +141,19 @@ function FeedList(props: { id: string }) {
   const showNeeds = tab === "all" || tab === "needs";
   const empty = (!showNeeds || !needs.entries.length) && !items.length;
   const label = tabs.find((entry) => entry.id === tab)?.empty ?? "Nothing here";
-  if (empty) return <div {...panel}>{!wide && <EmptyState variant="inline" title={label} />}</div>;
+  const failure = failed && (
+    <div role="status" className="flex h-8 items-center gap-2 px-3 text-sm text-muted-foreground">
+      <StatusLabel tone="failed" label="Couldn't read pull requests" />
+      <IconButton icon={ArrowClockwiseIcon} label="Try again" size="sm" onClick={retry} />
+    </div>
+  );
+  if (empty)
+    return (
+      <div {...panel}>
+        {failure}
+        {!wide && !failed && <EmptyState variant="inline" title={label} />}
+      </div>
+    );
   const onKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return keys.onKeyDown(event);
     const rows = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-view-row]")];
@@ -163,6 +177,7 @@ function FeedList(props: { id: string }) {
   };
   return (
     <div {...panel}>
+      {failure}
       {readMode === "refused" && (
         <p className="px-[11px] pt-1 pb-2 text-sm text-muted-foreground">
           This device can't change read marks on ace, so they last only until you leave.

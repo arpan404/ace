@@ -9,6 +9,7 @@ import { DaemonForm } from "@/features/connect/index.ts";
 
 const stateLabels = {
   connecting: "Connecting",
+  starting: "Starting",
   ready: "Connected",
   reconnecting: "Reconnecting",
   offline: "Offline",

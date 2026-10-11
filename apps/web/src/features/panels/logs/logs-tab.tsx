@@ -180,7 +180,7 @@ function ThreadLogView(props: TabViewProps & { agentId: string | undefined }) {
           onClick={() =>
             void navigator.clipboard?.writeText(text()).then(
               () => toast.add({ title: `Copied ${shown.length} lines` }),
-              () => toast.add({ title: "Couldn't copy", description: "Allow clipboard access." }),
+              () => toast.error({ title: "Couldn't copy", description: "Allow clipboard access." }),
             )
           }
         />

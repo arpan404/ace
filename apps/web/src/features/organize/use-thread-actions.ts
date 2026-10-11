@@ -119,7 +119,7 @@ export function useThreadActions(): ThreadActions {
         .then(
           () => true,
           (error: unknown) => {
-            toast.add({ title: `Couldn't ${action.failed}`, description: failureMessage(error) });
+            toast.error({ title: `Couldn't ${action.failed}`, description: failureMessage(error) });
             return false;
           },
         );
@@ -391,7 +391,7 @@ export function useThreadActions(): ThreadActions {
           navigator.clipboard?.writeText(link) ?? Promise.reject(new Error("no clipboard"));
         void copied.then(
           () => toast.add({ title: "Link copied" }),
-          () => toast.add({ title: "Couldn't copy the link" }),
+          () => toast.error({ title: "Couldn't copy the link" }),
         );
       },
     };

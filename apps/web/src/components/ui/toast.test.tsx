@@ -162,3 +162,15 @@ test("a newer confirmation of the same kind replaces its action too", async () =
   expect(await screen.findByText("Restored second")).toBeTruthy();
   expect(screen.queryByText("Restored first")).toBeNull();
 });
+
+test("an error with Retry stays available until the person dismisses it", async () => {
+  vi.useFakeTimers();
+  setup();
+  fireEvent.click(screen.getByRole("button", { name: "Fail with retry" }));
+  await act(() => vi.advanceTimersByTimeAsync(120_000));
+  const error = screen.getByRole("alertdialog");
+  expect(within(error).getByRole("button", { name: "Retry" })).toBeTruthy();
+  fireEvent.click(within(error).getByRole("button", { name: "Dismiss" }));
+  await act(() => vi.advanceTimersByTimeAsync(1000));
+  expect(screen.queryByText("Couldn't save")).toBeNull();
+});

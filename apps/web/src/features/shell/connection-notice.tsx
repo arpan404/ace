@@ -1,6 +1,8 @@
+import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useClient, useConnectionState } from "@ace/client-react";
 import type { ClientError } from "@ace/client";
-import { Link } from "@tanstack/react-router";
 import { Suspense } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
@@ -13,7 +15,8 @@ const offlineWords = "Offline · messages, answers and Stop will send when the c
 
 const fatalReasons: Partial<Record<ClientError["code"], string>> = {
   auth: "ace didn't accept this token",
-  protocol: "this app and ace speak different protocol versions",
+  protocol: "the connection could not be read; try again or update ace",
+  limit: "the connection exceeded its capacity; try again",
   storage: "this browser blocked local storage",
 };
 
@@ -24,7 +27,8 @@ const fatalReasons: Partial<Record<ClientError["code"], string>> = {
 export function ConnectionNotice() {
   const state = useConnectionState();
   const client = useClient();
-  if (state === "ready" || state === "connecting") return null;
+  const connection = useDaemonConnection();
+  if (state === "ready" || state === "connecting" || state === "starting") return null;
   if (state === "offline")
     return (
       <Suspense
@@ -51,18 +55,24 @@ export function ConnectionNotice() {
         <>
           <Spinner />
           Reconnecting to ace…
+          <IconButton
+            icon={ArrowClockwiseIcon}
+            label="Retry now"
+            size="sm"
+            onClick={() => client.reconnectNow()}
+          />
         </>
       )}
       {state === "fatal" && (
         <>
           Can't connect:{" "}
           {(client.error && fatalReasons[client.error.code]) ?? "ace closed the connection"}.
-          <Link
-            to="/settings/general"
-            className="font-medium text-foreground underline-offset-4 hover:underline"
-          >
-            Connection settings
-          </Link>
+          <IconButton
+            icon={ArrowClockwiseIcon}
+            label="Try again"
+            size="sm"
+            onClick={connection.retry}
+          />
         </>
       )}
     </div>

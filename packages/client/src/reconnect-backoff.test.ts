@@ -64,7 +64,14 @@ function flapping() {
     healthy.live = false;
     healthy.run();
   };
-  return { link, welcome, drop, stayUp };
+  return {
+    link,
+    welcome,
+    drop,
+    stayUp,
+    timers,
+    starting: () => events?.message(JSON.stringify({ type: "starting" })),
+  };
 }
 
 test("a daemon that accepts and drops at once keeps being retried later, not at the base delay", () => {
@@ -91,4 +98,27 @@ test("after a connection stays up for a while, the next drop is retried at the b
   welcome();
   stayUp();
   expect(drop()).toBe(first);
+});
+
+test("cold startup has its own deadline and welcome can arrive after ordinary reads would time out", () => {
+  const { link, starting, welcome, timers } = flapping();
+  link.start();
+  starting();
+  expect(link.state).toBe("starting");
+  const deadline = timers.find((timer) => timer.live);
+  expect(deadline?.delay).toBe(defaultLimits.handshakeMs);
+  expect(deadline?.delay).toBeGreaterThan(defaultLimits.requestMs);
+  welcome();
+  expect(link.state).toBe("ready");
+  expect(deadline?.live).toBe(false);
+});
+
+test("startup progress cannot extend a handshake forever", () => {
+  const { link, starting, timers } = flapping();
+  link.start();
+  const deadline = timers.find((timer) => timer.live);
+  starting();
+  starting();
+  deadline?.run();
+  expect(link.state).toBe("reconnecting");
 });

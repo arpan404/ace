@@ -1,3 +1,4 @@
+import { documentVisibility } from "@/lib/page-visibility.ts";
 import { Client, type ClientApi } from "@ace/client";
 import { ClientHost, RemoteClient } from "@ace/client-worker";
 import { FakeDaemon, ScenarioPlayer, fakeTransport, type Scenario } from "@ace/fake-daemon";
@@ -19,7 +20,12 @@ import { type KeyValueStorage } from "@ace/ui-core";
 
 // Load deferred test UI before test deadlines begin. Under merge load, transforming
 // these modules inside the first open() can time out and race cleanup with mounting.
-await Promise.all([preloadDeferred(), preloadProjectDialogs()]);
+await Promise.all([
+  preloadDeferred(),
+  preloadProjectDialogs(),
+  import("@/features/home/home-sidebar.tsx"),
+  import("@/features/shell/workspace/panel.tsx"),
+]);
 // Workspace metadata and the individual tab bodies load separately in production.
 // Start behavioural tests after both are ready, including Devices and Preview.
 await threadWorkspace.load();
@@ -190,7 +196,7 @@ function workerClient(daemon: FakeDaemon): ClientApi {
   });
   const { port1, port2 } = new MessageChannel();
   host.attach(port1);
-  const remote = new RemoteClient(port2, {}, { scheduler: timers });
+  const remote = new RemoteClient(port2, {}, { scheduler: timers, visibility: documentVisibility });
   running.push(remote);
   return remote;
 }

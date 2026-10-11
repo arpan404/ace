@@ -78,7 +78,7 @@ export function StartingScreen(props: {
           className="flex items-center gap-2 text-sm text-muted-foreground"
         >
           <Spinner />
-          {stage === "help" ? "Startup needs attention" : (live ?? "Loading your workspace…")}
+          {stage === "help" ? "Startup needs attention" : (live ?? "Starting ace…")}
         </p>
         {stage !== "calm" && (
           <p className="fx-view-in text-sm leading-normal text-muted-foreground">

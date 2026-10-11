@@ -40,6 +40,8 @@ function useProjectRuns(
  */
 export function useFeedItems(tab?: ActivityTab): {
   items: readonly FeedItem[];
+  failed: boolean;
+  retry(): void;
   /** False until the runs have arrived (or failed to). */
   loaded: boolean;
 } {
@@ -82,7 +84,7 @@ export function useFeedItems(tab?: ActivityTab): {
     ];
     return all.toSorted((a, b) => b.at - a.at);
   }, [feed, runs, project, current, now]);
-  return { items, loaded: feed.runsSettled };
+  return { items, loaded: feed.runsSettled, failed: feed.eventsFailed, retry: feed.retryEvents };
 }
 
 /** "Today", "Yesterday", "This week" or "Older", by the local calendar. */

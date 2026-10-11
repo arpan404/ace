@@ -1,3 +1,4 @@
+import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { useClient } from "@ace/client-react";
 import {
   createContext,
@@ -72,9 +73,11 @@ export function SignInHost(props: { children: ReactNode }) {
     <SignInContext.Provider value={show}>
       {props.children}
       {login && (
-        <Suspense fallback={null}>
-          <SignInDialog.Component login={login} open={open} onClose={close} onRetry={retry} />
-        </Suspense>
+        <LocalBoundary label="sign in" fallback={null}>
+          <Suspense fallback={null}>
+            <SignInDialog.Component login={login} open={open} onClose={close} onRetry={retry} />
+          </Suspense>
+        </LocalBoundary>
       )}
     </SignInContext.Provider>
   );

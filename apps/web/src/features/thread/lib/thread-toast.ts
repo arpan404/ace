@@ -16,18 +16,20 @@ export function useThreadToast(threadId: string) {
       owned.clear();
     };
   }, [threadId]);
+  const enqueue = (options: Parameters<ToastApi["add"]>[0], report: ToastApi["add"]) => {
+    if (active.current !== threadId) return;
+    const owned = ids.current;
+    const id = report({
+      ...options,
+      onClose() {
+        owned.delete(id);
+        options.onClose?.();
+      },
+    });
+    owned.add(id);
+  };
   return {
-    add(options: Parameters<ToastApi["add"]>[0]) {
-      if (active.current !== threadId) return;
-      const owned = ids.current;
-      const id = toast.add({
-        ...options,
-        onClose() {
-          owned.delete(id);
-          options.onClose?.();
-        },
-      });
-      owned.add(id);
-    },
+    add: (options: Parameters<ToastApi["add"]>[0]) => enqueue(options, toast.add),
+    error: (options: Parameters<ToastApi["error"]>[0]) => enqueue(options, toast.error),
   };
 }

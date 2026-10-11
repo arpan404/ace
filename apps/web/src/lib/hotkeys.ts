@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { keyNameOf, keyboardEnv, useHotkeyBindings } from "./keybindings.ts";
+import { keyNameOf, keyboardEnv, keymapIdFor, useHotkeyBindings } from "./keybindings.ts";
 import { parseChord, type Chord, type KeymapId } from "./keymap.ts";
 
 export { parseChord };
@@ -77,6 +77,7 @@ export function useHotkey(
   });
   const enabled = options.enabled ?? true;
   const bindings = useHotkeyBindings(keys, options.id);
+  const id = options.id ?? keymapIdFor(keys);
   useEffect(() => {
     if (!enabled) return;
     const matchers = bindings.map(sequenceMatcher);
@@ -89,7 +90,19 @@ export function useHotkey(
       event.preventDefault();
       latest.current.handler(event);
     };
+    const action = (event: Event) => {
+      if (!(event instanceof CustomEvent) || event.detail !== id || !id || event.defaultPrevented)
+        return;
+      const keyEvent = new KeyboardEvent("keydown");
+      if (latest.current.when && !latest.current.when(keyEvent)) return;
+      event.preventDefault();
+      latest.current.handler(keyEvent);
+    };
     window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
-  }, [bindings, enabled]);
+    window.addEventListener("ace:keymap", action);
+    return () => {
+      window.removeEventListener("keydown", listener);
+      window.removeEventListener("ace:keymap", action);
+    };
+  }, [bindings, enabled, id]);
 }

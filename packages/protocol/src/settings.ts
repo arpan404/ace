@@ -127,6 +127,8 @@ export const SettingsSet = z.object({
   value: z.json(),
   layer: SettingsLayer,
 });
+/** Reset global preferences atomically; host/remote preferences are local-only. */
+export const SettingsReset = z.object({ type: z.literal("settings.reset"), requestId });
 export const SettingsSubscribe = z.object({
   type: z.literal("settings.subscribe"),
   requestId,
@@ -142,6 +144,7 @@ export const SettingsUnsubscribe = z.object({
 export const SettingsRequest = z.discriminatedUnion("type", [
   SettingsGet,
   SettingsSet,
+  SettingsReset,
   SettingsSubscribe,
   SettingsUnsubscribe,
 ]);

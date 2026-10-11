@@ -1,3 +1,4 @@
+import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import type { ProviderKind } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
 import { createContext, Suspense, useContext, useState, type ReactNode } from "react";
@@ -20,9 +21,11 @@ export function AddAccountHost(props: { children: ReactNode }) {
     <AddContext.Provider value={setProvider}>
       {props.children}
       {provider && (
-        <Suspense fallback={null}>
-          <AddDialog.Component provider={provider} onClose={() => setProvider(undefined)} />
-        </Suspense>
+        <LocalBoundary label="the account dialog" fallback={null}>
+          <Suspense fallback={null}>
+            <AddDialog.Component provider={provider} onClose={() => setProvider(undefined)} />
+          </Suspense>
+        </LocalBoundary>
       )}
     </AddContext.Provider>
   );
@@ -57,13 +60,15 @@ export function AddAccountInline(props: { provider: ProviderKind }) {
   const [open, setOpen] = useState(false);
   if (!canAddAccounts(props.provider)) return null;
   return open ? (
-    <Suspense fallback={null}>
-      <Form.Component
-        provider={props.provider}
-        name={providerNames[props.provider]}
-        onClose={() => setOpen(false)}
-      />
-    </Suspense>
+    <LocalBoundary label="the account dialog" fallback={null}>
+      <Suspense fallback={null}>
+        <Form.Component
+          provider={props.provider}
+          name={providerNames[props.provider]}
+          onClose={() => setOpen(false)}
+        />
+      </Suspense>
+    </LocalBoundary>
   ) : (
     <Button
       size="sm"

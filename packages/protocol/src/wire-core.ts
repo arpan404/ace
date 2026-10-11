@@ -220,6 +220,7 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
 export type CoreClientMessage = z.infer<typeof CoreClientMessage>;
 /** The core server messages, in the order the full `ServerMessage` lists them. */
 export const CoreServerMessage = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("starting") }),
   z.object({
     type: z.literal("threads.patch"),
     subscriptionId: z.string(),
@@ -334,6 +335,7 @@ export const coreClientTypes: ReadonlySet<string> = new Set([
 ]);
 /** `type` of every core server message. */
 export const coreServerTypes: ReadonlySet<string> = new Set([
+  "starting",
   "welcome",
   "threads.patch",
   "snapshot",

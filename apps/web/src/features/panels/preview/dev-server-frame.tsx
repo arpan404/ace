@@ -222,7 +222,7 @@ export function OpenOutside(props: { url: string; address?: (() => Promise<strin
         void (
           props.address ? openExternalWhenReady(props.address()) : openExternal(props.url)
         ).catch((error: unknown) =>
-          toast.add({
+          toast.error({
             title: "Couldn't open the page",
             description: error instanceof Error ? error.message : undefined,
           }),

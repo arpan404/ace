@@ -34,6 +34,7 @@ export const CallMethod = z.enum([
   "loadOlder",
   "outputRead",
   "networkOnline",
+  "reconnectNow",
   "request",
 ]);
 export type CallMethod = z.infer<typeof CallMethod>;
@@ -64,7 +65,7 @@ export const TabMessage = z.discriminatedUnion("t", [
   /** Forward the client's uncorrelated service messages (such as `settings.changed`). */
   z.object({ t: z.literal("watchMessages") }),
   z.object({ t: z.literal("unwatchMessages") }),
-  /** A hidden tab receives nothing until it is visible again; then it gets what changed. */
+  /** Hidden tabs keep sidebar status live and catch up on transcript changes when shown. */
   z.object({ t: z.literal("visible"), visible: z.boolean() }),
   z.object({ t: z.literal("ping") }),
   /** The tab holds this Web Lock for its lifetime; the worker drops it once the lock frees. */

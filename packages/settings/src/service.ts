@@ -190,6 +190,16 @@ export class SettingsService {
       lease.release();
     }
   }
+  /** One global file commit: subscribers see the complete reset together. */
+  async reset(keys: readonly SettingsKey[]): Promise<void> {
+    const parsed = keys.map((key) => SettingsKey.parse(key));
+    const lease = await this.file({ kind: "global" });
+    try {
+      await lease.file.reset(parsed);
+    } finally {
+      lease.release();
+    }
+  }
   private keys(keys: SettingsKey[]): SettingsKey[] {
     if (keys.length < 1 || keys.length > 32)
       throw new SettingsError("limit", "Select between 1 and 32 settings keys");

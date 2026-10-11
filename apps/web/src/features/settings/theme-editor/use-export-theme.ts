@@ -19,9 +19,8 @@ export function useExportTheme(): (theme: Theme) => Promise<void> {
       const how = [downloaded && "File downloaded", copied && "copied"]
         .filter(Boolean)
         .join(" and ");
-      toast.add({
-        title: how ? `Exported ${theme.name} · ${how}` : `Couldn't export ${theme.name}`,
-      });
+      if (how) toast.add({ title: `Exported ${theme.name} · ${how}` });
+      else toast.error({ title: `Couldn't export ${theme.name}` });
     },
     [toast],
   );

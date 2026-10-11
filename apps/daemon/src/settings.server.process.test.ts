@@ -393,3 +393,51 @@ test("settings deliveries exceeding the socket byte cap request a reconnect", as
   ]);
   expect(first).toBe(4009);
 });
+
+test("a local reset clears every preference in one commit while keeping the project folders", async () => {
+  const f = await setup();
+  const layer = { kind: "global" } as const;
+  await f.settings.set("providers.default", "claude", layer);
+  await f.settings.set("permissions.providerModes", { codex: "never" }, layer);
+  await f.settings.set("providers.configuration", [], layer);
+  await f.settings.set("host.displayName", "Renamed", layer);
+  await f.settings.set("threads.useWorktree", false, layer);
+  await f.settings.set("projects.roots", [f.home], layer);
+  f.client.send({
+    type: "settings.subscribe",
+    requestId: "watch-reset",
+    subscriptionId: "reset-watch",
+    keys: [
+      "providers.default",
+      "permissions.providerModes",
+      "host.displayName",
+      "threads.useWorktree",
+    ],
+    scope: {},
+  });
+  await f.client.next();
+  f.client.send({ type: "settings.reset", requestId: "reset" });
+  expect(await f.client.next()).toMatchObject({
+    type: "settings.changed",
+    entries: [
+      { key: "host.displayName", provenance: "defaults" },
+      { key: "providers.default", provenance: "defaults" },
+      { key: "permissions.providerModes", provenance: "defaults" },
+      { key: "threads.useWorktree", provenance: "defaults" },
+    ],
+  });
+  expect((await f.settings.get("projects.roots")).value).toEqual([f.home]);
+  expect(await f.client.next()).toMatchObject({
+    type: "settings.result",
+    requestId: "reset",
+    ok: true,
+  });
+  for (const key of [
+    "providers.default",
+    "permissions.providerModes",
+    "providers.configuration",
+    "host.displayName",
+    "threads.useWorktree",
+  ] as const)
+    expect((await f.settings.get(key)).provenance).toBe("defaults");
+});

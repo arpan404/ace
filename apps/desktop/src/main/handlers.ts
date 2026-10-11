@@ -32,6 +32,7 @@ export function createHandlers(options: {
   /** The renderer's daemon hand-off; may reject while the daemon is still starting. */
   connection(): Promise<DaemonConnection>;
   quit(): void;
+  updateKeymap?(bindings: Record<string, string>): void;
   /** Opens the daemon's logs in the file manager; false when there is nothing to show. */
   showLogs(): Promise<boolean>;
 }): Handlers {
@@ -53,6 +54,10 @@ export function createHandlers(options: {
     return window;
   };
   return {
+    "keymap.update": (bindings) => {
+      options.updateKeymap?.(bindings);
+      return undefined;
+    },
     "app.info": () => options.info,
     "app.quit": () => {
       options.quit();

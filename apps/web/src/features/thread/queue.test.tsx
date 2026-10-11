@@ -143,7 +143,7 @@ test("a refused take back keeps the queued message and leaves the current draft 
   await userEvent.type(message, "Keep this draft");
   app.daemon.refuseCommands("queue_conflict", "queue.remove");
   await userEvent.click(within(queued).getByRole("button", { name: "Take back to composer" }));
-  await screen.findByText("Couldn't take back the message");
+  await screen.findByRole("alertdialog", { name: "Couldn't take back the message" });
   expect(
     within(screen.getByRole("list", { name: "Queued messages" })).getByText("Check retries"),
   ).toBeTruthy();
@@ -157,7 +157,7 @@ test("a refused Send now keeps the pending bubble without adding a confirmed mes
   const queued = await screen.findByRole("list", { name: "Queued messages" });
   app.daemon.refuseCommands("queue_conflict", "queue.edit");
   await userEvent.dblClick(within(queued).getByRole("button", { name: "Send now" }));
-  await screen.findByText("Couldn't send it now");
+  await screen.findByRole("alertdialog", { name: "Couldn't send it now" });
   expect(
     within(screen.getByRole("list", { name: "Queued messages" })).getByText("Check retries"),
   ).toBeTruthy();

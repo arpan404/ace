@@ -69,3 +69,14 @@ test("offline, the project's Add action explains why it is unavailable and works
   await userEvent.click(add);
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
 }, 15_000);
+
+test("Retry now skips reconnect backoff and restores the live workspace", async () => {
+  const app = await openHome();
+  app.daemon.refuseConnections(true);
+  app.daemon.disconnectAll();
+  const retry = await screen.findByRole("button", { name: "Retry now" });
+  app.daemon.refuseConnections(false);
+  await userEvent.click(retry);
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Retry now" })).toBeNull());
+  expect(app.client.state).toBe("ready");
+});

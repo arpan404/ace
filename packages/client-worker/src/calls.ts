@@ -85,6 +85,7 @@ const schemas = {
   loadOlder: z.tuple([z.string(), z.number().int().positive(), Options]),
   outputRead: z.tuple([Read, Options]),
   networkOnline: z.tuple([z.boolean()]),
+  reconnectNow: z.tuple([]),
   request: z.tuple([ServiceInput, Options]),
 };
 
@@ -193,6 +194,10 @@ export async function callArgs(
     }
     case "request":
       return requestArgs(client, args, signal);
+    case "reconnectNow":
+      decode(schemas.reconnectNow, args);
+      client.reconnectNow();
+      return;
     case "networkOnline": {
       const [online] = decode(schemas.networkOnline, args);
       client.networkOnline(online);

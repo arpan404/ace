@@ -68,6 +68,10 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
     arch: info.arch,
     electron: info.electron,
     packaged: info.packaged,
+    keymap: {
+      update: (bindings: Record<string, string>) => call("keymap.update", bindings),
+      onAction: (listener: (id: string) => void) => subscribe("keymap.action", listener),
+    },
     app: {
       quit: () => call("app.quit"),
     },

@@ -90,6 +90,7 @@ export interface ClientApi {
   start(): Promise<void>;
   close(): Promise<void>;
   networkOnline(online: boolean): void;
+  reconnectNow(): void;
   thread(id: string): Lease<ThreadSource>;
   threads(): Lease<SidebarSource>;
   threadsWindow(input: {

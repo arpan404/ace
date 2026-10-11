@@ -8,7 +8,7 @@ afterEach(async () => {
   cleanup = undefined;
 });
 
-test("saved sessions remain readable while a worker scan is paused at a progress boundary", async () => {
+test("saved sessions remain readable while a progress consumer is busy", async () => {
   const env = await environment();
   cleanup = env.close;
   const home = join(env.root, "claude");
@@ -42,35 +42,29 @@ test("saved sessions remain readable while a worker scan is paused at a progress
   }
 }, 10_000);
 
-test("closing cancels a scan held at progress without requiring its caller to release the gate", async () => {
+test("a busy progress consumer cannot stall scanning or its final inventory", async () => {
   const env = await environment();
   cleanup = env.close;
   const home = join(env.root, "claude");
-  for (let index = 0; index < 64; index++)
+  for (let index = 0; index < 128; index++)
     await jsonl(
       join(home, "projects/p", `${index}.jsonl`),
       claudeRecords(`prompt-${index}`, `native-${index}`),
     );
-  const homes = [{ id: "account", provider: "claude" as const, homeDir: home }];
-  const service = await env.start(homes);
-  await service.scan();
+  const service = await env.start([{ id: "account", provider: "claude", homeDir: home }]);
   const gate = Promise.withResolvers<void>();
-  const paused = Promise.withResolvers<void>();
-  const scanning = service.scan(undefined, async () => {
-    paused.resolve();
-    await gate.promise;
-  });
-  const cancelled = expect(scanning).rejects.toThrow();
+  const reports: number[] = [];
   try {
-    await paused.promise;
-    // Keep the acknowledgement withheld until close and rejection have both completed.
-    await service.close();
-    await cancelled;
-    const reopened = await env.start(homes);
-    expect((await reopened.list({ type: "history.list", cwd, limit: 200 })).sessions).toHaveLength(
-      64,
+    const result = await service.scan(undefined, async (files) => {
+      reports.push(files);
+      await gate.promise;
+    });
+    expect(result.files).toBe(128);
+    expect(reports.at(-1)).toBe(128);
+    expect((await service.list({ type: "history.list", cwd, limit: 200 })).sessions).toHaveLength(
+      128,
     );
   } finally {
     gate.resolve();
   }
-}, 10_000);
+});

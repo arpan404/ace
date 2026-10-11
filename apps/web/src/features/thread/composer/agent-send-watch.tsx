@@ -24,7 +24,7 @@ export function AgentSendWatch(props: {
   useEffect(() => {
     if (!failed || announced.current === props.commandId) return;
     announced.current = props.commandId;
-    toast.add({
+    toast.error({
       eventId: `send-failed:${props.commandId}`,
       kind: "send-failed",
       title: "Follow-up not sent",

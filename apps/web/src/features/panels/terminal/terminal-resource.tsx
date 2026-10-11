@@ -277,7 +277,7 @@ function LiveTerminal(
         surface.current?.focus();
       },
       () =>
-        toast.add({
+        toast.error({
           title: "Couldn't read the clipboard",
           description: "Allow clipboard access, or paste with the keyboard.",
         }),

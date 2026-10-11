@@ -328,14 +328,15 @@ test("an empty inventory stays accessible while scanning and retrying instead of
   expect(within(dialog).queryByRole("button", { name: /^Retry$/ })).toBeNull();
 });
 
-test("New thread exposes saved sessions for the selected project and imports their transcript", async () => {
+test("a missed ready push during reconnect cannot leave the scanning label stuck", async () => {
   const made = app();
-  await made.open("/new?project=relay");
-  const list = await screen.findByRole("list", { name: "Past sessions in relay" });
-  expect(screen.getByRole("button", { name: "Show all past sessions" })).toBeTruthy();
-  await userEvent.click(
-    within(list).getByRole("button", { name: "Import Fix the old retry loop" }),
-  );
-  const feed = await screen.findByRole("feed", { name: "Transcript" });
-  expect(await within(feed).findByText("Retries now stop at the configured cap.")).toBeTruthy();
+  await openHistory(made);
+  const stats = { files: 1, reads: 1, bytes: 100, skipped: 0 };
+  made.daemon.seedServices({ historyScan: { state: "scanning", stats, unsupported: [] } });
+  expect(await screen.findByText("Looking for saved conversations…")).toBeTruthy();
+  made.client.networkOnline(false);
+  made.daemon.seedServices({ historyScan: { state: "ready", stats, unsupported: [] } });
+  made.client.networkOnline(true);
+  await waitFor(() => expect(screen.queryByText("Looking for saved conversations…")).toBeNull());
+  expect(await screen.findByText("Fix the old retry loop")).toBeTruthy();
 });
