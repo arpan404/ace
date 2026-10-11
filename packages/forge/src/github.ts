@@ -76,8 +76,9 @@ export class GitHubForge implements Forge, ForgeBrowser {
     signal: AbortSignal,
     allowed: () => boolean,
     started: () => void = () => {},
+    onDispatch?: () => void,
   ) {
-    return this.#stacks.merge(number, expected, method, signal, allowed, started);
+    return this.#stacks.merge(number, expected, method, signal, allowed, started, onDispatch);
   }
   stackMergeResult(number: number, uuid: string, signal: AbortSignal) {
     return this.#stacks.mergeResult(number, uuid, signal);
@@ -89,11 +90,12 @@ export class GitHubForge implements Forge, ForgeBrowser {
     signal: AbortSignal,
     allowed: () => boolean,
     started: (stage: "rebase" | "push") => void = () => {},
+    onDispatch?: () => void,
   ) {
     const revisions = ForgeStackExpected.parse(expected);
     const stack = await this.#stacks.read(number, signal);
     if (!stack || !sameStack(revisions, stack)) throw new ForgeError("conflict");
-    return this.#localStacks.rebase(action, revisions, stack, signal, allowed, started);
+    return this.#localStacks.rebase(action, revisions, stack, signal, allowed, started, onDispatch);
   }
   prActivity(number: number, page: number, signal: AbortSignal) {
     return this.#browser.activity(number, page, signal);

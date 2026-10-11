@@ -16,6 +16,7 @@ import {
   localStack,
   type Fixtures,
 } from "@ace/forge/testing";
+import type { CommandRequest } from "@ace/forge";
 import { Store } from "./store.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 const execute = promisify(execFile);
@@ -23,7 +24,11 @@ const queued = stackLayers.map((pr) => ({
   position: pr.position,
   pullRequest: { ...pr, mergeQueueEntry: pr.number <= 8 ? { state: "AWAITING_CHECKS" } : null },
 }));
-async function fixture(fixtures: Fixtures) {
+async function fixture(
+  fixtures: Fixtures,
+  commandFor: (request: CommandRequest, executable: string) => string = (_request, executable) =>
+    executable,
+) {
   const root = await mkdtemp(join(tmpdir(), "ace-stacks-"));
   const gh = await fakeGh({
     ...stackChecksFixture,
@@ -48,7 +53,7 @@ async function fixture(fixtures: Fixtures) {
   store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
   const options = {
     forgeRunner: () => (request: Parameters<typeof gh.runner>[0]) =>
-      gh.runner({ ...request, command: gh.executable }),
+      gh.runner({ ...request, command: commandFor(request, gh.executable) }),
   };
   let runtime = new WorkspaceRuntime(store, root, () => 1000, options);
   await runtime.forge.link(thread.id, root, { repository, number: 7 });
@@ -322,3 +327,66 @@ test("a pre-queue host snapshot cannot downgrade a concurrently accepted queue r
     await f.close();
   }
 });
+
+test.each(["merge", "rebase"] as const)(
+  "an unavailable gh before %s dispatch leaves a failed receipt and allows a restored CLI to retry",
+  async (action) => {
+    let unavailable = true;
+    const f = await fixture(
+      {
+        graphql: [stackResponse()],
+        "stack-view": [{ body: localStack }],
+        "stack-rebase": [{ code: 0 }],
+        "repos/octo/ace/pulls/8/merge-async": [
+          { body: { status: "pending", details: { uuid: stackUuid, message: "Requested" } } },
+        ],
+      },
+      (request, executable) => {
+        const write =
+          request.args.includes("PUT") ||
+          (request.args[0] === "stack" && request.args[1] === "rebase");
+        if (write && unavailable) {
+          unavailable = false;
+          return join(executable, "missing-gh");
+        }
+        return executable;
+      },
+    );
+    try {
+      expect(await f.command("not-started", action)).toMatchObject({
+        ok: false,
+        error: "forge_cli",
+      });
+      expect(await f.read()).toMatchObject({
+        result: {
+          kind: "forge",
+          data: {
+            value: {
+              operation: {
+                state: "failed",
+                message: expect.stringContaining("No write was dispatched"),
+              },
+            },
+          },
+        },
+      });
+      expect(
+        (await f.gh.requests()).some((r) => r.args.includes("PUT") || r.path === "stack-rebase"),
+      ).toBe(false);
+      await f.restart();
+      expect(await f.command("not-started", action)).toMatchObject({
+        ok: false,
+        error: "forge_cli",
+      });
+      expect(await f.command("restored", action)).toMatchObject({
+        ok: true,
+        stackOperation: { state: action === "merge" ? "pending" : "push_partial" },
+      });
+      expect(
+        (await f.gh.requests()).filter((r) => r.args.includes("PUT") || r.path === "stack-rebase"),
+      ).toHaveLength(1);
+    } finally {
+      await f.close();
+    }
+  },
+);

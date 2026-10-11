@@ -215,6 +215,7 @@ export class GitHubStacks {
     signal: AbortSignal,
     allowed: () => boolean = () => true,
     started: () => void = () => {},
+    onDispatch?: () => void,
   ): Promise<ForgeStackOperation> {
     const expected = ForgeStackExpected.parse(input);
     z.enum(["merge", "squash", "rebase"]).parse(method);
@@ -248,6 +249,7 @@ export class GitHubStacks {
           signal,
           { sha: head, merge_method: method, merge_action: "default", bypass_rules: false },
           "PUT",
+          onDispatch,
         )
       ).body,
     );

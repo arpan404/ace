@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GitHubForge, ForgeError, repositoryKey } from "@ace/forge";
+import { GitHubForge, ForgeError, ForgeCommandError, repositoryKey } from "@ace/forge";
 import {
   ForgeStackOperation,
   ForgeStackExpected,
@@ -13,6 +13,7 @@ const saved = z.object({
   number: z.number().int().positive(),
   operation: ForgeStackOperation,
   expected: ForgeStackExpected,
+  dispatched: z.boolean().optional(),
   version: z.number().int().nonnegative().optional(),
 });
 
@@ -218,6 +219,7 @@ export class WorkspaceForgeStacks {
     if (this.#active.has(key)) throw new ForgeError("conflict");
     this.#active.add(key);
     let started = false;
+    let dispatched = false;
     let stage: "rebase" | "push" | undefined;
     try {
       const current = await this.read(cwd, backend, number, signal);
@@ -244,6 +246,7 @@ export class WorkspaceForgeStacks {
           cwd,
           number,
           expected,
+          dispatched: false,
           operation: {
             action,
             state: "pending",
@@ -251,36 +254,45 @@ export class WorkspaceForgeStacks {
             message:
               action === "merge"
                 ? "GitHub merge request is being submitted."
-                : "gh stack is updating local branches. A push follows only after the rebase completes.",
+                : "gh stack is updating local branches. Publication is disabled.",
           },
         });
         started = true;
       };
+      const onDispatch = () => {
+        dispatched = true;
+        const entry = this.#get(backend.repository, expected.id);
+        if (entry) this.#save(backend.repository, expected.id, { ...entry, dispatched });
+      };
       const operation =
         action === "merge"
-          ? await backend.mergeStack(number, expected, method, signal, allowed, begin)
-          : await backend.rebaseStack(number, expected, action, signal, allowed, begin);
-      this.#save(backend.repository, expected.id, { cwd, number, expected, operation });
+          ? await backend.mergeStack(number, expected, method, signal, allowed, begin, onDispatch)
+          : await backend.rebaseStack(number, expected, action, signal, allowed, begin, onDispatch);
+      this.#save(backend.repository, expected.id, { cwd, number, expected, operation, dispatched });
       return operation;
     } catch (error) {
+      if (error instanceof ForgeCommandError) dispatched = error.dispatched;
       if (started)
         this.#save(backend.repository, expected.id, {
           cwd,
           number,
           expected,
+          dispatched,
           operation: {
             action,
-            state:
-              stage === "push"
+            state: !dispatched
+              ? "failed"
+              : stage === "push"
                 ? "push_partial"
                 : error instanceof ForgeError &&
                     ["forbidden", "not_found", "rate_limit", "unsupported"].includes(error.kind)
                   ? "failed"
                   : "uncertain",
             ...(stage ? { stage } : {}),
-            message:
-              error instanceof ForgeError &&
-              ["forbidden", "not_found", "rate_limit", "unsupported"].includes(error.kind)
+            message: !dispatched
+              ? "The command did not start. No write was dispatched. Restore the installed gh CLI and refresh before retrying."
+              : error instanceof ForgeError &&
+                  ["forbidden", "not_found", "rate_limit", "unsupported"].includes(error.kind)
                 ? "GitHub refused this request. Refresh account permissions and host state before another action."
                 : "The acknowledgement was lost. ace will not repeat the write. Refresh the host and local stack before recovery.",
           },

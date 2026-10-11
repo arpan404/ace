@@ -47,6 +47,7 @@ export class LocalStacks {
     signal: AbortSignal,
     allowed: () => boolean,
     started: (stage: "rebase" | "push") => void = () => {},
+    onDispatch?: () => void,
   ): Promise<ForgeStackOperation> {
     const current = await this.read(signal);
     if (
@@ -79,6 +80,7 @@ export class LocalStacks {
     started("rebase");
     const response = await this.#runner({
       command: this.#command,
+      ...(onDispatch ? { onDispatch } : {}),
       args: [
         "stack",
         "rebase",
