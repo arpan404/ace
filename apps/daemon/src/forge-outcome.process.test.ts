@@ -228,7 +228,7 @@ test("a GraphQL refusal during refresh preserves a successful reply receipt so a
     await f.update({ graphqlError: "RATE_LIMITED" });
     expect(await f.runtime.execute(reply("refused-refresh"))).toMatchObject({
       ok: false,
-      error: "forge_rate_limit",
+      error: "forge_outcome_uncertain",
     });
     expect((await f.facts()).replies).toHaveLength(1);
     await f.runtime.close();
