@@ -1,7 +1,81 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ThreadStore, defaultLimits } from "@ace/client";
+import { Engine, Store, AdapterRegistry } from "@ace/daemon";
+import { createScriptedAdapter, type AdapterScript, type ScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
+import { Command, Capabilities, type CommandPayload } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
-import { stopFence } from "../../../web/src/features/thread/composer/stop-target.ts";
-import { harness, scriptFrames, start, end } from "./test-support.ts";
+import { stopFence } from "./stop-target.ts";
+
+type Fact = ReturnType<ReturnType<AdapterScript["createTranslator"]>["translate"]>[number];
+type Frame = NonNullable<ScriptedStep["frames"]>[number];
+type SessionContext = Parameters<ScriptedAdapter["openSession"]>[0];
+const start = { type: "turn.started", agent: "root", trigger: "user" } satisfies Fact;
+const end = { type: "turn.ended", agent: "root", outcome: "completed" } satisfies Fact;
+
+function scriptFrames() {
+  const bundles = new Map<string, Fact[]>();
+  let seq = 0;
+  return {
+    frame(...facts: Fact[]): Frame {
+      const channel = `facts-${++seq}`;
+      bundles.set(channel, facts);
+      return { seq, t: seq, dir: "recv", channel, data: { scripted: true } };
+    },
+    translate(frame: Frame): Fact[] {
+      return structuredClone(bundles.get(frame.channel) ?? []);
+    },
+  };
+}
+
+function harness(steps: ScriptedStep[], frames: ReturnType<typeof scriptFrames>) {
+  const home = mkdtempSync(join(tmpdir(), "ace-stop-window-"));
+  const store = new Store(join(home, "events.sqlite"), undefined, { now: () => 1000 });
+  const workspace = store.createWorkspace(home, "Stop window");
+  const contexts: SessionContext[] = [];
+  const adapter = createScriptedAdapter({
+    provider: "codex",
+    capabilities: Capabilities.parse({
+      steer: false, interruptCascades: false, resume: true, fork: false,
+      subagentTranscripts: true, backgroundTaskControl: true, backgroundVisibility: "full",
+      planMode: false, tokenUsage: false, imageInput: true, rewindFiles: false,
+    }),
+    createTranslator: () => ({ translate: frames.translate, tick: () => [] }),
+    steps,
+  });
+  const registry = new AdapterRegistry();
+  registry.register({
+    ...adapter,
+    async openSession(context) {
+      contexts.push(context);
+      return adapter.openSession(context);
+    },
+  }, { installed: true, auth: "logged_in", loginHint: "unused" });
+  const engine = new Engine(store, {
+    registry,
+    clock: { now: () => 1000, setTimer: () => () => {} },
+  });
+  let serial = 0;
+  const command = (payload: CommandPayload) => {
+    const value = Command.parse({ id: `stop-command-${++serial}`, deviceId: "stop-reader", payload });
+    return store.recordCommand(value.id, value.deviceId, () => engine.handler.handle(value, store));
+  };
+  return {
+    store, workspace, engine, adapter, contexts, command,
+    async create() {
+      const result = command({ type: "thread.create", workspaceId: workspace, provider: "codex", model: "model", input: [{ type: "text", text: "first" }] });
+      if (!result.ok || !result.threadId) throw new Error("Thread creation failed");
+      await engine.flush();
+      return result.threadId;
+    },
+    async close() {
+      await engine.close();
+      await store.close();
+      rmSync(home, { recursive: true, force: true });
+    },
+  };
+}
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
