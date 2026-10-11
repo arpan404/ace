@@ -5,6 +5,11 @@ import { command } from "./process.ts";
 import { errorCode, WorkspaceError } from "./types.ts";
 import type { SafeRoot } from "./safety.ts";
 
+function missingGit(error: unknown): undefined {
+  if (errorCode(error) === "ENOENT") return undefined;
+  throw error;
+}
+
 export class GitIgnore {
   private readonly safe: SafeRoot;
   private probe: Promise<boolean> | undefined;
@@ -24,7 +29,7 @@ export class GitIgnore {
   async metadataPaths(signal?: AbortSignal): Promise<string[]> {
     await this.safe.resolve("");
     const paths: string[] = [];
-    for (const name of ["index", "info/exclude"]) {
+    for (const name of ["index", "info/exclude", "config", "config.worktree"]) {
       const result = await command(
         "git",
         ["rev-parse", "--path-format=absolute", "--git-path", name],
@@ -34,10 +39,8 @@ export class GitIgnore {
           ...(signal ? { signal } : {}),
         },
         this.safe.runtime,
-      ).catch((error: unknown) => {
-        if (errorCode(error) === "ENOENT") return { code: 1, stdout: Buffer.alloc(0), stderr: "" };
-        throw error;
-      });
+      ).catch(missingGit);
+      if (!result) return [];
       if (result.code !== 0) continue;
       const path = z
         .string()
@@ -46,8 +49,49 @@ export class GitIgnore {
         .parse(result.stdout.toString("utf8").replace(/\n$/, ""));
       paths.push(isAbsolute(path) ? path : resolve(this.safe.root, path));
     }
+    const config = await command(
+      "git",
+      ["config", "--null", "--show-origin", "--list"],
+      { cwd: this.safe.root, outputCap: 1_048_576, ...(signal ? { signal } : {}) },
+      this.safe.runtime,
+    ).catch(missingGit);
+    if (!config) return [];
+    if (config.code !== 0)
+      throw new WorkspaceError("IO_ERROR", config.stderr || "Cannot read Git configuration");
+    const fields = config.stdout.toString("utf8").split("\0");
+    for (let i = 0; i < fields.length - 1; i += 2) {
+      const origin = fields[i];
+      if (origin?.startsWith("file:")) paths.push(resolve(this.safe.root, origin.slice(5)));
+    }
+    const excludes = await command(
+      "git",
+      ["config", "--path", "--get", "core.excludesFile"],
+      { cwd: this.safe.root, outputCap: 8192, ...(signal ? { signal } : {}) },
+      this.safe.runtime,
+    ).catch(missingGit);
+    if (!excludes) return [];
+    if (excludes.code !== 0 && excludes.code !== 1)
+      throw new WorkspaceError("IO_ERROR", excludes.stderr || "Cannot resolve Git excludes source");
+    const env = z
+      .object({
+        HOME: z.string().optional(),
+        XDG_CONFIG_HOME: z.string().optional(),
+        GIT_CONFIG_GLOBAL: z.string().optional(),
+      })
+      .parse(this.safe.runtime.environment);
+    const configHome = env.XDG_CONFIG_HOME || (env.HOME ? resolve(env.HOME, ".config") : undefined);
+    if (excludes.code === 0) {
+      const path = z.string().max(4096).parse(excludes.stdout.toString("utf8").replace(/\n$/, ""));
+      if (path) paths.push(resolve(this.safe.root, path));
+    } else if (configHome) paths.push(resolve(configHome, "git/ignore"));
+    // Configuration files must be observed even before their first creation.
+    if (env.GIT_CONFIG_GLOBAL) paths.push(resolve(env.GIT_CONFIG_GLOBAL));
+    else {
+      if (env.HOME) paths.push(resolve(env.HOME, ".gitconfig"));
+      if (configHome) paths.push(resolve(configHome, "git/config"));
+    }
     await this.safe.resolve("");
-    return paths;
+    return [...new Set(paths)];
   }
   private repository(signal?: AbortSignal): Promise<boolean> {
     this.probe ??= this.probeRepository(signal).catch((error: unknown) => {

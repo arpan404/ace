@@ -1,6 +1,7 @@
 import type { CancelTimer } from "./runtime.ts";
 import { type FSWatcher } from "node:fs";
-import { sep, relative, dirname, basename, isAbsolute } from "node:path";
+import { sep } from "node:path";
+import { WatchMetadata } from "./watch-metadata.ts";
 import type { SafeRoot } from "./safety.ts";
 import { internal, validRelativePath } from "./safety.ts";
 import type { GitIgnore } from "./ignore.ts";
@@ -17,30 +18,43 @@ export async function watch(
   let disposed = false;
   const lifetime = new AbortController();
   let native: FSWatcher | undefined;
-  const metadataWatchers: FSWatcher[] = [];
-  function closeMetadata() {
-    for (const watcher of metadataWatchers.splice(0)) watcher.close();
-  }
   let timer: CancelTimer | undefined;
   let interval: CancelTimer | undefined;
   let pollDelay = 1000;
   let mode: "native" | "polling" = "native";
   let previous = new VisibleTree([]);
   let full = false;
+  let metadataDirty = false;
   let dirty = new Set<string>();
   let tail: Promise<void> | undefined;
   let requested = false;
   let initializing = true;
+  const metadata = new WatchMetadata(
+    safe,
+    ignore,
+    lifetime.signal,
+    () => {
+      if (disposed) return;
+      full = true;
+      metadataDirty = true;
+      schedule();
+    },
+    polling,
+  );
   const warning = options.onWarning ?? ((message: string) => console.warn(message));
   async function scan(): Promise<void> {
     const changed = dirty;
     dirty = new Set();
     const complete = full || mode === "polling";
+    const refreshMetadata = metadataDirty;
+    metadataDirty = false;
     full = false;
     try {
       const plan = complete
         ? { updates: await fullSnapshot(safe, ignore, lifetime.signal), removed: new Set<string>() }
         : await changedSnapshot(safe, ignore, previous, changed, lifetime.signal);
+      if (disposed) return;
+      if (refreshMetadata && mode === "native") await metadata.refresh();
       if (disposed) return;
       if (complete) {
         for (const before of previous.values())
@@ -60,6 +74,7 @@ export async function watch(
       if (disposed) return;
       for (const path of changed) dirty.add(path);
       full ||= complete;
+      metadataDirty ||= refreshMetadata;
       pollDelay = Math.min(30_000, pollDelay * 2);
       warning(`Workspace watch reconciliation failed: ${String(error)}`);
       if (mode === "native" && !timer)
@@ -103,7 +118,7 @@ export async function watch(
     if (disposed || mode === "polling") return;
     mode = "polling";
     native?.close();
-    closeMetadata();
+    metadata.close();
     native = undefined;
     warning(
       `Workspace recursive watch unavailable; falling back to polling with backoff: ${reason}`,
@@ -119,9 +134,10 @@ export async function watch(
           if (filename !== null) {
             const path = filename.toString().split(sep).join("/");
             if (!validRelativePath(path)) return;
-            if (path === ".git/info/exclude" || path === ".git/index" || path === ".git/index.lock")
+            if (metadata.includes(path)) {
               full = true;
-            else if (internal(path)) return;
+              metadataDirty = true;
+            } else if (internal(path)) return;
             if (!path || path.split("/").at(-1) === ".gitignore") full = true;
             if (dirty.size < 100_000) dirty.add(path);
             else full = true;
@@ -129,27 +145,7 @@ export async function watch(
           schedule();
         });
         native.on("error", (error) => polling(error.message));
-        const folders = new Map<string, Set<string>>();
-        for (const path of await ignore.metadataPaths(lifetime.signal)) {
-          const rel = relative(root, path);
-          if (rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel)) continue;
-          const dir = dirname(path);
-          const names = folders.get(dir) ?? new Set<string>();
-          names.add(basename(path));
-          names.add(basename(path) + ".lock");
-          folders.set(dir, names);
-        }
-        for (const [dir, names] of folders) {
-          if (!native) break;
-          const subscription = safe.runtime.watch(dir, { recursive: false }, (_event, filename) => {
-            if (filename === null || names.has(filename)) {
-              full = true;
-              schedule();
-            }
-          });
-          subscription.on("error", (error) => polling(error.message));
-          metadataWatchers.push(subscription);
-        }
+        await metadata.refresh();
       } catch (error) {
         polling(String(error));
       }
@@ -161,7 +157,7 @@ export async function watch(
   } catch (error) {
     disposed = true;
     native?.close();
-    closeMetadata();
+    metadata.close();
     interval?.();
     timer?.();
     throw error;
@@ -180,7 +176,7 @@ export async function watch(
       disposed = true;
       lifetime.abort();
       native?.close();
-      closeMetadata();
+      metadata.close();
       interval?.();
       timer?.();
       await tail;
