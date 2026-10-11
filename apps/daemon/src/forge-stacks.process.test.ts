@@ -281,3 +281,44 @@ test("a delayed refresh cannot overwrite a newer merge request's durable UUID", 
     await f.close();
   }
 });
+
+test("a pre-queue host snapshot cannot downgrade a concurrently accepted queue receipt", async () => {
+  const f = await fixture({
+    graphql: [
+      stackResponse(),
+      stackResponse(),
+      { ...stackResponse(), release: "release-snapshot" },
+      stackResponse(8, queued),
+    ],
+    "stack-view": [{ code: 1 }],
+    "repos/octo/ace/pulls/8/merge-async": [
+      { body: { status: "pending", details: { uuid: stackUuid, message: "Requested" } } },
+    ],
+    [`repos/octo/ace/pulls/8/merge-async/${stackUuid}`]: [
+      { body: { status: "enqueued", details: { message: "Accepted by queue" } } },
+    ],
+  });
+  let oldRefresh: ReturnType<typeof f.read> | undefined;
+  try {
+    await f.command("merge");
+    oldRefresh = f.read();
+    await vi.waitFor(async () =>
+      expect((await f.gh.requests()).filter((r) => r.path === "graphql")).toHaveLength(3),
+    );
+    expect(await f.read()).toMatchObject({
+      result: { kind: "forge", data: { value: { operation: { state: "enqueued" } } } },
+    });
+    await writeFile(join(f.gh.dir, "release-snapshot"), "");
+    expect(await oldRefresh).toMatchObject({
+      result: { kind: "forge", data: { value: { operation: { state: "enqueued" } } } },
+    });
+    await f.restart();
+    expect(await f.read()).toMatchObject({
+      result: { kind: "forge", data: { value: { operation: { state: "enqueued" } } } },
+    });
+  } finally {
+    await writeFile(join(f.gh.dir, "release-snapshot"), "");
+    await oldRefresh?.catch(() => {});
+    await f.close();
+  }
+});

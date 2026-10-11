@@ -13,6 +13,7 @@ const saved = z.object({
   number: z.number().int().positive(),
   operation: ForgeStackOperation,
   expected: ForgeStackExpected,
+  version: z.number().int().nonnegative().optional(),
 });
 
 /** Persist host UUIDs and uncertain local effects independently of thread associations. */
@@ -35,6 +36,7 @@ export class WorkspaceForgeStacks {
       for (const row of rows) {
         const entry = saved.parse(JSON.parse(z.string().parse(row.value)));
         if (entry.operation.state === "pending" && !entry.operation.uuid) {
+          entry.version = (entry.version ?? 0) + 1;
           entry.operation = {
             ...entry.operation,
             state: entry.operation.stage === "push" ? "push_partial" : "uncertain",
@@ -69,7 +71,8 @@ export class WorkspaceForgeStacks {
     return row ? saved.parse(JSON.parse(z.string().parse(row.value))) : undefined;
   }
   #save(repository: ForgeRepository, id: string, entry: z.infer<typeof saved>) {
-    const value = saved.parse(entry);
+    const version = (this.#get(repository, id)?.version ?? 0) + 1;
+    const value = saved.parse({ ...entry, version });
     this.#store.atomic((db) => {
       const repo = repositoryKey(repository);
       db.prepare(
@@ -97,7 +100,7 @@ export class WorkspaceForgeStacks {
             "UPDATE forge_stack_operations SET value=?,updated_at=? WHERE repo=? AND stack_id=? AND value=?",
           )
           .run(
-            JSON.stringify(saved.parse({ ...entry, operation })),
+            JSON.stringify(saved.parse({ ...entry, operation, version: (entry.version ?? 0) + 1 })),
             this.#now(),
             repositoryKey(repository),
             entry.expected.id,
@@ -115,11 +118,11 @@ export class WorkspaceForgeStacks {
     number: number,
     signal: AbortSignal,
   ): Promise<ForgeStackWorkspace> {
+    // Capture the receipt version before ANY host I/O. A later receipt cannot be
+    // reconciled using this read's older host snapshot.
+    const entry = this.#find(backend.repository, number);
     const stack = await backend.prStack(number, signal);
-    const entry =
-      (stack ? this.#get(backend.repository, stack.id) : undefined) ??
-      this.#find(backend.repository, number);
-    let operation = entry?.operation ?? null;
+    let operation = entry?.operation ?? this.#find(backend.repository, number)?.operation ?? null;
     let local: ForgeStackWorkspace["local"] = null;
     let localUnavailable: string | null = null;
     try {
