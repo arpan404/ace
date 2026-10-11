@@ -45,13 +45,26 @@ export class GhApi {
     method = body === undefined ? "GET" : "POST",
     dispatch = new MutationDispatch(),
   ): Promise<Page> {
-    const request = { command: this.#command, args: ["api", path, "--method", method],
-      ...(body === undefined ? {} : { input: JSON.stringify(body) }), signal, mode: "json" as const };
-    try { return await this.#request(path, signal, body, method, dispatch); }
-    catch (error) { throw isForgeMutation(request) ? dispatch.failure(error) : error; }
+    const request = {
+      command: this.#command,
+      args: ["api", path, "--method", method],
+      ...(body === undefined ? {} : { input: JSON.stringify(body) }),
+      signal,
+      mode: "json" as const,
+    };
+    try {
+      return await this.#request(path, signal, body, method, dispatch);
+    } catch (error) {
+      throw isForgeMutation(request) ? dispatch.failure(error) : error;
+    }
   }
-  async #request(path: string, signal: AbortSignal, body: unknown, method: string,
-    dispatch: MutationDispatch): Promise<Page> {
+  async #request(
+    path: string,
+    signal: AbortSignal,
+    body: unknown,
+    method: string,
+    dispatch: MutationDispatch,
+  ): Promise<Page> {
     const args = [
       "api",
       path,
@@ -231,26 +244,28 @@ export class GhApi {
   ): Promise<void> {
     const dispatch = new MutationDispatch();
     try {
-    const result = await this.#runner({
-      command: this.#command,
-      args: [
-        "pr",
-        "merge",
-        String(number),
-        "--repo",
-        repo,
-        "--auto",
-        `--${method}`,
-        "--match-head-commit",
-        sha,
-      ],
-      signal,
-      mode: "json",
-      dispatch,
-    });
-    if (result.code !== 0) throw new ForgeError("cli");
-    if (result.identityChanged) throw new ForgeMutationOutcome({ number });
-    } catch (error) { throw dispatch.failure(error); }
+      const result = await this.#runner({
+        command: this.#command,
+        args: [
+          "pr",
+          "merge",
+          String(number),
+          "--repo",
+          repo,
+          "--auto",
+          `--${method}`,
+          "--match-head-commit",
+          sha,
+        ],
+        signal,
+        mode: "json",
+        dispatch,
+      });
+      if (result.code !== 0) throw new ForgeError("cli");
+      if (result.identityChanged) throw new ForgeMutationOutcome({ number });
+    } catch (error) {
+      throw dispatch.failure(error);
+    }
     this.#cache.clear();
     this.#cacheBytes = 0;
   }

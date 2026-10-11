@@ -5,7 +5,10 @@ export class ForgeIntents {
   run<T>(key: string, operation: () => Promise<T>): Promise<T> {
     const previous = this.#tails.get(key) ?? Promise.resolve();
     const result = previous.then(operation);
-    const settled = result.then(() => {}, () => {});
+    const settled = result.then(
+      () => {},
+      () => {},
+    );
     this.#tails.set(key, settled);
     void settled.then(() => {
       if (this.#tails.get(key) === settled) this.#tails.delete(key);

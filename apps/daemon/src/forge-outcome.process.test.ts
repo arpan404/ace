@@ -93,20 +93,21 @@ test("a lost reply response reconciles a new comment instead of an identical old
   }
 });
 
-
 test("a malformed write preflight fails without reserving an uncertain reply and a fresh command can write", async () => {
   const f = await forgeIdentityFixture();
   try {
     await f.update({ invalidUser: 4 });
     expect(await f.runtime.execute(reply("invalid-preflight"))).toMatchObject({
-      ok: false, error: "forge_invalid_data",
+      ok: false,
+      error: "forge_invalid_data",
     });
     expect((await f.facts()).replies).toHaveLength(0);
     expect(await f.runtime.execute(reply("fresh-after-preflight"))).toMatchObject({ ok: true });
     expect((await f.facts()).replies).toHaveLength(1);
-  } finally { await f.close(); }
+  } finally {
+    await f.close();
+  }
 });
-
 
 test("a timed out write preflight keeps its CLI failure and a new command can retry", async () => {
   const f = await forgeIdentityFixture({ timeoutMs: 5000 });
@@ -119,9 +120,10 @@ test("a timed out write preflight keeps its CLI failure and a new command can re
     await f.release();
     expect(await f.runtime.execute(reply("retry-after-timeout"))).toMatchObject({ ok: true });
     expect((await f.facts()).replies).toHaveLength(1);
-  } finally { await f.close(); }
+  } finally {
+    await f.close();
+  }
 }, 20000);
-
 
 test("case-equivalent repositories reconcile the same uncertain reply after a restart", async () => {
   const f = await forgeIdentityFixture();
@@ -129,15 +131,20 @@ test("case-equivalent repositories reconcile the same uncertain reply after a re
   try {
     await f.update({ lostReply: true });
     expect(await f.runtime.execute(reply("mixed-case", "Octo", "Ace"))).toMatchObject({
-      ok: false, error: "forge_outcome_uncertain",
+      ok: false,
+      error: "forge_outcome_uncertain",
     });
     await f.runtime.close();
-    restarted = new WorkspaceRuntime(f.store, f.root, () => 1000, { sourceControl: f.sourceControl });
+    restarted = new WorkspaceRuntime(f.store, f.root, () => 1000, {
+      sourceControl: f.sourceControl,
+    });
     expect(await restarted.execute(reply("lower-case"))).toMatchObject({ ok: true });
     expect((await f.facts()).replies).toHaveLength(1);
-  } finally { await restarted?.close(); await f.close(); }
+  } finally {
+    await restarted?.close();
+    await f.close();
+  }
 });
-
 
 test("a concurrent retry cannot reconcile or clear a receipt while its writer is waiting for a lost response", async () => {
   const f = await forgeIdentityFixture();
@@ -146,8 +153,10 @@ test("a concurrent retry cannot reconcile or clear a receipt while its writer is
     const writer = f.runtime.execute(reply("active-writer", "Octo", "Ace"));
     await f.held();
     let reconciled = false;
-    const retry = f.runtime.execute(reply("concurrent-reconciliation"))
-      .then((result) => { reconciled = true; return result; });
+    const retry = f.runtime.execute(reply("concurrent-reconciliation")).then((result) => {
+      reconciled = true;
+      return result;
+    });
     // Real filesystem/Git work yields while the second command can enter the daemon.
     await f.runtime.details(f.thread.id);
     expect(reconciled).toBe(false);
@@ -155,9 +164,11 @@ test("a concurrent retry cannot reconcile or clear a receipt while its writer is
     expect(await writer).toMatchObject({ ok: false, error: "forge_outcome_uncertain" });
     expect(await retry).toMatchObject({ ok: true });
     expect((await f.facts()).replies).toHaveLength(1);
-  } finally { await f.release(); await f.close(); }
+  } finally {
+    await f.release();
+    await f.close();
+  }
 });
-
 
 test("a failed PR status read is a read failure rather than an uncertain mutation", async () => {
   const f = await forgeIdentityFixture();
@@ -165,9 +176,13 @@ test("a failed PR status read is a read failure rather than an uncertain mutatio
     await f.update({ invalidUser: 2 });
     const base = reply("failed-status");
     if (!("link" in base.payload)) throw new Error("Expected link");
-    expect(await f.runtime.execute(Command.parse({ ...base,
-      payload: { type: "forge.pr.status", link: base.payload.link },
-    }))).toMatchObject({ ok: false, error: "forge_invalid_data" });
+    expect(
+      await f.runtime.execute(
+        Command.parse({ ...base, payload: { type: "forge.pr.status", link: base.payload.link } }),
+      ),
+    ).toMatchObject({ ok: false, error: "forge_invalid_data" });
     expect((await f.facts()).writes).toEqual([]);
-  } finally { await f.close(); }
+  } finally {
+    await f.close();
+  }
 });

@@ -91,7 +91,6 @@ function DesktopUpdates() {
   return null;
 }
 
-
 function SourceControlCache({ client }: { client: ClientApi }) {
   useSourceControlCache(client);
   return null;

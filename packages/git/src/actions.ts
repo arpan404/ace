@@ -71,10 +71,7 @@ export async function commitChanges(
     return head.parse(await repository.commit(root, "HEAD"));
   });
 }
-export async function pushBranch(
-  repository: Repository,
-  options: PushOptions,
-): Promise<void> {
+export async function pushBranch(repository: Repository, options: PushOptions): Promise<void> {
   const remote = z
     .string()
     .min(1)
@@ -82,10 +79,16 @@ export async function pushBranch(
     .regex(/^[\w./-]+$/)
     .refine((value) => !value.startsWith("-"))
     .parse(options.remote);
-  const expected = options.expected === undefined ? undefined : z.object({
-    branch: z.string().min(1).max(1024), head: head.nullable(),
-    pushUrls: z.array(z.string().min(1).max(4096)).min(1).max(100),
-  }).parse(options.expected);
+  const expected =
+    options.expected === undefined
+      ? undefined
+      : z
+          .object({
+            branch: z.string().min(1).max(1024),
+            head: head.nullable(),
+            pushUrls: z.array(z.string().min(1).max(4096)).min(1).max(100),
+          })
+          .parse(options.expected);
   const root = await repository.root(options.worktree);
   await repository.serial(root, async () => {
     const info = await repository.info(root);

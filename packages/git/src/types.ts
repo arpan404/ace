@@ -161,7 +161,6 @@ export function isMutationUnavailable(error: unknown): boolean {
   );
 }
 
-
 export type PushOptions = {
   worktree: string;
   remote: string;

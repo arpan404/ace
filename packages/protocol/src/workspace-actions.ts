@@ -153,8 +153,16 @@ export const WorkspaceCommands = [
     threadId: ThreadId,
     remote: z.string().min(1).max(128).default("origin"),
     /** Pin a PR's pushed head and repository to the checkout the person reviewed. */
-    target: z.object({ repository: ForgeRepository, branch: z.string().min(1).max(256),
-      head: z.string().regex(/^[a-f0-9]{40,64}$/).nullable() }).optional(),
+    target: z
+      .object({
+        repository: ForgeRepository,
+        branch: z.string().min(1).max(256),
+        head: z
+          .string()
+          .regex(/^[a-f0-9]{40,64}$/)
+          .nullable(),
+      })
+      .optional(),
   }),
 ] as const;
 

@@ -374,37 +374,40 @@ export class WorkspaceForge {
       return { ok: true, pr: p.link.pr, prStatus: status };
     }
     const executeIntent = async (): Promise<Omit<CommandResult, "commandId">> => {
-    this.lifetime.signal.throwIfAborted();
-    if (!allowed()) throw new Error("forbidden");
-    const generation = this.links.getLinkState(id, p.link.pr)?.generation;
-    const backend = await this.backend(cwd, p.link.pr.repository);
-    if (!allowed()) throw new Error("forbidden");
-    if (p.type === "forge.comment.reply")
-      await backend.replyComment(p.link.pr.number, p.commentId, p.body, this.lifetime.signal);
-    if (p.type === "forge.review.request")
-      await backend.requestReviews(p.link.pr.number, p.reviewers, this.lifetime.signal);
-    if (p.type === "forge.pr.merge")
-      await backend.merge(p.link.pr.number, p.headSha, p.method, this.lifetime.signal);
-    if (p.type === "forge.pr.auto-merge")
-      await backend.enableAutoMerge(p.link.pr.number, p.headSha, p.method, this.lifetime.signal);
-    let status: ForgePrStatus;
-    try {
-      status = await backend.status(p.link.pr.number, this.lifetime.signal);
+      this.lifetime.signal.throwIfAborted();
       if (!allowed()) throw new Error("forbidden");
-      this.projection.update(id, status, generation);
-    } catch (error) {
-      if (p.type === "forge.pr.status") throw error;
-      throw new ForgeMutationOutcome({ dispatched: true });
-    }
-    if (p.type === "forge.comment.reply")
-      this.replyReceipts
-        .scope(cwd, p.link.pr.repository, "")
-        .remove(replyIntent(p.link.pr.repository, p.link.pr.number, p.commentId, p.body));
-    return { ok: true, pr: status.ref, prStatus: status };
+      const generation = this.links.getLinkState(id, p.link.pr)?.generation;
+      const backend = await this.backend(cwd, p.link.pr.repository);
+      if (!allowed()) throw new Error("forbidden");
+      if (p.type === "forge.comment.reply")
+        await backend.replyComment(p.link.pr.number, p.commentId, p.body, this.lifetime.signal);
+      if (p.type === "forge.review.request")
+        await backend.requestReviews(p.link.pr.number, p.reviewers, this.lifetime.signal);
+      if (p.type === "forge.pr.merge")
+        await backend.merge(p.link.pr.number, p.headSha, p.method, this.lifetime.signal);
+      if (p.type === "forge.pr.auto-merge")
+        await backend.enableAutoMerge(p.link.pr.number, p.headSha, p.method, this.lifetime.signal);
+      let status: ForgePrStatus;
+      try {
+        status = await backend.status(p.link.pr.number, this.lifetime.signal);
+        if (!allowed()) throw new Error("forbidden");
+        this.projection.update(id, status, generation);
+      } catch (error) {
+        if (p.type === "forge.pr.status") throw error;
+        throw new ForgeMutationOutcome({ dispatched: true });
+      }
+      if (p.type === "forge.comment.reply")
+        this.replyReceipts
+          .scope(cwd, p.link.pr.repository, "")
+          .remove(replyIntent(p.link.pr.repository, p.link.pr.number, p.commentId, p.body));
+      return { ok: true, pr: status.ref, prStatus: status };
     };
     if (p.type !== "forge.comment.reply") return executeIntent();
-    const key = JSON.stringify([cwd, repositoryKey(p.link.pr.repository),
-      replyIntent(p.link.pr.repository, p.link.pr.number, p.commentId, p.body)]);
+    const key = JSON.stringify([
+      cwd,
+      repositoryKey(p.link.pr.repository),
+      replyIntent(p.link.pr.repository, p.link.pr.number, p.commentId, p.body),
+    ]);
     return this.intents.run(key, executeIntent);
   }
 

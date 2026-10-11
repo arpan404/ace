@@ -99,17 +99,24 @@ test("a preference change during a status read prevents old capabilities from be
   }
 });
 
-
 test("changing the expected account during initial backend admission prevents every admitted mutation", async () => {
-  for (const type of ["forge.comment.reply", "forge.review.request", "forge.pr.merge", "forge.pr.auto-merge"] as const) {
+  for (const type of [
+    "forge.comment.reply",
+    "forge.review.request",
+    "forge.pr.merge",
+    "forge.pr.auto-merge",
+  ] as const) {
     const f = await forgeIdentityFixture();
     try {
       await f.update({ holdUser: 1 });
       const base = reply(`initial-${type}`);
       const link = "link" in base.payload ? base.payload.link : undefined;
-      const payload = type === "forge.comment.reply" ? base.payload
-        : type === "forge.review.request" ? { type, link, reviewers: ["reviewer"] }
-        : { type, link, headSha: "a".repeat(40), method: "squash" };
+      const payload =
+        type === "forge.comment.reply"
+          ? base.payload
+          : type === "forge.review.request"
+            ? { type, link, reviewers: ["reviewer"] }
+            : { type, link, headSha: "a".repeat(40), method: "squash" };
       const operation = f.runtime.execute(Command.parse({ ...base, payload }));
       await f.held();
       await changeAccount(f);
@@ -117,6 +124,9 @@ test("changing the expected account during initial backend admission prevents ev
       await f.release();
       expect(await operation).toMatchObject({ ok: false, error: "forge_preferences_changed" });
       expect((await f.facts()).writes).toEqual([]);
-    } finally { await f.release(); await f.close(); }
+    } finally {
+      await f.release();
+      await f.close();
+    }
   }
 });

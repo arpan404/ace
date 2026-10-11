@@ -7,9 +7,11 @@ import { subscribeSettings } from "./settings-subscription.ts";
 export async function refreshSourceControl(queries: QueryClient, client: ClientApi): Promise<void> {
   const predicate = (query: Query) => {
     const [owner, resource] = query.queryKey;
-    return query.meta?.daemonClient === client && (
-      (owner === "thread" && (resource === "pr" || resource === "details")) ||
-      (owner === "projects" && (resource === "github-readiness" || resource === "github-repositories"))
+    return (
+      query.meta?.daemonClient === client &&
+      ((owner === "thread" && (resource === "pr" || resource === "details")) ||
+        (owner === "projects" &&
+          (resource === "github-readiness" || resource === "github-repositories")))
     );
   };
   await queries.cancelQueries({ predicate });
@@ -20,9 +22,17 @@ export async function refreshSourceControl(queries: QueryClient, client: ClientA
 export function useSourceControlCache(client: ClientApi): void {
   const queries = useQueryClient();
   useEffect(() => {
-    const subscription = subscribeSettings(client, ["sourceControl.preferences"], {}, () => {
-      void refreshSourceControl(queries, client);
-    }, () => { void refreshSourceControl(queries, client); });
+    const subscription = subscribeSettings(
+      client,
+      ["sourceControl.preferences"],
+      {},
+      () => {
+        void refreshSourceControl(queries, client);
+      },
+      () => {
+        void refreshSourceControl(queries, client);
+      },
+    );
     return () => subscription.stop();
   }, [client, queries]);
 }
