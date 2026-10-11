@@ -263,7 +263,7 @@ export function NewThreadPage(props: {
             <Composer
               key={project}
               onPlan={() => {
-                if (provider) setPermissionChoice({ provider, id: "plan" });
+                if (provider === "claude") setPermissionChoice({ provider, id: "plan" });
               }}
               thread={draftThread}
               draftKey={project ? draftKeyFor(project) : undefined}
