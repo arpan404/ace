@@ -30,6 +30,7 @@ export function PanelControls(props: {
   /** In the panel's own strip (it is showing) or in the header (it is not). */
   placement: "header" | "panel";
   dockable?: boolean | undefined;
+  mobileAction: { label: string; onClick(): void };
   renderAction?: ((action: PanelControlAction) => ReactNode) | undefined;
 }) {
   const { workspace, actions } = props;
@@ -37,9 +38,9 @@ export function PanelControls(props: {
   if (props.renderAction)
     return props.renderAction({
       icon: SquareSplitHorizontalIcon,
-      label: "Changes",
+      label: props.mobileAction.label,
       shortcut: "rightPanel",
-      onClick: () => actions.open({ kind: "changes" }),
+      onClick: props.mobileAction.onClick,
     });
   return (
     <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
@@ -70,11 +71,11 @@ export function PanelControls(props: {
       {(!props.dockable || props.placement === "header" || phone) && (
         <IconButton
           icon={SquareSplitHorizontalIcon}
-          label={phone ? "Changes" : "Right panel"}
+          label={phone ? props.mobileAction.label : "Right panel"}
           shortcut="rightPanel"
           data-panel-toggle
           pressed={workspace.open}
-          onClick={() => (phone ? actions.open({ kind: "changes" }) : actions.toggle())}
+          onClick={() => (phone ? props.mobileAction.onClick() : actions.toggle())}
         />
       )}
     </div>

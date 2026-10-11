@@ -9,6 +9,7 @@ import { defineWorkspace } from "@/lib/workspace/index.ts";
 export const threadWorkspace = defineWorkspace({
   label: "Thread panel",
   launcher: "new-tab",
+  mobileAction: { label: "Changes", kind: "changes" },
   initial: [
     { kind: "changes", pinned: true },
     { kind: "agents", pinned: true },

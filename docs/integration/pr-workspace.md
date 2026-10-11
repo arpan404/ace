@@ -5,7 +5,7 @@ daemon reads and existing guarded commands. The six companion diffs were inspect
 for their contracts; their implementations are not included here.
 
 `apps/web/src/features/forge/index.ts` exports `PrScreen`, `PrDetail`,
-`PrWorkspaceExtensions`, `PrListExtensions`, `PrWorkspaceContext`, and
+`PrWorkspaceExtensions`, `PrListExtensions`, `PrWorkspaceContext`, `PrDiffContext`, and
 `PrWorkspaceExtensionProvider`. Pass adapters to `PrScreen` so all its resource tabs
 receive them. `PrDetail` also accepts them directly. Each callback receives the
 workspace identity, fresh detail, a `disabled` fence, and an awaited `refresh()`.
@@ -32,10 +32,22 @@ clearing a write fence. Header/overflow/property/list render callbacks own their
 accessible controls and confirmations. The existing #499 commands remain in the
 overflow popover with their reconciliation state mounted across dismissals.
 
+Diff adapters (`viewed`, `viewedCount`, `onLineComment`, `annotation`) receive
+`PrDiffContext`. Its `files: ForgePrFiles` is the exact displayed response, including
+`ref`, `baseSha`, `headSha`, and optional `commit`. For a historical commit,
+`files.baseSha` is its first parent and `files.headSha` is that commit, while
+`detail.status.headSha` still identifies the full PR. Use `files` for annotations,
+line writes and viewed-version keys. A historical viewed count covers the displayed
+page. The diff's disabled fence also includes a fetching or failed file read. An
+adapter that cannot safely handle a historical range must hide or disable its
+writes when `files.commit` is present.
+
 The shared workspace owns PR chips, the new-tab launcher, full view and persisted
 side/bottom docking. Dock controls are enabled only for this workspace. PR identity
 includes project, host, owner, repository and number. The list stays mounted while
 the detail opens, preserving filter inputs, paging and scroll position.
+On phones, More actions → Pull request workspace reopens its active resource or
+the PR launcher. The thread workspace retains its own Changes entry.
 
 ## Additive read fields
 
@@ -79,3 +91,10 @@ after those captures. This is a structural comparison, not a pixel-difference te
 Behavior tests were written for metadata, indicators, timeline ordering and unknown
 events, commit-head races, composer submission/confirmation/freshness, Markdown
 navigation, docking persistence and workspace-kind loading. Tests were not run.
+
+Round-1 review tightens the layout to the #538/#539 scale: a `text-ui` medium title,
+`text-xs` metadata, 8px header gaps, compact section spacing and `text-ui` description
+prose. Additional unrun regressions cover phone reopening/launching, historical
+annotation and line-draft identity, viewed-version isolation, and colliding numeric
+IDs across comment/review/event kinds. The latest #499 branch is merged, preserving
+its review-extension behavior and diff-content versions.

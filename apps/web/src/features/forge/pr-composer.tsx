@@ -60,7 +60,7 @@ export function PrComposer(props: {
     }
   };
   return (
-    <div className="absolute right-5 bottom-4 z-10">
+    <div className="absolute right-4 bottom-3 z-10">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           render={
@@ -71,7 +71,7 @@ export function PrComposer(props: {
             />
           }
         />
-        <PopoverContent side="top" align="end" className="w-96 max-w-full space-y-4 p-4">
+        <PopoverContent side="top" align="end" className="w-96 max-w-full space-y-3 p-3">
           <PopoverTitle className="sr-only">Comment on pull request</PopoverTitle>
           <div className="flex items-center justify-between">
             <Tabs
@@ -100,7 +100,7 @@ export function PrComposer(props: {
               setClosing(false);
             }}
             maxLength={65_536}
-            className="min-h-24 w-full resize-y rounded-card border border-border bg-input p-3 text-base focus-ring"
+            className="min-h-24 w-full resize-y rounded-card border border-border bg-input p-2 text-ui focus-ring"
           />
           {closing && (
             <p role="status" className="text-sm">

@@ -22,7 +22,7 @@ export function PrList(props: {
   const change = (patch: Partial<ForgePrSearch>) =>
     props.onQuery({ ...props.query, ...patch, page: 1 });
   return (
-    <section aria-label="Repository pull requests" className="space-y-4">
+    <section aria-label="Repository pull requests" className="space-y-3">
       <Tabs
         value={props.query.state}
         onValueChange={(state) => {
@@ -111,14 +111,14 @@ export function PrList(props: {
                   <li key={pr.ref.number}>
                     <button
                       type="button"
-                      className="flex w-full flex-wrap items-start gap-3 rounded-sm px-2 py-4 text-left focus-ring hover:bg-accent"
+                      className="flex w-full flex-wrap items-start gap-2 rounded-sm px-2 py-2.5 text-left focus-ring hover:bg-accent"
                       aria-current={pr.ref.number === props.selected ? "page" : undefined}
                       onClick={() => props.onOpen(pr.ref.number)}
                     >
                       <PullRequestGlyph state={pr.state} size={18} />
                       <span className="min-w-40 flex-1">
-                        <span className="block text-base font-medium">{pr.title}</span>
-                        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <span className="block text-ui font-medium">{pr.title}</span>
+                        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                           <span>#{pr.ref.number}</span>
                           <span>{pr.state}</span>
                           <span>{pr.author}</span>

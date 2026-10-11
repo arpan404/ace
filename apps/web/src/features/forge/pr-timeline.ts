@@ -13,7 +13,7 @@ export function prTimeline(
   events: readonly ForgeActivity[],
   order: "newest" | "oldest",
 ): PrTimelineEntry[] {
-  const commentIds = new Set(detail.status.comments.map((c) => String(c.id)));
+  const commentIds = new Set(detail.status.comments.map((c) => `${c.kind}:${c.id}`));
   const commitIds = new Set(commits.map((c) => c.sha));
   const rows: PrTimelineEntry[] = [
     ...commits.map((commit): PrTimelineEntry => ({
@@ -32,13 +32,13 @@ export function prTimeline(
       .filter(
         (event) =>
           !(
-            (event.event === "commented" || event.event === "reviewed") &&
-            commentIds.has(event.id)
+            (event.event === "commented" && commentIds.has(`issue:${event.id}`)) ||
+            (event.event === "reviewed" && commentIds.has(`review:${event.id}`))
           ) && !(event.event === "committed" && event.commitSha && commitIds.has(event.commitSha)),
       )
       .map((event): PrTimelineEntry => ({
         kind: "event",
-        id: `event:${event.id}`,
+        id: `event:${event.event}:${event.id}`,
         at: event.at,
         event,
       })),

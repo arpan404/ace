@@ -74,7 +74,7 @@ export function PrActivity(props: {
     [props.detail, commits.data, activity.data, props.order],
   );
   return (
-    <section aria-label="Pull request timeline" className="px-5 py-6">
+    <section aria-label="Pull request timeline" className="px-4 py-3">
       <QueryState query={commits} />
       <QueryState query={activity} />
       {(activity.data?.truncated || commits.data?.truncated) && (
@@ -87,7 +87,7 @@ export function PrActivity(props: {
       <LongRows
         items={rows}
         rowKey={(row) => row.id}
-        estimate={88}
+        estimate={64}
         virtualAbove={80}
         render={(row) => {
           const event = row.kind === "event" ? row.event : undefined;
@@ -106,8 +106,8 @@ export function PrActivity(props: {
                         ? GitCommitIcon
                         : GitPullRequestIcon;
           return (
-            <div className="relative flex gap-4 pb-8 pl-3 before:absolute before:top-8 before:bottom-0 before:left-6 before:w-px before:bg-border">
-              <div className="relative z-[1] flex size-6 shrink-0 items-center justify-center bg-panel">
+            <div className="relative flex gap-3 pb-4 pl-2 before:absolute before:top-6 before:bottom-0 before:left-4.5 before:w-px before:bg-border">
+              <div className="relative z-[1] flex size-5 shrink-0 items-center justify-center bg-panel">
                 {row.kind === "commit" ? (
                   <PrAvatar name={row.commit.author} url={row.commit.authorAvatarUrl} />
                 ) : row.kind === "comment" ? (
@@ -119,7 +119,7 @@ export function PrActivity(props: {
               <div className="min-w-0 flex-1 space-y-1">
                 {row.kind === "commit" ? (
                   <>
-                    <p className="text-sm font-medium">{row.commit.message.split("\n")[0]}</p>
+                    <p className="text-ui font-medium">{row.commit.message.split("\n")[0]}</p>
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <a
                         href={row.commit.url}
@@ -135,18 +135,18 @@ export function PrActivity(props: {
                   </>
                 ) : row.kind === "comment" ? (
                   <>
-                    <p className="text-sm">
+                    <p className="text-ui">
                       <span className="font-medium">{row.comment.author}</span>{" "}
                       {row.comment.kind === "review"
                         ? `submitted a review: ${row.comment.reviewState ?? "unknown"}`
                         : "commented"}
                     </p>
                     <PrTime at={row.at} />
-                    <Prose text={row.comment.body} />
+                    <Prose text={row.comment.body} className="text-ui leading-normal" />
                   </>
                 ) : (
                   <>
-                    <p className="text-sm">
+                    <p className="text-ui">
                       <span className="font-medium">{row.event.actor}</span> {eventText(row.event)}
                     </p>
                     <PrTime at={row.at} />

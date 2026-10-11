@@ -11,7 +11,7 @@ export default function PrPanelLauncher(props: TabViewProps) {
   const [error, setError] = useState("");
   return (
     <form
-      className="space-y-4 p-5"
+      className="space-y-3 p-4"
       onSubmit={(event) => {
         event.preventDefault();
         setError("");
@@ -39,7 +39,7 @@ export default function PrPanelLauncher(props: TabViewProps) {
         }
       }}
     >
-      <h2 className="text-lg font-semibold">Open a pull request</h2>
+      <h2 className="text-ui font-medium">Open a pull request</h2>
       <Input
         autoFocus
         aria-label="New tab PR URL or number"

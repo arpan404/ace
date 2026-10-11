@@ -23,7 +23,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { readForge } from "./source.ts";
 import { QueryState } from "./query-state.tsx";
 import { usePrCommits } from "./pr-commits.tsx";
-import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
+import type { PrWorkspaceContext, PrWorkspaceExtensions, PrDiffContext } from "./pr-extensions.ts";
 
 const fileStatus = (file: ForgeFile) =>
   file.status === "added"
@@ -130,13 +130,21 @@ function PrFilePage(
   );
   const diffs = useFileChanges(inputs);
   const byPath = new Map(diffs.files.map((file) => [file.path, file]));
-  const viewedCount = props.extensions?.viewedCount?.(props.context);
+  const diffContext: PrDiffContext | undefined = query.data
+    ? {
+        ...props.context,
+        files: query.data,
+        disabled: props.context.disabled || query.isFetching || query.isError,
+      }
+    : undefined;
+  const viewedCount = diffContext && props.extensions?.viewedCount?.(diffContext);
+  const fileCount = props.commit ? (query.data?.files.length ?? 0) : props.detail.changedFiles;
   return (
     <section aria-label="Hosted PR diff" className="min-w-0">
       <div
         role="toolbar"
         aria-label="Diff controls"
-        className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-border bg-panel px-3 py-2"
+        className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border bg-panel px-3 py-1.5"
       >
         <select
           aria-label="Commit range"
@@ -152,10 +160,8 @@ function PrFilePage(
           ))}
         </select>
         <span className="text-sm text-muted-foreground">
-          {props.commit
-            ? `${query.data?.files.length ?? 0} files on this page`
-            : `${props.detail.changedFiles} files`}
-          {viewedCount !== undefined && ` · ${viewedCount} / ${props.detail.changedFiles} viewed`}
+          {fileCount} files{props.commit ? " on this page" : ""}
+          {viewedCount !== undefined && ` · ${viewedCount} / ${fileCount} viewed`}
         </span>
         <div className="ml-auto flex gap-1">
           <IconButton
@@ -209,7 +215,7 @@ function PrFilePage(
           GitHub exposes the first 250 commits. Open GitHub for the full range.
         </p>
       )}
-      {query.data && (
+      {query.data && diffContext && (
         <>
           <p className="sr-only">
             {props.commit
@@ -238,7 +244,7 @@ function PrFilePage(
                 viewed={
                   new Set(
                     query.data.files
-                      .filter((file) => props.extensions?.viewed?.(file, props.context)?.checked)
+                      .filter((file) => props.extensions?.viewed?.(file, diffContext)?.checked)
                       .map((file) => file.path),
                   )
                 }
@@ -263,7 +269,7 @@ function PrFilePage(
                       : file.status === "renamed"
                         ? ArrowCircleRightIcon
                         : PencilCircleIcon;
-                const viewed = props.extensions?.viewed?.(file, props.context);
+                const viewed = props.extensions?.viewed?.(file, diffContext);
                 const view = views.get(file.path) ?? { ...freshView, open: !collapsed };
                 return (
                   <div key={file.path} className="border-b border-border">
@@ -286,12 +292,12 @@ function PrFilePage(
                         statusIcon={<Icon aria-label={file.status} size={18} />}
                         highlighted={() => false}
                         renderAnnotation={(target) =>
-                          props.extensions?.annotation?.(file.path, target, props.context)
+                          props.extensions?.annotation?.(file.path, target, diffContext)
                         }
                         onComment={
-                          props.extensions?.onLineComment && !props.context.disabled
+                          props.extensions?.onLineComment && !diffContext.disabled
                             ? (range) =>
-                                props.extensions?.onLineComment?.(file.path, range, props.context)
+                                props.extensions?.onLineComment?.(file.path, range, diffContext)
                             : undefined
                         }
                         viewed={viewed?.checked}
@@ -302,7 +308,7 @@ function PrFilePage(
                                 type="checkbox"
                                 aria-label={`Viewed ${file.path}`}
                                 checked={viewed.checked}
-                                disabled={props.context.disabled || viewed.disabled}
+                                disabled={diffContext.disabled || viewed.disabled}
                                 onChange={(e) =>
                                   void viewed
                                     .change(e.target.checked)

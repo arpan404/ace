@@ -5,6 +5,7 @@ export type { PrLocation } from "./pr-screen.tsx";
 export type {
   PrWorkspaceExtensions,
   PrWorkspaceContext,
+  PrDiffContext,
   PrListExtensions,
 } from "./pr-extensions.ts";
 export { PrDetail } from "./pr-detail.tsx";

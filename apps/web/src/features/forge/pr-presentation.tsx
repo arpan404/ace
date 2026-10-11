@@ -7,7 +7,7 @@ import { MessageAvatar } from "@/components/ui/message.tsx";
 export function PrAvatar(props: { name: string; url?: string | undefined }) {
   const url = props.url?.startsWith("https://") ? props.url : undefined;
   return (
-    <MessageAvatar className="size-6 min-w-6 self-center">
+    <MessageAvatar className="size-5 min-w-5 self-center">
       {url ? (
         <img
           src={url}
@@ -31,7 +31,7 @@ export function PrTime(props: { at?: string | null | undefined; prefix?: string 
     <time
       dateTime={props.at ?? undefined}
       title={props.at ?? undefined}
-      className="text-sm text-muted-foreground"
+      className="text-xs text-muted-foreground"
     >
       {props.prefix}
       {Number.isFinite(at) ? formatAgo(at, now) : "Time unavailable"}
@@ -57,7 +57,7 @@ export function PrChecksPill(props: { ci: ForgePrStatus["ci"]; checks?: ForgePrS
           ? ClockIcon
           : CircleIcon;
   return (
-    <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
       <Icon aria-hidden size={16} />
       {checkSummary({ ci: props.ci, checks: props.checks ?? [] })}
     </span>

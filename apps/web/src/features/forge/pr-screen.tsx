@@ -136,7 +136,7 @@ export function PrScreen(props: {
     <PrWorkspaceExtensionProvider value={props.extensions}>
       <Screen title="Pull requests" workspace={{ scope, definition: prWorkspace }}>
         <div ref={scroller} className="h-full overflow-auto">
-          <div className="mx-auto max-w-[1040px] space-y-6 px-4 py-6 sm:px-8">
+          <div className="mx-auto max-w-[1040px] space-y-4 px-4 py-4 sm:px-6">
             <div className="flex flex-wrap items-center gap-3">
               <label className="text-sm">
                 Project{" "}

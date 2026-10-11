@@ -32,7 +32,7 @@ export function PrHeader(props: {
   const open = () =>
     void openExternal(status.url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
   return (
-    <header className="space-y-4 border-b border-border px-5 pt-4 pb-5">
+    <header className="space-y-2 border-b border-border px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
         {props.onBack && (
           <IconButton
@@ -44,7 +44,7 @@ export function PrHeader(props: {
         )}
         <button
           onClick={open}
-          className="inline-flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground focus-ring"
+          className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground focus-ring pointer-coarse:min-h-11"
         >
           <span className="truncate">
             {repository.owner}/{repository.name}
@@ -59,16 +59,20 @@ export function PrHeader(props: {
           {props.extensions?.headerActions?.(props.context)}
           {status.mergeability === "conflicting" && (
             <Popover>
-              <PopoverTrigger render={<Button variant="outline" className="text-destructive" />}>
+              <PopoverTrigger
+                render={<Button variant="outline" size="sm" className="text-destructive" />}
+              >
                 <WarningIcon aria-hidden size={16} />
                 Resolve conflicts
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-72 space-y-3 p-4">
-                <PopoverTitle className="text-base font-medium">Resolve conflicts</PopoverTitle>
+              <PopoverContent align="end" className="w-72 space-y-2 p-3">
+                <PopoverTitle className="text-ui font-medium">Resolve conflicts</PopoverTitle>
                 <p className="text-sm text-muted-foreground">
                   Choose where to resolve the conflicts.
                 </p>
-                <Button onClick={open}>Open on GitHub</Button>
+                <Button size="sm" onClick={open}>
+                  Open on GitHub
+                </Button>
                 {props.extensions?.resolveInWorktree && (
                   <Button
                     disabled={disabled}
@@ -84,11 +88,15 @@ export function PrHeader(props: {
             <PopoverTrigger
               render={<IconButton icon={DotsThreeIcon} label="Pull request actions" />}
             />
-            <PopoverContent align="end" keepMounted className="w-80 max-w-full space-y-3 p-4">
-              <PopoverTitle className="text-base font-medium">Pull request actions</PopoverTitle>
+            <PopoverContent align="end" keepMounted className="w-80 max-w-full space-y-2 p-3">
+              <PopoverTitle className="text-ui font-medium">Pull request actions</PopoverTitle>
               <div className="flex gap-2">
-                <Button onClick={() => void refresh()}>Refresh PR</Button>
-                <Button onClick={open}>Open on GitHub</Button>
+                <Button size="sm" onClick={() => void refresh()}>
+                  Refresh PR
+                </Button>
+                <Button size="sm" onClick={open}>
+                  Open on GitHub
+                </Button>
               </div>
               {props.extensions?.overflow?.(props.context)}
               <PrActions detail={detail} writeReady={!disabled} onRefresh={refresh} />
@@ -96,8 +104,8 @@ export function PrHeader(props: {
           </Popover>
         </div>
       </div>
-      <h2 className="text-xl leading-snug font-semibold tracking-title">{status.title}</h2>
-      <div className="flex flex-wrap items-center gap-2 text-sm">
+      <h2 className="text-ui leading-5 font-medium">{status.title}</h2>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
         <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
         <span>{detail.author}</span>
         <span aria-hidden className="text-subtle-foreground">
@@ -108,12 +116,12 @@ export function PrHeader(props: {
           type="button"
           aria-label={copied ? "Checkout command copied" : "Copy checkout command"}
           onClick={() => copy(`gh pr checkout ${status.ref.number}`)}
-          className="ml-auto rounded-sm px-1 py-1 font-mono text-sm text-muted-foreground hover:bg-accent focus-ring"
+          className="ml-auto rounded-sm px-1 py-0.5 font-mono text-xs pointer-coarse:min-h-11 text-muted-foreground hover:bg-accent focus-ring"
         >
           {copied ? "Copied" : `gh pr checkout ${status.ref.number}`}
         </button>
       </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
         <span className="min-w-0 break-all font-mono">
           {detail.baseBranch} ← {detail.headBranch}
         </span>

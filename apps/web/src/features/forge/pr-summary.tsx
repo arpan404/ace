@@ -19,14 +19,14 @@ import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.
 export function PrSection(props: { title: string; children: ReactNode; action?: ReactNode }) {
   const [open, setOpen] = useState(true);
   return (
-    <section className="space-y-4">
+    <section className="space-y-2">
       <div className="flex items-center gap-2">
         <h3>
           <button
             type="button"
             aria-expanded={open}
             onClick={() => setOpen(!open)}
-            className="inline-flex items-center gap-2 rounded-sm text-sm font-medium text-muted-foreground focus-ring"
+            className="inline-flex items-center gap-2 rounded-sm text-ui font-medium text-muted-foreground focus-ring"
           >
             {props.title}
             <CaretDownIcon aria-hidden size={12} className={open ? "" : "-rotate-90"} />
@@ -47,10 +47,10 @@ export function PrSummary(props: {
   const { detail } = props.context;
   const toast = useToast();
   return (
-    <div className="space-y-7 px-5 pt-4 pb-20">
-      <dl className="space-y-4 text-sm">
-        <div className="flex items-center gap-3">
-          <dt className="flex w-28 shrink-0 items-center gap-2 text-muted-foreground">
+    <div className="space-y-3 px-4 pt-3 pb-16">
+      <dl className="space-y-2 text-ui">
+        <div className="flex items-center gap-2">
+          <dt className="flex w-24 shrink-0 items-center gap-2 text-muted-foreground">
             <UsersIcon aria-hidden size={16} />
             Reviewers
           </dt>
@@ -76,8 +76,8 @@ export function PrSummary(props: {
               ))}
           </dd>
         </div>
-        <div className="flex items-center gap-3">
-          <dt className="flex w-28 shrink-0 items-center gap-2 text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <dt className="flex w-24 shrink-0 items-center gap-2 text-muted-foreground">
             <TagIcon aria-hidden size={16} />
             Labels
           </dt>
@@ -122,7 +122,7 @@ export function PrSummary(props: {
         {detail.status.checks.length ? (
           <ul className="divide-y divide-border">
             {detail.status.checks.map((check) => (
-              <li key={check.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
+              <li key={check.id} className="flex flex-wrap items-center gap-2 py-1.5 text-ui">
                 <span className="min-w-0 flex-1 break-words">{check.name}</span>
                 <span>{check.status}</span>
                 {check.url && (
@@ -144,15 +144,15 @@ export function PrSummary(props: {
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-muted-foreground">No checks reported.</p>
+          <p className="text-ui text-muted-foreground">No checks reported.</p>
         )}
       </PrSection>
       <PrSection title={`Comments (${detail.status.comments.length})`}>
         {detail.status.comments.length ? (
-          <ol className="space-y-5">
+          <ol className="space-y-2">
             {detail.status.comments.map((comment) => (
               <li key={`${comment.kind}:${comment.id}`} className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
                   <PrAvatar name={comment.author} url={comment.authorAvatarUrl} />
                   <span className="font-medium">{comment.author}</span>
                   <span className="text-muted-foreground">
@@ -164,27 +164,27 @@ export function PrSummary(props: {
                   </span>
                   <PrTime at={comment.createdAt ?? comment.updatedAt} />
                 </div>
-                <Prose text={comment.body} />
+                <Prose text={comment.body} className="text-ui leading-normal" />
               </li>
             ))}
           </ol>
         ) : (
-          <p className="text-sm text-muted-foreground">No comments yet.</p>
+          <p className="text-ui text-muted-foreground">No comments yet.</p>
         )}
       </PrSection>
       {detail.status.reviewThreads.length > 0 && (
         <PrSection title="Review threads">
-          <div className="space-y-3">
+          <div className="space-y-2">
             {detail.status.reviewThreads.map((thread) => (
               <details key={thread.id}>
-                <summary className="cursor-pointer rounded-sm text-sm focus-ring">
+                <summary className="cursor-pointer rounded-sm text-ui focus-ring">
                   {thread.file}:{thread.line ?? ""} · {thread.resolved ? "Resolved" : "Unresolved"}
                   {thread.outdated ? " · Outdated" : ""}
                 </summary>
                 {thread.comments.map((comment) => (
                   <div key={comment.id} className="mt-2 border-l border-border pl-4">
-                    <p className="text-sm">{comment.author}</p>
-                    <Prose text={comment.body} />
+                    <p className="text-xs">{comment.author}</p>
+                    <Prose text={comment.body} className="text-ui leading-normal" />
                   </div>
                 ))}
               </details>

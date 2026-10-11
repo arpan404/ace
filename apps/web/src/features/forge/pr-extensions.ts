@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { ForgePrDetail, ForgePrRow, ForgeFile } from "@ace/protocol";
+import type { ForgePrDetail, ForgePrRow, ForgeFile, ForgePrFiles } from "@ace/protocol";
 import type { LineRange, LineTarget } from "@/features/panels/index.ts";
 
 /** Adapters supply only capabilities confirmed by their own fresh daemon resource. */
@@ -8,6 +8,10 @@ export interface PrWorkspaceContext {
   detail: ForgePrDetail;
   disabled: boolean;
   refresh(): Promise<boolean>;
+}
+/** The exact hosted range displayed, including historical commit and its first parent. */
+export interface PrDiffContext extends PrWorkspaceContext {
+  files: ForgePrFiles;
 }
 export interface PrWorkspaceExtensions {
   headerActions?(context: PrWorkspaceContext): ReactNode;
@@ -22,7 +26,7 @@ export interface PrWorkspaceExtensions {
   resolveInWorktree?(context: PrWorkspaceContext): void;
   viewed?(
     file: ForgeFile,
-    context: PrWorkspaceContext,
+    context: PrDiffContext,
   ):
     | {
         checked: boolean;
@@ -30,9 +34,9 @@ export interface PrWorkspaceExtensions {
         change(checked: boolean): Promise<void>;
       }
     | undefined;
-  viewedCount?(context: PrWorkspaceContext): number;
-  onLineComment?(path: string, range: LineRange, context: PrWorkspaceContext): void;
-  annotation?(path: string, target: LineTarget, context: PrWorkspaceContext): ReactNode;
+  viewedCount?(context: PrDiffContext): number;
+  onLineComment?(path: string, range: LineRange, context: PrDiffContext): void;
+  annotation?(path: string, target: LineTarget, context: PrDiffContext): ReactNode;
   /** #520 resolves bare references; known PR URLs already navigate inside ace. */
   reference?(number: number, context: PrWorkspaceContext): void;
 }

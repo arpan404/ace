@@ -76,7 +76,7 @@ export function PrDetail(props: {
       aria-label={`Pull request #${props.number}`}
       className="relative flex h-full min-h-0 flex-col bg-panel"
     >
-      <div className="px-5">
+      <div className="px-4">
         <QueryState query={query} />
       </div>
       {context && (
@@ -91,7 +91,7 @@ export function PrDetail(props: {
           {context.disabled && (
             <p
               role="status"
-              className="border-b border-border px-5 py-2 text-xs text-muted-foreground"
+              className="border-b border-border px-4 py-2 text-xs text-muted-foreground"
             >
               {detail?.writeState
                 ? "Refresh GitHub to reconcile the previous action before making another change."
@@ -107,7 +107,7 @@ export function PrDetail(props: {
             onValueChange={(value) => typeof value === "string" && props.onTab(value)}
             className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-2.5">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2">
               <TabsList aria-label="Pull request detail" className="rounded-card bg-muted p-0.5">
                 <TabsTab className="data-active:bg-panel data-active:shadow-sm" value="summary">
                   Summary

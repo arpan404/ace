@@ -1,4 +1,4 @@
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ForgePrDetail, ForgePrSearch, WorkspaceId, ThreadId } from "@ace/protocol";
@@ -50,6 +50,43 @@ const detail = (
     relatedThreadsTruncated: false,
   });
 beforeEach(() => localStorage.clear());
+afterEach(() => vi.unstubAllGlobals());
+
+test("a dismissed phone PR sheet reopens its PR from More actions and an empty workspace opens its PR launcher", async () => {
+  vi.stubGlobal("matchMedia", (media: string): MediaQueryList => ({
+    matches: media.includes("max-width"),
+    media,
+    onchange: null,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent: () => true,
+  }));
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), number: 42 },
+    { resource: "prDetail", value: detail() },
+  );
+  await app.open("/pull-requests?project=api&number=42");
+  await screen.findByRole("heading", { name: "Retry reconnects" });
+  await userEvent.click(screen.getByRole("button", { name: "Done" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("heading", { name: "Retry reconnects" })).toBeNull(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /^Pull request workspace/ }));
+  await screen.findByRole("heading", { name: "Retry reconnects" });
+  expect(screen.queryByText("This tool isn't available")).toBeNull();
+  const panel = await screen.findByRole("region", { name: "Pull request workspace" });
+  await userEvent.click(within(panel).getByRole("button", { name: "Close #42" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Done" })).toBeNull());
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /^Pull request workspace/ }));
+  await screen.findByRole("textbox", { name: "New tab PR URL or number" });
+  expect(screen.queryByText("This tool isn't available")).toBeNull();
+});
 
 test("new PR tabs keep independent repository identities and preserve the first tab's collapsed description", async () => {
   const app = harness();

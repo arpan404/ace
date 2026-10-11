@@ -92,7 +92,7 @@ export function PrMarkdown(props: Props) {
     <Prose
       text={props.text}
       links={links}
-      className="text-base leading-relaxed text-muted-foreground"
+      className="text-ui leading-normal text-muted-foreground"
     />
   );
 }
