@@ -91,6 +91,30 @@ jobs:
             fi
           fi
 
+      - name: Install Linux screen build libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libspa-0.2-dev dbus
+
+      - name: Build native screen interoperability fixtures
+        run: |
+          cargo build --locked -j 2 --manifest-path native/screen-helper-windows/Cargo.toml --example wire_fixture
+          cargo build --locked -j 2 --manifest-path native/screen-helper-linux/Cargo.toml --example wire_fixture
+
+      - name: Native screen behavior tests
+        run: |
+          cargo test --locked -j 2 --manifest-path native/screen-helper-windows/Cargo.toml
+          cargo test --locked -j 2 --manifest-path native/screen-helper-linux/Cargo.toml
+
+      - name: macOS screen behavior tests
+        if: runner.os == 'macOS'
+        run: |
+          swift build --package-path native/screen-helper --target ScreenTest
+          swift test --package-path native/screen-helper
+
+      - name: X11 pointer refusal with real grabs and applications
+        if: runner.os == 'Linux'
+        run: native/screen-helper-linux/test-in-docker.sh --pointer
+
       - name: Tests
         # Chromium keeps its sandbox; only this disposable runner enables userns.
         # Set up before tests because runner images can include Chromium already.

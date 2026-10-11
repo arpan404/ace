@@ -51,7 +51,7 @@ impl Runtime {
             return portal.capabilities(self.ui.is_some());
         }
         let ui = self.ui.is_some();
-        json!({"version":2,"platform":"linux-x11","capture":{"windows":true,"displays":false,"changeDriven":true},"input":{"pointer":true,"keyboard":true,"scroll":true,"text":ui},"uiTree":ui,"semanticActions":if ui {vec!["press","focus","setValue","scroll","expand","select"]} else {vec![]},"codecs":["jpeg"],"permissions":{"screen":"granted","input":"granted"}})
+        json!({"version":2,"platform":"linux-x11","capture":{"windows":true,"displays":false,"changeDriven":true},"input":{"pointer":false,"keyboard":true,"scroll":false,"text":ui},"uiTree":ui,"semanticActions":if ui {vec!["press","focus","setValue","scroll","expand","select"]} else {vec![]},"codecs":["jpeg"],"permissions":{"screen":"granted","input":"granted"}})
     }
     async fn stop(&mut self) -> Result<Value> {
         self.capture.take();
