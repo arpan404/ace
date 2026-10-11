@@ -114,6 +114,7 @@ export function createRecoverySession(context: SocketContext): SocketService {
         "queue.edit",
         "queue.move",
         "queue.remove",
+        "queue.resend",
         "queue.pause",
         "queue.resume",
         "thread.resume",
