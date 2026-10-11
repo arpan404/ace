@@ -502,6 +502,10 @@ export class Projects {
     this.check(allowed);
     return this.publications?.status(id) ?? null;
   }
+  async publicationState(id: WorkspaceId, device: string, allowed: () => boolean) {
+    const publication = await this.publicationStatus(id, allowed);
+    return { publication, ...(this.publications?.activity(id, device) ?? { running: false, canStop: false }) };
+  }
   async cancelPublication(id: WorkspaceId, device: string, allowed: () => boolean) {
     await this.publicationStatus(id, allowed);
     if (!this.publications) throw new ProjectError("publication_unavailable");

@@ -34,6 +34,8 @@ export function PublishRepositoryDialog(props: {
   const [publication, setPublication] = useState<RepositoryPublication | null>();
   const [draft, setDraft] = useState<RepositoryPublishInput>();
   const [busy, setBusy] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [canStop, setCanStop] = useState(false);
   const [error, setError] = useState<string>();
   const [revision, setRevision] = useState(0);
   useEffect(() => {
@@ -59,6 +61,8 @@ export function PublishRepositoryDialog(props: {
         const facts = status.result.readiness;
         setReadiness(facts);
         setPublication(record.result.publication);
+        setRunning(record.result.running);
+        setCanStop(record.result.canStop);
         if (record.result.publication?.remote)
           void queries.invalidateQueries({ queryKey: ["thread"] });
         setDraft(
@@ -83,13 +87,18 @@ export function PublishRepositoryDialog(props: {
     // Refresh status must reread the durable journal even when the client and project are stable.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [client, props.projectId, project?.name, revision, queries]);
+  useEffect(() => client?.onMessage((message) => {
+    if (message.type !== "commandResult" || message.publication?.workspaceId !== props.projectId) return;
+    setPublication(message.publication); setRunning(false); setCanStop(false);
+  }), [client, props.projectId]);
+  const active = busy || running;
   const locked =
-    busy || (publication !== undefined && publication !== null && publication.phase !== "prepared");
+    active || (publication !== undefined && publication !== null && publication.phase !== "prepared");
   const update = (patch: Partial<RepositoryPublishInput>) => {
     if (draft) setDraft({ ...draft, ...patch });
   };
   const publish = async () => {
-    if (!client || !draft || busy || publication === undefined) return;
+    if (!client || !draft || active || publication === undefined) return;
     const parsed = RepositoryPublishInput.safeParse(draft);
     if (!parsed.success) {
       setError(
@@ -122,10 +131,12 @@ export function PublishRepositoryDialog(props: {
   const cancel = async () => {
     if (!client) return;
     try {
-      await client.request({
+      const reply = await client.request({
         type: "repositories.request",
         operation: { op: "publication.cancel", workspaceId: WorkspaceId.parse(props.projectId) },
       });
+      if (reply.result.kind !== "publication") throw new Error("stop_failed");
+      setPublication(reply.result.publication); setRunning(reply.result.running); setCanStop(reply.result.canStop);
     } catch {
       setError("Couldn't stop publication. Refresh status to see its result.");
     }
@@ -225,8 +236,8 @@ export function PublishRepositoryDialog(props: {
             credentials. Existing origin is never overwritten. Closing this dialog keeps publication
             running; reopen it to see saved progress.
           </p>
-          <Footer closeLabel={busy ? "Hide" : "Close"}>
-            {busy && <Button onClick={() => void cancel()}>Stop publication</Button>}
+          <Footer closeLabel={active ? "Hide" : "Close"}>
+            {active && (busy || canStop) && <Button disabled={!client} onClick={() => void cancel()}>Stop publication</Button>}
             <Button onClick={() => setRevision((value) => value + 1)} disabled={busy}>
               Refresh status
             </Button>
@@ -234,7 +245,7 @@ export function PublishRepositoryDialog(props: {
               type="submit"
               variant="primary"
               disabled={
-                busy ||
+                active ||
                 !client ||
                 !project ||
                 !draft ||
@@ -243,7 +254,7 @@ export function PublishRepositoryDialog(props: {
                 publication?.phase === "pushed"
               }
             >
-              {busy
+              {active
                 ? "Publishing…"
                 : publication && publication.phase !== "prepared"
                   ? "Resume publication"

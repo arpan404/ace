@@ -50,6 +50,10 @@ export class RepositoryPublications {
       return { ...record.publication, phase: "prepared" as const };
     return record?.publication ?? null;
   }
+  activity(id: WorkspaceId, device: string): { running: boolean; canStop: boolean } {
+    const flight = this.flights.get(id);
+    return { running: flight !== undefined, canStop: flight?.device === device };
+  }
   private save(device: string, publication: RepositoryPublication, dispatch?: "pending" | "possible"): void {
     publication.updatedAt = this.now();
     const record = saved.parse({ device, publication, dispatch: dispatch ?? (

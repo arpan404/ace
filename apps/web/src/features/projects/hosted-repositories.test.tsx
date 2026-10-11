@@ -73,3 +73,29 @@ test("publishing an empty project requires explicit submission and reopening sho
   expect(await within(reopened).findByText(/This project has no commits/)).toBeTruthy();
   expect(within(reopened).getByRole("button", { name: "Resume publication" })).toBeTruthy();
 });
+
+
+test("reopening a daemon-owned publication offers Stop and disables Resume until it settles", async () => {
+  const stages: (() => void)[] = [];
+  const app = harness({ throughWorker: true, projectScheduler: (run) => { stages.push(run); } });
+  app.daemon.projects.seedFolders("/home/dev", [{ path: "/home/dev/site", git: true }]);
+  await app.client.start(); await waitFor(() => expect(app.client.state).toBe("ready"));
+  const added = await app.client.projects.add({ path: "/home/dev/site" });
+  if (!added.workspace) throw new Error("Expected project");
+  const workspaceId = added.workspace.id;
+  await app.open("/new");
+  const dialog = await openPublish();
+  const submit = await within(dialog).findByRole("button", { name: "Publish repository" });
+  await waitFor(() => expect(submit).toHaveProperty("disabled", false));
+  await userEvent.click(submit);
+  await waitFor(async () => expect(await app.client.request({ type: "repositories.request", operation: { op: "publication", workspaceId } })).toMatchObject({ result: { running: true, canStop: true } }));
+  await userEvent.click(within(dialog).getByRole("button", { name: "Hide" }));
+  const reopened = await openPublish();
+  await within(reopened).findByRole("button", { name: "Stop publication" });
+  expect(within(reopened).getByRole("button", { name: "Publishing…" })).toHaveProperty("disabled", true);
+  await userEvent.click(within(reopened).getByRole("button", { name: "Stop publication" }));
+  await within(reopened).findByText(/Publication stopped/);
+  await waitFor(() => expect(within(reopened).queryByRole("button", { name: "Stop publication" })).toBeNull());
+  expect(app.daemon.projects.publication(added.workspace.id)?.remote).toBeNull();
+  for (const run of stages) run();
+});

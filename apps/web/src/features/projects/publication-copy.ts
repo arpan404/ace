@@ -5,7 +5,7 @@ export function publicationProblem(code: string): string {
   if (code === "publication_scan_incomplete")
     return "Publication blocked because the complete history could not be scanned within safety limits. Fetch complete history if this is a shallow or partial clone; inspect oversized objects and Git LFS content, then prepare a smaller, fully inspectable history with your own Git tools. ace never rewrites history.";
   if (code === "forge_outcome_uncertain")
-    return "GitHub completed creation before the account or settings changed. The created repository is preserved. Restore the intended Source control identity and Resume publication to verify it before adding origin or pushing.";
+    return "Creation may have completed, but its outcome could not be confirmed under the intended identity. The dispatched attempt and any known repository receipt are preserved. Restore the intended Source control identity, check GitHub, then Resume publication to reconcile before adding origin or pushing. ace will not repeat an unconfirmed creation.";
   if (code === "forge_preferences_changed")
     return "Source control settings changed during publication. Rescan this computer, confirm the intended host and account, then Resume publication.";
   if (code === "publication_git_transport_failed")

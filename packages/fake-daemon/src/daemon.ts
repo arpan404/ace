@@ -984,7 +984,7 @@ export class FakeDaemon implements Host {
     }
     if (!this.canManageProjects(command.deviceId))
       return Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
-    if (command.payload.type !== "workspace.clone") return Promise.resolve(this.command(command));
+    if (command.payload.type !== "workspace.clone" && command.payload.type !== "workspace.publish") return Promise.resolve(this.command(command));
     // `refuseCommands` covers clones too: a clone Git refuses (sign-in, network) fails at once.
     const refusal = this.refusals.get(command.payload.type);
     if (refusal) return Promise.resolve({ commandId: command.id, ok: false, error: refusal });
@@ -1000,8 +1000,10 @@ export class FakeDaemon implements Host {
       return pending.device === command.deviceId
         ? pending.result
         : Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
-    const result = this.servicesWire.workspace.projects
-      .clone(command.payload, command.id, command.deviceId)
+    const projects = this.servicesWire.workspace.projects;
+    const result = (command.payload.type === "workspace.publish"
+      ? projects.publish(command.payload, command.deviceId)
+      : projects.clone(command.payload, command.id, command.deviceId))
       .then((outcome) => {
         const receipt = { commandId: command.id, ...outcome };
         this.receipts.set(command.id, { deviceId: command.deviceId, result: receipt });

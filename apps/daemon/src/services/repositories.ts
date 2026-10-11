@@ -57,8 +57,8 @@ export function createRepositoriesSession(context: SocketContext): SocketService
         } else {
           if (operation.op === "publication.cancel")
             await projects.cancelPublication(operation.workspaceId, owner, allowed);
-          const publication = await projects.publicationStatus(operation.workspaceId, allowed);
-          if (allowed()) reply({ kind: "publication", publication });
+          const state = await projects.publicationState(operation.workspaceId, owner, allowed);
+          if (allowed()) reply({ kind: "publication", ...state });
         }
       })()
         .catch((error: unknown) => {
