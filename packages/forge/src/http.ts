@@ -12,6 +12,41 @@ const envelope = z.object({
   status: z.number().int().min(100).max(599),
   headers: z.record(z.string(), z.string()),
 });
+const graphqlResult = z.object({
+  data: z.record(z.string(), z.unknown()).nullish(),
+  errors: z.array(z.looseObject({
+    type: z.string().optional(),
+    extensions: z.looseObject({ code: z.string().optional() }).optional(),
+  })).optional(),
+});
+/** Successful fields or unknown errors cannot prove that a mutation was refused. */
+function assertGraphqlResult(body: unknown, dispatch: MutationDispatch, retryAt: number): void {
+  const parsed = graphqlResult.safeParse(body);
+  if (!parsed.success) throw new ForgeError("invalid_data");
+  const { data, errors } = parsed.data;
+  if (!errors?.length) return;
+  const refused = !data || Object.values(data).every((value) => value === null);
+  const codes = errors.map((error) => error.type ?? error.extensions?.code);
+  let error: ForgeError | undefined;
+  if (refused && codes.every((code) => code === "RATE_LIMITED"))
+    error = new ForgeError("rate_limit", retryAt);
+  else if (refused && codes.every((code) => code === "FORBIDDEN" || code === "UNAUTHORIZED"))
+    error = new ForgeError("forbidden");
+  else if (refused && codes.every((code) => code === "NOT_FOUND"))
+    error = new ForgeError("not_found");
+  else if (refused && codes.every((code) => code === "GRAPHQL_VALIDATION_FAILED"))
+    error = new ForgeError("invalid_data");
+  if (!error) throw new ForgeError("invalid_data");
+  dispatch.reject();
+  throw error;
+}
+function rateLimitRetryAt(headers: Record<string, string>, now: number): number {
+  const seconds = Number(headers["retry-after"]);
+  const reset = Number(headers["x-ratelimit-reset"]) * 1_000;
+  return Number.isFinite(seconds) && seconds >= 0
+    ? now + seconds * 1_000
+    : Number.isFinite(reset) && reset > now ? reset : now + 60_000;
+}
 export type Page = {
   body: unknown;
   headers: Record<string, string>;
@@ -77,7 +112,7 @@ export class GhApi {
       "Accept: application/vnd.github+json",
     ];
     const input = body === undefined ? undefined : JSON.stringify(body);
-    const reusable = method === "GET" || (path === "graphql" && method === "POST");
+    const reusable = !isForgeMutation({ args, ...(input === undefined ? {} : { input }), command: this.#command, signal, mode: "json" });
     const cacheKey =
       method === "GET"
         ? path
@@ -130,22 +165,24 @@ export class GhApi {
           headers["retry-after"] !== undefined ||
           /secondary rate limit|rate limit exceeded|abuse detection/i.test(rateMessage)))
     ) {
-      const seconds = Number(headers["retry-after"]);
-      const reset = Number(headers["x-ratelimit-reset"]) * 1_000;
-      const retryAt =
-        Number.isFinite(seconds) && seconds >= 0
-          ? this.#now() + seconds * 1_000
-          : Number.isFinite(reset) && reset > this.#now()
-            ? reset
-            : this.#now() + 60_000;
       dispatch.reject();
-      throw new ForgeError("rate_limit", retryAt);
+      throw new ForgeError("rate_limit", rateLimitRetryAt(headers, this.#now()));
     }
     if ([401, 403, 404, 409, 422].includes(code)) dispatch.reject();
     if (code === 404) throw new ForgeError("not_found");
     if (code === 401 || code === 403) throw new ForgeError("forbidden");
     if (code === 409 || code === 422) throw new ForgeError("conflict");
-    if (code < 200 || code >= 300 || output.code !== 0) throw new ForgeError("cli");
+    if (code < 200 || code >= 300) throw new ForgeError("cli");
+    // gh exits 1 for GraphQL errors even with HTTP 200. Classify complete bodies
+    // before the CLI fallback, including before any cached representation is reused.
+    if (path === "graphql") {
+      if (output.truncated) throw new ForgeError("invalid_data");
+      let body: unknown;
+      try { body = JSON.parse(text); }
+      catch { throw new ForgeError("invalid_data"); }
+      assertGraphqlResult(body, dispatch, rateLimitRetryAt(headers, this.#now()));
+    }
+    if (output.code !== 0) throw new ForgeError("cli");
     const version = createHash("sha256").update(text).digest("hex");
     const safeHeaders = {
       ...(headers.etag && /^[\x20-\x7e]{1,512}$/.test(headers.etag) ? { etag: headers.etag } : {}),

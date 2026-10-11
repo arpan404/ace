@@ -31,10 +31,13 @@ const stateSchema = z.object({
   users: z.number(),
   holdUser: z.number(),
   invalidUser: z.number(),
+  removeOnUser: z.number(),
+  refuseReply: z.boolean(),
+  graphqlError: z.string(),
   prHead: z.string(),
 });
 const script = `#!${process.execPath}
-import { readFileSync,writeFileSync,existsSync,watch } from 'node:fs';
+import { readFileSync,writeFileSync,unlinkSync,existsSync,watch } from 'node:fs';
 const dir=process.env.ACE_FORGE_FIXTURE, file=dir+'/state.json', args=process.argv.slice(2), path=args[1];
 let f=JSON.parse(readFileSync(file,'utf8'));
 function save(){writeFileSync(file,JSON.stringify(f))}
@@ -43,12 +46,13 @@ async function hold(){writeFileSync(dir+'/held','held'); await new Promise(resol
 if(args[0]==='--version') console.log('gh version 2.90.0');
 else if(args.includes('--help')) console.log('auth status');
 else if(args[0]==='auth') console.log('[]');
-else if(path==='user') { f.users++; save(); if(f.users===f.holdUser) await hold(); if(f.users===f.invalidUser) {console.log('{}');process.exit(0)} console.log(JSON.stringify({login:f.account})); }
+else if(path==='user') { f.users++; save(); if(f.users===f.holdUser) await hold(); if(f.users===f.removeOnUser) unlinkSync(dir+'/gh'); if(f.users===f.invalidUser) {console.log('{}');process.exit(0)} console.log(JSON.stringify({login:f.account})); }
 else {
  if(args[0]==='pr' || (args.includes('--method') && args[args.indexOf('--method')+1]!=='GET' && path!=='graphql')) {f.writes.push(path);save()}
  if(f.holdPath===path) await hold();
  const pr={number:7,node_id:'PR_7',title:'Selected repository',html_url:'https://git.example.com/octo/ace/pull/7',state:'open',head:{sha:f.prHead,ref:'topic'},base:{ref:'main'}};
  if(path.endsWith('/replies')) {
+   if(f.refuseReply) {console.log('HTTP/1.1 403 Forbidden\\n\\n'+JSON.stringify({message:'Resource not accessible by integration'}));process.exit(1)}
    let input=''; for await(const chunk of process.stdin) input+=chunk;
    const body=JSON.parse(input).body;
    f=JSON.parse(readFileSync(file,'utf8')); const reply={id:31+f.replies.length,body,user:{login:f.account},in_reply_to_id:13,updated_at:"2026-10-11T12:00:00Z"}; f.replies.push(reply);
@@ -58,7 +62,7 @@ else {
  else if(path.includes('/pulls?')) http([]);
  else if(path.endsWith('/pulls') || path.endsWith('/pulls/7')) http(pr);
  else if(path.includes('/check-runs?')) http({check_runs:[]});
- else if(path==='graphql') http({data:{repository:{pullRequest:{reviewThreads:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[]}}}}});
+ else if(path==='graphql') {if(f.graphqlError) {http({errors:[{type:f.graphqlError,message:'Provider refusal'}]});process.exit(1)} http({data:{repository:{pullRequest:{reviewThreads:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[]}}}}});}
  else http([]);
 }
 `;
@@ -93,6 +97,9 @@ export async function forgeIdentityFixture(
       users: 0,
       holdUser: 0,
       invalidUser: 0,
+      removeOnUser: 0,
+      refuseReply: false,
+      graphqlError: "",
       prHead: "a".repeat(40),
     }),
   );
@@ -139,6 +146,7 @@ export async function forgeIdentityFixture(
     runtime,
     preferences,
     facts,
+    restoreBinary: () => writeFile(join(root, "gh"), script, { mode: 0o755 }),
     async update(value: Partial<z.infer<typeof stateSchema>>) {
       await writeFile(state, JSON.stringify({ ...(await facts()), ...value }));
     },
