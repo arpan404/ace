@@ -1,5 +1,6 @@
 import { nul, Records, malformed } from "./decode.ts";
 import { numstatRecord } from "./parse-numstat.ts";
+import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import type { Repository } from "./repository.ts";
@@ -70,7 +71,10 @@ async function trackedCounts(repository: Repository, root: string, paths: readon
 /** An untracked file's lines, from its first bytes; unknown (zero) past the cap. */
 async function untrackedCount(root: string, path: string) {
   try {
-    const file = await open(join(root, path), "r");
+    const file = await open(
+      join(root, path),
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
     try {
       const stat = await file.stat();
       if (!stat.isFile() || stat.size > untrackedBytes) return { added: 0, binary: false };
