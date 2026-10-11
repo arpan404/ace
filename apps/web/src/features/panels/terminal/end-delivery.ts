@@ -2,6 +2,11 @@ import { ClientError, type ClientApi } from "@ace/client";
 import { ThreadId } from "@ace/protocol";
 import { schedule as defaultSchedule, type Schedule } from "../schedule.ts";
 import type { TerminalEnd } from "./closing.ts";
+import {
+  createTerminalEndJournal,
+  terminalCloseCapacity,
+  type TerminalEndJournal,
+} from "./end-journal.ts";
 
 interface DaemonEnds {
   pending: Map<string, TerminalEnd>;
@@ -14,7 +19,6 @@ interface Delivery {
   client: ClientApi;
   references: number;
   hostId: string | undefined;
-  pending: Map<string, TerminalEnd>;
   identity: ReturnType<typeof Promise.withResolvers<string>>;
   identifying: boolean;
   controller: AbortController;
@@ -25,7 +29,7 @@ interface Delivery {
 const keyOf = (end: TerminalEnd) => `${end.threadId}\u0000${end.terminalId}`;
 
 /** Close delivery is scoped to authenticated host identity, never to an App or a lazy chunk. */
-export function createTerminalEndDelivery(schedule: Schedule) {
+export function createTerminalEndDelivery(schedule: Schedule, journal: TerminalEndJournal) {
   const daemons = new Map<string, DaemonEnds>();
   const clients = new WeakMap<ClientApi, Delivery>();
   const groupOf = (hostId: string) => {
@@ -82,15 +86,41 @@ export function createTerminalEndDelivery(schedule: Schedule) {
   };
   const pump = (group: DaemonEnds): void => {
     const delivery = group.active;
+    const hostId = delivery?.hostId;
+    if (!delivery || !hostId || !usable(delivery) || group.reading || group.retry) return;
+    if (!group.pending.size) {
+      try {
+        for (const end of journal.load(hostId)) group.pending.set(keyOf(end), end);
+      } catch {
+        group.retry = schedule(() => {
+          group.retry = undefined;
+          pump(group);
+        }, group.delay);
+        group.delay = Math.min(8000, group.delay * 2);
+        return;
+      }
+    }
     const first = group.pending.entries().next().value;
-    if (!delivery || !usable(delivery) || !first || group.reading || group.retry) return;
+    if (!first) return;
     const [key, end] = first;
     group.reading = true;
     void close(delivery, end)
       .catch(() => false)
       .then((acknowledged) => {
         group.reading = false;
+        let retired = acknowledged;
         if (acknowledged) {
+          try {
+            journal.retire(hostId, end);
+          } catch {
+            retired = false;
+          }
+        }
+        if (!group.active) {
+          if (daemons.get(hostId) === group) daemons.delete(hostId);
+          return;
+        }
+        if (retired) {
           group.pending.delete(key);
           group.delay = 250;
           pump(group);
@@ -116,8 +146,6 @@ export function createTerminalEndDelivery(schedule: Schedule) {
     delivery.retry?.();
     delivery.retry = undefined;
     const group = groupOf(hostId);
-    for (const [key, end] of delivery.pending) group.pending.set(key, end);
-    delivery.pending.clear();
     group.active = delivery;
     group.retry?.();
     group.retry = undefined;
@@ -169,7 +197,6 @@ export function createTerminalEndDelivery(schedule: Schedule) {
         client,
         references: 0,
         hostId: undefined,
-        pending: new Map(),
         identity: Promise.withResolvers<string>(),
         identifying: false,
         controller: new AbortController(),
@@ -209,29 +236,34 @@ export function createTerminalEndDelivery(schedule: Schedule) {
             group.retry?.();
             group.retry = undefined;
           }
-          if (!group.pending.size && !group.active && !group.reading)
-            daemons.delete(current.hostId);
+          if (!group.active && !group.reading) daemons.delete(current.hostId);
         }
       },
     };
   };
   return {
     bind,
-    end(client: ClientApi, end: TerminalEnd) {
+    end(client: ClientApi, end: TerminalEnd): boolean {
       const delivery = clients.get(client);
-      if (!delivery?.references) throw new Error("terminal_close_owner_missing");
-      if (!delivery.hostId) {
-        delivery.pending.set(keyOf(end), { ...end });
-        return;
+      if (!delivery?.references || !delivery.hostId) return false;
+      try {
+        journal.save(delivery.hostId, end);
+      } catch {
+        return false;
       }
       const group = groupOf(delivery.hostId);
-      if (!group.pending.has(keyOf(end))) group.pending.set(keyOf(end), { ...end });
+      if (group.pending.size < terminalCloseCapacity && !group.pending.has(keyOf(end)))
+        group.pending.set(keyOf(end), { ...end });
       pump(group);
+      return true;
     },
   };
 }
 
 // The page owns this delivery boundary. App retirement releases readers, not unacknowledged closes.
-const terminalEndDelivery = createTerminalEndDelivery(defaultSchedule);
+const terminalEndDelivery = createTerminalEndDelivery(
+  defaultSchedule,
+  createTerminalEndJournal(() => localStorage),
+);
 export const bindTerminalEndDelivery = terminalEndDelivery.bind;
 export const endPanelTerminal = terminalEndDelivery.end;

@@ -104,9 +104,11 @@ test("closing a restored tab ends its shell even while the optional panel chunk 
   const chunk = Promise.withResolvers<never>();
   const loading = panelServices(client, () => chunk.promise);
   const view = render(
-    <ClientProvider client={client}>
-      <TerminalClient />
-    </ClientProvider>,
+    <AppFrame environment={{}}>
+      <ClientProvider client={client}>
+        <TerminalClient />
+      </ClientProvider>
+    </AppFrame>,
   );
   act(() => {
     requestTerminalEnd({ threadId: "thread-settings", terminalId: terminal.id });

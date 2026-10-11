@@ -1,8 +1,8 @@
 /*
- * Closing a terminal tab ends its shell. The tab kinds' `onClose` runs outside React with only
+ * Closing a terminal tab ends its shell. The tab kinds' `prepareClose` runs outside React with only
  * the thread and the tab. This hands the request to the showing client (`TerminalClient`).
  * Authenticated close delivery outlives its App and does not depend on optional panel services.
- * A request made before any client listens waits for the first to.
+ * Without an authenticated owner, removal is refused so its shell cannot be orphaned.
  */
 
 export interface TerminalEnd {
@@ -10,26 +10,19 @@ export interface TerminalEnd {
   terminalId: string;
 }
 
-const listeners = new Set<(end: TerminalEnd) => void>();
-const waiting: TerminalEnd[] = [];
-/** Requests kept before any client has started listening. */
-const keptWaiting = 64;
+let activeEnd: ((end: TerminalEnd) => boolean) | undefined;
 
-/** End a terminal's shell because its tab closed. */
-export function requestTerminalEnd(end: TerminalEnd): void {
-  if (!listeners.size) {
-    waiting.push(end);
-    if (waiting.length > keptWaiting) waiting.shift();
-    return;
-  }
-  for (const listener of listeners) listener(end);
+/** Accept only closes the current authenticated owner can durably retain. */
+export function requestTerminalEnd(end: TerminalEnd): boolean {
+  return activeEnd?.(end) ?? false;
 }
 
-/** Receive requests to end terminals, starting with any made before this was called. */
-export function onTerminalEnd(listener: (end: TerminalEnd) => void): () => void {
-  listeners.add(listener);
-  for (const end of waiting.splice(0)) listener(end);
-  return () => listeners.delete(listener);
+/** The showing client prepares closes; a retired client never accepts another daemon's tab. */
+export function onTerminalEnd(listener: (end: TerminalEnd) => boolean): () => void {
+  activeEnd = listener;
+  return () => {
+    if (activeEnd === listener) activeEnd = undefined;
+  };
 }
 
 /** Whether the client knows a terminal's shell has ended; undefined when it doesn't know. */

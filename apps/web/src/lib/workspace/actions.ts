@@ -128,7 +128,9 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
     const before = store.get(scope);
     const gone = keys.flatMap((key) => {
       const found = findTab(before, key);
-      return found ? [found] : [];
+      if (!found || definition()?.kind(found.tab.kind)?.prepareClose?.(scope, found.tab) === false)
+        return [];
+      return [found];
     });
     if (!gone.length) return false;
     change((workspace) => {

@@ -59,6 +59,8 @@ export interface TabKindOptions {
   load(): Promise<TabModule>;
   /** The tab's shape while its code loads (a toolbar and rows); default: a spinner. */
   Skeleton?: ComponentType;
+  /** Prepare durable resource cleanup before removal is saved. False keeps this tab open. */
+  prepareClose?(scope: string, tab: WorkspaceTab): boolean;
   /** Called after a tab of this kind closed (release a session it alone held). */
   onClose?(scope: string, tab: WorkspaceTab): void;
   /**
