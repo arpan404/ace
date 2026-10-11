@@ -73,6 +73,7 @@ export function ModelRow(props: {
     .join(" · ");
   const name = [
     model.label,
+    model.isNew ? "New" : undefined,
     freeModelMarker(model) ? "Free" : undefined,
     detail,
     marker?.toLowerCase(),
@@ -89,6 +90,7 @@ export function ModelRow(props: {
         aria-disabled={model.unavailable ? true : undefined}
         data-disabled={model.unavailable ? "" : undefined}
         aria-label={name}
+        title={name}
         data-highlighted={props.highlighted ? "" : undefined}
         onMouseMove={props.onHighlight}
         onClick={props.onPick}
@@ -102,14 +104,6 @@ export function ModelRow(props: {
             <span className="truncate font-normal" onPointerEnter={titleWhenClipped(model.label)}>
               {model.label}
             </span>
-            {model.isNew && (
-              <span className="shrink-0 rounded-xs bg-ring/10 px-1 text-2xs leading-4 font-semibold tracking-[0.02em] text-link">
-                NEW
-              </span>
-            )}
-            {freeModelMarker(model) && (
-              <span className="shrink-0 text-xs text-subtle-foreground">Free</span>
-            )}
           </span>
           {subtitle && (
             <span className="flex min-w-0 items-center gap-1 text-xs text-subtle-foreground">
@@ -127,7 +121,6 @@ export function ModelRow(props: {
                 title={[subtitle, model.detail].filter(Boolean).join(" · ")}
               >
                 {subtitle}
-                {model.detail ? ` · ${model.detail}` : ""}
               </span>
             </span>
           )}

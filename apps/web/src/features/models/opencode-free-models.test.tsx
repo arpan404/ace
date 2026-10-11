@@ -55,8 +55,8 @@ test("signed-out OpenCode offers selectable Free rows in the Zen group", async (
   await userEvent.click(within(popover).getByRole("tab", { name: "OpenCode · Your CLI login" }));
   await selectAccount(popover, "Your CLI login");
   const zen = within(list).getByRole("group", { name: "OpenCode Zen" });
-  expect(within(zen).getAllByText("Free")).toHaveLength(1);
   const model = within(zen).getByRole("option", { name: /^Big Pickle, Free/ });
+  expect(model.getAttribute("title")).toContain("Free");
   expect(model.getAttribute("aria-disabled")).toBeNull();
   await userEvent.click(model);
   const dialog = await screen.findByRole("dialog", { name: "Switch to OpenCode?" });
@@ -64,6 +64,32 @@ test("signed-out OpenCode offers selectable Free rows in the Zen group", async (
   await userEvent.click(within(dialog).getByRole("button", { name: "Switch to OpenCode" }));
   expect(await screen.findByRole("button", { name: /^Model: Big Pickle/ })).toBeTruthy();
   expect(screen.queryByText("OpenCode isn't signed in. Sign in to start this thread.")).toBeNull();
+});
+
+test("new and free metadata stays readable without crowding the model name and source", async () => {
+  const app = harness();
+  freeModels(app);
+  app.daemon.services.models = app.daemon.services.models.map((model) =>
+    model.displayName === "Big Pickle"
+      ? { ...model, isNew: true, detail: "Preview snapshot with extended context" }
+      : model,
+  );
+  app.play(replayCursor()).runThrough("finding");
+  await app.open("/t/thread-replay-cursor");
+  await screen.findByRole("feed", { name: "Transcript" });
+  const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
+  const list = await openModelPicker(popover);
+  await userEvent.click(within(popover).getByRole("tab", { name: "OpenCode · Your CLI login" }));
+  const model = within(list).getByRole("option", {
+    name: /^Big Pickle, New, Free, Preview snapshot with extended context/,
+  });
+  expect(model.textContent).toContain("Big Pickle");
+  expect(model.textContent).toContain("OpenCode · OpenCode Zen");
+  expect(model.textContent).not.toMatch(/NEW|New|Free|Preview snapshot/);
+  expect(model.getAttribute("title")).toContain(
+    "New, Free, Preview snapshot with extended context",
+  );
+  expect(model.getAttribute("aria-disabled")).toBeNull();
 });
 
 test("OpenCode with only free models is ready and offers connecting a service as an optional action", async () => {
