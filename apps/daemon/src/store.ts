@@ -124,6 +124,7 @@ export class Store {
   private deferredAfter: number | undefined;
   private notifyingHistory = false;
   private publishing = false;
+  private publishedSeq = 0;
   constructor(
     path: string,
     onError: (error: unknown) => void = console.error,
@@ -212,6 +213,8 @@ export class Store {
       this.db.close();
       throw error;
     }
+    // Existing history is already covered by new subscribers' initial snapshots.
+    this.publishedSeq = this.headSeq();
     void this.search
       .backfill(this, { signal: this.searchAbort.signal })
       .then(() => {
@@ -355,6 +358,7 @@ export class Store {
     try {
       let batch: Event[] | undefined;
       while ((batch = this.publications.shift())) {
+        this.publishedSeq = Math.max(this.publishedSeq, batch.at(-1)?.seq ?? this.publishedSeq);
         for (const [id, { view }] of this.caches) {
           const changes = batch.filter(
             (event) =>
@@ -419,12 +423,13 @@ export class Store {
     this.db.exec("PRAGMA busy_timeout=5000");
     if (active) {
       this.historyWriting = true;
+      this.deferredAfter = this.publishedSeq;
       return;
     }
     const after = this.deferredAfter;
     try {
       if (after !== undefined) {
-        let cursor = after;
+        let cursor = Math.max(after, this.publishedSeq);
         // Keep the fence through all pages, including listener-created tail events.
         while (cursor < this.headSeq()) {
           const events = this.readEvents({ afterSeq: cursor, limit: 64 });
@@ -470,7 +475,8 @@ export class Store {
       this.installingHistory = false;
     }
   }
-  async notifyHistory(after: number): Promise<void> {
+  async notifyHistory(after = this.publishedSeq): Promise<void> {
+    after = Math.max(after, this.publishedSeq);
     const through = this.headSeq();
     while (after < through) {
       const events = this.readEvents({ afterSeq: after, limit: 16 }).filter(
