@@ -52,6 +52,21 @@ export class GitService {
     this.maxPatchBytes = options.maxPatchBytes ?? 1024 * 1024;
   }
 
+  /** Protect a PR-controlled tree for every subsequent call, including nested paths. */
+  protectWorktree(path: string): void {
+    this.repository.cli.protectWorktree(path);
+  }
+  /** Call only after the protected physical checkout has been removed. */
+  forgetWorktree(path: string): void {
+    this.repository.cli.forgetWorktree(path);
+  }
+
+  /** Nested Git calls suppress hooks, fsmonitor and every configured filter driver.
+   * The user's installed Git transport retains its global authentication configuration. */
+  nonExecuting<T>(operation: () => Promise<T>): Promise<T> {
+    return this.repository.cli.nonExecuting(operation);
+  }
+
   /** Bounded shutdown. Unconfirmed cleanup remains durably quarantined. */
   close(): Promise<void> {
     return this.repository.cli.close();
@@ -168,6 +183,8 @@ export class GitService {
     signal?: AbortSignal;
   }) {
     const root = await this.repository.root(options.worktree);
+    if (this.repository.cli.executionDisabledAt(root))
+      throw new GitError("invalid_argument", "Setup execution is disabled for this checkout");
     await this.repository.serial(root, () =>
       this.repository.cli.call(
         root,
