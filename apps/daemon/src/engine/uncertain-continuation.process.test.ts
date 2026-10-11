@@ -14,6 +14,50 @@ import { scriptFrames, start, end } from "./test-support.ts";
 
 afterEach(cleanupRecovery);
 
+test.each(["manual", "stopped"] as const)(
+  "resending an uncertain continuation preserves a later %s hold until explicit Resume",
+  async (reason) => {
+    const frames = scriptFrames();
+    const h = await fixture([{ on: "send", frames: [frames.frame(start, {
+      type: "turn.ended", agent: "root", outcome: "failed",
+      error: { kind: "quota", message: "Quota" },
+    })] }], frames);
+    const id = await h.create();
+    const replacement = replaceProvider(h, frames, [
+      { on: "send" },
+      { on: "send", frames: [frames.frame(start, end)] },
+    ]);
+    const adapter = h.registry.get("codex").adapter;
+    h.registry.register({ ...adapter, async openSession(ctx) {
+      const session = await adapter.openSession(ctx);
+      return { ...session, async send(input, mode, commandId) {
+        await session.send(input, mode, commandId);
+        if (commandId === "recovery-command") throw new Error("Lost continuation reply");
+      } };
+    } }, { installed: true, auth: "logged_in", loginHint: "unused" });
+    expect(resume(h, h.engine, id).ok).toBe(true);
+    await h.engine.flush();
+    expect(h.command(reason === "manual"
+      ? { type: "queue.pause", threadId: id, expectedRevision: h.engine.queue(id).revision }
+      : { type: "thread.interrupt", threadId: id }).ok).toBe(true);
+    await h.engine.flush();
+    expect(h.command({ type: "queue.resend", threadId: id,
+      messageId: CommandId.parse("recovery-command"),
+      expectedRevision: h.engine.queue(id).revision,
+    }).ok).toBe(true);
+    await h.engine.flush();
+    expect(h.engine.queue(id)).toMatchObject({ paused: true, reason, pendingCount: 1 });
+    expect(sends(replacement).map((command) => command.input)).toEqual([text("continue")]);
+    expect(dispatch(h.store, h.engine, { type: "queue.resume", threadId: id,
+      expectedRevision: h.engine.queue(id).revision }, "explicit-resume").ok).toBe(true);
+    await h.engine.flush();
+    expect(sends(replacement).map((command) => command.input)).toEqual([
+      text("continue"), text("continue"),
+    ]);
+    expect(h.engine.queue(id)).toMatchObject({ paused: false, pendingCount: 0 });
+  },
+);
+
 test("possibly consumed continuation refuses another resume until late correlated proof settles it", async () => {
   const frames = scriptFrames();
   const h = await fixture(

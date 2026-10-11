@@ -62,9 +62,10 @@ export function handleQueue(
       if (!entry.uncertain) return fail("message_not_uncertain");
       const old = entry.command.payload;
       const continuation = ["thread.resume", "queue.resume", "thread.limit"].includes(old.type);
+      const heldContinuation = continuation && queue.paused && queue.reason !== "uncertain";
       if (old.type !== "thread.create" && old.type !== "thread.send" && !continuation)
         return fail("invalid_queue_entry");
-      if (continuation && !dependencies.repo.reserve(p.threadId))
+      if (continuation && !heldContinuation && !dependencies.repo.reserve(p.threadId))
         return fail("engine_capacity_exceeded");
       const replacement = Command.parse({
         ...command,
@@ -84,7 +85,9 @@ export function handleQueue(
       dependencies.repo.queue.remove(entry.id);
       dependencies.repo.removeInput(p.threadId, entry.command.id, dependencies.clock.now());
       if (continuation) dependencies.repo.pending.finishContinuation(p.threadId);
-      dependencies.repo.add(replacement, p.threadId);
+      // The durable continuation remains available to Resume. Creating a runnable
+      // recovery intent here would bypass a later manual or Stop hold.
+      if (!heldContinuation) dependencies.repo.add(replacement, p.threadId);
       if (!continuation)
         dependencies.repo.admitInput(replacement, p.threadId, dependencies.clock.now());
       // Only the ambiguity hold may be released, never a later pause or recovery hold.
