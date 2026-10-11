@@ -43,7 +43,6 @@ export function SkillsCatalogProvider({ children }: { children: ReactNode }) {
   const starting = useStartingProvider();
   const [selectedProvider, setProvider] = useState<ProviderKind>();
   const provider = selectedProvider ?? starting.provider ?? "codex";
-  const providerReady = selectedProvider !== undefined || starting.loaded;
   const [snapshot, setSnapshot] = useState<{
     key: string;
     entries: readonly CatalogEntry[];
@@ -53,14 +52,14 @@ export function SkillsCatalogProvider({ children }: { children: ReactNode }) {
   const projectId = project?.id;
   const key = `${projectId ?? ""}:${provider}:${revision}`;
   useEffect(() => {
-    if (!projectId || !providerReady || connection !== "ready") return;
+    if (!projectId || connection !== "ready") return;
     return watchCatalog(
       client,
       { workspace: { workspaceId: WorkspaceId.parse(projectId), provider } },
       (entries, stale) => setSnapshot({ key, entries, stale, failed: false }),
       () => setSnapshot({ key, entries: [], stale: false, failed: true }),
     );
-  }, [client, connection, projectId, provider, key, providerReady]);
+  }, [client, connection, projectId, provider, key]);
   const current = snapshot?.key === key ? snapshot : undefined;
   const controls = useMemo(
     () =>

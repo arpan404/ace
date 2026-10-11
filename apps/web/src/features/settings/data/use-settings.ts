@@ -96,6 +96,15 @@ export function useSettingsLoaded(): boolean {
   );
 }
 
+export function useSettingsReadError() {
+  const backend = useSettingsBackend();
+  const failed = useSyncExternalStore(
+    backend.values.subscribe,
+    () => backend.values.failed?.() ?? false,
+  );
+  return { failed, retry: () => backend.values.retry?.() };
+}
+
 /** How long a write may take before its control shows a spinner. */
 const pendingAfterMs = 400;
 

@@ -16,6 +16,7 @@ import {
   useProviderEntries,
   type ProviderEntry,
 } from "./provider-entries.ts";
+import { RediscoverButton } from "./rediscover-button.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 
 /** The models section loads with the page, apart from the overview. */
@@ -68,9 +69,13 @@ export function ProviderDetail(props: { id: string }) {
           <ListSkeleton label="provider" shape="row" rows={4} className="mt-7" />
         ) : (
           <p role="alert" className="mt-4 text-muted-foreground">
-            {query.isError
-              ? "Couldn't list providers. Reconnect and check again."
-              : "This provider isn't on this computer."}
+            {query.isError ? (
+              <>
+                Couldn't check providers. Try again. <RediscoverButton />
+              </>
+            ) : (
+              "This provider isn't on this computer."
+            )}
           </p>
         )}
       </SettingsBody>

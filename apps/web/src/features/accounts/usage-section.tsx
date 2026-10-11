@@ -1,3 +1,4 @@
+import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import type { UsageTotals } from "@ace/protocol";
 import { useMemo, useState, type ReactNode } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
@@ -204,7 +205,7 @@ export function UsageSection() {
       {accounts.data && <Headroom accounts={accounts.data} />}
       {daily.isError ? (
         <p role="alert" className="mt-3 text-ui text-muted-foreground">
-          {daily.error.message}
+          {describeDaemonError(daemonErrorCode(daily.error))}
         </p>
       ) : (
         <>

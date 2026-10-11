@@ -24,7 +24,13 @@ test("backs up committed WAL rows and copies settings without touching forbidden
         settings: { "automations.enabled": true, "host.displayName": "Smoke owner" },
       }),
     );
-    for (const name of ["daemon-token", "daemon-lock", "daemon-endpoint", "auth.json"])
+    for (const name of [
+      "daemon-token",
+      "daemon-lock",
+      "daemon-endpoint",
+      "auth.json",
+      "accounts.sqlite",
+    ])
       await symlink("/path-that-must-never-be-opened", join(source, name));
     await mkdir(join(source, "instances"));
     await symlink("/path-that-must-never-be-opened", join(source, "instances", "auth.json"));

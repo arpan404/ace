@@ -95,8 +95,8 @@ export class AccountManagement {
       await this.discardPending(instance.id);
     await registerImplicitAccounts(this.options.registry, this.options.env);
     // Restore isolated catalog identities on restart, using only read-only metadata probes.
-    for (const { instance } of this.options.registry.list())
-      if (instance.managed) {
+    for (const { instance, quota } of this.options.registry.list())
+      if (instance.managed && !quota.blockers.homeUnavailable) {
         this.options.signal?.throwIfAborted();
         await assertManagedHome(this.options.dataDir, instance);
         const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;

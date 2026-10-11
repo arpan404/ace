@@ -82,6 +82,7 @@ export function explicitInstance(
   candidate: Candidate,
   now: number,
 ): ProviderInstance | undefined {
+  if (candidate.quota.blockers.homeUnavailable) return undefined;
   const selected = pickInstance(input, [candidate], now);
   if (selected || !candidate.instance.implicit || candidate.quota.auth !== "unknown")
     return selected;

@@ -22,6 +22,7 @@ export function liveWindow(window: QuotaWindow, now: number): boolean {
  * windows and an expired limit error no longer hold it.
  */
 export function availability(state: AccountQuota, now: number): Availability {
+  if (state.blockers.homeUnavailable) return "unknown";
   if (state.auth === "logged_out") return "logged_out";
   if (state.auth !== "logged_in") return "unknown";
   if (state.blockers.overflow) return "exhausted";

@@ -115,14 +115,18 @@ export function createProviderInstallsSession(context: SocketContext): SocketSer
       else if (pending >= 8) reply("busy");
       else {
         pending++;
-        try {
-          const result = await context.options.providerInstalls.handle(device, input.data);
-          if (context.connected() && context.authorize("operate")) context.send(result);
-        } catch {
-          if (context.connected()) reply("unavailable");
-        } finally {
-          pending--;
-        }
+        const installs = context.options.providerInstalls;
+        const task = (async () => {
+          try {
+            const result = await installs.handle(device, input.data);
+            if (context.connected() && context.authorize("operate")) context.send(result);
+          } catch {
+            if (context.connected()) reply("unavailable");
+          } finally {
+            pending--;
+          }
+        })().finally(() => context.tasks.delete(task));
+        context.tasks.add(task);
       }
       return true;
     },

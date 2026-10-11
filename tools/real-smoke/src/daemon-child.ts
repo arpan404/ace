@@ -22,8 +22,17 @@ const stop = async () => {
   try {
     await daemon.close();
     process.exitCode = 0;
-  } catch {
-    process.send?.({ type: "shutdown-error" });
+  } catch (error) {
+    process.send?.({
+      type: "shutdown-error",
+      error: error instanceof Error ? error.stack : String(error),
+      causes:
+        error instanceof AggregateError
+          ? error.errors.map((cause: unknown) =>
+              cause instanceof Error ? cause.stack : String(cause),
+            )
+          : [],
+    });
     process.exitCode = 1;
   }
   process.disconnect?.();

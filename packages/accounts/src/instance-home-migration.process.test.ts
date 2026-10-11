@@ -46,12 +46,12 @@ test.each(["existing destination", "source symlink", "source rename denied"])(
   "%s preserves original data while the registry adopts a safe canonical home",
   async (scenario) => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "ace-account-home-migration-")));
-    const source = join(root, ".ace", "instances", "cursor-sdk-default");
+    const source = join(root, ".ace-next", "instances", "cursor", "cursor-sdk-default");
     const cli = join(root, ".cursor");
     await mkdir(cli);
     await writeFile(join(cli, "user-data"), "untouched user state");
     const cliStat = await stat(cli);
-    await mkdir(join(root, ".ace", "instances"), { recursive: true });
+    await mkdir(join(root, ".ace-next", "instances", "cursor"), { recursive: true });
     if (scenario === "source symlink") await symlink(cli, source);
     else {
       await mkdir(source);
@@ -62,7 +62,8 @@ test.each(["existing destination", "source symlink", "source rename denied"])(
       await mkdir(f.target, { recursive: true });
       await writeFile(join(f.target, "canonical-data"), "existing canonical state");
     }
-    if (scenario === "source rename denied") await chmod(join(root, ".ace", "instances"), 0o500);
+    if (scenario === "source rename denied")
+      await chmod(join(root, ".ace-next", "instances", "cursor"), 0o500);
     const notices: unknown[] = [];
     const registry = await openRegistryIndex(f.path, undefined, f.dataDir, {
       notice: (notice) => notices.push(notice),
@@ -98,7 +99,7 @@ test.each(["existing destination", "source symlink", "source rename denied"])(
     } finally {
       await registry.ready.catch(() => {});
       registry.close();
-      await chmod(join(root, ".ace", "instances"), 0o700);
+      await chmod(join(root, ".ace-next", "instances", "cursor"), 0o700);
       await rm(root, { recursive: true, force: true });
     }
   },
@@ -106,7 +107,7 @@ test.each(["existing destination", "source symlink", "source rename denied"])(
 
 test("restart repairs a row after an interrupted move without replacing the already moved directory", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-account-home-restart-")));
-  const source = join(root, ".ace", "instances", "cursor-sdk-default");
+  const source = join(root, ".ace-next", "instances", "cursor", "cursor-sdk-default");
   const f = await seed(root, source);
   await mkdir(f.target, { recursive: true });
   await writeFile(join(f.target, "history"), "preserved history");
@@ -155,18 +156,21 @@ test.each(["cursor", "codex", "claude"] as const)(
 
 test("a canonical destination alias to a user CLI home refuses migration", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-account-home-alias-")));
-  const source = join(root, ".ace", "instances", "cursor-sdk-default");
+  const source = join(root, ".ace-next", "instances", "cursor", "cursor-sdk-default");
   const cli = join(root, ".cursor");
   await mkdir(source, { recursive: true });
   await mkdir(cli);
   await writeFile(join(source, "original-data"), "original");
   await writeFile(join(cli, "user-data"), "untouched");
   const f = await seed(root, source);
-  await mkdir(join(f.dataDir, "instances"));
+  await mkdir(join(f.dataDir, "instances"), { recursive: true });
   await symlink(cli, f.target);
   const registry = await openRegistryIndex(f.path, undefined, f.dataDir, {});
   try {
-    await expect(registry.ready).rejects.toThrow("must not follow symbolic links");
+    await registry.ready;
+    expect(registry.summary(f.instance.id, 0)?.quota.blockers.homeUnavailable).toBe(
+      "home_unreadable",
+    );
     expect(await readFile(join(source, "original-data"), "utf8")).toBe("original");
     expect(await readFile(join(cli, "user-data"), "utf8")).toBe("untouched");
   } finally {
@@ -174,3 +178,31 @@ test("a canonical destination alias to a user CLI home refuses migration", async
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test.each([".ace", ".ace-next", ".ace-dev"])(
+  "a foreign %s account root is read-only and never moved",
+  async (name) => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "ace-foreign-home-")));
+    const source = join(root, "foreign", name, "instances", "cursor-sdk-default");
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, "original-data"), "original state");
+    const before = await stat(source);
+    const f = await seed(root, source);
+    const registry = await openRegistryIndex(f.path, undefined, f.dataDir, {});
+    try {
+      await registry.ready;
+      expect(registry.summary(f.instance.id, 0)).toMatchObject({
+        availability: "unknown",
+        quota: { blockers: { homeUnavailable: "foreign_home" } },
+      });
+      expect(registry.get(f.instance.id)?.instance.homeDir).toBe(source);
+      expect(await stat(source)).toMatchObject({ ino: before.ino, mtimeMs: before.mtimeMs });
+      expect(await readFile(join(source, "original-data"), "utf8")).toBe("original state");
+      await expect(access(f.target)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(registry.validateHome(f.instance)).rejects.toThrow("foreign_home");
+    } finally {
+      registry.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

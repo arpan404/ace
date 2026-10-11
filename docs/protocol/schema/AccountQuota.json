@@ -21,6 +21,15 @@
     "blockers": {
       "default": {},
       "properties": {
+        "homeUnavailable": {
+          "enum": [
+            "home_missing",
+            "home_unreadable",
+            "foreign_home",
+            "home_conflict"
+          ],
+          "type": "string"
+        },
         "limitError": {
           "$ref": "https://ace.local/protocol/v1/QuotaWindow.json"
         },

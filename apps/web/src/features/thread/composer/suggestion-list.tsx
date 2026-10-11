@@ -1,3 +1,5 @@
+import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import type { RefObject } from "react";
 import { Popover, PopoverContent } from "@/components/ui/popover.tsx";
 import { MentionIcon } from "@/components/mention-chip.tsx";
@@ -108,8 +110,16 @@ export function SuggestionList(props: {
             {suggestions.state === "loading"
               ? "Loading suggestions…"
               : suggestions.state === "failed"
-                ? "Couldn't load suggestions. Close the menu and try again."
+                ? "Couldn't load suggestions."
                 : "No matching suggestions"}
+            {suggestions.state === "failed" && (
+              <IconButton
+                size="sm"
+                icon={ArrowClockwiseIcon}
+                label="Retry suggestions"
+                onClick={suggestions.retry}
+              />
+            )}
           </p>
         )}
       </PopoverContent>

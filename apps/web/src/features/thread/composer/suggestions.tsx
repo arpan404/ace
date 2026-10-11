@@ -19,7 +19,8 @@ export interface Suggestion {
 export type Suggestions =
   | { state: "closed" }
   | { state: "ready"; kind: Trigger["kind"]; items: readonly Suggestion[]; refreshing?: boolean }
-  | { state: "loading" | "empty" | "failed"; kind: Trigger["kind"]; query: string };
+  | { state: "loading" | "empty"; kind: Trigger["kind"]; query: string }
+  | { state: "failed"; kind: Trigger["kind"]; query: string; retry(): void };
 const groups = {
   builtin: "Add",
   plugin: "Plugins",
@@ -46,9 +47,10 @@ export function useSuggestions(
   const ready = useConnectionState() === "ready";
   const threads = useSidebarIndex(threadReference, sameThread) ?? [];
   const { id, provider, instanceId, workspaceId, draft } = thread;
+  const [revision, setRevision] = useState(0);
   const reference = useMemo(
-    () => ({ id, provider, instanceId, workspaceId, draft }),
-    [id, provider, instanceId, workspaceId, draft],
+    () => ({ id, provider, instanceId, workspaceId, draft, revision }),
+    [id, provider, instanceId, workspaceId, draft, revision],
   );
   const [catalog, setCatalog] = useState<{
     reference: typeof reference;
@@ -105,10 +107,12 @@ export function useSuggestions(
         })),
     );
     if (!items.length && mentions.isPending) return { state: "loading", kind, query };
-    if (!items.length && mentions.isError) return { state: "failed", kind, query };
+    if (!items.length && mentions.isError)
+      return { state: "failed", kind, query, retry: () => void mentions.refetch() };
   } else {
     if (!catalog || catalog.reference !== reference) return { state: "loading", kind, query };
-    if (catalog.failed) return { state: "failed", kind, query };
+    if (catalog.failed)
+      return { state: "failed", kind, query, retry: () => setRevision((value) => value + 1) };
     if (catalog.stale && !catalog.entries.length) return { state: "loading", kind, query };
     const entries = thread.draft
       ? catalog.entries

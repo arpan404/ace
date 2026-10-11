@@ -19,19 +19,14 @@ async function instanceRoot(
   const parent = dirname(instance.homeDir);
   if (basename(instance.homeDir) !== instance.id) return;
   const root =
-    basename(parent) === "instances"
+    basename(parent) === "instances" || (instance.managed && basename(parent) === "account-homes")
       ? dirname(parent)
       : basename(parent) === instance.provider && basename(dirname(parent)) === "instances"
         ? dirname(dirname(parent))
         : undefined;
   if (!root) return;
-  if (
-    resolve(root) === resolve(dataDir) ||
-    /^\.ace(?:-next|-dev)?$/.test(basename(root)) ||
-    (basename(root) === "home" && basename(dirname(root)) === ".ace-dev") ||
-    (await exists(join(root, "host-id")))
-  )
-    return root;
+  if (resolve(root) !== resolve(dataDir)) throw new Error("foreign_home");
+  return root;
 }
 
 /** Startup owns the registry before any provider host is admitted. No credential bytes are read. */
@@ -40,8 +35,9 @@ export async function migrateInstanceHome(
   dataDir: string,
   notice?: (event: HomeMigrationNotice) => void,
 ): Promise<ProviderInstance> {
-  if (instance.implicit || instance.managed || instance.provider === "acp") return instance;
-  if (!(await instanceRoot(instance, dataDir))) return instance;
+  if (instance.implicit || instance.provider === "acp") return instance;
+  const root = await instanceRoot(instance, dataDir);
+  if (instance.managed || !root) return instance;
   dataDir = await canonicalHome(dataDir);
   const homeDir =
     instance.provider === "cursor"

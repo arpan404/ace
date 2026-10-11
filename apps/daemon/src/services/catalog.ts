@@ -5,6 +5,7 @@ import type { SocketContext, SocketService } from "./socket.ts";
 type Request = Extract<ClientMessage, { type: "catalog.list" }>;
 /** Request IDs also identify bounded subscriptions. Every push rechecks current read authority. */
 export function createCatalogSession(context: SocketContext): SocketService {
+  let pending = 0;
   const stops = new Map<string, () => void>();
   async function read(request: Request) {
     if (!context.connected() || !context.authorize("read")) throw new Error("forbidden");
@@ -76,68 +77,90 @@ export function createCatalogSession(context: SocketContext): SocketService {
         return true;
       }
       if (message.type !== "catalog.list") return false;
-      const request = message;
-      stops.get(request.requestId)?.();
-      stops.delete(request.requestId);
-      let stopped = false;
-      let running = false;
-      let dirty = false;
-      let previous = "";
-      let stopWatching: (() => void) | undefined;
-      const stop = () => {
-        stopped = true;
-        stopWatching?.();
-      };
-      const push = async () => {
-        if (stopped) return;
-        if (running) {
-          dirty = true;
-          return;
-        }
-        running = true;
+      if (pending >= 8) {
+        context.fail("catalog_unavailable", "Catalog is busy", false, {
+          requestId: message.requestId,
+        });
+        return true;
+      }
+      pending++;
+      const task = (async () => {
+        const request = message;
+        stops.get(request.requestId)?.();
+        stops.delete(request.requestId);
+        let stopped = false;
+        let running = false;
+        let dirty = false;
+        let previous = "";
+        let stopWatching: (() => void) | undefined;
+        const stop = () => {
+          stopped = true;
+          stopWatching?.();
+        };
+        const push = async () => {
+          if (stopped) return;
+          if (running) {
+            dirty = true;
+            return;
+          }
+          running = true;
+          try {
+            do {
+              dirty = false;
+              const result = await read(request);
+              const encoded = JSON.stringify(result);
+              // read again to catch deletion/revocation during I/O, without trusting saved authority.
+              if (stopped || !(await authorized(request))) return;
+              if (encoded !== previous) {
+                previous = encoded;
+                context.send({ type: "catalog.changed", requestId: request.requestId, ...result });
+              }
+            } while (dirty);
+          } catch (error) {
+            context.options.log?.(error);
+            if (!stopped && context.connected() && context.authorize("read"))
+              context.fail("catalog_unavailable", "Catalog could not be refreshed", false, {
+                requestId: request.requestId,
+              });
+            stop();
+            stops.delete(request.requestId);
+          } finally {
+            running = false;
+          }
+        };
+        const runPush = () => {
+          const update = push().finally(() => context.tasks.delete(update));
+          context.tasks.add(update);
+        };
         try {
-          do {
-            dirty = false;
-            const result = await read(request);
-            const encoded = JSON.stringify(result);
-            // read again to catch deletion/revocation during I/O, without trusting saved authority.
-            if (stopped || !(await authorized(request))) return;
-            if (encoded !== previous) {
-              previous = encoded;
-              context.send({ type: "catalog.changed", requestId: request.requestId, ...result });
-            }
-          } while (dirty);
+          if (request.subscribe) {
+            if (stops.size >= 32 || !context.options.commands?.subscribeCatalog)
+              throw new Error("catalog_subscription_limit");
+            // Watch before the initial read so discovery cannot race subscription registration.
+            running = true;
+            stopWatching = context.options.commands.subscribeCatalog(() => {
+              runPush();
+            });
+            stops.set(request.requestId, stop);
+          }
+          const result = await read(request);
+          if (stopped || !(await authorized(request))) throw new Error("read_denied");
+          previous = JSON.stringify(result);
+          context.send({ type: "catalog.list.result", requestId: request.requestId, ...result });
+          running = false;
+          if (request.subscribe && (dirty || result.stale)) runPush();
         } catch {
           stop();
           stops.delete(request.requestId);
-        } finally {
-          running = false;
-        }
-      };
-      try {
-        if (request.subscribe) {
-          if (stops.size >= 8 || !context.options.commands?.subscribeCatalog)
-            throw new Error("catalog_subscription_limit");
-          // Watch before the initial read so discovery cannot race subscription registration.
-          running = true;
-          stopWatching = context.options.commands.subscribeCatalog(() => {
-            void push();
+          context.fail("catalog_unavailable", "Catalog or context unavailable", false, {
+            requestId: request.requestId,
           });
-          stops.set(request.requestId, stop);
         }
-        const result = await read(request);
-        if (stopped || !(await authorized(request))) throw new Error("read_denied");
-        previous = JSON.stringify(result);
-        context.send({ type: "catalog.list.result", requestId: request.requestId, ...result });
-        running = false;
-        if (request.subscribe && (dirty || result.stale)) void push();
-      } catch {
-        stop();
-        stops.delete(request.requestId);
-        context.fail("catalog_unavailable", "Catalog or context unavailable", false, {
-          requestId: request.requestId,
-        });
-      }
+      })().finally(() => {
+        pending--;
+        context.tasks.delete(task);
+      });
+      context.tasks.add(task);
       return true;
     },
   };

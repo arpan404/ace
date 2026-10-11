@@ -9,7 +9,7 @@ import { useMemo } from "react";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
 import { useNow } from "@/lib/time.ts";
 import { useAccountViews } from "@/features/accounts/index.ts";
-import { useModelCatalog } from "@/lib/model-catalog.ts";
+import { useCatalogQuery, useModelCatalog } from "@/lib/model-catalog.ts";
 
 /** The list once known; an error reads as empty, so pickers fall back instead of waiting. */
 function settled<T>(query: { data: T[] | undefined; isError: boolean }): T[] | undefined {
@@ -32,7 +32,8 @@ export function useModelChoices(): readonly ModelChoice[] {
 export function useNewThreadOptions():
   | { models: ModelOption[]; accounts: AccountOption[] }
   | undefined {
-  const models = useModelCatalog();
+  const catalog = useCatalogQuery();
+  const models = catalog.data?.models ?? (catalog.isError ? none : undefined);
   const accounts = settled(useAccountViews());
   const providers = settled(useProviderStatuses());
   return useMemo(

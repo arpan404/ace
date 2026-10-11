@@ -1,6 +1,6 @@
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { chmodSync } from "node:fs";
-import { IdleWorker } from "@ace/provider-kit/idle-worker";
+import { IdleWorker, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
 import { z } from "zod";
 import { CachedEntry } from "./cache-schema.ts";
 import type { CacheEntry, CatalogStorage } from "./types.ts";
@@ -8,7 +8,7 @@ import type { CacheEntry, CatalogStorage } from "./types.ts";
 const Reply = z.object({ id: z.number().int().positive(), ok: z.boolean() });
 type Pending = { resolve: () => void; reject: (error: Error) => void; bytes: number };
 /** Startup reads are synchronous; later writes run on a dedicated SQLite worker. */
-export function openModelStorage(path: string): CatalogStorage {
+export function openModelStorage(path: string, runtime?: IdleWorkerRuntime): CatalogStorage {
   const db = new DatabaseSync(path);
   let entries: CacheEntry[];
   try {
@@ -35,17 +35,21 @@ export function openModelStorage(path: string): CatalogStorage {
   } finally {
     db.close();
   }
-  const worker = new IdleWorker(new URL("./storage-worker.ts", import.meta.url), {
-    workerData: { path },
-  });
+  const worker = new IdleWorker(
+    new URL("./storage-worker.ts", import.meta.url),
+    {
+      workerData: { path },
+    },
+    runtime,
+  );
   const pending = new Map<number, Pending>();
   let pendingBytes = 0;
   let nextId = 1;
   let failure: Error | undefined;
   let closing: Promise<void> | undefined;
   const fail = () => {
-    failure ??= new Error("Model persistence worker failed");
-    for (const request of pending.values()) request.reject(failure);
+    const error = new Error("Model persistence worker failed");
+    for (const request of pending.values()) request.reject(error);
     pending.clear();
     pendingBytes = 0;
   };
@@ -53,6 +57,7 @@ export function openModelStorage(path: string): CatalogStorage {
   worker.on("message", (value: unknown) => {
     const parsed = Reply.safeParse(value);
     if (!parsed.success) {
+      failure = new Error("Model persistence protocol failed");
       fail();
       void worker.terminate();
       return;

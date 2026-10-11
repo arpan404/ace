@@ -397,7 +397,7 @@ export class ModelCatalog implements ModelCatalogApi {
       if (
         state.flight ||
         this.#probes.size >= 64 ||
-        this.#options.now() < (state.probeRetryAt ?? 0)
+        this.#options.now() < Math.max(state.probeRetryAt ?? 0, state.retryAt)
       )
         continue;
       const abort = new AbortController();
@@ -677,7 +677,8 @@ export class ModelCatalog implements ModelCatalogApi {
         ? { refreshedAt: state.entry.refreshedAt, lastRefreshedAt: state.entry.refreshedAt }
         : {}),
       enabled: this.#configuration(state.config).enabled !== false,
-      status: state.flight ? "refreshing" : this.#stale(state) ? "stale" : "fresh",
+      status:
+        state.flight && !state.errorDetail ? "refreshing" : this.#stale(state) ? "stale" : "fresh",
       ...(state.errorDetail ? { errorDetail: state.errorDetail } : {}),
       // oxlint-disable-next-line oxc/no-map-spread -- Clone immutable cached values for this view.
       sources: (state.entry?.sources ?? []).map((source) => ({
@@ -686,16 +687,17 @@ export class ModelCatalog implements ModelCatalogApi {
           state.config.label && source.source.kind === "account"
             ? { ...source.source, label: state.config.label }
             : source.source,
-        status: state.flight
-          ? "refreshing"
-          : state.error ||
-              state.dirty ||
-              !state.entry ||
-              this.#options.now() - (source.lastRefreshedAt ?? state.entry.refreshedAt) >=
-                (this.#options.ttlMs ?? 21_600_000) ||
-              sourceFailed(source)
-            ? "stale"
-            : "fresh",
+        status:
+          state.flight && !state.errorDetail
+            ? "refreshing"
+            : state.error ||
+                state.dirty ||
+                !state.entry ||
+                this.#options.now() - (source.lastRefreshedAt ?? state.entry.refreshedAt) >=
+                  (this.#options.ttlMs ?? 21_600_000) ||
+                sourceFailed(source)
+              ? "stale"
+              : "fresh",
         ...(state.errorDetail || source.error
           ? {
               error: discoveryError(state.errorDetail ?? source.error, "discovery_failed", {
@@ -706,7 +708,7 @@ export class ModelCatalog implements ModelCatalogApi {
           : {}),
       })),
       stale: this.#stale(state),
-      refreshing: state.flight !== undefined,
+      refreshing: state.flight !== undefined && !state.errorDetail,
       ...(state.error ? { error: state.error } : {}),
     };
   }
@@ -963,6 +965,8 @@ export class ModelCatalog implements ModelCatalogApi {
               return;
             await this.#options.storage.replace(entry);
           } catch {
+            state.entry = entry;
+            state.dirty = false;
             state.error = "persistence_failed";
             this.#failed(state, undefined, "persistence_failed", startedAt, diagnostic);
             return;
@@ -1019,7 +1023,13 @@ export class ModelCatalog implements ModelCatalogApi {
             startedAt,
             diagnostic,
           );
-          if (state.unconfiguredAt !== undefined) await this.#deletions.remove(state.config.id);
+          if (state.unconfiguredAt !== undefined) {
+            try {
+              await this.#deletions.remove(state.config.id);
+            } catch {
+              /* Pending deletion remains owned and retryable. */
+            }
+          }
           if (
             state.entry &&
             this.#states.get(state.config.id) === state &&
@@ -1047,14 +1057,14 @@ export class ModelCatalog implements ModelCatalogApi {
           this.#release();
         }
       })
-      .then(() => {
+      .finally(() => {
         this.#flights.delete(flight);
         delete state.flight;
         delete state.abort;
         delete state.probeRevision;
         if (this.#states.get(state.config.id) === state && !this.#closed) this.#changed(state);
-        return this.#status(state);
-      });
+      })
+      .then(() => this.#status(state));
     this.#flights.add(flight);
     state.flight = flight;
     this.#changed(state);
@@ -1081,25 +1091,27 @@ export class ModelCatalog implements ModelCatalogApi {
         state.abort?.abort();
         state.probe?.abort.abort();
       }
-      await Promise.all(this.#probes);
-      await Promise.all(this.#flights);
-      await Promise.all(this.#invalidations);
-      const writes = await Promise.allSettled(this.#sessionWrites);
-      const failures = writes.flatMap((result) =>
-        result.status === "rejected" ? [result.reason] : [],
-      );
-      if (failures.length) throw new AggregateError(failures, "Session model persistence failed");
-      await Promise.all(this.#discoveries);
-      await Promise.allSettled(this.#removals.values());
-      await this.#deletions.flush();
-      await this.#options.storage.close();
+      const failures: unknown[] = [];
+      const collect = async (tasks: Iterable<Promise<unknown>>) => {
+        for (const result of await Promise.allSettled(tasks))
+          if (result.status === "rejected") failures.push(result.reason);
+      };
+      const writes = [...this.#sessionWrites];
+      const flights = [...this.#flights];
+      const invalidations = [...this.#invalidations];
+      await collect(this.#probes);
+      await collect(flights);
+      await collect(invalidations);
+      await collect(writes);
+      await collect(this.#discoveries);
+      await collect(this.#removals.values());
+      await collect([this.#deletions.flush()]);
+      await collect([Promise.resolve().then(() => this.#options.storage.close())]);
       this.#metadata.clear();
+      if (failures.length) throw new AggregateError(failures, "Model catalog cleanup failed");
     })();
     this.#closing = closing;
-    // A failed durable deletion must remain retryable with the storage still open.
-    void closing.catch(() => {
-      if (this.#closing === closing) this.#closing = undefined;
-    });
+    void closing.catch(() => undefined);
     return closing;
   }
 }

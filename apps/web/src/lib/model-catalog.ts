@@ -15,7 +15,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
  * Where the model list stands: still arriving (the picker shows placeholder rows), being
  * discovered again with the last list shown meanwhile, or settled.
  */
-export type CatalogState = "loading" | "refreshing" | "ready";
+export type CatalogState = "loading" | "refreshing" | "ready" | "failed";
 
 /** Every model row, and each account's (instance's) freshness and discovery errors. */
 export interface Catalog {
@@ -46,7 +46,7 @@ async function readCatalog(
       { type: "models.list", options: { ...filter, offset: start, limit: 100 } },
       signal ? { signal } : {},
     );
-    if (!("models" in reply.result)) break;
+    if (!("models" in reply.result)) throw new Error("Couldn't load models. Try again.");
     models.push(...reply.result.models);
     for (const status of reply.result.instances) instances.set(scopeOf(status), status);
     offset = reply.result.nextOffset;
@@ -153,7 +153,7 @@ function watchCatalog(client: ClientApi, queryClient: QueryClient): () => void {
 }
 
 /** Every model discovery found across the signed-in accounts (`models.list`), kept current. */
-function useCatalogQuery() {
+export function useCatalogQuery() {
   const client = useClient();
   const queryClient = useQueryClient();
   useEffect(() => watchCatalog(client, queryClient), [client, queryClient]);
@@ -180,7 +180,7 @@ export function useModelInstances(): readonly ModelInstanceStatus[] {
  */
 export function useModelCatalogState(): CatalogState {
   const query = useCatalogQuery();
-  if (query.data === undefined) return query.isError ? "ready" : "loading";
+  if (query.data === undefined) return query.isError ? "failed" : "loading";
   const discovering = query.data.instances.some(
     (status) => status.status === "refreshing" || status.refreshing,
   );

@@ -16,10 +16,10 @@ export function ProviderSettings() {
   const { entries, query } = useProviderEntries();
   if (query.isPending)
     return <ListSkeleton label="providers" shape="row" rows={5} className="mt-7" />;
-  if (query.isError || !entries)
+  if (!entries)
     return (
       <p role="alert" className="mt-7 text-sm text-muted-foreground">
-        Couldn't list providers. Reconnect and check again.
+        Couldn't check providers. Try again. <RediscoverButton />
       </p>
     );
   const builtIn = entries.filter((entry) => entry.install.kind !== "acp");

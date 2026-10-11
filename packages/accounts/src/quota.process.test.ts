@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import { quotaPayload } from "./test-support.ts";
 import { afterEach, expect, test } from "vitest";
 import {
@@ -87,14 +88,15 @@ test("Claude event fractions and usage snapshot percentages produce the same war
   expect(availability(snapshot.state, now)).toBe("near_limit");
   expect(availability(snapshot.state, now + 3600000)).toBe("available");
 });
-test("a rejection without utilization blocks even without a known reset", () => {
+test("a rejection without utilization blocks until the fallback reset", () => {
   const state = ingestQuota(login, {
     provider: "claude",
     observedAt: now,
     timeZone: "UTC",
     payload: quotaPayload({ rate_limit_info: { status: "rejected" } }),
   }).state;
-  expect(availability(state, now + 86400000)).toBe("exhausted");
+  expect(availability(state, now + 1)).toBe("exhausted");
+  expect(availability(state, now + 86400000)).toBe("available");
 });
 test("logged-out accounts stay unavailable even when quota has reset", () => {
   const state = ingestQuota(codex(login, 100), {
@@ -218,11 +220,13 @@ test("fast roles only request speed tiers advertised for the selected model", ()
   expect(speedHint("claude", "worker", "sonnet", policy, capabilities)).toEqual({});
 });
 test("quota and login state survive reopening SQLite and remain isolated by instance", async () => {
-  const path = join(await temp(), "accounts.sqlite");
+  const root = await temp();
+  const path = join(root, "accounts.sqlite");
+  for (const id of ["a", "b"]) await mkdir(join(root, id));
   let registry = await openRegistry(path);
   for (const id of ["a", "b"])
     await registry.register(
-      createInstance({ id, provider: "codex", label: id, homeDir: `/tmp/${id}` }),
+      createInstance({ id, provider: "codex", label: id, homeDir: join(root, id) }),
     );
   registry.ingest("a", {
     provider: "codex",
@@ -338,4 +342,27 @@ test("window overflow stays bounded and blocks scheduling until an authoritative
     }),
   }).state;
   expect(availability(recovered, now + 1)).toBe("available");
+});
+
+test("a limit with an unreadable reset releases the account after five hours", () => {
+  const limit = ingestQuota(login, {
+    provider: "claude",
+    observedAt: now,
+    timeZone: "UTC",
+    payload: quotaPayload({ error: "Usage limit reached; reset time unavailable" }),
+  }).state;
+  expect(availability(limit, now + 5 * 60 * 60 * 1000 - 1)).toBe("exhausted");
+  expect(availability(limit, now + 5 * 60 * 60 * 1000)).toBe("available");
+  const reported = codex(login, 100, now, null);
+  expect(availability(reported, now + 5 * 60 * 60 * 1000)).toBe("available");
+});
+
+test("an inconclusive status probe cannot erase a known login", () => {
+  const quota = ingestQuota(login, {
+    provider: "codex",
+    observedAt: now,
+    timeZone: "UTC",
+    payload: quotaPayload({ auth: "unknown" }),
+  }).state;
+  expect(availability(quota, now)).toBe("available");
 });

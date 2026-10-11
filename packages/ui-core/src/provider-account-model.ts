@@ -16,6 +16,15 @@ export interface AccountStatusView {
 
 /** Authentication and live limits in the same words on every account surface. */
 export function accountStatus(account: AccountView, now: number): AccountStatusView {
+  if (account.quota.blockers.homeUnavailable)
+    return {
+      tone: "problem",
+      text:
+        account.quota.blockers.homeUnavailable === "foreign_home"
+          ? "Account belongs to another installation"
+          : "Account folder unavailable",
+      canRun: false,
+    };
   const quotaState = availability(account.quota, now);
   if (quotaState === "exhausted") return { tone: "problem", text: "Limit reached", canRun: false };
   if (account.runtimeStatus && !account.runtimeStatus.canRun) return account.runtimeStatus;
@@ -58,9 +67,21 @@ export function providerAccountModel(input: {
   row?: ProviderStatus | undefined;
   catalog?: CatalogSignal | undefined;
   catalogForAccount?: ((id: string) => CatalogSignal | undefined) | undefined;
+  readinessFailed?: boolean | undefined;
   now: number;
 }): ProviderAccountModel {
-  const base = input.row && readinessView(input.row, input.catalog);
+  const base: ReadinessView | undefined = input.row
+    ? readinessView(input.row, input.catalog)
+    : input.readinessFailed
+      ? {
+          state: "unconfirmed",
+          ready: false,
+          label: "Couldn't check provider",
+          summary: "Couldn't check provider",
+          tone: "problem",
+          more: [],
+        }
+      : undefined;
   const own = (input.accounts ?? []).filter(
     (account) =>
       account.provider === input.provider &&
@@ -119,7 +140,8 @@ export function providerAccountModel(input: {
   }
   accounts.sort((a, b) => Number(Boolean(b.implicit)) - Number(Boolean(a.implicit)));
   const loaded =
-    input.accounts !== undefined && (input.provider === "acp" || input.row !== undefined);
+    input.accounts !== undefined &&
+    (input.provider === "acp" || input.row !== undefined || input.readinessFailed === true);
   if (!loaded) return { accounts, loaded, view: undefined };
   // Missing or disabled runtimes cannot run any of their accounts.
   if (base?.state === "not_installed" || base?.state === "off")
@@ -150,6 +172,22 @@ export function providerAccountModel(input: {
         tone: selected ? accountStatus(selected, input.now).tone : (base?.tone ?? "ready"),
         primary: undefined,
         more: base?.more ?? [],
+      },
+    };
+  }
+  const unavailable = accounts.find((account) => account.quota.blockers.homeUnavailable);
+  if (unavailable) {
+    const status = accountStatus(unavailable, input.now);
+    return {
+      accounts,
+      loaded,
+      view: {
+        state: "attention",
+        ready: false,
+        label: status.text,
+        summary: status.text,
+        tone: status.tone,
+        more: [],
       },
     };
   }

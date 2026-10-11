@@ -1,5 +1,6 @@
-import { type ReadinessTone, type ReadinessView } from "@ace/ui-core";
+import { readinessView, type ReadinessTone, type ReadinessView } from "@ace/ui-core";
 import { compareVersions } from "@ace/ui-core/acp-registry";
+import { useConnectionState } from "@ace/client-react";
 import { useQuery } from "@tanstack/react-query";
 import { useProviderReadiness, type ProviderReadiness } from "@/lib/provider-readiness.ts";
 import { useProviderAccountModels } from "@/features/accounts/index.ts";
@@ -32,9 +33,10 @@ export function isMissing(entry: ProviderEntry): boolean {
 /** Every provider, live: discovery, readiness and the model catalog's say on each. */
 export function useProviderEntries() {
   const backend = useSettingsBackend();
-  const providers = useQuery(settingsQueries.providers(backend));
+  const ready = useConnectionState() === "ready";
+  const providers = useQuery({ ...settingsQueries.providers(backend), enabled: ready });
   const readiness = useProviderReadiness();
-  const { model } = useProviderAccountModels();
+  const { accounts: accountQuery, model } = useProviderAccountModels();
   const entries = providers.data?.map((install): ProviderEntry => {
     const row =
       install.kind === "acp"
@@ -45,8 +47,8 @@ export function useProviderEntries() {
       id: providerPageId(install),
       install,
       row,
-      view: accounts.view,
-      accountCount: accounts.loaded ? accounts.accounts.length : undefined,
+      view: accounts.view ?? (row ? readinessView(row) : undefined),
+      accountCount: accountQuery.data && accounts.loaded ? accounts.accounts.length : undefined,
     };
   });
   return { entries, query: providers };

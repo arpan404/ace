@@ -9,7 +9,6 @@ import { z } from "zod";
 const stores = [
   "events.sqlite",
   "models.sqlite",
-  "accounts.sqlite",
   "automations.sqlite",
   "onboarding.sqlite",
   "history/index.sqlite",

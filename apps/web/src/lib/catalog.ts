@@ -15,11 +15,32 @@ export function watchCatalog(
   const requestId = crypto.randomUUID();
   const controller = new AbortController();
   let receivedPush = false;
+  let unavailable = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const fail = () => {
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+    if (!controller.signal.aborted && !unavailable) {
+      unavailable = true;
+      failed();
+    }
+  };
+  const accept = (entries: readonly CatalogEntry[], stale: boolean) => {
+    if (unavailable && stale) return;
+    if (stale) timer ??= setTimeout(fail, 10_000);
+    else {
+      unavailable = false;
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    receive(entries, stale);
+  };
+  timer = setTimeout(fail, 10_000);
   const stop = client.onMessage((message) => {
     if (message.type === "catalog.changed" && message.requestId === requestId) {
       receivedPush = true;
-      receive(message.entries, message.stale);
-    }
+      accept(message.entries, message.stale);
+    } else if (message.type === "error" && message.requestId === requestId) fail();
   });
   void client
     .request(
@@ -28,13 +49,14 @@ export function watchCatalog(
     )
     .then(
       (reply) => {
-        if (!controller.signal.aborted && !receivedPush) receive(reply.entries, reply.stale);
+        if (!controller.signal.aborted && !receivedPush) accept(reply.entries, reply.stale);
       },
       () => {
-        if (!controller.signal.aborted) failed();
+        fail();
       },
     );
   return () => {
+    if (timer) clearTimeout(timer);
     controller.abort();
     stop();
     try {

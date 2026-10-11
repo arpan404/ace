@@ -79,8 +79,18 @@ export async function startReal(scratch: string, source: string, onFailure: (f: 
   });
   child.stdout?.resume();
   child.on("message", (value: unknown) => {
-    if (z.object({ type: z.literal("shutdown-error") }).safeParse(value).success)
-      onFailure({ code: "daemon-shutdown", message: "Daemon failed to close cleanly" });
+    const failure = z
+      .object({
+        type: z.literal("shutdown-error"),
+        error: z.string(),
+        causes: z.array(z.string()).optional(),
+      })
+      .safeParse(value);
+    if (failure.success)
+      onFailure({
+        code: "daemon-shutdown",
+        message: `Daemon failed to close cleanly: ${failure.data.error} ${(failure.data.causes ?? []).join("; ")}`,
+      });
   });
   child.on("exit", (code, signal) => {
     if (!stopping)

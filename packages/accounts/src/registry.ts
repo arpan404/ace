@@ -131,6 +131,8 @@ export class AccountRegistry {
     );
   }
   async validateHome(instance: ProviderInstance): Promise<void> {
+    const problem = this.readAccount(instance.id)?.quota.blockers.homeUnavailable;
+    if (problem) throw new Error(problem);
     if (!instance.managed) return;
     if (!this.managedDataDir) throw new Error("Managed account needs its daemon data root");
     await assertManagedHome(this.managedDataDir, instance);
@@ -284,34 +286,54 @@ export class AccountRegistry {
   private async normalizeHomes(signal?: AbortSignal): Promise<void> {
     const accounts = this.readAccounts().filter(({ instance }) => !this.pending.has(instance.id));
     const normalized = [];
+    const roots = new Map<string, Set<string>>();
     for (const account of accounts) {
       signal?.throwIfAborted();
-      const migrated =
-        this.managedDataDir && this.homeMigration
+      const quota = { ...account.quota, blockers: { ...account.quota.blockers } };
+      delete quota.blockers.homeUnavailable;
+      try {
+        const migrated = this.managedDataDir
           ? await migrateInstanceHome(
               account.instance,
               this.managedDataDir,
-              this.homeMigration.notice,
+              this.homeMigration?.notice,
             )
           : account.instance;
-      const instance = await canonicalInstance(migrated);
-      await this.validateHome(instance);
-      normalized.push({ ...account, instance });
+        const instance = await canonicalInstance(migrated);
+        // Startup revalidates repaired homes rather than trusting last startup's blocker.
+        if (instance.managed) {
+          if (!this.managedDataDir) throw new Error("Managed account needs its data root");
+          await assertManagedHome(this.managedDataDir, instance);
+        } else if (!instance.implicit && instance.provider !== "acp") {
+          const stat = await lstat(instance.homeDir);
+          if (!stat.isDirectory()) throw new Error("home_missing");
+        }
+        if (instance.provider !== "acp" && !instance.implicit) {
+          const used = roots.get(instance.provider) ?? new Set<string>();
+          const selectors = new Set([instance.homeDir, ...Object.values(instance.env)]);
+          for (const path of selectors) if (used.has(path)) throw new Error("home_conflict");
+          for (const path of selectors) used.add(path);
+          roots.set(instance.provider, used);
+        }
+        normalized.push({ instance, quota });
+      } catch (error) {
+        signal?.throwIfAborted();
+        const code = error instanceof Error && "code" in error ? error.code : undefined;
+        quota.blockers.homeUnavailable =
+          error instanceof Error && error.message === "foreign_home"
+            ? "foreign_home"
+            : error instanceof Error && error.message === "home_conflict"
+              ? "home_conflict"
+              : code === "ENOENT" || code === "ENOTDIR"
+                ? "home_missing"
+                : "home_unreadable";
+        normalized.push({ instance: account.instance, quota });
+      }
     }
     signal?.throwIfAborted();
-    const roots = new Map<string, Set<string>>();
-    for (const { instance } of normalized) {
-      if (instance.provider === "acp" || instance.implicit) continue;
-      const used = roots.get(instance.provider) ?? new Set<string>();
-      const selectors = new Set([instance.homeDir, ...Object.values(instance.env)]);
-      for (const path of selectors)
-        if (used.has(path)) throw new Error("Instance homes must be distinct");
-      for (const path of selectors) used.add(path);
-      roots.set(instance.provider, used);
-    }
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      for (const { instance } of normalized) {
+      for (const { instance, quota } of normalized) {
         const current = this.readAccount(instance.id);
         if (!current) throw new Error("Instance changed during canonicalization");
         this.upsert.run(
@@ -322,7 +344,7 @@ export class AccountRegistry {
             shortLabel: current.instance.shortLabel,
             badgeColor: current.instance.badgeColor,
           }),
-          JSON.stringify(current.quota),
+          JSON.stringify({ ...current.quota, blockers: quota.blockers }),
         );
       }
       this.db.exec("COMMIT");
