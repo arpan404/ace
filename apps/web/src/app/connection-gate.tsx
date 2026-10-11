@@ -1,4 +1,5 @@
 import type { ClientApi, ClientError } from "@ace/client";
+import { bindTerminalEndDelivery } from "@/features/panels/index.ts";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { desktopDaemon, watchDesktopTarget } from "@/boot/desktop.ts";
@@ -183,6 +184,8 @@ export function ConnectionGate(props: {
         return;
       }
       current = next;
+      const terminalCloses = bindTerminalEndDelivery(next);
+      stops.push(terminalCloses.release);
       const key = ++generation.current;
       const progress = (value: Progress) =>
         setClient((previous) =>
@@ -197,7 +200,9 @@ export function ConnectionGate(props: {
         const now = states.getSnapshot();
         if (now === "ready") {
           welcomed = true;
-          progress({ kind: "ready" });
+          void terminalCloses.identified.then(() => {
+            if (!replaced && next.state === "ready") progress({ kind: "ready" });
+          });
         } else if (!welcomed && now === "starting") {
           progress({ kind: "starting" });
         } else if (now === "fatal") {

@@ -28,9 +28,8 @@ export const terminalKind = defineTabKind({
       Actions: m.TerminalActions,
     })),
   // Your terminal: closing its tab ends its shell. Hiding the panel never does.
-  onClose: (scope, tab) => {
-    if (!isPendingTerminal(tab.id)) requestTerminalEnd({ threadId: scope, terminalId: tab.id });
-  },
+  prepareClose: (scope, tab) =>
+    isPendingTerminal(tab.id) || requestTerminalEnd({ threadId: scope, terminalId: tab.id }),
   closeLabel: "End session",
   // Ties ending shells, and asking whether they ended, to the client whose screen shows.
   Overlay: TerminalClient,
