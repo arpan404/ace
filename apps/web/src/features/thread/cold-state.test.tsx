@@ -103,7 +103,8 @@ test("separate queued inputs with identical text remain individually visible", a
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   expect(within(queue).getAllByText("yo")).toHaveLength(2);
   expect(within(queue).getByRole("button", { name: "Send again" })).toBeTruthy();
-  expect(within(queue).getByRole("button", { name: "Send now" })).toBeTruthy();
+  const steer = within(queue).getByRole("button", { name: "Steer" });
+  expect(steer.getAttribute("aria-disabled")).toBe("true");
   expect(
     within(queue).getByRole("listitem", { name: /^This message may have been sent\./ }),
   ).toBeTruthy();
