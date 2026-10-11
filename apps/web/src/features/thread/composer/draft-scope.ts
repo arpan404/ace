@@ -1,6 +1,6 @@
 import { useClient, useConnectionState } from "@ace/client-react";
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
-import { draftScopes } from "../sources/context-source.ts";
+import { ConsumedDraftScope, draftScopes } from "../sources/context-source.ts";
 
 /**
  * The New thread composer's draft scope for `workspaceId`: undefined until the daemon grants it
@@ -13,6 +13,7 @@ export function useDraftScope(
     read(): string | undefined;
     granted(id: string): void;
     owns(id: string): boolean;
+    consumed?(id: string): void;
   },
 ): {
   draftId: string | undefined;
@@ -41,7 +42,10 @@ export function useDraftScope(
       const remembered = scopeOwner?.read();
       void (
         remembered
-          ? scopes.resume(remembered).catch(() => scopes.create(workspaceId))
+          ? scopes.resume(remembered).catch((error: unknown) => {
+              if (error instanceof ConsumedDraftScope) scopeOwner?.consumed?.(remembered);
+              return scopes.create(workspaceId);
+            })
           : scopes.create(workspaceId)
       ).then(
         (draftId) => {
