@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { randomInt } from "node:crypto";
 import { AutomationService, AutomationStore, nodeTimer, createGhClient } from "@ace/automations";
 import { AutomationResponse } from "@ace/protocol";
+import { followAutomationSetting } from "../automation-lifecycle.ts";
 import { automationWorkspace } from "../automation-workspace.ts";
 import { automationExecutor } from "../automation-executor.ts";
 import type { ServiceContext } from "./types.ts";
@@ -26,22 +27,7 @@ export async function startAutomations(context: ServiceContext): Promise<void> {
   );
   services.automations = service;
   resources.own(() => service.stop());
-  const settings = services.settings;
-  if (!settings) throw new Error("settings_unavailable");
-  const release = await settings.subscribe(
-    { keys: ["automations.enabled"], scope: {} },
-    (notification) => {
-      if (notification.type !== "changed") return;
-      const enabled = notification.entries.find(
-        (entry) => entry.key === "automations.enabled",
-      )?.value;
-      if (enabled === true) service.start();
-      if (enabled === false) service.stop();
-      services.commands?.invalidateExtras?.();
-    },
-  );
-  resources.own(release);
-  if ((await settings.get("automations.enabled")).value === true) service.start();
+  await followAutomationSetting(context, service);
 }
 export function createAutomationsSession({
   options,

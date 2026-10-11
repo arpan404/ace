@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./policy": "./src/policy.ts",
+    "./policy-events": "./src/policy-events.ts",
     "./testing": "./src/backend-test-support.ts"
   },
   "scripts": {

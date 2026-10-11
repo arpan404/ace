@@ -6,6 +6,95 @@ import { setup, deferred } from "./testing/v2-session.ts";
 import { array, object } from "./data.ts";
 import type { Frame } from "@ace/engine-api";
 
+it("failed child verification recovers and replays the observed interaction", async () => {
+  let failed = false;
+  const h = await setup({
+    runtime: {
+      fetch: async (input, init) => {
+        if (String(input).endsWith("/api/session/recovery-child") && !failed) {
+          failed = true;
+          throw new Error("temporary ancestry lookup failure");
+        }
+        return fetch(input, init);
+      },
+    },
+  });
+  await h.publish("session.execution.started");
+  await h.control("/test/state", {
+    sessions: [
+      {
+        id: "recovery-child",
+        parentID: h.session.nativeSessionId,
+        projectID: "project-one",
+        location: { directory: "/one" },
+      },
+    ],
+    permissions: [
+      { sessionID: "recovery-child", id: "recovery-ask", action: "edit", resources: ["x"] },
+    ],
+  });
+  const recovered = h.recovered();
+  await h.control("/test/events", [
+    {
+      type: "permission.asked",
+      directory: "/one",
+      data: { sessionID: "recovery-child", id: "recovery-ask", action: "edit", resources: ["x"] },
+    },
+  ]);
+  await recovered;
+  expect(h.projection.view.thread.status.state).toBe("needs_you");
+  expect(Object.values(h.projection.view.interactions)).toContainEqual(
+    expect.objectContaining({ state: "pending" }),
+  );
+});
+
+it("observed child work blocks completion while ancestry lookup is pending", async () => {
+  const entered = deferred<void>(),
+    release = deferred<void>();
+  const h = await setup({
+    runtime: {
+      fetch: async (input, init) => {
+        if (
+          String(input).includes("/api/session/missed-child") &&
+          !String(input).includes("/permission")
+        ) {
+          entered.resolve();
+          await release.promise;
+        }
+        return fetch(input, init);
+      },
+    },
+  });
+  try {
+    await h.publish("session.execution.started");
+    await h.control("/test/state", {
+      sessions: [
+        {
+          id: "missed-child",
+          parentID: h.session.nativeSessionId,
+          projectID: "project-one",
+          location: { directory: "/one" },
+        },
+      ],
+    });
+    await h.control("/test/events", [
+      {
+        type: "permission.asked",
+        directory: "/one",
+        data: { sessionID: "missed-child", id: "pending-child", action: "edit", resources: ["x"] },
+      },
+    ]);
+    await entered.promise;
+    await h.publish("session.execution.succeeded");
+    expect(h.projection.view.thread.status.state).not.toBe("done");
+    release.resolve();
+    await h.seen((f) => f.channel === "sse" && object(f.data).type === "permission.asked");
+    expect(h.projection.view.thread.status.state).toBe("needs_you");
+  } finally {
+    release.resolve();
+  }
+});
+
 it("the last account session reaps its owned process and a later session starts fresh", async () => {
   const boundary = await setup();
   let exit: Promise<unknown> | undefined;

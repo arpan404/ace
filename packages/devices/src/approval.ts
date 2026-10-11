@@ -1,4 +1,5 @@
 import type { DeviceOperation } from "@ace/protocol/devices";
+import type { ScreenDeviceAccess } from "@ace/screen";
 import { DeviceLogs } from "./logs.ts";
 import { DeviceError } from "./sdk.ts";
 import {
@@ -13,7 +14,10 @@ export async function approveDevice(
   operation: Extract<DeviceOperation, { op: "approve" }>,
   options: LifecycleOptions,
   owner: LifecycleOwner,
+  guard: () => void = () => {},
+  screenAccess?: ScreenDeviceAccess,
 ): Promise<void> {
+  guard();
   if (session.changingApproval)
     throw new DeviceError("busy", "Approval is changing", "Wait for approval cleanup.");
   session.changingApproval = true;
@@ -27,6 +31,10 @@ export async function approveDevice(
   session.logs = new DeviceLogs(options.runtime.after);
   session.logOwners.clear();
   const revokeGrant = async (threadId: string | undefined) => {
+    if (!operation.allowed && screenAccess) {
+      await screenAccess.rollback();
+      return;
+    }
     if (
       threadId &&
       session.device.platform === "ios" &&
@@ -50,6 +58,7 @@ export async function approveDevice(
       result.status === "rejected" ? [result.reason] : [],
     );
     if (errors.length) throw new AggregateError(errors, "Device approval cleanup failed");
+    guard();
     if (!owner.enabled() || session.approvalEpoch !== approvalEpoch)
       throw new DeviceError(
         "busy",
@@ -58,16 +67,22 @@ export async function approveDevice(
       );
     if (operation.allowed) {
       if (session.device.platform === "ios" && options.screen) {
-        await options.screen.enable(true);
-        await options.screen.approve(
-          "com.apple.iphonesimulator",
-          true,
-          "thread",
-          operation.threadId,
-        );
+        if (screenAccess) await screenAccess.enable();
+        else await options.screen.enable(true);
+        guard();
+        if (screenAccess) await screenAccess.approve();
+        else
+          await options.screen.approve(
+            "com.apple.iphonesimulator",
+            true,
+            "thread",
+            operation.threadId,
+          );
       }
+      guard();
       if (!owner.enabled() || session.approvalEpoch !== approvalEpoch) {
-        await revokeGrant(operation.threadId);
+        if (screenAccess) await screenAccess.rollback();
+        else await revokeGrant(operation.threadId);
         throw new DeviceError(
           "busy",
           "Devices disabled during approval",
@@ -76,9 +91,13 @@ export async function approveDevice(
       }
       session.threadId = operation.threadId;
     }
+  } catch (error) {
+    await screenAccess?.rollback();
+    throw error;
   } finally {
     session.changingApproval = false;
   }
+  guard();
   if (wasLive && operation.allowed && session.approvalEpoch === approvalEpoch)
     await startDevice(session, 60, options, owner);
 }

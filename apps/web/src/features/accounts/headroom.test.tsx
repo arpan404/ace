@@ -47,7 +47,7 @@ test("usage puts limited accounts first and exposes each provider reset time", a
     }),
   ).toBeTruthy();
   expect(
-    within(await screen.findByRole("region", { name: "Everything else" })).getByRole("article", {
+    within(await screen.findByRole("region", { name: "Reported limits" })).getByRole("article", {
       name: "Claude Code Work",
     }),
   ).toBeTruthy();

@@ -367,7 +367,7 @@ export async function startCapture(options: {
         restartCancel = runtime.after(0, () => {
           restartCancel = undefined;
           if (!stopped && current.intent === "run" && cycle === current && !restarting)
-            void run().catch(fail);
+            void restart().catch(() => {});
         });
       } catch (error) {
         fail(error);
@@ -375,23 +375,6 @@ export async function startCapture(options: {
       }
     })();
   };
-  function abort() {
-    void stop().catch(options.failure);
-  }
-  options.signal?.addEventListener("abort", abort, { once: true });
-  try {
-    await run();
-    checkAbort();
-    unwatch = options.platform.watchCaptureTransport(options.device, serial, (error) => {
-      if (stopped) return;
-      options.failure(error);
-      void stop().catch(options.failure);
-    });
-    if (stopped) unwatch();
-  } catch (error) {
-    await stop();
-    throw error;
-  }
   const restart = (): Promise<void> => {
     if (stopped)
       return Promise.reject(
@@ -419,6 +402,23 @@ export async function startCapture(options: {
       });
     return restarting;
   };
+  function abort() {
+    void stop().catch(options.failure);
+  }
+  options.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    await run();
+    checkAbort();
+    unwatch = options.platform.watchCaptureTransport(options.device, serial, (error) => {
+      if (stopped) return;
+      options.failure(error);
+      void stop().catch(options.failure);
+    });
+    if (stopped) unwatch();
+  } catch (error) {
+    await stop();
+    throw error;
+  }
   return {
     stop,
     restart,

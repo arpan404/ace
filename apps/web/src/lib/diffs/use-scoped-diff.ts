@@ -42,7 +42,7 @@ export function useScopedDiff(threadId: string) {
       scope === "working-tree" ? [] : turn ? turn.edits : edited.flatMap((each) => each.edits),
     [scope, turn, edited],
   );
-  const { files, pending } = useFileDiffs(shown);
+  const { files, pending, versions } = useFileDiffs(shown);
   const details = useThreadMeta(threadId)?.details;
   const stat = useMemo(
     () =>
@@ -60,5 +60,14 @@ export function useScopedDiff(threadId: string) {
   const setScope = (next: Scope) => {
     if (tab) actions.update(tab.key, { data: { ...data, scope: next } });
   };
-  return { scope, setScope, edited, files, pending, stat, label: scopeLabel(scope, edited) };
+  return {
+    scope,
+    setScope,
+    edited,
+    files,
+    pending,
+    versions,
+    stat,
+    label: scopeLabel(scope, edited),
+  };
 }

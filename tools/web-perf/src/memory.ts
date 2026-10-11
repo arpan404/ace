@@ -1,4 +1,5 @@
 import type { Browser, CDPSession, Page } from "@playwright/test";
+import { workerHeap } from "./worker-heap.ts";
 import { budgets } from "./budgets.ts";
 import { pageMemory, reportDOM } from "./measure.ts";
 import { open, withPerfApp } from "./perf-app.ts";
@@ -25,51 +26,6 @@ interface Sample {
   chromeNodes: number;
   listeners: number;
   articles: number;
-}
-
-/** The client worker's heap, through the browser's own DevTools session (flat protocol off). */
-async function workerHeap(browser: Browser): Promise<number> {
-  const session = await browser.newBrowserCDPSession();
-  try {
-    const { targetInfos } = await session.send("Target.getTargets");
-    const target = targetInfos.find(
-      (info) =>
-        (info.type === "worker" || info.type === "shared_worker") &&
-        /client/.test(info.title + info.url),
-    );
-    if (!target) return Number.NaN;
-    const { sessionId } = await session.send("Target.attachToTarget", {
-      targetId: target.targetId,
-      flatten: false,
-    });
-    let id = 0;
-    const call = (method: string) =>
-      new Promise<Record<string, unknown>>((resolve) => {
-        const ask = ++id;
-        const listener = (event: { sessionId?: string; message: string }) => {
-          const reply = JSON.parse(event.message) as {
-            id?: number;
-            result?: Record<string, unknown>;
-          };
-          if (event.sessionId !== sessionId || reply.id !== ask) return;
-          session.off("Target.receivedMessageFromTarget", listener);
-          resolve(reply.result ?? {});
-        };
-        session.on("Target.receivedMessageFromTarget", listener);
-        void session.send("Target.sendMessageToTarget", {
-          sessionId,
-          message: JSON.stringify({ id: ask, method }),
-        });
-      });
-    await call("HeapProfiler.enable");
-    await call("HeapProfiler.collectGarbage");
-    await call("HeapProfiler.collectGarbage");
-    const usage = await call("Runtime.getHeapUsage");
-    await session.send("Target.detachFromTarget", { sessionId });
-    return typeof usage.usedSize === "number" ? usage.usedSize : Number.NaN;
-  } finally {
-    await session.detach();
-  }
 }
 
 async function sample(browser: Browser, page: Page, cdp: CDPSession): Promise<Sample> {

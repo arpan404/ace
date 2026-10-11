@@ -129,6 +129,9 @@ export class Subscriptions {
   }
   receive(message: ServerMessage): void {
     if (message.type === "subscription.ready") {
+      const entry = this.#wires.get(message.subscriptionId);
+      if (!entry) return;
+      if (entry.store.cursor === message.seq) entry.store.recover();
       this.#starting.delete(message.subscriptionId);
       this.#pump();
       return;
@@ -162,7 +165,9 @@ export class Subscriptions {
     }
     entry.snapshotAllowed = false;
     try {
-      if (entry.store.delivery(message) !== "gap") return;
+      const result = entry.store.delivery(message);
+      if (result === "applied") entry.store.recover();
+      if (result !== "gap") return;
     } catch (error) {
       if (!(error instanceof ClientError) || error.code !== "limit") throw error;
       this.#send({ type: "unsubscribe", subscriptionId: message.subscriptionId });

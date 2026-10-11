@@ -4,6 +4,7 @@ import type { CallToolResult } from "@modelcontextprotocol/server";
 import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
 import type { ToolContext } from "./registry.ts";
 import type { McpCapability } from "@ace/protocol";
+import { maxRichResultBytes } from "./result-budgets.ts";
 export interface ContentToolDefinition<I extends z.ZodType> {
   name: string;
   riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"];
@@ -23,7 +24,7 @@ export async function executeContent<I extends z.ZodType>(
   const args = parseToolArguments(definition.input, input);
   context.signal.throwIfAborted();
   const result = await definition.run(args, context);
-  const limit = 12 * 1024 * 1024; // Includes base64 expansion of the 8 MiB JPEG limit.
+  const limit = maxRichResultBytes;
   if (!withinJsonBudget(result, limit)) throw new ResultBudgetExceeded();
   const { specTypeSchemas } = await import("@modelcontextprotocol/server");
   const checked = specTypeSchemas.CallToolResult["~standard"].validate(result);

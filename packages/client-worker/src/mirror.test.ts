@@ -182,3 +182,88 @@ test("an answer cut to the client's text limit mid-stream reaches a tab exactly 
   expect(mirror.item("long")).toEqual(store.item("long"));
   expect(mirror.truncated("long")).toBe(true);
 });
+
+test("streamed messages retain their provenance in the live store and every tab", () => {
+  const { store, mirror, deliver } = linked();
+  const original = {
+    ...answer("Hello"),
+    nativeId: "native-answer",
+    origin: { kind: "person" as const },
+    notAnswered: "stopped" as const,
+    executionSource: {
+      nativeSessionId: "session",
+      selection: { provider: "codex" as const, options: {} },
+    },
+  };
+  // Parse at the same external boundary as a daemon event.
+  deliver(
+    Event.parse({
+      id: "created",
+      threadId: thread.id,
+      seq: 1,
+      at: 0,
+      payload: { type: "item.created", item: original },
+    }).payload,
+  );
+  for (const append of [" world", "!", "x".repeat(defaultLimits.text + 1)]) {
+    deliver(
+      Event.parse({
+        id: "append",
+        threadId: thread.id,
+        seq: 1,
+        at: 0,
+        payload: { type: "item.delta", itemId: "answer", agentId: "root", field: "text", append },
+      }).payload,
+    );
+    expect(store.item("answer")).toMatchObject({
+      nativeId: "native-answer",
+      origin: { kind: "person" },
+      notAnswered: "stopped",
+      executionSource: original.executionSource,
+    });
+    expect(mirror.item("answer")).toEqual(store.item("answer"));
+    const reattached = new MirrorThread(defaultLimits.listeners);
+    reattached.reset(structuredClone(store.export()));
+    expect(reattached.item("answer")).toEqual(mirror.item("answer"));
+  }
+  expect(store.truncated("answer")).toBe(true);
+  expect(text(store.item("answer"))).toBe("x".repeat(Math.floor(defaultLimits.text / 2)));
+});
+
+test("removing provenance while appending text reaches an already attached tab", () => {
+  const { store, mirror, deliver } = linked();
+  deliver(
+    Event.parse({
+      id: "created",
+      threadId: thread.id,
+      seq: 1,
+      at: 0,
+      payload: { type: "item.created", item: { ...answer("Hello"), nativeId: "native-answer" } },
+    }).payload,
+  );
+  const event = Event.parse({
+    id: "updated",
+    threadId: thread.id,
+    seq: 2,
+    at: 0,
+    payload: { type: "item.updated", item: answer("Hello world") },
+  });
+  const previous = store.item("answer");
+  if (
+    event.payload.type !== "item.updated" ||
+    event.payload.item.type !== "message" ||
+    previous?.type !== "message"
+  )
+    throw new Error("Expected message update");
+  // An authoritative producer may reuse unchanged payloads. Removal still needs replacement.
+  event.payload.item.raw = previous.raw;
+  store.delivery({
+    type: "events",
+    subscriptionId: "thread",
+    afterSeq: 1,
+    throughSeq: 2,
+    events: [event],
+  });
+  expect(mirror.item("answer")).toEqual(store.item("answer"));
+  expect(mirror.item("answer")?.nativeId).toBeUndefined();
+});

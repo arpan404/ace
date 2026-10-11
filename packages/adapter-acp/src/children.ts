@@ -1,4 +1,5 @@
 import { childAssociation } from "./association.ts";
+import { retireTool } from "./completed-tools.ts";
 import type { Fact } from "@ace/core";
 import { object, string, type Data } from "./data.ts";
 import { TranslationState, type AgentState, type ToolState } from "./state.ts";
@@ -131,6 +132,7 @@ export function childUpdate(
       state.start(parent, facts, "subagent_result");
     }
     finishChildTasks(state, child, cancelled ? "stopped" : failed ? "failed" : "completed", facts);
+    if (tool) retireTool(state, tool);
   }
   if (status === "disconnected") {
     facts.push({ type: "agent.disconnected", agent: child.key });

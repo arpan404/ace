@@ -30,22 +30,20 @@ Example:
 
 ```json
 {
-  "concurrency": 1,
-  "enabled": true,
+  "concurrency": 6,
+  "enabled": false,
   "id": "example",
-  "jitterMs": 4,
-  "missedRun": "run_once",
+  "jitterMs": 6,
+  "missedRun": "skip",
+  "model": "example",
   "prompt": "example",
-  "provider": "acp",
+  "provider": "cursor",
   "title": "example",
   "trigger": {
-    "kind": "schedule",
-    "schedule": {
-      "expression": "example",
-      "kind": "cron",
-      "startAt": 0,
-      "timezone": "example"
-    }
+    "kind": "file",
+    "paths": [
+      "example"
+    ]
   },
   "workspace": "example",
   "worktree": false
@@ -83,7 +81,7 @@ Example:
 
 ```json
 {
-  "before": 7,
+  "before": null,
   "runs": []
 }
 ```
@@ -101,7 +99,7 @@ Example:
 
 ```json
 {
-  "at": 7,
+  "at": 3,
   "message": "example"
 }
 ```
@@ -126,11 +124,11 @@ Example:
     "concurrency": 5,
     "enabled": false,
     "id": "example",
-    "jitterMs": 0,
+    "jitterMs": 1,
     "missedRun": "run_once",
-    "model": "example",
+    "permissionMode": "example",
     "prompt": "example",
-    "provider": "claude",
+    "provider": "acp",
     "title": "example",
     "trigger": {
       "kind": "file",
@@ -139,7 +137,7 @@ Example:
       ]
     },
     "workspace": "example",
-    "worktree": false
+    "worktree": true
   },
   "requestId": "example",
   "type": "automation.put"
@@ -214,6 +212,7 @@ Example:
 
 ```json
 {
+  "automationId": "example",
   "limit": 4,
   "requestId": "example",
   "type": "automation.inbox"
@@ -239,8 +238,14 @@ Example:
 
 ```json
 {
-  "ok": true,
+  "automations": [],
+  "inbox": {
+    "before": 4,
+    "runs": []
+  },
+  "ok": false,
   "requestId": "example",
+  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -268,13 +273,11 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 4,
   "id": "example",
-  "result": "example",
-  "startedAt": 8,
-  "status": "running",
+  "startedAt": 4,
+  "status": "succeeded",
   "title": "example",
-  "trigger": "schedule"
+  "trigger": "file"
 }
 ```
 
@@ -356,8 +359,8 @@ Example:
 {
   "event": "review_comment",
   "kind": "github",
-  "pollIntervalMs": 60008,
-  "repository": "yAXh/nG-47YsQ"
+  "pollIntervalMs": 60006,
+  "repository": "3agjPr/GA.zMkMorqf"
 }
 ```
 

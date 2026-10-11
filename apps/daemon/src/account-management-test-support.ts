@@ -76,6 +76,7 @@ if (args[0] === '--version') {
 export async function harness(
   remote = false,
   options: {
+    configuration?: import("./account-management.ts").AccountManagementOptions["configuration"];
     discovery?: import("@ace/provider-kit/discovery").DiscoveryOptions;
     cursor?: import("./account-management.ts").AccountManagementOptions["cursor"];
     terminal?: import("@ace/terminal").TerminalManagerOptions;
@@ -128,6 +129,7 @@ export async function harness(
     terminal: options.terminal ?? { graceMs: 50 },
     ...(options.cursor ? { cursor: options.cursor } : {}),
     discovery: options.discovery,
+    ...(options.configuration ? { configuration: options.configuration } : {}),
     models: () => models,
   });
   await management.initialize();

@@ -231,7 +231,7 @@
   .usage-limit-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  @media (min-width: 1280px) {
+  @container (min-width: 840px) {
     .usage-limit-row {
       grid-template-columns: minmax(0, 224px) 152px 152px 128px 128px;
     }
@@ -299,15 +299,8 @@
     height: 11px;
     border: 1.5px solid color-mix(in oklab, currentColor 25%, transparent);
     border-top-color: currentColor;
-    animation: ace-spin 1s linear infinite;
   }
   /* Streaming status line only. */
-}
-
-@keyframes ace-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /*
@@ -408,102 +401,7 @@ body
     color-mix(in oklab, var(--ring) 88%, var(--ring-foreground))
   );
 }
+/* Deep reasoning is identified by its accent and label, without ambient streams or glow. */
 .step-slider-convergence {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  border-radius: inherit;
-  pointer-events: none;
-}
-.step-slider-convergence::before {
-  content: "";
-  position: absolute;
-  top: -3px;
-  right: 8px;
-  width: 40px;
-  height: 28px;
-  background: radial-gradient(
-    ellipse at 70% 50%,
-    color-mix(in oklab, var(--ring-foreground) 55%, transparent),
-    color-mix(in oklab, var(--ring-foreground) 15%, transparent) 40%,
-    transparent 70%
-  );
-  transform-origin: right center;
-  animation: reasoning-gather 3.2s ease-in-out infinite alternate;
-}
-.step-slider-convergence > span {
-  --stream-y: 5px;
-  position: absolute;
-  top: 6px;
-  left: -38%;
-  width: 38%;
-  height: 1px;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in oklab, var(--ring-foreground) 15%, transparent) 35%,
-    color-mix(in oklab, var(--ring-foreground) 45%, transparent) 85%,
-    color-mix(in oklab, var(--ring-foreground) 75%, transparent)
-  );
-  box-shadow: 0 0 3px color-mix(in oklab, var(--ring-foreground) 30%, transparent);
-  animation: reasoning-stream 5.2s cubic-bezier(0.2, 0.4, 0.7, 1) infinite;
-}
-.step-slider-convergence > span:nth-child(2) {
-  --stream-y: 0px;
-  top: 11px;
-  animation-delay: -1.7s;
-}
-.step-slider-convergence > span:nth-child(3) {
-  --stream-y: -5px;
-  top: 16px;
-  animation-delay: -3.5s;
-}
-@keyframes reasoning-gather {
-  from {
-    transform: scale(0.7);
-    opacity: 0.35;
-  }
-  to {
-    transform: scale(1.15);
-    opacity: 0.8;
-  }
-}
-@keyframes reasoning-stream {
-  0% {
-    transform: translate(0, 0);
-    opacity: 0;
-  }
-  20% {
-    opacity: 0.6;
-  }
-  75% {
-    opacity: 0.8;
-  }
-  90%,
-  100% {
-    transform: translate(350%, var(--stream-y));
-    opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .step-slider-convergence::before {
-    opacity: 0.45;
-  }
-  .step-slider-convergence > span {
-    opacity: 0;
-  }
-}
-
-/* The deep slider's streams settle into ace's diamond, without moving the thumb. */
-.step-slider-ace {
-  animation: reasoning-mark-gather 2.6s ease-in-out infinite alternate;
-}
-@keyframes reasoning-mark-gather {
-  from {
-    opacity: 0.68;
-  }
-  to {
-    opacity: 1;
-  }
+  display: none;
 }

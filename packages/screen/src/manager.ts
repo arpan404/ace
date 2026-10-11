@@ -175,6 +175,11 @@ export class ScreenManager {
     this.authorizationRevision++;
     return this.accessPolicy.enable(enabled);
   }
+  /** Device approval keeps screen changes temporary until its tool lifetime commits. */
+  deviceAccess(threadId: string): import("./access.ts").ScreenDeviceAccess {
+    this.authorizationRevision++;
+    return this.accessPolicy.deviceAccess(threadId);
+  }
   approve(
     bundleId: string,
     allowed: boolean,

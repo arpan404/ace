@@ -168,7 +168,10 @@ export function connectBrowser(
             break;
           }
           case "browser.close":
-            await service.closeThread(threadId);
+            await service.closeThread(threadId, {
+              kind: "human",
+              connectionId: options.connectionId,
+            });
             respond(null);
             break;
           case "browser.execute":
