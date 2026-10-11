@@ -28,6 +28,7 @@ export class BrowserOrigins {
   private stop: () => void;
   private timeout: number;
   private closing = false;
+  private admissions = new Set<{ threadId: string; origin: string; valid: boolean }>();
   private root: ((threadId: ThreadId) => string | undefined) | undefined;
   private open: ((interaction: Interaction) => Interaction) | undefined;
   private closeInteraction:
@@ -109,6 +110,8 @@ export class BrowserOrigins {
     this.grants.grant(threadId, origin);
   }
   revoke(threadId: string, origin: string): void {
+    for (const admission of this.admissions)
+      if (admission.threadId === threadId && admission.origin === origin) admission.valid = false;
     this.grants.revoke(threadId, origin);
     this.once.get(threadId)?.delete(origin);
     const pending = this.store.atomic((db) =>
@@ -130,6 +133,8 @@ export class BrowserOrigins {
     }
   }
   clearPage(threadId: string): void {
+    for (const admission of this.admissions)
+      if (admission.threadId === threadId) admission.valid = false;
     this.once.delete(threadId);
   }
   private pageGrant(threadId: string, origin: string): void {
@@ -139,6 +144,22 @@ export class BrowserOrigins {
     this.once.set(threadId, origins);
   }
   async allowed(request: OriginRequest): Promise<boolean> {
+    const admission = { threadId: request.threadId, origin: request.origin, valid: true };
+    this.admissions.add(admission);
+    const current = () => {
+      request.signal?.throwIfAborted();
+      if (this.closing) throw new Error("Browser origin policy is shutting down");
+      if (!admission.valid)
+        throw new BrowserOriginError(request.origin, "denied", "Browser origin approval revoked");
+    };
+    try {
+      return await this.admit(request, current);
+    } finally {
+      this.admissions.delete(admission);
+    }
+  }
+  private async admit(request: OriginRequest, current: () => void): Promise<boolean> {
+    current();
     if (this.closing) throw new Error("Browser origin policy is shutting down");
     const threadId = ThreadId.parse(request.threadId),
       { origin } = request;
@@ -147,6 +168,7 @@ export class BrowserOrigins {
       return true;
     }
     const mode = await this.mode(threadId);
+    current();
     const facts = { origin, mode, human: false, navigation: request.navigation === true };
     if (originAccess({ ...facts, granted: false }) === "read_only")
       throw new BrowserOriginError(
@@ -158,8 +180,7 @@ export class BrowserOrigins {
       this.once.get(threadId)?.has(origin) === true ||
       this.grants.has(threadId, origin) ||
       (await this.allowlist()).includes(origin);
-    request.signal?.throwIfAborted();
-    if (this.closing) throw new Error("Browser origin policy is shutting down");
+    current();
     const decision = originAccess({ ...facts, granted });
     if (decision === "allow") return true;
     if (decision === "block") return false;
@@ -260,6 +281,7 @@ export class BrowserOrigins {
     this.store.atomic((db) =>
       db.prepare("DELETE FROM browser_origin_pending WHERE interaction_id=?").run(interaction.id),
     );
+    current();
     if (result?.state !== "resolved")
       throw new BrowserOriginError(
         origin,
@@ -269,7 +291,9 @@ export class BrowserOrigins {
     if (result.resolution?.kind !== "approval" || result.resolution.optionId === "deny")
       throw new BrowserOriginError(origin, "denied", "Browser origin approval denied");
     // A mode change during the wait cannot authorize a now forbidden action.
-    if ((await this.mode(threadId)) === "read-only")
+    const latestMode = await this.mode(threadId);
+    current();
+    if (latestMode === "read-only")
       throw new BrowserOriginError(
         origin,
         "read_only",

@@ -5,6 +5,8 @@ import { Transform, Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { ReleaseManifest } from "@ace/protocol";
 import { createGunzip } from "node:zlib";
+/** Retain the oldest supported updater's limits when producing future releases. */
+export const releaseArchiveLimits = { entries: 2048, expandedBytes: 512 * 1024 * 1024 } as const;
 export function verifyManifest(
   bytes: Uint8Array,
   signature: string,
@@ -64,7 +66,7 @@ export async function unpackArchive(file: string, directory: string): Promise<vo
       const name = entry.path.replace(/\/$/, "");
       const parts = name.split("/");
       if (
-        ++entries > 2048 ||
+        ++entries > releaseArchiveLimits.entries ||
         parts.some((p) => !p || p === "." || p === "..") ||
         name.startsWith("/") ||
         name.includes("\\") ||
@@ -72,9 +74,9 @@ export async function unpackArchive(file: string, directory: string): Promise<vo
         !["File", "Directory"].includes(entry.type)
       )
         invalid = true;
-      if (seen.size < 2048) seen.add(name);
+      if (seen.size < releaseArchiveLimits.entries) seen.add(name);
       total += entry.size;
-      if (total > 512 * 1024 * 1024) invalid = true;
+      if (total > releaseArchiveLimits.expandedBytes) invalid = true;
       entry.resume();
       if (invalid) parser.abort(new Error("Unsafe release archive"));
     },
@@ -84,7 +86,9 @@ export async function unpackArchive(file: string, directory: string): Promise<vo
     transform(chunk: Buffer, _encoding, callback) {
       expanded += chunk.length;
       callback(
-        expanded > 512 * 1024 * 1024 ? new Error("Expanded release too large") : null,
+        expanded > releaseArchiveLimits.expandedBytes
+          ? new Error("Expanded release too large")
+          : null,
         chunk,
       );
     },

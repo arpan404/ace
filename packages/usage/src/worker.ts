@@ -24,8 +24,8 @@ export class UsageWorker {
       { workerData: config },
       runtime,
     );
-    this.worker.on("error", () => this.fail(new Error("Usage worker failed")));
-    this.worker.on("exit", () => this.fail(new Error("Usage worker exited")));
+    this.worker.on("error", () => this.rejectPending(new Error("Usage worker failed")));
+    this.worker.on("exit", () => this.rejectPending(new Error("Usage worker exited")));
     this.worker.on("message", (input: unknown) => {
       const parsed = WorkerResponse.safeParse(input);
       if (!parsed.success) {
@@ -45,6 +45,9 @@ export class UsageWorker {
   }
   private fail(error: Error): void {
     this.failed = error;
+    this.rejectPending(error);
+  }
+  private rejectPending(error: Error): void {
     for (const p of this.pending.values()) p.reject(error);
     this.pending.clear();
     this.bytes = 0;

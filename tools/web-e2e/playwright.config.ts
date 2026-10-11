@@ -1,5 +1,6 @@
+import { homedir } from "node:os";
 import { defineConfig } from "@playwright/test";
-import { daemonHome, webPort as realPort } from "./src/real-daemon-config.ts";
+import { webPort as realPort } from "./src/real-daemon-config.ts";
 
 const fakePort = Number(process.env.ACE_E2E_FAKE_PORT ?? 5190);
 const web = new URL("../../apps/web", import.meta.url).pathname;
@@ -65,9 +66,9 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
     },
     {
-      // HOME points into the throwaway daemon home so nothing reads the person's own CLI state.
+      // The entrypoint isolates the complete environment before starting daemon services.
       command: "node src/real-daemon.ts",
-      env: { HOME: daemonHome, ACE_LOG_LEVEL: "warn" },
+      env: { ACE_TEST_REAL_HOME: process.env.ACE_TEST_REAL_HOME ?? homedir() },
       wait: { stdout: /e2e daemon ready/ },
       reuseExistingServer: false,
     },

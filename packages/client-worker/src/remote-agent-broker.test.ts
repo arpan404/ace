@@ -49,9 +49,10 @@ const reply = <Q extends ServiceRequest>(input: Q, body: object): ServiceRespons
     ...body,
   }) as ServiceResponse<Q>;
 function world(
-  status: "completed" | "not_found" | "legacy" | "files",
+  status: "running" | "completed" | "not_found" | "legacy" | "files" | "publication_failed",
   afterTransfer: "running" | "cancelling" | "expired" = "running",
   tasks: RemoteTask[] = [task],
+  poll: () => RemoteTask[] = () => tasks,
 ) {
   const calls: string[] = [];
   const phases: string[] = [];
@@ -68,7 +69,7 @@ function world(
     calls.push(input.type);
     if (input.type === "delegation.broker.register")
       return reply(input, { ok: true, lease: "lease" });
-    if (input.type === "delegation.broker.poll") return reply(input, { ok: true, tasks });
+    if (input.type === "delegation.broker.poll") return reply(input, { ok: true, tasks: poll() });
     if (input.type !== "delegation.broker.report") throw new Error("Unexpected source request");
     reports++;
     phases.push(input.report.phase);
@@ -78,7 +79,10 @@ function world(
     return reply(input, {
       ok: true,
       tasks: [
-        { ...task, phase: reports === 2 && transferFinished ? afterTransfer : input.report.phase },
+        {
+          ...(tasks.find((candidate) => candidate.id === input.report.taskId) ?? task),
+          phase: reports === 2 && transferFinished ? afterTransfer : input.report.phase,
+        },
       ],
     });
   }
@@ -92,10 +96,11 @@ function world(
           status !== "not_found"
             ? {
                 ok: true,
-                phase: "completed",
-                result: "Already finished",
+                phase: status === "running" ? "running" : "completed",
+                ...(status === "running" ? {} : { result: "Already finished" }),
                 truncated: true,
-                ...(status === "completed" || status === "files"
+                ...(status === "publication_failed" ? { artifactsUnavailable: true } : {}),
+                ...(status === "completed" || status === "files" || status === "publication_failed"
                   ? {
                       artifacts: {
                         taskId: input.taskId,
@@ -234,20 +239,48 @@ test("broker rotates tasks on the same host rather than starving later task iden
     id: "b".repeat(64),
     threadId: `remote-${"b".repeat(64)}`,
   });
-  const f = world("completed", "running", [task, second]);
-  await f.broker.cycle();
-  await vi.waitFor(() =>
-    expect(
-      f.emitted.some((report) => report.taskId === task.id && report.phase === "completed"),
-    ).toBe(true),
-  );
-  await f.broker.cycle();
-  await vi.waitFor(() =>
-    expect(
-      f.emitted.some((report) => report.taskId === second.id && report.phase === "completed"),
-    ).toBe(true),
-  );
-  f.broker.close();
+  const f = world("running", "running", [task, second]);
+  try {
+    await vi.waitFor(async () => {
+      await f.broker.cycle();
+      expect(f.calls).toContain(`status:${task.id}`);
+      expect(f.calls).toContain(`status:${second.id}`);
+    });
+  } finally {
+    f.broker.close();
+  }
+});
+
+test("every task on a host gets status routing across alternating active and retained cancellation pages", async () => {
+  const tasks = Array.from({ length: 128 }, (_, index) => {
+    const id = index.toString(16).padStart(64, "0");
+    return RemoteTask.parse({
+      ...task,
+      id,
+      threadId: `remote-${id}`,
+      phase: index < 64 ? "running" : "failed",
+      ...(index < 64 ? {} : { cancellingAt: 0, finishedAt: 30_000, delivered: true }),
+    });
+  });
+  const pages = [tasks.slice(0, 64), tasks.slice(64)];
+  let page = 0;
+  const f = world("running", "running", tasks, () => pages[page++ % pages.length] ?? []);
+  try {
+    // cycle() deliberately leaves routing in the background. Keep polling until
+    // the observable target messages cover every task, regardless of job timing.
+    await vi.waitFor(
+      async () => {
+        await f.broker.cycle();
+        expect(new Set(f.calls.filter((call) => call.startsWith("status:")))).toEqual(
+          new Set(tasks.map((candidate) => `status:${candidate.id}`)),
+        );
+      },
+      { timeout: 4000, interval: 1 },
+    );
+    expect(f.admitted()).toBe(false);
+  } finally {
+    f.broker.close();
+  }
 });
 
 test("broker reports incompatible target outcomes as unavailable rather than losing returned artifacts", async () => {
@@ -278,6 +311,42 @@ test("repeated file-import failure returns the sealed answer and names the missi
     error: expect.stringContaining("output.txt"),
   });
   f.broker.close();
+});
+
+test("file-import attempts survive disjoint poll pages until both preserved answers are acknowledged", async () => {
+  const second = RemoteTask.parse({
+    ...task,
+    id: "b".repeat(64),
+    threadId: `remote-${"b".repeat(64)}`,
+  });
+  const tasks = [task, second];
+  let polls = 0;
+  const f = world("files", "running", tasks, () => [tasks[polls++ % 2] ?? task]);
+  try {
+    await vi.waitFor(
+      async () => {
+        await f.broker.cycle();
+        expect(
+          new Set(
+            f.emitted
+              .filter((report) => report.phase === "completed")
+              .map((report) => report.taskId),
+          ),
+        ).toEqual(new Set(tasks.map((candidate) => candidate.id)));
+      },
+      { timeout: 4000, interval: 1 },
+    );
+    for (const candidate of tasks)
+      expect(
+        f.emitted.find((report) => report.taskId === candidate.id && report.phase === "completed"),
+      ).toMatchObject({
+        result: "Already finished",
+        artifactsUnavailable: true,
+        error: expect.stringContaining("output.txt"),
+      });
+  } finally {
+    f.broker.close();
+  }
 });
 
 test("device discovery withdraws a connected host when its files relay is unavailable", async () => {
@@ -355,5 +424,23 @@ test("device discovery withdraws a connected host when its files relay is unavai
   } finally {
     broker.close();
     await client.close();
+  }
+});
+
+test("a failed target publication delivers its preserved answer and an explicit files warning without retrying forever", async () => {
+  const f = world("publication_failed");
+  try {
+    await f.broker.cycle();
+    await vi.waitFor(() =>
+      expect(f.emitted.some((report) => report.phase === "completed")).toBe(true),
+    );
+    expect(f.emitted.find((report) => report.phase === "completed")).toMatchObject({
+      result: "Already finished",
+      artifactsUnavailable: true,
+      error: expect.stringContaining("publication"),
+    });
+    expect(f.phases).not.toContain("unavailable");
+  } finally {
+    f.broker.close();
   }
 });

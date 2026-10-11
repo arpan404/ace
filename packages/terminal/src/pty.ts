@@ -15,6 +15,8 @@ import type { GroupLease } from "./group-lease.ts";
 
 export interface PtyBackend {
   readonly pid: number;
+  /** Ownership can outlive shell exit until all retained groups are drained. */
+  readonly ownsProcesses?: boolean;
   write(data: string): void;
   resize(cols: number, rows: number): void;
   onData(listener: (bytes: Buffer) => void): () => void;
@@ -128,6 +130,7 @@ export function createPosixBackendFactory(
     }
     let exited = false;
     let leaseReleaseRequested = false;
+    let ownershipComplete = false;
     const base: ProcessControl = ports?.processes ?? {
       async read() {
         const deadline = context.scheduler.now() + 5000;
@@ -188,6 +191,9 @@ export function createPosixBackendFactory(
     const ownership = sessionOwnership(context.owner, control, context.scheduler, pty.pid);
     return {
       pid: pty.pid,
+      get ownsProcesses() {
+        return !ownershipComplete;
+      },
       write: (data) => pty.write(data),
       resize: (cols, rows) => pty.resize(cols, rows),
       onData(listener) {
@@ -209,11 +215,15 @@ export function createPosixBackendFactory(
       },
       kill: async (signal) => {
         await ownership.kill(signal);
-        if (signal === "SIGKILL") lease.dispose();
+        if (signal === "SIGKILL") {
+          lease.dispose();
+          ownershipComplete = true;
+        }
       },
       close: async (graceMs) => {
         await ownership.close(graceMs);
         lease.dispose();
+        ownershipComplete = true;
       },
     };
   };

@@ -1,3 +1,4 @@
+import type { IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
 import { open } from "node:fs/promises";
 import { z } from "zod";
 import { constants } from "node:fs";
@@ -70,8 +71,9 @@ export function createDaemonUsage(
   accounts?: QuotaReader,
   now: () => number = Date.now,
   providerAccounts?: Pick<import("@ace/accounts").AccountService, "handle" | "subscribeQuota">,
+  runtime?: IdleWorkerRuntime,
 ) {
-  const worker = new UsageWorker(join(dataDir, "usage.sqlite"), settings);
+  const worker = new UsageWorker(join(dataDir, "usage.sqlite"), settings, runtime);
   let stopped = false;
   let replayFailed = false;
   let running: Promise<void> | undefined;

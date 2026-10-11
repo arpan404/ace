@@ -23,6 +23,7 @@ import type { Actor, SessionOptions } from "./session-options.ts";
 interface CommandContext {
   options: SessionOptions;
   beforeInput?: (() => void) | undefined;
+  navigate?: (() => Promise<void>) | undefined;
   refs: SnapshotRefs;
   logs: SessionLogs;
   policies: NavigationPolicies;
@@ -136,7 +137,13 @@ export async function executeBrowserCommand(
             "Browser origin requires approval",
           );
         context.check(actor, task.signal, generation);
-        await task.run(() => page.navigate(command.url, command.timeout + 65_000, task.signal));
+        await task.run(() => {
+          context.check(actor, task.signal, generation);
+          context.beforeInput?.();
+          return context.navigate
+            ? context.navigate()
+            : page.navigate(command.url, command.timeout + 65_000, task.signal);
+        });
         return context.state();
       } catch (error) {
         if (task.blocked)

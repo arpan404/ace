@@ -7,7 +7,12 @@ import type { Readable, Writable } from "node:stream";
 import { byteLimit } from "./byte-limit.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
-export { installShutdownHandlers } from "./process-owner.ts";
+export {
+  installShutdownHandlers,
+  registerGroup,
+  unregisterGroup,
+  stopRetainedGroup,
+} from "./process-owner.ts";
 
 export type ProcessExit = {
   code: number | null;

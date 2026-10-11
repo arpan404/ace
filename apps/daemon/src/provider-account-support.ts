@@ -1,3 +1,4 @@
+import { configuredProviderDiscovery } from "./provider-discovery.ts";
 import { instanceEnv, loginStatus, type AccountRegistry } from "@ace/accounts";
 import type { ProviderInstance } from "@ace/protocol/accounts";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
@@ -44,10 +45,7 @@ export async function inspectAccountSupport(
   if (!instance) return apiKeySupport(provider);
   await options.registry.validateHome(instance);
   const status = await loginStatus(instance, {
-    ...options.discovery,
-    ...(configuration?.binaryPath && provider !== "pi"
-      ? { overrides: { ...options.discovery?.overrides, [provider]: configuration.binaryPath } }
-      : {}),
+    ...configuredProviderDiscovery(provider, configuration?.binaryPath, options.discovery),
     env: options.env,
     ...(options.signal ? { signal: options.signal } : {}),
   });

@@ -227,6 +227,54 @@
         },
         {
           "properties": {
+            "context": {
+              "$ref": "https://ace.local/protocol/v1/SourceControlContext.json"
+            },
+            "kind": {
+              "const": "draftContext",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "context"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "context": {
+              "$ref": "https://ace.local/protocol/v1/SourceControlContext.json"
+            },
+            "draft": {
+              "$ref": "https://ace.local/protocol/v1/SourceControlDraft.json"
+            },
+            "kind": {
+              "const": "draft",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "draft",
+            "context"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "draftCancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "code": {
               "maxLength": 128,
               "type": "string"

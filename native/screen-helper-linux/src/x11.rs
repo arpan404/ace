@@ -223,30 +223,22 @@ impl X11 {
     }
     pub fn motion(&self, w: &Window, x: f64, y: f64) -> Result<()> {
         let live = self.check(w)?;
-        let (x, y) = point(x, y, live.bounds.w as u32, live.bounds.h as u32)?;
-        let x = i16::try_from(live.bounds.x + x.round() as i32).map_err(internal)?;
-        let y = i16::try_from(live.bounds.y + y.round() as i32).map_err(internal)?;
-        self.fake(MOTION_NOTIFY_EVENT, 0, x, y)
+        point(x, y, live.bounds.w as u32, live.bounds.h as u32)?;
+        Err(pointer_delivery_unavailable())
     }
     pub fn click(&self, w: &Window, x: f64, y: f64, button: &str) -> Result<()> {
-        let b = match button {
-            "left" => 1,
-            "middle" => 2,
-            "right" => 3,
-            _ => return Err(Fault::new("bounds", "Unknown button")),
-        };
-        self.motion(w, x, y)?;
-        self.fake(BUTTON_PRESS_EVENT, b, 0, 0)?;
-        self.fake(BUTTON_RELEASE_EVENT, b, 0, 0)
+        if !matches!(button, "left" | "middle" | "right") {
+            return Err(Fault::new("bounds", "Unknown button"));
+        }
+        let live = self.check(w)?;
+        point(x, y, live.bounds.w as u32, live.bounds.h as u32)?;
+        Err(pointer_delivery_unavailable())
     }
     pub fn drag(&self, w: &Window, x: f64, y: f64, to_x: f64, to_y: f64) -> Result<()> {
         let live = self.check(w)?;
+        point(x, y, live.bounds.w as u32, live.bounds.h as u32)?;
         point(to_x, to_y, live.bounds.w as u32, live.bounds.h as u32)?;
-        self.motion(w, x, y)?;
-        self.fake(BUTTON_PRESS_EVENT, 1, 0, 0)?;
-        let moved = self.motion(w, to_x, to_y);
-        let released = self.fake(BUTTON_RELEASE_EVENT, 1, 0, 0);
-        moved.and(released)
+        Err(pointer_delivery_unavailable())
     }
     fn keycode(&self, symbol: u32) -> Result<u8> {
         let setup = self.conn.setup();
@@ -314,15 +306,19 @@ impl X11 {
         if !dx.is_finite() || !dy.is_finite() || dx.abs() > 1000. || dy.abs() > 1000. {
             return Err(Fault::new("bounds", "Scroll exceeds limit"));
         }
-        for (delta, negative, positive) in [(dy, 4, 5), (dx, 6, 7)] {
-            for _ in 0..delta.abs().ceil() as u32 {
-                let b = if delta < 0. { negative } else { positive };
-                self.fake(BUTTON_PRESS_EVENT, b, 0, 0)?;
-                self.fake(BUTTON_RELEASE_EVENT, b, 0, 0)?;
-            }
+        if dx == 0. && dy == 0. {
+            return Ok(());
         }
-        Ok(())
+        Err(pointer_delivery_unavailable())
     }
+}
+// XTest button input has no recipient address. Passive grabs and pointer/window
+// changes can redirect it after any hit test. Refuse rather than cross approval.
+fn pointer_delivery_unavailable() -> Fault {
+    Fault::new(
+        "not_supported",
+        "X11 cannot guarantee pointer delivery to the approved window; use a direct accessibility action",
+    ).phase("rejected-before-dispatch")
 }
 pub fn keysym(key: &str) -> Result<u32> {
     let symbol = match key.to_ascii_lowercase().as_str() {

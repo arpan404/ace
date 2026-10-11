@@ -1,6 +1,28 @@
 import AppKit
 import CoreVideo
 import QuartzCore
+// Real AX controls for the expand/collapse dispatch regression.
+final class ExpansionButton: NSButton {
+    var expanded = true
+    let readable: Bool
+    let writable: Bool
+    init(label: String, readable: Bool, writable: Bool) {
+        self.readable = readable; self.writable = writable
+        super.init(frame: .zero)
+        title = label; setAccessibilityLabel(label); setAccessibilityRole(.disclosureTriangle)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    override func isAccessibilityExpanded() -> Bool { expanded }
+    override func setAccessibilityExpanded(_ value: Bool) {
+        expanded = value
+        print("expanded:\(title):\(value)"); fflush(stdout)
+    }
+    override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
+        if selector == NSSelectorFromString("isAccessibilityExpanded") { return readable }
+        if selector == NSSelectorFromString("setAccessibilityExpanded:") { return writable }
+        return super.isAccessibilitySelectorAllowed(selector)
+    }
+}
 @objc(ScreenTestApplication) final class TestApplication: NSApplication {}
 class TestButton: NSButton {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -85,6 +107,11 @@ final class TestScroll: NSScrollView {}
         } else { button = TestButton(title: "Click test", target: self, action: #selector(clicked(_:))) }
         button.frame = NSRect(x: 40, y: 30, width: 160, height: 32)
         if !measuring {
+            for (index, config) in [("Collapse test", true, true), ("Unreadable expansion test", false, true), ("Refused expansion test", true, false)].enumerated() {
+                let expansion = ExpansionButton(label: config.0, readable: config.1, writable: config.2)
+                expansion.frame = NSRect(x: 5 + index * 125, y: 260, width: 120, height: 28)
+                window.contentView?.addSubview(expansion)
+            }
             let resize = TestButton(title: "Resize test", target: self, action: #selector(resized(_:)))
             resize.frame = NSRect(x: 220, y: 165, width: 160, height: 32)
             window.contentView?.addSubview(resize)

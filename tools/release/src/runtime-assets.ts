@@ -1,7 +1,8 @@
 import { stageSharpRuntime } from "./sharp-runtime-assets.ts";
 import { stageCursorRuntime } from "./cursor-runtime-assets.ts";
-import { cp, mkdir, readFile, realpath } from "node:fs/promises";
-import { join, basename, dirname } from "node:path";
+import { readFile, realpath } from "node:fs/promises";
+import { join, dirname } from "node:path";
+import { copyRuntimePackage } from "./copy-runtime-package.ts";
 import { z } from "zod";
 
 /** These packages locate runtime files relative to their installed package roots. */
@@ -40,12 +41,7 @@ export async function stageRuntimePackages(
     if (parsed.name !== pkg.name || Object.keys(parsed.dependencies ?? {}).length)
       throw new Error(`Runtime package dependency closure changed: ${pkg.name}`);
     const destination = join(root, "node_modules", pkg.name);
-    await mkdir(destination, { recursive: true });
-    await cp(source, destination, {
-      recursive: true,
-      dereference: false,
-      filter: (path) => basename(path) !== "node_modules",
-    });
+    await copyRuntimePackage(source, destination);
     manifests.push(manifest);
     if (pkg.name === "koffi") {
       const name = `@koromix/koffi-${target}`;
@@ -61,8 +57,7 @@ export async function stageRuntimePackages(
         Object.keys(info.optionalDependencies ?? {}).length
       )
         throw new Error(`Runtime package dependency closure changed: ${name}`);
-      await mkdir(join(root, "node_modules", name), { recursive: true });
-      await cp(native, join(root, "node_modules", name), { recursive: true, dereference: false });
+      await copyRuntimePackage(native, join(root, "node_modules", name));
       manifests.push(nativeManifest);
     }
   }

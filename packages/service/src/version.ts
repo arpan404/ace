@@ -1,4 +1,12 @@
 import { ReleaseVersion } from "@ace/protocol";
+
+/** Rewrite releases must not publish a version that installed-home policy rejects. */
+export function installableVersion(value: unknown): string {
+  const version = ReleaseVersion.parse(value);
+  if (BigInt(version.split(".")[0] ?? "0") === 0n)
+    throw new Error("Legacy ace 0.x cannot be installed or published");
+  return version;
+}
 const numeric = (value: string) => /^\d+$/.test(value);
 function compareIdentifier(a: string, b: string): number {
   if (a === b) return 0;

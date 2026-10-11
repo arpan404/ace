@@ -27,6 +27,7 @@ interface Session {
   /** The next H.264 frame is a keyframe: after a (re)configure, a new stream or a request. */
   keyframe: boolean;
   controller: DeviceState["controller"];
+  humanOwner?: Channel;
   holder?: DeviceState["holder"];
   leaseExpiresAt?: number;
   screen: "home" | "app";
@@ -171,8 +172,9 @@ export class FakeAppDevices {
         // Disconnecting releases a human's control, as the daemon does.
         if (closed)
           for (const session of this.sessions.values())
-            if (session.controller === "human") {
+            if (session.controller === "human" && session.humanOwner === closed) {
               session.controller = "none";
+              delete session.humanOwner;
               delete session.holder;
               delete session.leaseExpiresAt;
               this.publish(session);
@@ -181,7 +183,7 @@ export class FakeAppDevices {
     };
   }
 
-  private state(session: Session): DeviceState {
+  private state(session: Session, channel: Channel): DeviceState {
     return DeviceState.parse({
       device: session.device,
       enabled: this.enabled,
@@ -191,6 +193,10 @@ export class FakeAppDevices {
       recording: session.recording === true,
       ...(session.streamId ? { streamId: session.streamId } : {}),
       controller: session.controller,
+      ownedHere:
+        session.controller === "human" &&
+        session.humanOwner === channel &&
+        (session.leaseExpiresAt ?? 0) > this.clock(),
       holder: session.holder,
       ...(session.leaseExpiresAt ? { leaseExpiresAt: session.leaseExpiresAt } : {}),
     });
@@ -202,7 +208,7 @@ export class FakeAppDevices {
 
   private publish(session: Session): void {
     for (const channel of this.channels)
-      this.send(channel, { type: "devices.state", state: this.state(session) });
+      this.send(channel, { type: "devices.state", state: this.state(session, channel) });
   }
 
   private frame(session: Session): Uint8Array {
@@ -248,8 +254,12 @@ export class FakeAppDevices {
     return session;
   }
 
-  private controlled(session: Session): void {
-    if (session.controller !== "human" || (session.leaseExpiresAt ?? 0) <= this.clock())
+  private controlled(session: Session, channel: Channel): void {
+    if (
+      session.controller !== "human" ||
+      session.humanOwner !== channel ||
+      (session.leaseExpiresAt ?? 0) <= this.clock()
+    )
       throw new Refusal("lease_required", "Take control of the device first", "Take control.");
   }
 
@@ -294,6 +304,7 @@ export class FakeAppDevices {
           delete session.leaseExpiresAt;
           session.lifecycle = "idle";
           session.controller = "none";
+          delete session.humanOwner;
           delete session.holder;
         }
       return { enabled: this.enabled };
@@ -302,7 +313,7 @@ export class FakeAppDevices {
       return { devices: [...this.sessions.values()].map((s) => s.device), issues: [] };
     if (operation.op === "states")
       return {
-        states: this.enabled ? [...this.sessions.values()].map((s) => this.state(s)) : [],
+        states: this.enabled ? [...this.sessions.values()].map((s) => this.state(s, channel)) : [],
         enabled: this.enabled,
       };
     if (operation.op === "permissions") return { ...this.permissions };
@@ -334,14 +345,16 @@ export class FakeAppDevices {
         if (operation.allowed) session.threadId = operation.threadId;
         else delete session.threadId;
         this.publish(session);
-        return this.state(session);
+        return this.state(session, channel);
       case "controller":
         if (operation.controller === "human") {
           session.controller = "human";
+          session.humanOwner = channel;
           delete session.holder;
           session.leaseExpiresAt = this.clock() + leaseMs;
         } else if (operation.controller === "none") {
           session.controller = "none";
+          delete session.humanOwner;
           delete session.holder;
           delete session.leaseExpiresAt;
         } else {
@@ -352,19 +365,20 @@ export class FakeAppDevices {
               "Approve the thread and select an agent.",
             );
           session.controller = "agent";
+          delete session.humanOwner;
           session.holder = { threadId: operation.threadId, agentId: operation.agentId };
           delete session.leaseExpiresAt;
         }
         this.publish(session);
-        return this.state(session);
+        return this.state(session, channel);
       case "boot":
-        this.controlled(session);
+        this.controlled(session, channel);
         session.device = { ...session.device, state: "booted" };
         this.log(session, `${session.device.name} booted`);
         this.publish(session);
         return { completed: true };
       case "shutdown":
-        this.controlled(session);
+        this.controlled(session, channel);
         session.device = { ...session.device, state: "shutdown" };
         session.lifecycle = "idle";
         delete session.streamId;
@@ -406,18 +420,18 @@ export class FakeAppDevices {
         session.keyframe = true;
         this.publish(session);
         this.paint(session);
-        return this.state(session);
+        return this.state(session, channel);
       case "stop":
         session.lifecycle = "idle";
         delete session.streamId;
         this.publish(session);
-        return this.state(session);
+        return this.state(session, channel);
       case "subscribe":
         channel.streams.add(session.device.id);
         // A new viewer starts from a self-contained frame.
         session.keyframe = true;
         if (session.lifecycle === "live") channel.events.message(this.frame(session));
-        return this.state(session);
+        return this.state(session, channel);
       case "stream.configure": {
         this.streamRequests.push({ deviceId: session.device.id, settings: operation.settings });
         const codec = this.videoEncoding ? operation.settings.codec : "jpeg";
@@ -434,9 +448,9 @@ export class FakeAppDevices {
         return { completed: true };
       case "unsubscribe":
         channel.streams.delete(session.device.id);
-        return this.state(session);
+        return this.state(session, channel);
       case "input":
-        this.controlled(session);
+        this.controlled(session, channel);
         if (session.device.platform === "ios" && !this.permissions.accessibility)
           throw denied("accessibility");
         this.inputs.push({ deviceId: session.device.id, input: operation.input });
@@ -454,7 +468,7 @@ export class FakeAppDevices {
       case "open_url":
       case "install":
       case "configure":
-        this.controlled(session);
+        this.controlled(session, channel);
         this.actions.push(operation);
         return { completed: true };
       case "screenshot": {
