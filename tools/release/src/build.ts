@@ -2,8 +2,9 @@ import { execFileSync } from "node:child_process";
 import { collectLicenses } from "./licenses.ts";
 import { bundleDaemon } from "./bundle.ts";
 import { LinuxNativeInput, stageNativeFiles } from "./native-assets.ts";
-import { create } from "tar";
-import { mkdir, readFile, writeFile, cp, chmod, readdir, stat, rm } from "node:fs/promises";
+import { releaseFiles, createReleaseArchive } from "./archive.ts";
+import { copyRuntimePackage } from "./copy-runtime-package.ts";
+import { mkdir, readFile, writeFile, cp, chmod, stat, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createPublicKey } from "node:crypto";
 import { z } from "zod";
@@ -11,15 +12,6 @@ import { ReleaseTarget } from "@ace/protocol";
 import { hashFile, installableVersion } from "@ace/service";
 import { nodeVersion, stageNodeRuntime } from "./node-runtime.ts";
 const NativeInputs = z.record(ReleaseTarget, LinuxNativeInput.optional());
-async function files(root: string, prefix = ""): Promise<string[]> {
-  const result: string[] = [];
-  for (const name of (await readdir(join(root, prefix))).toSorted()) {
-    const path = join(prefix, name);
-    if ((await stat(join(root, path))).isDirectory()) result.push(...(await files(root, path)));
-    else result.push(path);
-  }
-  return result;
-}
 async function main() {
   const version = installableVersion(process.argv[2]);
   if (process.versions.node !== nodeVersion)
@@ -35,6 +27,7 @@ async function main() {
   const output = join(repo, "tools/release/dist");
   const root = join(output, target);
   await mkdir(output, { recursive: true });
+  await rm(join(output, `${target}.json`), { force: true });
   await rm(root, { recursive: true, force: true });
   await mkdir(join(root, "bin"), { recursive: true });
   await stageNodeRuntime({ target, version, cacheDir: output, destination: root });
@@ -45,7 +38,7 @@ async function main() {
   const prebuild = join(installedPty, "prebuilds", target);
   const destination = join(root, "node_modules/node-pty");
   await mkdir(join(destination, "prebuilds", target), { recursive: true });
-  await cp(join(installedPty, "lib"), join(destination, "lib"), { recursive: true });
+  await copyRuntimePackage(join(installedPty, "lib"), join(destination, "lib"));
   await cp(join(installedPty, "package.json"), join(destination, "package.json"));
   await cp(join(installedPty, "LICENSE"), join(destination, "LICENSE"));
   await stageNativeFiles(target, prebuild, join(destination, "prebuilds", target), native);
@@ -59,7 +52,7 @@ async function main() {
     JSON.stringify({ version, target, channel: version.includes("-") ? "preview" : "stable" }) +
       "\n",
   );
-  const paths = await files(root);
+  const paths = await releaseFiles(root);
   const checksums: Record<string, string> = {};
   for (const path of paths) {
     await chmod(
@@ -77,17 +70,7 @@ async function main() {
     JSON.stringify({ nodeVersion, version, target, checksums }) + "\n",
   );
   const archive = `ace-${version}-${target}.tar.gz`;
-  await create(
-    {
-      cwd: root,
-      file: join(output, archive),
-      gzip: true,
-      portable: true,
-      mtime: new Date(0),
-      noDirRecurse: true,
-    },
-    [...paths, "files.json"].toSorted(),
-  );
+  await createReleaseArchive(root, join(output, archive));
   const manifest = {
     version,
     channel: version.includes("-") ? "preview" : "stable",

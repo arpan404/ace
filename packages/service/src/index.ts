@@ -2,7 +2,13 @@ export { planService, ServiceConfig, ServiceEnvironment, type ServicePlan } from
 export { UserService, type ServiceAction } from "./service.ts";
 export { runProcess, checked, type Runner, type ProcessResult } from "./process.ts";
 export { MaintenanceGate } from "./maintenance.ts";
-export { hashFile, verifyManifest, downloadArchive, unpackArchive } from "./artifact.ts";
+export {
+  hashFile,
+  verifyManifest,
+  downloadArchive,
+  unpackArchive,
+  releaseArchiveLimits,
+} from "./artifact.ts";
 export { checkRelease, boundedText, type Fetcher } from "./feed.ts";
 export {
   atomicPointer,

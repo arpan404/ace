@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { z } from "zod";
 import { verifyManifest, hashFile, installableVersion } from "@ace/service";
 import { ReleaseTarget } from "@ace/protocol";
+import { validateReleaseArchive } from "./archive.ts";
 const [directory, base, keyFile] = process.argv.slice(2);
 if (!directory || !base || !keyFile)
   throw new Error("Usage: publication DIST HTTPS_RELEASE_URL PUBLIC_KEY");
@@ -18,6 +19,7 @@ for (const target of ReleaseTarget.options) {
   installableVersion(m.version);
   if (m.target !== target || (await hashFile(join(directory, m.archive))) !== m.sha256)
     throw new Error("Publication artifact mismatch");
+  await validateReleaseArchive(join(directory, m.archive));
   manifests.set(target, m);
 }
 const version = manifests.get("darwin-arm64")?.version;
