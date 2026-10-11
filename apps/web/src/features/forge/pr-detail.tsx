@@ -84,7 +84,8 @@ export function PrDetail(props: {
           <PrActions
             key={JSON.stringify(status.ref)}
             detail={detail}
-            onRefresh={() => void query.refetch()}
+            writeReady={!query.isError && !query.isFetching}
+            onRefresh={async () => !(await query.refetch()).isError}
           />
           <Tabs
             value={props.tab}

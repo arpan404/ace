@@ -45,6 +45,12 @@ export class GitHubForge implements Forge, ForgeBrowser {
   async status(number: number, signal: AbortSignal): Promise<ForgePrStatus> {
     return this.#status.read(this.#api, this.#root, this.repository, number, signal);
   }
+  async currentUser(signal: AbortSignal): Promise<string> {
+    const response = await this.#api.request("user", signal);
+    const parsed = z.object({ login: z.string().min(1).max(100) }).safeParse(response.body);
+    if (!parsed.success) throw new ForgeError("invalid_data");
+    return parsed.data.login;
+  }
   prActivity(number: number, page: number, signal: AbortSignal) {
     return this.#browser.activity(number, page, signal);
   }

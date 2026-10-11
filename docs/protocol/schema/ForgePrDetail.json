@@ -81,6 +81,13 @@
     },
     "status": {
       "$ref": "https://ace.local/protocol/v1/ForgePrStatus.json"
+    },
+    "writeState": {
+      "enum": [
+        "pending",
+        "uncertain"
+      ],
+      "type": "string"
     }
   },
   "required": [

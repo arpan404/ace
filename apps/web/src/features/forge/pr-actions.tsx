@@ -5,10 +5,14 @@ import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { runCommand } from "@/lib/daemon-command.ts";
+import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { forgeError } from "./source.ts";
 
-export function PrActions(props: { detail: ForgePrDetail; onRefresh(): void }) {
+export function PrActions(props: {
+  detail: ForgePrDetail;
+  writeReady: boolean;
+  onRefresh(): Promise<boolean>;
+}) {
   const client = useClient();
   const ready = useConnectionState() === "ready";
   const choices =
@@ -23,22 +27,35 @@ export function PrActions(props: { detail: ForgePrDetail; onRefresh(): void }) {
   const [method, setMethod] = useState<"squash" | "merge" | "rebase">("squash");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
+  const [reconciling, setReconciling] = useState(false);
+  const blocked = reconciling || props.detail.writeState !== undefined || !props.writeReady;
   const ref = props.detail.status.ref;
   const run = async (payload: CommandPayload) => {
+    const remote =
+      payload.type === "forge.pr.merge" ||
+      payload.type === "forge.pr.auto-merge" ||
+      payload.type === "forge.review.request";
+    if (!ready || pending || (remote && (blocked || props.detail.status.state !== "open"))) return;
     setPending(true);
+    if (remote) setReconciling(true);
     setMessage("");
     try {
       const result = await runCommand(client, payload);
-      if (!result.ok) throw new Error(forgeError(result.error ?? "action_failed"));
-      setMessage("Saved.");
-      props.onRefresh();
+      setMessage(result.code ? forgeError(result.code) : "Saved.");
     } catch (error) {
       setMessage(
-        error instanceof Error
-          ? error.message
-          : "The action failed. Refresh GitHub before trying again.",
+        error instanceof CommandRefused
+          ? forgeError(error.code)
+          : error instanceof Error
+            ? error.message
+            : "The action failed. Refresh GitHub before trying again.",
       );
     } finally {
+      try {
+        if (await props.onRefresh()) setReconciling(false);
+      } catch {
+        // Keep the fence when the read fails; the daemon retains it across reloads.
+      }
       setPending(false);
     }
   };
@@ -119,6 +136,7 @@ export function PrActions(props: { detail: ForgePrDetail; onRefresh(): void }) {
             disabled={
               !ready ||
               pending ||
+              blocked ||
               !active ||
               props.detail.status.mergeability !== "mergeable" ||
               props.detail.status.ci === "failure" ||
@@ -137,7 +155,7 @@ export function PrActions(props: { detail: ForgePrDetail; onRefresh(): void }) {
             Merge PR
           </Button>
           <Button
-            disabled={!ready || pending || !active}
+            disabled={!ready || pending || blocked || !active}
             onClick={() =>
               void run({
                 type: "forge.pr.auto-merge",
@@ -167,7 +185,10 @@ export function PrActions(props: { detail: ForgePrDetail; onRefresh(): void }) {
               placeholder="GitHub usernames"
               pattern="[\\w, -]+"
             />
-            <Button type="submit" disabled={!ready || pending || !active || !reviewers.trim()}>
+            <Button
+              type="submit"
+              disabled={!ready || pending || blocked || !active || !reviewers.trim()}
+            >
               Request review
             </Button>
           </form>
@@ -191,6 +212,26 @@ export function PrActions(props: { detail: ForgePrDetail; onRefresh(): void }) {
         </p>
       )}
       {message && <p role="status">{message}</p>}
+      {(reconciling || props.detail.writeState !== undefined) && (
+        <div className="space-y-2">
+          <p>Refresh GitHub to reconcile the previous action before making another change.</p>
+          <Button
+            disabled={!ready || pending}
+            onClick={async () => {
+              setPending(true);
+              try {
+                if (await props.onRefresh()) setReconciling(false);
+              } catch {
+                setMessage("GitHub is still unavailable. Refresh to reconcile the action.");
+              } finally {
+                setPending(false);
+              }
+            }}
+          >
+            Reconcile action
+          </Button>
+        </div>
+      )}
     </section>
   );
 }

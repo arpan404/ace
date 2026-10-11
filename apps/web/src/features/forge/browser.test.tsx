@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ForgePrDetail, ForgePrSearch, WorkspaceId } from "@ace/protocol";
+import { ForgePrDetail, ForgePrSearch, WorkspaceId, ThreadId } from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;
@@ -50,6 +50,85 @@ const detail = (
     relatedThreadsTruncated: false,
   });
 beforeEach(() => localStorage.clear());
+
+test("a successful merge followed by a failed detail refresh stays disabled until reconciliation", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  const value = detail();
+  value.status.mergeability = "mergeable";
+  value.relatedThreads = [
+    { id: ThreadId.parse("thread-retry-budget"), title: "Linked task", archived: false },
+  ];
+  app.daemon.seedServices({ pullRequests: { "thread-retry-budget": value.status } });
+  const operation = {
+    op: "forge.pr.detail",
+    workspaceId: WorkspaceId.parse("api"),
+    number: 42,
+  } as const;
+  app.daemon.workspace.setForgeRead(operation, { resource: "prDetail", value });
+  await app.open("/pull-requests?project=api&number=42");
+  const button = await screen.findByRole<HTMLButtonElement>("button", { name: "Merge PR" });
+  await waitFor(() => expect(button.disabled).toBe(false));
+  app.daemon.failRequests("workspace.request");
+  await userEvent.click(button);
+  await screen.findByRole("button", { name: "Reconcile action" });
+  await waitFor(() => expect(button.disabled).toBe(true));
+  const view = app.daemon.snapshot({
+    kind: "thread",
+    threadId: ThreadId.parse("thread-retry-budget"),
+  });
+  expect(view && "thread" in view && view.thread.details?.linkedPr?.state).toBe("merged");
+  const reviewers = screen.getByRole("textbox", { name: "Reviewers" });
+  await userEvent.type(reviewers, "octo{Enter}");
+  expect(
+    screen.getByRole<HTMLButtonElement>("button", { name: "Enable auto-merge" }).disabled,
+  ).toBe(true);
+  app.daemon.restoreRequests();
+  app.daemon.workspace.setForgeRead(operation, {
+    resource: "prDetail",
+    value: { ...value, status: { ...value.status, state: "merged" } },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Reconcile action" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "Reconcile action" })).toBeNull(),
+  );
+  expect(button.disabled).toBe(true);
+});
+
+test("an uncertain write blocks controls on a newly opened detail until GitHub confirms its outcome", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  const value = detail();
+  value.status.mergeability = "mergeable";
+  value.writeState = "uncertain";
+  value.relatedThreads = [
+    { id: ThreadId.parse("thread-retry-budget"), title: "Linked task", archived: false },
+  ];
+  const operation = {
+    op: "forge.pr.detail",
+    workspaceId: WorkspaceId.parse("api"),
+    number: 42,
+  } as const;
+  app.daemon.workspace.setForgeRead(operation, { resource: "prDetail", value });
+  await app.open("/pull-requests?project=api&number=42");
+  expect(
+    (await screen.findByRole<HTMLButtonElement>("button", { name: "Merge PR" })).disabled,
+  ).toBe(true);
+  await userEvent.type(screen.getByRole("textbox", { name: "Reviewers" }), "octo{Enter}");
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Request review" }).disabled).toBe(
+    true,
+  );
+  app.daemon.workspace.setForgeRead(operation, {
+    resource: "prDetail",
+    value: { ...value, writeState: undefined },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Reconcile action" }));
+  await waitFor(() =>
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Merge PR" }).disabled).toBe(
+      false,
+    ),
+  );
+});
 
 test("a repository PR opens without a task and returning retains its filters and page", async () => {
   const app = harness();

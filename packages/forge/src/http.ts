@@ -55,6 +55,11 @@ export class GhApi {
     ];
     const input = body === undefined ? undefined : JSON.stringify(body);
     const reusable = method === "GET" || (path === "graphql" && method === "POST");
+    // An unreadable acknowledgement can still follow an accepted write.
+    if (!reusable) {
+      this.#cache.clear();
+      this.#cacheBytes = 0;
+    }
     const cacheKey =
       method === "GET"
         ? path
@@ -213,6 +218,8 @@ export class GhApi {
     method: "merge" | "squash" | "rebase",
     signal: AbortSignal,
   ): Promise<void> {
+    this.#cache.clear();
+    this.#cacheBytes = 0;
     const result = await this.#runner({
       command: this.#command,
       args: [

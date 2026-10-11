@@ -21,6 +21,7 @@ import {
 import type { GitService } from "@ace/git";
 import type { Store } from "./store.ts";
 import { WorkspacePrLinks } from "./workspace-pr-links.ts";
+import { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
 import type { PrOwnerOperation } from "./agent-control/tools.ts";
 
 export class WorkspaceForge {
@@ -30,6 +31,7 @@ export class WorkspaceForge {
   private runner: (cwd: string) => CommandRunner;
   private projection: WorkspacePrLinks;
   private links: WorkspacePrLinks["links"];
+  private actions: WorkspaceForgeActions;
   private backends = new Map<string, GitHubForge>();
   private lifetime = new AbortController();
   constructor(
@@ -44,6 +46,7 @@ export class WorkspaceForge {
     this.runner = runner;
     this.projection = new WorkspacePrLinks(store, now);
     this.links = this.projection.links;
+    this.actions = new WorkspaceForgeActions(store);
   }
   async repository(cwd: string): Promise<ForgeRepository> {
     const info = await this.git.repositoryInfo(cwd);
@@ -103,6 +106,7 @@ export class WorkspaceForge {
       resource: "prDetail",
       value: {
         ...value,
+        writeState: this.actions.observe(value.status),
         relatedThreads: threads.slice(0, 100).map((thread) => ({
           id: thread.id,
           title: thread.title,
@@ -365,15 +369,12 @@ export class WorkspaceForge {
     }
     const generation = this.links.getLinkState(id, p.link.pr)?.generation;
     const backend = this.backend(cwd, p.link.pr.repository);
-    if (p.type === "forge.comment.reply")
-      await backend.replyComment(p.link.pr.number, p.commentId, p.body, this.lifetime.signal);
-    if (p.type === "forge.review.request")
-      await backend.requestReviews(p.link.pr.number, p.reviewers, this.lifetime.signal);
-    if (p.type === "forge.pr.merge")
-      await backend.merge(p.link.pr.number, p.headSha, p.method, this.lifetime.signal);
-    if (p.type === "forge.pr.auto-merge")
-      await backend.enableAutoMerge(p.link.pr.number, p.headSha, p.method, this.lifetime.signal);
+    if (p.type !== "forge.pr.status")
+      return this.actions.execute(p, backend, this.lifetime.signal, allowed, (status) =>
+        this.projection.update(id, status, generation),
+      );
     const status = await backend.status(p.link.pr.number, this.lifetime.signal);
+    this.actions.observe(status);
     this.projection.update(id, status, generation);
     return { ok: true, pr: status.ref, prStatus: status };
   }

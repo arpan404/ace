@@ -52,6 +52,7 @@ export type ForgePrList = z.infer<typeof ForgePrList>;
 export const ForgeRelatedThread = z.object({ id: ThreadId, title: text, archived: z.boolean() });
 export const ForgePrDetail = z.object({
   status: ForgePrStatus,
+  writeState: z.enum(["pending", "uncertain"]).optional(),
   body: text,
   author: text,
   headBranch: text,
