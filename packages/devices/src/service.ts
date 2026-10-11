@@ -181,6 +181,10 @@ export class DevicesService {
       threadId: ThreadId.parse(caller.threadId),
       allowed: true,
     };
+    const screenAccess =
+      session.device.platform === "ios"
+        ? this.options.screen?.deviceAccess(approval.threadId)
+        : undefined;
     const temporary =
       this.temporaryEnablement ?? (!this.enabled ? { actors: new Set<Actor>() } : undefined);
     if (temporary) {
@@ -192,7 +196,14 @@ export class DevicesService {
       await this.perform({ op: "enable", enabled: true }, actor);
       guard();
       epoch = session.approvalEpoch + 1;
-      await approveDevice(session, approval, this.options, this.lifecycleOwner(), guard);
+      await approveDevice(
+        session,
+        approval,
+        this.options,
+        this.lifecycleOwner(),
+        guard,
+        screenAccess,
+      );
       this.emit(session);
       guard();
       await this.perform(
@@ -207,6 +218,7 @@ export class DevicesService {
       );
       guard();
       // Successful access is now an explicit thread grant, independent of the tool call.
+      screenAccess?.commit();
       if (this.temporaryEnablement === temporary) this.temporaryEnablement = undefined;
     } catch (error) {
       if (session.approvalEpoch === epoch && session.threadId === caller.threadId) {
@@ -215,11 +227,14 @@ export class DevicesService {
           { ...approval, allowed: false },
           this.options,
           this.lifecycleOwner(),
+          undefined,
+          screenAccess,
         );
         this.emit(session);
       }
       throw error;
     } finally {
+      await screenAccess?.rollback();
       temporary?.actors.delete(actor);
       if (temporary && this.temporaryEnablement === temporary && !temporary.actors.size) {
         this.temporaryEnablement = undefined;

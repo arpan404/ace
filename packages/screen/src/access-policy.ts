@@ -1,6 +1,7 @@
 import { ScreenBundle, ScreenAgentScope, type ScreenTarget } from "@ace/protocol";
 import { browserApp } from "./sensitive-app.ts";
-import type { ScreenAccess } from "./access.ts";
+import type { ScreenAccess, ScreenDeviceAccess } from "./access.ts";
+import { TemporaryScreenAccess, type TemporaryAccessChange } from "./temporary-access.ts";
 import { HelperCommandError } from "./helper.ts";
 import type { HelperHost } from "./helper-host.ts";
 import type { AppLaunches } from "./app-launches.ts";
@@ -21,6 +22,9 @@ type AccessPorts = {
 /** Human grants and enablement. Capture and action lifetimes are delegated through ports. */
 export class ScreenAccessPolicy {
   access: ScreenAccess | undefined;
+  private enableRevision = {};
+  private readonly grantRevisions = new Map<string, object>();
+  private readonly temporary = new TemporaryScreenAccess();
   private readonly sessions: Map<string, Session>;
   private readonly policy: ScreenPolicy;
   private readonly host: HelperHost;
@@ -42,33 +46,43 @@ export class ScreenAccessPolicy {
     this.enabledChanged = ports.enabledChanged;
   }
   async enable(enabled: boolean): Promise<void> {
+    await this.changeEnabled(enabled).complete;
+  }
+  private changeEnabled(enabled: boolean): TemporaryAccessChange {
+    const revision = {};
+    this.enableRevision = revision;
     if (!enabled) this.launches.invalidate();
     if (enabled) this.resumeAgents();
-    this.access?.enable(enabled);
+    const persisted = this.access?.enable(enabled);
     const changed = this.policy.enabled !== enabled;
     this.policy.enable(enabled);
     if (changed) this.enabledChanged(enabled);
-    if (!enabled) {
-      const sessions = [...this.sessions.values()];
-      const stops = sessions.map((session) => ({
-        session,
-        result: this.stop(session.state.sessionId),
-      }));
-      const results = Promise.allSettled(stops.map((stop) => stop.result));
-      // Publication can outlive capture; a rejected stop can never confirm capture.
-      await Promise.all(
-        stops.map(({ session, result }) =>
-          Promise.race([session.captureStopped.promise, result.catch(() => {})]),
-        ),
-      );
-      await this.launches.drain();
-      await this.host.close();
-      await this.hostClosed();
-      const errors = (await results).flatMap((result) =>
-        result.status === "rejected" ? [result.reason] : [],
-      );
-      if (errors.length) throw shutdownFailure(errors, sessions.length);
-    }
+    return {
+      current: () => this.enableRevision === revision && (!persisted || persisted.current()),
+      complete: enabled ? Promise.resolve() : this.disableCaptures(),
+      rollback: () => this.enable(false),
+    };
+  }
+  private async disableCaptures(): Promise<void> {
+    const sessions = [...this.sessions.values()];
+    const stops = sessions.map((session) => ({
+      session,
+      result: this.stop(session.state.sessionId),
+    }));
+    const results = Promise.allSettled(stops.map((stop) => stop.result));
+    // Publication can outlive capture; a rejected stop can never confirm capture.
+    await Promise.all(
+      stops.map(({ session, result }) =>
+        Promise.race([session.captureStopped.promise, result.catch(() => {})]),
+      ),
+    );
+    await this.launches.drain();
+    await this.host.close();
+    await this.hostClosed();
+    const errors = (await results).flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
+    if (errors.length) throw shutdownFailure(errors, sessions.length);
   }
   async approve(
     bundleId: string,
@@ -76,28 +90,71 @@ export class ScreenAccessPolicy {
     scope: import("@ace/protocol").ScreenGrant["scope"] = "always",
     threadId?: string,
   ): Promise<void> {
+    await this.changeApproval(bundleId, allowed, scope, threadId).complete;
+  }
+  private changeApproval(
+    bundleId: string,
+    allowed: boolean,
+    scope: import("@ace/protocol").ScreenGrant["scope"],
+    threadId?: string,
+  ): TemporaryAccessChange {
     ScreenBundle.parse(bundleId);
     if (allowed && scope === "always" && browserApp(bundleId))
       throw new HelperCommandError(
         "approval_required",
         "Web browsers require a turn or thread grant from the person in ace's UI",
       );
+    const key = JSON.stringify([bundleId, scope, threadId]);
+    const revision = {};
+    if (allowed) this.grantRevisions.set(key, revision);
+    else this.grantRevisions.delete(key);
     if (!allowed) this.launches.invalidate();
-    this.access?.approve(bundleId, allowed, scope, threadId);
+    const persisted = this.access?.approve(bundleId, allowed, scope, threadId);
     if (!this.access || scope === "always") this.policy.approve(bundleId, allowed);
-    if (!allowed && this.access) {
+    return {
+      current: () =>
+        this.grantRevisions.get(key) === revision && (!persisted || persisted.current()),
+      complete: allowed ? Promise.resolve() : this.revokeCaptures(bundleId),
+      rollback: () => this.approve(bundleId, false, scope, threadId),
+    };
+  }
+  private async revokeCaptures(bundleId: string): Promise<void> {
+    if (this.access) {
       await this.revalidate();
       await this.launches.drain();
       return;
     }
-    if (!allowed) {
-      await this.launches.drain();
-      await Promise.all(
-        [...this.sessions.values()]
-          .filter((session) => bundles(session.state.target).includes(bundleId))
-          .map((session) => this.stop(session.state.sessionId)),
-      );
-    }
+    await this.launches.drain();
+    await Promise.all(
+      [...this.sessions.values()]
+        .filter((session) => bundles(session.state.target).includes(bundleId))
+        .map((session) => this.stop(session.state.sessionId)),
+    );
+  }
+  deviceAccess(threadId: string): ScreenDeviceAccess {
+    const access = this.temporary.begin();
+    const bundleId = "com.apple.iphonesimulator";
+    return {
+      enable: () =>
+        access.acquire("enabled", () =>
+          this.policy.enabled ? undefined : this.changeEnabled(true),
+        ),
+      approve: () =>
+        access.acquire(JSON.stringify([bundleId, threadId]), () => {
+          if (
+            this.approvals(threadId).some(
+              (grant) =>
+                grant.bundleId === bundleId &&
+                grant.scope === "thread" &&
+                grant.threadId === threadId,
+            )
+          )
+            return;
+          return this.changeApproval(bundleId, true, "thread", threadId);
+        }),
+      commit: access.commit,
+      rollback: access.rollback,
+    };
   }
   /**
    * A person on this machine asked to see this app: turn screen access on and approve it. An

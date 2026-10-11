@@ -1,4 +1,5 @@
 import type { DeviceOperation } from "@ace/protocol/devices";
+import type { ScreenDeviceAccess } from "@ace/screen";
 import { DeviceLogs } from "./logs.ts";
 import { DeviceError } from "./sdk.ts";
 import {
@@ -14,6 +15,7 @@ export async function approveDevice(
   options: LifecycleOptions,
   owner: LifecycleOwner,
   guard: () => void = () => {},
+  screenAccess?: ScreenDeviceAccess,
 ): Promise<void> {
   guard();
   if (session.changingApproval)
@@ -29,6 +31,10 @@ export async function approveDevice(
   session.logs = new DeviceLogs(options.runtime.after);
   session.logOwners.clear();
   const revokeGrant = async (threadId: string | undefined) => {
+    if (!operation.allowed && screenAccess) {
+      await screenAccess.rollback();
+      return;
+    }
     if (
       threadId &&
       session.device.platform === "ios" &&
@@ -61,18 +67,22 @@ export async function approveDevice(
       );
     if (operation.allowed) {
       if (session.device.platform === "ios" && options.screen) {
-        await options.screen.enable(true);
+        if (screenAccess) await screenAccess.enable();
+        else await options.screen.enable(true);
         guard();
-        await options.screen.approve(
-          "com.apple.iphonesimulator",
-          true,
-          "thread",
-          operation.threadId,
-        );
+        if (screenAccess) await screenAccess.approve();
+        else
+          await options.screen.approve(
+            "com.apple.iphonesimulator",
+            true,
+            "thread",
+            operation.threadId,
+          );
       }
       guard();
       if (!owner.enabled() || session.approvalEpoch !== approvalEpoch) {
-        await revokeGrant(operation.threadId);
+        if (screenAccess) await screenAccess.rollback();
+        else await revokeGrant(operation.threadId);
         throw new DeviceError(
           "busy",
           "Devices disabled during approval",
@@ -82,8 +92,7 @@ export async function approveDevice(
       session.threadId = operation.threadId;
     }
   } catch (error) {
-    if (operation.allowed && session.approvalEpoch === approvalEpoch)
-      await revokeGrant(operation.threadId);
+    await screenAccess?.rollback();
     throw error;
   } finally {
     session.changingApproval = false;
