@@ -2,6 +2,7 @@ import { useClient, useThreadMeta } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { type FileDiff } from "@ace/ui-core";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog.tsx";
 import { VirtualRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { cn } from "@/lib/cn.ts";
@@ -79,10 +80,12 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   );
   const viewedAll = useLocal(services.viewed, identity);
   const viewedHere = viewedAll.get(threadId);
-  const [composing, setComposing] = useState<{ file: string; range: LineRange }>();
+  const [composing, setComposing] = useState<{ file: string; range: LineRange; key?: string }>();
   // Per file, by path: kept here so a file scrolled out of a long list and back keeps it.
   const [views, setViews] = useState<ReadonlyMap<string, FileView>>(() => new Map());
   const [current, setCurrent] = useState<string>();
+  const [selectedComment, setSelectedComment] = useState<string>();
+  const selected = drafts.find((draft) => draft.key === selectedComment);
   const blocks = useRef<VirtualRowsHandle>(null);
   const anchor = useId();
   const [measure, width] = useElementWidth();
@@ -167,11 +170,30 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         : prefs.mode;
   const allCollapsed = files.length > 0 && files.every((file) => !viewOf(file).open);
 
+  const renderDraft = (draft: ReviewDraft) => (
+    <DraftCard
+      key={draft.key}
+      draft={draft}
+      onSend={() => void send([draft.key])}
+      onEdit={() => {
+        setSelectedComment(undefined);
+        setComposing({
+          file: draft.file,
+          key: draft.key,
+          range: { side: draft.side, start: draft.line, end: draft.end ?? draft.line },
+        });
+      }}
+      onResolve={(resolved) => void resolveDraft(client, services.drafts, draft.key, resolved)}
+      onApply={() => thread && void applySuggestion(client, services.drafts, thread, draft.key)}
+      onDiscard={() => discardDraft(services.drafts, draft.key)}
+    />
+  );
+
   const renderFile = (file: FileDiff, index: number) => {
     const forFile = drafts.filter((draft) => draft.file === file.path);
     // A comment shows under its last line and marks every line it covers.
     const at = (target: LineTarget) =>
-      forFile.find(
+      forFile.filter(
         (draft) => draft.side === target.side && (draft.end ?? draft.line) === target.line,
       );
     const writing = composing?.file === file.path ? composing.range : undefined;
@@ -209,9 +231,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         onComment={(range) => setComposing({ file: file.path, range })}
         renderAnnotation={(target) => {
           if (writing && writing.side === target.side && writing.end === target.line) {
-            const draft = forFile.find(
-              (each) => each.side === writing.side && each.line === writing.start,
-            );
+            const draft = forFile.find((each) => each.key === composing?.key);
             return (
               <CommentComposer
                 label={`Comment on ${linesLabel(writing.side, writing.start, writing.end)}`}
@@ -235,27 +255,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
               />
             );
           }
-          const draft = at(target);
-          if (!draft) return null;
-          return (
-            <DraftCard
-              draft={draft}
-              onSend={() => void send([draft.key])}
-              onEdit={() =>
-                setComposing({
-                  file: file.path,
-                  range: { side: draft.side, start: draft.line, end: draft.end ?? draft.line },
-                })
-              }
-              onResolve={(resolved) =>
-                void resolveDraft(client, services.drafts, draft.key, resolved)
-              }
-              onApply={() =>
-                thread && void applySuggestion(client, services.drafts, thread, draft.key)
-              }
-              onDiscard={() => discardDraft(services.drafts, draft.key)}
-            />
-          );
+          return at(target).map((draft) => renderDraft(draft));
         }}
       />
     );
@@ -297,8 +297,26 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         session={session.data ?? undefined}
         onReview={review}
         onSend={(keys) => void send(keys)}
-        onJump={jump}
+        onJump={(draft) => {
+          jump(draft.file);
+          setSelectedComment(draft.key);
+        }}
       />
+      <Dialog
+        open={!!selected}
+        onOpenChange={(open) => {
+          if (!open) setSelectedComment(undefined);
+        }}
+      >
+        <DialogContent size="lg">
+          <DialogTitle>Review comment</DialogTitle>
+          <DialogDescription>
+            {selected &&
+              `${selected.file}: ${linesLabel(selected.side, selected.line, selected.end)}`}
+          </DialogDescription>
+          {selected && renderDraft(selected)}
+        </DialogContent>
+      </Dialog>
       <div className={cn("flex min-h-0 flex-1", beside ? "flex-row" : "flex-col")}>
         {!beside && tree}
         <div data-diff-scroller="" className="min-h-0 min-w-0 flex-1 overflow-auto pb-8">

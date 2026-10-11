@@ -358,6 +358,9 @@ test("the review's comments list jumps to a comment's file", async () => {
   await userEvent.click(within(review).getByRole("button", { name: "Comments" }));
   const toSend = await screen.findByRole("group", { name: "To send" });
   await userEvent.click(within(toSend).getByRole("menuitem", { name: /outbox\.ts:\d+/ }));
+  const dialog = await screen.findByRole("dialog", { name: "Review comment" });
+  expect(within(dialog).getByText("Time this out after 5 s.")).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
   const tree = within(panel).getByRole("tree", { name: "Changed files" });
   expect(within(tree).getByRole("treeitem", { selected: true }).getAttribute("aria-label")).toMatch(
     /^apps\/web\/src\/relay\/outbox\.ts, 1 comment$/,

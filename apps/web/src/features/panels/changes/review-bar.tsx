@@ -49,7 +49,7 @@ export function ReviewBar(props: {
   session: ReviewSession | undefined;
   onReview(status: "approved" | "changes-requested"): Promise<void>;
   onSend(keys: readonly string[]): void;
-  onJump(file: string): void;
+  onJump(draft: ReviewDraft): void;
 }) {
   const [error, setError] = useState<string>();
   const pending = props.drafts.filter(isPending);
@@ -106,7 +106,7 @@ export function ReviewBar(props: {
                   {entries.map((draft) => (
                     <MenuItem
                       key={draft.key}
-                      onClick={() => props.onJump(draft.file)}
+                      onClick={() => props.onJump(draft)}
                       className="h-auto flex-col items-start gap-0 py-1.5"
                     >
                       <span className="block w-full truncate font-mono text-xs text-subtle-foreground">
