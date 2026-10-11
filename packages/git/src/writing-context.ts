@@ -59,7 +59,7 @@ export async function writingContext(
   if (selection.kind === "pr") {
     if (branch.branch !== selection.branch || !branch.head)
       throw new GitError("head_moved", "Branch changed");
-    base = await repository.commit(root, selection.base);
+    base = await repository.commit(root, selection.baseRef ?? selection.base);
     from = textOutput(await repository.cli.call(root, ["merge-base", base, branch.head]));
     to = branch.head;
   } else {

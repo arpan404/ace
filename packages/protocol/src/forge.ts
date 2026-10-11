@@ -126,6 +126,7 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     repository: ForgeRepository,
     input: ForgeCreatePrInput,
     draftFingerprint: SourceControlContext.shape.fingerprint.optional(),
+    draftBaseRef: z.string().min(1).max(1200).optional(),
   }),
   z.object({ type: z.literal("forge.pr.link"), link: ForgeThreadLink }),
   z

@@ -67,7 +67,10 @@ export function GitDialog(props: {
       ? { kind: "commit", paths: pathsOf(files, chosen) }
       : undefined
     : checkout.branch
-      ? { kind: "pr", branch: checkout.branch, base: checkout.baseBranch }
+      ? {
+          kind: "pr", branch: checkout.branch, base: checkout.baseBranch,
+          ...(checkout.baseRef ? { baseRef: checkout.baseRef } : {}),
+        }
       : undefined;
   const selectionKey = JSON.stringify(selection);
   const staleDraft = draftSource !== undefined && draftSource.selection !== selectionKey;

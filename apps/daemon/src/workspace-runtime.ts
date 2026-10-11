@@ -367,6 +367,7 @@ export class WorkspaceRuntime {
           kind: "pr",
           branch: p.input.branch,
           base: p.input.base,
+          ...(p.draftBaseRef ? { baseRef: p.draftBaseRef } : {}),
         });
         if (context.fingerprint !== p.draftFingerprint) throw new Error("draft_changes_moved");
       }

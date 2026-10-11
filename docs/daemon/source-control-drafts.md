@@ -21,6 +21,10 @@ paths, including untracked files and both sides of renames. It never changes the
 real index. PR context uses the merge base and committed branch head, excluding
 uncommitted working-tree bytes. It includes the thread title and a bounded recent
 page of person/assistant text for intent, without issuing another provider request.
+The recorded Git base ref travels separately from the forge branch name: a base
+on `origin/release` compares against `refs/remotes/origin/release`, while the PR
+targets `release`. A divergent local namesake cannot replace that remote base.
+Submission uses the same Git base ref when validating the applied draft.
 
 Both modes include the last twelve commit subjects, root and relevant nested
 AGENTS.md files, and optional `.ace/source-control.md` writing instructions. Commit

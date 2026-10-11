@@ -184,6 +184,7 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
             kind: "pr",
             branch,
             base: checkout.baseBranch,
+            ...(checkout.baseRef ? { baseRef: checkout.baseRef } : {}),
           });
           if (context.fingerprint !== change.draftFingerprint)
             throw new Error("The branch changes moved. Generate again or discard the draft.");
@@ -196,6 +197,7 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
           base: checkout.baseBranch,
           title: change.title,
           draftFingerprint: change.draftFingerprint,
+          draftBaseRef: checkout.baseRef,
           summary: change.summary,
           draft: change.draft,
         });

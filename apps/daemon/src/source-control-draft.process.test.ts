@@ -176,6 +176,38 @@ test("PR drafts use committed branch/base changes, templates and thread intent r
   }
 });
 
+test.each(["remote-only", "divergent-local"])(
+  "PR drafting compares against the recorded remote base with a %s branch",
+  async (kind) => {
+    const f = await fixture();
+    try {
+      f.git("add", "selected.txt");
+      f.git("commit", "-m", "fix: selected behavior");
+      f.git("update-ref", "refs/remotes/origin/release", f.initialHead);
+      if (kind === "divergent-local") f.git("branch", "release", "feature");
+      const selection = {
+        kind: "pr" as const, branch: "feature", base: "release",
+        baseRef: "refs/remotes/origin/release",
+      };
+      const context = await f.runtime.draftContext(threadId, selection);
+      expect(context.base).toBe(f.initialHead);
+      expect(context.paths).toEqual(["excluded.txt", "selected.txt"]);
+      const result = await f.runtime.read({
+        type: "workspace.request", requestId: "remote-base", operation: {
+          op: "git.draft.generate", threadId, input: {
+            generationId: "remote-base", selection, fingerprint: context.fingerprint,
+            provider: "claude", preference: "",
+          },
+        },
+      });
+      expect(result.result.kind).toBe("draft");
+      expect(await readFile(join(f.root, "prompt.txt"), "utf8")).toContain("after selected");
+    } finally {
+      await f.close();
+    }
+  },
+);
+
 test.each(["move", "fail", "invalid"])(
   "a %s result returns a fixed failure and leaves Git unchanged",
   async (behavior) => {

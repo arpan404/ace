@@ -12,6 +12,8 @@ export const SourceControlSelection = z.discriminatedUnion("kind", [
     kind: z.literal("pr"),
     branch: z.string().min(1).max(256),
     base: z.string().min(1).max(256),
+    /** Git revision for the base; distinct from the forge's branch name. */
+    baseRef: z.string().min(1).max(1200).optional(),
   }),
 ]);
 export type SourceControlSelection = z.infer<typeof SourceControlSelection>;

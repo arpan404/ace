@@ -4,7 +4,7 @@ import { act, configure, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { expect, test, beforeEach } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import type { SourceControlDraft } from "@ace/protocol";
+import type { SourceControlDraft, ThreadDetails } from "@ace/protocol";
 
 configure({ asyncUtilTimeout: 10000 });
 beforeEach(() => localStorage.clear());
@@ -26,9 +26,12 @@ const scenario: Scenario = {
   },
   steps: [{ kind: "facts", label: "ready", facts: [facts.rootAgent("claude")] }],
 };
-async function open(kind: "commit" | "pr" = "commit") {
+async function open(kind: "commit" | "pr" = "commit", details: Partial<ThreadDetails> = {}) {
   const app = harness();
-  app.play(scenario).runThrough("ready");
+  app.play({
+    ...scenario,
+    thread: { ...scenario.thread, details: { ...scenario.thread.details, ...details } },
+  }).runThrough("ready");
   app.daemon.workspace.setGitStatus(
     "draft-thread",
     ["selected.ts", "excluded.ts"].map((path) => ({
@@ -182,6 +185,26 @@ test("PR generation leaves publication explicit and the title and description ed
   );
   expect(form.getByRole("button", { name: /^Create PR/ })).toBeTruthy();
   expect(app.daemon.snapshot(scope)).toEqual(before);
+});
+
+test("PR generation sends the recorded remote Git base while the form names its forge branch", async () => {
+  const { app, form } = await open("pr", {
+    baseBranch: "origin/release",
+    base: { ref: "release", remote: "origin", head: "b".repeat(40), fetch: "fetched" },
+  });
+  app.daemon.workspace.setDraftGenerator(async (input) => ({
+    subject: input.selection.kind === "pr" ? `Compared ${input.selection.baseRef}` : "Wrong scope",
+    body: input.selection.kind === "pr" ? `Merge into ${input.selection.base}` : "",
+  }));
+  await userEvent.click(form.getByRole("button", { name: "Generate draft" }));
+  await form.findByLabelText("Generated draft");
+  await userEvent.click(form.getByRole("button", { name: "Use draft" }));
+  expect(form.getByRole("textbox", { name: "Pull request title" })).toHaveProperty(
+    "value", "Compared refs/remotes/origin/release",
+  );
+  expect(form.getByRole("textbox", { name: "Pull request description" })).toHaveProperty(
+    "value", "Merge into release",
+  );
 });
 
 test("reconnect discards a pending result and never requests another generation", async () => {

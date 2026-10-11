@@ -46,6 +46,7 @@ export interface PrInput {
   summary: string;
   draft: boolean;
   draftFingerprint?: string | undefined;
+  draftBaseRef?: string | undefined;
 }
 
 export class WorkspaceError extends Error {
@@ -251,6 +252,7 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
           threadId: thread.id,
           repository: input.repository,
           ...(input.draftFingerprint ? { draftFingerprint: input.draftFingerprint } : {}),
+          ...(input.draftBaseRef ? { draftBaseRef: input.draftBaseRef } : {}),
           input: {
             branch: input.branch,
             base: input.base,
