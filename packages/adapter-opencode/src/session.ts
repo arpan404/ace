@@ -103,6 +103,7 @@ export class OpenCodeSession implements ProviderSession {
         if (!this.recovering || !this.evidence.covered(data, watermark)) this.receive(data);
       },
       buffered: (data, watermark) => {
+        this.emit("note", "ancestry.buffered", { data, watermark });
         if (this.recovering) this.evidence.observe(data, watermark);
       },
       pending: (id, data) => this.emit("note", "lifecycle", { type: "ancestry.pending", id, data }),
@@ -467,10 +468,12 @@ export class OpenCodeSession implements ProviderSession {
   }
 
   private async prepareReplay(): Promise<void> {
-    for (let pass = 0;
+    for (
+      let pass = 0;
       this.ancestry.needsSnapshots((id) => this.evidence.complete(id)) ||
       this.ancestry.needsShellSnapshots((id, owner) => this.evidence.completeShell(id, owner));
-      pass++) {
+      pass++
+    ) {
       if (pass >= 8) throw new Error("OpenCode ancestry recovery incomplete");
       await this.resync();
     }
