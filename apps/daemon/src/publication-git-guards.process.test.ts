@@ -33,7 +33,11 @@ for (const phase of ["adding origin", "pushing"] as const) {
                 // Stop a real process at the metadata edge; provider data and Git effects stay real.
                 process.kill(-pid, "SIGSTOP");
                 resume = () => {
-                  if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined)
+                  if (
+                    child.exitCode !== null ||
+                    child.signalCode !== null ||
+                    child.pid === undefined
+                  )
                     return;
                   try {
                     process.kill(-child.pid, "SIGCONT");
