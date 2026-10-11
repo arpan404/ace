@@ -25,6 +25,13 @@ The recorded Git base ref travels separately from the forge branch name: a base
 on `origin/release` compares against `refs/remotes/origin/release`, while the PR
 targets `release`. A divergent local namesake cannot replace that remote base.
 Submission uses the same Git base ref when validating the applied draft.
+Remote comparison bases must belong to the publication remote, which is `origin`
+when configured, otherwise the first remote. A base such as `upstream/main` is
+refused when publication targets `origin`, before starting generation and again
+under the final publication lease. The error asks for a matching target branch
+on the publication remote. Cross-remote PR creation remains out of scope. Local
+base branches still work without an upstream. The remote configuration is part
+of the source fingerprint, so changing the destination invalidates a draft.
 
 Both modes include the last twelve commit subjects, root and relevant nested
 AGENTS.md files, and optional `.ace/source-control.md` writing instructions. Commit

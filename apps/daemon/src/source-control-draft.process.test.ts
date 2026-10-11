@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { expect, test } from "vitest";
 import { Command } from "@ace/protocol";
 import { createWritingCli } from "./source-control-cli.ts";
@@ -87,6 +88,7 @@ test.each(["remote-only", "divergent-local"])(
     try {
       f.git("add", "selected.txt");
       f.git("commit", "-m", "fix: selected behavior");
+      f.git("remote", "add", "origin", "https://github.com/acme/repo.git");
       f.git("update-ref", "refs/remotes/origin/release", f.initialHead);
       if (kind === "divergent-local") f.git("branch", "release", "feature");
       const selection = {
@@ -115,6 +117,57 @@ test.each(["remote-only", "divergent-local"])(
       });
       expect(result.result.kind).toBe("draft");
       expect(await readFile(join(f.root, "prompt.txt"), "utf8")).toContain("after selected");
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test.each(["refs/remotes/upstream/main", "upstream/main"])(
+  "a fork draft with comparison base %s is refused before starting the provider CLI",
+  async (baseRef) => {
+    const f = await fixture();
+    try {
+      f.git("remote", "add", "origin", "https://github.com/person/fork.git");
+      f.git("remote", "add", "upstream", "https://github.com/acme/repo.git");
+      f.git("update-ref", "refs/remotes/origin/main", f.initialHead);
+      await writeFile(join(f.repo, "upstream.txt"), "Upstream change X\n");
+      f.git("add", "upstream.txt");
+      f.git("commit", "-m", "Upstream change X");
+      f.git("update-ref", "refs/remotes/upstream/main", "HEAD");
+      f.git("add", "selected.txt");
+      f.git("commit", "-m", "Feature change Y");
+      expect(f.git("diff", "--name-only", "upstream/main...feature")).toBe("selected.txt");
+      expect(f.git("diff", "--name-only", "origin/main...feature")).toContain("upstream.txt");
+      const selection = { kind: "pr" as const, branch: "feature", base: "main", baseRef };
+      await expect(f.runtime.draftContext(threadId, selection)).rejects.toMatchObject({
+        code: "pr_base_mismatch",
+      });
+      await expect(
+        f.runtime.read({
+          type: "workspace.request",
+          requestId: "fork-base",
+          operation: {
+            op: "git.draft.generate",
+            threadId,
+            input: {
+              generationId: "fork-base",
+              selection,
+              fingerprint: "0".repeat(64),
+              provider: "claude",
+              preference: "",
+            },
+          },
+        }),
+      ).rejects.toMatchObject({ code: "pr_base_mismatch" });
+      expect(existsSync(join(f.root, "prompt.txt"))).toBe(false);
+      // A comparison on the destination includes both X and Y and remains usable.
+      const context = await f.runtime.draftContext(threadId, {
+        ...selection,
+        baseRef: "refs/remotes/origin/main",
+      });
+      expect(context.paths).toContain("upstream.txt");
+      expect(context.paths).toContain("selected.txt");
     } finally {
       await f.close();
     }

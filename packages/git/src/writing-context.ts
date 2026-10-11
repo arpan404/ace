@@ -6,8 +6,9 @@ import { SourceControlContext, SourceControlSelection } from "@ace/protocol";
 import { textOutput, patchOutput } from "./cli.ts";
 import { withIndex } from "./temporary-index.ts";
 import { within, type Repository } from "./repository.ts";
-import { GitError } from "./types.ts";
+import { GitError, type RepositoryInfo } from "./types.ts";
 import { parseDiff } from "./parse.ts";
+import { assertPrBase, publicationRemote } from "./publication-remote.ts";
 
 /** Bounded repository text only. Symlinks and paths outside the checkout are never followed. */
 async function repositoryText(root: string, path: string) {
@@ -54,12 +55,25 @@ export async function writingContext(
   if (status.conflicted.length)
     throw new GitError("conflicts", "Resolve conflicts before drafting");
   let base: string | null = null;
+  let remote: RepositoryInfo["remotes"][number] | undefined;
   let from: string;
   let to: string;
   if (selection.kind === "pr") {
     if (branch.branch !== selection.branch || !branch.head)
       throw new GitError("head_moved", "Branch changed");
-    base = await repository.commit(root, selection.baseRef ?? selection.base);
+    const ref = selection.baseRef ?? selection.base;
+    base = await repository.commit(root, ref);
+    remote = publicationRemote((await repository.info(root)).remotes);
+    const canonicalRef = textOutput(
+      await repository.cli.call(root, [
+        "rev-parse",
+        "--symbolic-full-name",
+        "--verify",
+        "--end-of-options",
+        ref,
+      ]),
+    );
+    assertPrBase(canonicalRef, selection.base, remote);
     from = textOutput(await repository.cli.call(root, ["merge-base", base, branch.head]));
     to = branch.head;
   } else {
@@ -183,6 +197,7 @@ export async function writingContext(
         head: branch.head,
         branch: branch.branch,
         base,
+        remote,
         from,
         to,
         conventions,

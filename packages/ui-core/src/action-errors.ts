@@ -65,6 +65,8 @@ const copy: Record<string, string> = {
   git_not_a_repo: "This folder isn't a Git repository: run `git init` or open a cloned project.",
   git_invalid_argument: "Git refused the request: check the branch and file names.",
   git_invalid_ref: "That branch doesn't exist in the project: fetch it or pick another.",
+  git_pr_base_mismatch:
+    "The draft base doesn't match the PR destination. Choose the target branch on the publication remote; cross-remote PR drafts aren't supported.",
   git_branch_exists: "A branch with that name already exists: pick another name.",
   git_dirty_worktree:
     "The checkout has uncommitted changes: commit them, or bring them along to the branch.",

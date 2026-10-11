@@ -32,6 +32,7 @@ import {
 import type { ChangedFile, Checkpoint, DiffSide, GitOptions } from "./types.ts";
 
 export { validateCloneUrl } from "./projects.ts";
+export { publicationRemote } from "./publication-remote.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
 export { GitError, isMutationUnavailable } from "./types.ts";
 export { spawnGitProcess } from "./process-runtime.ts";

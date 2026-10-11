@@ -19,7 +19,7 @@ import {
   type ForgeRepository,
   type AgentControlResult,
 } from "@ace/protocol";
-import type { GitService } from "@ace/git";
+import { publicationRemote, type GitService } from "@ace/git";
 import type { Store } from "./store.ts";
 import { WorkspacePrLinks } from "./workspace-pr-links.ts";
 import type { PrOwnerOperation } from "./agent-control/tools.ts";
@@ -48,8 +48,7 @@ export class WorkspaceForge {
   }
   async repository(cwd: string): Promise<ForgeRepository> {
     const info = await this.git.repositoryInfo(cwd);
-    const remote = (info.remotes.find((entry) => entry.name === "origin") ?? info.remotes[0])
-      ?.fetchUrls[0];
+    const remote = publicationRemote(info.remotes)?.fetchUrls[0];
     return repositoryFromRemote(remote);
   }
   private backend(cwd: string, repository: ForgeRepository): Forge {

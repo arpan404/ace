@@ -24,6 +24,7 @@ const git = [
   "not_a_repo",
   "invalid_argument",
   "invalid_ref",
+  "pr_base_mismatch",
   "branch_exists",
   "dirty_worktree",
   "worktree_not_found",

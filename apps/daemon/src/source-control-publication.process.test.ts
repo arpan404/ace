@@ -107,20 +107,24 @@ process.stdout.write('HTTP/1.1 200 OK\\r\\n\\r\\n'+JSON.stringify(body));
     baseRef: "refs/remotes/origin/release",
   };
   const context = await runtime.draftContext(threadId, selection);
-  const publish = () =>
+  const publish = (
+    comparison = selection,
+    fingerprint = context.fingerprint,
+    commandId = "publish",
+  ) =>
     runtime.execute(
       Command.parse({
-        id: "publish",
+        id: commandId,
         deviceId: "test",
         payload: {
           type: "forge.pr.create",
           threadId,
           repository,
-          draftFingerprint: context.fingerprint,
-          draftBaseRef: selection.baseRef,
+          draftFingerprint: fingerprint,
+          draftBaseRef: comparison.baseRef,
           input: {
             branch: "feature",
-            base: "release",
+            base: comparison.base,
             title: "Reviewed title",
             summary: "Reviewed summary",
             template: { title: "{{title}}", body: "{{summary}}" },
@@ -189,6 +193,79 @@ process.stdout.write('HTTP/1.1 200 OK\\r\\n\\r\\n'+JSON.stringify(body));
     },
   };
 }
+
+test("a divergent upstream base cannot publish a reviewed draft to the origin fork", async () => {
+  const f = await fixture();
+  try {
+    f.git("remote", "add", "upstream", "https://github.com/acme/upstream.git");
+    f.git("switch", "main");
+    await writeFile(join(f.repo, "upstream.txt"), "Upstream change X\n");
+    f.git("add", "upstream.txt");
+    f.git("commit", "-m", "Upstream change X");
+    f.git("update-ref", "refs/remotes/upstream/main", "HEAD");
+    f.git("switch", "feature");
+    f.git("rebase", "main");
+    f.git("push", "--force", "origin", "feature");
+    expect(f.git("diff", "--name-only", "upstream/main...feature")).toBe("file.txt");
+    expect(f.git("diff", "--name-only", "origin/main...feature")).toBe("file.txt\nupstream.txt");
+    const upstream = {
+      kind: "pr" as const,
+      branch: "feature",
+      base: "main",
+      baseRef: "refs/remotes/upstream/main",
+    };
+    // Obtain a real reviewed fingerprint with upstream as the publication destination.
+    // Restoring the fork must refuse that draft even though its branch/base revisions match.
+    const originMain = f.git("rev-parse", "origin/main");
+    const pushUrl = f.git("config", "--get", "remote.origin.pushurl");
+    f.git("remote", "remove", "origin");
+    const reviewed = await f.runtime.draftContext(threadId, upstream);
+    expect(reviewed.paths).toEqual(["file.txt"]);
+    f.git("remote", "add", "origin", "https://github.com/acme/repo.git");
+    f.git("remote", "set-url", "--push", "origin", pushUrl);
+    f.git("update-ref", "refs/remotes/origin/main", originMain);
+    expect(await f.publish(upstream, reviewed.fingerprint)).toMatchObject({
+      ok: false,
+      error: "git_pr_base_mismatch",
+    });
+    expect(existsSync(join(f.home, "created.json"))).toBe(false);
+    expect(f.store.getThread(threadId)?.details?.linkedPrs ?? []).toEqual([]);
+    // A fresh draft against the actual destination can still be published.
+    const comparison = {
+      kind: "pr" as const,
+      branch: "feature",
+      base: "main",
+      baseRef: "refs/remotes/origin/main",
+    };
+    const context = await f.runtime.draftContext(threadId, comparison);
+    expect(context.paths).toEqual(["file.txt", "upstream.txt"]);
+    expect(await f.publish(comparison, context.fingerprint, "publish-origin")).toMatchObject({
+      ok: true,
+    });
+    expect(
+      z
+        .object({ base: z.string(), head: z.string() })
+        .parse(JSON.parse(await readFile(join(f.home, "created.json"), "utf8"))),
+    ).toEqual({ base: "main", head: context.head });
+  } finally {
+    await f.close();
+  }
+}, 60000);
+
+test("changing the publication destination during lookup invalidates the draft", async () => {
+  const f = await fixture();
+  try {
+    await f.hold("lookup");
+    const publication = f.publish();
+    await f.started("lookup");
+    f.git("remote", "set-url", "origin", "https://github.com/acme/other-fork.git");
+    await f.release("lookup");
+    expect(await publication).toMatchObject({ ok: false, error: "git_head_moved" });
+    expect(existsSync(join(f.home, "created.json"))).toBe(false);
+  } finally {
+    await f.close();
+  }
+}, 60000);
 
 test("source changes committed and pushed during PR lookup refuse the reviewed summary", async () => {
   const f = await fixture();
