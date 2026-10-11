@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ChatCircleIcon, PaperPlaneTiltIcon, XIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -18,6 +18,7 @@ export function PrComposer(props: {
   extensions?: PrWorkspaceExtensions | undefined;
 }) {
   const [body, setBody] = useState("");
+  const currentBody = useRef(body);
   const [mode, setMode] = useState<"comment" | "review">(
     props.extensions?.comment ? "comment" : "review",
   );
@@ -37,12 +38,16 @@ export function PrComposer(props: {
   const send = async (close: boolean) => {
     const run = close ? props.extensions?.closeWithComment : action;
     if (disabled || !run) return;
+    const submitted = body;
     setPending(true);
     try {
-      await run(body, props.context);
-      setBody("");
-      setOpen(false);
-      setClosing(false);
+      await run(submitted, props.context);
+      if (currentBody.current === submitted) {
+        currentBody.current = "";
+        setBody("");
+        setOpen(false);
+        setClosing(false);
+      }
       toast.add({
         title: close
           ? "Pull request closed with comment"
@@ -96,6 +101,7 @@ export function PrComposer(props: {
             placeholder={selected === "review" ? "Leave a review" : "Leave a comment"}
             value={body}
             onChange={(e) => {
+              currentBody.current = e.target.value;
               setBody(e.target.value);
               setClosing(false);
             }}

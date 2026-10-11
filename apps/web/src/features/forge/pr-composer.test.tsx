@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { expect, test } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import { ToastProvider } from "@/components/ui/toast.tsx";
@@ -15,7 +15,7 @@ const context: PrWorkspaceContext = {
   refresh: async () => true,
 };
 
-function ComposerExample(props: { disabled?: boolean }) {
+function ComposerExample(props: { disabled?: boolean; acknowledge?: Promise<void> }) {
   const [posted, setPosted] = useState("");
   return (
     <TooltipProvider delay={0}>
@@ -24,12 +24,15 @@ function ComposerExample(props: { disabled?: boolean }) {
           context={{ ...context, disabled: props.disabled ?? false }}
           extensions={{
             comment: async (body) => {
+              await props.acknowledge;
               setPosted(`Comment posted: ${body}`);
             },
             review: async (body) => {
+              await props.acknowledge;
               setPosted(`Review posted: ${body}`);
             },
             closeWithComment: async (body) => {
+              await props.acknowledge;
               setPosted(`Closed: ${body}`);
             },
           }}
@@ -45,6 +48,25 @@ test("a comment is posted through the capability and the composer dismisses afte
   await userEvent.type(screen.getByRole("textbox", { name: "Comment body" }), "Keep the cursor");
   await userEvent.click(screen.getByRole("button", { name: "Comment" }));
   await screen.findByText("Comment posted: Keep the cursor");
+  await waitFor(() => expect(screen.queryByRole("textbox", { name: "Comment body" })).toBeNull());
+});
+
+test("successful submission preserves newer text in the open composer until that text is submitted", async () => {
+  const acknowledgement = Promise.withResolvers<void>();
+  render(<ComposerExample acknowledge={acknowledgement.promise} />);
+  await userEvent.click(screen.getByRole("button", { name: "Write a comment or review" }));
+  const body = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Comment body" });
+  await userEvent.type(body, "Ready to ship");
+  await userEvent.click(screen.getByRole("button", { name: "Comment" }));
+  expect(screen.getByRole<HTMLButtonElement>("button", { name: "Comment" }).disabled).toBe(true);
+  await userEvent.type(body, " and another thought");
+  await act(async () => acknowledgement.resolve());
+  await screen.findByText("Comment posted: Ready to ship");
+  expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Comment body" }).value).toBe(
+    "Ready to ship and another thought",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Comment" }));
+  await screen.findByText("Comment posted: Ready to ship and another thought");
   await waitFor(() => expect(screen.queryByRole("textbox", { name: "Comment body" })).toBeNull());
 });
 test("closing with a comment requires a second explicit confirmation", async () => {

@@ -27,6 +27,7 @@ export function PrHeader(props: {
   const { detail, disabled, refresh } = props.context;
   const { status } = detail;
   const repository = status.ref.repository;
+  const checkout = `gh pr checkout ${status.ref.number} --repo ${repository.host}/${repository.owner}/${repository.name}`;
   const toast = useToast();
   const { copied, copy } = useCopy();
   const open = () =>
@@ -115,10 +116,11 @@ export function PrHeader(props: {
         <button
           type="button"
           aria-label={copied ? "Checkout command copied" : "Copy checkout command"}
-          onClick={() => copy(`gh pr checkout ${status.ref.number}`)}
-          className="ml-auto rounded-sm px-1 py-0.5 font-mono text-xs pointer-coarse:min-h-11 text-muted-foreground hover:bg-accent focus-ring"
+          onClick={() => copy(checkout)}
+          title={checkout}
+          className="ml-auto max-w-full truncate rounded-sm px-1 py-0.5 font-mono text-xs pointer-coarse:min-h-11 text-muted-foreground hover:bg-accent focus-ring"
         >
-          {copied ? "Copied" : `gh pr checkout ${status.ref.number}`}
+          {copied ? "Copied" : checkout}
         </button>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">

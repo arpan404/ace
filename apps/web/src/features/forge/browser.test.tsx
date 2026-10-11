@@ -52,6 +52,21 @@ const detail = (
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.unstubAllGlobals());
 
+test("checkout copied from another repository names that repository instead of the project's origin", async () => {
+  const user = userEvent.setup();
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), repository: other, number: 42 },
+    { resource: "prDetail", value: detail(other, "Other repository PR") },
+  );
+  await app.open("/pull-requests?project=api&repo=github.com/acme/web&number=42");
+  await screen.findByRole("heading", { name: "Other repository PR" });
+  await user.click(screen.getByRole("button", { name: "Copy checkout command" }));
+  expect(await navigator.clipboard.readText()).toBe("gh pr checkout 42 --repo github.com/acme/web");
+  await screen.findByRole("button", { name: "Checkout command copied" });
+});
+
 test("a dismissed phone PR sheet reopens its PR from More actions and an empty workspace opens its PR launcher", async () => {
   vi.stubGlobal("matchMedia", (media: string): MediaQueryList => ({
     matches: media.includes("max-width"),
