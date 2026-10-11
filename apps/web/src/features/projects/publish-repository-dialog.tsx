@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   RepositoryPublishInput,
   WorkspaceId,
@@ -38,8 +38,10 @@ export function PublishRepositoryDialog(props: {
   const [canStop, setCanStop] = useState(false);
   const [error, setError] = useState<string>();
   const [revision, setRevision] = useState(0);
+  const statusRevision = useRef(0);
   useEffect(() => {
     if (!client) return;
+    const reading = ++statusRevision.current;
     const controller = new AbortController();
     void Promise.all([
       client.request(
@@ -55,7 +57,7 @@ export function PublishRepositoryDialog(props: {
       ),
     ])
       .then(([status, record]) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || reading !== statusRevision.current) return;
         if (status.result.kind !== "readiness" || record.result.kind !== "publication")
           throw new Error("unavailable");
         const facts = status.result.readiness;
@@ -78,7 +80,7 @@ export function PublishRepositoryDialog(props: {
         setError(undefined);
       })
       .catch(() => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted && reading === statusRevision.current)
           setError(
             "Couldn't read publication status. Connect to this computer and Refresh status.",
           );
@@ -95,9 +97,13 @@ export function PublishRepositoryDialog(props: {
           message.publication?.workspaceId !== props.projectId
         )
           return;
+        // A completion receipt supersedes every status/readiness snapshot already in flight.
+        ++statusRevision.current;
         setPublication(message.publication);
+        setDraft(message.publication.input);
         setRunning(false);
         setCanStop(false);
+        setRevision((value) => value + 1);
       }),
     [client, props.projectId],
   );
@@ -141,17 +147,20 @@ export function PublishRepositoryDialog(props: {
   };
   const cancel = async () => {
     if (!client) return;
+    const reading = ++statusRevision.current;
     try {
       const reply = await client.request({
         type: "repositories.request",
         operation: { op: "publication.cancel", workspaceId: WorkspaceId.parse(props.projectId) },
       });
+      if (reading !== statusRevision.current) return;
       if (reply.result.kind !== "publication") throw new Error("stop_failed");
       setPublication(reply.result.publication);
       setRunning(reply.result.running);
       setCanStop(reply.result.canStop);
     } catch {
-      setError("Couldn't stop publication. Refresh status to see its result.");
+      if (reading === statusRevision.current)
+        setError("Couldn't stop publication. Refresh status to see its result.");
     }
   };
   const field = (label: string, key: "account" | "owner" | "name" | "description") => (

@@ -1,7 +1,9 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { FakeDaemon } from "@ace/fake-daemon";
+import { ServerMessage } from "@ace/protocol";
 
 async function browse(app: ReturnType<typeof harness>) {
   await app.open("/new");
@@ -115,4 +117,63 @@ test("reopening a daemon-owned publication offers Stop and disables Resume until
   );
   expect(app.daemon.projects.publication(added.workspace.id)?.remote).toBeNull();
   for (const run of stages) run();
+});
+
+/** Delay one real readiness frame while its correlated publication snapshot keeps flowing. */
+class DelayedPublicationReadiness extends FakeDaemon {
+  delayNextReadiness = false;
+  private delayed: (() => void) | undefined;
+  private captured = Promise.withResolvers<void>();
+  readonly runningSnapshot = this.captured.promise;
+  releaseReadiness(): void {
+    this.delayed?.();
+    this.delayed = undefined;
+  }
+  override connect(wire: Parameters<FakeDaemon["connect"]>[0]) {
+    return super.connect({
+      ...wire,
+      send: (text) => {
+        const frame = ServerMessage.parse(JSON.parse(text));
+        if (frame.type === "source-control.result" && this.delayNextReadiness) {
+          this.delayNextReadiness = false;
+          this.delayed = () => wire.send(text);
+          return;
+        }
+        if (this.delayed && frame.type === "repositories.result" && frame.result.kind === "publication" && frame.result.running)
+          this.captured.resolve();
+        wire.send(text);
+      },
+    });
+  }
+}
+
+test("a stale running snapshot waiting for readiness cannot overwrite the completion receipt after reopening", async () => {
+  const stages: (() => void)[] = [];
+  const daemon = new DelayedPublicationReadiness({ clock: () => 1000, projectScheduler: (run) => { stages.push(run); } });
+  const app = harness({ throughWorker: true, daemon });
+  daemon.projects.seedFolders("/home/dev", [{ path: "/home/dev/site", git: true }]);
+  await app.client.start();
+  await waitFor(() => expect(app.client.state).toBe("ready"));
+  const added = await app.client.projects.add({ path: "/home/dev/site" });
+  if (!added.workspace) throw new Error("Expected project");
+  await app.open("/new");
+  const dialog = await openPublish();
+  const submit = await within(dialog).findByRole("button", { name: "Publish repository" });
+  await waitFor(() => expect(submit).toHaveProperty("disabled", false));
+  await userEvent.click(submit);
+  await waitFor(() => expect(daemon.projects.publicationActivity(added.workspace?.id ?? "", "test-device").running).toBe(true));
+  await userEvent.click(within(dialog).getByRole("button", { name: "Hide" }));
+  daemon.delayNextReadiness = true;
+  const reopened = await openPublish();
+  await daemon.runningSnapshot;
+  await act(async () => { for (const run of stages.splice(0)) run(); });
+  await within(reopened).findByText(/This project has no commits/);
+  await act(async () => {
+    daemon.releaseReadiness();
+    // A following wire response is a delivery barrier for the older delayed readiness frame.
+    await app.client.request({ type: "source-control.request", operation: { op: "readiness" } });
+  });
+  expect(within(reopened).getByText(/This project has no commits/)).toBeTruthy();
+  expect(within(reopened).queryByRole("button", { name: "Stop publication" })).toBeNull();
+  expect(within(reopened).getByRole("button", { name: "Resume publication" })).toHaveProperty("disabled", false);
 });
