@@ -42,7 +42,10 @@ export class FakeProjects {
   publication(id: string) {
     return this.publications.get(id) ?? null;
   }
-  private publicationFlights = new Map<string, { device: string; cancelled: boolean; wake?: () => void }>();
+  private publicationFlights = new Map<
+    string,
+    { device: string; cancelled: boolean; wake?: () => void }
+  >();
   publicationActivity(id: string, device: string) {
     const flight = this.publicationFlights.get(id);
     return { running: flight !== undefined, canStop: flight?.device === device };
@@ -51,22 +54,45 @@ export class FakeProjects {
     const flight = this.publicationFlights.get(id);
     if (!flight) throw new Error("publication_not_running");
     if (flight.device !== device) throw new Error("forbidden");
-    flight.cancelled = true; flight.wake?.();
+    flight.cancelled = true;
+    flight.wake?.();
   }
-  async publish(input: Extract<CommandPayload, {type: "workspace.publish"}>, device: string): Promise<Omit<CommandResult, "commandId">> {
+  async publish(
+    input: Extract<CommandPayload, { type: "workspace.publish" }>,
+    device: string,
+  ): Promise<Omit<CommandResult, "commandId">> {
     if (this.publicationFlights.has(input.workspaceId)) return { ok: false, error: "project_busy" };
-    if (!this.context.scheduleProject) return this.command(input) ?? { ok: false, error: "publication_failed" };
-    const flight: { device: string; cancelled: boolean; wake?: () => void } = { device, cancelled: false };
+    if (!this.context.scheduleProject)
+      return this.command(input) ?? { ok: false, error: "publication_failed" };
+    const flight: { device: string; cancelled: boolean; wake?: () => void } = {
+      device,
+      cancelled: false,
+    };
     this.publicationFlights.set(input.workspaceId, flight);
-    const publication = this.publications.get(input.workspaceId) ?? RepositoryPublication.parse({
-      workspaceId: input.workspaceId, input: input.input, phase: "prepared", remote: null, error: null, updatedAt: this.context.now(),
-    });
+    const publication =
+      this.publications.get(input.workspaceId) ??
+      RepositoryPublication.parse({
+        workspaceId: input.workspaceId,
+        input: input.input,
+        phase: "prepared",
+        remote: null,
+        error: null,
+        updatedAt: this.context.now(),
+      });
     this.publications.set(input.workspaceId, publication);
     try {
-      await new Promise<void>((resolve) => { flight.wake = resolve; this.context.scheduleProject?.(resolve); });
-      if (flight.cancelled) { publication.error = "publication_cancelled"; return { ok: false, error: publication.error, publication }; }
+      await new Promise<void>((resolve) => {
+        flight.wake = resolve;
+        this.context.scheduleProject?.(resolve);
+      });
+      if (flight.cancelled) {
+        publication.error = "publication_cancelled";
+        return { ok: false, error: publication.error, publication };
+      }
       return this.command(input) ?? { ok: false, error: "publication_failed" };
-    } finally { this.publicationFlights.delete(input.workspaceId); }
+    } finally {
+      this.publicationFlights.delete(input.workspaceId);
+    }
   }
   private opened = new Map<string, number>();
   /** The host user's home, canonical; the only allowed root unless `seedFolders` names others. */

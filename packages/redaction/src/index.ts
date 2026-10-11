@@ -141,10 +141,7 @@ function createLexicalRedactor(ctx: RedactionContext): (text: string) => string 
     if (environment) out = out.replace(environment, "<ENV>");
     out = out.replace(/([#&](?:code|ticket|token)=)[^&#\s]+/gi, "$1<SECRET>");
     for (const pattern of SECRETS) out = out.replace(pattern, "<SECRET>");
-    out = out.replace(
-      SECRET_JSON,
-      '$1"<SECRET>"',
-    );
+    out = out.replace(SECRET_JSON, '$1"<SECRET>"');
     out = out.replace(SECRET_ASSIGNMENT, "<SECRET>");
     out = out.replace(IDENTIFYING_KEYS, (_match, key: string) => `"${key}":"<ID>"`);
     out = out.replace(EMAIL, (match) => (KEEP_EMAILS.has(match) ? match : "<EMAIL>"));

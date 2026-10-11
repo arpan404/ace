@@ -249,8 +249,11 @@ export class FakeServicesWire {
             const permitted = this.host.canManageProjects?.(device) ?? true;
             let cancellationError: string | undefined;
             if (permitted && operation.op === "publication.cancel") {
-              try { this.workspace.projects.cancelPublication(operation.workspaceId, device); }
-              catch (error) { cancellationError = error instanceof Error ? error.message : "publication_failed"; }
+              try {
+                this.workspace.projects.cancelPublication(operation.workspaceId, device);
+              } catch (error) {
+                cancellationError = error instanceof Error ? error.message : "publication_failed";
+              }
             }
             const input = operation.op === "list" ? operation.input : null;
             const all = input
@@ -310,9 +313,9 @@ export class FakeServicesWire {
               ServerMessage.parse({
                 type: "repositories.result",
                 requestId: message.requestId,
-                result:
-                  cancellationError ? { kind: "error", code: cancellationError }
-                    : !permitted || (input && input.account !== "ada")
+                result: cancellationError
+                  ? { kind: "error", code: cancellationError }
+                  : !permitted || (input && input.account !== "ada")
                     ? { kind: "error", code: "forbidden" }
                     : input
                       ? {
@@ -323,7 +326,12 @@ export class FakeServicesWire {
                         }
                       : {
                           kind: "publication",
-                          ...(operation.op !== "list" ? this.workspace.projects.publicationActivity(operation.workspaceId, device) : { running: false, canStop: false }),
+                          ...(operation.op !== "list"
+                            ? this.workspace.projects.publicationActivity(
+                                operation.workspaceId,
+                                device,
+                              )
+                            : { running: false, canStop: false }),
                           publication:
                             operation.op !== "list"
                               ? this.workspace.projects.publication(operation.workspaceId)

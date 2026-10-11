@@ -91,7 +91,11 @@ export class GitHubRepositories {
     }
   }
   /** Caller journals intent before admission and reconciles failures; no automatic retries. */
-  async create(input: RepositoryPublishInput, signal: AbortSignal, dispatch?: MutationDispatch): Promise<HostedRepository> {
+  async create(
+    input: RepositoryPublishInput,
+    signal: AbortSignal,
+    dispatch?: MutationDispatch,
+  ): Promise<HostedRepository> {
     const value = RepositoryPublishInput.parse(input);
     if (value.host !== this.host || value.account !== this.account)
       throw new ForgeError("forbidden");
@@ -99,12 +103,18 @@ export class GitHubRepositories {
       value.owner.toLowerCase() === this.account.toLowerCase()
         ? "user/repos"
         : `orgs/${value.owner}/repos`;
-    const response = await this.api.request(path, signal, {
-      name: value.name,
-      description: value.description,
-      private: value.visibility === "private",
-      auto_init: false,
-    }, "POST", dispatch);
+    const response = await this.api.request(
+      path,
+      signal,
+      {
+        name: value.name,
+        description: value.description,
+        private: value.visibility === "private",
+        auto_init: false,
+      },
+      "POST",
+      dispatch,
+    );
     let repository: HostedRepository;
     try {
       repository = hosted(this.host, response.body);

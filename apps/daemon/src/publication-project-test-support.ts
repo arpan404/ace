@@ -13,7 +13,10 @@ export const input = {
   description: "A project",
   visibility: "private",
 } as const;
-export async function setup(options: Parameters<typeof publicationCli>[0] = {}, projects: Pick<ProjectsOptions, "git"> = {}) {
+export async function setup(
+  options: Parameters<typeof publicationCli>[0] = {},
+  projects: Pick<ProjectsOptions, "git"> = {},
+) {
   const cli = await publicationCli(options);
   const f = await projectFixture({
     ...projects,

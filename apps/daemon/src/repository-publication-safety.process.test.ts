@@ -110,7 +110,6 @@ test("publication cannot upload unscanned tag messages through automatic tag fol
   }
 });
 
-
 test("sensitive paths in an already-remote subtree are still blocked when reused in new history", async () => {
   const f = await setup();
   try {
@@ -129,5 +128,30 @@ test("sensitive paths in an already-remote subtree are still blocked when reused
     await f.git(f.path, ["commit", "-m", "Remove again"]);
     expect(await f.publish()).toMatchObject({ ok: false, error: "publication_sensitive_history" });
     expect((await f.git(remote, ["rev-parse", "HEAD"])).stdout).toBe(before);
-  } finally { await f.cleanup(); }
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("secret content in an already-remote blob is blocked when reused and deleted in new history", async () => {
+  const f = await setup();
+  try {
+    const remote = await configure(f);
+    await commit(f, "old.txt", "ghp_" + "x".repeat(32));
+    const old = (await f.git(f.path, ["rev-parse", "HEAD"])).stdout.trim();
+    await f.git(f.path, ["push", `file://${remote}`, "HEAD:refs/heads/trunk"]);
+    await f.git(f.path, ["rm", "old.txt"]);
+    await f.git(f.path, ["commit", "-m", "Clean"]);
+    expect(await f.publish()).toMatchObject({ ok: true });
+    const before = (await f.git(remote, ["rev-parse", "HEAD"])).stdout;
+    await f.git(f.path, ["checkout", old, "--", "old.txt"]);
+    await f.git(f.path, ["mv", "old.txt", "reused.txt"]);
+    await f.git(f.path, ["commit", "-m", "Reuse blob"]);
+    await f.git(f.path, ["rm", "reused.txt"]);
+    await f.git(f.path, ["commit", "-m", "Remove again"]);
+    expect(await f.publish()).toMatchObject({ ok: false, error: "publication_sensitive_history" });
+    expect((await f.git(remote, ["rev-parse", "HEAD"])).stdout).toBe(before);
+  } finally {
+    await f.cleanup();
+  }
 });

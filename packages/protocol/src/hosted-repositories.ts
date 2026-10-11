@@ -65,8 +65,12 @@ export const HostedRepositoriesResult = z.object({
       account: GitHubAccount,
       host: GitHubHost,
     }),
-    z.object({ kind: z.literal("publication"), publication: RepositoryPublication.nullable(),
-      running: z.boolean().default(false), canStop: z.boolean().default(false) }),
+    z.object({
+      kind: z.literal("publication"),
+      publication: RepositoryPublication.nullable(),
+      running: z.boolean().default(false),
+      canStop: z.boolean().default(false),
+    }),
     z.object({ kind: z.literal("error"), code: z.string().max(100) }),
   ]),
 });

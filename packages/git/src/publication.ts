@@ -4,7 +4,12 @@ import { projectInfo, validateCloneUrl, type ProjectGitPolicy } from "./projects
 import { GitError } from "./types.ts";
 import { hash } from "./decode.ts";
 
-export type PublicationGitInput = { worktree: string; directoryFd: number; signal: AbortSignal; guard?: () => void };
+export type PublicationGitInput = {
+  worktree: string;
+  directoryFd: number;
+  signal: AbortSignal;
+  guard?: () => void;
+};
 export async function publicationInfo(repository: Repository, input: PublicationGitInput) {
   const info = await projectInfo(repository.cli, input.worktree, input.directoryFd, input.signal);
   const head = await repository.cli.call(input.worktree, ["rev-parse", "--verify", "HEAD"], {
@@ -65,8 +70,14 @@ export async function pushPublication(
       throw new GitError("invalid_argument", "Publication origin changed");
     if (!info.head) return "empty";
     if (!info.branch) throw new GitError("invalid_argument", "Select a branch before publishing");
-    const transport = ["-c", "protocol.allow=never",
-      ...(policy.protocols ?? ["https", "ssh"]).flatMap((protocol) => ["-c", `protocol.${protocol}.allow=always`])];
+    const transport = [
+      "-c",
+      "protocol.allow=never",
+      ...(policy.protocols ?? ["https", "ssh"]).flatMap((protocol) => [
+        "-c",
+        `protocol.${protocol}.allow=always`,
+      ]),
+    ];
     await scanPublication(repository.cli, { ...input, head: info.head, transport });
     // Pin both destination and revision. External edits to origin/HEAD cannot redirect this push.
     await repository.cli.call(

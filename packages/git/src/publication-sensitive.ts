@@ -4,6 +4,7 @@ import { z } from "zod";
 import { GitError } from "./types.ts";
 
 export function sensitivePublicationPath(path: string): boolean {
+  if (containsSecretText(path)) return true;
   return path
     .split("/")
     .some(
@@ -55,7 +56,8 @@ export function assertPublicationTree(bytes: Buffer, hashBytes: number): string[
     if (sensitivePublicationPath(name))
       throw new GitError("sensitive_publication", "Sensitive publication path");
     const mode = bytes.subarray(offset, space).toString("ascii");
-    if (mode === "40000" || mode === "040000") children.push(bytes.subarray(end + 1, end + 1 + hashBytes).toString("hex"));
+    if (mode !== "160000")
+      children.push(bytes.subarray(end + 1, end + 1 + hashBytes).toString("hex"));
     offset = end + 1 + hashBytes;
   }
   return children;
@@ -74,8 +76,9 @@ export function inspectPublicationBatch(bytes: Buffer, expected: readonly ScanOb
     const content = bytes.subarray(offset, offset + object.size);
     if (content.length !== object.size || bytes[offset + object.size] !== 10)
       incompletePublicationScan();
-    if (object.type === "tree") children.push(...assertPublicationTree(content, object.id.length / 2));
-    else assertPublicationText(content);
+    if (object.type === "tree") {
+      for (const id of assertPublicationTree(content, object.id.length / 2)) children.push(id);
+    } else assertPublicationText(content);
     offset += object.size + 1;
   }
   if (offset !== bytes.length) incompletePublicationScan();

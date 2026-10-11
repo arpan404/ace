@@ -94,21 +94,33 @@ export async function scanPublication(
   let batchBytes = 0;
   const flush = async () => {
     if (!batch.length) return;
-    const bytes = await read(["cat-file", "--batch"], batch.map((item) => item.id).join("\n") + "\n", batchBytes + batch.length * 128);
+    const bytes = await read(
+      ["cat-file", "--batch"],
+      batch.map((item) => item.id).join("\n") + "\n",
+      batchBytes + batch.length * 128,
+    );
     try {
-      // Reused subtrees may already be remote, but every path in a new commit still needs inspection.
-      for (const id of inspectPublicationBatch(bytes, batch)) if (!objects.has(id)) {
-        objects.add(id); ids.push(id);
+      // Reused trees and blobs may already be remote, but new commits still need inspection.
+      for (const id of inspectPublicationBatch(bytes, batch)) {
+        if (objects.has(id)) continue;
+        objects.add(id);
+        ids.push(id);
         if (objects.size > 100000) incompletePublicationScan();
       }
-    } finally { bytes.fill(0); }
-    batch.length = 0; batchBytes = 0;
+    } finally {
+      bytes.fill(0);
+    }
+    batch.length = 0;
+    batchBytes = 0;
   };
   let position = 0;
   while (position < ids.length) {
     const group = ids.slice(position, position + 512);
     position += group.length;
-    const headers = (await read(["cat-file", "--batch-check"], group.join("\n") + "\n")).toString("ascii").trim().split("\n");
+    const headers = (await read(["cat-file", "--batch-check"], group.join("\n") + "\n"))
+      .toString("ascii")
+      .trim()
+      .split("\n");
     if (headers.length !== group.length) incompletePublicationScan();
     for (const [index, header] of headers.entries()) {
       const object = objectHeader(header);
@@ -116,7 +128,8 @@ export async function scanPublication(
       total += object.size;
       if (total > contentLimit) incompletePublicationScan();
       if (batch.length >= 256 || batchBytes + object.size > 16 * 1024 * 1024) await flush();
-      batch.push(object); batchBytes += object.size + 1;
+      batch.push(object);
+      batchBytes += object.size + 1;
     }
     await flush();
   }

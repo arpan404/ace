@@ -283,7 +283,8 @@ export class Projects {
             );
             this.check(allowed);
             // Keep the durable failure even when cancelled Git work fences metadata reads.
-            if (publication.error) return { ok: false, error: publication.error, publication, workspace: project };
+            if (publication.error)
+              return { ok: false, error: publication.error, publication, workspace: project };
             const inspection = await this.inspectDirectory(directory);
             const workspace = this.catalog.update(
               p.workspaceId,
@@ -507,7 +508,11 @@ export class Projects {
   async publicationState(id: WorkspaceId, device: string, allowed: () => boolean) {
     const publication = await this.publicationStatus(id, allowed);
     const activity = this.publications?.activity(id, device) ?? { running: false, canStop: false };
-    return { publication, ...activity, running: activity.running || this.destinations.has(this.catalog.get(id).path) };
+    return {
+      publication,
+      ...activity,
+      running: activity.running || this.destinations.has(this.catalog.get(id).path),
+    };
   }
   async cancelPublication(id: WorkspaceId, device: string, allowed: () => boolean) {
     await this.publicationStatus(id, allowed);

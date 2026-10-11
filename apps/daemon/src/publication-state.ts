@@ -44,8 +44,10 @@ export function publicationRemoteMatches(
   );
 }
 export function publicationError(error: unknown): string {
-  if (error instanceof GitError && error.code === "sensitive_publication") return "publication_sensitive_history";
-  if (error instanceof GitError && error.code === "publication_scan_incomplete") return "publication_scan_incomplete";
+  if (error instanceof GitError && error.code === "sensitive_publication")
+    return "publication_sensitive_history";
+  if (error instanceof GitError && error.code === "publication_scan_incomplete")
+    return "publication_scan_incomplete";
   if (error instanceof GitError && error.code === "not_a_repo") return "publication_not_repository";
   if (error instanceof ForgeError) return `forge_${error.kind}`;
   if (error instanceof Error && /^publication_[a-z_]+$/.test(error.message)) return error.message;

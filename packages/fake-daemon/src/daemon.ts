@@ -985,9 +985,14 @@ export class FakeDaemon implements Host {
     }
     if (!this.canManageProjects(command.deviceId))
       return Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
-    if (command.payload.type !== "workspace.clone" && command.payload.type !== "workspace.publish") return Promise.resolve(this.command(command));
-    return projectIntent(command, { projects: this.servicesWire.workspace.projects,
-      receipts: this.receipts, flights: this.projectFlights, refusal: this.refusals.get(command.payload.type) });
+    if (command.payload.type !== "workspace.clone" && command.payload.type !== "workspace.publish")
+      return Promise.resolve(this.command(command));
+    return projectIntent(command, {
+      projects: this.servicesWire.workspace.projects,
+      receipts: this.receipts,
+      flights: this.projectFlights,
+      refusal: this.refusals.get(command.payload.type),
+    });
   }
 
   command(command: Command): CommandResult {

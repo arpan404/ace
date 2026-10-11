@@ -190,7 +190,8 @@ export class GitCli {
         stdio: ["pipe", "pipe", "pipe"],
       };
       options.beforeSpawn?.();
-      if (options.signal?.aborted) throw new GitError("git_cancelled", "Git operation cancelled before dispatch");
+      if (options.signal?.aborted)
+        throw new GitError("git_cancelled", "Git operation cancelled before dispatch");
       const child =
         options.directoryFd === undefined
           ? this.runtime.spawn(this.binary, ["--no-pager", ...args], spawnOptions)

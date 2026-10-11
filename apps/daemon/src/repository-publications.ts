@@ -11,26 +11,38 @@ import {
   RepositoryPublishInput,
   type WorkspaceId,
 } from "@ace/protocol";
-import { GitError, publicationOriginMatches, type GitService, type ProjectGitPolicy } from "@ace/git";
+import {
+  GitError,
+  publicationOriginMatches,
+  type GitService,
+  type ProjectGitPolicy,
+} from "@ace/git";
 import type { Store } from "./store.ts";
 import type { SourceControl } from "./source-control.ts";
 import type { ProjectDirectory } from "./project-directory.ts";
 
-const saved = z.object({ device: z.string(), publication: RepositoryPublication, dispatch: z.enum(["pending", "possible"]).optional() });
+const saved = z.object({
+  device: z.string(),
+  publication: RepositoryPublication,
+  dispatch: z.enum(["pending", "possible"]).optional(),
+});
 /** One durable intent per local project. A dispatched create is never repeated. */
 export class RepositoryPublications {
   private store: Store;
   private source: SourceControl;
   private now: () => number;
-  private flights = new Map<string, { device: string; controller: AbortController; git: boolean }>();
+  private flights = new Map<
+    string,
+    { device: string; controller: AbortController; git: boolean }
+  >();
   private stopPreferences: () => void;
   constructor(store: Store, source: SourceControl, now: () => number) {
     this.store = store;
     this.source = source;
     this.now = now;
     this.stopPreferences = source.listen(() => {
-      for (const flight of this.flights.values()) if (flight.git)
-        flight.controller.abort(new ForgeError("preferences_changed"));
+      for (const flight of this.flights.values())
+        if (flight.git) flight.controller.abort(new ForgeError("preferences_changed"));
     });
     store.atomic((db) =>
       db.exec(
@@ -46,7 +58,11 @@ export class RepositoryPublications {
   }
   status(id: WorkspaceId): RepositoryPublication | null {
     const record = this.record(id);
-    if (record?.dispatch === "pending" && record.publication.phase === "creating" && !this.flights.has(id))
+    if (
+      record?.dispatch === "pending" &&
+      record.publication.phase === "creating" &&
+      !this.flights.has(id)
+    )
       return { ...record.publication, phase: "prepared" as const };
     return record?.publication ?? null;
   }
@@ -54,11 +70,21 @@ export class RepositoryPublications {
     const flight = this.flights.get(id);
     return { running: flight !== undefined, canStop: flight?.device === device };
   }
-  private save(device: string, publication: RepositoryPublication, dispatch?: "pending" | "possible"): void {
+  private save(
+    device: string,
+    publication: RepositoryPublication,
+    dispatch?: "pending" | "possible",
+  ): void {
     publication.updatedAt = this.now();
-    const record = saved.parse({ device, publication, dispatch: dispatch ?? (
-      publication.phase === "prepared" ? "pending" : this.record(publication.workspaceId)?.dispatch ?? "possible"
-    ) });
+    const record = saved.parse({
+      device,
+      publication,
+      dispatch:
+        dispatch ??
+        (publication.phase === "prepared"
+          ? "pending"
+          : (this.record(publication.workspaceId)?.dispatch ?? "possible")),
+    });
     this.store
       .statement(
         "INSERT INTO repository_publications VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET record=excluded.record",
@@ -93,7 +119,8 @@ export class RepositoryPublications {
     const value = RepositoryPublishInput.parse(input);
     const previous = this.record(id);
     // Only a durable pre-spawn marker proves an interrupted admission never sent creation.
-    if (previous?.dispatch === "pending" && previous.publication.phase === "creating") previous.publication.phase = "prepared";
+    if (previous?.dispatch === "pending" && previous.publication.phase === "creating")
+      previous.publication.phase = "prepared";
     const publication = publicationIntent(previous, device, value, id, this.now());
     const controller = new AbortController();
     const flight = { device, controller, git: false };
@@ -119,7 +146,12 @@ export class RepositoryPublications {
         runner: identity.runner,
         now: this.now,
       });
-      const gitInput = { worktree: directory.path, directoryFd: directory.handle.fd, signal, guard: check };
+      const gitInput = {
+        worktree: directory.path,
+        directoryFd: directory.handle.fd,
+        signal,
+        guard: check,
+      };
       const info = await git.publicationInfo(gitInput);
       check();
       if (info.root !== directory.path) throw new Error("publication_requires_repo_root");
@@ -152,7 +184,8 @@ export class RepositoryPublications {
             // Release the creation reservation and preserve the failure so the form can retry.
             publication.phase = "prepared";
             this.save(device, publication);
-            if (error instanceof ForgeError && error.kind === "conflict") throw new Error("publication_name_taken");
+            if (error instanceof ForgeError && error.kind === "conflict")
+              throw new Error("publication_name_taken", { cause: error });
             throw error;
           }
           const receipt = HostedRepository.safeParse(error.receipt);
@@ -206,17 +239,24 @@ export class RepositoryPublications {
           policy,
         );
       } catch (error) {
-        if (error instanceof GitError && ["sensitive_publication", "publication_scan_incomplete"].includes(error.code)) throw error;
+        if (
+          error instanceof GitError &&
+          ["sensitive_publication", "publication_scan_incomplete"].includes(error.code)
+        )
+          throw error;
         signal.throwIfAborted();
-        throw new Error("publication_git_transport_failed");
+        throw new Error("publication_git_transport_failed", { cause: error });
       }
       check();
       this.save(device, publication);
       return publication;
     } catch (error) {
-      publication.error = signal.reason instanceof ForgeError
-        ? publicationError(signal.reason)
-        : signal.aborted ? "publication_cancelled" : publicationError(error);
+      publication.error =
+        signal.reason instanceof ForgeError
+          ? publicationError(signal.reason)
+          : signal.aborted
+            ? "publication_cancelled"
+            : publicationError(error);
       this.save(device, publication);
       return publication;
     } finally {

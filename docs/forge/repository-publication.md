@@ -16,7 +16,6 @@ Creation can remain uncertain if GitHub does not expose the exact requested repo
 
 Primary contracts: [authenticated repositories / user and organization creation](https://docs.github.com/en/rest/repos/repos), [GitHub CLI API](https://cli.github.com/manual/gh_api).
 
-
 Publication safety review
 
 Before every push, the Git service pins HEAD and scans its tracked files and all newly reachable commit, tree and blob objects, excluding locally verifiable commits advertised by the destination. Historical tree names are checked separately so renaming an already-remote blob to `.env` cannot evade detection. Deleted/ignored files in unpushed history still block publication. Private-key markers, credential-bearing URLs and the shared `@ace/redaction` secret patterns are checked without logging matched content. Sensitive paths include `.env*`, private-key containers and credential stores. The public/private choice does not bypass the scan.

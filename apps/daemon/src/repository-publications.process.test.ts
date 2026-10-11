@@ -291,30 +291,41 @@ test("case-equivalent publication intents resume the saved repository without an
   }
 });
 
-
 test("a confirmed creation conflict never adopts the other writer's matching repository", async () => {
   const f = await setup();
   try {
     await f.cli.update({ conflict: true });
-    expect(await f.publish()).toMatchObject({ ok: false, error: "publication_name_taken",
-      publication: { phase: "prepared", remote: null } });
+    expect(await f.publish()).toMatchObject({
+      ok: false,
+      error: "publication_name_taken",
+      publication: { phase: "prepared", remote: null },
+    });
     expect((await f.cli.state()).creates).toBe(0);
     expect((await f.git(f.path, ["remote"])).stdout.trim()).toBe("");
     expect(await f.publish()).toMatchObject({ ok: false, error: "publication_name_taken" });
     expect((await f.git(f.path, ["remote"])).stdout.trim()).toBe("");
-  } finally { await f.cleanup(); }
+  } finally {
+    await f.cleanup();
+  }
 });
-
 
 test("a refused create identity preflight stays editable and restoring the account can publish", async () => {
   const f = await setup();
   try {
     await f.cli.update({ wrongUser: 4 });
-    expect(await f.publish()).toMatchObject({ ok: false, error: "forge_forbidden",
-      publication: { phase: "prepared", remote: null } });
+    expect(await f.publish()).toMatchObject({
+      ok: false,
+      error: "forge_forbidden",
+      publication: { phase: "prepared", remote: null },
+    });
     expect((await f.cli.state()).creates).toBe(0);
     await f.cli.update({ wrongUser: 0 });
-    expect(await f.publish()).toMatchObject({ ok: true, publication: { phase: "empty", remote: { id: 1 } } });
+    expect(await f.publish()).toMatchObject({
+      ok: true,
+      publication: { phase: "empty", remote: { id: 1 } },
+    });
     expect((await f.cli.state()).creates).toBe(1);
-  } finally { await f.cleanup(); }
+  } finally {
+    await f.cleanup();
+  }
 });

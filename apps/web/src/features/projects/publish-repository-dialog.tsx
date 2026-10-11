@@ -87,13 +87,24 @@ export function PublishRepositoryDialog(props: {
     // Refresh status must reread the durable journal even when the client and project are stable.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [client, props.projectId, project?.name, revision, queries]);
-  useEffect(() => client?.onMessage((message) => {
-    if (message.type !== "commandResult" || message.publication?.workspaceId !== props.projectId) return;
-    setPublication(message.publication); setRunning(false); setCanStop(false);
-  }), [client, props.projectId]);
+  useEffect(
+    () =>
+      client?.onMessage((message) => {
+        if (
+          message.type !== "commandResult" ||
+          message.publication?.workspaceId !== props.projectId
+        )
+          return;
+        setPublication(message.publication);
+        setRunning(false);
+        setCanStop(false);
+      }),
+    [client, props.projectId],
+  );
   const active = busy || running;
   const locked =
-    active || (publication !== undefined && publication !== null && publication.phase !== "prepared");
+    active ||
+    (publication !== undefined && publication !== null && publication.phase !== "prepared");
   const update = (patch: Partial<RepositoryPublishInput>) => {
     if (draft) setDraft({ ...draft, ...patch });
   };
@@ -136,7 +147,9 @@ export function PublishRepositoryDialog(props: {
         operation: { op: "publication.cancel", workspaceId: WorkspaceId.parse(props.projectId) },
       });
       if (reply.result.kind !== "publication") throw new Error("stop_failed");
-      setPublication(reply.result.publication); setRunning(reply.result.running); setCanStop(reply.result.canStop);
+      setPublication(reply.result.publication);
+      setRunning(reply.result.running);
+      setCanStop(reply.result.canStop);
     } catch {
       setError("Couldn't stop publication. Refresh status to see its result.");
     }
@@ -237,7 +250,11 @@ export function PublishRepositoryDialog(props: {
             running; reopen it to see saved progress.
           </p>
           <Footer closeLabel={active ? "Hide" : "Close"}>
-            {active && (busy || canStop) && <Button disabled={!client} onClick={() => void cancel()}>Stop publication</Button>}
+            {active && (busy || canStop) && (
+              <Button disabled={!client} onClick={() => void cancel()}>
+                Stop publication
+              </Button>
+            )}
             <Button onClick={() => setRevision((value) => value + 1)} disabled={busy}>
               Refresh status
             </Button>
