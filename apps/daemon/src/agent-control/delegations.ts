@@ -89,7 +89,7 @@ export class DelegationService {
     );
     this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
     // Recovery visits current work only, never transcript history or old receipts.
-    for (const edge of this.journal.active()) this.reconcile(edge);
+    for (const edge of [...this.journal.active(), ...this.journal.revived()]) this.reconcile(edge);
     this.arm();
   }
   authorize(caller: McpAttribution, target: ThreadId, write: boolean): boolean {
@@ -363,6 +363,7 @@ export class DelegationService {
       changed = true;
       if (event.payload.type === "run.started") {
         if (edge) this.deps.store.atomic(() => this.journal.started(event));
+        this.reconcile(edge);
       } else if (event.payload.type === "usage.updated" && edge) {
         this.deps.store.atomic(() => this.journal.usage(edge.rootId, event));
         const tree = this.journal.tree(edge.rootId, this.deps.clock.now());
@@ -376,6 +377,32 @@ export class DelegationService {
     const thread = this.deps.store.getThread(edge.childId);
     if (!thread) return;
     this.deps.store.atomic(() => {
+      if (edge.phase === "settled" && !["done", "failed"].includes(thread.status.state)) {
+        this.journal.revive(edge);
+        const tree = this.journal.tree(edge.childId, this.deps.clock.now());
+        if (
+          this.journal.stopped(edge.childId) ||
+          this.journal.ancestorStopped(edge.childId) ||
+          tree.cancelled ||
+          delegationBudget(tree, this.policy, this.deps.clock.now()) ||
+          this.journal.concurrent(edge.parentId) > this.policy.maxConcurrent ||
+          this.journal.activeCount() > 64
+        ) {
+          const request = controlCommandId(
+            edge.childId,
+            String(edge.generation),
+            "native.interrupt",
+          );
+          this.cancelDescendants(edge.childId, request);
+          const result = this.command(request, {
+            type: "thread.interrupt",
+            threadId: edge.childId,
+            cascade: true,
+          });
+          if (!result.ok) throw controlAdmissionError(result.error ?? "Interrupt failed");
+          edge.phase = "cancelling";
+        }
+      }
       this.deps.engine.updateChild(edge.parentId, thread);
       if (edge.phase === "settled" || !["done", "failed"].includes(thread.status.state)) {
         this.deps.engine.delegationStarted(edge, thread);
