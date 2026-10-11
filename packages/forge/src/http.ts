@@ -1,3 +1,5 @@
+import { WriteDispatch } from "./write-dispatch.ts";
+import { assertGraphqlResult } from "./graphql-errors.ts";
 import { createHash } from "node:crypto";
 import { immutable } from "./immutable.ts";
 import { z } from "zod";
@@ -41,6 +43,21 @@ export class GhApi {
     signal: AbortSignal,
     body?: unknown,
     method = body === undefined ? "GET" : "POST",
+    dispatch?: WriteDispatch,
+  ): Promise<Page> {
+    try {
+      return await this.#request(path, signal, body, method, dispatch);
+    } catch (error) {
+      dispatch?.reject(error);
+      throw error;
+    }
+  }
+  async #request(
+    path: string,
+    signal: AbortSignal,
+    body?: unknown,
+    method = body === undefined ? "GET" : "POST",
+    dispatch?: WriteDispatch,
   ): Promise<Page> {
     const args = [
       "api",
@@ -54,7 +71,11 @@ export class GhApi {
       "Accept: application/vnd.github+json",
     ];
     const input = body === undefined ? undefined : JSON.stringify(body);
-    const reusable = method === "GET" || (path === "graphql" && method === "POST");
+    const graphqlRead =
+      path === "graphql" &&
+      method === "POST" &&
+      z.object({ query: z.string() }).safeParse(body).data?.query.trimStart().startsWith("query");
+    const reusable = method === "GET" || Boolean(graphqlRead);
     // An unreadable acknowledgement can still follow an accepted write.
     if (!reusable) {
       this.#cache.clear();
@@ -70,6 +91,8 @@ export class GhApi {
     if (method === "GET" && cached?.headers.etag)
       args.push("--header", `If-None-Match: ${cached.headers.etag}`);
     if (input !== undefined) args.push("--input", "-");
+    if (signal.aborted) throw new ForgeError("cancelled", undefined, false);
+    dispatch?.begin();
     const output = await this.#runner({
       command: this.#command,
       args,
@@ -119,12 +142,16 @@ export class GhApi {
           : Number.isFinite(reset) && reset > this.#now()
             ? reset
             : this.#now() + 60_000;
-      throw new ForgeError("rate_limit", retryAt);
+      throw new ForgeError("rate_limit", retryAt, false);
     }
-    if (code === 404) throw new ForgeError("not_found");
-    if (code === 401 || code === 403) throw new ForgeError("forbidden");
-    if (code === 409 || code === 422) throw new ForgeError("conflict");
-    if (code < 200 || code >= 300 || output.code !== 0) throw new ForgeError("cli");
+    if (code === 404) throw new ForgeError("not_found", undefined, false);
+    if (code === 401 || code === 403) throw new ForgeError("forbidden", undefined, false);
+    if (code === 409 || code === 422) throw new ForgeError("conflict", undefined, false);
+    if (code < 200 || code >= 300) throw new ForgeError("cli");
+    const graphqlResponse = path === "graphql";
+    // gh exits nonzero for GraphQL errors even when HTTP succeeded. Decode the
+    // acknowledgement first so a complete refusal can release the write fence.
+    if (output.code !== 0 && !graphqlResponse) throw new ForgeError("cli");
     const version = createHash("sha256").update(text).digest("hex");
     const safeHeaders = {
       ...(headers.etag && /^[\x20-\x7e]{1,512}$/.test(headers.etag) ? { etag: headers.etag } : {}),
@@ -142,6 +169,8 @@ export class GhApi {
     } catch {
       throw new ForgeError("invalid_data");
     }
+    if (graphqlResponse) assertGraphqlResult(data);
+    if (output.code !== 0) throw new ForgeError("cli");
     const page = { version, bytes: Buffer.byteLength(text), body: data, headers: safeHeaders };
     if (!reusable) {
       this.#cache.clear();
@@ -217,25 +246,33 @@ export class GhApi {
     sha: string,
     method: "merge" | "squash" | "rebase",
     signal: AbortSignal,
+    dispatch?: WriteDispatch,
   ): Promise<void> {
     this.#cache.clear();
     this.#cacheBytes = 0;
-    const result = await this.#runner({
-      command: this.#command,
-      args: [
-        "pr",
-        "merge",
-        String(number),
-        "--repo",
-        repo,
-        "--auto",
-        `--${method}`,
-        "--match-head-commit",
-        sha,
-      ],
-      signal,
-      mode: "json",
-    });
+    dispatch?.begin();
+    let result;
+    try {
+      result = await this.#runner({
+        command: this.#command,
+        args: [
+          "pr",
+          "merge",
+          String(number),
+          "--repo",
+          repo,
+          "--auto",
+          `--${method}`,
+          "--match-head-commit",
+          sha,
+        ],
+        signal,
+        mode: "json",
+      });
+    } catch (error) {
+      dispatch?.reject(error);
+      throw error;
+    }
     if (result.code !== 0) throw new ForgeError("cli");
     this.#cache.clear();
     this.#cacheBytes = 0;

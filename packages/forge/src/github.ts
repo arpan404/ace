@@ -1,3 +1,4 @@
+import type { WriteDispatch } from "./write-dispatch.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import type { ForgePrSearch } from "@ace/protocol/forge-browser";
 import { z } from "zod";
@@ -137,6 +138,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     commentId: number,
     body: string,
     signal: AbortSignal,
+    dispatch?: WriteDispatch,
   ): Promise<void> {
     this.#ref(number);
     positive.parse(commentId);
@@ -145,11 +147,13 @@ export class GitHubForge implements Forge, ForgeBrowser {
       `${this.#root}/pulls/${number}/comments/${commentId}/replies`,
       signal,
       { body },
+      "POST",
+      dispatch,
     );
     if (!z.object({ id: positive }).safeParse(response.body).success)
       throw new ForgeError("invalid_data");
   }
-  async requestReviews(number: number, reviewers: string[], signal: AbortSignal): Promise<void> {
+  async requestReviews(number: number, reviewers: string[], signal: AbortSignal, dispatch?: WriteDispatch): Promise<void> {
     this.#ref(number);
     const names = z
       .array(z.string().regex(/^[\w-]+$/))
@@ -160,6 +164,8 @@ export class GitHubForge implements Forge, ForgeBrowser {
       `${this.#root}/pulls/${number}/requested_reviewers`,
       signal,
       { reviewers: names },
+      "POST",
+      dispatch,
     );
     if (
       !z
@@ -173,6 +179,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     headSha: string,
     method: MergeMethod,
     signal: AbortSignal,
+    dispatch?: WriteDispatch,
   ): Promise<void> {
     this.#ref(number);
     shaSchema.parse(headSha);
@@ -182,16 +189,22 @@ export class GitHubForge implements Forge, ForgeBrowser {
       signal,
       { sha: headSha, merge_method: method },
       "PUT",
+      dispatch,
     );
     const parsed = z.object({ merged: z.boolean() }).safeParse(response.body);
     if (!parsed.success) throw new ForgeError("invalid_data");
-    if (!parsed.data.merged) throw new ForgeError("conflict");
+    if (!parsed.data.merged) {
+      const error = new ForgeError("conflict", undefined, false);
+      dispatch?.reject(error);
+      throw error;
+    }
   }
   async enableAutoMerge(
     number: number,
     headSha: string,
     method: MergeMethod,
     signal: AbortSignal,
+    dispatch?: WriteDispatch,
   ): Promise<void> {
     this.#ref(number);
     shaSchema.parse(headSha);
@@ -202,6 +215,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
       headSha,
       method,
       signal,
+      dispatch,
     );
   }
   async logTail(jobId: number, signal: AbortSignal) {

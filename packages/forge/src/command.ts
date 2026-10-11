@@ -30,7 +30,7 @@ export function createCommandRunner(options: {
   )
     throw new RangeError("Invalid command limits");
   return async (request) => {
-    if (request.signal.aborted) throw new ForgeError("cancelled");
+    if (request.signal.aborted) throw new ForgeError("cancelled", undefined, false);
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...options.env,
@@ -39,11 +39,22 @@ export function createCommandRunner(options: {
     };
     delete env.GH_DEBUG;
     delete env.DEBUG;
-    const child = spawn(request.command, [...request.args], {
-      cwd: options.cwd,
-      env,
-      stdio: ["pipe", "pipe", "pipe"],
-      detached: process.platform !== "win32",
+    const launch = () =>
+      spawn(request.command, [...request.args], {
+        cwd: options.cwd,
+        env,
+        stdio: ["pipe", "pipe", "pipe"],
+        detached: process.platform !== "win32",
+      });
+    let child: ReturnType<typeof launch>;
+    try {
+      child = launch();
+    } catch {
+      throw new ForgeError("cli", undefined, false);
+    }
+    let dispatched = false;
+    child.once("spawn", () => {
+      dispatched = true;
     });
     let failure: ForgeError | undefined;
     const stop = () => {
@@ -87,7 +98,7 @@ export function createCommandRunner(options: {
     try {
       const code = await new Promise<number | null>((resolve) => {
         child.once("error", () => {
-          failure = new ForgeError("cli");
+          failure = new ForgeError("cli", undefined, dispatched ? undefined : false);
         });
         child.once("exit", stop);
         child.once("close", resolve);
