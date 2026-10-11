@@ -237,6 +237,14 @@
       ],
       "type": "string"
     },
+    "inactiveTaskIds": {
+      "items": {
+        "pattern": "^[a-f0-9]{64}$",
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
     "lease": {
       "maxLength": 128,
       "minLength": 1,

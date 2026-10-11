@@ -27,6 +27,7 @@ export class RemoteAgentBroker {
   private importFailures = new Map<string, number>();
   private routingProgress = new Map<string, number>();
   private routeSequence = 0;
+  private livenessSupported = false;
   private jobs = new Map<string, { host: string; work: Promise<void> }>();
   private onForbidden: (() => void) | undefined;
   constructor(options: {
@@ -52,6 +53,7 @@ export class RemoteAgentBroker {
     this.cache.clear();
     this.importFailures.clear();
     this.routingProgress.clear();
+    this.livenessSupported = false;
   }
   private tick() {
     if (this.closed) return;
@@ -169,8 +171,15 @@ export class RemoteAgentBroker {
     }
     if (this.closed || !registration.ok || !registration.lease) return;
     const lease = registration.lease;
-    const reply = await this.primary.request({ type: "delegation.broker.poll", lease });
+    const trackedTaskIds = this.livenessSupported ? this.tracked() : [];
+    const reply = await this.primary.request({
+      type: "delegation.broker.poll",
+      lease,
+      ...(trackedTaskIds.length ? { trackedTaskIds } : {}),
+    });
     if (!reply.ok || this.closed) return;
+    this.livenessSupported = reply.inactiveTaskIds !== undefined;
+    for (const id of reply.inactiveTaskIds ?? []) if (trackedTaskIds.includes(id)) this.forget(id);
     const tasks = reply.tasks ?? [];
     // Polls are bounded pages. Track last service independently of page membership
     // so each host routes its least recently serviced visible task on every page.
@@ -218,6 +227,22 @@ export class RemoteAgentBroker {
   private forget(id: string) {
     this.routingProgress.delete(id);
     this.importFailures.delete(id);
+  }
+  private tracked(): string[] {
+    const ids: string[] = [];
+    const entries = this.routingProgress.entries();
+    const limit = Math.min(64, this.routingProgress.size);
+    for (let count = 0; count < limit; count++) {
+      const next = entries.next();
+      if (next.done) break;
+      const [id, progress] = next.value;
+      // Rotate only iteration order, leaving routing priority unchanged. Each
+      // poll does bounded work even when many omitted tasks need confirmation.
+      this.routingProgress.delete(id);
+      this.routingProgress.set(id, progress);
+      if (!this.jobs.has(id)) ids.push(id);
+    }
+    return ids;
   }
   private async outcome(
     client: RemoteClient,

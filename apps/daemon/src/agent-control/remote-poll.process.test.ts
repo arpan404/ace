@@ -104,11 +104,18 @@ test("capacity polls keep the client ready and fairly route active work and canc
     const first = await client.request({ type: "delegation.broker.poll", lease: renewed.lease });
     expect(RemoteDelegationResult.safeParse(first).success).toBe(true);
     const seen = new Set(first.tasks?.map((task) => task.id));
+    const omitted = [...expected].find((id) => !seen.has(id));
+    if (!omitted) throw new Error("Capacity poll did not omit a task");
     if (!cancelling) throw new Error("No live task");
     f.controls.remote.stopTask(cancelling);
     for (let poll = 0; poll < 3; poll++) {
-      const reply = await client.request({ type: "delegation.broker.poll", lease: renewed.lease });
+      const reply = await client.request({
+        type: "delegation.broker.poll",
+        lease: renewed.lease,
+        trackedTaskIds: [omitted],
+      });
       expect(reply.tasks?.length).toBeLessThanOrEqual(64);
+      expect(reply.inactiveTaskIds).toEqual([]);
       for (const task of reply.tasks ?? []) seen.add(task.id);
     }
     expect(seen).toEqual(expected);
