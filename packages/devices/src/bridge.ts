@@ -1,6 +1,6 @@
 import { DeviceSubscriptions } from "./subscriptions.ts";
 import { DeviceFrameWriter } from "./frame-writer.ts";
-import { DeviceClientMessage, type DeviceServerMessage } from "@ace/protocol/devices";
+import { DeviceClientMessage, DeviceState, type DeviceServerMessage } from "@ace/protocol/devices";
 import type { Frame } from "@ace/screen";
 import { DevicesService, deviceFailure } from "./service.ts";
 import type { Actor } from "./lease.ts";
@@ -34,9 +34,13 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
     access();
     await peer.send(message);
   };
+  const stateForPeer = (state: DeviceState): DeviceState => ({
+    ...state,
+    ownedHere: service.ownsControl(state.device.id, owner),
+  });
   const unwatch = service.watch((state) => {
     if (state.threadId && !peer.canReadThread(state.threadId)) return;
-    void send({ type: "devices.state", state }).catch(close);
+    void send({ type: "devices.state", state: stateForPeer(state) }).catch(close);
   });
   // Admin peers see the whole inventory, as a "list" request would show them.
   const unwatchInventory = service.watchInventory((inventory) => {
@@ -156,10 +160,15 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
                 ? {
                     states: service
                       .states()
-                      .filter((state) => !state.threadId || peer.canReadThread(state.threadId)),
+                      .filter((state) => !state.threadId || peer.canReadThread(state.threadId))
+                      .map(stateForPeer),
                     enabled: service.isEnabled(),
                   }
-                : data;
+                : ["controller", "approve", "start", "stop", "subscribe", "unsubscribe"].includes(
+                      operation.op,
+                    )
+                  ? stateForPeer(DeviceState.parse(data))
+                  : data;
             await send({
               type: "devices.result",
               requestId: message.requestId,

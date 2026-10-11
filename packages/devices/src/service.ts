@@ -230,6 +230,11 @@ export class DevicesService {
       }
     }
   }
+  /** Human control belongs to a socket lifetime, even for the same paired device. */
+  ownsControl(id: string, owner: string): boolean {
+    const lease = this.sessions.get(id)?.lease;
+    return lease?.current()?.kind === "human" && lease.owned(owner);
+  }
   states(): DeviceState[] {
     return [...this.sessions.values()].map((session) => this.state(session));
   }

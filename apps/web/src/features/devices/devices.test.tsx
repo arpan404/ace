@@ -511,3 +511,37 @@ test("administrator refusals explain inventory and enable access immediately", a
   ).toBeTruthy();
   expect(within(panel).queryByText(/timed out/i)).toBeNull();
 });
+
+test("another connection's control offers takeover and boot acquires this panel's own lease", async () => {
+  const { DeviceClient } = await import("@ace/client/devices");
+  const { app, panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const pixel = await openDevice(panel, "Pixel 9");
+  let serial = 0;
+  const other = new DeviceClient({ id: () => `other-${++serial}`, schedule: () => () => {} });
+  other.connect(app.daemon.appDevices.transport());
+  try {
+    await waitFor(() => expect(other.getSnapshot().connected).toBe(true));
+    await act(async () => {
+      await other.request({
+        op: "controller",
+        deviceId: "android:Pixel_9_API_35",
+        controller: "human",
+      });
+    });
+    expect(
+      await within(pixel).findByText("Pixel 9 · Off · Another connection is in control"),
+    ).toBeTruthy();
+    expect(within(pixel).queryByRole("button", { name: /Hand back/ })).toBeNull();
+    await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
+    await waitFor(() => expect(statusLine(pixel)).toBe("Pixel 9 · Live · You're in control"));
+    expect(
+      other.getSnapshot().states.find((state) => state.device.id === "android:Pixel_9_API_35")
+        ?.ownedHere,
+    ).toBe(false);
+    act(() => other.disconnect());
+    expect(statusLine(pixel)).toBe("Pixel 9 · Live · You're in control");
+  } finally {
+    other.disconnect();
+  }
+});

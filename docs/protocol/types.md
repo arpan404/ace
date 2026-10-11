@@ -7886,6 +7886,7 @@ Example:
 | recording | no | boolean |  |
 | streamId | no | [ScreenId.json](schema/ScreenId.json) |  |
 | controller | yes | ["none","human","agent"] |  |
+| ownedHere | no | boolean |  |
 | holder | no | object | {"properties":{"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"agentId":{"$ref":"https://ace.local/protocol/v1/AgentId.json"}},"required":["threadId","agentId"]} |
 | leaseExpiresAt | no | number | {"minimum":0} |
 | error | no | [DeviceFailure.json](schema/DeviceFailure.json) |  |
@@ -7894,18 +7895,21 @@ Example:
 
 ```json
 {
-  "approved": true,
+  "approved": false,
+  "booting": false,
   "controller": "human",
   "device": {
-    "id": "ios:6cEA-f229191BB-FfD-3cdb899eae02bdcd4",
+    "id": "ios:-174-1CeA856592c2DD875C57-534AE00-89",
     "name": "example",
-    "platform": "android",
-    "serial": "example",
-    "state": "booted"
+    "platform": "ios",
+    "state": "shutdown"
   },
   "enabled": false,
+  "leaseExpiresAt": 0,
   "lifecycle": "failed",
-  "streamId": "SxYnHB4MCJ9GkN5PSwDXYSEeznRMb1ueQvzSHE8l3-J2YKDOIGHs31_gDfcltX"
+  "ownedHere": false,
+  "recording": true,
+  "threadId": "example"
 }
 ```
 
