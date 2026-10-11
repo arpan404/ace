@@ -3,6 +3,13 @@ use crate::{
     protocol::{Fault, Result, internal},
 };
 impl Accessibility {
+    async fn require_live_ref(&mut self, reference: &str, object: &crate::accessibility::Object) -> Result<()> {
+        self.fence_refs(object).await?;
+        if self.refs.get(reference).is_none() {
+            return Err(Fault::new("target_gone", "Accessibility element changed before dispatch"));
+        }
+        Ok(())
+    }
     pub async fn act(
         &mut self,
         reference: &str,
@@ -14,15 +21,9 @@ impl Accessibility {
             .get(reference)
             .cloned()
             .ok_or_else(|| Fault::new("target_gone", "Unknown or evicted accessibility ref"))?;
-        self.fence_refs(&object).await?;
-        if self.refs.get(reference).is_none() {
-            return Err(Fault::new("target_gone", "Accessibility lifecycle invalidated the saved ref"));
-        }
+        self.require_live_ref(reference, &object).await?;
         let (node, _, _) = self.node(&object).await?;
-        self.fence_refs(&object).await?;
-        if self.refs.get(reference).is_none() {
-            return Err(Fault::new("target_gone", "Accessibility element changed before dispatch"));
-        }
+        self.require_live_ref(reference, &object).await?;
         if node
             .states
             .iter()
@@ -31,28 +32,24 @@ impl Accessibility {
             return Err(Fault::new("bounds", "Element is disabled or offscreen"));
         }
         let result: bool = match action {
-            "focus" if node.actions.iter().any(|a| a == action) => self
-                .proxy(&object, "Component")
-                .await?
-                .call("GrabFocus", &())
-                .await
-                .map_err(internal)?,
-            "scroll" if node.actions.iter().any(|a| a == action) => self
-                .proxy(&object, "Component")
-                .await?
-                .call("ScrollTo", &(0u32,))
-                .await
-                .map_err(internal)?,
+            "focus" if node.actions.iter().any(|a| a == action) => {
+                let p = self.proxy(&object, "Component").await?;
+                self.require_live_ref(reference, &object).await?;
+                p.call("GrabFocus", &()).await.map_err(internal)?
+            }
+            "scroll" if node.actions.iter().any(|a| a == action) => {
+                let p = self.proxy(&object, "Component").await?;
+                self.require_live_ref(reference, &object).await?;
+                p.call("ScrollTo", &(0u32,)).await.map_err(internal)?
+            }
             "setValue" if node.actions.iter().any(|a| a == action) => {
                 let text = value.ok_or_else(|| Fault::new("bounds", "setValue requires value"))?;
                 if text.len() > 4096 {
                     return Err(Fault::new("bounds", "Value exceeds limit"));
                 }
-                self.proxy(&object, "EditableText")
-                    .await?
-                    .call("SetTextContents", &(text,))
-                    .await
-                    .map_err(internal)?
+                let p = self.proxy(&object, "EditableText").await?;
+                self.require_live_ref(reference, &object).await?;
+                p.call("SetTextContents", &(text,)).await.map_err(internal)?
             }
             "press" | "expand" | "select" if node.actions.iter().any(|a| a == action) => {
                 let p = self.proxy(&object, "Action").await?;
@@ -65,10 +62,12 @@ impl Accessibility {
                         break;
                     }
                 }
-                p.call(
-                    "DoAction",
-                    &(index.ok_or_else(|| Fault::new("target_gone", "Action changed"))?,),
-                )
+                let index = index.ok_or_else(|| Fault::new("target_gone", "Action changed"))?;
+                // Name discovery can await a provider that removes/replaces the
+                // object. Consume those signals after discovery, with no other
+                // awaited lookup between this check and the mutating request.
+                self.require_live_ref(reference, &object).await?;
+                p.call("DoAction", &(index,))
                 .await
                 .map_err(internal)?
             }
@@ -106,10 +105,9 @@ impl Accessibility {
             {
                 let p = self.proxy(&object, "Text").await?;
                 let offset: i32 = p.get_property("CaretOffset").await.map_err(internal)?;
-                let ok: bool = self
-                    .proxy(&object, "EditableText")
-                    .await?
-                    .call("InsertText", &(offset, text, text.chars().count() as i32))
+                let p = self.proxy(&object, "EditableText").await?;
+                self.require_live_ref(&node.reference, &object).await?;
+                let ok: bool = p.call("InsertText", &(offset, text, text.chars().count() as i32))
                     .await
                     .map_err(internal)?;
                 if ok {

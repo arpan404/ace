@@ -1,7 +1,9 @@
 //! Exercise real D-Bus reads and actions through Accessibility's public API.
 use super::*;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::net::UnixStream;
+use tokio::sync::Notify;
 
 #[derive(Default)]
 struct Control { name: String, gone: bool, presses: usize }
@@ -22,13 +24,28 @@ impl Accessible {
     fn get_state(&self) -> StateSet { StateSet::new(State::Enabled | State::Sensitive | State::Showing) }
     fn get_interfaces(&self) -> Vec<&str> { vec!["org.a11y.atspi.Action"] }
 }
-struct Action(Arc<Mutex<Control>>);
+#[derive(Default)]
+struct NameGate {
+    armed: AtomicBool,
+    allowed: AtomicUsize,
+    pending: Notify,
+    resume: Notify,
+}
+struct Action { control: Arc<Mutex<Control>>, name_gate: Arc<NameGate> }
 #[zbus::interface(name = "org.a11y.atspi.Action")]
 impl Action {
     #[zbus(property)]
     fn n_actions(&self) -> i32 { 1 }
-    fn get_name(&self, _index: i32) -> &str { "click" }
-    fn do_action(&self, _index: i32) -> bool { self.0.lock().unwrap().presses += 1; true }
+    async fn get_name(&self, _index: i32) -> &str {
+        if self.name_gate.armed.load(Ordering::SeqCst)
+            && self.name_gate.allowed.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_err()
+        {
+            self.name_gate.pending.notify_one();
+            self.name_gate.resume.notified().await;
+        }
+        "click"
+    }
+    fn do_action(&self, _index: i32) -> bool { self.control.lock().unwrap().presses += 1; true }
 }
 struct PrivateBus(std::process::Child);
 impl Drop for PrivateBus {
@@ -37,20 +54,21 @@ impl Drop for PrivateBus {
         let _ = self.0.wait();
     }
 }
-struct Fixture { ui: Accessibility, server: Connection, control: Arc<Mutex<Control>>, _bus: Option<PrivateBus> }
+struct Fixture { ui: Accessibility, server: Connection, control: Arc<Mutex<Control>>, name_gate: Arc<NameGate>, _bus: Option<PrivateBus> }
 impl Fixture {
     async fn new() -> Self {
         let control = Arc::new(Mutex::new(Control { name: "original".into(), ..Default::default() }));
+        let name_gate = Arc::new(NameGate::default());
         let (server, client) = UnixStream::pair().unwrap();
         let server = zbus::connection::Builder::unix_stream(server)
             .server(zbus::Guid::try_from("1234567890abcdef1234567890abcdef").unwrap()).unwrap()
             .p2p().serve_at("/control", Accessible(control.clone())).unwrap()
-            .serve_at("/control", Action(control.clone())).unwrap();
+            .serve_at("/control", Action { control: control.clone(), name_gate: name_gate.clone() }).unwrap();
         let client = zbus::connection::Builder::unix_stream(client).p2p();
         let (server, client) = futures_util::try_join!(server.build(), client.build()).unwrap();
         let mut ui = Accessibility::from_connection(client).await.unwrap();
         ui.scope = Some(("org.ace.Fixture".into(), OwnedObjectPath::try_from("/control").unwrap()));
-        Self { ui, server, control, _bus: None }
+        Self { ui, server, control, name_gate, _bus: None }
     }
     #[cfg(target_os = "linux")]
     async fn on_bus() -> Self {
@@ -61,17 +79,48 @@ impl Fixture {
         let mut address = String::new();
         BufReader::new(bus.0.stdout.take().unwrap()).read_line(&mut address).unwrap();
         let control = Arc::new(Mutex::new(Control { name: "original".into(), ..Default::default() }));
+        let name_gate = Arc::new(NameGate::default());
         let server = zbus::connection::Builder::address(address.trim()).unwrap()
             .serve_at("/control", Accessible(control.clone())).unwrap()
-            .serve_at("/control", Action(control.clone())).unwrap().build().await.unwrap();
+            .serve_at("/control", Action { control: control.clone(), name_gate: name_gate.clone() }).unwrap().build().await.unwrap();
         let client = zbus::connection::Builder::address(address.trim()).unwrap().build().await.unwrap();
         let mut ui = Accessibility::from_connection(client).await.unwrap();
         ui.scope = Some((server.unique_name().unwrap().to_string(), OwnedObjectPath::try_from("/control").unwrap()));
-        Self { ui, server, control, _bus: Some(bus) }
+        Self { ui, server, control, name_gate, _bus: Some(bus) }
     }
     async fn reference(&mut self) -> String {
         self.ui.tree(0, 1).await.unwrap()["tree"]["ref"].as_str().unwrap().into()
     }
+}
+
+#[tokio::test]
+async fn a_saved_ref_cannot_invoke_a_replacement_reported_while_action_name_discovery_is_pending() {
+    let mut fixture = Fixture::new().await;
+    let old = fixture.reference().await;
+    // Let the metadata snapshot read the advertised action name. Hold the
+    // following name query so replacement happens during action discovery.
+    fixture.name_gate.allowed.store(1, Ordering::SeqCst);
+    fixture.name_gate.armed.store(true, Ordering::SeqCst);
+    let gate = fixture.name_gate.clone();
+    let server = fixture.server.clone();
+    let control = fixture.control.clone();
+    let replace = async {
+        gate.pending.notified().await;
+        server.emit_signal(None::<&str>, "/control", "org.a11y.atspi.Event.Object", "ChildrenChanged",
+            &("remove", 0i32, 0i32, zbus::zvariant::OwnedValue::from(0i32), std::collections::HashMap::<String, zbus::zvariant::OwnedValue>::new())).await.unwrap();
+        control.lock().unwrap().name = "replacement".into();
+        gate.armed.store(false, Ordering::SeqCst);
+        gate.resume.notify_one();
+    };
+    let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::join!(fixture.ui.act(&old, "press", None), replace)
+    }).await.unwrap();
+    assert_eq!(result.unwrap_err().code, "target_gone");
+    assert_eq!(fixture.control.lock().unwrap().presses, 0);
+    let replacement = fixture.reference().await;
+    assert_ne!(old, replacement);
+    fixture.ui.act(&replacement, "press", None).await.unwrap();
+    assert_eq!(fixture.control.lock().unwrap().presses, 1);
 }
 
 #[cfg(target_os = "linux")]

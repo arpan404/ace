@@ -127,15 +127,15 @@ impl Accessibility {
         }
         Ok(())
     }
-    pub(crate) async fn proxy<'a>(
-        &'a self,
-        object: &'a Object,
+    pub(crate) async fn proxy(
+        &self,
+        object: &Object,
         interface: &str,
-    ) -> Result<Proxy<'a>> {
-        Proxy::new(
-            &self.conn,
-            object.0.as_str(),
-            object.1.as_str(),
+    ) -> Result<Proxy<'static>> {
+        Proxy::new_owned(
+            self.conn.clone(),
+            object.0.clone(),
+            object.1.clone(),
             format!("org.a11y.atspi.{interface}"),
         )
         .await
