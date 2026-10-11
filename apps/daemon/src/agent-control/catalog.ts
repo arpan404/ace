@@ -1,7 +1,6 @@
 import { AgentCatalogPage, type AgentCatalogInput, type McpAttribution } from "@ace/protocol";
 import { withinJsonBudget } from "@ace/mcp-server";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
-import { permissionWithinCeiling } from "../engine/permission-ceiling.ts";
 import { callerThread } from "./authorization.ts";
 import type { z } from "zod";
 import type { DelegationDependencies } from "./delegations.ts";
@@ -16,6 +15,14 @@ export function readAgentCatalog(
   const { instanceOffset, permissionOffset, ...filter } = input;
   const page = deps.models.list(filter);
   const ceiling = { provider: parent.provider, mode: deps.engine.permissionMode(parent.id) };
+  const allows = (provider: import("@ace/protocol").ProviderKind, mode?: string) => {
+    try {
+      deps.engine.childPermissionMode(parent.id, provider, mode);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   const instances = page.instances.slice(instanceOffset, instanceOffset + 2).map((status) => {
     const installed = deps.engine.providerAvailability(status.provider);
     const capabilities = installed.installed
@@ -42,9 +49,7 @@ export function readAgentCatalog(
           }
         : {}),
       launchOptions: capabilities?.launchOptions ?? [],
-      allowedPermissionModes: selected.filter((mode) =>
-        permissionWithinCeiling(ceiling, { provider: status.provider, mode: mode.id }),
-      ),
+      allowedPermissionModes: selected.filter((mode) => allows(status.provider, mode.id)),
       ...(permissionOffset + selected.length < modes.length
         ? { nextPermissionOffset: permissionOffset + selected.length }
         : {}),

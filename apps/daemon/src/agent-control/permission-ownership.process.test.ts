@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { AgentCatalogInput } from "@ace/protocol";
 import { setup } from "./test-support.ts";
 
 test("a child cannot widen its captured ceiling after its parent widens", async () => {
@@ -80,5 +81,11 @@ test("a child cannot delegate under an obsolete ceiling after an ancestor narrow
   await h.engine.flush();
   expect(h.store.getThread(parent.threadId)?.permission?.effective).toBe(":read-only");
   expect(() => h.delegate(h.caller(child.childId), "grandchild")).toThrow();
+  const catalog = h.service.catalog(
+    h.caller(child.childId),
+    AgentCatalogInput.parse({ provider: "claude" }),
+  );
+  expect(catalog.instances).toHaveLength(1);
+  expect(catalog.instances.flatMap((instance) => instance.allowedPermissionModes)).toHaveLength(0);
   expect(h.store.listThreads()).toHaveLength(2);
 });
