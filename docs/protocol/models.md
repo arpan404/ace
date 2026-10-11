@@ -58,36 +58,34 @@ Example:
 ```json
 {
   "aliases": [],
-  "defaultEffort": "example",
-  "defaultSource": "user",
-  "deprecated": false,
-  "detail": "example",
+  "custom": true,
+  "deprecated": true,
   "displayName": "example",
-  "favourite": true,
-  "hidden": true,
+  "family": "example",
+  "group": "current",
+  "hidden": false,
   "id": "example",
   "inputModalities": [],
   "installationId": "example",
   "instance": "example",
   "instanceId": "example",
-  "isDefault": false,
+  "isDefault": true,
+  "isNew": true,
+  "legacy": true,
   "nativeModelId": "example",
-  "provider": "pi",
-  "providerEnabled": false,
+  "provider": "antigravity",
   "raw": {
     "json": "example",
     "truncated": false
   },
   "reasoningEfforts": [],
-  "selectorMethod": "session/set_config_option",
   "serviceTiers": [],
   "source": {
     "id": "example",
-    "kind": "other",
-    "label": "example",
-    "service": "opencode_zen"
+    "kind": "api_key",
+    "label": "example"
   },
-  "visibilityReason": "provider_disabled"
+  "tier": "current"
 }
 ```
 
@@ -107,7 +105,7 @@ Example:
 
 ```json
 {
-  "code": "auth_expired",
+  "code": "parse_failure",
   "hint": "example",
   "message": "example"
 }
@@ -129,7 +127,8 @@ Example:
 
 ```json
 {
-  "instanceId": "example"
+  "acpAgentId": "example",
+  "provider": "acp"
 }
 ```
 
@@ -159,13 +158,15 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
   "installationId": "example",
   "instance": "example",
-  "provider": "codex",
+  "instanceId": "example",
+  "provider": "claude",
+  "refreshedAt": 8,
   "refreshing": false,
   "sources": [],
-  "stale": true
+  "stale": false,
+  "status": "refreshing"
 }
 ```
 
@@ -187,9 +188,7 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "instanceId": "example",
-  "limit": 1
+  "acpAgentId": "example"
 }
 ```
 
@@ -208,7 +207,8 @@ Example:
 ```json
 {
   "instances": [],
-  "models": []
+  "models": [],
+  "nextOffset": 5
 }
 ```
 
@@ -232,39 +232,36 @@ Example:
 ```json
 {
   "model": {
-    "contextWindow": 9,
-    "defaultEffort": "example",
-    "defaultSource": "user",
+    "acpAgentId": "example",
+    "contextWindow": 7,
+    "custom": false,
     "deprecated": false,
     "displayName": "example",
-    "free": true,
-    "group": "legacy",
-    "hidden": true,
+    "family": "example",
+    "hidden": false,
     "id": "example",
     "inputModalities": [],
-    "installationId": "example",
     "instance": "example",
     "instanceId": "example",
     "isDefault": true,
-    "legacy": true,
-    "modelConfigId": "example",
     "nativeModelId": "example",
     "provider": "claude",
+    "providerEnabled": true,
     "raw": {
       "json": "example",
       "truncated": false
     },
     "reasoningEfforts": [],
-    "serviceTiers": [],
-    "sortKey": "example",
-    "visibilityReason": "deprecated"
+    "selectorMethod": "session/set_model",
+    "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": false,
+  "stale": true,
   "tier": {
     "id": "example",
-    "name": "example"
+    "name": "example",
+    "parameters": {}
   }
 }
 ```
@@ -309,8 +306,10 @@ Example:
 ```json
 {
   "acpAgentId": "example",
-  "instance": "example",
-  "role": "example"
+  "installationId": "example",
+  "preferenceOrder": [],
+  "role": "example",
+  "selection": "default"
 }
 ```
 
@@ -328,9 +327,7 @@ Example:
 ```json
 {
   "filter": {
-    "installationId": "example",
-    "instanceId": "example",
-    "provider": "acp"
+    "instance": "example"
   },
   "type": "models.changed"
 }
@@ -350,6 +347,12 @@ Example:
 
 ```json
 {
+  "options": {
+    "acpAgentId": "example",
+    "instance": "example",
+    "instanceId": "example",
+    "provider": "claude"
+  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -372,8 +375,10 @@ Example:
 ```json
 {
   "id": "example",
-  "kind": "account",
-  "label": "example"
+  "kind": "api_key",
+  "label": "example",
+  "requiresAuth": false,
+  "service": "opencode_go"
 }
 ```
 
@@ -392,10 +397,15 @@ Example:
 
 ```json
 {
+  "error": {
+    "code": "discovery_failed",
+    "hint": "example",
+    "message": "example"
+  },
   "lastRefreshedAt": 9,
   "source": {
     "id": "example",
-    "kind": "account",
+    "kind": "local",
     "label": "example"
   },
   "status": "fresh"
@@ -437,13 +447,9 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "effort": "example",
-    "imageInput": true,
     "installationId": "example",
-    "provider": "acp",
-    "role": "example",
-    "selection": "default",
-    "tier": "example"
+    "instance": "example",
+    "role": "example"
   },
   "type": "models.resolve"
 }
@@ -489,6 +495,6 @@ Example:
 {
   "id": "example",
   "name": "example",
-  "parameters": {}
+  "speed": "standard"
 }
 ```

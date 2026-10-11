@@ -30,22 +30,26 @@ Example:
 
 ```json
 {
-  "concurrency": 10,
+  "concurrency": 5,
   "enabled": true,
   "id": "example",
-  "jitterMs": 5,
-  "missedRun": "skip",
+  "jitterMs": 9,
+  "missedRun": "run_once",
+  "permissionMode": "example",
   "prompt": "example",
-  "provider": "claude",
+  "provider": "pi",
   "title": "example",
   "trigger": {
-    "kind": "file",
-    "paths": [
-      "example"
-    ]
+    "kind": "schedule",
+    "schedule": {
+      "expression": "example",
+      "kind": "rrule",
+      "startAt": 0,
+      "timezone": "example"
+    }
   },
   "workspace": "example",
-  "worktree": true
+  "worktree": false
 }
 ```
 
@@ -80,7 +84,7 @@ Example:
 
 ```json
 {
-  "before": 2,
+  "before": null,
   "runs": []
 }
 ```
@@ -98,7 +102,7 @@ Example:
 
 ```json
 {
-  "at": 4,
+  "at": 3,
   "message": "example"
 }
 ```
@@ -120,14 +124,15 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 8,
-    "enabled": false,
+    "concurrency": 3,
+    "enabled": true,
     "id": "example",
-    "jitterMs": 8,
-    "missedRun": "skip",
+    "jitterMs": 6,
+    "missedRun": "run_once",
     "model": "example",
+    "permissionMode": "example",
     "prompt": "example",
-    "provider": "pi",
+    "provider": "antigravity",
     "title": "example",
     "trigger": {
       "kind": "file",
@@ -211,7 +216,8 @@ Example:
 
 ```json
 {
-  "limit": 7,
+  "before": 1,
+  "limit": 5,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -236,13 +242,9 @@ Example:
 
 ```json
 {
-  "inbox": {
-    "before": null,
-    "runs": []
-  },
-  "ok": false,
+  "automations": [],
+  "ok": true,
   "requestId": "example",
-  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -270,10 +272,10 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
+  "finishedAt": 0,
   "id": "example",
-  "result": "example",
-  "startedAt": 0,
-  "status": "succeeded",
+  "startedAt": 9,
+  "status": "skipped",
   "title": "example",
   "trigger": "manual"
 }
@@ -355,12 +357,12 @@ Example:
 
 ```json
 {
-  "event": "ci_failed",
+  "event": "pr_changed",
   "kind": "github",
   "label": "example",
-  "pollIntervalMs": 60002,
-  "pullRequest": 9,
-  "repository": "WAPCu.UmgTh/GE"
+  "pollIntervalMs": 60003,
+  "pullRequest": 1,
+  "repository": "2HoYK.xzOOR/2"
 }
 ```
 
