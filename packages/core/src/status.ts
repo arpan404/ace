@@ -88,6 +88,15 @@ function completionRelevance(
   return relevant;
 }
 
+/** Read completion evidence from an already-derived, persisted agent tree. */
+export function completionRelevanceReader(state: ThreadState): (key: Key) => boolean {
+  return completionRelevance(state, (key) => {
+    const record = lookup(state.agents, key);
+    if (!record) throw new Error(`Unknown agent key: ${key}`);
+    return record.agent.status;
+  });
+}
+
 /** Deadline eligibility uses current completion relevance, memoized bottom-up.
  * A descendant's wake/silence transition is scheduled before an ancestor can
  * become newly eligible. No future timestamp needs a second tree derivation.
@@ -359,10 +368,7 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
     )
   )
     return { state: "waiting", on: "queue" };
-  const holdsCompletion = completionRelevance(
-    state,
-    (key) => lookup(state.agents, key)!.agent.status,
-  );
+  const holdsCompletion = completionRelevanceReader(state);
   if (
     Object.keys(state.agents).some(
       (key) =>
