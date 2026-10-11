@@ -48,6 +48,9 @@ let nativePermissions = ":danger-full-access";
 let queued = 0;
 let policyTurn = 0;
 let discoveryFailed = false;
+let heldRead: unknown;
+let overlapTurn = 0;
+let overlapLists = 0;
 const sourceHistory = [
   { id: "prior-turn", text: "private native earlier context" },
   { id: "source-turn", text: "private native selected context" },
@@ -244,6 +247,32 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (process.env["ACE_FAKE_RESUME"] === "overlap-reads") {
+      const turnId = `overlap-${++overlapTurn}`;
+      respond({ turn: { id: turnId } });
+      active.set("native", turnId);
+      notify("turn/started", { threadId: "native", turn: { id: turnId } });
+      if (text === "hidden-child") {
+        item("native", turnId, {
+          id: "spawn-hidden", type: "subAgentActivity", kind: "started", agentThreadId: "hidden",
+        });
+        active.set("hidden", "A");
+        notify("turn/started", { threadId: "hidden", turn: { id: "A" } });
+        end("hidden");
+        active.set("hidden", "B");
+      } else if (text === "newer") {
+        active.set("hidden", "C");
+        notify("turn/started", { threadId: "hidden", turn: { id: "C" } });
+        end("hidden");
+      } else if (text === "release-read") {
+        write({ id: heldRead, result: { thread: {
+          id: "hidden", parentThreadId: "native", status: { type: "active" },
+          turns: [{ id: "B", status: "inProgress", items: [] }],
+        } } });
+      }
+      end();
+      continue;
+    }
     if (text === "escaped-pipes" || text === "group-pipes") {
       respond({ turn: { id: "turn" } });
       notify("turn/started", { threadId: "native", turn: { id: "turn" } });
@@ -698,6 +727,11 @@ for await (const line of createInterface({ input: process.stdin })) {
       });
     }
   } else if (method === "thread/loaded/list") {
+    if (process.env["ACE_FAKE_RESUME"] === "overlap-reads") {
+      respond({ data: ["native", "hidden"], nextCursor: null });
+      if (++overlapLists === 2) notify("test/overlap-loaded", {});
+      continue;
+    }
     if (pendingKind === "failed-discovery" && !discoveryFailed) {
       discoveryFailed = true;
       active.set("hidden", "hidden-turn");
@@ -714,6 +748,13 @@ for await (const line of createInterface({ input: process.stdin })) {
     }
     respond({ data: active.has("hidden") ? ["native", "hidden"] : ["native"], nextCursor: null });
   } else if (method === "thread/read") {
+    if (process.env["ACE_FAKE_RESUME"] === "overlap-reads" && p["threadId"] === "hidden") {
+      if (heldRead === undefined) {
+        heldRead = id;
+        notify("test/read-held", {});
+      } else write({ id, error: { code: -32000, message: "overlapping read failed" } });
+      continue;
+    }
     if (
       process.env["ACE_FAKE_RESUME"] === "read-after-observed-stale" &&
       p["threadId"] === "hidden"

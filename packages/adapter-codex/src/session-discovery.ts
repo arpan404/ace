@@ -14,7 +14,7 @@ export function sessionDiscovery(config: {
   parents: Map<string, string>;
   active: Map<string, string>;
   shells: Map<string, string>;
-  readRevisions: Map<string, number>;
+  reading: Set<string>;
   revisions: Map<string, number>;
   timers: Map<string, () => void>;
   seenQuestions: Set<string>;
@@ -28,12 +28,13 @@ export function sessionDiscovery(config: {
     parents,
     active,
     shells,
-    readRevisions,
+    reading,
     revisions,
     timers,
     seenQuestions,
   } = config;
   const recovering = new Set<string>();
+  const reads = new Map<string, Promise<void>>();
   const queueCounts = new Map<string, number>();
   let unknownRecoveries = 0;
   function scheduleRecovery(threadId: string): void {
@@ -67,9 +68,23 @@ export function sessionDiscovery(config: {
       if (unknown) unknownRecoveries--;
     }
   }
-  async function readThread(threadId: string, ancestors = new Set<string>()): Promise<void> {
+  function readThread(threadId: string, ancestors = new Set<string>()): Promise<void> {
     if (ancestors.has(threadId)) throw new Error("Cyclic Codex thread ancestry");
-    ancestors.add(threadId);
+    const pending = reads.get(threadId);
+    if (pending) return pending;
+    reading.add(threadId);
+    const read = readSnapshot(threadId, new Set(ancestors).add(threadId));
+    reads.set(threadId, read);
+    const release = () => {
+      reads.delete(threadId);
+      reading.delete(threadId);
+    };
+    void read.then(release, release);
+    return read;
+  }
+  async function readSnapshot(threadId: string, ancestors: Set<string>): Promise<void> {
+    // This evidence belongs to this request, including while ancestry is being loaded.
+    const revision = revisions.get(threadId) ?? 0;
     const result = obj(await request("thread/read", { threadId, includeTurns: true }));
     const thread = obj(result["thread"]);
     if (str(thread["id"]) !== threadId)
@@ -77,7 +92,6 @@ export function sessionDiscovery(config: {
     const parent = parentOf(thread);
     if (parent && !known.has(parent)) await readThread(parent, ancestors);
     if (threadId !== config.getRoot() && (!parent || !known.has(parent))) {
-      readRevisions.delete(threadId);
       revisions.delete(threadId);
       return;
     }
@@ -87,15 +101,13 @@ export function sessionDiscovery(config: {
     timers.get(threadId)?.();
     timers.delete(threadId);
     if (parent) parents.set(threadId, parent);
-    const revision = readRevisions.get(threadId);
-    readRevisions.delete(threadId);
     const current = revisions.get(threadId) ?? 0;
     if (revision === current) hydrateControls(thread, active, shells);
     rememberHistoricalQuestions(thread, seenQuestions);
     emit("note", {
       event: "thread-discovered",
       thread,
-      revision: { read: revision ?? 0, current },
+      revision: { read: revision, current },
     });
   }
   async function refreshQueue(threadId: string): Promise<void> {

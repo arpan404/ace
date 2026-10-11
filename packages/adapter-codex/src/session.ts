@@ -84,7 +84,7 @@ export async function openCodexSession(
     { method: string; thread: string; mode: string | null }
   >();
   const revisions = new Map<string, number>();
-  const readRevisions = new Map<string, number>();
+  const reading = new Set<string>();
   const scopedReads = new Set<unknown>();
   const parents = new Map<string, string>();
   const known = new Set<string>();
@@ -171,7 +171,7 @@ export async function openCodexSession(
         }
         if (
           thread &&
-          (known.has(thread) || readRevisions.has(thread)) &&
+          (known.has(thread) || reading.has(thread)) &&
           ["turn/started", "turn/completed", "item/started", "item/completed"].includes(method)
         )
           revisions.set(thread, (revisions.get(thread) ?? 0) + 1);
@@ -184,7 +184,6 @@ export async function openCodexSession(
         });
       if (dir === "send" && method === "thread/read") {
         scopedReads.add(m["id"]);
-        readRevisions.set(thread, revisions.get(thread) ?? 0);
       }
       const scoped = dir === "recv" && scopedReads.delete(m["id"]);
       emit(dir, data, scoped ? "codex-discovery" : "stdio", optionalFrames.method(dir, data));
@@ -275,7 +274,7 @@ export async function openCodexSession(
     parents,
     active,
     shells,
-    readRevisions,
+    reading,
     revisions,
     timers,
     seenQuestions,
