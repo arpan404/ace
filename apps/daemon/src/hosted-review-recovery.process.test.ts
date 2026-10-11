@@ -144,9 +144,17 @@ test("a definite GraphQL rate limit releases the thread action, while partial ac
     const fixtures = reviewFixtures();
     fixtures["graphql:mutation($input:ResolveReviewThreadInput!"] = [
       {
+        code: 1,
+        stderr: "gh: API rate limit exceeded for user ID 1.",
         body: {
           data: { resolveReviewThread: partial ? { clientMutationId: "resolve" } : null },
-          errors: [{ type: "RATE_LIMITED" }],
+          errors: [
+            {
+              type: "RATE_LIMITED",
+              message: "API rate limit exceeded for user ID 1.",
+              path: ["resolveReviewThread"],
+            },
+          ],
         },
       },
     ];
@@ -156,9 +164,21 @@ test("a definite GraphQL rate limit releases the thread action, while partial ac
         ok: false,
         error: partial ? "action_outcome_uncertain" : "forge_rate_limit",
       });
+      await f.restart();
       expect((await f.state()).operations).toEqual(
         partial ? [{ id: "resolve", state: "uncertain" }] : [],
       );
+      await f.gh.replace({
+        ...reviewFixtures(),
+        "graphql:mutation($input:ResolveReviewThreadInput!": [
+          {
+            body: { data: { resolveReviewThread: { clientMutationId: "explicit-retry" } } },
+          },
+        ],
+      });
+      expect(
+        await f.send("explicit-retry", { kind: "thread.resolve", threadId: "T_7" }),
+      ).toMatchObject(partial ? { ok: false, error: "action_outcome_uncertain" } : { ok: true });
     } finally {
       await f.cleanup();
     }

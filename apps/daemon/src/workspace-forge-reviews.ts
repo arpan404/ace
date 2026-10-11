@@ -111,13 +111,21 @@ export class WorkspaceForgeReviews {
     const drafts = this.#drafts(pr);
     if (drafts.length > 100) throw new ForgeError("limit");
     const operations = this.#store
-      .atomic((db) =>
-        db
+      .atomic((db) => {
+        // Accepted history must never displace a retained recovery control. Both
+        // reads use the scope/state index and together return at most 100 rows.
+        const unresolved = db
           .prepare(
-            "SELECT id,state FROM forge_hosted_writes WHERE scope=? AND state!='failed' ORDER BY rowid DESC LIMIT 100",
+            "SELECT id,state FROM forge_hosted_writes WHERE scope=? AND state='uncertain' ORDER BY rowid DESC LIMIT 100",
           )
-          .all(scope(pr)),
-      )
+          .all(scope(pr));
+        const accepted = db
+          .prepare(
+            "SELECT id,state FROM forge_hosted_writes WHERE scope=? AND state='accepted' ORDER BY rowid DESC LIMIT ?",
+          )
+          .all(scope(pr), 100 - unresolved.length);
+        return [...unresolved, ...accepted];
+      })
       .map((row) =>
         z.object({ id: z.string(), state: z.enum(["accepted", "uncertain"]) }).parse(row),
       );
