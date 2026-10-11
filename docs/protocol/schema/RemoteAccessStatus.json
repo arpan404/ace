@@ -5,6 +5,10 @@
     "enabled": {
       "type": "boolean"
     },
+    "error": {
+      "maxLength": 256,
+      "type": "string"
+    },
     "listenOverride": {
       "anyOf": [
         {

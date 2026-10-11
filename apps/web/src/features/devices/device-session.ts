@@ -1,3 +1,4 @@
+import { browserCredential } from "@/boot/remote-credential.ts";
 import {
   DeviceClient,
   type DeviceConnection,
@@ -20,12 +21,12 @@ const schedule = (callback: () => void, delayMs: number) => {
  */
 function transportFor(endpoint: DaemonEndpoint): DeviceTransport {
   if (endpoint.kind === "fake") return endpoint.devices();
-  const { url, token } = endpoint.target;
+  const { url } = endpoint.target;
   const { deviceId } = endpoint;
   return deviceTransport({
     target: { kind: "local", url },
     deviceId,
-    credential: async () => token,
+    credential: browserCredential(endpoint.target),
     socket: browserDeviceSocket,
     keys: () => {
       throw new Error("Relay targets are not reachable from the web app.");

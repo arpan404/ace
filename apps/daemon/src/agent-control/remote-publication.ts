@@ -124,7 +124,13 @@ export class RemotePublications {
       return { ok: false, code: "not_ready" };
     if (!record) {
       const count = this.options.store.atomic((db) =>
-        Number(db.prepare("SELECT COUNT(*) AS n FROM remote_agent_publications").get()?.n),
+        Number(
+          db
+            .prepare(
+              "SELECT COUNT(*) AS n FROM remote_agent_publications WHERE json_extract(record,'$.sealed') IS NULL",
+            )
+            .get()?.n,
+        ),
       );
       if (count >= 10000) return { ok: false, code: "limit" };
       record = { task, requestId: operation.requestId, selection, frozen: [] };

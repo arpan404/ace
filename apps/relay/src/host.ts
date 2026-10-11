@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+import { watchLiveness } from "./liveness.ts";
 import { setMaxListeners } from "node:events";
 import type { KeyPair } from "@ace/secure-channel";
 import { hostId, keyPair } from "@ace/secure-channel";
@@ -30,6 +32,7 @@ export async function connectHostToRelay(options: {
   onClientChannel(channel: HostChannel): void | Promise<void>;
   signal?: AbortSignal;
   clock?: Clock;
+  random?: () => number;
   limits?: Partial<z.infer<typeof HostOptionsSchema>>;
 }): Promise<HostRelayConnection> {
   relayAddress(options.relayUrl, "/host");
@@ -37,6 +40,7 @@ export async function connectHostToRelay(options: {
     throw new Error("Host key pair mismatch");
   const limits = HostOptionsSchema.parse(options.limits ?? {});
   const clock = options.clock ?? systemClock();
+  const random = options.random ?? (() => randomInt(0, 1000000) / 1000000);
   const controller = new AbortController();
   setMaxListeners(2 * limits.maxClientChannels + 16, controller.signal);
   const sockets = new Set<WebSocket>();
@@ -70,6 +74,7 @@ export async function connectHostToRelay(options: {
         clock,
         limits.handshakeTimeoutMs,
       );
+      watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);
       sockets.add(socket);
       socket.once("close", () => sockets.delete(socket));
       const transport = await respondHandshake(socket, reader, {
@@ -123,11 +128,12 @@ export async function connectHostToRelay(options: {
           limits.handshakeTimeoutMs,
         );
         socket = connection.socket;
+        watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);
         sockets.add(socket);
         const owned = socket;
         socket.once("close", (code) => {
           sockets.delete(owned);
-          if (code === 4001) cancel();
+          if (code === 4001 || code === 1008) cancel();
         });
         expire = clock.schedule(limits.handshakeTimeoutMs, () => owned.terminate());
         const transport = await initiateHandshake(socket, connection.reader, {
@@ -186,7 +192,7 @@ export async function connectHostToRelay(options: {
         expire();
         socket?.terminate();
       }
-      await delay(clock, retryMs, controller.signal);
+      await delay(clock, Math.round(retryMs * (0.5 + random() * 0.5)), controller.signal);
       retryMs = Math.min(retryMs * 2, limits.retryMaxMs);
     }
   })();

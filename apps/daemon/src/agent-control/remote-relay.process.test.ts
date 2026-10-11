@@ -855,3 +855,44 @@ test("broker disconnect during return admission preserves the owned offset for a
   );
   expect(result.data.toString()).toBe("resume this output");
 });
+
+test("retention releases sealed target exports, incoming context and source returns together", async () => {
+  const f = await world();
+  const { task, caller } = await admittedReturnTask(f);
+  await writeFile(join(f.target.h.home, "old-result.txt"), "retained result bytes");
+  const artifacts = await publish(f, caller, ["old-result.txt"]);
+  const outcome = await f.targetWire.request({ type: "delegation.remote.status", taskId: task.id });
+  expect(outcome).toMatchObject({ ok: true, phase: "completed", artifacts });
+  await returnRemoteArtifacts(
+    task,
+    artifacts,
+    f.lease,
+    { request: f.sourceRequest },
+    { request: f.targetRequest },
+    f.relayChannel,
+    () => true,
+  );
+  const delivered = f.source.controls.remote.report("broker", f.lease, {
+    taskId: task.id,
+    phase: "completed",
+    result: outcome.result,
+    artifacts,
+  });
+  expect(delivered?.delivered).toBe(true);
+  const file = artifacts.attachments[0];
+  if (!file) throw new Error("Missing exported file");
+  expect(f.source.controls.returns.retains(task.parentThreadId, file.sha256)).toBe(true);
+  expect(f.target.controls.publications.retains(task.threadId, file.sha256)).toBe(true);
+  await f.source.daemon.engine?.flush();
+  await f.source.h.emit(task.parentThreadId, { type: "process.exited", deliberate: false });
+  await f.source.daemon.engine?.flush();
+  const retentionTime = (delivered?.finishedAt ?? task.createdAt) + 8 * 24 * 60 * 60 * 1000;
+  f.source.controls.remote.journal.prune(retentionTime);
+  f.target.controls.remote.journal.prune(retentionTime);
+  expect(f.source.controls.returns.retains(task.parentThreadId, file.sha256)).toBe(false);
+  expect(f.target.controls.publications.retains(task.threadId, file.sha256)).toBe(false);
+  expect(
+    await f.targetWire.request({ type: "delegation.remote.status", taskId: task.id }),
+  ).toMatchObject({ ok: false, error: "not_found" });
+  expect(f.source.controls.remote.journal.get(task.id)).toBeUndefined();
+});

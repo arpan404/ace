@@ -7,20 +7,27 @@ export function threadOutcome(store: Store, thread: Thread, cancelled = false): 
   let message: Extract<Item, { type: "message" }> | undefined;
   for (const item of page.items)
     if (item.type === "message" && item.role === "assistant") message = item;
-  let remaining = 1024; // 4 KiB worst case UTF-8, including surrogate-safe truncation below.
+  let remaining = 4096; // Schema bound in UTF-16 units; never split a surrogate pair.
   const parts: string[] = [];
   let truncated = page.itemsBefore !== null;
   for (const part of message?.parts ?? []) {
     if (part.type !== "text") continue;
+    let content = part.text;
+    let sourceTruncated = part.source !== undefined;
+    if (part.source && store.outputThread(part.source.streamId) === thread.id) {
+      const read = store.readOutputBytes(part.source.streamId, 0, Math.max(2, (remaining + 1) * 2));
+      content = read.bytes.toString("utf16le");
+      sourceTruncated = !read.eof;
+    }
     let units = 0;
-    for (const point of part.text) {
+    for (const point of content) {
       if (units + point.length > remaining) break;
       units += point.length;
     }
-    const text = part.text.slice(0, units);
+    const text = content.slice(0, units);
     parts.push(text);
     remaining -= text.length + 1;
-    truncated ||= text.length < part.text.length || part.source !== undefined;
+    truncated ||= text.length < content.length || sourceTruncated;
     if (remaining <= 0) {
       truncated = true;
       break;

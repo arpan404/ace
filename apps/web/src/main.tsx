@@ -39,9 +39,17 @@ const app = (client: ClientApi, machines?: MachinePool) => (
 );
 /** A real daemon's app, with the machine pool this browser has stored for its connection. */
 function DaemonApp(props: { client: ClientApi }) {
-  const pool = useBrowserMachinePool(local);
+  const { pool, ensure } = useBrowserMachinePool(local, session);
   useRemoteAgentBroker(props.client, pool);
-  return app(props.client, pool);
+  return (
+    <App
+      client={props.client}
+      storage={local}
+      batch={batch}
+      machines={pool}
+      ensureMachines={ensure}
+    />
+  );
 }
 const daemonApp = (client: ClientApi) => <DaemonApp client={client} />;
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);

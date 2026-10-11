@@ -61,8 +61,12 @@ export const RemoteTask = z.strictObject({
   dispatched: z.boolean(),
   result: z.string().max(4096).optional(),
   error: z.string().max(256).optional(),
+  truncated: z.boolean().optional(),
+  artifactsUnavailable: z.boolean().optional(),
   delivered: z.boolean(),
   createdAt: z.number().nonnegative(),
+  cancellingAt: z.number().nonnegative().optional(),
+  finishedAt: z.number().nonnegative().optional(),
 });
 export type RemoteTask = z.infer<typeof RemoteTask>;
 export const RemoteTaskReport = z.strictObject({
@@ -72,6 +76,8 @@ export const RemoteTaskReport = z.strictObject({
   phase: RemoteTaskPhase.exclude(["queued"]),
   result: z.string().max(4096).optional(),
   error: z.string().max(256).optional(),
+  truncated: z.boolean().optional(),
+  artifactsUnavailable: z.boolean().optional(),
 });
 export type RemoteTaskReport = z.infer<typeof RemoteTaskReport>;
 export const RemoteDelegationClient = z.discriminatedUnion("type", [

@@ -1,4 +1,6 @@
+import { blackholeRelay } from "./testing/blackhole.ts";
 import { afterEach, expect, it } from "vitest";
+import { DeviceId } from "@ace/protocol";
 import { keyPair } from "@ace/secure-channel";
 import { startRelay, connectHostToRelay, connectClientViaRelay } from "./index.ts";
 import {
@@ -115,7 +117,6 @@ it("a full host evicts its oldest unauthenticated channel so a paired device can
 });
 it("an unverified hello expires and cannot reserve a device slot indefinitely", async () => {
   const { ManualClock } = await import("./testing/clock.ts");
-  const { DeviceId } = await import("@ace/protocol");
   const clock = new ManualClock();
   const relay = await startRelay();
   cleanup.push(() => relay.close());
@@ -149,7 +150,6 @@ it("an unverified hello expires and cannot reserve a device slot indefinitely", 
   expect(await channel.closed).toBeUndefined();
 });
 it("every authorized slot remains usable while excess clients are rejected", async () => {
-  const { DeviceId } = await import("@ace/protocol");
   let arrived = deferred<import("./index.ts").HostChannel>();
   const relay = await startRelay();
   cleanup.push(() => relay.close());
@@ -261,4 +261,122 @@ it("the default IP quota admits a host control connection plus 64 outbound joins
     await client.send(new Uint8Array([i]));
     expect(await join.next()).toEqual(Buffer.from([i]));
   }
+});
+
+it("a half-open relay expires both control and authorized client channels, then the host re-registers", async () => {
+  const { ManualClock } = await import("./testing/clock.ts");
+  const relayClock = new ManualClock();
+  const clock = new ManualClock();
+  const retry = deferred<void>();
+  const baseSchedule = clock.schedule.bind(clock);
+  clock.schedule = (ms, callback) => {
+    if (ms === 125) retry.resolve();
+    return baseSchedule(ms, callback);
+  };
+  const relay = await startRelay({ clock: relayClock });
+  cleanup.push(() => relay.close());
+  const proxy = await blackholeRelay(relay.url);
+  cleanup.push(() => proxy.close());
+  const opened = deferred<import("./index.ts").HostChannel>();
+  const host = await connectHostToRelay({
+    relayUrl: proxy.url,
+    hostKeys: keyPair(),
+    clock,
+    random: () => 0,
+    onClientChannel(channel) {
+      opened.resolve(channel);
+    },
+  });
+  cleanup.push(() => host.close());
+  const client = await connectClientViaRelay({
+    relayUrl: relay.url,
+    hostId: host.hostId,
+    pinnedFingerprint: host.hostId,
+  });
+  cleanup.push(() => client.close());
+  await client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("paired"),
+    token: "a".repeat(64),
+  });
+  const channel = await opened.promise;
+  await channel.receive();
+  channel.authorize();
+  const registered = host.whenRegistered(host.generation);
+  proxy.block("/host");
+  proxy.block("/join");
+  clock.advance(25000);
+  await channel.closed;
+  await client.closed;
+  await retry.promise;
+  proxy.resume();
+  clock.advance(125);
+  expect(await registered).toBe(2);
+});
+
+it("an allowlist denial ends host registration instead of retrying forever", async () => {
+  const relay = await startRelay({ allowedHostIds: [] });
+  cleanup.push(() => relay.close());
+  await expect(
+    connectHostToRelay({ relayUrl: relay.url, hostKeys: keyPair(), onClientChannel() {} }),
+  ).rejects.toThrow("Host connection closed");
+});
+
+it("a dead client channel expires while control pongs keep its host registered", async () => {
+  const { ManualClock } = await import("./testing/clock.ts");
+  const clock = new ManualClock();
+  const relay = await startRelay({ clock: new ManualClock() });
+  cleanup.push(() => relay.close());
+  const proxy = await blackholeRelay(relay.url);
+  cleanup.push(() => proxy.close());
+  const opened = deferred<import("./index.ts").HostChannel>();
+  const host = await connectHostToRelay({
+    relayUrl: proxy.url,
+    hostKeys: keyPair(),
+    clock,
+    onClientChannel: (channel) => {
+      opened.resolve(channel);
+    },
+  });
+  cleanup.push(() => host.close());
+  const client = await connectClientViaRelay({
+    relayUrl: relay.url,
+    hostId: host.hostId,
+    pinnedFingerprint: host.hostId,
+  });
+  cleanup.push(() => client.close());
+  await client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("paired"),
+    token: "a".repeat(64),
+  });
+  const channel = await opened.promise;
+  await channel.receive();
+  channel.authorize();
+  proxy.block("/join");
+  const response = proxy.controlResponse();
+  clock.advance(10000);
+  await response;
+  // A second response is a wire barrier: the first pong has reached the host event loop.
+  const barrier = proxy.controlResponse();
+  clock.advance(10000);
+  await barrier;
+  clock.advance(5000);
+  await channel.closed;
+  expect(host.generation).toBe(1);
+  proxy.resume();
+  const fresh = await connectClientViaRelay({
+    relayUrl: relay.url,
+    hostId: host.hostId,
+    pinnedFingerprint: host.hostId,
+  });
+  cleanup.push(() => fresh.close());
+  await fresh.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("replacement"),
+    token: "a".repeat(64),
+  });
 });

@@ -111,7 +111,7 @@ test("a blocked worker and offline host cannot stall another machine; reconnect 
   expect((await bounded(f.pool.create("fast", create("while-blocked")), 1000)).ok).toBe(true);
   f.unblock("slow");
   await f.control("slow", "offline");
-  await wait(f.pool.status("slow"), (state) => state?.status === "connecting");
+  await wait(f.pool.status("slow"), (state) => state?.status === "offline");
   expect((await bounded(f.pool.create("fast", create("while-offline")), 1000)).ok).toBe(true);
   f.pool.networkOnline("slow", false);
   await wait(f.pool.status("slow"), (state) => state?.status === "offline");
@@ -328,4 +328,73 @@ test("a pinned client rejects a different host before replaying persisted comman
     daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("must-not-replay") }),
   ).toBeUndefined();
   expect(lease.store.loaded).toBe(false);
+});
+
+test("a corrupt directory recovers valid machines and permits another pairing", async () => {
+  const f = persistence();
+  await f.directory.load();
+  await f.directory.add(paired("saved"));
+  const entries = f.directory.machines;
+  await f.storage.save(JSON.stringify({ version: 1, machines: [...entries, { hostId: 123 }] }));
+  const restored = new MachineDirectory(f.storage, f.secrets);
+  expect((await restored.load()).map((entry) => entry.hostId)).toEqual(["saved"]);
+  await restored.add(paired("new"));
+  expect((await restored.load()).map((entry) => entry.hostId)).toEqual(["saved", "new"]);
+  await f.storage.save("broken json");
+  expect(await restored.load()).toEqual([]);
+  await restored.add(paired("repaired"));
+  expect((await restored.load()).map((entry) => entry.hostId)).toEqual(["repaired"]);
+});
+
+test("a failed directory read can be retried without replacing the pool", async () => {
+  const f = poolWorld();
+  const load = f.storage.load;
+  f.storage.load = async () => {
+    throw new Error("storage unavailable");
+  };
+  await expect(f.pool.start()).rejects.toThrow("storage unavailable");
+  f.storage.load = load;
+  await f.pool.add(paired("restored"));
+  await wait(f.pool.status("restored"), (state) => state?.status === "online");
+  expect(
+    (await f.pool.client("restored").request({ type: "host.identity" })).identity.displayName,
+  ).toBe("restored");
+});
+
+test("verified name and icon updates survive directory reload", async () => {
+  const f = poolWorld();
+  await f.pool.add(paired("identity"));
+  await wait(f.pool.status("identity"), (state) => state?.status === "online");
+  const client = f.pool.client("identity");
+  expect(
+    (
+      await client.request({
+        type: "settings.set",
+        key: "host.displayName",
+        value: "Office computer",
+        layer: { kind: "global" },
+      })
+    ).ok,
+  ).toBe(true);
+  expect(
+    (
+      await client.request({
+        type: "settings.set",
+        key: "host.icon",
+        value: { kind: "desktop", color: "green" },
+        layer: { kind: "global" },
+      })
+    ).ok,
+  ).toBe(true);
+  await f.control("identity", "offline");
+  await wait(f.pool.status("identity"), (state) => state?.status === "offline");
+  await f.control("identity", "online");
+  await wait(
+    f.pool.status("identity"),
+    (state) => state?.status === "online" && state.entry.displayName === "Office computer",
+  );
+  const restored = new MachineDirectory(f.storage, f.secrets);
+  expect(await restored.load()).toMatchObject([
+    { displayName: "Office computer", icon: { kind: "desktop", color: "green" } },
+  ]);
 });

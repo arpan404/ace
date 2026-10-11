@@ -49,7 +49,7 @@ const Directory = z.strictObject({
 /** OS keychain on desktop; remembered-token storage on web. Never a synced document. */
 export interface MachineSecretStore {
   get(key: string): Promise<string | null>;
-  set(key: string, token: string): Promise<void>;
+  set(key: string, token: string, remember?: boolean): Promise<void>;
   delete(key: string): Promise<void>;
 }
 export function machineSecretKey(entry: Pick<MachineEntry, "hostId" | "deviceId">): string {
@@ -60,6 +60,7 @@ export interface PairedMachine {
   target: MachineTarget;
   deviceId: string;
   token: string;
+  remember?: boolean;
 }
 
 /** Serialized metadata writes; credentials live exclusively in the injected secret store. */
@@ -83,12 +84,31 @@ export class MachineDirectory {
   load(): Promise<readonly MachineEntry[]> {
     return this.serialize(async () => {
       const raw = await this.storage.load();
-      if (raw && raw.length > 1024 * 1024) throw new ClientError("limit");
-      const parsed = raw ? Directory.parse(JSON.parse(raw)).machines : [];
-      if (new Set(parsed.map((entry) => entry.hostId)).size !== parsed.length)
-        throw new ClientError("storage", "Duplicate machine identity");
+      if (raw && raw.length > 1024 * 1024) {
+        await this.save([]);
+        return this.entries;
+      }
+      let value: unknown;
+      try {
+        value = raw ? JSON.parse(raw) : { version: 1, machines: [] };
+      } catch {
+        value = undefined;
+      }
+      const complete = Directory.safeParse(value);
+      const recoverable = z
+        .object({ version: z.literal(1), machines: z.array(z.unknown()).max(100) })
+        .safeParse(value);
+      const seen = new Set<string>();
+      const parsed = complete.success
+        ? complete.data.machines
+        : (recoverable.success ? recoverable.data.machines : []).flatMap((candidate) => {
+            const entry = MachineEntry.safeParse(candidate);
+            return entry.success ? [entry.data] : [];
+          });
+      const unique = parsed.filter((entry) => !seen.has(entry.hostId) && !!seen.add(entry.hostId));
+      if (!complete.success || unique.length !== parsed.length) await this.save(unique);
       this.entries = Object.freeze(
-        parsed.map((entry) => Object.freeze({ ...entry, target: Object.freeze(entry.target) })),
+        unique.map((entry) => Object.freeze({ ...entry, target: Object.freeze(entry.target) })),
       );
       return this.entries;
     });
@@ -120,7 +140,7 @@ export class MachineDirectory {
       if (this.entries.length >= 100) throw new ClientError("limit");
       const token = DeviceCredential.shape.token.parse(paired.token);
       const key = machineSecretKey(entry);
-      await this.secrets.set(key, token);
+      await this.secrets.set(key, token, paired.remember);
       try {
         await this.save([...this.entries, entry]);
       } catch (error) {
@@ -141,7 +161,7 @@ export class MachineDirectory {
     return this.serialize(async () => {
       const entry = this.entries.find((candidate) => candidate.hostId === hostId);
       if (!entry) throw new ClientError("offline", "Unknown machine");
-      const renamed = MachineEntry.parse({ ...entry, displayName, ...(icon ? { icon } : {}) });
+      const renamed = MachineEntry.parse({ ...entry, displayName, icon });
       await this.save(this.entries.map((old) => (old.hostId === hostId ? renamed : old)));
     });
   }

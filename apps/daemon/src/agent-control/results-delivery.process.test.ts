@@ -285,3 +285,17 @@ test("delegation wakes from the previous identity journal remain ace events afte
   ).toBe(false);
   expect(restarted.errors).toEqual([]);
 });
+
+test("delegation outcomes preserve answers larger than one kilobyte and mark bounded truncation", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const child = h.delegate(parent, "long-answer");
+  await h.engine.flush();
+  await h.complete(child.childId, "A".repeat(5000));
+  h.clock.advance(1050);
+  await h.engine.flush();
+  expect(await h.service.wait(parent, child.childId, new AbortController().signal)).toMatchObject({
+    result: "A".repeat(4096),
+    truncated: true,
+  });
+});

@@ -6,6 +6,9 @@
     "artifacts": {
       "$ref": "https://ace.local/protocol/v1/RemoteArtifactManifest.json"
     },
+    "artifactsUnavailable": {
+      "type": "boolean"
+    },
     "error": {
       "maxLength": 256,
       "type": "string"
@@ -30,6 +33,9 @@
       "maxLength": 128,
       "minLength": 1,
       "type": "string"
+    },
+    "truncated": {
+      "type": "boolean"
     },
     "usage": {
       "$ref": "https://ace.local/protocol/v1/RemoteTaskUsage.json"

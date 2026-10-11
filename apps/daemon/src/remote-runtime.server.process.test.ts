@@ -15,7 +15,16 @@ import { loadIdentity } from "./tls-identity.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
 import { accessRequest } from "./client-access.ts";
 
-async function runtime(overrides: { listen?: "local" | "lan"; enabled?: boolean } = {}) {
+async function runtime(
+  overrides: {
+    listen?: "local" | "lan";
+    enabled?: boolean;
+    unavailable?: boolean;
+    transport?: "tailscale" | "relay";
+    relayUrl?: string;
+    runtime?: import("./server-options.ts").ServerOptions["runtime"];
+  } = {},
+) {
   const home = await mkdtemp(join(tmpdir(), "ace-remote-runtime-"));
   const settings = new SettingsService({ dataDir: home });
   const workspace = join(home, "repository");
@@ -30,6 +39,12 @@ async function runtime(overrides: { listen?: "local" | "lan"; enabled?: boolean 
     authorize: () => true,
   });
   if (overrides.enabled) await settings.set("remote.enabled", true, { kind: "global" });
+  if (overrides.transport)
+    await settings.set("remote.transport", overrides.transport, { kind: "global" });
+  if (overrides.relayUrl)
+    await settings.set("remote.relayUrl", overrides.relayUrl, { kind: "global" });
+  let networkAvailable = !overrides.unavailable;
+  const logs: unknown[] = [];
   const webRoot = join(home, "web");
   await mkdir(webRoot);
   await writeFile(join(webRoot, "index.html"), '<main id="root">Pair this device</main>');
@@ -43,6 +58,8 @@ async function runtime(overrides: { listen?: "local" | "lan"; enabled?: boolean 
   const f = await fixture({
     settings,
     files,
+    ...(overrides.runtime ? { runtime: overrides.runtime } : {}),
+    log: (error) => logs.push(error),
     now: () => now,
     remoteConfig: config,
     webRoot,
@@ -51,7 +68,9 @@ async function runtime(overrides: { listen?: "local" | "lan"; enabled?: boolean 
       identity: () => identity,
       interfaces: () => ({}),
       status: async () => {
-        throw new Error("No Tailscale");
+        if (!networkAvailable) throw new Error("No Tailscale");
+        if (!overrides.transport) throw new Error("No Tailscale");
+        return JSON.stringify({ BackendState: "Running", TailscaleIPs: ["127.0.0.1"] });
       },
     },
   });
@@ -88,6 +107,10 @@ async function runtime(overrides: { listen?: "local" | "lan"; enabled?: boolean 
     set,
     local,
     close,
+    logs,
+    recoverNetwork: () => {
+      networkAvailable = true;
+    },
     advance: (ms: number) => {
       now += ms;
     },
@@ -266,7 +289,16 @@ test("relay starts and stops on saved settings without replacing the host socket
     });
     expect(await channel.receive()).toMatchObject({ type: "welcome", hostId: "host" });
     expect(await f.local("/v1/status")).toMatchObject({
-      remote: null,
+      remoteAccess: { enabled: true, transport: "relay" },
+    });
+    expect(PairingResponse.parse(await f.local("/v1/pairings", {})).url).toContain("/pair#");
+    f.client.send({ type: "delegation.remote.transport", requestId: "live-relay" });
+    expect(await f.client.next()).toMatchObject({
+      ok: true,
+      relay: { url: relay.url, pinnedFingerprint: pin },
+    });
+    expect(await f.set("remote.transport", "lan")).toMatchObject({ ok: true });
+    expect(await f.local("/v1/status")).toMatchObject({
       remoteAccess: { enabled: true, transport: "relay" },
     });
     expect(await f.set("remote.enabled", false)).toMatchObject({ ok: true });
@@ -320,5 +352,85 @@ test("pairing codes expire after five minutes and switching remote access off in
     expect(await f.local("/v1/devices")).toEqual([]);
   } finally {
     await f.close();
+  }
+});
+
+test("saved unavailable remote access leaves local sessions usable and retries until the network returns", async () => {
+  const timers: { ms: number; run(): void }[] = [];
+  const f = await runtime({
+    enabled: true,
+    unavailable: true,
+    transport: "tailscale",
+    runtime: {
+      delay(run, ms) {
+        const item = { ms, run };
+        timers.push(item);
+        return () => {
+          const at = timers.indexOf(item);
+          if (at >= 0) timers.splice(at, 1);
+        };
+      },
+    },
+  });
+  try {
+    expect(await f.local("/v1/status")).toMatchObject({
+      remote: null,
+      remoteAccess: { enabled: false, error: expect.stringContaining("Tailscale") },
+    });
+    f.client.send({ type: "host.identity", requestId: "local-works" });
+    expect(await f.client.next()).toMatchObject({ identity: { displayName: "Office Mac" } });
+    expect(f.logs.length).toBeGreaterThan(0);
+    expect(timers[0]?.ms).toBe(1000);
+    f.recoverNetwork();
+    timers.shift()?.run();
+    // Public settings write joins the serialized retry queue, providing a completion barrier.
+    expect(await f.set("remote.enabled", true)).toMatchObject({ ok: true });
+    expect(await f.local("/v1/status")).toMatchObject({
+      remoteAccess: { enabled: true, transport: "tailscale" },
+    });
+    expect(PairingResponse.parse(await f.local("/v1/pairings", {})).url).toContain("/pair#");
+  } finally {
+    await f.close();
+  }
+});
+
+test("a rejected saved relay leaves startup, local conversations and direct pairing usable", async () => {
+  const relay = await startRelay({ allowedHostIds: [] });
+  const retries: number[] = [];
+  const f = await runtime({
+    enabled: true,
+    transport: "relay",
+    relayUrl: relay.url,
+    runtime: {
+      delay(_run, ms) {
+        retries.push(ms);
+        return () => {};
+      },
+    },
+  });
+  try {
+    expect(await f.local("/v1/status")).toMatchObject({
+      remoteAccess: { enabled: true, transport: "lan", error: expect.stringContaining("relay") },
+    });
+    f.client.send({ type: "host.identity", requestId: "relay-outage-local" });
+    expect(await f.client.next()).toMatchObject({ identity: { displayName: "Office Mac" } });
+    const pairing = PairingResponse.parse(await f.local("/v1/pairings", {}));
+    const url = new URL(pairing.url);
+    const paired = DeviceCredential.parse(
+      await accessRequest(url.origin, "/v1/pair", {
+        fingerprint: f.identity.fingerprint,
+        method: "POST",
+        body: { code: codeOf(pairing.url), name: "My laptop" },
+      }),
+    );
+    expect(paired.device.name).toBe("My laptop");
+    f.client.send({ type: "delegation.remote.transport", requestId: "no-live-relay" });
+    const transport = await f.client.next();
+    expect(transport).toMatchObject({ ok: true });
+    expect("relay" in transport).toBe(false);
+    expect(retries[0]).toBe(1000);
+  } finally {
+    await f.close();
+    await relay.close();
   }
 });

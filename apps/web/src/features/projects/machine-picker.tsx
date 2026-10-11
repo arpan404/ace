@@ -1,20 +1,8 @@
+import { machineStatus } from "@/lib/machine-status.ts";
 import { useRef, type KeyboardEvent } from "react";
 import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { cn } from "@/lib/cn.ts";
-import type { Machine, MachineStatus } from "@/lib/machines.ts";
-
-const statusLabel: Record<MachineStatus, string> = {
-  online: "connected",
-  connecting: "connecting",
-  offline: "offline",
-  auth_failed: "needs pairing again",
-};
-const statusDot: Record<MachineStatus, string> = {
-  online: "bg-status-done",
-  connecting: "bg-status-waiting",
-  offline: "bg-subtle-foreground",
-  auth_failed: "bg-status-failed",
-};
+import type { Machine } from "@/lib/machines.ts";
 
 /** The machine after `id`, wrapping: ⌘M. */
 export function nextMachine(machines: readonly Machine[], id: string): Machine | undefined {
@@ -74,7 +62,7 @@ export function MachinePicker(props: {
               type="button"
               role="radio"
               aria-checked={checked}
-              aria-label={`${machine.name}, ${statusLabel[machine.status]}`}
+              aria-label={`${machine.name}, ${machineStatus[machine.status].label}`}
               data-machine={machine.id}
               tabIndex={checked || (none && index === 0) ? 0 : -1}
               onClick={() => select(machine.id)}
@@ -87,7 +75,8 @@ export function MachinePicker(props: {
               <MachineLabel name={machine.name} icon={machine.icon} />
               <span
                 aria-hidden
-                className={cn("size-1.5 rounded-full", statusDot[machine.status])}
+                data-tone={machineStatus[machine.status].tone}
+                className="size-1.5 rounded-full bg-(--tone)"
               />
             </button>
           );

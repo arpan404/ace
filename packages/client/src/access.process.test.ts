@@ -22,7 +22,7 @@ test("HTTP access reads devices, issues a ticket and revokes it without durable 
     expect(await access.devices()).toContainEqual(paired.device);
     expect(await phone.ticket()).toMatchObject({ ticket: expect.stringMatching(/^[a-f0-9]{64}$/) });
     expect(await access.revoke(paired.device.id)).toEqual({ revoked: true });
-    await expect(phone.ticket()).rejects.toMatchObject({ code: "daemon", message: "HTTP 401" });
+    await expect(phone.ticket()).rejects.toMatchObject({ code: "auth", message: "HTTP 401" });
     expect(urls.every((url) => !url.includes(token) && !url.includes(paired.token))).toBe(true);
     expect(
       f.daemon.store.atomic(
@@ -45,4 +45,49 @@ test("access rejects remote cleartext and embedded URL credentials before any ne
   expect(
     () => new AccessClient({ ...options, origin: "https://remote.example/?token=secret" }),
   ).toThrow("Trusted HTTPS");
+});
+
+test.each([401, 403, 429, 500, 503])(
+  "ticket HTTP %s chooses re-pairing only for denied credentials",
+  async (status) => {
+    const access = new AccessClient({
+      origin: "https://computer.test/",
+      token: async () => "a".repeat(64),
+      fetch: async () => new Response("{}", { status }),
+    });
+    await expect(access.ticket()).rejects.toMatchObject({
+      code: status === 401 || status === 403 ? "auth" : "offline",
+    });
+  },
+);
+test("a network failure during ticket exchange remains retryable", async () => {
+  const access = new AccessClient({
+    origin: "https://computer.test/",
+    token: async () => "a".repeat(64),
+    fetch: async () => {
+      throw new TypeError("network down");
+    },
+  });
+  await expect(access.ticket()).rejects.toMatchObject({ code: "offline" });
+});
+test("a pairing request that never responds expires and can be retried", async () => {
+  let expire: (() => void) | undefined;
+  let pending = true;
+  const access = new AccessClient({
+    origin: "https://computer.test/",
+    token: async () => "",
+    schedule: (run) => {
+      expire = run;
+      return () => {};
+    },
+    fetch: async () => {
+      if (pending) return new Promise<Response>(() => {});
+      return new Response("{}", { status: 401 });
+    },
+  });
+  const request = access.redeem("a".repeat(32), "Laptop");
+  expire?.();
+  await expect(request).rejects.toMatchObject({ code: "offline" });
+  pending = false;
+  await expect(access.redeem("a".repeat(32), "Laptop")).rejects.toMatchObject({ code: "auth" });
 });

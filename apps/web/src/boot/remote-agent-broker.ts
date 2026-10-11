@@ -1,13 +1,16 @@
+import { brokerLeader } from "./broker-leader.ts";
 import type { ClientApi } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
+import { useDaemonConnection } from "./connection.tsx";
 import { useEffect } from "react";
 
 /** Load the broker only for actual paired-device connections, alongside their worker pool. */
 export function useRemoteAgentBroker(primary: ClientApi, pool: MachinePool | undefined): void {
+  const { url } = useDaemonConnection();
   useEffect(() => {
     if (!pool) return;
-    return startRemoteAgentBroker(primary, pool);
-  }, [primary, pool]);
+    return brokerLeader(navigator.locks, url, () => startRemoteAgentBroker(primary, pool));
+  }, [primary, pool, url]);
 }
 
 function startRemoteAgentBroker(primary: ClientApi, pool: MachinePool): () => void {

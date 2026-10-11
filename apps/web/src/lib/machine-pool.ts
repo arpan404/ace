@@ -14,3 +14,9 @@ export const MachinePoolProvider = MachinePoolContext.Provider;
 export function useMachinePool(): MachinePool | undefined {
   return useContext(MachinePoolContext);
 }
+
+const MachinePoolFactory = createContext<(() => Promise<MachinePool>) | undefined>(undefined);
+export const MachinePoolFactoryProvider = MachinePoolFactory.Provider;
+export function useEnsureMachinePool() {
+  return useContext(MachinePoolFactory);
+}

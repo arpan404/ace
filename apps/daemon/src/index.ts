@@ -270,7 +270,6 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "files",
       "supportFiles",
       "threadFiles",
-      "relay",
       "handler",
       "plugins",
       "browser",
@@ -305,6 +304,15 @@ export async function startDaemon(options: DaemonOptions = {}) {
         configurable: true,
         get: () => services[key],
       });
+    Object.defineProperty(serverOptions, "relay", {
+      enumerable: true,
+      configurable: true,
+      get: () => services.relay,
+      set: (relay: ServerOptions["relay"]) => {
+        if (relay) services.relay = relay;
+        else delete services.relay;
+      },
+    });
     lifetime.signal.throwIfAborted();
     server = await startServer(serverOptions);
     lifetime.signal.throwIfAborted();

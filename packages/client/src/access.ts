@@ -10,11 +10,15 @@ import {
 } from "@ace/protocol";
 import { ClientError } from "./types.ts";
 
+const noop = () => {};
+
 export interface AccessOptions {
   origin: string;
   /** Transport owns trusted TLS/pinning. Browsers require a trusted HTTPS certificate. */
   fetch(input: string, init: RequestInit): Promise<Response>;
   token(): Promise<string>;
+  timeoutMs?: number;
+  schedule?: (callback: () => void, delayMs: number) => () => void;
 }
 /** HTTP access operations never enter the command outbox or place credentials in URLs. */
 export class AccessClient {
@@ -41,24 +45,83 @@ export class AccessClient {
     authenticate = true,
     signal?: AbortSignal,
   ): Promise<unknown> {
+    const controller = new AbortController();
+    const schedule =
+      this.options.schedule ??
+      ((callback, ms) => {
+        const timer = setTimeout(callback, ms);
+        return () => clearTimeout(timer);
+      });
+    let cancel = noop;
+    const timedOut = new Promise<never>((_, reject) => {
+      cancel = schedule(() => {
+        controller.abort();
+        reject(
+          new ClientError(
+            "offline",
+            "This computer didn't respond. Check the connection and try again.",
+          ),
+        );
+      }, this.options.timeoutMs ?? 15000);
+    });
+    try {
+      return await Promise.race([
+        this.callRaw(
+          path,
+          method,
+          value,
+          authenticate,
+          AbortSignal.any([controller.signal, ...(signal ? [signal] : [])]),
+        ),
+        timedOut,
+      ]);
+    } catch (error) {
+      throw error instanceof ClientError
+        ? error
+        : new ClientError(error instanceof SyntaxError ? "protocol" : "offline");
+    } finally {
+      cancel();
+    }
+  }
+  private async callRaw(
+    path: string,
+    method: string,
+    value?: unknown,
+    authenticate = true,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     const token = authenticate
       ? DeviceCredential.shape.token.parse(await this.options.token())
       : undefined;
-    const response = await this.options.fetch(this.origin + path, {
-      method,
-      redirect: "error",
-      credentials: "omit",
-      cache: "no-store",
-      headers: {
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
-        ...(value === undefined ? {} : { "content-type": "application/json" }),
-      },
-      ...(value === undefined ? {} : { body: JSON.stringify(value) }),
-      ...(signal ? { signal } : {}),
-    });
+    const response = await this.options
+      .fetch(this.origin + path, {
+        method,
+        redirect: "error",
+        credentials: "omit",
+        cache: "no-store",
+        headers: {
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+          ...(value === undefined ? {} : { "content-type": "application/json" }),
+        },
+        ...(value === undefined ? {} : { body: JSON.stringify(value) }),
+        ...(signal ? { signal } : {}),
+      })
+      .catch(() => {
+        throw new ClientError(
+          "offline",
+          "Couldn't reach this computer. Check the connection and try again.",
+        );
+      });
     if (!response.ok) {
       await response.body?.cancel();
-      throw new ClientError("daemon", `HTTP ${response.status}`);
+      throw new ClientError(
+        response.status === 401 || response.status === 403
+          ? "auth"
+          : response.status === 429 || response.status >= 500
+            ? "offline"
+            : "daemon",
+        `HTTP ${response.status}`,
+      );
     }
     if (!response.body) throw new ClientError("protocol");
     const reader = response.body.getReader();

@@ -41,5 +41,6 @@ export const RemoteAccessStatus = z.object({
   transport: z.enum(["local", "lan", "tailscale", "relay"]),
   listenOverride: z.enum(["local", "lan", "tailscale"]).nullable(),
   relayOverride: z.boolean(),
+  error: z.string().max(256).optional(),
 });
 export type RemoteAccessStatus = z.infer<typeof RemoteAccessStatus>;

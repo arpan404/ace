@@ -96,3 +96,19 @@ test("a redeemed link that cannot connect returns to an editable connection scre
   expect(screen.getByRole("button", { name: "Have a pairing code?" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Connect" }).hasAttribute("disabled")).toBe(false);
 });
+
+test("Cancel stays available while pairing is waiting and a late response does not connect", async () => {
+  const { stores } = await setup(true);
+  const pending = Promise.withResolvers<Response>();
+  vi.stubGlobal("fetch", () => pending.promise);
+  await userEvent.type(
+    await screen.findByRole("textbox", { name: "This device's name" }),
+    "My phone",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Pair and connect" }));
+  expect(screen.getByRole("button", { name: "Pairing…" }).hasAttribute("disabled")).toBe(true);
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  pending.resolve(new Response("{}", { status: 401 }));
+  expect(await screen.findByRole("button", { name: "Connect" })).toBeTruthy();
+  expect(loadTarget(stores).target).toBeUndefined();
+});

@@ -1,3 +1,4 @@
+import { pruneRemoteRows } from "../agent-control/remote-retention.ts";
 import { RemotePublications } from "../agent-control/remote-publication.ts";
 import { RemoteReturns } from "../agent-control/remote-return.ts";
 import { prepareRemoteContext } from "../agent-control/remote-context-source.ts";
@@ -68,12 +69,14 @@ export function startAgentControl(context: ServiceContext): void {
   resources.onShutdown(() => delegations.close());
   const returns = new RemoteReturns(store);
   let returnCleanup: ReturnType<typeof setInterval> | undefined;
-  const cleanReturns = () =>
-    services.context
+  const cleanReturns = () => {
+    pruneRemoteRows(store, now());
+    return services.context
       ? returns.cleanup(services.context, (error) =>
           log.log("warn", "Cancelled output cleanup", logError(error)),
         )
       : Promise.resolve();
+  };
   onListen.push(() => {
     void cleanReturns();
     returnCleanup = setInterval(() => {

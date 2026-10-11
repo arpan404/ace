@@ -26,6 +26,8 @@ export const HostOptionsSchema = z
     maxClientChannels: positive.max(1024).default(64),
     helloTimeoutMs: duration.default(10000),
     handshakeTimeoutMs: duration.default(10000),
+    idleTimeoutMs: duration.default(25000),
+    pingIntervalMs: duration.default(10000),
     retryInitialMs: duration.default(250),
     retryMaxMs: duration.default(5000),
   })

@@ -30,20 +30,20 @@ Example:
 
 ```json
 {
-  "concurrency": 1,
+  "concurrency": 2,
   "enabled": true,
   "id": "example",
-  "jitterMs": 1,
+  "jitterMs": 4,
   "missedRun": "skip",
+  "model": "example",
   "prompt": "example",
   "provider": "codex",
   "title": "example",
   "trigger": {
-    "event": "pr_changed",
-    "kind": "github",
-    "label": "example",
-    "pollIntervalMs": 60009,
-    "repository": "rXPX3/aRLbwlnF3wI"
+    "kind": "file",
+    "paths": [
+      "example"
+    ]
   },
   "workspace": "example",
   "worktree": true
@@ -99,7 +99,7 @@ Example:
 
 ```json
 {
-  "at": 8,
+  "at": 1,
   "message": "example"
 }
 ```
@@ -121,13 +121,13 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 2,
+    "concurrency": 7,
     "enabled": false,
     "id": "example",
-    "jitterMs": 4,
+    "jitterMs": 5,
     "missedRun": "skip",
     "prompt": "example",
-    "provider": "opencode",
+    "provider": "cursor",
     "title": "example",
     "trigger": {
       "kind": "file",
@@ -136,7 +136,7 @@ Example:
       ]
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -211,7 +211,8 @@ Example:
 
 ```json
 {
-  "limit": 7,
+  "automationId": "example",
+  "limit": 4,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -236,8 +237,9 @@ Example:
 
 ```json
 {
+  "automations": [],
   "error": "example",
-  "ok": false,
+  "ok": true,
   "requestId": "example",
   "type": "automation.result"
 }
@@ -266,11 +268,11 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 9,
+  "finishedAt": 1,
   "id": "example",
-  "startedAt": 1,
+  "result": "example",
+  "startedAt": 6,
   "status": "skipped",
-  "threadId": "example",
   "title": "example",
   "trigger": "file"
 }
@@ -330,7 +332,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "cron",
+    "kind": "rrule",
     "startAt": 0,
     "timezone": "example"
   }
@@ -354,9 +356,9 @@ Example:
 {
   "event": "pr_changed",
   "kind": "github",
-  "label": "example",
-  "pollIntervalMs": 60009,
-  "repository": "qOshEI7d/ns_fAm5D"
+  "pollIntervalMs": 60001,
+  "pullRequest": 7,
+  "repository": "0fU9/TnZ21"
 }
 ```
 
