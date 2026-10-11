@@ -36,7 +36,11 @@ export async function deleteUnchangedBranch(
   if ((await repository.worktrees(root)).some((tree) => tree.branch === options.branch))
     throw new GitError("restore_collision", "Cleanup branch is still checked out");
   // Compare-and-delete prevents a changed ref being removed between observation and mutation.
-  await repository.cli.call(root, ["-c", "core.hooksPath=/dev/null", "update-ref", "-d", ref, options.expectedHead], {
-    write: true,
-  });
+  await repository.cli.call(
+    root,
+    ["-c", "core.hooksPath=/dev/null", "update-ref", "-d", ref, options.expectedHead],
+    {
+      write: true,
+    },
+  );
 }

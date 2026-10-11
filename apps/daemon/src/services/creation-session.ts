@@ -77,7 +77,7 @@ export function createEngineSession(context: SocketContext): SocketService {
                   : undefined,
             },
           });
-          operation = drafts.begin(draft, device, (message) => {
+          operation = await drafts.begin(draft, device, (message) => {
             if (context.connected()) send(message);
           });
           owned.add(operation);

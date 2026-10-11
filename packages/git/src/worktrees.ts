@@ -89,10 +89,22 @@ export async function createWorktree(
             resolve(tree.path) === path && tree.branch === options.branch && tree.head === sha,
         );
         if (owned)
-          await cli.call(root, ["-c", "core.hooksPath=/dev/null", "worktree", "remove", ...(staged ? ["--force"] : []), "--", path], {
-            write: true,
-            allowFailure: true,
-          });
+          await cli.call(
+            root,
+            [
+              "-c",
+              "core.hooksPath=/dev/null",
+              "worktree",
+              "remove",
+              ...(staged ? ["--force"] : []),
+              "--",
+              path,
+            ],
+            {
+              write: true,
+              allowFailure: true,
+            },
+          );
         if (!(await repository.worktrees(root)).some((tree) => tree.branch === options.branch))
           await deleteUnchangedBranch(repository, root, {
             repo: root,
@@ -153,7 +165,15 @@ export async function removeWorktree(
     // No JS recursive deletion. Git owns removal of this exact registered root.
     await repository.cli.call(
       root,
-      ["-c", "core.hooksPath=/dev/null", "worktree", "remove", ...(options.force ? ["--force"] : []), "--", found.path],
+      [
+        "-c",
+        "core.hooksPath=/dev/null",
+        "worktree",
+        "remove",
+        ...(options.force ? ["--force"] : []),
+        "--",
+        found.path,
+      ],
       { write: true },
     );
   });
@@ -186,11 +206,15 @@ async function checkoutFiles(repository: Repository, path: string, options: Crea
       offset = end + 1;
       completed++;
     }
-    await cli.call(path, ["-c", "core.hooksPath=/dev/null", "checkout-index", "--force", "--stdin", "-z"], {
-      write: true,
-      input: listing.stdout.subarray(start, offset),
-      ...(options.stderr ? { stderr: options.stderr } : {}),
-    });
+    await cli.call(
+      path,
+      ["-c", "core.hooksPath=/dev/null", "checkout-index", "--force", "--stdin", "-z"],
+      {
+        write: true,
+        input: listing.stdout.subarray(start, offset),
+        ...(options.stderr ? { stderr: options.stderr } : {}),
+      },
+    );
     const percent = Math.floor((completed * 100) / total);
     if (percent > reported) {
       reported = percent;

@@ -12,12 +12,20 @@ for (const staged of [false, true]) {
     const marker = join(dirname(repo), "hook-executed");
     await mkdir(hooks);
     for (const name of ["post-checkout", "post-index-change", "reference-transaction"])
-      await writeFile(join(hooks, name), `#!/bin/sh\nprintf executed > '${marker}'\n`, { mode: 0o755 });
+      await writeFile(join(hooks, name), `#!/bin/sh\nprintf executed > '${marker}'\n`, {
+        mode: 0o755,
+      });
     await git(repo, "config", "core.hooksPath", hooks);
     const service = new GitService();
     try {
       const head = await scalar(repo, "rev-parse", "HEAD");
-      await service.createWorktree({ repo, path, baseRef: head, branch: "untrusted", ...(staged ? { signal: new AbortController().signal } : {}) });
+      await service.createWorktree({
+        repo,
+        path,
+        baseRef: head,
+        branch: "untrusted",
+        ...(staged ? { signal: new AbortController().signal } : {}),
+      });
       expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe("original\n");
       expect(await scalar(path, "rev-parse", "HEAD")).toBe(head);
       await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });

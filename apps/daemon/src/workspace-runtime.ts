@@ -85,7 +85,6 @@ export class WorkspaceRuntime {
     options: WorkspaceRuntimeOptions = {},
   ) {
     this.store = store;
-    this.creationDrafts = new CreationDrafts(store, now);
     initializeThreadCleanup(store);
     this.now = now;
     this.options = options;
@@ -109,6 +108,10 @@ export class WorkspaceRuntime {
         checkout: (project, selection, signal) => this.forge.checkout(project, selection, signal),
         ...(options.prRemote ? { remote: options.prRemote } : {}),
       }),
+    });
+    this.creationDrafts = new CreationDrafts(store, now, {
+      ready: () => this.roots.creationReady(),
+      cleanupComplete: (command) => this.roots.creationCleanupComplete(command),
     });
     this.commands = new AsyncCommands(store);
     this.checkpoints = new RunCheckpoints(store, this.git, (id) => this.root(id), now);

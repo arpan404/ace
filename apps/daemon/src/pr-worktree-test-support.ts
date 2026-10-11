@@ -124,6 +124,7 @@ export async function prDaemon(
     });
   return {
     h,
+    directory: join(scratch, "data"),
     origin,
     head,
     base,
@@ -148,6 +149,18 @@ export async function prDaemon(
     trees: () => run(h.home, "worktree", "list", "--porcelain"),
     async reconnect() {
       await client.close();
+      client = await connect(server.url);
+    },
+    async pauseForCrash() {
+      await client.close();
+      await server.close();
+      await runtime.close();
+      await h.engine.close();
+    },
+    async resumeAfterCrash() {
+      await h.reopen();
+      runtime = new WorkspaceRuntime(h.store, join(scratch, "data"), () => 1000, runtimeOptions);
+      server = await open();
       client = await connect(server.url);
     },
     async reopen() {

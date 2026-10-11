@@ -115,7 +115,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
           }
           let progress: CreationProgress;
           try {
-            progress = runtime.creationDrafts.begin(command, command.deviceId, (message) => {
+            progress = await runtime.creationDrafts.begin(command, command.deviceId, (message) => {
               if (connected()) send(message);
             });
           } catch (error) {

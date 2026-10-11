@@ -1,3 +1,4 @@
+import { creationResourceId } from "./creation-resource-id.ts";
 import type { PreparePrBase } from "./pr-worktree-resolution.ts";
 import type { CreationProgress } from "./creation-progress.ts";
 import { listScripts } from "./workspace-scripts.ts";
@@ -80,11 +81,8 @@ export class WorkspaceCreations {
     const project = this.store.getWorkspacePath(thread.workspaceId);
     if (!project) throw new Error("workspace_not_found");
     const requested: RequestedBase = { kind: "pull-request", selection: p.pullRequest };
-    const id = ThreadId.parse(
-      `pr-worktree:${createHash("sha256")
-        .update(JSON.stringify([p.threadId, command.id, requestedBaseKey(requested)]))
-        .digest("hex")}`,
-    );
+    const id = creationResourceId(command);
+    if (!id) throw new Error("invalid_command");
     await this.ready(id);
     if (this.closing || this.pending.size >= 16 || this.pending.has(id))
       throw new Error("workspace_busy");
@@ -286,6 +284,10 @@ export class WorkspaceCreations {
     const resources = this.journal.list();
     if (resources.length > 16) throw new Error("workspace_busy");
     await Promise.allSettled(resources.map((resource) => this.cleanup(resource)));
+  }
+  cleanupComplete(command: Command): boolean {
+    const id = creationResourceId(command);
+    return !id || !this.journal.list().some((resource) => resource.id === id);
   }
   async ready(id?: ThreadId): Promise<void> {
     await this.recovery;

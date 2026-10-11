@@ -42,6 +42,12 @@ export class WorkspaceRoots {
     this.now = now;
     this.machine = machine;
   }
+  creationReady(): Promise<void> {
+    return this.creations.ready();
+  }
+  creationCleanupComplete(command: Command): boolean {
+    return this.creations.cleanupComplete(command);
+  }
   prepareExistingPr(command: Command, progress?: CreationProgress) {
     return this.creations.prepareExisting(command, progress);
   }
