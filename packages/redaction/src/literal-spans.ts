@@ -1,5 +1,6 @@
 import { CREDENTIAL_PATTERNS } from "./credential-patterns.ts";
 import type { EnvironmentMatcher } from "./environment.ts";
+import { jsonCredentialSpans } from "./json-credentials.ts";
 
 export interface SensitiveSpan {
   start: number;
@@ -27,6 +28,9 @@ export function* sensitiveSpans(
     };
     return { next, match: next() };
   });
+  const json = jsonCredentialSpans(text);
+  const next = () => json.next().value ?? null;
+  scans.push({ next, match: next() });
   for (;;) {
     let start = env[index]?.start ?? Infinity;
     for (const scan of scans) if (scan.match) start = Math.min(start, scan.match.start);

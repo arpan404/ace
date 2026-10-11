@@ -2,6 +2,8 @@ import { redactOriginalText, sensitiveSpans } from "./literal-spans.ts";
 import { redactRecordEnvironment } from "./record-environment.ts";
 import { createEnvironmentMatcher, type EnvironmentMatcher } from "./environment.ts";
 import { redactEmbeddedText } from "./embedded-text.ts";
+import { isSecretKey } from "./secret-keys.ts";
+export { isSecretKey } from "./secret-keys.ts";
 
 export type RedactionContext = {
   workspace?: string | undefined;
@@ -11,8 +13,6 @@ export type RedactionContext = {
   env?: Record<string, string | undefined> | undefined;
 };
 
-const SECRET_KEY =
-  /token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code|encryptedContent/i;
 const TOKEN_COUNTERS = new Set([
   "inputTokens",
   "outputTokens",
@@ -49,10 +49,6 @@ function accountingCounter(key: string, value: unknown): boolean {
     (TOKEN_COUNTERS.has(key) && nonnegativeCounter(value)) ||
     (key === "tokens" && nativeTokenCounters(value))
   );
-}
-
-export function isSecretKey(key: string): boolean {
-  return SECRET_KEY.test(key);
 }
 
 // These values describe runtime operation, not identity or authentication.
