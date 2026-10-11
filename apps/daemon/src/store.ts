@@ -432,8 +432,13 @@ export class Store {
         let cursor = Math.max(after, this.publishedSeq);
         // Keep the fence through all pages, including listener-created tail events.
         while (cursor < this.headSeq()) {
+          const through = this.headSeq();
           const events = this.readEvents({ afterSeq: cursor, limit: 64 });
-          if (!events.length) throw new Error("Missing deferred history events");
+          if (!events.length) {
+            this.coverDeletedTail(through);
+            cursor = through;
+            continue;
+          }
           this.notifyingHistory = true;
           try {
             this.publish(events);
@@ -475,6 +480,13 @@ export class Store {
       this.installingHistory = false;
     }
   }
+  private coverDeletedTail(through: number): void {
+    // Physical deletion removes event rows and reserves a tombstone sequence. A later
+    // deletion can also remove the event at a notification's previously captured head.
+    if (!this.statement("SELECT 1 FROM usage_deletions WHERE seq>=? LIMIT 1").get(through))
+      throw new Error("Missing committed history events");
+    this.publishedSeq = Math.max(this.publishedSeq, through);
+  }
   async notifyHistory(after = this.publishedSeq): Promise<void> {
     after = Math.max(after, this.publishedSeq);
     const through = this.headSeq();
@@ -482,7 +494,11 @@ export class Store {
       const events = this.readEvents({ afterSeq: after, limit: 16 }).filter(
         (event) => event.seq <= through,
       );
-      if (!events.length) throw new Error("Missing committed history events");
+      if (!events.length) {
+        this.coverDeletedTail(through);
+        after = through;
+        continue;
+      }
       this.notifyingHistory = true;
       try {
         this.publish(events);

@@ -173,6 +173,8 @@ test("an idempotent import retry finishes publication and removes staging left a
     const archive = openArchiveReader(f.indexPath, threadId);
     try {
       writer.installHistory(archive, 123, () => false);
+      const unrelated = createDevThread(writer, f.workspaceId);
+      writer.deleteThread(unrelated.id);
     } finally {
       archive.close();
       await writer.close();
@@ -197,6 +199,48 @@ test("an idempotent import retry finishes publication and removes staging left a
     await f.close();
   }
 });
+
+test.each(["retry", "fence"])(
+  "a tombstone-only tail does not fail %s recovery or redeliver an imported thread",
+  async (recovery) => {
+    const f = await fixture();
+    try {
+      f.restore();
+      expect(await f.import()).toMatchObject({ status: "imported", threadId: "import-1" });
+      const unrelated = createDevThread(f.store, f.workspaceId);
+      const beforeDeletion = f.store.headSeq();
+      f.store.deleteThread(unrelated.id);
+      expect(f.store.headSeq()).toBe(beforeDeletion + 1);
+      expect(f.store.readEvents({ afterSeq: beforeDeletion, limit: 16 })).toEqual([]);
+      const plainDeliveries = f.plain.length;
+      const windowDeliveries = f.windowed.length;
+      if (recovery === "fence") {
+        f.store.setHistoryWriting(true);
+        expect(() => f.store.setHistoryWriting(false)).not.toThrow();
+        await expect(f.store.writable()).resolves.toBeUndefined();
+      }
+      expect(await f.import()).toMatchObject({ status: "imported", threadId: "import-1" });
+      expect(f.plain).toHaveLength(plainDeliveries);
+      expect(f.windowed).toHaveLength(windowDeliveries);
+      const delivered: number[] = [];
+      const stop = f.store.subscribe((events) =>
+        delivered.push(...events.map((event) => event.seq)),
+      );
+      try {
+        f.store.appendEvents(ThreadId.parse("import-1"), [
+          { type: "thread.updated", title: "After deletion" },
+        ]);
+        await f.import();
+        expect(delivered).toEqual([beforeDeletion + 2]);
+        expect(f.store.getThread(ThreadId.parse("import-1"))?.title).toBe("After deletion");
+      } finally {
+        stop();
+      }
+    } finally {
+      await f.close();
+    }
+  },
+);
 
 test("a worker exit before commit leaves no phantom publication and its archive can be retried", async () => {
   const f = await fixture();
