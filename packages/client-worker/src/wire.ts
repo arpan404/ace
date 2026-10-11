@@ -79,6 +79,7 @@ const Patch = z.object({
   v: z.optional(z.unknown()),
   append: z.optional(z.string()),
   cut: z.optional(z.boolean()),
+  deleted: z.optional(z.boolean()),
 });
 export const LeaseChanges = z.object({
   lease: id,
@@ -89,6 +90,7 @@ export const LeaseChanges = z.object({
 export type LeaseChanges = z.infer<typeof LeaseChanges>;
 
 export const WorkerMessage = z.discriminatedUnion("t", [
+  z.object({ t: z.literal("pong") }),
   z.object({
     t: z.literal("attached"),
     error: z.optional(ErrorShape),

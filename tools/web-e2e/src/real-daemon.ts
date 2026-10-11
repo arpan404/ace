@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { realDaemonEnvironment, assertRealDaemonEnvironment } from "./real-daemon-environment.ts";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -39,6 +41,14 @@ import {
   clonedFile,
 } from "./real-daemon-config.ts";
 
+// Strip inherited storage/provider selectors before configuration or service startup.
+process.env = realDaemonEnvironment(
+  process.env,
+  daemonHome,
+  process.env.ACE_TEST_REAL_HOME ?? homedir(),
+);
+await assertRealDaemonEnvironment(process.env, daemonHome);
+
 /**
  * A real ace daemon (apps/daemon) for the e2e smoke test, with scripted providers from
  * @ace/adapter-testkit registered in place of discovery, so no provider CLI is ever started.
@@ -66,6 +76,17 @@ function scriptedProvider(provider: ProviderKind) {
 rmSync(daemonHome, { recursive: true, force: true });
 const project = join(daemonHome, "projects", workspaceName);
 mkdirSync(project, { recursive: true });
+for (const key of [
+  "XDG_CONFIG_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_RUNTIME_DIR",
+  "TMPDIR",
+]) {
+  const path = process.env[key];
+  if (path) mkdirSync(path, { recursive: true, mode: 0o700 });
+}
 writeFileSync(join(project, "README.md"), "# e2e project\n");
 // Context (mentions, uploads) works inside a git checkout, as a real project is.
 const git = (...args: string[]) =>
@@ -107,6 +128,18 @@ const editors = join(daemonHome, "bin");
 mkdirSync(editors, { recursive: true });
 writeFileSync(join(editors, "zed"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 process.env.PATH = `${editors}${delimiter}${process.env.PATH ?? ""}`;
+for (const provider of ["claude", "codex"] as const) {
+  writeFileSync(
+    join(editors, provider),
+    `#!${process.execPath}
+const args = process.argv.slice(2).join(' ');
+if (args === '--version') console.log(${JSON.stringify(provider === "claude" ? "2.1.4" : "codex-cli 0.150.0")});
+else if (args === ${JSON.stringify(provider === "claude" ? "auth status" : "login status")}) console.log(${JSON.stringify(provider === "claude" ? '{"loggedIn":true}' : "Logged in using ChatGPT")});
+else if (!args.includes('--help')) throw new Error('Only scripted metadata commands are allowed');
+`,
+    { mode: 0o700 },
+  );
+}
 
 const registry = new AdapterRegistry();
 for (const provider of ["claude", "codex"] as const)
@@ -118,13 +151,20 @@ for (const provider of ["claude", "codex"] as const)
 
 const daemon = await startDaemon({
   config: {
-    ...readConfig({}),
+    ...readConfig(),
     dataDir: daemonHome,
     port: daemonPort,
     logLevel: "warn",
     webOrigins: [webOrigin],
   },
   engine: { registry },
+  modelInstances: [],
+  providerStatus: {
+    // The scripted fixture discovers only its harmless metadata fixtures.
+    env: { ...process.env, PATH: editors },
+    cursorSdk: async () => ({ installed: false, auth: "unknown", loginHint: "Scripted fixture" }),
+    versions: async () => ({}),
+  },
   // Test-only: the project journeys work in their own root, and their clone reaches a local
   // bare repository through Git's file transport (see seedProjects). No client can set either.
   projects: {

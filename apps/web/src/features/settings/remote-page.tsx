@@ -4,7 +4,7 @@ import { deviceScopeLabels } from "./device-scopes.ts";
 import type { Device } from "@ace/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingRow, SettingSection, SettingSummaryRow } from "@/components/setting-row.tsx";
+import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -52,7 +52,7 @@ function PairedDevices() {
         <p className="py-3.5 text-sm text-muted-foreground">No paired devices.</p>
       )}
       {devices.data?.map((device) => (
-        <SettingSummaryRow
+        <SettingRow
           key={device.id}
           title={device.name}
           description={[deviceScopeLabels(device.scopes)].join(" · ")}
@@ -60,7 +60,7 @@ function PairedDevices() {
           <RowMenu label={`Actions for ${device.name}`}>
             <MenuItem onClick={() => setRevoking(device)}>Revoke</MenuItem>
           </RowMenu>
-        </SettingSummaryRow>
+        </SettingRow>
       ))}
       <SettingRow id="remote.pair" title={<PairDevice />} compact inline />
       <RevokeDialog device={revoking} onDone={() => setRevoking(undefined)} />

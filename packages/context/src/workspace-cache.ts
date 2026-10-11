@@ -110,12 +110,13 @@ export class WorkspaceCache {
             const paths = [...pending];
             pending.clear();
             if (rebuild) {
+              // Subscribe before inventory so changes beyond its cut are queued.
+              const replacement = this.watchRoot(root);
+              listen(replacement);
+              const superseded = entry.watcher;
+              entry.watcher = replacement;
+              superseded.close();
               await workspace.initialize();
-              if (this.closed || this.cache.get(root) !== entry) return;
-              // Re-arm even after watcher errors or a lost notification source.
-              entry.watcher.close();
-              entry.watcher = this.watchRoot(root);
-              listen(entry.watcher);
             } else await workspace.update(paths);
           }
           failures = 0;
@@ -141,6 +142,7 @@ export class WorkspaceCache {
     };
     const listen = (source: FSWatcher) => {
       source.on("change", (_event, filename) => {
+        if (this.closed || this.cache.get(root) !== entry || entry.watcher !== source) return;
         const parsed = WatchedPath.safeParse(filename);
         if (!parsed.success || pending.size >= 4096) {
           pending.clear();
@@ -153,6 +155,7 @@ export class WorkspaceCache {
         void flush();
       });
       source.on("error", () => {
+        if (this.closed || this.cache.get(root) !== entry || entry.watcher !== source) return;
         entry.rebuild = true;
         void flush();
       });

@@ -5,40 +5,40 @@
       "sha256": "8b4354e75f1ca6ffa31f17c175d0a1b7ce25afe0341e6bee60e187e29949aa53"
     },
     "automations.md": {
-      "bytes": 9694,
-      "sha256": "f8aab3b13d54bee487cc89ae07162278593290acb7adb4ad386307358516a5cd"
+      "bytes": 9974,
+      "sha256": "babf25c275c789dccf5655eb2870e26a870247ad0c534d5eca2f3fb7e7671853"
     },
     "commands.md": {
-      "bytes": 37184,
-      "sha256": "52c6acd38146b615ef6b0eb20949f570e5a9c6ca5d7f639ffa0081eb69a6b961"
+      "bytes": 37245,
+      "sha256": "b028e85d15cfeccc12e4ef632c00dd595bd7ae969ce949a085b566438b7e7df5"
     },
     "events.md": {
-      "bytes": 19322,
-      "sha256": "1fa3fda55235a948ee66bcd7af026d166440a7bd284b57755c4137cd2b212a35"
+      "bytes": 19907,
+      "sha256": "079e3173025f15a460b4127755b6731ad2f536ed8315bf7e681142cc0204b5ef"
     },
     "forge.md": {
-      "bytes": 16601,
-      "sha256": "5ef646e0c8e666eb57533d6ca578f6ec8b26147a0cedd7c14b80c1c9d40c7e82"
+      "bytes": 16829,
+      "sha256": "c9ef18b0c6f41116d98a51ce4b18d41d12495658499e257eacbed79f80ad1668"
     },
     "mcp.md": {
-      "bytes": 130856,
-      "sha256": "6b2bf6a83d717d68f8d12290541279899e886b01155c5af8c2dedb227d28c696"
+      "bytes": 131810,
+      "sha256": "96fb18c20f06c73ba74aa9d2d3cf7adb89325f327eb99f480da8c777a6d56788"
     },
     "models.md": {
-      "bytes": 14523,
-      "sha256": "5cdab80a51ba7b5096aeac761ba6b03900d0954fd3ef55eea283cf6e26da05e2"
+      "bytes": 14557,
+      "sha256": "b5aa240569ec39245bce221e1a1bc96a78d42808ccf1d9fe2d2ef533fe96714f"
     },
     "orchestration.md": {
-      "bytes": 28020,
-      "sha256": "3267814306d46a10d3384a1f968738017070dcc661ce8b0c81a7202887dcfe90"
+      "bytes": 28131,
+      "sha256": "36151952395170aa648da9992e7e3c587520549b6e81ce375efbe65121d338d2"
     },
     "push.md": {
-      "bytes": 84403,
-      "sha256": "c0e81789427c7855e4521117dc5c4f84999815ac628ccb07fdcb7ff06f6cbe8c"
+      "bytes": 82947,
+      "sha256": "06830595959d8702044e06b510ce0e63e3dd8247f12eda13d04648d190f946a7"
     },
     "requests.md": {
-      "bytes": 77986,
-      "sha256": "803d349a3d6db56cd1a6f670e4ce5964cd327b41defb4762ff490440fb7abd34"
+      "bytes": 78207,
+      "sha256": "96e23d17e296817c4466ced1e1062e0d4525aab39b5127448a058b1ef4ac653e"
     },
     "schema/AccountAssignment.json": {
       "bytes": 504,
@@ -465,8 +465,8 @@
       "sha256": "b65cdd57e3595d55d32fdb9bce3c5498945bfac9be2f122383582635ed9ad4ec"
     },
     "schema/CommandPayload.json": {
-      "bytes": 38733,
-      "sha256": "89a533ac8a610572bfc69b6cb4442c4122475219a3ff8b0c18bcc9a8bfed9bf4"
+      "bytes": 38850,
+      "sha256": "f3a5afbcccb2cd95bbfc1632080a841705f58c16a74bedf5a64331da6c634877"
     },
     "schema/CommandPlan.json": {
       "bytes": 1803,
@@ -1185,8 +1185,8 @@
       "sha256": "2be5cacabae31a989894e5cb783ad125d27938d3f8a0db9c0507f9dc874d4734"
     },
     "schema/NativePermissionMode.json": {
-      "bytes": 665,
-      "sha256": "44fa2a0eed2bcf3ec3b04b3b87af4eeb3670dd97bfae506f3c922ffdac40ba95"
+      "bytes": 747,
+      "sha256": "2eeb2910a25873a828ecc036fef4651d9dcf3dac154501f306f025878625ec40"
     },
     "schema/NativeRef.json": {
       "bytes": 874,
@@ -1877,8 +1877,8 @@
       "sha256": "5196876db200d5db90ba435ea21950b2ee909f22f537bb8e444e349f0b59beb5"
     },
     "schema/ReviewCommand.json": {
-      "bytes": 5811,
-      "sha256": "2ccf7b9061c09aed29ed12b7365dd351226b632975b0351134757b49287ba847"
+      "bytes": 5928,
+      "sha256": "6d3f8e0c38c94fc579c93b4c63aea9ddc838bb4c89431879771d7321f0b88fb0"
     },
     "schema/ReviewComment.json": {
       "bytes": 858,
@@ -2873,8 +2873,8 @@
       "sha256": "22ae0188b964246cec5f773212f13da4664bf8d67dfb7ebf074a72972b88775c"
     },
     "schema/ace_thread_info.output.json": {
-      "bytes": 65623,
-      "sha256": "6cf9256a4282fdabcc18f99677cdcbeb0783b03af5289272e5654c551e87881c"
+      "bytes": 66207,
+      "sha256": "ba1c52fe5a84c962c23fa4d58b285d55dbb69d64a189015baefabe63adbb6d61"
     },
     "schema/ace_thread_interrupt.input.json": {
       "bytes": 484,
@@ -3005,10 +3005,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 667062,
-      "sha256": "e79c9d09a2133847113ece7c01dee5eccede6f0f5efca44e03a89b77ac72acbf"
+      "bytes": 672353,
+      "sha256": "d2869e909edb34043adaf2e6f1dfab803f08f935e207f5427550cb81776044bf"
     }
   },
-  "input": "6ccdc1dcb33dccdede2c3bb5d79881c2eb0fd3530be0f3c317c49b335e6c4658",
+  "input": "c2aedc9046299ded31d394ce7067b59693e4aa56c4cf4240f0ed7f9af7cb5837",
   "version": 1
 }

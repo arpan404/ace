@@ -131,11 +131,11 @@ export class WorkspaceRuntime {
   hasOwnedWork(id: ThreadId): boolean {
     return this.liveTerminalCount(id) > 0;
   }
-  /** Exited shells stay listed (their output is readable) but are no longer live work. */
+  /** Include retained job groups even when their shell has exited. */
   liveTerminalCount(id: ThreadId): number {
     let count = 0;
     for (const entry of this.terminals.values())
-      if (entry.threadId === id && terminalAlive(entry.terminal)) count++;
+      if (entry.threadId === id && entry.terminal.ownsProcesses) count++;
     return count;
   }
   /** Release shells that exited, including ones killed outside ace. */
@@ -346,6 +346,7 @@ export class WorkspaceRuntime {
       }
       if (p.type === "thread.workspace.set") {
         if (!this.options.changeWorkspace) return { ok: false, error: "engine_unavailable" };
+        await this.reconcileTerminals(threadId);
         if (this.hasOwnedWork(threadId)) return { ok: false, error: "terminal_owned" };
         const roots = await this.roots.changeRoots(threadId, p.mode);
         await this.options.changeWorkspace(

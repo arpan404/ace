@@ -103,6 +103,8 @@ const copy: Record<string, string> = {
     "The agent couldn't take the comments: check the thread's queue and provider, then retry.",
   review_target_mismatch: "The thread's checkout moved: review its current changes instead.",
   review_target_unavailable: "The thread's checkout is moving: wait for it to settle, then retry.",
+  review_selection_mismatch:
+    "The selected lines differ from this review snapshot: select them again in the current diff.",
   review_suggestion_conflict:
     "The lines changed since the suggestion: check it against the new code first.",
   review_suggestion_unavailable:

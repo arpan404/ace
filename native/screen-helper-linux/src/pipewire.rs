@@ -27,7 +27,7 @@ struct Frames {
     fps: u32,
     logical_width: u32,
     next: Instant,
-    previous: Vec<u8>,
+    previous: crate::frame_identity::FrameIdentity,
     rgb: Vec<u8>,
     failed: bool,
 }
@@ -46,20 +46,11 @@ unsafe extern "C" fn on_frame(
     }
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let source = unsafe { std::slice::from_raw_parts(bytes, stride as usize * h as usize) };
-        let size = w as usize * h as usize * 4;
-        let changed = frames.previous.len() != size
-            || (0..h as usize).any(|y| {
-                frames.previous[y * w as usize * 4..(y + 1) * w as usize * 4]
-                    != source[y * stride as usize..y * stride as usize + w as usize * 4]
-            });
-        if !changed {
+        if !frames
+            .previous
+            .update(source, w, h, stride as usize, format)
+        {
             return Ok(());
-        }
-        frames.previous.resize(size, 0);
-        for y in 0..h as usize {
-            frames.previous[y * w as usize * 4..(y + 1) * w as usize * 4].copy_from_slice(
-                &source[y * stride as usize..y * stride as usize + w as usize * 4],
-            );
         }
         let ratio = (3840f64 / f64::from(w)).min(2160f64 / f64::from(h)).min(1.);
         let ow = (f64::from(w) * ratio).floor().max(1.) as u32;
@@ -114,7 +105,7 @@ pub fn capture(
         fps,
         logical_width,
         next: Instant::now(),
-        previous: Vec::new(),
+        previous: crate::frame_identity::FrameIdentity::default(),
         rgb: Vec::new(),
         failed: false,
     };

@@ -54,7 +54,10 @@ export class AcpConfiguration {
   }
   publish(mcp: AcpSessionSupport["mcp"]): void {
     if (!this.negotiated) return;
-    const permissionModes = acpPermissionModes(this.selectors.raw);
+    const permissionModes = acpPermissionModes(this.selectors.raw, {
+      provider: this.#quirks.provider,
+      profile: this.#launch.profile?.id,
+    });
     this.capabilities = {
       ...this.negotiated.capabilities,
       permissionModes,

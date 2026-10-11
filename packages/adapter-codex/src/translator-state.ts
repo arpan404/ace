@@ -2,13 +2,16 @@ import type { Fact, Key } from "@ace/core";
 import type { RunTrigger } from "@ace/protocol";
 import type { Obj } from "./native.ts";
 type OpenItem = { data: Obj; turn: string; streamStarted?: boolean };
+export type RecoveryRevision = { read: number; current: number; uncertain?: boolean };
 export type Agent = {
   key: Key;
   parent?: string;
   known: boolean;
   unknownTask?: boolean;
+  recoveryUncertain?: boolean;
   bufferLost?: boolean;
   turn?: string;
+  latestTurn?: string;
   hadTurn: boolean;
   mode: string;
   model?: string;
@@ -38,6 +41,7 @@ export interface TranslationContext {
     now: number,
     parent?: string,
     spawnedBy?: string,
+    revision?: RecoveryRevision,
   ): Agent;
   note(agent: Key, type: string, data: unknown, text?: string): Fact;
 }

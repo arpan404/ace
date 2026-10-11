@@ -77,6 +77,11 @@ export class Terminal {
     return this.#backend.kill(signal);
   }
 
+  /** Shell exit is output history; process ownership ends after cleanup. */
+  get ownsProcesses(): boolean {
+    return !this.#closed && (this.#backend.ownsProcesses ?? this.#exit === null);
+  }
+
   attach({ fromOffset = this.#ring.start }: { fromOffset?: number } = {}): TerminalAttachment {
     this.#assertAvailable();
     if (!Number.isSafeInteger(fromOffset) || fromOffset < 0 || fromOffset > this.#ring.end) {

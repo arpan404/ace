@@ -294,14 +294,18 @@ Example:
       "hostId": "example",
       "parentThreadId": "example",
       "sourceHostId": "example",
-      "taskId": "cc7d4b955242ad2406152cfa8b24fc3b3f0e5f1c76710f64549d66b19702bca7",
+      "taskId": "d4b955242ad2406152cfa8b24fc3b3f0e5f1c76710f64549d66b19702bca7d0c",
       "threadId": "example"
     },
     "artifactsUnavailable": true,
     "error": "example",
-    "phase": "waiting",
+    "phase": "unavailable",
     "taskId": "example",
-    "truncated": false
+    "truncated": true,
+    "usage": {
+      "cost": 1,
+      "tokens": 3
+    }
   },
   "requestId": "example",
   "type": "delegation.broker.report"
@@ -345,8 +349,8 @@ Example:
 
 ```json
 {
-  "after": 7,
-  "limit": 6,
+  "before": 2,
+  "limit": 5,
   "requestId": "example",
   "threadId": "example",
   "type": "turns.page"
@@ -372,9 +376,10 @@ Example:
 
 ```json
 {
-  "aroundSeq": 3,
+  "before": 5,
   "requestId": "example",
   "threadId": "example",
+  "turnOrdinal": 7,
   "type": "items.window"
 }
 ```
@@ -396,9 +401,8 @@ Example:
 
 ```json
 {
-  "limit": 1,
   "requestId": "example",
-  "scope": "tree",
+  "scope": "thread",
   "text": "example",
   "threadId": "example",
   "type": "thread.search"
@@ -422,7 +426,7 @@ Example:
 ```json
 {
   "requestId": "example",
-  "sinceTime": 0,
+  "sinceTime": 3,
   "threadId": "example",
   "type": "thread.catchUp"
 }
@@ -475,8 +479,8 @@ Example:
 ```json
 {
   "operation": {
-    "limit": 9,
-    "op": "list"
+    "hostId": "example",
+    "op": "status"
   },
   "requestId": "example",
   "type": "machines.request"
@@ -515,8 +519,8 @@ Example:
 
 ```json
 {
-  "instance": "example",
-  "provider": "cursor",
+  "method": "api_key",
+  "provider": "antigravity",
   "requestId": "example",
   "type": "provider.login.start"
 }
@@ -535,7 +539,7 @@ Example:
 
 ```json
 {
-  "apiKey": "{",
+  "apiKey": "y|",
   "requestId": "example",
   "session": "example",
   "type": "provider.login.apiKey"
@@ -555,7 +559,7 @@ Example:
 
 ```json
 {
-  "provider": "opencode",
+  "provider": "acp",
   "requestId": "example",
   "type": "provider.logout"
 }
@@ -652,7 +656,7 @@ Example:
 
 ```json
 {
-  "provider": "claude",
+  "provider": "antigravity",
   "requestId": "example",
   "type": "provider.install.plan"
 }
@@ -675,8 +679,9 @@ Example:
 ```json
 {
   "action": "install",
-  "method": "script",
-  "provider": "antigravity",
+  "agent": "claude-acp",
+  "method": "registry",
+  "provider": "codex",
   "requestId": "example",
   "type": "provider.install.run"
 }
@@ -767,7 +772,7 @@ Example:
 {
   "operation": {
     "op": "forward",
-    "port": 9
+    "port": 2
   },
   "requestId": "example",
   "threadId": "example",
@@ -793,16 +798,20 @@ Example:
     "id": "example",
     "jitterMs": 6,
     "missedRun": "skip",
-    "model": "example",
     "permissionMode": "example",
     "prompt": "example",
-    "provider": "antigravity",
+    "provider": "acp",
     "title": "example",
     "trigger": {
-      "kind": "manual"
+      "event": "review_comment",
+      "kind": "github",
+      "label": "example",
+      "pollIntervalMs": 60001,
+      "pullRequest": 10,
+      "repository": "Ht83/-qOuyZ3v"
     },
     "workspace": "example",
-    "worktree": false
+    "worktree": true
   },
   "requestId": "example",
   "type": "automation.put"

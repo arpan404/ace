@@ -10,7 +10,7 @@ export function ignoreStream(safe: SafeRoot, signal: AbortSignal) {
     ["check-ignore", "--stdin", "-z", "--verbose", "--non-matching"],
     {
       cwd: safe.root,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_FLUSH: "1" },
+      env: { ...safe.runtime.environment, GIT_OPTIONAL_LOCKS: "0", GIT_FLUSH: "1" },
       stdio: ["pipe", "pipe", "pipe"],
     },
   );

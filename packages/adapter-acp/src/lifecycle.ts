@@ -1,4 +1,5 @@
 import { finalizeTool } from "./tool-final.ts";
+import { retireTool } from "./completed-tools.ts";
 import { cancellationDeadline, shellSurvivesPrompt } from "./settlement.ts";
 import type { Fact } from "@ace/core";
 import { string, type Data } from "./data.ts";
@@ -56,6 +57,7 @@ export function endPrompt(
         },
       },
     });
+    retireTool(s, tool);
   }
   if (cancelled)
     for (const child of s.agents.values())

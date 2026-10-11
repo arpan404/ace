@@ -368,13 +368,13 @@ export class Sessions {
         this.dependencies.repo.permissions.applied(actor.id, mode, this.dependencies.clock.now());
       actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
       this.dependencies.repo.store.atomic(() => {
-        if (session.sessionConfirmed !== false)
-          this.dependencies.repo.nativeSession(
-            actor.id,
-            session.nativeSessionId,
-            session.backend ?? adapter.backend,
-            session.instanceId,
-          );
+        // Account/backend selection is durable even before the native ID is confirmed.
+        this.dependencies.repo.nativeSession(
+          actor.id,
+          session.sessionConfirmed === false ? undefined : session.nativeSessionId,
+          session.backend ?? adapter.backend,
+          session.instanceId,
+        );
         delete transition.fork;
         if (transition.selection && session.instanceId)
           transition.selection.instanceId = session.instanceId;
