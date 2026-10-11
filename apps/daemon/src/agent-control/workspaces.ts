@@ -29,7 +29,7 @@ export async function prepareAgentWorkspace(
   const project = thread && context.store.getWorkspacePath(thread.workspaceId);
   if (!project || !runtime) throw new Error("workspace_unavailable");
   if (strategy.kind === "project") return undefined;
-  if (strategy.kind === "new_worktree") return runtime.prepareCreation(command, undefined, signal);
+  if (strategy.kind === "new_worktree") return runtime.prepareAgentCreation(command, signal);
   const path = await realpath(strategy.path);
   signal.throwIfAborted();
   const worktrees = await runtime.git.listWorktrees(project);

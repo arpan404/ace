@@ -106,6 +106,9 @@ export class WorkspaceRuntime {
     await this.git.assertMutationAvailable(root);
     return root;
   }
+  prepareAgentCreation(command: Command, signal: AbortSignal) {
+    return this.roots.prepareAgentCreation(command, signal);
+  }
   prepareCreation(command: Command, progress?: CreationProgress, signal?: AbortSignal) {
     return this.roots.prepareCreation(command, progress, signal);
   }

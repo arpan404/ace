@@ -17,7 +17,10 @@ export function readAgentCatalog(
   const ceiling = { provider: parent.provider, mode: deps.engine.permissionMode(parent.id) };
   const allows = (status: import("@ace/protocol").ModelInstanceStatus, mode?: string) => {
     try {
-      deps.engine.childPermissionMode(parent.id, status.provider, mode, status);
+      deps.engine.childPermissionMode(parent.id, status.provider, mode, {
+        ...status,
+        accountId: status.instanceId ?? status.instance,
+      });
       return true;
     } catch {
       return false;

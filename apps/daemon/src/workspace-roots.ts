@@ -91,6 +91,9 @@ export class WorkspaceRoots {
     });
     return path;
   }
+  prepareAgentCreation(command: Command, signal: AbortSignal) {
+    return this.creations.prepareAgent(command, signal);
+  }
   prepareCreation(command: Command, progress?: CreationProgress, signal?: AbortSignal) {
     return this.creations.prepare(command, progress, signal);
   }

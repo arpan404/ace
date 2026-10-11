@@ -132,6 +132,7 @@ test("a captured ACP account ceiling survives restart and remains binding after 
   await h.engine.flush();
   const child = h.service.delegate(h.caller(created.threadId), request("captured-child", one));
   await h.engine.flush();
+  expect(h.contexts.get(child.childId)).toMatchObject({ acpIdentity: one, permissionMode: "plan" });
   await h.close();
   const reopened = setup({}, h.dbPath);
   await install(reopened, two.instanceId);
