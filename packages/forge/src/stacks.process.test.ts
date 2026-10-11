@@ -1,4 +1,6 @@
-import { expect, test } from "vitest";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, test, vi } from "vitest";
 import {
   fakeGh,
   stackChecksFixture,
@@ -219,7 +221,7 @@ test.each(["changed lower head", "removed lower layer", "closed lower layer"])(
     }
   },
 );
-test("rebase conflicts never push and a reviewed continuation publishes through the installed stack CLI", async () => {
+test("rebase conflicts and successful continuations never invoke unsafe stack publication", async () => {
   const f = await fakeGh({
     ...stackChecksFixture,
     graphql: [stackResponse()],
@@ -235,34 +237,36 @@ test("rebase conflicts never push and a reviewed continuation publishes through 
     expect((await f.requests()).some((request) => request.path === "stack-push")).toBe(false);
     expect(
       await f.forge.rebaseStack(8, expectedStack, "continue", signal(), allowed),
-    ).toMatchObject({ state: "rebased" });
-    expect((await f.requests()).filter((request) => request.path === "stack-push")).toEqual([
-      expect.objectContaining({ args: ["stack", "push", "--remote", "origin"] }),
-    ]);
+    ).toMatchObject({
+      state: "push_partial",
+      message: expect.stringContaining("Publication is disabled"),
+    });
+    expect((await f.requests()).some((request) => request.path === "stack-push")).toBe(false);
   } finally {
     await f.cleanup();
   }
 });
-test("a rejected lease is a visible partial push and aborting a reviewed conflict restores without a push", async () => {
+test("successful local rebases and retries remain unpublished even when stack push would report success", async () => {
   const f = await fakeGh({
     ...stackChecksFixture,
     graphql: [stackResponse()],
     "stack-view": [{ body: localStack }],
     "stack-rebase": [{ code: 0 }],
-    "stack-push": [{ code: 1 }],
+    "stack-push": [{ code: 0 }],
     "stack-rebase-abort": [{ code: 0 }],
   });
   try {
     expect(await f.forge.rebaseStack(8, expectedStack, "rebase", signal(), allowed)).toMatchObject({
       state: "push_partial",
     });
-    const before = (await f.requests()).filter((request) => request.path === "stack-push").length;
+    expect(await f.forge.rebaseStack(8, expectedStack, "push", signal(), allowed)).toMatchObject({
+      state: "push_partial",
+      message: expect.stringContaining("remote SHAs"),
+    });
     expect(await f.forge.rebaseStack(8, expectedStack, "abort", signal(), allowed)).toMatchObject({
       state: "aborted",
     });
-    expect((await f.requests()).filter((request) => request.path === "stack-push")).toHaveLength(
-      before,
-    );
+    expect((await f.requests()).some((request) => request.path === "stack-push")).toBe(false);
   } finally {
     await f.cleanup();
   }
@@ -348,6 +352,55 @@ test.each(["closed", "queued"])(
         ),
       ).toBe(false);
     } finally {
+      await f.cleanup();
+    }
+  },
+);
+
+// Both events can happen after the rebase preflight. Neither authorizes publication.
+test.each(["collaborator commit", "queue entry"])(
+  "%s during a local rebase cannot be overwritten or reported as published",
+  async (event) => {
+    const changed = stackLayers.map((pr) => ({
+      position: pr.position,
+      pullRequest: {
+        ...pr,
+        ...(pr.number === 7
+          ? event === "collaborator commit"
+            ? { headRefOid: "f".repeat(40) }
+            : { mergeQueueEntry: { state: "AWAITING_CHECKS" } }
+          : {}),
+      },
+    }));
+    const f = await fakeGh({
+      ...stackChecksFixture,
+      graphql: [stackResponse(), stackResponse(8, changed)],
+      "stack-view": [{ body: localStack }],
+      "stack-rebase": [{ code: 0, release: "release-rebase" }],
+      // The unsafe CLI would fetch and accept the new tip or skip the queued branch.
+      "stack-push": [{ code: 0 }],
+    });
+    let rebase: ReturnType<typeof f.forge.rebaseStack> | undefined;
+    try {
+      rebase = f.forge.rebaseStack(8, expectedStack, "rebase", signal(), allowed);
+      await vi.waitFor(async () =>
+        expect((await f.requests()).some((r) => r.path === "stack-rebase")).toBe(true),
+      );
+      const host = await f.forge.prStack(8, signal());
+      expect(host?.layers[0]).toMatchObject(
+        event === "collaborator commit"
+          ? { headSha: "f".repeat(40) }
+          : { queueState: "AWAITING_CHECKS" },
+      );
+      await writeFile(join(f.dir, "release-rebase"), "");
+      expect(await rebase).toMatchObject({
+        state: "push_partial",
+        message: expect.stringContaining("No push was attempted"),
+      });
+      expect((await f.requests()).some((r) => r.path === "stack-push")).toBe(false);
+    } finally {
+      await writeFile(join(f.dir, "release-rebase"), "");
+      await rebase?.catch(() => {});
       await f.cleanup();
     }
   },

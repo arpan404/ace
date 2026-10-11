@@ -13,6 +13,7 @@ import {
   matchesLocalStack,
   matchesStackBranches,
   sameLocalStack,
+  stackPublicationUnavailable,
 } from "./stack-plan.ts";
 export class LocalStacks {
   readonly #runner: CommandRunner;
@@ -73,20 +74,19 @@ export class LocalStacks {
     )
       throw new ForgeError("conflict");
     if (!allowed()) throw new ForgeError("forbidden");
-    started(action === "push" ? "push" : "rebase");
-    const response =
-      action === "push"
-        ? { code: 0 }
-        : await this.#runner({
-            command: this.#command,
-            args: [
-              "stack",
-              "rebase",
-              ...(action === "rebase" ? ["--remote", "origin"] : [`--${action}`]),
-            ],
-            mode: "json",
-            signal,
-          });
+    if (action === "push")
+      return { action, state: "push_partial", message: stackPublicationUnavailable };
+    started("rebase");
+    const response = await this.#runner({
+      command: this.#command,
+      args: [
+        "stack",
+        "rebase",
+        ...(action === "rebase" ? ["--remote", "origin"] : [`--${action}`]),
+      ],
+      mode: "json",
+      signal,
+    });
     if (response.code === 3 || response.code === 7)
       return {
         action,
@@ -107,34 +107,6 @@ export class LocalStacks {
         state: "aborted",
         message: "gh stack restored the local branches. No push was attempted.",
       };
-    if (!allowed())
-      return {
-        action,
-        state: "push_partial",
-        message:
-          "The local rebase finished, but authorization changed before the push. Inspect the local stack before publishing.",
-      };
-    started("push");
-    const pushed = await this.#runner({
-      command: this.#command,
-      args: ["stack", "push", "--remote", "origin"],
-      mode: "json",
-      signal,
-    });
-    if (pushed.code !== 0)
-      return {
-        action,
-        state: "push_partial",
-        message:
-          "The local rebase finished but the push did not complete. Some branches may have reached GitHub. Refresh local and host revisions and finish publishing with gh stack push.",
-      };
-    return {
-      action,
-      state: "rebased",
-      message:
-        action === "push"
-          ? "gh stack completed the push. Refreshing GitHub revisions."
-          : "gh stack completed the rebase and push. Refreshing GitHub revisions.",
-    };
+    return { action, state: "push_partial", message: stackPublicationUnavailable };
   }
 }

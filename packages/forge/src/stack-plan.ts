@@ -1,4 +1,6 @@
 import type { ForgeLocalStack, ForgeStack, ForgeStackExpected } from "@ace/protocol/forge-stacks";
+export const stackPublicationUnavailable =
+  "Publication is disabled: gh stack push cannot enforce the remote SHAs reviewed before rebase. No push was attempted. Local revisions remain unpublished; reconcile them with collaborators before publishing outside ace.";
 export function canPublishStack(stack: ForgeStack): boolean {
   return stack.layers.every((layer) => ["OPEN", "DRAFT", "MERGED"].includes(layer.state));
 }

@@ -44,21 +44,26 @@ selected task checkout and an `origin` pointing at the selected repository.
 execution, ace re-reads both host and local revisions, verifies their relationship,
 and summarizes all active layers. No extension is installed automatically.
 
-ace invokes `gh stack rebase --remote origin`, followed by
-`gh stack push --remote origin` only after a successful rebase. The extension owns
-worktree locks, clean-checkout checks, conflict state and per-branch
-force-with-lease protection. Because it may coordinate branches in other local
-worktrees, the confirmation covers the whole active stack. These commands are
-bounded and cancellable through the existing forge process runner.
+ace invokes `gh stack rebase --remote origin` for local changes only. The
+extension owns worktree locks, clean-checkout checks and conflict state. Because
+it may coordinate branches in other local worktrees, the confirmation covers the
+whole active stack. Commands are bounded and cancellable through the forge runner.
 
-A conflict stops before push. Resolve and stage files in the checkout, then
-explicitly confirm Continue rebase and push, or Abort rebase. Abort invokes
-`gh stack rebase --abort` without a push. A failed or interrupted push can publish
-some branches. It exposes a separate Retry stack push action after refreshing
-both host and local revisions. Recovery stays with the task checkout that started
-the operation. If stack membership or checkout topology no longer matches, the
-workspace explains that recovery must finish in the installed CLI. Nothing marks
-an agent tree done or changes its lifecycle.
+Publication is disabled. The reviewed `gh stack push` contract cannot accept
+caller's immutable expected remote SHAs; its freshly fetched leases can accept
+and overwrite collaborator commits absent from the rebased history. ace never
+invokes that command, including on retry. A successful local rebase remains a
+visible `push_partial` outcome with an explanation that no publication happened.
+It cannot become `rebased` merely because a CLI reports success or skips queued
+layers. Publishing requires a separately reviewed CLI capability that atomically
+enforces every intended remote revision.
+
+Resolve and stage conflicts, then explicitly confirm Continue local rebase or
+Abort rebase. Abort invokes `gh stack rebase --abort` without a push. Recovery
+stays with the task checkout that started the operation. If membership or topology
+no longer matches, recover local changes in the installed CLI. Reconcile local
+revisions with collaborators before publishing outside ace. Nothing marks an
+agent tree done or changes its lifecycle.
 
 ## Sources and verification
 

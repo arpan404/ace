@@ -2,7 +2,12 @@ import { useState } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
 import type { ForgePrDetail, ForgeStackExpected, ForgeStackOperation } from "@ace/protocol";
-import { canPublishStack, matchesLocalStack, matchesStackBranches } from "@ace/forge/stack-plan";
+import {
+  canPublishStack,
+  matchesLocalStack,
+  matchesStackBranches,
+  stackPublicationUnavailable,
+} from "@ace/forge/stack-plan";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { openExternal } from "@/boot/open-external.ts";
@@ -196,6 +201,7 @@ export function PrStack(props: {
               local branches.
             </p>
           )}
+          <p className="text-sm">{stackPublicationUnavailable}</p>
           {operation && (
             <p role="status">
               {operation.state}: {operation.message}
@@ -236,7 +242,7 @@ export function PrStack(props: {
               disabled={disabled || !!incomplete || !canRebase || !canPublish}
               onClick={() => prepare("rebase")}
             >
-              Rebase and push stack
+              Rebase local stack
             </Button>
             {operation &&
               operation.action !== "merge" &&
@@ -246,7 +252,7 @@ export function PrStack(props: {
                     disabled={disabled || !canRecover || !canPublish}
                     onClick={() => prepare("continue")}
                   >
-                    Continue rebase and push
+                    Continue local rebase
                   </Button>
                   <Button disabled={disabled || !canRecover} onClick={() => prepare("abort")}>
                     Abort rebase
@@ -254,10 +260,7 @@ export function PrStack(props: {
                 </>
               )}
             {operation?.state === "push_partial" && (
-              <Button
-                disabled={disabled || !canRecover || !canPublish}
-                onClick={() => prepare("push")}
-              >
+              <Button disabled title={stackPublicationUnavailable}>
                 Retry stack push
               </Button>
             )}
@@ -280,7 +283,7 @@ export function PrStack(props: {
               <p>
                 {confirmation.action === "merge"
                   ? `Merge ${confirmation.numbers.map((number) => `#${number}`).join(", ")} into ${confirmation.expected.trunk} using ${confirmation.method}. A merge queue chooses its own method.`
-                  : `${confirmation.action === "abort" ? "Restore" : confirmation.action === "push" ? "Publish" : "Rebase and publish"} local branches for ${confirmation.numbers.map((number) => `#${number}`).join(", ")}. ${confirmation.action === "abort" ? "No push will be attempted." : "gh stack push uses per-branch force-with-lease; a rejected push can leave partial publication."}`}
+                  : `${confirmation.action === "abort" ? "Restore" : "Rebase"} local branches for ${confirmation.numbers.map((number) => `#${number}`).join(", ")}. No push will be attempted.`}
               </p>
               <p className="text-sm">
                 ace checks every reviewed layer revision again before execution. GitHub makes the

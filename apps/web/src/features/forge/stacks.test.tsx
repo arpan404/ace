@@ -137,8 +137,7 @@ test("a middle layer shows downstack blockers and reviews the native merge scope
     screen.getByRole<HTMLButtonElement>("button", { name: "Enable auto-merge" }).disabled,
   ).toBe(true);
   expect(
-    within(section).getByRole<HTMLButtonElement>("button", { name: "Rebase and push stack" })
-      .disabled,
+    within(section).getByRole<HTMLButtonElement>("button", { name: "Rebase local stack" }).disabled,
   ).toBe(true);
   await userEvent.selectOptions(
     within(section).getByRole("combobox", { name: "Stack merge method" }),
@@ -232,13 +231,14 @@ test("a partially published rebase offers a reviewed push without restarting the
   const section = await screen.findByRole("region", { name: "Pull request stack" });
   await within(section).findByText(/push_partial: Some branches/);
   expect(
-    within(section).getByRole<HTMLButtonElement>("button", { name: "Rebase and push stack" })
-      .disabled,
+    within(section).getByRole<HTMLButtonElement>("button", { name: "Rebase local stack" }).disabled,
   ).toBe(true);
-  expect(within(section).queryByRole("button", { name: "Continue rebase and push" })).toBeNull();
-  await userEvent.click(within(section).getByRole("button", { name: "Retry stack push" }));
-  expect(within(section).getByText(/Publish local branches for #41, #42, #43/)).toBeTruthy();
-  expect(within(section).getByText(/per-branch force-with-lease/)).toBeTruthy();
+  expect(within(section).queryByRole("button", { name: "Continue local rebase" })).toBeNull();
+  expect(
+    within(section).getByRole<HTMLButtonElement>("button", { name: "Retry stack push" }).disabled,
+  ).toBe(true);
+  expect(within(section).getByText(/Publication is disabled/)).toBeTruthy();
+  expect(within(section).queryByRole("group", { name: "Confirm stack action" })).toBeNull();
 });
 
 test("repository lists group only host-confirmed layers and use host positions for navigation", async () => {
