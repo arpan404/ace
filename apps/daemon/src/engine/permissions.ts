@@ -236,7 +236,7 @@ export class Permissions {
       provider: parent.provider,
       mode: this.contained(parentId, parent.provider, this.effective(parentId), depth),
     };
-    const mode = requested ?? inheritedPermissionMode(ceiling, provider);
+    const mode = requested === undefined ? inheritedPermissionMode(ceiling, provider) : requested;
     if (!permissionWithinCeiling(ceiling, { provider, mode }))
       throw new Error("permission_ceiling_unverifiable");
     return mode;
