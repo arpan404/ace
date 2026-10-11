@@ -48,9 +48,6 @@ const treeWidth = 240;
 /** A chosen Split needs this much diff width; narrower it shows unified until there is room. */
 const splitNeeds = 640;
 
-/** The version of a file's diff that "Viewed" remembers: a later edit changes it. */
-const versionOf = (file: FileDiff) => `${file.rows.length}:${file.additions}:${file.deletions}`;
-
 /**
  * Changes: a review surface for what the agents changed, turn by turn. Scope, layout and the
  * files tree in the toolbar; per file, Viewed and its actions; per line, comments that go to the
@@ -71,7 +68,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
     read: (daemon) => refreshDrafts(daemon, services.drafts, threadId),
   });
   const queries = useQueryClient();
-  const { scope, setScope, edited, files, pending, stat } = useScopedDiff(threadId);
+  const { scope, setScope, edited, files, pending, versions, stat } = useScopedDiff(threadId);
   const prefs = useLocal(services.diffPrefs, identity);
   const allDrafts = useLocal(services.drafts, identity);
   const drafts = useMemo(
@@ -82,7 +79,9 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   const viewedHere = viewedAll.get(threadId);
   const [composing, setComposing] = useState<{ file: string; range: LineRange; key?: string }>();
   // Per file, by path: kept here so a file scrolled out of a long list and back keeps it.
-  const [views, setViews] = useState<ReadonlyMap<string, FileView>>(() => new Map());
+  const [views, setViews] = useState<ReadonlyMap<string, { version: string; view: FileView }>>(
+    () => new Map(),
+  );
   const [current, setCurrent] = useState<string>();
   const [selectedComment, setSelectedComment] = useState<string>();
   const selected = drafts.find((draft) => draft.key === selectedComment);
@@ -90,13 +89,16 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   const anchor = useId();
   const [measure, width] = useElementWidth();
 
+  const versionOf = (file: FileDiff) => versions.get(file.path) ?? "";
   const rows = files.reduce((sum, file) => sum + file.rows.length, 0);
   const viewed = useMemo(
     () =>
       new Set(
-        files.filter((file) => viewedHere?.get(file.path) === versionOf(file)).map((f) => f.path),
+        files
+          .filter((file) => viewedHere?.get(file.path) === versions.get(file.path))
+          .map((f) => f.path),
       ),
-    [files, viewedHere],
+    [files, viewedHere, versions],
   );
   const comments = useMemo(() => {
     const counts = new Map<string, number>();
@@ -106,9 +108,15 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   }, [drafts]);
   // A file viewed at this version starts folded; anything opened by hand stays as left.
   const viewOf = (file: FileDiff) =>
-    views.get(file.path) ?? (viewed.has(file.path) ? { ...freshView, open: false } : freshView);
+    views.get(file.path)?.version === versionOf(file)
+      ? (views.get(file.path)?.view ?? freshView)
+      : viewed.has(file.path)
+        ? { ...freshView, open: false }
+        : freshView;
   const setView = (path: string, next: FileView) =>
-    setViews((previous) => new Map(previous).set(path, next));
+    setViews((previous) =>
+      new Map(previous).set(path, { version: versions.get(path) ?? "", view: next }),
+    );
 
   const jump = (path: string) => {
     const index = files.findIndex((file) => file.path === path);
@@ -287,7 +295,14 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         onPrefs={(change) => services.diffPrefs.set(change)}
         allCollapsed={allCollapsed}
         onCollapseAll={(folded) =>
-          setViews(new Map(files.map((file) => [file.path, { ...viewOf(file), open: !folded }])))
+          setViews(
+            new Map(
+              files.map((file) => [
+                file.path,
+                { version: versionOf(file), view: { ...viewOf(file), open: !folded } },
+              ]),
+            ),
+          )
         }
         canShowTree={files.length > 1}
         onRefreshReview={() => void session.refetch()}

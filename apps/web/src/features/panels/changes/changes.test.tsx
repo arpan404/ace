@@ -484,3 +484,66 @@ test("Changes discovers a review started on another device when the tab opens", 
     await screen.findByRole("menuitem", { name: /Check this from my other device/ }),
   ).toBeTruthy();
 });
+
+const retryEdit = (id: string, value: number) => [
+  { ...facts.turn("root"), nativeTurnId: id },
+  facts.tool("root", id, {
+    kind: "file.edit",
+    title: "Change retry",
+    detail: {
+      kind: "file.edit",
+      changes: [
+        {
+          path: "retry.ts",
+          kind: "update" as const,
+          oldText: "const retry = 1;\n",
+          newText: `const retry = ${value};\n`,
+        },
+      ],
+    },
+  }),
+  facts.toolDone("root", id),
+  { ...facts.endTurn("root"), nativeTurnId: id },
+];
+
+test("viewed clears for different same-shape edits and survives replay and reload of identical content", async () => {
+  const storage = memoryKeyValue();
+  const { app, panel } = await openChanges("test-done", storage);
+  act(() => app.daemon.apply("thread-cold-start", retryEdit("retry-2", 2)));
+  const first = await within(panel).findByRole("region", { name: "retry.ts" });
+  await userEvent.click(within(first).getByRole("button", { name: "Viewed" }));
+  act(() => app.daemon.apply("thread-cold-start", retryEdit("retry-3", 3)));
+  await waitFor(() =>
+    expect(within(first).getByRole("button", { name: "Viewed" }).getAttribute("aria-pressed")).toBe(
+      "false",
+    ),
+  );
+  expect(within(first).getByText(/const retry = 3;/)).toBeTruthy();
+  await userEvent.click(within(first).getByRole("button", { name: "Viewed" }));
+  act(() => app.daemon.apply("thread-cold-start", retryEdit("retry-3-replay", 3)));
+  await waitFor(() =>
+    expect(within(first).getByRole("button", { name: "Viewed" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    ),
+  );
+  await pickScope(panel, "Turn 3");
+  const older = await within(panel).findByRole("region", { name: "retry.ts" });
+  expect(within(older).getByRole("button", { name: "Viewed" }).getAttribute("aria-pressed")).toBe(
+    "false",
+  );
+  expect(within(older).getByText(/const retry = 2;/)).toBeTruthy();
+  await pickScope(panel, "Last turn");
+  const latest = await within(panel).findByRole("region", { name: "retry.ts" });
+  expect(within(latest).getByRole("button", { name: "Viewed" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  cleanup();
+  const reloaded = harness({ storage });
+  reloaded.play(coldStartReplay()).runThrough("test-done");
+  reloaded.daemon.apply("thread-cold-start", retryEdit("retry-3-reload", 3));
+  await reloaded.open("/t/thread-cold-start");
+  const again = await screen.findByRole("region", { name: "retry.ts" });
+  expect(within(again).getByRole("button", { name: "Viewed" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+}, 30000);
