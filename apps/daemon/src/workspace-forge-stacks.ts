@@ -7,7 +7,12 @@ import {
   type ForgeRepository,
 } from "@ace/protocol";
 import type { Store } from "./store.ts";
-import { isIncompleteStackOperation, reconcileStackMerge } from "./forge-stack-state.ts";
+import {
+  isIncompleteStackOperation,
+  reconcileStackMerge,
+  reconcileRecordedStackMerge,
+  requestedStackScope,
+} from "./forge-stack-state.ts";
 const saved = z.object({
   cwd: z.string(),
   number: z.number().int().positive(),
@@ -134,41 +139,70 @@ export class WorkspaceForgeStacks {
         "Local stack unavailable. Install the gh stack extension and open a matching stack checkout to rebase. Remote stack reads and merges remain available.";
     }
 
-    if (entry && operation?.action === "merge" && operation.state === "pending" && operation.uuid) {
+    const originalScope = entry ? requestedStackScope(entry.expected, entry.number) : [];
+    const missingScope =
+      entry &&
+      (!stack ||
+        stack.id !== entry.expected.id ||
+        originalScope.some(
+          (layer) => !stack.layers.some((current) => current.number === layer.number),
+        ));
+    let polled = false;
+    if (
+      entry &&
+      operation?.action === "merge" &&
+      operation.uuid &&
+      (operation.state === "pending" || (operation.state === "enqueued" && missingScope))
+    ) {
       try {
-        operation = await backend.stackMergeResult(entry.number, operation.uuid, signal);
-        operation = this.#reconcile(backend.repository, entry, operation);
+        const result = await backend.stackMergeResult(entry.number, operation.uuid, signal);
+        operation = { ...result, uuid: result.uuid ?? operation.uuid };
+        polled = true;
       } catch (error) {
         signal.throwIfAborted();
-        if (error instanceof ForgeError && error.kind === "not_found") {
+        if (missingScope && operation.state === "enqueued") {
+          // An expired/unavailable UUID must not stop independent queue reconciliation.
+          polled = true;
+        } else if (error instanceof ForgeError && error.kind === "not_found") {
           operation = {
             ...operation,
             state: "uncertain",
             message:
               "GitHub's merge result expired. Inspect the layer states before another merge.",
           };
-          operation = this.#reconcile(backend.repository, entry, operation);
+          polled = true;
         } else throw error;
       }
     }
-    if (!stack && entry && operation?.action === "merge" && operation.state === "uncertain") {
-      const position = entry.expected.layers.findIndex((layer) => layer.number === entry.number);
-      const scope = position < 0 ? [] : entry.expected.layers.slice(0, position + 1);
-      if (scope.length) {
-        const states = await backend.states(
-          scope.map((layer) => layer.number),
-          signal,
-        );
-        if (scope.every((layer) => states.get(layer.number)?.state === "merged")) {
+    if (
+      entry &&
+      operation?.action === "merge" &&
+      ["enqueued", "uncertain"].includes(operation.state)
+    ) {
+      if (missingScope) {
+        try {
+          const facts = await backend.stackMergeScope(
+            originalScope.map((layer) => layer.number),
+            signal,
+          );
+          operation = reconcileRecordedStackMerge(operation, entry.expected, entry.number, facts);
+        } catch {
+          signal.throwIfAborted();
           operation = {
-            action: "merge",
-            state: "merged",
-            message: "GitHub confirms the earlier merge completed and the native stack changed.",
+            ...operation,
+            state: "uncertain",
+            message:
+              "GitHub cannot currently confirm every PR in the recorded merge scope. Refresh their queue state before another merge request.",
           };
-          operation = this.#reconcile(backend.repository, entry, operation);
         }
+      } else if (stack && !polled) {
+        // Reconcile this snapshot only if no later UUID acknowledgement superseded it.
+        operation = reconcileStackMerge(operation, entry.expected, entry.number, stack);
       }
     }
+    // All facts above belong to the version captured before the first host read.
+    if (entry && operation && operation !== entry.operation)
+      operation = this.#reconcile(backend.repository, entry, operation);
     if (!stack)
       return {
         stack: null,
@@ -181,11 +215,6 @@ export class WorkspaceForgeStacks {
             : localUnavailable,
         operation,
       };
-    if (entry && operation && operation === entry.operation) {
-      const reconciled = reconcileStackMerge(operation, entry.expected, entry.number, stack);
-      if (reconciled !== operation)
-        operation = this.#reconcile(backend.repository, entry, reconciled);
-    }
     if (
       entry &&
       entry.cwd !== cwd &&

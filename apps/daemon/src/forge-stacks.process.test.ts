@@ -390,3 +390,103 @@ test.each(["merge", "rebase"] as const)(
     }
   },
 );
+
+const queueFacts = (state: string, queue: string | null) => ({
+  body: {
+    data: {
+      repository: {
+        pr7: {
+          number: 7,
+          state,
+          isDraft: false,
+          mergeQueueEntry: queue ? { state: queue } : null,
+        },
+        pr8: {
+          number: 8,
+          state,
+          isDraft: false,
+          mergeQueueEntry: queue ? { state: queue } : null,
+        },
+      },
+    },
+  },
+});
+
+test.each([
+  ["ejected", "failed"],
+  ["merged", "merged"],
+  ["unavailable", "uncertain"],
+  ["queued", "enqueued"],
+] as const)(
+  "a recorded queue scope that becomes %s reconciles after native membership disappears",
+  async (host, outcome) => {
+    const missing = {
+      body: {
+        data: {
+          repository: {
+            viewerPermission: "WRITE",
+            pullRequest: { number: 8, stack: null },
+          },
+        },
+      },
+    };
+    const facts =
+      host === "unavailable"
+        ? { body: { data: { repository: { pr7: null, pr8: null } } } }
+        : host === "merged"
+          ? queueFacts("MERGED", null)
+          : host === "queued"
+            ? queueFacts("OPEN", "AWAITING_CHECKS")
+            : queueFacts("OPEN", null);
+    const f = await fixture({
+      graphql: [stackResponse(), stackResponse(), missing],
+      "stack-view": [{ code: 1 }],
+      "repos/octo/ace/pulls/8/merge-async": [
+        { body: { status: "enqueued", details: { uuid: stackUuid, message: "Accepted" } } },
+      ],
+      [`repos/octo/ace/pulls/8/merge-async/${stackUuid}`]: [
+        host === "ejected"
+          ? { status: 404, body: { message: "Result expired" } }
+          : { body: { status: "enqueued", details: { message: "Historical acceptance" } } },
+      ],
+      "stack-scope": [facts, queueFacts("OPEN", "AWAITING_CHECKS")],
+    });
+    try {
+      expect(await f.command("merge")).toMatchObject({
+        ok: true,
+        stackOperation: { state: "enqueued" },
+      });
+      await f.restart();
+      expect(await f.read()).toMatchObject({
+        result: {
+          kind: "forge",
+          data: {
+            value: {
+              stack: null,
+              operation: { state: outcome, uuid: stackUuid },
+            },
+          },
+        },
+      });
+      if (host === "unavailable") {
+        expect(await f.command("blocked")).toMatchObject({ ok: false, error: "forge_conflict" });
+        expect(await f.read()).toMatchObject({
+          result: {
+            kind: "forge",
+            data: {
+              value: {
+                operation: { state: "enqueued" },
+              },
+            },
+          },
+        });
+      }
+      expect((await f.gh.requests()).filter((r) => r.args.includes("PUT"))).toHaveLength(1);
+      expect(f.store.getThread(f.thread.id)?.details?.linkedPrs?.map((pr) => pr.number)).toEqual([
+        8,
+      ]);
+    } finally {
+      await f.close();
+    }
+  },
+);

@@ -33,7 +33,12 @@ that UUID too. `enqueued` is an acknowledgement, not a merged result. Later read
 inspect layer states for completion or queue ejection. After a lost acknowledgement
 or expired result, ace reconciles host facts and blocks a repeated write while
 the outcome remains uncertain. Records remain visible when native membership
-changes or disappears. A direct merge of independent PRs is never used to emulate
+changes or disappears. Saved scope PRs are queried independently of native
+membership to distinguish continued queuing, completion, ejection and unresolved
+access. Receipt versions are captured before host I/O and reconciled once through
+a compare-and-swap. The process boundary records actual dispatch; a command that
+cannot spawn settles as failed, while a dispatched write with a lost
+acknowledgement stays uncertain. A direct merge of independent PRs is never used to emulate
 a native stack operation. Native stacks have no auto-merge control.
 
 ## Rebase and recovery

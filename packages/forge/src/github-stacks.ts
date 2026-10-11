@@ -1,4 +1,5 @@
-import { sameStack } from "./stack-plan.ts";
+import { sameStack, stackPrState } from "./stack-plan.ts";
+import { readStackMergeScope } from "./github-stack-scope.ts";
 import { readStackChecks } from "./github-stack-checks.ts";
 import { z } from "zod";
 import {
@@ -148,6 +149,9 @@ export class GitHubStacks {
       });
     });
   }
+  mergeScope(numbers: readonly number[], signal: AbortSignal) {
+    return readStackMergeScope(this.#api, this.#repo, numbers, signal, checkedStackGraphql);
+  }
   async read(number: number, signal: AbortSignal): Promise<ForgeStack | null> {
     positive.parse(number);
     const page = await this.#api.request("graphql", signal, {
@@ -185,7 +189,7 @@ export class GitHubStacks {
         headSha: pr.headRefOid,
         branch: pr.headRefName,
         baseBranch: pr.baseRefName,
-        state: pr.state === "OPEN" && pr.isDraft ? "DRAFT" : pr.state,
+        state: stackPrState(pr),
         mergeState: pr.mergeStateStatus,
         reviewDecision: pr.reviewDecision,
         checksState: pr.statusCheckRollup?.state ?? null,

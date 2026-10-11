@@ -428,3 +428,39 @@ test.each(["CLOSED", "MERGED"])(
     }
   },
 );
+
+test("recorded PR queue facts can be read without native stack membership", async () => {
+  const f = await fakeGh({
+    "stack-scope": [
+      {
+        body: {
+          data: {
+            repository: {
+              pr7: {
+                number: 7,
+                state: "MERGED",
+                isDraft: true,
+                mergeQueueEntry: null,
+                future: "kept",
+              },
+              pr8: {
+                number: 8,
+                state: "OPEN",
+                isDraft: false,
+                mergeQueueEntry: { state: "AWAITING_CHECKS" },
+              },
+            },
+          },
+        },
+      },
+    ],
+  });
+  try {
+    expect(await f.forge.stackMergeScope([7, 8], signal())).toMatchObject([
+      { number: 7, state: "MERGED", queueState: null, raw: { future: "kept" } },
+      { number: 8, state: "OPEN", queueState: "AWAITING_CHECKS" },
+    ]);
+  } finally {
+    await f.cleanup();
+  }
+});

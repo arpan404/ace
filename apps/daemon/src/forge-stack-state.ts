@@ -1,4 +1,9 @@
-import type { ForgeStack, ForgeStackExpected, ForgeStackOperation } from "@ace/protocol";
+import type {
+  ForgeStack,
+  ForgeStackExpected,
+  ForgeStackLayer,
+  ForgeStackOperation,
+} from "@ace/protocol";
 
 export function isIncompleteStackOperation(operation: ForgeStackOperation): boolean {
   return ["pending", "uncertain", "conflict", "push_partial"].includes(operation.state);
@@ -16,20 +21,32 @@ export function reconcileStackMerge(
     (operation.state !== "enqueued" && operation.state !== "uncertain")
   )
     return operation;
+  if (expected.id !== stack.id) return operation;
+  return reconcileRecordedStackMerge(operation, expected, number, stack.layers);
+}
+
+export function requestedStackScope(expected: ForgeStackExpected, number: number) {
   const index = expected.layers.findIndex((layer) => layer.number === number);
-  const members = new Map(stack.layers.map((layer) => [layer.number, layer]));
-  const scope =
-    index < 0 ? [] : expected.layers.slice(0, index + 1).map((layer) => members.get(layer.number));
-  if (expected.id !== stack.id || !scope.length || scope.some((layer) => !layer)) {
-    return operation.state === "enqueued"
-      ? {
-          ...operation,
-          state: "failed",
-          message:
-            "GitHub changed the requested stack membership. Inspect the current layers and queue before another merge request.",
-        }
-      : operation;
-  }
+  return index < 0 ? [] : expected.layers.slice(0, index + 1);
+}
+
+export function reconcileRecordedStackMerge(
+  operation: ForgeStackOperation,
+  expected: ForgeStackExpected,
+  number: number,
+  layers: readonly Pick<ForgeStackLayer, "number" | "state" | "queueState">[],
+): ForgeStackOperation {
+  if (operation.action !== "merge" || !["enqueued", "uncertain"].includes(operation.state))
+    return operation;
+  const members = new Map(layers.map((layer) => [layer.number, layer]));
+  const scope = requestedStackScope(expected, number).map((layer) => members.get(layer.number));
+  if (!scope.length || scope.some((layer) => !layer))
+    return {
+      ...operation,
+      state: "uncertain",
+      message:
+        "GitHub could not resolve every PR in the recorded merge scope. Inspect their queue state before another request.",
+    };
   if (scope.every((layer) => layer?.state === "MERGED"))
     return {
       ...operation,

@@ -66,6 +66,9 @@ export class GitHubForge implements Forge, ForgeBrowser {
   stackMemberships(numbers: readonly number[], signal: AbortSignal) {
     return this.#stacks.memberships(numbers, signal);
   }
+  stackMergeScope(numbers: readonly number[], signal: AbortSignal) {
+    return this.#stacks.mergeScope(numbers, signal);
+  }
   localStack(signal: AbortSignal) {
     return this.#localStacks.read(signal);
   }

@@ -61,3 +61,7 @@ export function matchesLocalStack(local: ForgeLocalStack, stack: ForgeStack): bo
     active.some((branch) => branch.isCurrent && branch.name === local.currentBranch)
   );
 }
+
+export function stackPrState(pr: { state: string; isDraft: boolean }): string {
+  return pr.state === "OPEN" && pr.isDraft ? "DRAFT" : pr.state;
+}

@@ -18,7 +18,9 @@ const path =
   args[0] === "api"
     ? args[1] === "graphql" && body?.query?.includes("query StackChecks(")
       ? "stack-checks"
-      : args[1]
+      : args[1] === "graphql" && body?.query?.includes("query StackMergeScope(")
+        ? "stack-scope"
+        : args[1]
     : args[0] === "stack"
       ? `stack-${args[1]}${args.includes("--continue") ? "-continue" : args.includes("--abort") ? "-abort" : ""}`
       : "auto-merge";

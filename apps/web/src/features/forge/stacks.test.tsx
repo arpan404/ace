@@ -287,3 +287,32 @@ test("repository lists group only host-confirmed layers and use host positions f
   await userEvent.click(within(groups).getByRole("button", { name: "#43 · layer 3" }));
   expect(await screen.findByRole("heading", { name: "UI #43" })).toBeTruthy();
 });
+
+test.each([
+  { error: "forge_forbidden", message: /This account cannot access the repository/ },
+  { error: "forge_conflict", message: /The pull request changed while reading/ },
+])(
+  "final stack confirmation submits the command and exposes its $error receipt",
+  async ({ error, message }) => {
+    const app = setup();
+    app.daemon.refuseCommands(error, "forge.pr.stack.change");
+    await app.open("/pull-requests?project=api&number=42");
+    const section = await screen.findByRole("region", { name: "Pull request stack" });
+    const merge = await within(section).findByRole<HTMLButtonElement>("button", {
+      name: "Merge through #42",
+    });
+    await waitFor(() => expect(merge.disabled).toBe(false));
+    await userEvent.click(merge);
+    const confirmation = within(section).getByRole("group", { name: "Confirm stack action" });
+    expect(within(confirmation).getByText(/Merge #41, #42 into main using squash/)).toBeTruthy();
+    expect(within(section).queryByText(message)).toBeNull();
+    await userEvent.click(
+      within(confirmation).getByRole("button", { name: "Confirm stack merge" }),
+    );
+    expect(await within(section).findByText(message)).toBeTruthy();
+    await waitFor(() =>
+      expect(within(section).queryByRole("group", { name: "Confirm stack action" })).toBeNull(),
+    );
+    expect(screen.getByRole("heading", { name: "API #42" })).toBeTruthy();
+  },
+);
