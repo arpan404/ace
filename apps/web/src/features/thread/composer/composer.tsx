@@ -353,7 +353,8 @@ function ComposerBody({
     takeFiles: intake,
     preserveDraft: (key) => writeDraft(storage, key, current),
     discardIfSubmitted(sent) {
-      if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent)) return false;
+      if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent))
+        return false;
       // The recovery owner already removed the matching persisted draft. Stop a stale
       // unmount flush from restoring it while leaving newer drafts untouched.
       saved.drop();

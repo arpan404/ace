@@ -177,7 +177,7 @@ export function NewThreadPage(props: {
   const readScope = () =>
     scopeKey ? readJson(storage, scopeKey, z.string(), undefined) : undefined;
   const saveScope = (value: string | null): boolean => {
-    if (!scopeKey || !storage) return false;
+    if (!scopeKey || !storage || storage.durable === false) return false;
     try {
       storage.setItem(scopeKey, JSON.stringify(value));
       return true;
