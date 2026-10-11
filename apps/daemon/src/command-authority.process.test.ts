@@ -2,31 +2,14 @@ import { Command } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { setup } from "./remote-test-support.ts";
 
-test("revocation during notification admission prevents a queued command from changing the thread", async () => {
-  const entered = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
-  let hold = false;
-  const f = await setup({
-    notifications: {
-      async connectDevice() {
-        if (hold) {
-          entered.resolve();
-          await release.promise;
-        }
-      },
-      async disconnect() {},
-      async updatePresence() {},
-      async register() {},
-      async preferences() {},
-      async snooze() {},
-    },
-  });
+test("a command after device revocation cannot change the thread", async () => {
+  const f = await setup();
   try {
     const paired = await f.pair();
     const client = await f.connectTicket(paired.device.id, (await f.ticket(paired.token)).ticket);
     expect(await client.next()).toMatchObject({ type: "welcome" });
     const before = f.store.headSeq();
-    hold = true;
+    f.store.devices.revoke(paired.device.id, 1000);
     client.send({
       type: "command",
       command: Command.parse({
@@ -40,12 +23,67 @@ test("revocation during notification admission prevents a queued command from ch
         },
       }),
     });
-    await entered.promise;
-    f.store.devices.revoke(paired.device.id, 1000);
-    release.resolve();
+
     expect(await client.next()).toMatchObject({ type: "error", code: "forbidden" });
     expect(f.store.headSeq()).toBe(before);
   } finally {
-    release.resolve();
+    await f.close();
+  }
+});
+
+test("a connected device recovers notification enrollment without reconnecting", async () => {
+  const scheduled: (() => void)[] = [];
+  let available = false;
+  const enrolled = new Set<string>();
+  const f = await setup({
+    runtime: {
+      delay(run) {
+        scheduled.push(run);
+        return () => {};
+      },
+    },
+    notifications: {
+      async connectDevice(id) {
+        if (!available) throw new Error("Worker recovering");
+        enrolled.add(id);
+      },
+      async disconnect() {},
+      async updatePresence() {},
+      async register(id) {
+        if (!enrolled.has(id)) throw new Error("Not enrolled");
+      },
+      async preferences() {},
+      async snooze() {},
+    },
+  });
+  try {
+    const client = await f.connect();
+    expect(await client.next()).toMatchObject({ type: "welcome" });
+    client.send({
+      type: "notification.register",
+      requestId: "before",
+      device: { channel: "websocket", platform: "desktop" },
+    });
+    expect(await client.next()).toMatchObject({ type: "error", code: "notification_rejected" });
+    // Outages can outlast the first few worker restart attempts.
+    for (let index = 0; index < 7; index++) {
+      const retry = scheduled.pop();
+      if (!retry) throw new Error("Connected enrollment stopped retrying");
+      retry();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    available = true;
+    for (const retry of scheduled.splice(0)) retry();
+    client.send({
+      type: "notification.register",
+      requestId: "after",
+      device: { channel: "websocket", platform: "desktop" },
+    });
+    expect(await client.next()).toMatchObject({
+      type: "notification.register.result",
+      requestId: "after",
+    });
+  } finally {
+    await f.close();
   }
 });

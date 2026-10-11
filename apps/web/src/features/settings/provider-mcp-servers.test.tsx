@@ -34,7 +34,8 @@ test("a server waiting for its own sign-in reads Not signed in calmly, and Claud
   expect(screen.queryAllByRole("alert")).toHaveLength(0);
   expect(screen.queryByText("Needs attention")).toBeNull();
   expect(screen.queryByText("Sign in needed")).toBeNull();
-  expect(screen.queryByText("Signed in")).toBeNull();
+  const accounts = await screen.findByRole("list", { name: "Claude Code accounts" });
+  expect(within(accounts).getByText("Signed in")).toBeTruthy();
 });
 
 test("Reconnect, Turn off and Turn on change a server through the daemon", async () => {

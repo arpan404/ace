@@ -39,7 +39,7 @@ test("pending changes and agents get a blue mark and a spoken tooltip summary", 
   );
   await userEvent.unhover(toggle);
   await userEvent.click(within(card).getByRole("button", { name: "Commit" }));
-  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  const dialog = await screen.findByRole("dialog", { name: "Commit to fix/restart-retry" });
   expect(
     within(dialog)
       .getByRole("checkbox", { name: "Push after committing" })

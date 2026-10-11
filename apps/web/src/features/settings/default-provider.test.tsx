@@ -94,5 +94,11 @@ test("with no default picked, Settings shows the installed provider new threads 
   await app.open("/settings/general");
 
   await waitFor(async () => expect((await select()).textContent).toBe("Codex"));
-  expect(screen.getByText(/Until you pick one, new threads start on the provider/)).toBeTruthy();
+  const reply = await app.client.request({
+    type: "settings.get",
+    key: "providers.default",
+    scope: {},
+  });
+  expect(reply.entries[0]?.provenance).toBe("defaults");
+  expect(screen.getByText("Change it in any thread.")).toBeTruthy();
 });

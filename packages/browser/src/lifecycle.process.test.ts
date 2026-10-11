@@ -34,7 +34,7 @@ describe.skipIf(!executablePath)("browser lifecycle and recordings", () => {
     const f = await fixture({ maxSessions: 1 });
     await f.navigate();
     await expect(f.service.open({ threadId: "second", workspaceId: "other" })).rejects.toThrow(
-      "session limit",
+      "All browser pages are in use",
     );
     expect(f.service.state("thread").url).toBe(`${f.url}/`);
     expect(await f.evaluate("document.querySelector('input').getAttribute('aria-label')")).toBe(

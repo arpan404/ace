@@ -439,3 +439,20 @@ test("screencast paste inserts clipboard text and pointer gestures retain their 
     ]),
   );
 });
+
+test("Cut with a collapsed caret preserves clipboard text and page contents", async () => {
+  const user = userEvent.setup();
+  const { panel, browser } = await openBrowser();
+  await within(panel).findByText("is browsing", { exact: false });
+  await user.click(within(panel).getByRole("button", { name: "Take over" }));
+  const page = await within(panel).findByRole("application");
+  await navigator.clipboard.writeText("Keep the clipboard");
+  await act(async () => {
+    fireEvent.keyDown(page, { key: "x", code: "KeyX", ctrlKey: true });
+    fireEvent.keyUp(page, { key: "x", code: "KeyX", ctrlKey: true });
+  });
+  expect(await navigator.clipboard.readText()).toBe("Keep the clipboard");
+  expect(
+    browser.wireInputs.some(({ input }) => input.kind === "key" && input.key === "Backspace"),
+  ).toBe(false);
+});

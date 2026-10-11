@@ -92,7 +92,7 @@ test("favourites retain the opus alias and OpenCode shows free and local models 
     within(list).getByRole("button", { name: "Remove Opus 5.5 from favorites" }),
   );
   await waitFor(() => expect(within(list).queryByRole("option", { name: /Opus 5.5/ })).toBeNull());
-  await userEvent.click(within(popover).getByRole("tab", { name: /OpenCode.*Your CLI login/ }));
+  await userEvent.click(within(popover).getByRole("tab", { name: /^OpenCode/ }));
   expect(within(list).getByRole("group", { name: "OpenCode Zen" })).toBeTruthy();
   expect(within(list).getByRole("option", { name: /Big Pickle.*free/i })).toBeTruthy();
   expect(within(list).getByRole("option", { name: /Qwen3 Coder.*LM Studio/ })).toBeTruthy();

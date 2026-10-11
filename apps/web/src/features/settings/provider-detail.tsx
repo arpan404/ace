@@ -116,7 +116,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
       }
       heading
       missing={missing}
-      view={missing ? view : undefined}
+      view={missing || install.kind === "acp" || install.kind === "antigravity" ? view : undefined}
       updateAvailable={updateAvailable}
     />
   );

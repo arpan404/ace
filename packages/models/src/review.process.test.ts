@@ -38,7 +38,10 @@ test("failed durable removal is reported and retried before shutdown and restart
   try {
     await expect(Promise.resolve(catalog.removeInstance("codex"))).rejects.toThrow("persistence");
     expect(catalog.list().models).toEqual([]);
-    await expect(catalog.close()).rejects.toThrow("persistence");
+    await expect(catalog.close()).rejects.toMatchObject({
+      name: "AggregateError",
+      errors: [expect.objectContaining({ message: "Model persistence deletion failed" })],
+    });
   } finally {
     db.exec("DROP TRIGGER reject_delete");
     db.close();

@@ -82,7 +82,8 @@ export async function openCursorSession(
       ) {
         const result = z.object({ status: z.string() }).safeParse(data.body);
         if (
-          data.kind === "error" ||
+          (data.kind === "error" &&
+            z.object({ settled: z.literal(true) }).safeParse(data.body).success) ||
           (result.success && ["finished", "cancelled", "error"].includes(result.data.status))
         ) {
           active = false;
@@ -128,7 +129,7 @@ export async function openCursorSession(
       ...(deliberate
         ? {}
         : {
-            message: `${host.failureMessage ? host.failureMessage + " " : ""}Cursor stopped unexpectedly. Unfinished work needs your attention.`,
+            message: "Cursor stopped unexpectedly. Unfinished work needs your attention.",
           }),
     });
   });

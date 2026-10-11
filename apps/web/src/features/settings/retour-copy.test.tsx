@@ -19,7 +19,7 @@ test("OpenCode accounts reflect their service failure while a working account st
   if (!failing || !working) throw new Error("Missing account fixtures");
   expect(await within(failing).findByText("Connection needs attention")).toBeTruthy();
   expect(within(failing).queryByText("Signed in")).toBeNull();
-  expect(within(working).queryByText("Signed in")).toBeNull();
+  expect(within(working).getByText("Signed in")).toBeTruthy();
   const services = within(await screen.findByRole("list", { name: "OpenCode services" }));
   expect(services.getByRole("button", { name: "Reconnect OpenRouter" })).toBeTruthy();
   expect(services.getByText("Connect a service")).toBeTruthy();

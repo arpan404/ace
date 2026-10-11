@@ -205,7 +205,9 @@ export class DevicePlatform {
       else throw result.reason;
     }
     this.missingSDKs = missing;
-    const present = new Set(devices.map((device) => device.id));
+    const present = new Set(
+      devices.filter((device) => device.state === "booted").map((device) => device.id),
+    );
     for (const id of this.appProcesses.keys()) if (!present.has(id)) this.appProcesses.delete(id);
     if (!this.checkedInput && devices.some((device) => device.platform === "ios")) {
       const [serve, idb] = await Promise.all([
@@ -250,8 +252,10 @@ export class DevicePlatform {
     if (device.platform === "ios") await this.iosSimulators().show(nativeId(device));
   }
   async shutdown(device: Device, authorize?: () => void): Promise<void> {
-    if (device.platform === "ios") await this.simctl(device, ["shutdown"], authorize);
-    else await this.android.shutdown(device, authorize);
+    if (device.platform === "ios") {
+      await this.simctl(device, ["shutdown"], authorize);
+      this.appProcesses.delete(device.id);
+    } else await this.android.shutdown(device, authorize);
   }
   async install(device: Device, input: string, authorize?: () => void): Promise<void> {
     const path = Text.refine(isAbsolute).parse(input);

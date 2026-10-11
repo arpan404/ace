@@ -99,7 +99,7 @@ test("an oversized first request is marked unavailable while another conversatio
   const home = join(env.root, "claude");
   await jsonl(join(home, "projects/p/large.jsonl"), [
     { type: "system", context: "x".repeat(160000) },
-    ...claudeRecords("x".repeat(180000), "large"),
+    ...claudeRecords("x".repeat(1_100_000), "large"),
   ]);
   await jsonl(join(home, "projects/p/good.jsonl"), claudeRecords("Useful request", "good"));
   const service = await env.start([{ id: "claude", provider: "claude", homeDir: home }]);

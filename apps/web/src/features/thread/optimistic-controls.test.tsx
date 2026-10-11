@@ -32,11 +32,11 @@ const thread = (app: ReturnType<typeof harness>) => {
 };
 async function offline(app: ReturnType<typeof harness>) {
   act(() => app.client.networkOnline(false));
-  await screen.findByText(/^Offline ·/);
+  await screen.findByText(/^Offline$/);
 }
 async function online(app: ReturnType<typeof harness>) {
   act(() => app.client.networkOnline(true));
-  await waitFor(() => expect(screen.queryByText(/^Offline ·/)).toBeNull());
+  await waitFor(() => expect(screen.queryByText(/^Offline$/)).toBeNull());
 }
 async function chooseApprovals(from: string, mode: string) {
   await userEvent.click(await screen.findByRole("button", { name: `Approvals: ${from}` }));
@@ -68,8 +68,12 @@ test("an approval mode the daemon refuses goes back to the one in effect, with a
   app.daemon.refuseCommands("forbidden", "thread.permission.set");
   await chooseApprovals("Provider default", "Manual");
 
-  expect(await screen.findByText("Couldn't change approvals")).toBeTruthy();
-  expect(screen.getByText("This device isn't allowed to do that.")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Couldn't change approvals" })).toBeTruthy();
+  expect(
+    within(screen.getByRole("alertdialog", { name: "Couldn't change approvals" })).getByText(
+      "This device isn't allowed to do that.",
+    ),
+  ).toBeTruthy();
   const restored = await screen.findByRole("button", { name: "Approvals: Provider default" });
   expect(restored.textContent).toBe("Provider default");
   expect(thread(app)?.permission?.override).toBeNull();
@@ -80,8 +84,10 @@ test("offline, the model popover still changes effort and the account, which go 
   await offline(app);
   const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
   expect(within(popover).getByText("Offline: changes apply when reconnected")).toBeTruthy();
-  within(popover).getByRole("slider", { name: "Effort" }).focus();
-  await userEvent.keyboard("{End}");
+  within(within(popover).getByRole("group", { name: "Effort" }))
+    .getByRole("button", { name: "High" })
+    .focus();
+  await userEvent.keyboard(" ");
   await chooseAccount(popover, "Work");
   await closeModelControl();
 
@@ -124,8 +130,12 @@ test("a model switch the daemon refuses goes back to the model in effect, with a
   app.daemon.refuseCommands("provider_unavailable", "thread.switch");
   await chooseAccount(await openModelControl(/^Model: Opus 5\.5, Personal/), "Work");
 
-  expect(await screen.findByText("Couldn't switch the model")).toBeTruthy();
-  expect(screen.getByText("That provider isn't installed or signed in.")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Couldn't switch the model" })).toBeTruthy();
+  expect(
+    within(screen.getByRole("alertdialog", { name: "Couldn't switch the model" })).getByText(
+      "That provider isn't installed or signed in.",
+    ),
+  ).toBeTruthy();
   await closeModelControl();
   const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5, Personal/ });
   expect(chip.getAttribute("aria-description")).toBeNull();

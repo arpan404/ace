@@ -58,14 +58,20 @@ test("accounts CLI and Cursor CLI auth use the daemon's default home without cre
   }
 });
 
-test.each([".ace", ".ace-next-old", "nested"])(
-  "daemon startup moves the %s SDK home before discovery and preserves user CLI homes",
+test.each([".ace", ".ace-next-old", "nested", "current-nested"])(
+  "daemon startup admits only the current %s SDK home and preserves user CLI homes",
   async (layout) => {
     const root = await home();
     const dataDir = join(root, ".ace-next");
     const id = "cursor-sdk-default";
-    const oldRoot = join(root, layout === "nested" ? ".ace" : layout);
-    const oldHome = join(oldRoot, "instances", ...(layout === "nested" ? ["cursor"] : []), id);
+    const oldRoot =
+      layout === "current-nested" ? dataDir : join(root, layout === "nested" ? ".ace" : layout);
+    const oldHome = join(
+      oldRoot,
+      "instances",
+      ...(layout.endsWith("nested") ? ["cursor"] : []),
+      id,
+    );
     await mkdir(oldHome, { recursive: true });
     if (layout === ".ace-next-old") await writeFile(join(oldRoot, "host-id"), "old-daemon");
     await mkdir(join(oldHome, "user", ".cursor", "sdk"), { recursive: true });
@@ -91,7 +97,7 @@ import {join} from 'node:path';
 createInterface({input:process.stdin}).on('line',line=>{
 const r=JSON.parse(line);
 if (!existsSync(join(process.env.HOME,'.cursor/sdk/auth.json'))) process.exit(9);
-console.log(JSON.stringify({id:r.id,result:[{id:'migrated-model',displayName:process.env.HOME}]}));
+console.log(JSON.stringify({id:r.id,result:r.method==='status'?{status:'logged-out',source:'none'}:r.method==='models'?[{id:'migrated-model',displayName:process.env.HOME}]:{disposed:true}}));
 });`,
     );
     let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
@@ -122,6 +128,30 @@ console.log(JSON.stringify({id:r.id,result:[{id:'migrated-model',displayName:pro
             spawnSupervised({ ...options, command: process.execPath, args: [entry] }),
         },
       });
+      if (layout !== "current-nested") {
+        await daemon.models.refresh({ provider: "cursor" });
+        expect(daemon.models.list({ provider: "cursor" }).models).toEqual([]);
+        const persisted = await openRegistry(join(dataDir, "accounts.sqlite"), dataDir);
+        try {
+          expect(persisted.get(id)).toMatchObject({
+            instance: { homeDir: oldHome },
+            quota: { blockers: { homeUnavailable: "foreign_home" } },
+          });
+        } finally {
+          persisted.close();
+        }
+        expect((await stat(oldHome)).ino).toBe(previousHome.ino);
+        expect((await stat(authFile)).ino).toBe(previousAuth.ino);
+        await expect(access(join(dataDir, "instances", id))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+        for (const [index, name] of userHomes.entries())
+          expect(await stat(join(root, name))).toMatchObject({
+            ino: userStats[index]?.ino,
+            mtimeMs: userStats[index]?.mtimeMs,
+          });
+        return;
+      }
       expect(await daemon.models.refresh({ provider: "cursor" })).toMatchObject([{ stale: false }]);
       const canonical = join(dataDir, "instances", id);
       expect(daemon.models.list({ provider: "cursor" }).models).toMatchObject([

@@ -16,7 +16,7 @@ import {
 } from "../../zod-methods.ts";
 import { zodPureSchemas } from "../../zod-pure-schemas.ts";
 import { workerJsonZod } from "../../worker-json-zod.ts";
-import { workerZod } from "../../worker-zod.ts";
+import { pageZod, workerZod } from "../../worker-zod.ts";
 import { protocolCorpus, type ProtocolCorpus } from "./protocol-corpus.ts";
 
 /*
@@ -35,7 +35,9 @@ export { DaemonTarget } from "@/boot/connection-settings.ts";
 export { WorkerTarget } from "@/boot/worker-target.ts";
 export { MachineTarget } from "@/boot/machine-target.ts";
 export { TabMessage, WorkerMessage } from "@ace/client-worker/wire";
+export { Appearance } from "@/theme/appearance.ts";
 export { ShellLayout } from "@/lib/layout.tsx";
+export { ScopeWorkspaceSchema } from "@/lib/workspace/model.ts";
 export { Choices } from "@/features/home/new-thread/choices.ts";
 export { AutomationForm } from "@/features/automations/automation-values.ts";
 export { PluginNameInput, PluginRepository } from "@/features/skills/skills-model.ts";
@@ -249,7 +251,56 @@ const browserInputs: Record<string, unknown[]> = {
     { t: "reply", call: "wrong" },
     { t: "changes", leases: [{ lease: 1, patches: "wrong" }] },
   ],
+  Appearance: [
+    {},
+    {
+      theme: "tokyo",
+      accent: "theme",
+      customAccent: "#123ABC",
+      glass: 0,
+      density: "compact",
+      transcriptSize: "large",
+    },
+    {
+      theme: "",
+      accent: "invalid",
+      customAccent: "#bad",
+      glass: 2,
+      density: false,
+      transcriptSize: null,
+    },
+  ],
   ShellLayout: [{}, { sidebarOpen: false }, { sidebarOpen: "yes" }],
+  ScopeWorkspaceSchema: [
+    {
+      tabs: [],
+      open: true,
+      size: 320,
+      expanded: false,
+      workCard: { open: true, sections: {}, search: "", scrollTop: 0 },
+    },
+    {
+      tabs: [],
+      open: true,
+      size: 320,
+      expanded: false,
+      workCard: { open: true, sections: {}, search: "", scrollTop: 10_000_000 },
+    },
+    {
+      tabs: [],
+      open: true,
+      size: 320,
+      expanded: false,
+      workCard: { open: true, sections: {}, search: "", scrollTop: -1 },
+    },
+    {
+      tabs: [],
+      open: true,
+      size: 320,
+      expanded: false,
+      workCard: { open: true, sections: {}, search: "", scrollTop: 10_000_001 },
+    },
+  ],
   Choices: [
     {},
     { project: "p", model: "m", mode: "worktree", fast: true },
@@ -294,6 +345,7 @@ beforeAll(async () => {
     zodWithoutUnusedMethods(),
     zodPureSchemas(),
     workerZod(),
+    pageZod(),
   ]);
   const workerCode = await bundle(
     [
@@ -387,6 +439,10 @@ describe("zodWithoutUnusedMethods", () => {
       data: "https://github.com/getsentry/sentry-mcp.git",
     });
     expect(outcome(trimmed.Choices!, { mode: "bogus" })).toMatchObject({ ok: true });
+    const workspaceInputs = browserInputs["ScopeWorkspaceSchema"] ?? [];
+    expect(
+      workspaceInputs.map((input) => outcome(trimmed.ScopeWorkspaceSchema!, input).ok),
+    ).toEqual([true, true, false, false]);
     const found = Object.entries(browserInputs).flatMap(([name, inputs]) =>
       disagreements(name, inputs),
     );

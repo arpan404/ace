@@ -1,3 +1,5 @@
+export { isDefaultSelection, matchesModel } from "./model-selection.ts";
+import { isDefaultSelection, matchesModel } from "./model-selection.ts";
 import type { CatalogModel, ProviderKind } from "@ace/protocol";
 import { classifyCatalog, compareVersions } from "./catalog-classification.ts";
 import { modelDisplayName } from "./display-name.ts";
@@ -64,9 +66,6 @@ export const providerDefaultRules: Record<
   antigravity: { families: ["gemini", "claude-opus", "gpt"] },
 };
 
-export function isDefaultSelection(id: string | undefined): boolean {
-  return id !== undefined && /^(?:default(?:\s*\(recommended\))?)$/i.test(id.trim());
-}
 /** The model's own name: OpenCode keeps its upstream provider prefix in `nativeModelId`. */
 function modelName(row: CatalogModel): string {
   const prefix = row.nativeProviderId && `${row.nativeProviderId}/`;
@@ -206,17 +205,6 @@ export function cleanCatalog(models: readonly CatalogModel[]): CatalogModel[] {
   );
 }
 
-export function matchesModel(row: CatalogModel, id: string): boolean {
-  return (
-    row.id === id ||
-    row.nativeModelId === id ||
-    row.resolvedModelId === id ||
-    row.aliases?.includes(id) === true ||
-    (row.provider === "opencode" &&
-      !id.includes("/") &&
-      row.id.slice(row.id.indexOf("/") + 1) === id)
-  );
-}
 export function defaultModel(
   models: readonly CatalogModel[],
   provider: ProviderKind,

@@ -25,18 +25,43 @@ test("the fake daemon renders messy native data and the headless checks reject v
   await server.listen();
   const browser = await chromium.launch({ executablePath: inject("chromiumExecutable") });
   try {
+    // Rendering the fixture exercises the browser, not Vite's cold transform waterfall.
+    // Prepare both entry graphs before Chromium's unchanged navigation deadline starts.
+    const client = server.environments.client;
+    if (!client) throw new Error("Missing fixture client environment");
+    await Promise.all([
+      client.transformRequest("/src/main.tsx"),
+      client.transformRequest("/src/boot/fake.ts"),
+    ]);
+    await client.waitForRequestsIdle();
     const address = server.httpServer?.address();
     if (!address || typeof address === "string") throw new Error("Missing fixture listener");
     const page = await browser.newPage({
       viewport: { width: 1440, height: 900 },
       colorScheme: "dark",
     });
+    const pending = new Set<string>();
+    const startupErrors: string[] = [];
+    page.on("request", (request) => pending.add(request.url()));
+    page.on("requestfinished", (request) => pending.delete(request.url()));
+    page.on("requestfailed", (request) => {
+      pending.delete(request.url());
+      startupErrors.push(`${request.url()}: ${request.failure()?.errorText}`);
+    });
+    page.on("pageerror", (error) => startupErrors.push(error.message));
     await page.addInitScript(fixtureSetup);
-    await page.goto(`http://127.0.0.1:${address.port}/t/smoke-messy`);
-    await page.getByRole("feed", { name: "Transcript", exact: true }).waitFor();
-    await page
-      .getByText('{"type":"native.payload","data":{"unprepared":true}}', { exact: true })
-      .waitFor();
+    try {
+      await page.goto(`http://127.0.0.1:${address.port}/t/smoke-messy`);
+      await page.getByRole("feed", { name: "Transcript", exact: true }).waitFor();
+      await page
+        .getByText('{"type":"native.payload","data":{"unprepared":true}}', { exact: true })
+        .waitFor();
+    } catch (cause) {
+      throw new Error(
+        `Smoke fixture did not become ready. Pending requests: ${[...pending].join(", ")}. Browser errors: ${startupErrors.join("; ")}`,
+        { cause },
+      );
+    }
     const facts = await page.evaluate(pageFacts, { catalogsReady: true, expected: {} });
     expect(checkPage(facts).map((failure) => failure.code)).toContain("wrapper-tag");
     expect(checkPage(facts).map((failure) => failure.code)).toContain("json-bubble");

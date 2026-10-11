@@ -22,6 +22,8 @@ it("daemon MCP exposes bounded measurement and enforces capability, app and cont
   const daemon = await startDaemon({
     config: readConfig({ ACE_HOME: dir, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     screen,
+    history: { instances: [] },
+    modelInstances: [],
   });
   try {
     const workspace = daemon.store.createWorkspace(dir, "Measurement");
@@ -111,9 +113,9 @@ it("daemon MCP exposes bounded measurement and enforces capability, app and cont
       async foreground() {},
       audit() {},
     });
-    screen.controller(session.sessionId, "human", "person");
     const response = z
       .object({
+        isError: z.boolean().optional(),
         content: z.array(
           z.looseObject({
             type: z.string(),
@@ -127,15 +129,24 @@ it("daemon MCP exposes bounded measurement and enforces capability, app and cont
           sessionId: session.sessionId,
         }),
       );
+    expect(response.isError, JSON.stringify(response)).not.toBe(true);
     const metrics = InteractionMeasurement.parse(
       JSON.parse(response.content.find((part) => part.type === "text")?.text ?? "null"),
     );
     expect(metrics.verdict).toBe("smooth");
     expect(response.content.map((part) => part.type)).toEqual(["text", "image"]);
+    screen.controller(session.sessionId, "human", "person");
     expect(
       await request(lease.bearer, "tools/call", "screen_measure_interaction", {
         sessionId: session.sessionId,
         action: { kind: "text.type", text: "unsafe" },
+      }),
+    ).toMatchObject({ isError: true });
+    expect(screen.state(session.sessionId).controller).toBe("human");
+    screen.controller(session.sessionId, "agent", "another-agent");
+    expect(
+      await request(lease.bearer, "tools/call", "screen_measure_interaction", {
+        sessionId: session.sessionId,
       }),
     ).toMatchObject({ isError: true });
     const denied = daemon.mcp.openSession(

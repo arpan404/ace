@@ -14,7 +14,7 @@ test("Codex's usable sibling and Gemini's daily quota agree on Usage and provide
   expect(
     within(codex).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
   ).toBe("38");
-  const gemini = await screen.findByRole("article", { name: "Gemini CLI Google" });
+  const gemini = await screen.findByRole("article", { name: "gemini Google" });
   expect(
     within(gemini).getByRole("meter", { name: "Daily window" }).getAttribute("aria-valuenow"),
   ).toBe("71");

@@ -14,7 +14,7 @@ export async function sessionHarness(
   options?: SessionContext["options"],
   aceMcp?: SessionContext["aceMcp"],
   permissionMode?: SessionContext["permissionMode"],
-  policy?: Pick<CodexSessionContext, "getPermissionMode">,
+  policy?: Pick<CodexSessionContext, "getPermissionMode" | "resetPermissions">,
   onInputMessage?: SessionContext["onInputMessage"],
 ) {
   const directory = await mkdtemp(join(tmpdir(), "ace-codex-session-"));

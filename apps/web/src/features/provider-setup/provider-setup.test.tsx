@@ -25,6 +25,24 @@ function missing(provider: ProviderKind, method: InstallMethod = "npm") {
   return app;
 }
 const codexRow = () => screen.getByRole("group", { name: "Codex" });
+
+async function expectSignedIn(app: ReturnType<typeof harness>, provider: ProviderKind) {
+  expect(
+    await app.client.request({ type: "providers.request", operation: "readiness" }),
+  ).toMatchObject({
+    result: {
+      ok: true,
+      providers: expect.arrayContaining([
+        expect.objectContaining({
+          provider,
+          installed: true,
+          auth: "logged_in",
+          readiness: "signed_in",
+        }),
+      ]),
+    },
+  });
+}
 const providers = [
   ["codex", "Codex", "npm"],
   ["claude", "Claude Code", "brew"],
@@ -64,7 +82,8 @@ test.each(providers)(
     await waitFor(() =>
       expect(within(item()).queryByRole("button", { name: `Sign in to ${name}` })).toBeNull(),
     );
-    expect(within(item()).getByText("Ready")).toBeTruthy();
+    expect(within(item()).queryByRole("button", { name: "Install" })).toBeNull();
+    await expectSignedIn(app, provider);
   },
   30_000,
 );
@@ -101,7 +120,8 @@ test("a missing prerequisite opens its official download and retry continues wit
   const app = missing("pi");
   app.daemon.services.providerInstalls.scenarios.pi = "missing_prerequisite";
   await app.open("/settings/providers/pi");
-  const row = await screen.findByRole("region", { name: "Setup" });
+  await screen.findByRole("heading", { level: 2, name: "Pi" });
+  const row = screen.getByRole("main");
   await userEvent.click(await within(row).findByRole("button", { name: "Install" }));
   expect((await within(row).findByRole("link", { name: "Get Node.js" })).getAttribute("href")).toBe(
     "https://nodejs.org/en/download",
@@ -115,7 +135,20 @@ test("a missing prerequisite opens its official download and retry continues wit
   );
   await within(row).findByRole("progressbar");
   app.daemon.services.providerInstalls.complete("fake-install-1");
-  expect(await within(row).findByRole("button", { name: "Sign in to Pi" })).toBeTruthy();
+  const cli = (await within(row).findByRole("button", { name: "Manage Your CLI login" })).closest(
+    "li",
+  );
+  if (!cli) throw new Error("Missing the newly installed CLI account");
+  expect(await within(cli).findByRole("button", { name: "Sign in" })).toBeTruthy();
+  expect(
+    await app.client.request({ type: "providers.request", operation: "readiness" }),
+  ).toMatchObject({
+    result: {
+      providers: expect.arrayContaining([
+        expect.objectContaining({ provider: "pi", installed: true, auth: "logged_out" }),
+      ]),
+    },
+  });
 }, 30_000);
 
 test("a download-only distribution explains the platform limit and opens the official site", async () => {
@@ -146,7 +179,9 @@ test("a download-only distribution explains the platform limit and opens the off
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Sign in to Antigravity" })).toBeNull(),
   );
-  expect(await within(installedRow).findByText("Ready")).toBeTruthy();
+  expect(within(installedRow).queryByRole("button", { name: "Sign in to Antigravity" })).toBeNull();
+  expect(within(installedRow).queryByRole("button", { name: "Install" })).toBeNull();
+  await expectSignedIn(app, "antigravity");
 }, 30_000);
 
 test("Cursor uses its bundled SDK and signs in without a CLI installer", async () => {
@@ -161,5 +196,9 @@ test("Cursor uses its bundled SDK and signs in without a CLI installer", async (
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Sign in to Cursor" })).toBeNull(),
   );
-  expect(await within(row).findByText("Ready")).toBeTruthy();
+  await waitFor(() =>
+    expect(within(row).queryByRole("button", { name: "Sign in to Cursor" })).toBeNull(),
+  );
+  expect(within(row).queryByRole("button", { name: "Install" })).toBeNull();
+  await expectSignedIn(app, "cursor");
 });

@@ -422,48 +422,53 @@ test("booting has a visible status until the emulator finishes", async () => {
   expect(await within(pixel).findByRole("img", { name: "Pixel 9 screen" })).toBeTruthy();
   spy.mockRestore();
 });
-test("a failed stop offers cleanup retry, which allows the live view to start again", async () => {
-  const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
-  let iphone = await openDevice(panel, "iPhone 16 Pro");
-  await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
-  let fail = true;
-  const spy = interceptDeviceRequests(app, (message, _send, push) => {
-    if (message.operation.op !== "stop" || !fail) return false;
-    fail = false;
-    const error = {
-      code: "command_failed",
-      message: "Capture cleanup failed",
-      hint: "Retry cleanup.",
-    };
-    push({
-      type: "devices.state",
-      state: {
-        device: {
-          id: "ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b",
-          name: "iPhone 16 Pro",
-          platform: "ios",
-          state: "booted",
+test.each(["booted", "shutdown", "offline"] as const)(
+  "a failed stop offers cleanup retry while the device is %s",
+  async (deviceState) => {
+    const { app, panel } = await openDevices();
+    await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+    let iphone = await openDevice(panel, "iPhone 16 Pro");
+    await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
+    let fail = true;
+    const spy = interceptDeviceRequests(app, (message, _send, push) => {
+      if (message.operation.op !== "stop" || !fail) return false;
+      fail = false;
+      const error = {
+        code: "command_failed",
+        message: "Capture cleanup failed",
+        hint: "Retry cleanup.",
+      };
+      push({
+        type: "devices.state",
+        state: {
+          device: {
+            id: "ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b",
+            name: "iPhone 16 Pro",
+            platform: "ios",
+            state: deviceState,
+          },
+          enabled: true,
+          approved: false,
+          lifecycle: "failed",
+          cleanupRequired: true,
+          controller: "none",
+          error,
         },
-        enabled: true,
-        approved: false,
-        lifecycle: "failed",
-        cleanupRequired: true,
-        controller: "none",
-        error,
-      },
+      });
+      push({ type: "devices.result", requestId: message.requestId, ok: false, error });
+      return true;
     });
-    push({ type: "devices.result", requestId: message.requestId, ok: false, error });
-    return true;
-  });
-  act(() => app.daemon.appDevices.dropAll());
-  await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
-  iphone = await within(panel).findByRole("region", { name: "iPhone 16 Pro" });
-  await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
-  await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Stop live view" }));
-  await userEvent.click(await within(iphone).findByRole("button", { name: "Retry cleanup" }));
-  await userEvent.click(await within(iphone).findByRole("button", { name: "Start live view" }));
-  expect(await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" })).toBeTruthy();
-  spy.mockRestore();
-});
+    act(() => app.daemon.appDevices.dropAll());
+    await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
+    iphone = await within(panel).findByRole("region", { name: "iPhone 16 Pro" });
+    await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
+    await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Stop live view" }));
+    await within(iphone).findByRole("button", { name: "Retry cleanup" });
+    await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Retry cleanup" }));
+    await userEvent.click(await within(iphone).findByRole("button", { name: "Start live view" }));
+    expect(await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" })).toBeTruthy();
+    spy.mockRestore();
+  },
+);

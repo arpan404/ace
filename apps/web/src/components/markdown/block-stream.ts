@@ -221,7 +221,8 @@ export class BlockStream {
               ? closesFence(line, fence.marker)
               : (this.previewType === "paragraph" || this.previewType === "table") &&
                 (/^[ \t]*$/.test(line) ||
-                  /^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-+*] |\d{1,9}[.)] |`{3,}|~{3,}|<|(?:[-*_][ \t]*){3,}$|=+[ \t]*$)/.test(
+                  (this.previewType === "table" && /^(?: {4}| {0,3}\t)/.test(line)) ||
+                  /^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-+*][ \t]|\d{1,9}[.)][ \t]|`{3,}|~{3,}|<|(?:[-*_][ \t]*){3,}$|=+[ \t]*$)/.test(
                     line,
                   ));
       }

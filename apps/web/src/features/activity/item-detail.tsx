@@ -20,6 +20,7 @@ import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
 import { useActivityState } from "./activity-state.tsx";
 import { RecoveryThreadRow } from "./recovery-thread-row.tsx";
+import { LimitedThreads, useLimitedThreads } from "./limited-threads.tsx";
 import { CardActions } from "./card-frame.tsx";
 import type { FeedDetail, FeedEvent, PrRef } from "./feed-events.ts";
 import { useFeed } from "./feed-source.ts";
@@ -31,15 +32,29 @@ const Markdown = lazy(() =>
   import("@/components/markdown/markdown.tsx").then((module) => ({ default: module.Markdown })),
 );
 
+/** Usage-limit recovery remains available while a selected request occupies the detail. */
+function DetailPage(props: { children: ReactNode }) {
+  const { tab } = useActivityState();
+  const limited = useLimitedThreads();
+  return (
+    <Page>
+      {props.children}
+      {(tab === "all" || tab === "needs") && <LimitedThreads threads={limited} />}
+    </Page>
+  );
+}
+
 /**
  * One Activity item on its own (`/activity?item=`): a request or decision as its card, a
  * mention with the whole comment, failing checks, a pull request's end, or an automation run.
  */
 export function ItemDetail(props: { itemKey: string }) {
   const { itemKey } = props;
-  const { focusCard } = useActivityState();
+  const { focusShownCard } = useActivityState();
   // A card shown on its own takes the card keys (A, D, 1–3, O).
-  useEffect(() => focusCard(itemKey), [focusCard, itemKey]);
+  useEffect(() => {
+    if (!itemKey.startsWith("thread:")) focusShownCard(itemKey);
+  }, [focusShownCard, itemKey]);
   if (itemKey.startsWith("thread:")) return <ThreadDetail threadId={itemKey.slice(7)} />;
   if (itemKey.startsWith("interaction:")) {
     const [, threadId = "", interactionId = ""] = itemKey.split(":");
@@ -54,10 +69,10 @@ function ThreadDetail(props: { threadId: string }) {
   const requests = useInteractions(props.threadId);
   const thread = useThreadMeta(props.threadId);
   const first = requests?.[0];
-  const { focusCard } = useActivityState();
+  const { focusShownCard } = useActivityState();
   useEffect(() => {
-    if (first) focusCard(`interaction:${props.threadId}:${first}`);
-  }, [first, focusCard, props.threadId]);
+    focusShownCard(first ? `interaction:${props.threadId}:${first}` : `thread:${props.threadId}`);
+  }, [first, focusShownCard, props.threadId]);
   if (first)
     return (
       <RequestDetailRetry
@@ -68,9 +83,9 @@ function ThreadDetail(props: { threadId: string }) {
     );
   if (!thread) return <DetailLoading />;
   return (
-    <Page>
+    <DetailPage>
       <RecoveryThreadRow threadId={props.threadId} />
-    </Page>
+    </DetailPage>
   );
 }
 
@@ -104,14 +119,14 @@ function RequestDetail(props: {
   }
   if (interaction.state !== "pending") return <Gone title="This request was answered" />;
   return (
-    <Page>
+    <DetailPage>
       <InteractionCard
         expanded
         threadId={props.threadId}
         interactionId={props.interactionId}
         cardKey={props.itemKey}
       />
-    </Page>
+    </DetailPage>
   );
 }
 
@@ -125,9 +140,9 @@ function FeedDetailPage(props: { itemKey: string }) {
     const run = feed.runs?.find((candidate) => candidate.id === id);
     if (run)
       return (
-        <Page>
+        <DetailPage>
           <AutomationRunDetail run={run} />
-        </Page>
+        </DetailPage>
       );
     if (runs.isError) return <Unavailable onRetry={() => void runs.refetch()} />;
     if (feed.runs !== undefined) return <Gone title="This run is no longer listed" />;
@@ -145,13 +160,13 @@ function FeedDetailPage(props: { itemKey: string }) {
 
 function DetailLoading() {
   return (
-    <Page>
+    <DetailPage>
       <LoadingRegion label="item" className="flex flex-col gap-3">
         <Skeleton className="h-3.5 w-48" />
         <Skeleton className="h-6 w-72" />
         <SkeletonText lines={4} className="mt-6" />
       </LoadingRegion>
-    </Page>
+    </DetailPage>
   );
 }
 
@@ -195,8 +210,8 @@ function Gone(props: { title: string }) {
 function DetailFrame(props: { context: string; at: number; title: string; children: ReactNode }) {
   const now = useNow();
   return (
-    <Page>
-      <article aria-label={props.title}>
+    <DetailPage>
+      <article tabIndex={-1} aria-label={props.title}>
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <span className="min-w-0 truncate">{props.context}</span>
           <span aria-hidden>·</span>
@@ -207,7 +222,7 @@ function DetailFrame(props: { context: string; at: number; title: string; childr
         <h2 className="mt-2 text-xl leading-snug font-semibold tracking-title">{props.title}</h2>
         {props.children}
       </article>
-    </Page>
+    </DetailPage>
   );
 }
 

@@ -233,7 +233,7 @@ test("a rename survives changing from a task row to a settled row", async () => 
   );
   const retained = await screen.findByRole<HTMLInputElement>("textbox", { name: "Thread title" });
   expect(retained.value).toBe("Retained rename");
-  fireEvent.keyDown(retained, { key: "Enter" });
+  await userEvent.type(retained, "{Enter}");
   expect(await within(nav()).findByRole("link", { name: /^Retained rename/ })).toBeTruthy();
 });
 

@@ -26,6 +26,21 @@ async function openThread(which: "replay" | "checkout" = "replay", through = "fi
   return app;
 }
 
+/** Header organization does not need a transcript or delegated/background work. */
+async function openIdleThread() {
+  const app = harness();
+  app.daemon.createThread({
+    id: "thread-replay-cursor",
+    workspaceId: "relay",
+    provider: "claude",
+    title: "Replay cursor resets on every resume",
+  });
+  app.daemon.apply("thread-replay-cursor", [facts.rootAgent("claude")]);
+  await app.open("/t/thread-replay-cursor");
+  await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
+  return app;
+}
+
 const header = () => {
   const found = document.querySelector("header");
   if (!found) throw new Error("No header");
@@ -666,17 +681,22 @@ test("from the card, an idle thread switches branch and moves into a worktree of
 // The ⋯ menu's thread actions
 
 test("renaming from the ⋯ menu changes the title", async () => {
-  await openThread();
+  await openIdleThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Rename/ }));
   const field = await screen.findByRole("textbox", { name: "Thread title" });
+  await waitFor(() => expect(document.activeElement).toBe(field));
   await userEvent.clear(field);
-  await userEvent.type(field, "Cold-start replay cap{Enter}");
+  await userEvent.paste("Cold-start replay cap");
+  await userEvent.keyboard("{Enter}");
   expect(
     await screen.findByRole("heading", { level: 1, name: "Cold-start replay cap" }),
   ).toBeTruthy();
+  expect(screen.queryByRole("textbox", { name: "Thread title" })).toBeNull();
   expect(screen.queryByRole("dialog", { name: "Rename thread" })).toBeNull();
-  expect(screen.getByText("Renamed · Cold-start replay cap")).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { name: "Renamed · Cold-start replay cap" }),
+  ).toBeTruthy();
 });
 
 test("archiving from the ⋯ menu leaves the thread", async () => {
@@ -741,7 +761,7 @@ test("the ⋯ menu keeps the common thread actions in the row menu's order", asy
 });
 
 test("the ⋯ menu shows the thread's shortcuts, and they rename, pin and archive it", async () => {
-  const app = await openThread();
+  const app = await openIdleThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   for (const [name, keys] of [
     ["Rename", /Alt\+Ctrl\+R|⌥⌘R/],
@@ -760,8 +780,10 @@ test("the ⋯ menu shows the thread's shortcuts, and they rename, pin and archiv
   });
 
   await userEvent.keyboard("{Alt>}{Meta>}r{/Meta}{/Alt}");
-  expect(await screen.findByRole("textbox", { name: "Thread title" })).toBeTruthy();
+  const title = await screen.findByRole("textbox", { name: "Thread title" });
+  await waitFor(() => expect(document.activeElement).toBe(title));
   await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("textbox", { name: "Thread title" })).toBeNull());
 
   // Off Apple platforms Archive is Ctrl+Alt+Shift+A (Ctrl+Shift+A is Agents there).
   await userEvent.keyboard("{Control>}{Alt>}{Shift>}a{/Shift}{/Alt}{/Control}");

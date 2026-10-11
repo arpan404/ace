@@ -368,11 +368,12 @@ export function Feed(props: FeedProps) {
         if (upward) {
           glidingUntil.current = 0;
           setPinned(false);
-        }
+        } else if (!detached && el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge)
+          setPinned(true);
       },
       stop,
     );
-  }, [setPinned]);
+  }, [setPinned, detached]);
   const keepLanding = useCallback(
     (key: string, itemId: string, align: "start" | "center") => {
       const nonce = ++landing.current;

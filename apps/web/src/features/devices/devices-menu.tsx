@@ -61,7 +61,7 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
               <MenuSeparator />
             </>
           )}
-          {controls?.running && (controls.live || controls.cleanupRequired) && (
+          {controls && (controls.cleanupRequired || (controls.running && controls.live)) && (
             <MenuItem
               icon={<StopIcon aria-hidden size={16} />}
               disabled={view.pending}

@@ -76,6 +76,11 @@ export function startProviderInstalls(context: ServiceContext): void {
     },
   );
   context.services.providerInstalls = installs;
+  context.resources.onShutdown(() => {
+    void installs
+      .close()
+      .catch(() => context.log.log("warn", "Provider installer shutdown failed"));
+  });
   context.resources.own(() => installs.close());
   void context.services.providerStatuses
     ?.refreshAfterMutation()

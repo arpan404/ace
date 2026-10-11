@@ -210,6 +210,7 @@ export async function startServer(options: ServerOptions): Promise<{
     const sessionId = z.string().min(1).max(200).parse(runtime.id());
     let device: DeviceId | undefined;
     let hasPresence = false;
+    let stopEnrollment: (() => void) | undefined;
     let cleaned = false;
     let lastActivity = auth.now();
     socket.on("message", () => {
@@ -269,6 +270,7 @@ export async function startServer(options: ServerOptions): Promise<{
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
+      stopEnrollment?.();
       for (const service of sessions) service.close?.();
       serviceSessions.delete(socket);
       for (const stop of subscriptions.values()) stop();
@@ -369,11 +371,21 @@ export async function startServer(options: ServerOptions): Promise<{
           if (message.channel === undefined && !ready) send({ type: "starting" });
           await options.ready;
           if (authorize("read") && options.notifications) {
-            const task = options.notifications
-              .connectDevice(actor.id)
-              .catch((error: unknown) => options.log?.(error));
-            serviceTasks.add(task);
-            void task.finally(() => serviceTasks.delete(task));
+            const notifications = options.notifications;
+            let attempt = 0;
+            const enroll = () => {
+              if (cleaned || !authorize("read")) return;
+              const task = notifications.connectDevice(actor.id).catch((error: unknown) => {
+                options.log?.(error);
+                if (!cleaned && authorize("read")) {
+                  stopEnrollment = runtime.delay(enroll, Math.min(30000, 1000 * 2 ** attempt));
+                  attempt = Math.min(attempt + 1, 5);
+                }
+              });
+              serviceTasks.add(task);
+              void task.finally(() => serviceTasks.delete(task));
+            };
+            enroll();
           }
         } catch {
           fail("device_unavailable", "Device unavailable", true);

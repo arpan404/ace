@@ -261,7 +261,7 @@ function SelectedDevice(props: { devices: Devices }) {
                     ? "The live view is off."
                     : `${selected.name} is off.`}
               </p>
-              {controls.running ? (
+              {controls.cleanupRequired || controls.running ? (
                 <Button
                   size="sm"
                   variant="outline"

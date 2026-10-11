@@ -1,23 +1,58 @@
 import { usePendingSends } from "@ace/client-react";
 import type { CatalogModel, ThreadListEntry } from "@ace/protocol";
 import { recoveryAttention as attention, type RecoveryAttention } from "@ace/ui-core";
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { dismissedSends, loadDismissed } from "./dismissed-sends.ts";
 import { useLayout } from "./layout.tsx";
+import { liveOwners, pageId, heldSendStore } from "./held-send-store.ts";
+
+/** Saved holds survive the outbox's memory cache and the page that started them. */
+function useHeldFailures() {
+  const { storage } = useLayout();
+  const store = heldSendStore(storage);
+  const all = useSyncExternalStore(store.subscribe, store.get, store.get);
+  const [owners, setOwners] = useState<ReadonlySet<string>>();
+  useEffect(() => {
+    if (!all.some((send) => send.owner !== pageId && !send.failed)) return;
+    let active = true;
+    void liveOwners().then((live) => {
+      if (active) setOwners(live);
+    });
+    return () => {
+      active = false;
+    };
+  }, [all]);
+  return useMemo(
+    () =>
+      all.filter(
+        (send) => !!send.failed || (send.owner !== pageId && !!owners && !owners.has(send.owner)),
+      ),
+    [all, owners],
+  );
+}
 
 export function useFailedSendThreads(): ReadonlySet<string> {
   const { storage } = useLayout();
   loadDismissed(storage);
   const dismissed = useSyncExternalStore(dismissedSends.subscribe, dismissedSends.get);
   const sends = usePendingSends();
+  const held = useHeldFailures();
   return useMemo(
     () =>
       new Set(
-        sends
-          .filter((send) => send.state === "failed" && !dismissed.has(send.commandId))
+        [
+          ...sends.filter((send) => send.state === "failed"),
+          ...held.filter(
+            (send) =>
+              !sends.some(
+                (pending) => pending.commandId === send.commandId && pending.state !== "failed",
+              ),
+          ),
+        ]
+          .filter((send) => !dismissed.has(send.commandId))
           .map((send) => send.threadId),
       ),
-    [sends, dismissed],
+    [sends, held, dismissed],
   );
 }
 
@@ -29,12 +64,21 @@ export function recoveryAttention(
   return attention(thread, models, failed.has(thread.id));
 }
 
-/** A row subscribes only to its own sends and its own dismissal answer. */
+/** A row reads its own pending sends, saved holds and dismissal answer. */
 export function useFailedSend(threadId: string): boolean {
   const { storage } = useLayout();
   loadDismissed(storage);
   const sends = usePendingSends(threadId);
+  const held = useHeldFailures();
   const read = () =>
-    sends.some((send) => send.state === "failed" && !dismissedSends.get().has(send.commandId));
+    sends.some((send) => send.state === "failed" && !dismissedSends.get().has(send.commandId)) ||
+    held.some(
+      (send) =>
+        send.threadId === threadId &&
+        !dismissedSends.get().has(send.commandId) &&
+        !sends.some(
+          (pending) => pending.commandId === send.commandId && pending.state !== "failed",
+        ),
+    );
   return useSyncExternalStore(dismissedSends.subscribe, read, read);
 }

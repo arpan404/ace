@@ -1,5 +1,6 @@
 import { flakyCheckout } from "@ace/fake-daemon";
 import { act, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
@@ -22,8 +23,13 @@ test("after a dropped connection the transcript catches up by replay, without du
 
   // Live delivery after the reconnect is duplicated too.
   await act(async () => script.runThrough("approval-requested"));
-  await within(feed).findByText("rm -rf node_modules/.cache/vitest");
+  await screen.findByRole("article", { name: "Run rm -rf node_modules/.cache/vitest?" });
+  expect(within(feed).queryByText("rm -rf node_modules/.cache/vitest")).toBeNull();
 
+  const log = within(feed).getByRole("button", { name: /^(Work so far|Working)/ });
+  if (log.getAttribute("aria-expanded") === "false") await userEvent.click(log);
+  // Approval opens a deferred work log; wait for its rows before counting replayed text.
+  await within(feed).findByText("I'll look for timing assumptions in the checkout flow first.");
   for (const text of [
     /checkout.spec.ts fails about one run in five/,
     "I'll look for timing assumptions in the checkout flow first.",
@@ -38,5 +44,5 @@ test("after a dropped connection the transcript catches up by replay, without du
   expect(
     screen.getAllByRole("article", { name: "Run rm -rf node_modules/.cache/vitest?" }),
   ).toHaveLength(1);
-  expect(screen.getByRole("button", { name: /, account$/ })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /^Model:/ })).toBeTruthy();
 });

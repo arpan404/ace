@@ -13,8 +13,9 @@ test("read work stays quiet while unread results, requests and failures retain a
   const list = within(await screen.findByRole("navigation", { name: "Threads" }));
   await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
   await userEvent.click(
-    screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
+    screen.getByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
   );
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Unsettle" }));
   const card = (title: string) => list.getByRole("link", { name: new RegExp(`^${title}`) });
   const attention = (title: string) =>
     card(title).closest("[data-attention]")?.getAttribute("data-attention");
@@ -55,8 +56,9 @@ test("read work stays quiet while unread results, requests and failures retain a
   expect(within(card(done)).getByText(done).classList.contains("text-foreground")).toBe(true);
   expect(attention(done)).toBe("quiet");
   await userEvent.click(
-    screen.getByRole("button", { name: "Settle Bump Codex app-server to 0.48" }),
+    screen.getByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
   );
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Settle" }));
   await screen.findByRole("button", { name: "Settled 1" });
   await waitFor(() => expect(attention("Bump Codex app-server to 0.48")).toBe("quiet"));
 });

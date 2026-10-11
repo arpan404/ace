@@ -31,9 +31,16 @@ export function callPolicy<T>(
 export class PolicyGate {
   private active = 0;
   private waiting: (() => void)[] = [];
+  private readonly capacity: number;
+  private readonly queueLimit: number;
+  constructor(capacity = 32, queueLimit = 1024) {
+    this.capacity = capacity;
+    this.queueLimit = queueLimit;
+  }
   run<T>(signal: AbortSignal, work: () => T | Promise<T>, timeoutMs = 10_000): Promise<T> {
     if (signal.aborted) return Promise.reject(new Error("Browser service shutting down"));
-    if (this.waiting.length >= 1024) return Promise.reject(new Error("Browser policy queue full"));
+    if (this.waiting.length >= this.queueLimit)
+      return Promise.reject(new Error("Browser policy queue full"));
     const task = new Promise<T>((resolve, reject) => {
       const start = () => {
         signal.removeEventListener("abort", abort);
@@ -57,7 +64,7 @@ export class PolicyGate {
         if (index >= 0) this.waiting.splice(index, 1);
         reject(signal.reason);
       };
-      if (this.active < 32) start();
+      if (this.active < this.capacity) start();
       else {
         this.waiting.push(start);
         signal.addEventListener("abort", abort, { once: true });
@@ -66,6 +73,6 @@ export class PolicyGate {
     return task;
   }
   private next(): void {
-    if (this.active < 32) this.waiting.shift()?.();
+    if (this.active < this.capacity) this.waiting.shift()?.();
   }
 }

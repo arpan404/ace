@@ -105,6 +105,7 @@ export class Mutations {
       case "delete": {
         if (operation.expected === null)
           throw new FileError("NOT_FOUND", "Cannot delete an absent path");
+        await checkedTarget(this.safe, operation.path, operation.expected);
         const total = this.catalog.total("trash");
         const bytes = prepared.bytes;
         if (

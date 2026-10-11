@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { setup } from "./testing/v2-session.ts";
 import { z } from "zod";
 
-it.each(["create", "get", "update", "switchModel"] as const)(
+it.each(["create", "get", "switchAgent", "switchModel"] as const)(
   "session %s rejection preserves bounded, redacted provider detail",
   async (operation) => {
     let fail = operation === "create";
@@ -20,9 +20,9 @@ it.each(["create", "get", "update", "switchModel"] as const)(
               (operation === "get" &&
                 /\/api\/session\/[^/]+$/.test(url.pathname) &&
                 method === "GET") ||
-              (operation === "update" &&
-                /\/api\/session\/[^/]+$/.test(url.pathname) &&
-                method === "PATCH") ||
+              (operation === "switchAgent" &&
+                url.pathname.endsWith("/agent") &&
+                method === "POST") ||
               (operation === "switchModel" && url.pathname.endsWith("/model") && method === "POST"))
           )
             return new Response(
@@ -50,7 +50,7 @@ it.each(["create", "get", "update", "switchModel"] as const)(
             return h.open(
               "/one",
               h.session.nativeSessionId,
-              undefined,
+              operation === "switchAgent" ? "plan" : undefined,
               "opencode-go/another-model",
             );
           });

@@ -1,14 +1,15 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { whenIdle } from "@/lib/idle.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useRecordRecentThreads } from "./recent.ts";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 
 const wallClock = () => Date.now();
 
 // The palette's sheet (Base UI's Autocomplete) and its commands, which reach into most views,
 // load on first use or when the browser is idle, keeping them out of the first paint's bundle.
 const load = () => import("./palette-dialog.tsx");
-const PaletteDialog = lazy(load);
+const PaletteDialog = deferredComponent(() => load().then((module) => module.default));
 
 /** ⌘K. Focus moves to the search field on open and returns to the opener on close. */
 export function CommandPalette() {
@@ -20,9 +21,12 @@ export function CommandPalette() {
     let live = true;
     const cancel = whenIdle(
       () =>
-        void load().then(() => {
-          if (live) setLoaded(true);
-        }),
+        void PaletteDialog.preload().then(
+          () => {
+            if (live) setLoaded(true);
+          },
+          () => {},
+        ),
     );
     return () => {
       live = false;
@@ -33,7 +37,7 @@ export function CommandPalette() {
   if (!loaded && !paletteOpen) return null;
   return (
     <Suspense fallback={null}>
-      <PaletteDialog open={paletteOpen} onOpenChange={setPaletteOpen} close={close} />
+      <PaletteDialog.Component open={paletteOpen} onOpenChange={setPaletteOpen} close={close} />
     </Suspense>
   );
 }

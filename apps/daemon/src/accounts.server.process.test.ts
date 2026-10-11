@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -92,6 +92,8 @@ createInterface({input:process.stdin}).on('line', async line => {
   process.stdout.write(JSON.stringify({id:request.id,result})+'\\n');
 });`,
     );
+    await mkdir(join(root, "provider"));
+    await mkdir(join(root, "instances", "cursor-sdk-default"), { recursive: true });
     const registry = await openRegistry(join(root, "accounts.sqlite"));
     try {
       await registry.register(

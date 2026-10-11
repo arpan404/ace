@@ -3,7 +3,7 @@ import { expect, it } from "vitest";
 import type { BrowserBackendLost } from "@ace/protocol";
 import { backendFixture } from "./backend-test-support.ts";
 
-it("a detached desktop view rejects its pending read and recovers without losing its sibling", async () => {
+it("a detached desktop view rejects its pending read and reopens on the surviving desktop without losing its sibling", async () => {
   const f = await backendFixture({ backendLoss: () => "headless" });
   await f.open("lost");
   await f.service.execute("lost", { action: "navigate", url: "http://localhost:3000/lost" });
@@ -17,7 +17,8 @@ it("a detached desktop view rejects its pending read and recovers without losing
     "viewer",
     { send: () => true },
     (state) => {
-      if (state.backend === "headless" && state.status === "ready") ready.resolve();
+      if (state.backend === "embedded" && state.status === "ready" && state.pageStateLost)
+        ready.resolve();
     },
     (event) => events.push(event),
   );
@@ -27,11 +28,12 @@ it("a detached desktop view rejects its pending read and recovers without losing
     "view closed",
   );
   await entered;
+  f.hold("");
   f.sendEvent(sessionId, "Inspector.detached", { reason: "target_closed" });
   await rejected;
   await ready.promise;
   expect(f.service.state("lost")).toMatchObject({
-    backend: "headless",
+    backend: "embedded",
     status: "ready",
     url: "http://localhost:3000/lost",
     pageStateLost: true,
@@ -46,7 +48,7 @@ it("a detached desktop view rejects its pending read and recovers without losing
   f.sendEvent(sessionId, "Inspector.detached", {});
   await f.service.execute("healthy", { action: "screenshot" });
   expect(events).toHaveLength(1);
-  expect(f.headless.pages).toHaveLength(1);
+  expect(f.headless.pages).toHaveLength(0);
 });
 
 it("desktop disconnection still emits loss and recovers after a controller lease error paused the page", async () => {

@@ -1,16 +1,18 @@
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { expect, it, onTestFinished } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 import { z } from "zod";
 import { ScreenManager, framePacket, type Frame } from "@ace/screen";
 import { DevicesService, DevicePlatform, agentOwner } from "@ace/devices";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
-import { Agent, McpScope } from "@ace/protocol";
+import { Command, Capabilities, McpScope } from "@ace/protocol";
 import { DeviceOperation } from "@ace/protocol/devices";
-import { startDaemon, readConfig, createDevThread, stubHandler } from "./index.ts";
+import { startDaemon, readConfig, AdapterRegistry } from "./index.ts";
 import { invoke } from "./browser-mcp-test-support.ts";
 import { approveForeground } from "./testing/screen-foreground.ts";
+import { createScriptedAdapter } from "@ace/adapter-testkit";
+import { scriptFrames, start } from "./engine/test-support.ts";
 import { deviceInputProcess } from "./testing/device-input-process.ts";
 
 const Reply = z.object({
@@ -123,39 +125,63 @@ it("screen and device agents edit, submit, resume expired leases and respect tak
       };
     },
   });
+  const frames = scriptFrames();
+  const registry = new AdapterRegistry();
+  registry.register(
+    createScriptedAdapter({
+      provider: "codex",
+      capabilities: Capabilities.parse({
+        steer: false,
+        interruptCascades: false,
+        resume: true,
+        fork: false,
+        subagentTranscripts: true,
+        backgroundTaskControl: false,
+        backgroundVisibility: "full",
+        planMode: false,
+        tokenUsage: false,
+        imageInput: false,
+        rewindFiles: false,
+      }),
+      createTranslator: () => ({ translate: frames.translate, tick: () => [] }),
+      steps: [{ on: "send", frames: [frames.frame(start)] }],
+    }),
+    { installed: true, auth: "logged_in", loginHint: "synthetic" },
+  );
+  onTestFinished(() => registry.close());
   const daemon = await startDaemon({
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     screen,
     devices,
-    handler: stubHandler(),
+    engine: { registry },
     history: { instances: [] },
     modelInstances: [],
   });
   onTestFinished(() => daemon.close());
-  const thread = createDevThread(
-    daemon.store,
-    daemon.store.createWorkspace(home, "Computer journey"),
-  );
-  daemon.store.appendEvents(thread.id, [
-    {
-      type: "agent.created",
-      agent: Agent.parse({
-        id: "root",
-        threadId: thread.id,
-        parentId: null,
-        origin: "root",
-        native: { provider: "codex" },
-        fidelity: "full",
-        cwd: home,
-        status: { state: "working", activity: "tool" },
-        createdAt: now,
-      }),
+  const engine = daemon.engine;
+  if (!engine) throw new Error("Missing engine");
+  const command = Command.parse({
+    id: "create-journey",
+    deviceId: "device",
+    payload: {
+      type: "thread.create",
+      workspaceId: daemon.store.createWorkspace(home, "Computer journey"),
+      provider: "codex",
+      input: [{ type: "text", text: "computer journey" }],
     },
-  ]);
+  });
+  const created = await daemon.store.recordCommand(command.id, command.deviceId, () =>
+    engine.handler.handle(command, daemon.store),
+  );
+  if (!created.ok || !created.threadId) throw new Error("Journey thread was not created");
+  const thread = { id: created.threadId };
+  await vi.waitFor(() => expect(engine.screenTurn(thread.id)).toBeDefined());
+  const root = engine.rootAgent(thread.id);
+  if (!root) throw new Error("Missing root agent");
   const scope = McpScope.parse({
     sessionId: "computer-journey",
     threadId: thread.id,
-    agentId: "root",
+    agentId: root,
     capabilities: ["screen", "devices"],
   });
   const lease = daemon.mcp.openSession(scope, new AbortController().signal);
@@ -212,7 +238,7 @@ it("screen and device agents edit, submit, resume expired leases and respect tak
       deviceId: "android:Pixel",
       controller: "agent",
       threadId: thread.id,
-      agentId: "root",
+      agentId: root,
     });
   await delegate();
   expect(data(await call("device_list"))).toMatchObject({ devices: [{ id: "android:Pixel" }] });

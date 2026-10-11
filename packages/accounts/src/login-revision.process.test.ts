@@ -22,7 +22,7 @@ test("unknown auth probes preserve the account generation while confirmed auth c
     ingest("unknown", 2);
     expect(registry.get(fixture.from.id)).toMatchObject({
       instance: { loginRevision: "1" },
-      quota: { auth: "unknown" },
+      quota: { auth: "logged_in" },
     });
     ingest("logged_out", 3);
     expect(registry.get(fixture.from.id)?.instance.loginRevision).toBe("2");

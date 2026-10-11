@@ -271,23 +271,20 @@ test("a removal reaches the daemon once its Undo has gone", async () => {
 
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Remove release…" }));
-  await userEvent.click(
-    within(await screen.findByRole("dialog", { name: "Remove release?" })).getByRole("button", {
-      name: "Remove plugin",
-    }),
+  const remove = within(await screen.findByRole("dialog", { name: "Remove release?" })).getByRole(
+    "button",
+    { name: "Remove plugin" },
   );
-  await waitFor(() => expect(within(catalog()).queryByText("Release Notes")).toBeNull());
-  expect(await installed(app)).toContain("release");
-
-  await userEvent.hover(await screen.findByText("Removed release"));
+  // Install the clock before confirmation so both the durable deadline and its timer use it.
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
   try {
+    fireEvent.click(remove);
+    expect(within(catalog()).queryByText("Release Notes")).toBeNull();
+    expect(await installed(app)).toContain("release");
     const viewport = screen.getByRole("region", { name: "Notifications" });
     fireEvent.pointerLeave(viewport);
     fireEvent.mouseLeave(viewport);
-    act(() => {
-      vi.advanceTimersByTime(10000);
-    });
+    await act(() => vi.advanceTimersByTimeAsync(10000));
   } finally {
     vi.useRealTimers();
   }
@@ -396,7 +393,6 @@ test("when the daemon can't list plugins, Skills says so once and reads them aga
 
 test("Skills and a thread offer available discovered skills and omit unavailable actions", async () => {
   const app = harness();
-  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   app.daemon.seedServices(workbenchServices(Date.now()));
   app.daemon.createThread({
     id: "catalog-parity",

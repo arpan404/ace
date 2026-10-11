@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DeviceCredential, SocketTicket } from "@ace/protocol";
+import { DeviceToken, SocketTicket } from "@ace/protocol";
 import { ClientError } from "./errors.ts";
 
 export type Credential = string | { token: string } | { ticket: string };
@@ -19,7 +19,7 @@ export function ticketCredential(
 ): () => Promise<{ ticket: string }> {
   return async () => {
     try {
-      const token = DeviceCredential.shape.token.parse(await deviceToken());
+      const token = DeviceToken.parse(await deviceToken());
       const result = SocketTicket.parse(await exchange(token));
       return { ticket: result.ticket };
     } catch (error) {

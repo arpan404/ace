@@ -39,6 +39,10 @@ export class ExecutionOwner {
         return undefined;
       }
       if (signal.aborted) return undefined;
+      if (this.deps.now() >= run.startedAt + (this.deps.maxRunMs ?? 3_600_000)) {
+        this.expire();
+        return undefined;
+      }
       return recovered ?? this.deps.executor.execute(input, signal);
     });
   }
@@ -80,6 +84,14 @@ export class ExecutionOwner {
     execute: (signal: AbortSignal) => Promise<ExecutionResult | undefined>,
   ): void {
     if (this.monitors.has(run.id)) return;
+    const deadline = run.startedAt + (this.deps.maxRunMs ?? 3_600_000);
+    if (this.deps.now() >= deadline) {
+      this.complete(run.id, {
+        status: "failed",
+        result: "Automation exceeded its maximum runtime",
+      });
+      return;
+    }
     if (this.monitors.size >= 256) throw new Error("Execution monitor limit reached");
     const controller = new AbortController();
     this.monitors.set(run.id, controller);

@@ -54,6 +54,7 @@ export function openModelStorage(path: string, runtime?: IdleWorkerRuntime): Cat
     pendingBytes = 0;
   };
   worker.on("error", fail);
+  worker.on("exit", fail);
   worker.on("message", (value: unknown) => {
     const parsed = Reply.safeParse(value);
     if (!parsed.success) {
@@ -69,12 +70,7 @@ export function openModelStorage(path: string, runtime?: IdleWorkerRuntime): Cat
     else request?.reject(new Error("Model persistence failed"));
     if (!pending.size && path !== ":memory:") worker.idle();
   });
-  const exited = new Promise<void>((resolve) =>
-    worker.once("exit", () => {
-      fail();
-      resolve();
-    }),
-  );
+  const exited = new Promise<void>((resolve) => worker.once("exit", resolve));
   const send = (operation: "replace" | "remove" | "close", data: unknown): Promise<void> => {
     if (closing && operation !== "close")
       return Promise.reject(new Error("Model persistence closed"));

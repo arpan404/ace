@@ -23,7 +23,7 @@ export function focusOpenRequest(root: Element, tries = 60): () => void {
     // A request arriving while a modal is open must not take its keyboard focus.
     if (
       root.ownerDocument.querySelector(
-        '[data-slot="dialog-content"], [data-slot="sheet-content"]:not([hidden])',
+        '[role="dialog"]:not([hidden]), [role="alertdialog"][aria-modal="true"]:not([hidden]), [data-slot="sheet-content"]:not([hidden])',
       )
     )
       return;

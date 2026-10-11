@@ -159,17 +159,29 @@ function ComposerContent({
 }) {
   // A failed message brought back with its files remounts the composer on the restored draft.
   const [generation, setGeneration] = useState(0);
+  const [replacedAttachments, setReplacedAttachments] =
+    useState<readonly { sha256: string; name: string }[]>();
   return (
     <ComposerBody
       key={generation}
       {...props}
       ref={ref}
-      onReplaced={() => setGeneration((value) => value + 1)}
+      replacedAttachments={replacedAttachments}
+      onReplaced={(files) => {
+        setReplacedAttachments(files);
+        setGeneration((value) => value + 1);
+      }}
     />
   );
 }
 
-function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onReplaced(): void }) {
+function ComposerBody({
+  ref,
+  ...props
+}: Parameters<typeof Composer>[0] & {
+  replacedAttachments?: readonly { sha256: string; name: string }[] | undefined;
+  onReplaced(files?: readonly { sha256: string; name: string }[]): void;
+}) {
   // Kept out of the compiler, as it was before: memoizing every handler here costs the
   // thread route ~5 KB of code for a component that re-renders per keystroke anyway.
   "use no memo";
@@ -202,7 +214,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
   const addMenu = useRef<AddHandle>(null);
   const attachments = useAttachments(
     props.thread,
-    props.keepsAttachments ? restored?.attachments : undefined,
+    props.replacedAttachments ?? (props.keepsAttachments ? restored?.attachments : undefined),
   );
   const attach = (files: Iterable<File>, note?: string) => {
     const left = attachments.add(files);
@@ -401,8 +413,8 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
             thread: props.thread,
             attach: () => addMenu.current?.attach(),
             files: () => {
-              const next = accept(text, at, "@");
-              edit({ ...next, caret: at.start + 1 });
+              const next = adding ? insertAt(text, at.start, "@ ") : accept(text, at, "@");
+              edit({ ...next, caret: adding ? next.caret - 1 : at.start + 1 });
               setDismissed(undefined);
             },
             project: () =>
@@ -531,7 +543,7 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
         mentions: [...before.picked],
         attachments: before.files,
       });
-      props.onReplaced();
+      props.onReplaced(before.files);
     });
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -738,6 +750,8 @@ function ComposerBody({ ref, ...props }: Parameters<typeof Composer>[0] & { onRe
               onOpen={() => {
                 setDismissed(undefined);
                 setAdding(true);
+                placeCaret.current = caret;
+                input.current?.focus();
               }}
               unavailable={props.unavailable}
             />

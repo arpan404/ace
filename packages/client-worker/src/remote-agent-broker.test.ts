@@ -188,6 +188,32 @@ test("broker recovers adopted target status without repeating context uploads or
   });
   f.broker.close();
 });
+test("an expired cancellation retrieves the sealed answer without another admission", async () => {
+  const expired = RemoteTask.parse({
+    ...task,
+    phase: "failed",
+    cancellingAt: 0,
+    finishedAt: 30_000,
+    delivered: true,
+  });
+  const f = world("completed", "running", [expired]);
+  try {
+    await f.broker.cycle();
+    await vi.waitFor(() =>
+      expect(f.emitted).toContainEqual(
+        expect.objectContaining({
+          taskId: task.id,
+          result: "Already finished",
+          phase: "completed",
+        }),
+      ),
+    );
+    expect(f.admitted()).toBe(false);
+    expect(f.phases).not.toContain("running");
+  } finally {
+    f.broker.close();
+  }
+});
 test.each(["cancelling", "expired"] as const)(
   "broker rechecks origin authority after relay transfer: %s",
   async (phase) => {

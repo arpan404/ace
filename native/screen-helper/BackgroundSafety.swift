@@ -92,7 +92,7 @@ struct FocusDecision {
 /// Tracking menus may take keyboard and pointer focus even through Accessibility.
 func requireMenuConsent(mode: String?, action: String, role: String = "", secondary: String? = nil) throws {
     guard mode != "foreground" else { return }
-    if action == "menu.press" || action == "press" && ["AXPopUpButton", "AXMenuButton", "AXMenuBarItem", "AXMenuItem"].contains(role) || action == "performSecondaryAction" && secondary == "AXShowMenu" {
+    if action == "menu.press" || (action == "press" || action == "performSecondaryAction" && secondary == "AXPress") && ["AXPopUpButton", "AXMenuButton", "AXMenuBarItem", "AXMenuItem"].contains(role) || action == "performSecondaryAction" && secondary == "AXShowMenu" {
         throw HelperError("Menu and popup actions require foreground consent", code: "foreground_required")
     }
 }

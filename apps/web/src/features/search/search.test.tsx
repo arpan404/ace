@@ -53,6 +53,7 @@ test("the kind filter keeps only commands", async () => {
   expect(within(await results()).getAllByRole("option").length).toBeGreaterThan(0);
 
   await userEvent.type(field(), "{Control>}a{/Control}push");
+  await userEvent.click(screen.getByRole("button", { name: "Filters" }));
   await userEvent.click(screen.getByRole("button", { name: "Commands" }));
 
   await waitFor(async () => {
@@ -101,7 +102,7 @@ test("emptying the field empties the results; Esc puts the dialog away, and it o
   await userEvent.keyboard("{Shift>}{Meta>}k{/Meta}{/Shift}");
   await screen.findByRole("dialog", { name: "Search" });
   expect(field().value).toBe("");
-  expect(document.activeElement).toBe(field());
+  await waitFor(() => expect(document.activeElement).toBe(field()));
 });
 
 test("the palette hands its words to search", async () => {
@@ -125,6 +126,9 @@ test("Tab skips results and cycles through the search dialog's controls", async 
   field().focus();
   await userEvent.tab();
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close search" }));
+  await userEvent.tab();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Filters" }));
+  await userEvent.keyboard("{Enter}");
   await userEvent.tab();
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "All" }));
   await userEvent.tab();
@@ -306,6 +310,7 @@ test("Project narrows matches and clearing it brings all projects back", async (
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await search("the", app);
   expect(within(await results()).getAllByRole("option").length).toBeGreaterThan(2);
+  await userEvent.click(screen.getByRole("button", { name: "Filters" }));
   await userEvent.click(screen.getByRole("combobox", { name: "Project" }));
   await userEvent.click(await screen.findByRole("option", { name: "relay" }));
   await waitFor(() => {
@@ -329,6 +334,7 @@ test("Project narrows matches and clearing it brings all projects back", async (
 test("Date narrows by creation time and Any time restores older matches", async () => {
   await search("replay", harness({ clock: () => Date.now() - 2 * 86_400_000 }));
   expect(within(await results()).getAllByRole("option").length).toBeGreaterThan(0);
+  await userEvent.click(screen.getByRole("button", { name: "Filters" }));
   await userEvent.click(screen.getByRole("combobox", { name: "Date" }));
   await userEvent.click(await screen.findByRole("option", { name: "Past day" }));
   expect(await screen.findByText("No matches yet")).toBeTruthy();

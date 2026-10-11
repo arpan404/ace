@@ -51,9 +51,7 @@ export function ingestQuota(
   )
     blockers.limitError = {
       usedPercent: 100,
-      resetsAt:
-        parseLimitReset(error, fact.observedAt, fact.timeZone) ??
-        fact.observedAt + 5 * 60 * 60 * 1000,
+      resetsAt: parseLimitReset(error, fact.observedAt, fact.timeZone),
       source: "limit_error",
     };
   const auth = z.enum(["logged_in", "logged_out", "unknown"]).safeParse(body["auth"]).data;
@@ -89,11 +87,7 @@ export function ingestQuota(
   for (const [name, window] of Object.entries(windows))
     if (window.resetsAt !== null && window.resetsAt <= fact.observedAt) delete windows[name];
   let count = Object.keys(windows).length;
-  for (const [name, decodedWindow] of Object.entries(decoded.windows)) {
-    const window =
-      decodedWindow.usedPercent >= 100 && decodedWindow.resetsAt === null
-        ? { ...decodedWindow, resetsAt: fact.observedAt + 5 * 60 * 60 * 1000 }
-        : decodedWindow;
+  for (const [name, window] of Object.entries(decoded.windows)) {
     if (Object.hasOwn(windows, name)) windows[name] = window;
     else if (count < 32) {
       windows[name] = window;

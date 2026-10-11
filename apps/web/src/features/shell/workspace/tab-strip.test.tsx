@@ -105,7 +105,7 @@ function tabBox(name: string): HTMLElement {
   return box;
 }
 
-test("the showing tab grows to fit its badge when the badge arrives after the tab drew", async () => {
+test("a live badge updates without changing the fixed tab width", async () => {
   stat = "";
   const definition = defineWorkspace({
     label: "Side panel",
@@ -125,8 +125,8 @@ test("the showing tab grows to fit its badge when the badge arrives after the ta
   // The badge has its own subscription: the strip itself doesn't re-render.
   await act(async () => setStat("+17 −5"));
   const after = parseFloat(tabBox("Changes").style.width);
-  // The whole badge (6 characters) and its gap fit beside the whole title.
-  expect(after).toBeGreaterThanOrEqual(before + 6 * charWidth);
+  expect(after).toBe(before);
+  expect(screen.getByRole("tab", { name: /^Changes/ }).textContent).toContain("+17 −5");
 });
 
 test("while a tool's code loads, its tab shows the tool's shape rather than a spinner", async () => {

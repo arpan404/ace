@@ -13,7 +13,7 @@ export function pruneRemoteRows(store: Store, now: number) {
         .prepare(`SELECT id FROM remote_agent_tasks WHERE terminal=1
         AND (NOT EXISTS (SELECT 1 FROM threads WHERE threads.id=parent_id AND json_extract(client,'$.deletedAt') IS NULL)
           OR (COALESCE(json_extract(record,'$.finishedAt'),json_extract(record,'$.createdAt'))<?
-            AND NOT EXISTS (SELECT 1 FROM threads WHERE threads.id=root_id AND json_extract(status,'$.state') IN ('working','waiting')))) LIMIT 64`)
+            AND NOT EXISTS (SELECT 1 FROM threads WHERE threads.id=root_id AND json_extract(status,'$.state') NOT IN ('idle','done','failed')))) LIMIT 64`)
         .all(cutoff);
       for (const row of rows) {
         const id = z.string().parse(row.id);

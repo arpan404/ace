@@ -397,12 +397,14 @@ test("saved unavailable remote access leaves local sessions usable and retries u
 test("a rejected saved relay leaves startup, local conversations and direct pairing usable", async () => {
   const relay = await startRelay({ allowedHostIds: [] });
   const retries: number[] = [];
+  const callbacks: (() => void)[] = [];
   const f = await runtime({
     enabled: true,
     transport: "relay",
     relayUrl: relay.url,
     runtime: {
-      delay(_run, ms) {
+      delay(run, ms) {
+        callbacks.push(run);
         retries.push(ms);
         return () => {};
       },
@@ -416,6 +418,11 @@ test("a rejected saved relay leaves startup, local conversations and direct pair
     expect(await f.client.next()).toMatchObject({ identity: { displayName: "Office Mac" } });
     const pairing = PairingResponse.parse(await f.local("/v1/pairings", {}));
     const url = new URL(pairing.url);
+    callbacks.shift()?.();
+    expect(await f.set("remote.enabled", true)).toMatchObject({ ok: false });
+    expect(
+      new URL(f.server.remoteUrl ?? "https://missing.invalid").origin.replace("wss:", "https:"),
+    ).toBe(url.origin);
     const paired = DeviceCredential.parse(
       await accessRequest(url.origin, "/v1/pair", {
         fingerprint: f.identity.fingerprint,

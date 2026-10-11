@@ -10,6 +10,10 @@ test.each([
     "Fix retry",
   ],
   ["<command-args>Fix retry</command-args>", "Fix retry"],
+  [
+    "Explain <system-reminder-template>XML</system-reminder-template> and fix parsing",
+    "Explain <system-reminder-template>XML</system-reminder-template> and fix parsing",
+  ],
   ["Please explain <example>XML</example>", "Please explain <example>XML</example>"],
 ])("injected envelopes are hidden without removing the request: %s", (input, shown) => {
   expect(sanitizeUserText(input)).toBe(shown);

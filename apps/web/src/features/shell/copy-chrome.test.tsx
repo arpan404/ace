@@ -47,13 +47,9 @@ test("unknown command failures explain recovery without showing the server's cod
   await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Rename/ }));
-  const dialog = await screen.findByRole("dialog", { name: "Rename thread" });
-  await userEvent.clear(within(dialog).getByRole("textbox", { name: "Thread title" }));
-  await userEvent.type(
-    within(dialog).getByRole("textbox", { name: "Thread title" }),
-    "A new title",
-  );
-  await userEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+  const field = await screen.findByRole("textbox", { name: "Thread title" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "A new title{Enter}");
   const toast = await screen.findByRole("region", { name: "Notifications" });
   await within(toast).findByText("ace couldn't complete that action. Try again.");
   expect(toast.textContent).toContain("ace couldn't complete that action. Try again.");

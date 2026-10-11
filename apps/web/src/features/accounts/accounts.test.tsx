@@ -149,7 +149,8 @@ test("every Usage row names its provider and account alongside the provider mark
   for (const account of app.daemon.services.accounts) {
     const provider = providerDisplayName(account.provider, account.acpAgentId);
     const row = within(await card(`${provider} ${account.label}`));
-    expect(row.getByRole("img", { name: provider })).toBeTruthy();
+    const mark = account.acpAgentId === "official:gemini" ? "Gemini CLI" : provider;
+    expect(row.getByRole("img", { name: mark })).toBeTruthy();
     expect(row.getByRole("img", { name: `${account.label} account` })).toBeTruthy();
     expect(row.getByText(`${provider} · ${account.label}`)).toBeTruthy();
   }

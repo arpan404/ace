@@ -7,7 +7,11 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
-const toasts = () => screen.getByRole("region", { name: "Notifications" });
+const toasts = () => screen.findByRole("region", { name: "Notifications" });
+const toastByText = (text: string | RegExp) => {
+  const viewport = screen.queryByRole("region", { name: "Notifications" });
+  return viewport ? within(viewport).queryByText(text) : null;
+};
 const inList = async (title: string) =>
   within(await screen.findByRole("navigation", { name: "Threads" })).findByText(title);
 
@@ -52,16 +56,16 @@ test("a thread that starts needing you raises a toast naming the request, and Re
 
   checkout.runThrough("approval-requested");
 
-  expect(await within(toasts()).findByText(request)).toBeTruthy();
-  expect(within(toasts()).getByText("billing-api · Fix flaky checkout test")).toBeTruthy();
+  expect(await within(await toasts()).findByText(request)).toBeTruthy();
+  expect(within(await toasts()).getByText("billing-api · Fix flaky checkout test")).toBeTruthy();
   // The tab's title carries the count while something waits.
   expect(document.title).toMatch(/^\(1\)/);
-  await userEvent.click(within(toasts()).getByRole("button", { name: "Review" }));
+  await userEvent.click(within(await toasts()).getByRole("button", { name: "Review" }));
   await screen.findByRole("heading", { level: 1, name: "Activity" });
   // Just that request, on its own.
   expect(await screen.findByRole("article", { name: request })).toBeTruthy();
   expect(screen.getAllByRole("article")).toHaveLength(1);
-  await waitFor(() => expect(within(toasts()).queryByText(request)).toBeNull());
+  await waitFor(() => expect(toastByText(request)).toBeNull());
 });
 
 test("a needs-you toast goes once the request is answered", async () => {
@@ -71,7 +75,7 @@ test("a needs-you toast goes once the request is answered", async () => {
   await app.open("/new");
   await inList("Fix flaky checkout test");
   checkout.runThrough("approval-requested");
-  await within(toasts()).findByText(request);
+  await within(await toasts()).findByText(request);
 
   // Reviewing the request dismisses its toast before an answer. Keep this page open so
   // disappearance proves the answer's live state update closes it, as on another device.
@@ -89,7 +93,7 @@ test("a needs-you toast goes once the request is answered", async () => {
     ).toMatchObject({ ok: true });
   });
 
-  await waitFor(() => expect(within(toasts()).queryByText(request)).toBeNull());
+  await waitFor(() => expect(toastByText(request)).toBeNull());
   expect(app.daemon.resolution("thread-checkout", "approve-clear-cache")).toEqual({
     kind: "approval",
     optionId: "allow",
@@ -108,8 +112,8 @@ test("a hidden worker-backed tab updates its needs-you title count without raisi
     document.dispatchEvent(new Event("visibilitychange"));
     checkout.runThrough("approval-requested");
     await waitFor(() => expect(document.title).toMatch(/^\(1\)/));
-    expect(within(toasts()).queryByText(request)).toBeNull();
-    expect(within(toasts()).queryByText(/needs you/)).toBeNull();
+    expect(toastByText(request)).toBeNull();
+    expect(toastByText(/needs you/)).toBeNull();
   } finally {
     if (visibility) Object.defineProperty(document, "visibilityState", visibility);
     else Reflect.deleteProperty(document, "visibilityState");
@@ -122,7 +126,7 @@ test("threads already waiting when the app connects don't raise toasts", async (
   await app.open("/new");
   await inList("Retry budget for app-server restarts");
   await app.client.request({ type: "notification.config" });
-  expect(within(toasts()).queryByText(/needs you/)).toBeNull();
+  expect(toastByText(/needs you/)).toBeNull();
 });
 
 test("reopening the fake world restores the cleanup approval without repeating its toast", async () => {
@@ -135,7 +139,7 @@ test("reopening the fake world restores the cleanup approval without repeating i
   await app.open("/t/thread-checkout");
   expect(await screen.findByRole("article", { name: request })).toBeTruthy();
   await app.client.request({ type: "notification.config" });
-  expect(within(toasts()).queryByText(request)).toBeNull();
+  expect(toastByText(request)).toBeNull();
 });
 
 test("a thread that fails raises a toast that opens it", async () => {
@@ -147,11 +151,11 @@ test("a thread that fails raises a toast that opens it", async () => {
 
   build.runThrough("failed");
 
-  expect(await within(toasts()).findByText("Cut the 0.9 release build failed")).toBeTruthy();
+  expect(await within(await toasts()).findByText("Cut the 0.9 release build failed")).toBeTruthy();
   // A failure is announced as one, at once; F6 reaches its action.
   expect(screen.getByRole("alert")).toBeTruthy();
   await userEvent.keyboard("{F6}");
-  await userEvent.click(await within(toasts()).findByRole("button", { name: "Open" }));
+  await userEvent.click(await within(await toasts()).findByRole("button", { name: "Open" }));
   await waitFor(() =>
     expect(
       screen.getByRole("heading", { level: 1, name: /Cut the 0.9 release build/ }),
@@ -176,7 +180,7 @@ test("turning a toast off in Settings silences it", async () => {
   checkout.runThrough("approval-requested");
 
   await waitFor(() => expect(document.title).toMatch(/^\(1\)/));
-  expect(within(toasts()).queryByText("billing-api · needs you")).toBeNull();
+  expect(toastByText("billing-api · needs you")).toBeNull();
   expect(JSON.parse(localStorage.getItem("ace.notifications.toasts") ?? "{}")).toMatchObject({
     needsYou: false,
   });
@@ -198,15 +202,17 @@ test("an agent message opens its thread and respects the category toggle", async
       actions: [],
     });
   say("ready", "Your preview is ready.");
-  expect(await within(toasts()).findByText("Agent message · Fix flaky checkout test")).toBeTruthy();
-  await within(toasts()).findByText("Your preview is ready.");
+  expect(
+    await within(await toasts()).findByText("Agent message · Fix flaky checkout test"),
+  ).toBeTruthy();
+  await within(await toasts()).findByText("Your preview is ready.");
   say("ready", "Your preview is ready.");
-  expect(within(toasts()).getAllByText("Your preview is ready.")).toHaveLength(1);
+  expect(within(await toasts()).getAllByText("Your preview is ready.")).toHaveLength(1);
   await userEvent.click(toggle);
   say("quiet", "Keep this quiet.");
   await app.client.request({ type: "notification.config" });
-  expect(within(toasts()).queryByText("Keep this quiet.")).toBeNull();
-  await userEvent.click(within(toasts()).getByRole("button", { name: "Open" }));
+  expect(toastByText("Keep this quiet.")).toBeNull();
+  await userEvent.click(within(await toasts()).getByRole("button", { name: "Open" }));
   await screen.findByRole("feed", { name: "Transcript" });
   expect(screen.getByRole("heading", { level: 1, name: /Fix flaky checkout test/ })).toBeTruthy();
 });

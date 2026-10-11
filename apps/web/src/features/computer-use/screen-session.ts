@@ -142,9 +142,9 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
   const stop = client.watch(() => {
     const { connected, enabled } = client.getSnapshot();
     const arrived = connected && !wasConnected;
-    // Turned on while the grants couldn't be read (it was off): read them now.
-    const switchedOn =
-      enabled === true && wasEnabled !== true && (!permissions || !!permissionsProblem);
+    // Disabled status may cache placeholder grants without starting the helper.
+    // Enabling must inspect the current grants even when that placeholder is known.
+    const switchedOn = enabled === true && wasEnabled !== true;
     wasConnected = connected;
     wasEnabled = enabled;
     publish();

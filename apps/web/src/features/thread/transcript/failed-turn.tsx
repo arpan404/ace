@@ -1,6 +1,6 @@
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
 import { ThreadId, type ContentPart, type Item } from "@ace/protocol";
-import { describeProviderError, modelLabel } from "@ace/ui-core";
+import { describeProviderError, displayNotice, modelLabel } from "@ace/ui-core";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ErrorRow, noticeError } from "../items/error-row.tsx";
@@ -42,8 +42,18 @@ export function FailedTurn(props: {
   const toast = useToast();
   const [sending, setSending] = useState(false);
   const input = resend(ask);
-  const reported = notice?.type === "notice" ? noticeError(notice) : undefined;
-  const view = describeProviderError(
+  const original = notice?.type === "notice" ? noticeError(notice) : undefined;
+  const display = notice?.type === "notice" ? displayNotice(notice) : undefined;
+  const reported = original
+    ? {
+        ...original,
+        text: display?.text ?? "",
+        title: display?.title,
+        code: display?.code,
+        detail: display?.detail,
+      }
+    : undefined;
+  const described = describeProviderError(
     reported
       ? { ...reported, provider: reported.provider ?? provider, model: reported.model ?? model }
       : {
@@ -55,6 +65,8 @@ export function FailedTurn(props: {
           detail: error ? `${error.kind}: ${error.message}` : undefined,
         },
   );
+  // Native tagged text must not classify or replace the diagnostic's reviewed wording.
+  const view = original ? { ...described, raw: original.detail ?? original.text } : described;
   const retry = async () => {
     setSending(true);
     try {

@@ -1,5 +1,6 @@
 import { ChatCircleTextIcon } from "@phosphor-icons/react";
-import { Activity, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { Activity, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -23,8 +24,8 @@ import { WorkspaceHotkeys } from "./workspace-hotkeys.tsx";
 // The panel (strip, tabs, menus, views) loads the first time it shows, warmed while idle after
 // the screen's first paint: the thread route stays within its budget (ADR 0056).
 const loadPanel = () => import("./panel.tsx");
-const WorkspacePanel = lazy(() => loadPanel().then((m) => ({ default: m.WorkspacePanel })));
-const CloseConfirm = lazy(() => loadPanel().then((m) => ({ default: m.CloseConfirm })));
+const WorkspacePanel = deferredComponent(() => loadPanel().then((m) => m.WorkspacePanel));
+const CloseConfirm = deferredComponent(() => loadPanel().then((m) => m.CloseConfirm));
 
 /** Hold the panel back until the kinds (icons, titles, views) have loaded too. */
 export function WhenKindsReady(props: {
@@ -170,7 +171,7 @@ export function Workspace(props: {
       {shown && (
         <LocalBoundary label="the close confirmation" fallback={null}>
           <Suspense fallback={null}>
-            <CloseConfirm />
+            <CloseConfirm.Component />
           </Suspense>
         </LocalBoundary>
       )}
@@ -194,7 +195,7 @@ export function Workspace(props: {
         {shown && (
           <Suspense fallback={null}>
             <WhenKindsReady definition={definition} visible={workspace.open}>
-              <WorkspacePanel
+              <WorkspacePanel.Component
                 scope={scope}
                 definition={definition}
                 workspace={workspace}

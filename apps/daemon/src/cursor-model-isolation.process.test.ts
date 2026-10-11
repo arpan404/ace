@@ -43,6 +43,7 @@ createInterface({input:process.stdin}).on('line',line=>{const r=JSON.parse(line)
     vi.stubEnv("HOME", root);
     vi.stubEnv("PATH", root);
     if (selection === "selected") {
+      await mkdir(instance.homeDir);
       const registry = await openRegistry(join(dataDir, "accounts.sqlite"));
       try {
         await registry.register(

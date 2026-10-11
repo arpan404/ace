@@ -21,6 +21,18 @@ async function openActivity(path = "/activity") {
   const list = await within(sidebar).findByRole("list", { name: "Activity" });
   const feed = within(list);
   await feed.findByText("Checks failed on #74");
+  await waitFor(() =>
+    expect(order(feed.getAllByRole("button").map((row) => row.textContent ?? ""))).toEqual(
+      requests,
+    ),
+  );
+  if (path === "/activity") {
+    (
+      await within(screen.getByRole("main")).findByRole("article", {
+        name: "Allow a force push to fix/restart-retry?",
+      })
+    ).focus();
+  }
   return { app, sidebar, feed };
 }
 
@@ -197,9 +209,12 @@ test("J moves focus itself to the next card, so its title is read out", async ()
   const cards = await main().findAllByRole("article");
   await waitFor(() => expect(cards[0]?.getAttribute("aria-current")).toBe("true"));
   await userEvent.keyboard("j");
-  const second = main().getAllByRole("article")[1];
-  expect(document.activeElement).toBe(second);
-  expect(second?.getAttribute("aria-current")).toBe("true");
+  const second = await main().findByRole("article", {
+    name: "How should the sheet recover after rotate?",
+  });
+  await waitFor(() => expect(document.activeElement).toBe(second));
+  expect(second.getAttribute("aria-current")).toBe("true");
+  expect(main().getAllByRole("article")).toHaveLength(1);
 });
 
 test("the filter tabs are one Tab stop that the arrow keys move along", async () => {
@@ -217,38 +232,53 @@ test("the filter tabs are one Tab stop that the arrow keys move along", async ()
 
 test("filtering by project counts that project and shows a chip that clears it", async () => {
   const { sidebar } = await openActivity();
-  const header = within(screen.getByRole("banner"));
-  expect(header.getByText("3 need you")).toBeTruthy();
+  expect(within(sidebar).getByRole("tab", { name: "Needs you 3" })).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Filter" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "billing-api" }));
   // The menu closes on a choice.
   await waitFor(() => expect(screen.queryByRole("menuitemradio")).toBeNull());
-  expect(await header.findByText("1 needs you · billing-api")).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Clear the billing-api filter" })).toBeTruthy();
   expect(
     within(within(sidebar).getByRole("tab", { name: /Needs you/ })).getByText("1"),
   ).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Clear the billing-api filter" }));
-  expect(await header.findByText("3 need you")).toBeTruthy();
+  expect(await within(sidebar).findByRole("tab", { name: "Needs you 3" })).toBeTruthy();
 });
 
 const requests = ["Allow a force push", "How should the sheet", "Install @fontsource"];
 const order = (titles: string[]) =>
   titles.flatMap((title) => requests.filter((request) => title.includes(request)));
 
-test("what needs you is listed oldest first, the same in the sidebar and the cards", async () => {
+test("the automatic detail follows the oldest request as waiting times arrive", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.seedServices(workbenchServices(Date.now()));
+  await app.open("/activity");
+  const sidebar = await screen.findByRole("complementary", { name: "Activity" });
+  const feed = within(await within(sidebar).findByRole("list", { name: "Activity" }));
+  await waitFor(() =>
+    expect(order(feed.getAllByRole("button").map((row) => row.textContent ?? ""))).toEqual(
+      requests,
+    ),
+  );
+  expect(await main().findByRole("article", { name: /^Allow a force push/ })).toBeTruthy();
+  expect(main().getAllByRole("article")).toHaveLength(1);
+});
+
+test("what needs you is listed oldest first and each sidebar request opens its own detail", async () => {
   const { feed } = await openActivity();
-  // Sidebar, each thread's cards and the waiting-since reporters arrive separately.
-  // Read both columns again until they show all requests in the fixture's time order.
+  // Waiting-since reporters arrive separately from the sidebar requests.
   await waitFor(() => {
-    const cards = main().getAllByRole("article");
-    expect(cards).toHaveLength(3);
-    const titles = cards.map((card) => card.getAttribute("aria-label") ?? "");
     const rows = feed.getAllByRole("button").map((row) => row.textContent ?? "");
-    expect(order(titles)).toEqual(requests);
     expect(order(rows)).toEqual(requests);
   });
+  for (const title of requests) {
+    await userEvent.click(feed.getByRole("button", { name: new RegExp(`^${title}`) }));
+    expect(await main().findByRole("article", { name: new RegExp(`^${title}`) })).toBeTruthy();
+    expect(main().getAllByRole("article")).toHaveLength(1);
+  }
   // The rest of the feed sits under day headings. Near midnight, recent fixture events
   // can belong to yesterday, so the ordering check must not require a Today group.
   expect(
@@ -257,7 +287,7 @@ test("what needs you is listed oldest first, the same in the sidebar and the car
 });
 
 test("H snoozes the focused card's thread, which leaves Needs you", async () => {
-  await openActivity();
+  const { feed } = await openActivity();
   const cards = await main().findAllByRole("article");
   const first = cards[0];
   if (!first) throw new Error("no cards");
@@ -266,10 +296,14 @@ test("H snoozes the focused card's thread, which leaves Needs you", async () => 
   await userEvent.keyboard("h");
   await userEvent.click(await screen.findByRole("menuitem", { name: /1 hour/ }));
   await waitFor(() => expect(main().queryByRole("article", { name: title })).toBeNull());
+  expect(feed.queryByRole("button", { name: new RegExp(`^${title}`) })).toBeNull();
+  expect(
+    await main().findByRole("article", { name: "How should the sheet recover after rotate?" }),
+  ).toBeTruthy();
 });
 
 test("X picks the focused card, and the picked threads snooze together", async () => {
-  await openActivity();
+  const { feed } = await openActivity();
   const cards = await main().findAllByRole("article");
   const first = cards[0] as HTMLElement;
   const title = first.getAttribute("aria-label") ?? "";
@@ -283,6 +317,10 @@ test("X picks the focused card, and the picked threads snooze together", async (
   await userEvent.click(bar.getByRole("button", { name: "Snooze" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "1 hour" }));
   await waitFor(() => expect(main().queryByRole("article", { name: title })).toBeNull());
+  expect(feed.queryByRole("button", { name: new RegExp(`^${title}`) })).toBeNull();
+  expect(
+    await main().findByRole("article", { name: "How should the sheet recover after rotate?" }),
+  ).toBeTruthy();
   expect(screen.queryByRole("toolbar", { name: "Picked items" })).toBeNull();
 });
 
@@ -391,10 +429,13 @@ test("a rebound Next key moves between cards", async () => {
   });
   const cards = await main().findAllByRole("article");
   await waitFor(() => expect(cards[0]?.getAttribute("aria-current")).toBe("true"));
-  await waitFor(async () => {
-    await userEvent.keyboard("n");
-    expect(main().getAllByRole("article")[1]?.getAttribute("aria-current")).toBe("true");
+  cards[0]?.focus();
+  await userEvent.keyboard("n");
+  const detail = await main().findByRole("article", {
+    name: "How should the sheet recover after rotate?",
   });
+  expect(detail.getAttribute("aria-current")).toBe("true");
+  await waitFor(() => expect(document.activeElement).toBe(detail));
 });
 
 test("All opens the first run when nothing needs you, and empty tabs clear that detail", async () => {

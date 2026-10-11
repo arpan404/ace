@@ -39,7 +39,7 @@ test.each(["initial", "retry"])(
     await screen.findByRole("button", { name: "Retry" });
     if (attempt === "retry") {
       await userEvent.click(screen.getByRole("button", { name: "Retry" }));
-      await screen.findByText("It still didn't go");
+      await screen.findByRole("heading", { name: "It still didn't go" });
     }
     cleanup();
     await first.client.close();
@@ -288,4 +288,65 @@ test("a leftover held copy offers no Retry when the transcript owns it and the o
   } finally {
     Reflect.deleteProperty(navigator, "locks");
   }
+});
+
+test("a refused send stays recoverable after a retry cannot be saved and the page reloads", async () => {
+  const storage = memoryKeyValue();
+  const outbox = memoryStorage();
+  let fail = false;
+  const first = harness({
+    storage,
+    outbox: {
+      load: outbox.load,
+      save: async (value) => {
+        if (fail) throw new Error("storage full");
+        await outbox.save(value);
+      },
+    },
+  });
+  first.play(longHistory(2)).runUntilBlocked();
+  first.daemon.refuseCommands("thread_transition_in_progress", "thread.send");
+  await first.open("/t/thread-router");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Message" }),
+    "Keep the refused original{Enter}",
+  );
+  await screen.findByRole("button", { name: "Retry" });
+  fail = true;
+  await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByRole("heading", { name: "Couldn't send it again" });
+  cleanup();
+  await first.client.close();
+  reloadPage();
+  const again = harness({ storage, outbox });
+  again.play(longHistory(2)).runUntilBlocked();
+  await again.open("/t/thread-router");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await within(feed).findByText("Keep the refused original");
+  expect(within(feed).getByRole("button", { name: "Retry" })).toBeTruthy();
+});
+
+test("a restored failed held message keeps sidebar recovery attention", async () => {
+  const storage = memoryKeyValue();
+  const app = harness({ storage });
+  app.play(longHistory(2)).runUntilBlocked();
+  stagedSends(storage);
+  stage(
+    {
+      commandId: "saved-held",
+      threadId: "thread-router",
+      text: "Kept locally",
+      mentions: [],
+      attachments: [],
+      failed: "Storage unavailable",
+    },
+    { files: [], previews: [] },
+  );
+  reloadPage();
+  await app.open("/t/thread-router");
+  await screen.findByRole("button", { name: "Retry" });
+  const navigation = screen.getByRole("navigation", { name: "Threads" });
+  expect(
+    within(navigation).getByRole("link", { name: /Document the router.*Not sent/i }),
+  ).toBeTruthy();
 });

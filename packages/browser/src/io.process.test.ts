@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
-import { chromium } from "playwright-core";
-import { afterEach, describe, expect, it } from "vitest";
+import { chromium, type BrowserContext } from "playwright-core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -209,3 +209,23 @@ describe.skipIf(!executablePath)("injected browser process boundaries", () => {
     expect(decoded.stdout.readUInt8(2)).toBeLessThan(30);
   }, 60_000);
 });
+
+it.skipIf(!executablePath)(
+  "closing the last Chromium page publishes closed state and permits reopening",
+  async () => {
+    let context: BrowserContext | undefined;
+    const f = await fixture({
+      launchContext: async (profile, options) => {
+        context = await chromium.launchPersistentContext(profile, options);
+        return context;
+      },
+    });
+    const page = context?.pages()[0];
+    if (!page) throw new Error("Missing page");
+    await page.close();
+    await vi.waitFor(() => expect(() => f.service.state("thread")).toThrow("not open"));
+    await f.service.open({ threadId: "thread", workspaceId: "workspace" });
+    await f.navigate();
+    expect(f.service.state("thread").url).toBe(f.url + "/");
+  },
+);

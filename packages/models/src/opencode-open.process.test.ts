@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 for (const empty of [false, true])
-  test.each(["allow", "ask", "deny"] as const)(
+  test.each(["build", "plan"] as const)(
     `OpenCode catalog selection opens without sending input (%s, fallback=${empty})`,
     async (permissionMode) => {
       const work = await workspace();
@@ -67,13 +67,7 @@ for (const empty of [false, true])
             title: "ace",
             location: { directory: work.path },
             model: { providerID: "opencode-go", id: "muse-spark-1.3-contributor" },
-            permissions: [
-              {
-                action: "*",
-                resource: "*",
-                effect: permissionMode,
-              },
-            ],
+            agent: permissionMode,
           },
         },
       ]);

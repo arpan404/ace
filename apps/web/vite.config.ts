@@ -21,7 +21,7 @@ import { workerBundle } from "./worker-bundle.ts";
 import { zodPureSchemas } from "./zod-pure-schemas.ts";
 import { notificationWorker } from "./notification-worker.ts";
 import { workerJsonZod } from "./worker-json-zod.ts";
-import { workerZod } from "./worker-zod.ts";
+import { pageZod, workerZod } from "./worker-zod.ts";
 
 const preloads = initialPreloads();
 
@@ -37,6 +37,7 @@ export default defineConfig(({ mode }) => ({
     zodWithoutMetadata(),
     zodWithoutUnusedMethods(),
     zodPureSchemas(),
+    pageZod(),
     preloads.plugin,
     initialBundle(),
     notificationWorker(),
@@ -46,8 +47,9 @@ export default defineConfig(({ mode }) => ({
     target: "es2023",
     // Standard compression keeps the full validated worker within its existing byte budget.
     minify: "terser",
-    terserOptions: { compress: { passes: 3 } },
-    sourcemap: true,
+    terserOptions: { ecma: 2023, compress: { passes: 3 } },
+    // Keep debugging maps as artifacts without adding a map URL to every runtime chunk.
+    sourcemap: "hidden",
     modulePreload: { resolveDependencies: preloads.resolveDependencies },
     rolldownOptions: {
       output: {

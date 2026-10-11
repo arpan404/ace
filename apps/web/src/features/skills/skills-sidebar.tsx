@@ -81,30 +81,26 @@ export function SkillsSidebar() {
     <ViewSidebar
       title="Skills"
       actions={
-        skills.data?.length ? (
-          <>
-            <Popover>
-              <PopoverTrigger
-                render={<IconButton icon={FunnelSimpleIcon} label="Filter skills" />}
+        <>
+          <Popover>
+            <PopoverTrigger render={<IconButton icon={FunnelSimpleIcon} label="Filter skills" />} />
+            <PopoverContent align="end" className="flex w-64 flex-col gap-3">
+              <PopoverTitle className="text-sm font-medium">Filter skills</PopoverTitle>
+              <Select
+                label="Plugin"
+                value={plugin}
+                options={[
+                  { value: "all", label: "All plugins" },
+                  ...plugins.map((entry) => ({ value: entry.plugin, label: entry.name })),
+                ]}
+                onValueChange={setPlugin}
+                className="w-full"
               />
-              <PopoverContent align="end" className="flex w-64 flex-col gap-3">
-                <PopoverTitle className="text-sm font-medium">Filter skills</PopoverTitle>
-                <Select
-                  label="Plugin"
-                  value={plugin}
-                  options={[
-                    { value: "all", label: "All plugins" },
-                    ...plugins.map((entry) => ({ value: entry.plugin, label: entry.name })),
-                  ]}
-                  onValueChange={setPlugin}
-                  className="w-full"
-                />
-                {discovery.controls}
-              </PopoverContent>
-            </Popover>
-            <InstallPluginButton />
-          </>
-        ) : undefined
+              {discovery.controls}
+            </PopoverContent>
+          </Popover>
+          {!!skills.data?.length && <InstallPluginButton />}
+        </>
       }
       toolbar={
         <div className="shrink-0 pr-2.5 pb-2 pl-3">

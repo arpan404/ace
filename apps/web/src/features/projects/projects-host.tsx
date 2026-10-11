@@ -1,7 +1,6 @@
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import {
   createContext,
-  lazy,
   Suspense,
   useCallback,
   useContext,
@@ -15,13 +14,15 @@ import { whenIdle } from "@/lib/idle.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useProjectListSync } from "@/lib/project-cache.ts";
 import type { ProjectRequest } from "./requests.ts";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 
 // Through a one-line loader, so the dialogs' long list of chunks to preload stays out of the
 // first paint's bytes.
 const loadDialogs = () => import("./dialogs-loader.ts").then((loader) => loader.load());
 /** Load the dialogs now, as the shell does once idle (tests start with them warm). */
-export const preloadProjectDialogs = (): Promise<unknown> => loadDialogs();
-const ProjectDialogs = lazy(loadDialogs);
+const ProjectDialogs = deferredComponent(() => loadDialogs().then((module) => module.default));
+export const preloadProjectDialogs = (): Promise<unknown> => ProjectDialogs.preload();
+const warmDialogs = () => void preloadProjectDialogs().catch(() => {});
 
 interface ProjectsApi {
   /** Open the Add project dialog on a tab, Rename or Remove, or add a folder by path. */
@@ -51,19 +52,24 @@ export function ProjectsHost(props: { children: ReactNode }) {
     setRequest(next);
     setOpen(true);
   }, []);
-  const api = useMemo(() => ({ open: show, preload: () => void loadDialogs() }), [show]);
+  const api = useMemo(() => ({ open: show, preload: warmDialogs }), [show]);
   useProjectListSync();
   useHotkey(keymap.addProject.keys, () => show({ kind: "add", tab: "sources" }));
   useFolderDrop(show);
   // Warm the dialogs once the first screen has painted, so they open without a wait.
-  useEffect(() => whenIdle(() => void loadDialogs(), 4_000), []);
+  useEffect(() => whenIdle(warmDialogs, 4_000), []);
   return (
     <ProjectsContext.Provider value={api}>
       {props.children}
       {request && (
         <LocalBoundary label="project dialogs" fallback={null}>
           <Suspense fallback={null}>
-            <ProjectDialogs request={request} open={open} onOpenChange={setOpen} onRequest={show} />
+            <ProjectDialogs.Component
+              request={request}
+              open={open}
+              onOpenChange={setOpen}
+              onRequest={show}
+            />
           </Suspense>
         </LocalBoundary>
       )}

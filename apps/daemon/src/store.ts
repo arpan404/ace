@@ -188,7 +188,7 @@ export class Store {
         () => {
           if (this.historyWriting) return;
           try {
-            this.search.flushCompleted();
+            this.search.flush();
           } catch (error) {
             try {
               this.onError(error);

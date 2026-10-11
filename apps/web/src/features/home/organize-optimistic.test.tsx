@@ -80,8 +80,10 @@ test("a pin the daemon refuses comes off again, with a toast that says why", asy
   app.daemon.refuseCommands("forbidden", "thread.pin");
   await choose(/Backpressure/, /^Pin/);
 
-  expect(await screen.findByText("Couldn't pin the thread")).toBeTruthy();
-  expect(screen.getByText("This device isn't allowed to do that.")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Couldn't pin the thread" })).toBeTruthy();
+  expect(
+    within(screen.getByRole("alertdialog")).getByText("This device isn't allowed to do that."),
+  ).toBeTruthy();
   await waitFor(() => expect(pinned(/Backpressure/)).toBe(false));
 });
 
@@ -93,7 +95,9 @@ test("Mark unread shows at once and a refusal puts the row back as read", async 
 
   app.daemon.refuseCommands("forbidden", "thread.read");
   app.client.networkOnline(true);
-  expect(await screen.findByText("Couldn't mark the thread unread")).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { name: "Couldn't mark the thread unread" }),
+  ).toBeTruthy();
   await waitFor(() => expect(card(/Backpressure.*, unread/)).toBeNull());
 });
 
@@ -106,7 +110,7 @@ test("a rename the daemon refuses opens the field again with the typed title", a
   await userEvent.clear(field);
   await userEvent.type(field, "Cap app-server restarts{Enter}");
 
-  expect(await screen.findByText("Couldn't rename the thread")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Couldn't rename the thread" })).toBeTruthy();
   const again = await screen.findByRole("textbox", { name: "Thread title" });
   expect(again).toHaveProperty("value", "Cap app-server restarts");
 

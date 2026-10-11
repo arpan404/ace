@@ -41,7 +41,6 @@ test("restart expires an overdue running automation using its persisted start ti
   h.recoveries.set(first.id, new Promise(() => {}));
   h.now = start + 3_600_000;
   h.restart();
-  await h.timer.fire();
   await h.service.settled();
   expect(h.service.inbox().runs[0]?.status).toBe("failed");
 });
@@ -94,4 +93,19 @@ test("retention preserves the newest thousand results and unfinished work", asyn
     count += page.runs.length;
   }
   expect(count).toBe(1000);
+});
+
+test("restart never admits a replacement thread for an already expired run", async () => {
+  const h = harness();
+  h.service.put(definition());
+  h.service.trigger("triage", { key: "expired", variables: { subject: "old" } });
+  expect(h.inputs).toHaveLength(1);
+  h.now = start + 3_600_001;
+  h.restart();
+  await h.service.settled();
+  expect(h.inputs).toHaveLength(1);
+  expect(h.service.inbox().runs[0]).toMatchObject({
+    status: "failed",
+    result: "Automation exceeded its maximum runtime",
+  });
 });

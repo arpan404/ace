@@ -26,24 +26,32 @@ function stringCharacters(value: string): number {
   return JSON.stringify(value).length;
 }
 
-function scalar(value: unknown): Weight | undefined {
+function scalar(value: unknown): number | undefined {
+  let characters: number;
   switch (typeof value) {
     case "string":
-      return { values: 1, characters: stringCharacters(value), depth: 0 };
+      characters = stringCharacters(value);
+      break;
     case "number":
-      return { values: 1, characters: String(value).length, depth: 0 };
+      characters = String(value).length;
+      break;
     case "boolean":
-      return { values: 1, characters: value ? 4 : 5, depth: 0 };
+      characters = value ? 4 : 5;
+      break;
     case "undefined":
-      return { values: 1, characters: 4, depth: 0 };
     case "object":
-      return value === null ? { values: 1, characters: 4, depth: 0 } : undefined;
+      if (value) return;
+      characters = 4;
+      break;
     default:
       throw invalid();
   }
+  return characters;
 }
 
-function* children(frame: Frame): Generator<unknown> {
+function* children(resolve: () => Frame): Generator<unknown> {
+  // Generator bodies start on next(), after the frame has been initialized.
+  const frame = resolve();
   if (Array.isArray(frame.object)) {
     if (frame.object.length > maxValues) throw limit();
     for (const child of frame.object) {
@@ -62,31 +70,30 @@ function* children(frame: Frame): Generator<unknown> {
   }
 }
 
-function add(frame: Frame, weight: Weight): void {
-  frame.values += weight.values;
-  frame.characters += weight.characters;
-  frame.depth = Math.max(frame.depth, weight.depth + 1);
+function add(frame: Frame, values: number, characters: number, depth: number): void {
+  frame.values += values;
+  frame.characters += characters;
+  frame.depth = Math.max(frame.depth, depth + 1);
   if (frame.values > maxValues || frame.characters > maxCharacters || frame.depth > maxDepth)
     throw limit();
 }
 
 /** Admit finite JSON work without recursively walking or expanding shared subgraphs. */
 export function admitArguments(args: unknown[]): void {
-  const weights = new Map<object, Weight>();
-  const visiting = new Set<object>();
+  // Null marks an object on the current path; completed objects have a weight.
+  const weights = new Map<object, Weight | null>();
   const stack: Frame[] = [];
   let unique = 0;
   const enter = (object: object) => {
     if (++unique > maxValues || stack.length >= maxDepth) throw limit();
     const frame: Frame = {
       object,
-      children: [][Symbol.iterator](),
+      children: children(() => frame),
       values: 1,
       characters: 2,
       depth: 0,
     };
-    frame.children = children(frame);
-    visiting.add(object);
+    weights.set(object, null);
     stack.push(frame);
   };
   enter(args);
@@ -96,22 +103,22 @@ export function admitArguments(args: unknown[]): void {
     const next = frame.children.next();
     if (next.done) {
       weights.set(frame.object, frame);
-      visiting.delete(frame.object);
       stack.pop();
       const parent = stack.at(-1);
-      if (parent) add(parent, frame);
+      if (parent) add(parent, frame.values, frame.characters, frame.depth);
       continue;
     }
-    const weight = scalar(next.value);
-    if (weight) {
-      add(frame, weight);
+    const value = next.value;
+    const characters = scalar(value);
+    if (characters !== undefined) {
+      add(frame, 1, characters, 0);
       continue;
     }
     // scalar ruled out null and every non-object value.
-    if (typeof next.value !== "object" || next.value === null) throw invalid();
-    if (visiting.has(next.value)) throw invalid();
-    const cached = weights.get(next.value);
-    if (cached) add(frame, cached);
-    else enter(next.value);
+    if (typeof value !== "object" || !value) throw invalid();
+    const cached = weights.get(value);
+    if (cached === null) throw invalid();
+    if (cached) add(frame, cached.values, cached.characters, cached.depth);
+    else enter(value);
   }
 }

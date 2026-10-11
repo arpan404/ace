@@ -164,7 +164,9 @@ export function devicesToolkit(
                 ? 250000
                 : name === "device_install"
                   ? deviceInstallTimeoutMs + 30_000
-                  : 120000,
+                  : name === "device_type"
+                    ? 4096 * 100 + 35_000
+                    : 120000,
           description: action.description,
           riskClass: action.riskClass,
           async run(args, { caller, signal }) {

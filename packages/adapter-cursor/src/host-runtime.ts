@@ -375,6 +375,7 @@ export class HostRuntime {
       await this.frame("error", {
         ...failure,
         code: failure.code ?? "send_uncertain",
+        settled: false,
         message: `${this.errorMessage(error)} Delivery may be uncertain; inspect this thread before submitting again.`,
       });
       throw new Error("SDK send uncertain", { cause: error });
@@ -416,6 +417,7 @@ export class HostRuntime {
         {
           ...failure,
           code: failure.code ?? "runtime_failed",
+          settled: false,
           message: `${this.errorMessage(error)} Checkpoint retained; cancellation and child work may be uncertain.`,
         },
         scope,

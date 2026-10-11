@@ -81,7 +81,7 @@ it("fake screen enablement and permissions stay synchronized across main and ded
   expect(await f.screen.status()).toEqual({
     enabled: false,
     sessions: 0,
-    permissions: { screenRecording: true, accessibility: true },
+    permissions: { screenRecording: false, accessibility: false },
   });
   await f.stream.request({ op: "enable", enabled: true });
   expect(enabled).toEqual([true]);

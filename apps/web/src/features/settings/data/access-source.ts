@@ -41,7 +41,7 @@ function paired(device: Device): boolean {
 
 /** A failed access call, in words a person can act on. */
 function explain(error: unknown): Error {
-  if (error instanceof ClientError && error.code === "daemon") {
+  if (error instanceof ClientError && (error.code === "daemon" || error.code === "auth")) {
     if (error.message === "HTTP 409")
       return new Error("Turn on remote access above and choose LAN or Tailscale, then pair again.");
     if (error.message === "HTTP 401" || error.message === "HTTP 403")

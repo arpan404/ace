@@ -32,3 +32,17 @@ test("snapshot ambiguity retains evidence without showing SDK internals to the p
     ),
   ).toEqual([]);
 });
+
+test("host exit warns about an unresolved shell after the root result finishes", () => {
+  const run = replay();
+  run.frame("delta", {
+    type: "tool-call-started",
+    callId: "shell",
+    toolCall: { type: "shell", args: { command: "work" } },
+  });
+  run.frame("result", { status: "finished" });
+  run.frame("host-exit", { deliberate: false });
+  expect(
+    Object.values(run.state.items).flatMap((item) => (item.type === "notice" ? [item.code] : [])),
+  ).toContain("cursor.work-stopped");
+});

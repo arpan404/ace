@@ -1,10 +1,36 @@
 import { Toast } from "@base-ui/react/toast";
-import { WarningCircleIcon, XIcon } from "@phosphor-icons/react";
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { cn } from "@/lib/cn.ts";
-import { buttonVariants } from "./button.tsx";
-import { Tip } from "./tooltip.tsx";
-import { layers, overlaySurface } from "./menu-styles.ts";
+import {
+  createContext,
+  Suspense,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { RecoverableBoundary } from "./recoverable-boundary.tsx";
+
+const { Component: ToastView } = deferredComponent(() =>
+  import("./toast-view.tsx").then((module) => module.ToastView),
+);
+const ignoreReport = () => {};
+
+function ToastRenderer() {
+  const { toasts } = Toast.useToastManager();
+  const [ready, setReady] = useState(false);
+  const rendered = useCallback(() => setReady(true), []);
+  usePauseWaitingActions(ready);
+  if (!toasts.length) return null;
+  return (
+    <RecoverableBoundary label="notifications" report={ignoreReport}>
+      <Suspense fallback={null}>
+        <ToastView onReady={rendered} />
+      </Suspense>
+    </RecoverableBoundary>
+  );
+}
 
 /** How long a toast stays: plain confirmations go quickly, anything to act on or read stays. */
 export const toastTimeouts = { plain: 5000, action: 8000, error: 8000 } as const;
@@ -29,21 +55,7 @@ function ToastProvider(props: { children: ReactNode }) {
     <Ledger.Provider value={ledger}>
       <Toast.Provider limit={limit} timeout={toastTimeouts.plain}>
         {props.children}
-        <Toast.Portal>
-          <Toast.Viewport
-            data-slot="toast-viewport"
-            style={{
-              top: "var(--toast-pane-top,calc(max(var(--header-h,48px),env(safe-area-inset-top,0px)) + 12px))",
-              bottom: "var(--toast-pane-bottom,auto)",
-            }}
-            className={cn(
-              layers.toast,
-              "pointer-events-none fixed left-[var(--toast-pane-center,50%)] flex w-max max-w-[min(420px,calc(var(--toast-pane-width,100vw)-2rem))] -translate-x-1/2 flex-col items-center gap-2 outline-none [-webkit-app-region:no-drag]",
-            )}
-          >
-            <ToastList />
-          </Toast.Viewport>
-        </Toast.Portal>
+        <ToastRenderer />
       </Toast.Provider>
     </Ledger.Provider>
   );
@@ -56,70 +68,24 @@ interface Paused {
 
 /**
  * A toast with an action (Undo) that is waiting beyond the limit keeps its whole time for when
- * it shows, instead of running out unseen.
+ * it shows, instead of running out unseen. Initial code loading pauses every toast too.
  */
-function usePauseWaitingActions() {
+function usePauseWaitingActions(ready: boolean) {
   const manager = Toast.useToastManager();
   const { toasts, update } = manager;
   useEffect(() => {
     for (const toast of toasts) {
       if (toast.transitionStatus === "ending") continue;
       const data = (toast.data ?? {}) as Paused;
-      if (toast.limited && toast.actionProps && data.resume === undefined)
+      if ((!ready || (toast.limited && toast.actionProps)) && data.resume === undefined)
         update(toast.id, {
           timeout: 0,
-          data: { ...data, resume: toast.timeout ?? toastTimeouts.action },
+          data: { ...data, resume: toast.timeout ?? toastTimeouts.plain },
         });
-      else if (!toast.limited && data.resume !== undefined)
+      else if (ready && (!toast.limited || !toast.actionProps) && data.resume !== undefined)
         update(toast.id, { timeout: data.resume, data: { ...data, resume: undefined } });
     }
-  }, [toasts, update]);
-}
-
-function ToastList() {
-  const { toasts } = Toast.useToastManager();
-  usePauseWaitingActions();
-  return toasts.map((toast) => (
-    <Toast.Root
-      key={toast.id}
-      toast={toast}
-      // Base UI hides a high-priority toast from assistive tech until it has focus (its live
-      // region reads it out); an error's Retry and Dismiss must still be reachable.
-      aria-hidden={false}
-      className={cn(
-        overlaySurface,
-        "group/toast pointer-events-auto relative w-max max-w-full rounded-popup text-ui font-medium text-popover-foreground",
-        "transition-[opacity,transform] duration-(--dur-3) ease-spring data-ending-style:-translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:-translate-y-2 data-starting-style:scale-[0.97] data-starting-style:opacity-0",
-      )}
-    >
-      <Toast.Content className="flex items-center gap-2.5 py-[9px] pr-9 pl-3.5">
-        {toast.type === "error" && (
-          <WarningCircleIcon aria-hidden size={14} className="shrink-0 text-status-failed" />
-        )}
-        <div className="flex min-w-0 items-baseline gap-1">
-          <Toast.Title className="truncate" />
-          <Toast.Description className="truncate font-normal text-muted-foreground empty:hidden" />
-        </div>
-        <Toast.Action
-          className={cn(buttonVariants({ size: "sm" }), "ml-1.5 shrink-0 empty:hidden")}
-        />
-      </Toast.Content>
-      {toast.timeout === 0 && (
-        <Tip label="Dismiss notification">
-          <Toast.Close
-            aria-label="Dismiss"
-            aria-hidden={false}
-            className={cn(
-              "absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground transition-colors duration-(--dur-1) focus-ring touch-hit touch-hit-lg",
-              "hover:bg-accent hover:text-foreground",
-            )}
-          >
-            <XIcon aria-hidden size={14} />
-          </Toast.Close>
-        </Tip>
-      )}
-    </Toast.Root>
-  ));
+  }, [ready, toasts, update]);
 }
 
 type Manager = ReturnType<typeof Toast.useToastManager>;

@@ -105,6 +105,7 @@ export function PageView(props: {
           void props.source
             .selection(props.threadId)
             .then(async (text) => {
+              if (!text) return;
               await navigator.clipboard.writeText(text);
               if (key === "x")
                 for (const keyEvent of ["keyDown", "keyUp"] as const)

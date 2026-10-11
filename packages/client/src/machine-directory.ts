@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DeviceCredential, DeviceId, HostIdentity, HostId, MachineIcon } from "@ace/protocol";
+import { DeviceToken, DeviceId, HostIdentity, HostId, MachineIcon } from "@ace/protocol";
 import type { Storage } from "./types.ts";
 import { ClientError } from "./errors.ts";
 
@@ -64,54 +64,63 @@ export interface PairedMachine {
 }
 
 /** Serialized metadata writes; credentials live exclusively in the injected secret store. */
+type DirectoryCoordinator = <T>(work: () => Promise<T>) => Promise<T>;
+
 export class MachineDirectory {
   #entries: readonly MachineEntry[] = [];
   #tail: Promise<unknown> = Promise.resolve();
   #storage: Storage;
   #secrets: MachineSecretStore;
-  constructor(storage: Storage, secrets: MachineSecretStore) {
+  #coordinate: DirectoryCoordinator;
+  constructor(
+    storage: Storage,
+    secrets: MachineSecretStore,
+    coordinate: DirectoryCoordinator = (work) => work(),
+  ) {
     this.#storage = storage;
     this.#secrets = secrets;
+    this.#coordinate = coordinate;
   }
   get machines(): readonly MachineEntry[] {
     return this.#entries;
   }
   #serialize<T>(work: () => Promise<T>): Promise<T> {
-    const next = this.#tail.then(work);
+    const next = this.#tail.then(() => this.#coordinate(work));
     this.#tail = next.catch(() => {});
     return next;
   }
   load(): Promise<readonly MachineEntry[]> {
-    return this.#serialize(async () => {
-      const raw = await this.#storage.load();
-      if (raw && raw.length > 1024 * 1024) {
-        await this.#save([]);
-        return this.#entries;
-      }
-      let value: unknown;
-      try {
-        value = raw ? JSON.parse(raw) : { version: 1, machines: [] };
-      } catch {
-        value = undefined;
-      }
-      const complete = Directory.safeParse(value);
-      const recoverable = z
-        .object({ version: z.literal(1), machines: z.array(z.unknown()).max(100) })
-        .safeParse(value);
-      const seen = new Set<string>();
-      const parsed = complete.success
-        ? complete.data.machines
-        : (recoverable.success ? recoverable.data.machines : []).flatMap((candidate) => {
-            const entry = MachineEntry.safeParse(candidate);
-            return entry.success ? [entry.data] : [];
-          });
-      const unique = parsed.filter((entry) => !seen.has(entry.hostId) && !!seen.add(entry.hostId));
-      if (!complete.success || unique.length !== parsed.length) await this.#save(unique);
-      this.#entries = Object.freeze(
-        unique.map((entry) => Object.freeze({ ...entry, target: Object.freeze(entry.target) })),
-      );
+    return this.#serialize(() => this.#read());
+  }
+  async #read(): Promise<readonly MachineEntry[]> {
+    const raw = await this.#storage.load();
+    if (raw && raw.length > 1024 * 1024) {
+      await this.#save([]);
       return this.#entries;
-    });
+    }
+    let value: unknown;
+    try {
+      value = raw ? JSON.parse(raw) : { version: 1, machines: [] };
+    } catch {
+      value = undefined;
+    }
+    const complete = Directory.safeParse(value);
+    const recoverable = z
+      .object({ version: z.literal(1), machines: z.array(z.unknown()).max(100) })
+      .safeParse(value);
+    const seen = new Set<string>();
+    const parsed = complete.success
+      ? complete.data.machines
+      : (recoverable.success ? recoverable.data.machines : []).flatMap((candidate) => {
+          const entry = MachineEntry.safeParse(candidate);
+          return entry.success ? [entry.data] : [];
+        });
+    const unique = parsed.filter((entry) => !seen.has(entry.hostId) && !!seen.add(entry.hostId));
+    if (!complete.success || unique.length !== parsed.length) await this.#save(unique);
+    this.#entries = Object.freeze(
+      unique.map((entry) => Object.freeze({ ...entry, target: Object.freeze(entry.target) })),
+    );
+    return this.#entries;
   }
   async #save(entries: readonly MachineEntry[]): Promise<void> {
     const parsed = Directory.parse({ version: 1, machines: entries });
@@ -124,6 +133,7 @@ export class MachineDirectory {
   }
   add(paired: PairedMachine): Promise<MachineEntry> {
     return this.#serialize(async () => {
+      await this.#read();
       const identity = HostIdentity.parse(paired.identity);
       const entry = MachineEntry.parse({
         hostId: identity.hostId,
@@ -138,7 +148,7 @@ export class MachineDirectory {
           "Machine already paired; remove it before replacing authorization",
         );
       if (this.#entries.length >= 100) throw new ClientError("limit");
-      const token = DeviceCredential.shape.token.parse(paired.token);
+      const token = DeviceToken.parse(paired.token);
       const key = machineSecretKey(entry);
       await this.#secrets.set(key, token, paired.remember);
       try {
@@ -159,6 +169,7 @@ export class MachineDirectory {
   }
   rename(hostId: string, displayName: string, icon?: MachineIcon): Promise<void> {
     return this.#serialize(async () => {
+      await this.#read();
       const entry = this.#entries.find((candidate) => candidate.hostId === hostId);
       if (!entry) throw new ClientError("offline", "Unknown machine");
       const renamed = MachineEntry.parse({ ...entry, displayName, icon });
@@ -167,6 +178,7 @@ export class MachineDirectory {
   }
   remove(hostId: string): Promise<void> {
     return this.#serialize(async () => {
+      await this.#read();
       const entry = this.#entries.find((candidate) => candidate.hostId === hostId);
       if (!entry) return;
       // Remove authority first. A failed metadata write leaves a visible entry requiring pairing.
@@ -181,7 +193,7 @@ export class MachineDirectory {
     } catch {
       throw new ClientError("storage", "Machine authorization store unavailable");
     }
-    const parsed = DeviceCredential.shape.token.safeParse(token);
+    const parsed = DeviceToken.safeParse(token);
     if (!parsed.success) throw new ClientError("auth", "Machine authorization missing or invalid");
     return parsed.data;
   }

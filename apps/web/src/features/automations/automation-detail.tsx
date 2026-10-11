@@ -236,7 +236,7 @@ function useAutomationControls(automation: Automation | undefined) {
       const copy = {
         ...automation,
         id: `auto-${crypto.randomUUID()}`,
-        title: `${automation.title} copy`,
+        title: `${automation.title.slice(0, 251)} copy`,
         enabled: false,
       };
       save(copy).then(

@@ -123,7 +123,7 @@ export function createCatalogSession(context: SocketContext): SocketService {
                 requestId: request.requestId,
               });
             stop();
-            stops.delete(request.requestId);
+            if (stops.get(request.requestId) === stop) stops.delete(request.requestId);
           } finally {
             running = false;
           }
@@ -150,8 +150,9 @@ export function createCatalogSession(context: SocketContext): SocketService {
           running = false;
           if (request.subscribe && (dirty || result.stale)) runPush();
         } catch {
+          if (stopped) return;
           stop();
-          stops.delete(request.requestId);
+          if (stops.get(request.requestId) === stop) stops.delete(request.requestId);
           context.fail("catalog_unavailable", "Catalog or context unavailable", false, {
             requestId: request.requestId,
           });

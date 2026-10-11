@@ -36,17 +36,55 @@ test("Snooze and Pin are available from the task context menu", async () => {
   expect(await screen.findByRole("menuitem", { name: /^Unpin/ })).toBeTruthy();
 });
 
-test("the quick Snooze control opens presets without navigation and can wake the thread", async () => {
+async function openActions(name: string) {
+  await userEvent.click(await screen.findByRole("button", { name: `Actions for ${name}` }));
+  await screen.findByRole("menuitem", { name: /^Rename/ });
+}
+
+test("hover menu shortcuts rename, pin and archive its row while another thread is open", async () => {
+  const app = harness();
+  app.daemon.services.settings.seed({ "clients.keybindings": { archiveThread: "alt+mod+y" } });
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  await app.open("/t/thread-docs-index");
+  const activeTitle = await screen.findByRole("heading", { level: 1 });
+  const before = activeTitle.textContent;
+
+  await openActions(title);
+  await userEvent.keyboard("{Alt>}{Meta>}r{/Meta}{/Alt}");
+  const field = await screen.findByRole("textbox", { name: "Thread title" });
+  expect(activeTitle.textContent).toBe(before);
+  await userEvent.clear(field);
+  await userEvent.type(field, "Renamed row{Enter}");
+  const threads = screen.getByRole("navigation", { name: "Threads" });
+  await within(threads).findByRole("link", { name: /^Renamed row/ });
+
+  await openActions("Renamed row");
+  await userEvent.keyboard("{Alt>}{Meta>}p{/Meta}{/Alt}");
+  await waitFor(() =>
+    expect(within(threads).getByRole("link", { name: /^Renamed row.*Pinned/ })).toBeTruthy(),
+  );
+  expect(activeTitle.textContent).toBe(before);
+  await openActions("Renamed row");
+  await userEvent.keyboard("{Alt>}{Meta>}y{/Meta}{/Alt}");
+  await waitFor(() =>
+    expect(within(threads).queryByRole("link", { name: /^Renamed row/ })).toBeNull(),
+  );
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(before);
+});
+
+test("the row overflow opens Snooze presets without navigation and can wake the thread", async () => {
   await openHome();
   const heading = screen.getByRole("heading", { level: 1 });
   const before = heading.textContent;
-  await userEvent.click(await screen.findByRole("button", { name: `Snooze ${title}` }));
+  await userEvent.click(await screen.findByRole("button", { name: `Actions for ${title}` }));
+  await userEvent.hover(await screen.findByRole("menuitem", { name: /^Snooze/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
   await waitFor(() =>
     expect(screen.getByRole("link", { name: /^Dedupe.*Snoozed until tomorrow/ })).toBeTruthy(),
   );
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(before);
-  await userEvent.click(screen.getByRole("button", { name: `Snooze ${title}` }));
+  await userEvent.click(screen.getByRole("button", { name: `Actions for ${title}` }));
+  await userEvent.hover(await screen.findByRole("menuitem", { name: /^Snooze/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Wake now" }));
   await waitFor(() =>
     expect(screen.getByRole("link", { name: /^Dedupe/ }).getAttribute("aria-label")).not.toContain(
@@ -55,15 +93,16 @@ test("the quick Snooze control opens presets without navigation and can wake the
   );
 });
 
-test("Snooze has one tooltip that dismisses while its menu is open", async () => {
+test("the row overflow tooltip dismisses while its menu is open and Escape restores focus", async () => {
   await openHome();
-  const trigger = await screen.findByRole("button", { name: `Snooze ${title}` });
+  const label = `Actions for ${title}`;
+  const trigger = await screen.findByRole("button", { name: label });
   await userEvent.hover(trigger);
-  await screen.findByRole("tooltip", { name: "Snooze…" });
+  await screen.findByRole("tooltip", { name: label });
   expect(trigger.hasAttribute("title")).toBe(false);
   await userEvent.click(trigger);
-  await screen.findByRole("menuitem", { name: /^Tomorrow/ });
-  await waitFor(() => expect(screen.queryByRole("tooltip", { name: "Snooze…" })).toBeNull());
+  await screen.findByRole("menuitem", { name: /^Snooze/ });
+  await waitFor(() => expect(screen.queryByRole("tooltip", { name: label })).toBeNull());
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(document.activeElement).toBe(trigger));
 });

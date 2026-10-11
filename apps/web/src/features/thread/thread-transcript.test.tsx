@@ -35,7 +35,7 @@ test("tool work collapses into one line that opens to its steps and their output
     within(steps).getByRole("button", { name: /Ran bun run test apps\/server/ }),
   );
   expect(within(steps).getByLabelText("Output").textContent).toContain("Tests  16 passed (16)");
-  expect(within(steps).getByText("Exit code 0")).toBeTruthy();
+  expect(within(steps).queryByText("Exit code 0")).toBeNull();
 
   await userEvent.click(
     within(steps).getByRole("button", { name: /Edited apps\/web\/src\/relay\/outbox.ts/ }),
@@ -58,24 +58,25 @@ test("the answer reads as prose with a code block that copies", async () => {
   expect(within(feed).getByRole("button", { name: "Copied" })).toBeTruthy();
 });
 
-test("the changed-files card lists the turn's files and opens the Changes tab", async () => {
+test("the changed-files summary opens the turn's files in the Changes tab", async () => {
   const { app, feed } = await openReplay("answered");
   // The card sums up a turn once it has ended.
   act(() => app.daemon.apply("thread-replay-cursor", [facts.endTurn("root")]));
-  const card = await within(feed).findByRole("region", { name: "2 changed files" });
-  expect(within(card).queryByText("apps/server/src/replay.ts")).toBeNull();
-
-  await userEvent.click(within(card).getByRole("button", { name: "Show files" }));
-  expect(within(card).getByText("apps/server/src/replay.ts")).toBeTruthy();
-  expect(within(card).getByText("apps/web/src/relay/outbox.ts")).toBeTruthy();
-
-  await userEvent.click(within(card).getByRole("button", { name: "Open diff" }));
+  const summary = await within(feed).findByRole("button", { name: /^Changed 2 files/ });
+  expect(within(feed).queryByText("apps/server/src/replay.ts")).toBeNull();
+  await userEvent.click(summary);
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(
     within(panel)
       .getByRole("tab", { name: /^Changes/ })
       .getAttribute("aria-selected"),
   ).toBe("true");
+  expect(
+    await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" }),
+  ).toBeTruthy();
+  expect(
+    await within(panel).findByRole("region", { name: "apps/web/src/relay/outbox.ts" }),
+  ).toBeTruthy();
 });
 
 test("a full-text edit's changed-files stat counts the lines that changed, as Changes does", async () => {
@@ -83,7 +84,7 @@ test("a full-text edit's changed-files stat counts the lines that changed, as Ch
   app.play(coldStartReplay()).runThrough("turn-1");
   await app.open("/t/thread-cold-start");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const card = await within(feed).findByRole("region", { name: "1 changed file" });
+  const card = await within(feed).findByRole("button", { name: /^Changed 1 file/ });
   const stat = await waitFor(() => {
     const text = card.textContent?.match(/\+(\d+) −(\d+)/);
     expect(text).toBeTruthy();
@@ -98,10 +99,11 @@ test("a full-text edit's changed-files stat counts the lines that changed, as Ch
   const step = within(feed).getByRole("button", { name: /^Edited apps\/server\/src\/replay.ts/ });
   await waitFor(() => expect(step.textContent).toContain(`+${stat?.[1]} −${stat?.[2]}`));
 
-  await userEvent.click(within(card).getByRole("button", { name: "Open diff" }));
+  await userEvent.click(card);
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  const tab = within(panel).getByRole("tab", { name: /^Changes/ });
-  await waitFor(() => expect(tab.textContent).toContain(`+${stat?.[1]} −${stat?.[2]}`));
+  const toolbar = await within(panel).findByRole("toolbar", { name: "Changes" });
+  expect(within(toolbar).getByText(`+${stat?.[1]}`)).toBeTruthy();
+  expect(within(toolbar).getByText(`−${stat?.[2]}`)).toBeTruthy();
 });
 
 test("subagents open inline as the agents started, and the agent tree is one click away", async () => {
@@ -120,7 +122,8 @@ test("subagents open inline as the agents started, and the agent tree is one cli
     within(tree).getByRole("treeitem", { name: "regression-test: bun run test replay" }),
   ).toBeTruthy();
 
-  await userEvent.click(within(feed).getByRole("button", { name: /Open agent tree/ }));
+  await userEvent.click(await within(feed).findByRole("button", { name: "Subagent actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Agents");
 });
@@ -149,9 +152,9 @@ test("stopping a background task waits for the daemon to report it stopped", asy
   });
   expect(within(line).getByText("Running in background")).toBeTruthy();
 
-  await userEvent.click(within(line).getByRole("button", { name: "Stop" }));
+  await userEvent.click(within(line).getByRole("button", { name: "Stop background task" }));
   await within(line).findByText("Stopped");
-  expect(within(line).queryByRole("button", { name: "Stop" })).toBeNull();
+  expect(within(line).queryByRole("button", { name: "Stop background task" })).toBeNull();
 });
 
 test("returning to a thread marks where the new activity starts", async () => {

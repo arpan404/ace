@@ -32,7 +32,7 @@ test("worker recovery reports retrying and resumes scanning without losing cache
     historyRuntime: {
       watch: () => noop,
       delay(run, milliseconds) {
-        if (milliseconds !== 5000) retry.resolve(run);
+        if (milliseconds >= 1000 && milliseconds !== 5000) retry.resolve(run);
         return noop;
       },
     },

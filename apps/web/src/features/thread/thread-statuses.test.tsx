@@ -54,7 +54,7 @@ test("a thread waiting on subagents shows their count in its row and all active 
 test("a thread that asked a question keeps the waiting state in the thread and row", async () => {
   const { header, row } = await open(askingQuestion());
   expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
-  expect(screen.queryByRole("status", { name: "Waiting for your answer" })).toBeNull();
+  expect(screen.getByRole("status", { name: "Waiting for your answer" })).toBeTruthy();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
   expect(within(header).queryByRole("status")).toBeNull();
 });

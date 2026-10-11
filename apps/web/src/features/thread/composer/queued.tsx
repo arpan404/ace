@@ -61,7 +61,9 @@ function QueuedBubble(props: {
       className="fx-rise-in group/queued flex flex-col items-end gap-1 text-muted-foreground"
     >
       <PendingBody message={message} text={queuedText(message)} />
-      <span className="text-xs text-subtle-foreground">Queued</span>
+      <span className="text-xs text-subtle-foreground">
+        {uncertain ? "May have been sent" : "Queued"}
+      </span>
       <div className="flex items-center justify-end gap-1 pr-1 opacity-0 group-hover/queued:opacity-100 group-focus-within/queued:opacity-100 pointer-coarse:opacity-100">
         {(uncertain || queue.canSteer) && (
           <IconButton

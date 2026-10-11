@@ -70,7 +70,10 @@ test("an approval answers in the same verbs in the thread and on Activity's card
   await app.open("/t/thread-push");
   const region = await screen.findByRole("region", { name: "Waiting for you" });
   const inThread = await within(region).findByRole("article", { name: title });
-  expect(verbs(inThread)).toEqual(["Allow once", "Always allow", "Deny"]);
+  expect(verbs(inThread)).toEqual(["Allow once", "Deny"]);
+  await userEvent.click(within(inThread).getByRole("button", { name: "More approval options" }));
+  expect(await screen.findByRole("menuitem", { name: "Always allow" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
   // None of the provider's own labels reach the buttons.
   expect(within(inThread).queryByText(/Approve once|Decline/)).toBeNull();
 
@@ -84,9 +87,6 @@ test("an approval answers in the same verbs in the thread and on Activity's card
   const inActivity = await within(screen.getByRole("main")).findByRole("article", {
     name: title,
   });
-  await userEvent.click(
-    within(inActivity).getByRole("button", { expanded: false, name: new RegExp(title) }),
-  );
   expect(verbs(inActivity)).toEqual(["Allow once", "Always allow", "Deny"]);
   const list = await screen.findByRole("list", { name: "Activity" });
   const row = within(list).getByText(title).closest("li");
@@ -94,13 +94,12 @@ test("an approval answers in the same verbs in the thread and on Activity's card
   expect(within(row).queryByRole("button", { name: "Allow once" })).toBeNull();
   expect(within(row).queryByRole("button", { name: "Deny" })).toBeNull();
   await userEvent.click(within(row).getByText(title));
-  expect(
-    verbs(await within(screen.getByRole("main")).findByRole("article", { name: title })),
-  ).toEqual(["Allow once", "Always allow", "Deny"]);
+  const selected = await within(screen.getByRole("main")).findByRole("article", { name: title });
+  expect(verbs(selected)).toEqual(["Allow once", "Always allow", "Deny"]);
 
   // The provider's other option keeps its words, behind Details.
-  await userEvent.click(within(inActivity).getByRole("button", { name: "Details" }));
-  await userEvent.click(within(inActivity).getByRole("button", { name: "Abort the turn" }));
+  await userEvent.click(within(selected).getByRole("button", { name: "Details" }));
+  await userEvent.click(within(selected).getByRole("button", { name: "Abort the turn" }));
   await waitFor(() =>
     expect(app.daemon.resolution("thread-push", "approve-push")).toEqual({
       kind: "approval",

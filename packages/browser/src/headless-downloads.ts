@@ -14,6 +14,7 @@ interface Download {
 import type { BrowserDownload } from "@ace/protocol";
 import type { BackendOpen, BrowserCdp } from "./backend.ts";
 import { z } from "zod";
+import { PolicyGate } from "./policy-call.ts";
 
 export function downloadFlags(filename: string, mimeType: string): BrowserDownload["flags"] {
   const flags: BrowserDownload["flags"] = [];
@@ -45,7 +46,7 @@ export class HeadlessDownloads {
   }
   private entries: BrowserDownload[] = [];
   private mime = new Map<string, string>();
-  private pending = 0;
+  private readonly admission = new PolicyGate(4, 128);
   private sequence = 0;
   private total = 0;
   private request: BackendOpen;
@@ -57,7 +58,7 @@ export class HeadlessDownloads {
   }
   async allowed(url: string): Promise<boolean> {
     if (this.privateMode) return false;
-    if (this.entries.length + this.pending >= 128 || this.pending >= 4) return false;
+    if (this.entries.length > 128) return false;
     const generation = this.privacyGeneration;
     const allowed =
       (await this.request.allowed(url)) && (await this.request.downloadAllowed?.(url)) === true;
@@ -84,16 +85,11 @@ export class HeadlessDownloads {
       });
   }
   async accept(download: Download, tabId: string): Promise<void> {
-    if (
-      this.privateMode ||
-      this.pending >= 4 ||
-      this.entries.length >= 128 ||
-      !this.request.downloadDir
-    ) {
+    const directory = this.request.downloadDir;
+    if (this.privateMode || this.entries.length >= 128 || !directory) {
       await download.cancel();
       return;
     }
-    this.pending++;
     const abort = new AbortController();
     this.transfers.set(abort, download);
     const signal = AbortSignal.any([this.request.signal, abort.signal]);
@@ -116,53 +112,58 @@ export class HeadlessDownloads {
     };
     this.entries.push(entry);
     this.request.changed?.();
-    const path = join(this.request.downloadDir, `${entry.downloadId}-${filename}`);
+    const path = join(directory, `${entry.downloadId}-${filename}`);
     try {
-      if (!(await this.allowed(download.url()))) {
-        entry.state = "denied";
-        await download.cancel();
-        return;
-      }
-      signal.throwIfAborted();
-      await mkdir(this.request.downloadDir, { recursive: true, mode: 0o700 });
-      const stream = await download.createReadStream();
-      if (!stream) throw new Error("Download stream unavailable");
-      signal.throwIfAborted();
-      const limit = this.request.maxDownloadBytes ?? 64 * 1024 * 1024;
-      const counter = new Transform({
-        transform: (chunk: Buffer, _encoding, callback) => {
-          if (
-            entry.bytes + chunk.byteLength > limit ||
-            this.total + chunk.byteLength > 256 * 1024 * 1024
-          ) {
-            entry.state = "too_large";
-            callback(new Error("Download size limit"));
+      await this.admission.run(
+        signal,
+        async () => {
+          if (!(await this.allowed(download.url()))) {
+            entry.state = "denied";
+            await download.cancel();
             return;
           }
-          entry.bytes += chunk.byteLength;
-          this.total += chunk.byteLength;
-          callback(null, chunk);
+          signal.throwIfAborted();
+          await mkdir(directory, { recursive: true, mode: 0o700 });
+          const stream = await download.createReadStream();
+          if (!stream) throw new Error("Download stream unavailable");
+          signal.throwIfAborted();
+          const limit = this.request.maxDownloadBytes ?? 64 * 1024 * 1024;
+          const counter = new Transform({
+            transform: (chunk: Buffer, _encoding, callback) => {
+              if (
+                entry.bytes + chunk.byteLength > limit ||
+                this.total + chunk.byteLength > 256 * 1024 * 1024
+              ) {
+                entry.state = "too_large";
+                callback(new Error("Download size limit"));
+                return;
+              }
+              entry.bytes += chunk.byteLength;
+              this.total += chunk.byteLength;
+              callback(null, chunk);
+            },
+          });
+          await pipeline(stream, counter, createWriteStream(path, { flags: "wx", mode: 0o600 }), {
+            signal,
+          });
+          signal.throwIfAborted();
+          entry.state = "complete";
+          entry.path = path;
+          await this.request.artifact?.({
+            path,
+            mimeType,
+            bytes: entry.bytes,
+            filename,
+            flags: entry.flags,
+          });
         },
-      });
-      await pipeline(stream, counter, createWriteStream(path, { flags: "wx", mode: 0o600 }), {
-        signal,
-      });
-      signal.throwIfAborted();
-      entry.state = "complete";
-      entry.path = path;
-      await this.request.artifact?.({
-        path,
-        mimeType,
-        bytes: entry.bytes,
-        filename,
-        flags: entry.flags,
-      });
+        600_000,
+      );
     } catch {
       if (entry.state === "pending") entry.state = abort.signal.aborted ? "denied" : "failed";
       await rm(path, { force: true });
       await download.cancel().catch(() => {});
     } finally {
-      this.pending--;
       this.transfers.delete(abort);
       this.request.changed?.();
       // Chromium's transient GUID file must not double the quarantine budget.

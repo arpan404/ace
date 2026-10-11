@@ -88,7 +88,7 @@ test("Claude event fractions and usage snapshot percentages produce the same war
   expect(availability(snapshot.state, now)).toBe("near_limit");
   expect(availability(snapshot.state, now + 3600000)).toBe("available");
 });
-test("a rejection without utilization blocks until the fallback reset", () => {
+test("a rejection without utilization stays blocked without a reported reset", () => {
   const state = ingestQuota(login, {
     provider: "claude",
     observedAt: now,
@@ -96,7 +96,7 @@ test("a rejection without utilization blocks until the fallback reset", () => {
     payload: quotaPayload({ rate_limit_info: { status: "rejected" } }),
   }).state;
   expect(availability(state, now + 1)).toBe("exhausted");
-  expect(availability(state, now + 86400000)).toBe("available");
+  expect(availability(state, now + 86400000)).toBe("exhausted");
 });
 test("logged-out accounts stay unavailable even when quota has reset", () => {
   const state = ingestQuota(codex(login, 100), {
@@ -344,7 +344,7 @@ test("window overflow stays bounded and blocks scheduling until an authoritative
   expect(availability(recovered, now + 1)).toBe("available");
 });
 
-test("a limit with an unreadable reset releases the account after five hours", () => {
+test("a limit with an unreadable reset stays blocked until fresh provider facts arrive", () => {
   const limit = ingestQuota(login, {
     provider: "claude",
     observedAt: now,
@@ -352,9 +352,10 @@ test("a limit with an unreadable reset releases the account after five hours", (
     payload: quotaPayload({ error: "Usage limit reached; reset time unavailable" }),
   }).state;
   expect(availability(limit, now + 5 * 60 * 60 * 1000 - 1)).toBe("exhausted");
-  expect(availability(limit, now + 5 * 60 * 60 * 1000)).toBe("available");
+  expect(availability(limit, now + 7 * 24 * 60 * 60 * 1000)).toBe("exhausted");
   const reported = codex(login, 100, now, null);
-  expect(availability(reported, now + 5 * 60 * 60 * 1000)).toBe("available");
+  expect(availability(reported, now + 7 * 24 * 60 * 60 * 1000)).toBe("exhausted");
+  expect(availability(codex(reported, 10, now + 1), now + 1)).toBe("available");
 });
 
 test("an inconclusive status probe cannot erase a known login", () => {

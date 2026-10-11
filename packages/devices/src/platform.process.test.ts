@@ -75,6 +75,7 @@ async function fixture(platform = "linux") {
     if (args.includes('list')) console.log(JSON.stringify({devices:{'com.apple.CoreSimulator.SimRuntime.iOS-18-0':[{udid:'${udid}',name:'iPhone',state:fs.readFileSync(process.env.DEVICE_STATE,'utf8')==='booted'?'Booted':'Shutdown',isAvailable:true}]}}));
     else if(args.includes('boot')) fs.writeFileSync(process.env.DEVICE_STATE,'booted');
     else if(args.includes('shutdown')) fs.writeFileSync(process.env.DEVICE_STATE,'shutdown');
+    else if(args.includes('launch')) console.log('dev.example: 1234');
   `,
   );
   const tree = join(home, "ui.xml");
@@ -1364,3 +1365,19 @@ for (const input of [
     await action;
     expect(child?.signal.aborted).toBe(false);
   });
+
+it("Simulator logs forget an app PID after shutdown and an external shutdown observation", async () => {
+  const f = await fixture("darwin");
+  await f.manager.boot(ios());
+  await f.manager.openApp(ios(), "dev.example");
+  expect((await f.manager.logs(ios())).args).toContain("processIdentifier == 1234");
+  await f.manager.shutdown(ios());
+  await f.manager.boot(ios());
+  expect((await f.manager.logs(ios())).args).not.toContain("processIdentifier == 1234");
+  await f.manager.openApp(ios(), "dev.example");
+  await writeFile(f.state, "shutdown");
+  await f.manager.list();
+  await writeFile(f.state, "booted");
+  await f.manager.list();
+  expect((await f.manager.logs(ios())).args).not.toContain("processIdentifier == 1234");
+});

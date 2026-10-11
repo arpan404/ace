@@ -9,9 +9,22 @@ test.each([false, true])(
     await withPerfApp(
       async ({ origin, browser }) => {
         const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+        const startupErrors: string[] = [];
+        page.on("pageerror", (error) => startupErrors.push(`pageerror: ${error.message}`));
+        page.on("console", (message) => {
+          if (message.type() === "error") startupErrors.push(`console: ${message.text()}`);
+        });
         await open(page, `${origin}/t/thread-multi-day?long=1&rate=20`);
         const feed = page.getByRole("feed", { name: "Transcript" });
-        await feed.waitFor();
+        try {
+          await feed.waitFor();
+        } catch (cause) {
+          const visible = await page.locator("body").innerText();
+          throw new Error(
+            `Transcript startup failed. ${startupErrors.slice(-10).join("\n")}\nVisible page: ${visible.slice(0, 2000)}`,
+            { cause },
+          );
+        }
         await page.getByRole("combobox", { name: "Message" }).waitFor();
         await browserExpect(page.getByRole("region", { name: "While you were away" })).toHaveCount(
           0,
@@ -45,7 +58,8 @@ test.each([false, true])(
           await browserExpect(feed.locator("[data-hit]")).toBeVisible();
           await browserExpect(feed.locator("[data-hit]")).toBeInViewport();
         }
-        await bar.getByRole("button", { name: "Errors", exact: true }).click();
+        await bar.getByRole("combobox", { name: "Search in" }).click();
+        await page.getByRole("option", { name: "Errors", exact: true }).click();
         await browserExpect(bar.locator("[aria-live]")).toHaveText(/^(No results|None yet)$/);
         await browserExpect(bar.getByRole("listbox", { name: "Results" })).toBeAttached();
         await browserExpect(bar.getByText(/^Nothing /)).toBeVisible();

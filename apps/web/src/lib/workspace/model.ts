@@ -304,7 +304,7 @@ const CurrentSchema = z.object({
       open: z.boolean(),
       sections: z.record(z.string(), z.boolean()),
       search: z.string(),
-      scrollTop: z.optional(z.number().check(z.minimum(0), z.maximum(10_000_000))),
+      scrollTop: z.optional(z.number().check(z.gte(0), z.lte(10_000_000))),
     }),
   ),
 });

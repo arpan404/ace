@@ -34,7 +34,6 @@ test("the feed lists what needs you first, then CI, mentions, pull requests and 
   expect(index("Review pull requests on open")).toBeGreaterThan(0);
   expect(screen.getByRole("heading", { level: 1, name: "Activity" })).toBeTruthy();
   // Three thread requests wait for an answer.
-  expect(screen.getByText("3 need you")).toBeTruthy();
   expect(within(tab(/Needs you/)).getByText("3")).toBeTruthy();
 });
 
@@ -68,7 +67,6 @@ test("an approval is selected in the feed and answered only in the detail", asyn
   expect(within(feed).queryByRole("button", { name: /^(Approve|Deny)$/ })).toBeNull();
   await userEvent.click(within(row).getByRole("button"));
   const detail = await screen.findByRole("article", { name: "Install @fontsource/noto-sans-jp?" });
-  await userEvent.click(within(detail).getByRole("button", { name: /^Expand request:/ }));
   await userEvent.click(await within(detail).findByRole("button", { name: "Deny" }));
 
   await waitFor(() =>
@@ -80,7 +78,7 @@ test("an approval is selected in the feed and answered only in the detail", asyn
   await waitFor(() =>
     expect(within(feed).queryByText("Install @fontsource/noto-sans-jp?")).toBeNull(),
   );
-  expect(screen.getByText("2 need you")).toBeTruthy();
+  expect(await screen.findByRole("tab", { name: "Needs you 2" })).toBeTruthy();
 });
 
 test("selecting a feed row focuses its card in Needs you", async () => {

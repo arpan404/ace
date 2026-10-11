@@ -27,16 +27,19 @@ export class RemoteAgentBroker {
   private importFailures = new Map<string, number>();
   private cursor: string | undefined;
   private jobs = new Map<string, { host: string; work: Promise<void> }>();
+  private onForbidden: (() => void) | undefined;
   constructor(options: {
     primary: Pick<ClientApi, "state" | "request">;
     pool: RemoteBrokerPool;
     scheduler: Scheduler;
     now: () => number;
+    onForbidden?: () => void;
   }) {
     this.primary = options.primary;
     this.pool = options.pool;
     this.scheduler = options.scheduler;
     this.now = options.now;
+    this.onForbidden = options.onForbidden;
   }
   start() {
     this.closed = false;
@@ -145,10 +148,23 @@ export class RemoteAgentBroker {
   }
   private async work() {
     if (this.closed || this.primary.state !== "ready") return;
-    const registration = await this.primary.request({
-      type: "delegation.broker.register",
-      hosts: this.hosts(),
-    });
+    const registration = await this.primary
+      .request({
+        type: "delegation.broker.register",
+        hosts: this.hosts(),
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ClientError && error.code === "auth") {
+          this.close();
+          this.onForbidden?.();
+        }
+        throw error;
+      });
+    if (!registration.ok && registration.error === "forbidden") {
+      this.close();
+      this.onForbidden?.();
+      return;
+    }
     if (this.closed || !registration.ok || !registration.lease) return;
     const lease = registration.lease;
     const reply = await this.primary.request({ type: "delegation.broker.poll", lease });
@@ -229,13 +245,21 @@ export class RemoteAgentBroker {
     });
   }
   private async route(task: RemoteTask, lease: string) {
-    if (["completed", "failed", "cancelled"].includes(task.phase)) return;
+    const reconcile =
+      task.phase === "failed" && task.cancellingAt !== undefined && task.result === undefined;
+    if (["completed", "failed", "cancelled"].includes(task.phase) && !reconcile) return;
     if (this.pool.machine(task.request.hostId)?.status !== "online") {
-      await this.report(lease, { taskId: task.id, phase: "unavailable" });
+      if (!reconcile) await this.report(lease, { taskId: task.id, phase: "unavailable" });
       return;
     }
     const client = this.pool.client(task.request.hostId);
     try {
+      if (reconcile) {
+        const status = await client.request({ type: "delegation.remote.status", taskId: task.id });
+        if (status.ok && (status.phase === "completed" || status.phase === "failed"))
+          await this.outcome(client, task, lease, status);
+        return;
+      }
       if (task.phase === "cancelling") {
         await this.cancel(client, task, lease);
         return;
@@ -297,7 +321,7 @@ export class RemoteAgentBroker {
       const status = await client.request({ type: "delegation.remote.status", taskId: task.id });
       if (status.ok && status.phase) await this.outcome(client, task, lease, status);
     } catch (error) {
-      if (this.closed) return;
+      if (this.closed || reconcile) return;
       await this.report(lease, {
         taskId: task.id,
         phase: "unavailable",

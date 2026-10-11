@@ -24,7 +24,10 @@ async function open(path: string, change?: (seed: Seed) => void) {
   await app.open(path);
   const aside = await screen.findByRole("complementary", { name: "Automations" });
   const sidebar = within(await within(aside).findByRole("list", { name: "Automations" }));
-  await sidebar.findByText("Nightly dependency audit");
+  await sidebar.findByText(
+    seed.automations?.find((entry) => entry.id === "auto-dependency-audit")?.title ??
+      "Nightly dependency audit",
+  );
   return { app, sidebar };
 }
 
@@ -763,6 +766,31 @@ test("duplicating an automation opens a paused copy without running it", async (
   expect(copy?.enabled).toBe(false);
   expect(copy?.prompt).toBe((await stored(app, "auto-dependency-audit"))?.prompt);
   expect((await stored(app, "auto-dependency-audit"))?.enabled).toBe(true);
+});
+
+test("Duplicate saves a paused copy of a maximum-length automation name before opening its editor", async () => {
+  const title = "a".repeat(256);
+  const { app } = await open("/automations/auto-dependency-audit", (seed) => {
+    const automation = seed.automations?.find((entry) => entry.id === "auto-dependency-audit");
+    if (!automation) throw new Error("Missing automation");
+    automation.title = title;
+  });
+  const original = await stored(app, "auto-dependency-audit");
+  if (!original) throw new Error("Missing automation");
+  await heading(title);
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Duplicate" }));
+  await heading("Edit automation");
+  const reply = await app.client.request({ type: "automation.list" });
+  const copy = reply.automations?.find(
+    (entry) => entry.id !== original.id && entry.title.endsWith(" copy"),
+  );
+  expect(copy?.title).toHaveLength(256);
+  expect(field("Name")).toHaveProperty("value", copy?.title);
+  expect(copy?.enabled).toBe(false);
+  expect(copy?.prompt).toBe(original.prompt);
+  expect((await stored(app, original.id))?.title).toBe(title);
+  expect((await stored(app, original.id))?.enabled).toBe(true);
 });
 
 test("the time field accepts evening times without losing exact minutes", async () => {

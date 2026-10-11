@@ -323,3 +323,16 @@ it("an ended root run expires foreground even while its tree still keeps the tur
   h.screen.turnEnded(caller.threadId, "turn");
   expect(h.screen.state(state.sessionId).mode).toBe("background");
 });
+
+it("a rejected second app start leaves the first app usable", async () => {
+  const h = await fixture({ START_ERROR_BUNDLE: "dev.ace.other" });
+  const first = await ready(h.screen);
+  h.screen.delegateAgent(first.sessionId, caller);
+  await h.screen.approve("dev.ace.other", true);
+  await expect(h.screen.start({ ...target, bundleId: "dev.ace.other" })).rejects.toThrow(
+    "Fixture start rejected",
+  );
+  await h.screen.input(first.sessionId, "agent", { kind: "text.type", text: "survives" }, owner);
+  expect((await h.screen.uiTree(first.sessionId, {})).nodes[0]?.value).toBe("survives");
+  expect(h.screen.states()).toHaveLength(1);
+});

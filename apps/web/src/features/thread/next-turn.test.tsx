@@ -38,8 +38,9 @@ async function open(options: Parameters<typeof harness>[0] = {}) {
 /** Move the reasoning choices with the keyboard, as a person tabbing to it would. */
 async function effort(chip: RegExp, keys: string) {
   const popover = await openModelControl(chip);
-  within(popover).getByRole("slider", { name: "Effort" }).focus();
-  await userEvent.keyboard(keys);
+  const group = within(popover).getByRole("group", { name: "Effort" });
+  within(group).getAllByRole("button")[0]?.focus();
+  await userEvent.keyboard(`${keys} `);
   await closeModelControl();
 }
 
@@ -92,7 +93,7 @@ test("a switch the daemon refuses keeps the effort picked for the next message",
 
   const popover = await openModelControl(/^Model: Opus 5\.5, Personal, High effort/);
   await chooseAccount(popover, "Work");
-  expect(await screen.findByText("Couldn't switch the model")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Couldn't switch the model" })).toBeTruthy();
   await closeModelControl();
   expect(
     screen.getByRole("button", { name: "Model: Opus 5.5, Personal, High effort" }),
@@ -128,9 +129,11 @@ test("a move to another provider from another device resets what its model can't
   await screen.findByRole("button", { name: /^Model: GPT-5 Codex, Personal/ });
   // Minimal effort and the fast tier: both Codex's own.
   const popover = await openModelControl(/^Model: GPT-5 Codex, Personal/);
-  within(popover).getByRole("slider", { name: "Effort" }).focus();
-  await userEvent.keyboard("{Home}");
-  await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
+  within(within(popover).getByRole("group", { name: "Effort" }))
+    .getByRole("button", { name: "Minimal" })
+    .focus();
+  await userEvent.keyboard(" ");
+  await userEvent.click(within(popover).getByRole("button", { name: "Fast" }));
   await closeModelControl();
   expect(
     screen.getByRole("button", { name: "Model: GPT-5 Codex, Personal, Minimal effort, fast" }),

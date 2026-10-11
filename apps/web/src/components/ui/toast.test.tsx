@@ -29,6 +29,9 @@ function Buttons() {
       <button type="button" onClick={() => toast.add({ title: "Copied" })}>
         Copy
       </button>
+      <button type="button" onClick={() => toast.add({ title: "Check this", timeout: 0 })}>
+        Persist
+      </button>
       <button
         type="button"
         onClick={() =>
@@ -101,25 +104,28 @@ test("an error toast is announced at once, apart from plain confirmations", asyn
   expect(screen.getAllByRole("alert")).toHaveLength(1);
 });
 
-test("every toast has a Dismiss button that closes it", async () => {
+test("timed confirmations stay quiet and a persistent toast can be dismissed", async () => {
   setup();
-  await userEvent.click(screen.getByRole("button", { name: "Archive" }));
+  await userEvent.click(screen.getByRole("button", { name: "Copy" }));
+  expect(await screen.findByText("Copied")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Persist" }));
   await userEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
-  await vi.waitFor(() => expect(screen.queryByText("Archived")).toBeNull());
+  await vi.waitFor(() => expect(screen.queryByText("Check this")).toBeNull());
 });
 
-test("a plain toast goes after 4 s and one with an action after 8 s, not before", async () => {
+test("a plain toast goes after 5 s and one with an action after 8 s, not before", async () => {
   vi.useFakeTimers();
   setup();
   fireEvent.click(screen.getByRole("button", { name: "Copy" }));
   fireEvent.click(screen.getByRole("button", { name: "Archive" }));
-  await act(() => vi.advanceTimersByTimeAsync(3_999));
+  await act(() => vi.advanceTimersByTimeAsync(4_999));
   expect(screen.getByText("Copied")).toBeTruthy();
-  // Closed at 4 s; the exit takes at most a few frames.
+  // Closed at 5 s; the exit takes at most a few frames.
   await act(() => vi.advanceTimersByTimeAsync(51));
   expect(screen.queryByText("Copied")).toBeNull();
   expect(screen.getByText("Archived")).toBeTruthy();
-  await act(() => vi.advanceTimersByTimeAsync(7_999 - 4_050));
+  await act(() => vi.advanceTimersByTimeAsync(7_999 - 5_050));
   expect(screen.getByText("Archived")).toBeTruthy();
   await act(() => vi.advanceTimersByTimeAsync(51));
   expect(screen.queryByText("Archived")).toBeNull();
@@ -151,7 +157,8 @@ test("a repeated sign-in event announces once and a newer sign-in replaces its w
   await userEvent.click(screen.getByRole("button", { name: "Sign in twice" }));
   expect(await screen.findByText("Signed in to Codex · Personal")).toBeTruthy();
   expect(screen.queryByText("Signed in to Codex · Work")).toBeNull();
-  expect(screen.getAllByRole("button", { name: "Dismiss" })).toHaveLength(1);
+  expect(screen.getAllByText("Signed in to Codex · Personal")).toHaveLength(1);
+  expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
 });
 
 test("a newer confirmation of the same kind replaces its action too", async () => {

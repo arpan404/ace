@@ -52,19 +52,16 @@ test("an offline machine explains the failure, reconnects, and can be forgotten"
   const region = await screen.findByRole("region", { name: "Machines" });
   await waitFor(() => expect(app.pool().machine("build-box")?.status).toBe("online"));
   app.crashMachine("build-box");
-  await waitFor(() =>
-    expect(
-      within(region)
-        .getByRole("button", { name: "Reconnect Build server" })
-        .hasAttribute("disabled"),
-    ).toBe(false),
-  );
-  expect(within(region).getByText("Offline")).toBeTruthy();
+  await within(region).findByText("Offline");
   await userEvent.hover(within(region).getByText("Build server"));
   expect(await screen.findByText(/Couldn't reach this machine/)).toBeTruthy();
-  await userEvent.click(within(region).getByRole("button", { name: "Reconnect Build server" }));
+  await userEvent.click(within(region).getByRole("button", { name: "Actions for Build server" }));
+  const reconnect = await screen.findByRole("menuitem", { name: "Reconnect" });
+  expect(reconnect.hasAttribute("data-disabled")).toBe(false);
+  await userEvent.click(reconnect);
   await waitFor(() => expect(app.pool().machine("build-box")?.status).toBe("online"));
-  await userEvent.click(within(region).getByRole("button", { name: "Forget Build server" }));
+  await userEvent.click(within(region).getByRole("button", { name: "Actions for Build server" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Forget" }));
   await waitFor(() => expect(within(region).queryByText("Build server")).toBeNull());
   expect(await screen.findByText("Build server forgotten")).toBeTruthy();
 });

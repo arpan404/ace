@@ -193,6 +193,10 @@ export class ScreenManager {
    */
   async currentPermissions(): Promise<ScreenPermissions> {
     if (!this.policy.enabled) return { screenRecording: false, accessibility: false };
+    return this.inspectDevicePermissions();
+  }
+  /** OS grants for an explicit human device view, independent of agent access policy. */
+  async inspectDevicePermissions(): Promise<ScreenPermissions> {
     if (
       this.sessions.size === 0 &&
       !this.lifecycle.pendingCount &&

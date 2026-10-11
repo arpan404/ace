@@ -951,6 +951,7 @@ export class ModelCatalog implements ModelCatalogApi {
             permissionModes: state.permissionModes ?? state.entry?.permissionModes,
           });
           entry.models = entry.models.map((model) => this.#metadata.intern(model));
+          let revocationsStored = false;
           try {
             // Only this instance's deletion is a prerequisite. Unrelated failures retain
             // their durable slots; SQLite admission still refuses actual overflow.
@@ -963,10 +964,20 @@ export class ModelCatalog implements ModelCatalogApi {
               this.#revision(state.config) !== revision
             )
               return;
+            revocationsStored = true;
             await this.#options.storage.replace(entry);
           } catch {
-            state.entry = entry;
-            state.dirty = false;
+            if (
+              this.#states.get(state.config.id) !== state ||
+              this.#closed ||
+              abort.signal.aborted ||
+              this.#revision(state.config) !== revision
+            )
+              return;
+            // Discovery can seed an empty view once old account rows are durably revoked.
+            // Later failed writes keep the previous valid view, and failed revocations stay fenced.
+            if (revocationsStored && !state.entry) state.entry = entry;
+            state.dirty = true;
             state.error = "persistence_failed";
             this.#failed(state, undefined, "persistence_failed", startedAt, diagnostic);
             return;
@@ -1105,7 +1116,14 @@ export class ModelCatalog implements ModelCatalogApi {
       await collect(writes);
       await collect(this.#discoveries);
       await collect(this.#removals.values());
-      await collect([this.#deletions.flush()]);
+      try {
+        await this.#deletions.flush();
+      } catch (error) {
+        failures.push(error);
+        // Durable revocations still need this storage owner on a later close attempt.
+        this.#closing = undefined;
+        throw new AggregateError(failures, "Model catalog cleanup failed", { cause: error });
+      }
       await collect([Promise.resolve().then(() => this.#options.storage.close())]);
       this.#metadata.clear();
       if (failures.length) throw new AggregateError(failures, "Model catalog cleanup failed");

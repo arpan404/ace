@@ -98,9 +98,15 @@ test("a limited current account remains selected while account management stays 
   await app.open(`/t/${scenario.thread.id}`);
   const popover = await openModelControl();
   await openModelPicker(popover);
-  const selected = within(popover).getByRole("tab", { name: "Codex · Team" });
+  const selected = within(popover).getByRole("tab", { name: "Codex" });
   expect(selected.getAttribute("aria-selected")).toBe("true");
-  expect(selected.getAttribute("aria-disabled")).toBe("true");
+  const account = within(popover).getByRole("combobox", { name: "Account" });
+  expect(account.textContent).toBe("Team");
+  await userEvent.click(account);
+  const team = await screen.findByRole("option", { name: "Team" });
+  expect(team.getAttribute("aria-selected")).toBe("true");
+  expect(team.getAttribute("aria-disabled")).toBe("true");
+  await userEvent.keyboard("{Escape}");
   await closeModelControl();
   expect(screen.queryByRole("button", { name: "Add another account" })).toBeNull();
 });
@@ -118,8 +124,8 @@ test("successive account sign-ins announce one consistently named success, repla
     const dialog = await screen.findByRole("dialog", { name: "Sign in to Codex" });
     await within(dialog).findByLabelText("Sign-in code");
     app.daemon.services.providerLogin.complete(session ?? "");
-    const notices = screen.getByRole("region", { name: "Notifications" });
-    await within(notices).findByText(`Signed in to Codex · ${name}`);
+    await screen.findByRole("heading", { name: `Signed in to Codex · ${name}` });
+    const notices = await screen.findByRole("region", { name: "Notifications" });
     expect(within(notices).getAllByText(/^Signed in to/)).toHaveLength(1);
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Sign in to Codex" })).toBeNull(),

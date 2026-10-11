@@ -111,10 +111,10 @@ test("typing in the message while a question is open answers it with Enter, inst
   expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
 });
 
-test("picking an option turns the send button into Submit, which sends the option", async () => {
+test("picking an option enables Answer, which sends the selected option", async () => {
   const { app, card } = await openQuestion();
   await userEvent.click(within(card).getByRole("radio", { name: "Spaces" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Submit" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Answer" }));
 
   await waitFor(() =>
     expect(app.daemon.resolution(threadId, "indent")).toEqual({

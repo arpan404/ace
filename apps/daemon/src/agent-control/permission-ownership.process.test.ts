@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { setup } from "./test-support.ts";
 
-test("delegates resolve their own provider's manual preset and may select another advertised mode", async () => {
+test("delegates resolve their own provider's native default and may select another advertised mode", async () => {
   const h = setup();
   await h.catalog.refresh();
   const workspace = h.store.createWorkspace(h.home, "workspace");
@@ -28,9 +28,9 @@ test("delegates resolve their own provider's manual preset and may select anothe
   await h.engine.flush();
   // The scripted Claude adapter advertises approvals but no native auto review.
   // Its explicit manual preset must not inherit the parent's Codex :workspace mode.
-  expect(h.contexts.get(child.childId)?.permissionMode).toBe("default");
+  expect(h.contexts.get(child.childId)?.permissionMode).toBeUndefined();
   expect(h.store.getThread(child.childId)?.permission).toMatchObject({
-    effective: "default",
+    effective: null,
     override: null,
   });
   expect(

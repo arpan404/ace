@@ -9,8 +9,7 @@ import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
 
-async function openPreview() {
-  const app = harness();
+async function openPreview(app = harness()) {
   app.play(failingSubagent()).step();
   await app.open("/t/thread-settings");
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
@@ -18,22 +17,21 @@ async function openPreview() {
   // ⌃⇧P opens the Preview tool in the side panel.
   await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  expect(within(panel).getByRole("tab", { name: "Preview", selected: true })).toBeTruthy();
   return { app, panel, browser: app.daemon.browser };
 }
 
 test("a thread without a dev server says so, and previews one once it is found", async () => {
   const { panel, browser } = await openPreview();
   expect(await within(panel).findByRole("heading", { name: "No dev server yet" })).toBeTruthy();
+  expect(within(panel).getByRole("tab", { name: "Preview", selected: true })).toBeTruthy();
   browser.serve("thread-settings", {
     port: 3000,
     origin: "http://localhost:3000",
     name: "api",
     source: "listener",
   });
-  // Coming back to the tab reads the dev servers again.
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
-  await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
+  // Bringing the page back into view polls discovery immediately, even while tabs stay mounted.
+  act(() => document.dispatchEvent(new Event("visibilitychange")));
   const frame = await within(panel).findByTitle("Preview of http://localhost:3000");
   expect(frame.getAttribute("src")).toBe("http://localhost:3000");
   // Its tab now says which server it shows.
@@ -70,17 +68,14 @@ test("Open the Browser from an empty preview opens the Browser tool", async () =
 });
 
 test("a dev server opens in a tab of its own, which keeps its address while the server is gone", async () => {
-  const { panel, browser } = await openPreview();
-  act(() =>
-    browser.serve("thread-settings", {
-      port: 3000,
-      origin: "http://localhost:3000",
-      name: "api",
-      source: "listener",
-    }),
-  );
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
-  await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
+  const app = harness();
+  app.daemon.browser.serve("thread-settings", {
+    port: 3000,
+    origin: "http://localhost:3000",
+    name: "api",
+    source: "listener",
+  });
+  const { panel, browser } = await openPreview(app);
   await userEvent.click(await within(panel).findByRole("button", { name: "Open in its own tab" }));
 
   expect(within(panel).getByRole("tab", { name: "api · :3000", selected: true })).toBeTruthy();
@@ -88,9 +83,9 @@ test("a dev server opens in a tab of its own, which keeps its address while the 
   const address = await within(tabPanel).findByRole("textbox", { name: "Address" });
   expect((address as HTMLInputElement).value).toBe("localhost:3000");
   const tab = within(panel).getByRole("tabpanel");
-  expect(within(tab).getByTitle("Preview of http://localhost:3000").getAttribute("src")).toBe(
-    "http://localhost:3000",
-  );
+  expect(
+    (await within(tab).findByTitle("Preview of http://localhost:3000")).getAttribute("src"),
+  ).toBe("http://localhost:3000");
 
   await userEvent.click(within(panel).getByRole("button", { name: "Stop previewing this port" }));
   expect(
@@ -106,7 +101,10 @@ test("a dev server opens in a tab of its own, which keeps its address while the 
 
 const servers: Server[] = [];
 afterEach(() => {
-  for (const server of servers.splice(0)) server.close();
+  for (const server of servers.splice(0)) {
+    server.closeAllConnections();
+    server.close();
+  }
 });
 
 /** A real dev server that answers only once `release` is called. */
@@ -121,18 +119,15 @@ async function slowServer() {
 }
 
 test("while a dev server's page loads, the frame waits behind a spinner and its tab spins too", async () => {
-  const { panel, browser } = await openPreview();
   const { port, release } = await slowServer();
-  act(() =>
-    browser.serve("thread-settings", {
-      port,
-      origin: `http://127.0.0.1:${port}`,
-      name: "web",
-      source: "listener",
-    }),
-  );
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
-  await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
+  const app = harness();
+  app.daemon.browser.serve("thread-settings", {
+    port,
+    origin: `http://127.0.0.1:${port}`,
+    name: "web",
+    source: "listener",
+  });
+  const { panel } = await openPreview(app);
   expect(
     await within(panel).findByRole("progressbar", { name: `Loading http://127.0.0.1:${port}` }),
   ).toBeTruthy();
@@ -146,17 +141,14 @@ test("while a dev server's page loads, the frame waits behind a spinner and its 
 });
 
 test("a dev server that doesn't answer keeps its address, says so and offers Retry", async () => {
-  const { panel, browser } = await openPreview();
-  act(() =>
-    browser.serve("thread-settings", {
-      port: 1,
-      origin: "http://127.0.0.1:1",
-      name: "api",
-      source: "listener",
-    }),
-  );
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
-  await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
+  const app = harness();
+  app.daemon.browser.serve("thread-settings", {
+    port: 1,
+    origin: "http://127.0.0.1:1",
+    name: "api",
+    source: "listener",
+  });
+  const { panel } = await openPreview(app);
   const failure = await within(panel).findByRole("alert");
   expect(within(failure).getByRole("heading", { name: "Couldn't reach 127.0.0.1:1" })).toBeTruthy();
   expect((within(panel).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value).toBe(

@@ -122,7 +122,7 @@ for (const [code, kind] of [
 ] as const) {
   it(`keeps authoritative ${kind} failure truthful without manufacturing a retry`, () => {
     const r = replay();
-    r.frame("error", { code, retryable: true, message: "Safe provider failure" });
+    r.frame("error", { code, retryable: true, settled: true, message: "Safe provider failure" });
     expect(Object.values(r.state.runs)[0]).toMatchObject({ state: "failed" });
     expect(r.state.agents.root?.lastError).toMatchObject({ kind });
     expect(r.state.agents.root?.retry).toBeUndefined();
@@ -257,4 +257,11 @@ it("uses the observed shell kind after an earlier partial call had no tool name"
   expect(Object.values(r.state.items).find((item) => item.type === "tool_call")).toMatchObject({
     call: { kind: "shell", status: "running", detail: { output: { tail: "live" } } },
   });
+});
+
+it("an uncertain send failure cannot mark the earlier root execution finished", () => {
+  const r = replay();
+  r.frame("error", { code: "send_uncertain", settled: false, message: "Delivery uncertain" });
+  expect(Object.values(r.state.runs)[0]?.state).toBe("active");
+  expect(deriveThreadStatus(r.state).state).not.toBe("done");
 });

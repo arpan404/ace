@@ -3,7 +3,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import { openModelControl, openModelPicker } from "@/test/model-control.ts";
+import { openModelControl, openModelPicker, selectAccount } from "@/test/model-control.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -52,7 +52,8 @@ test("signed-out OpenCode offers selectable Free rows in the Zen group", async (
   await screen.findByRole("feed", { name: "Transcript" });
   const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
   const list = await openModelPicker(popover);
-  await userEvent.click(within(popover).getByRole("tab", { name: "OpenCode · Your CLI login" }));
+  await userEvent.click(within(popover).getByRole("tab", { name: "OpenCode" }));
+  await selectAccount(popover, "Your CLI login");
   const zen = within(list).getByRole("group", { name: "OpenCode Zen" });
   expect(within(zen).getAllByText("Free")).toHaveLength(1);
   const model = within(zen).getByRole("option", { name: /^Big Pickle, Free/ });

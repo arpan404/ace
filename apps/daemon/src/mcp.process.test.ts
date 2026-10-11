@@ -27,7 +27,10 @@ function home() {
   return path;
 }
 function seed(store: Store) {
-  const workspace = store.createWorkspace("/test", "Test");
+  const root = mkdtempSync(join(tmpdir(), "ace-daemon-mcp-workspace-"));
+  // Settings identities remain live until every daemon/store cleanup has finished.
+  cleanups.unshift(() => rmSync(root, { recursive: true, force: true }));
+  const workspace = store.createWorkspace(root, "Test");
   const thread = createDevThread(store, workspace);
   const agent = Agent.parse({
     id: "root",
@@ -36,7 +39,7 @@ function seed(store: Store) {
     origin: "root",
     native: { provider: "codex" },
     fidelity: "full",
-    cwd: "/test",
+    cwd: root,
     status: { state: "idle" },
     createdAt: 1,
   });

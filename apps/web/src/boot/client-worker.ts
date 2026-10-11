@@ -48,7 +48,7 @@ const isPort = (scope: unknown): scope is PortLike =>
   typeof scope === "object" && scope !== null && "postMessage" in scope;
 
 const scope: unknown = globalThis;
-if (typeof scope === "object" && scope !== null && "onconnect" in scope)
+if ("onconnect" in globalThis)
   addEventListener("connect", (event: unknown) => {
     if (isConnectEvent(event)) for (const port of event.ports) host.attach(port);
   });

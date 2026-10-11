@@ -27,6 +27,7 @@ function cold() {
   });
   app.daemon.seedServices({
     settings: { "providers.default": "claude" },
+    promptFiles: [],
     extensionCatalogs: { claude: [], pi: [] },
     catalogLoading: ["claude"],
   });
@@ -115,6 +116,25 @@ test("switching the Skills provider closes a detail from the previous provider",
     expect(screen.queryByRole("heading", { name: "Test Driven Development" })).toBeNull(),
   );
   await waitFor(() => expect(screen.queryByText("This isn't installed")).toBeNull());
+  await screen.findByText("No skills yet");
+  const filter = screen.getByRole("button", { name: "Filter skills" });
+  if (!screen.queryByRole("combobox", { name: "Skills provider" })) await userEvent.click(filter);
+  await userEvent.click(screen.getByRole("combobox", { name: "Skills provider" }));
+  await userEvent.click(await screen.findByRole("option", { name: /^Claude Code$/ }));
+  expect(await screen.findByRole("link", { name: /^Test Driven Development/ })).toBeTruthy();
+});
+
+test("the Skills source menu stays available while the catalog is loading", async () => {
+  const app = cold();
+  app.daemon.seedServices({
+    extensionCatalogs: { codex: [], claude: [] },
+    catalogLoading: ["codex", "claude"],
+  });
+  await app.open("/skills");
+  await screen.findAllByRole("status", { name: /Loading skills/ });
+  await userEvent.click(screen.getByRole("button", { name: "Filter skills" }));
+  expect(await screen.findByRole("combobox", { name: "Skills project" })).toBeTruthy();
+  expect(await screen.findByRole("combobox", { name: "Skills provider" })).toBeTruthy();
 });
 
 test("the composer discovers skills before the first slash so a warm tdd menu needs no new request", async () => {

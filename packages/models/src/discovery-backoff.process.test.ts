@@ -45,10 +45,16 @@ async function setup(discover: DiscoverModels, extra: Partial<CatalogOptions> = 
   cleanup.push(() => catalog.close());
   return { catalog, clock, notices };
 }
-function automatic(catalog: ModelCatalog): Promise<void> {
+function automatic(catalog: ModelCatalog, notices: readonly unknown[]): Promise<void> {
+  const previous = notices.length;
+  const refreshedAt = catalog.list().instances[0]?.lastRefreshedAt;
   return new Promise((resolve) => {
     const stop = catalog.listen(() => {
-      if (catalog.list().instances.every((status) => !status.refreshing)) {
+      const statuses = catalog.list().instances;
+      if (
+        statuses.every((status) => !status.refreshing) &&
+        (notices.length > previous || statuses[0]?.lastRefreshedAt !== refreshedAt)
+      ) {
         stop();
         resolve();
       }
@@ -75,7 +81,7 @@ test("automatic failures double their delay, cap at thirty minutes, and stop war
     });
     expect(notices).toHaveLength(count);
     clock.now++;
-    await automatic(catalog);
+    await automatic(catalog, notices);
   }
   expect(notices.map((notice) => notice.level)).toEqual([
     "warn",
@@ -101,7 +107,7 @@ test.each([0, 1])(
     catalog.revalidate();
     expect(catalog.list().instances[0]?.refreshing).toBe(false);
     clock.now++;
-    await automatic(catalog);
+    await automatic(catalog, notices);
     expect(notices.at(-1)?.retryInMs).toBe(delay * 2);
   },
 );
@@ -117,12 +123,14 @@ test.each(["refresh", "login", "settings", "version", "connections"] as const)(
     });
     await catalog.reconcileConnections();
     clock.now += 30_000;
-    await automatic(catalog);
+    await automatic(catalog, notices);
     expect(notices.at(-1)?.retryInMs).toBe(60_000);
     if (reset === "refresh") await catalog.refresh();
     if (reset === "login") await catalog.loginChanged("opencode", "new-login");
     if (reset === "connections") {
       fingerprint = "new";
+      // Connection probes share the failed discovery cooldown.
+      clock.now += 60_000;
       await catalog.reconcileConnections();
     }
     if (reset === "settings" || reset === "version") {
@@ -158,15 +166,15 @@ test("success clears instance failure history and a later failure starts at thir
   );
   await catalog.refresh();
   clock.now += 30_000;
-  await automatic(catalog);
+  await automatic(catalog, notices);
   failing = false;
   clock.now += 60_000;
-  await automatic(catalog);
+  await automatic(catalog, notices);
   expect(catalog.list().instances[0]?.stale).toBe(false);
   expect(catalog.list().instances[0]?.errorDetail).toBeUndefined();
   failing = true;
   clock.now += 30_000;
-  await automatic(catalog);
+  await automatic(catalog, notices);
   expect(notices.map((notice) => notice.retryInMs)).toEqual([30_000, 60_000, 30_000]);
 });
 
@@ -192,7 +200,7 @@ test("partial failures retain independent source schedules and a recovered sourc
   await catalog.refresh();
   for (const delay of [30_000, 60_000, 60_000]) {
     clock.now += delay;
-    await automatic(catalog);
+    await automatic(catalog, notices);
   }
   expect(
     notices.filter((notice) => notice.source === "a").map((notice) => notice.retryInMs),
@@ -213,6 +221,9 @@ test("failing connection probes back off too and explicit refresh clears their c
   expect(notices.at(-1)?.retryInMs).toBe(60_000);
   await catalog.refresh();
   await catalog.reconcileConnections();
+  expect(notices).toHaveLength(3);
+  clock.now += 30_000;
+  await catalog.reconcileConnections();
   expect(notices).toHaveLength(4);
 });
 
@@ -231,11 +242,11 @@ test("jitter does not turn capped repeats into warnings but a changed failure re
   await catalog.refresh();
   clock.now += 1_440_000;
   jitter = 1;
-  await automatic(catalog);
+  await automatic(catalog, notices);
   expect(notices.at(-1)).toMatchObject({ level: "debug", retryInMs: 1_800_000 });
   clock.now += 1_800_000;
   status = 401;
-  await automatic(catalog);
+  await automatic(catalog, notices);
   expect(notices.at(-1)).toMatchObject({
     level: "warn",
     code: "auth_expired",

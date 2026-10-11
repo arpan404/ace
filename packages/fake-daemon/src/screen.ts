@@ -212,7 +212,9 @@ export class FakeScreen {
         this.readablePermissions();
         return {
           enabled: this.access.enabled,
-          permissions: { ...this.permissions },
+          permissions: this.access.enabled
+            ? { ...this.permissions }
+            : { screenRecording: false, accessibility: false },
           sessions: this.sessions.size,
         };
       case "permissions":

@@ -1,6 +1,6 @@
 import { openActivityRequest } from "@/test/activity-request.ts";
 import type { Scenario } from "@ace/fake-daemon";
-import { waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -88,7 +88,9 @@ test("an upload approval names every file it would send, the seventh included", 
     .runUntilBlocked();
   await app.open(`/t/${threadId}`);
 
-  const card = await openActivityRequest("Upload files from outside the project");
+  const card = await screen.findByRole("article", {
+    name: "Upload files from outside the project",
+  });
   const files = within(card).getByRole("list", { name: "Files to upload" });
   expect(
     within(files)
@@ -105,9 +107,11 @@ test("a sensitive app's request says it asks again every turn", async () => {
   await app.open(`/t/${threadId}`);
   askForApp(app, "com.apple.keychainaccess");
 
-  const card = await openActivityRequest("Let an agent use Keychain Access");
+  const card = await screen.findByRole("article", { name: "Let an agent use Keychain Access" });
+  await userEvent.click(within(card).getByRole("button", { name: "Details" }));
   expect(within(card).getByText(/asks again every turn/)).toBeTruthy();
-  expect(within(card).getByRole("button", { name: "Always allow" })).toBeTruthy();
+  await userEvent.click(within(card).getByRole("button", { name: "More approval options" }));
+  expect(await screen.findByRole("menuitem", { name: "Always allow" })).toBeTruthy();
 });
 
 test("Activity's card for an app request can't be approved by a reflex key, only denied", async () => {
@@ -133,16 +137,20 @@ test("an agent asking for an app names the app, not its bundle id, answers in th
   await app.open(`/t/${threadId}`);
   const asked = askForApp(app, "com.apple.TextEdit");
 
-  const card = await openActivityRequest("Let an agent use TextEdit");
-  expect(within(card).getByText("Compare the totals in the open sheet")).toBeTruthy();
+  const card = await screen.findByRole("article", { name: "Let an agent use TextEdit" });
   expect(within(card).queryByText("com.apple.TextEdit")).toBeNull();
   expect(
     within(card)
       .getAllByRole("button")
-      .map((button) => button.textContent),
-  ).toEqual(["Allow once", "Always allow", "Deny", "Details"]);
+      .map((button) => button.textContent)
+      .filter((label) => /^(Allow once|Always allow|Deny)$/.test(label ?? "")),
+  ).toEqual(["Allow once", "Deny"]);
+  await userEvent.click(within(card).getByRole("button", { name: "More approval options" }));
+  expect(await screen.findByRole("menuitem", { name: "Always allow" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
 
   await userEvent.click(within(card).getByRole("button", { name: "Details" }));
+  expect(within(card).getByText("Compare the totals in the open sheet")).toBeTruthy();
   expect(within(card).getByText("com.apple.TextEdit")).toBeTruthy();
   await userEvent.click(within(card).getByRole("button", { name: "Allow for this thread" }));
 

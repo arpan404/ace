@@ -127,15 +127,15 @@ test("a CLI that doesn't report its sign-in counts as ready once its upstreams l
     if (name === "Codex") expect(within(card).getByRole("button", { name: "Update" })).toBeTruthy();
     else expect(within(card).queryByRole("button")).toBeNull();
   }
-  // Pi doesn't report a sign-in; its connected upstreams say it works.
+  // Pi's upstream models make it ready without requiring a sign-in action.
   expect(
-    within(within(cards).getByRole("listitem", { name: "Pi" })).getByText("Ready"),
-  ).toBeTruthy();
+    within(within(cards).getByRole("listitem", { name: "Pi" })).queryByText("Signed out"),
+  ).toBeNull();
   const codex = within(cards).getByRole("listitem", { name: "Codex" });
   expect(within(codex).getByText("Update available")).toBeTruthy();
   const cursor = within(cards).getByRole("listitem", { name: "Cursor" });
   expect(within(cursor).getByRole("button", { name: "Sign in to Cursor" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(false);
 }, 30_000);
 
 test("an agent that isn't installed starts its official installer with one click", async () => {

@@ -203,7 +203,9 @@ export class CursorTranslator implements Translator {
       }
       const stale = event.operationId !== this.operation || event.segment !== this.segment;
       if (event.kind === "host-exit") {
-        const unsettled = [...this.children.calls.values()].some((child) => !child.settled);
+        const unsettled =
+          [...this.children.calls.values()].some((child) => !child.settled) ||
+          [...this.tools.calls.values()].some((tool) => !tool.terminal);
         const preserved = this.children.preserve();
         if (!this.active && !unsettled) return preserved;
         return [
@@ -330,7 +332,7 @@ export class CursorTranslator implements Translator {
               "cursor.run-failed",
             ),
           );
-          if (this.active && !this.replacement) {
+          if (this.active && !this.replacement && body.settled === true) {
             this.active = false;
             facts.push({
               type: "turn.ended",

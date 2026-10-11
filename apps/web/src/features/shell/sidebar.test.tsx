@@ -46,7 +46,7 @@ test("Settings hides app navigation and returns through Back to app", async () =
   await title("Settings");
   expect(screen.queryByRole("button", { name: "ace menu" })).toBeNull();
   expect(within(appNav()).queryByRole("button", { name: "Search" })).toBeNull();
-  expect(screen.queryByRole("heading", { level: 2, name: "Settings" })).toBeNull();
+  expect(within(appNav()).queryByRole("heading", { level: 2, name: "Settings" })).toBeNull();
   expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
   expect(screen.queryByRole("button", { name: /^You, account/ })).toBeNull();
   for (const name of [/^New thread/, /^Add project/, "Automations", "Skills"]) {
@@ -87,7 +87,14 @@ test("the sidebar shows a plain ace label and profile connection actions", async
     within(account)
       .getAllByRole("menuitem")
       .map((item) => item.textContent),
-  ).toEqual(["Automations", "Skills", "Usage", "Archived threads", "Connection"]);
+  ).toEqual([
+    "Automations",
+    "Skills",
+    "Usage",
+    "Archived threads",
+    expect.stringMatching(/^Keyboard shortcuts/),
+    "Connection",
+  ]);
   await userEvent.click(within(account).getByRole("menuitem", { name: "Usage" }));
   await title("Usage");
   expect(list("Threads")).toBeTruthy();
@@ -170,10 +177,16 @@ test("with no project yet, the sidebar, ⌘N and the palette all lead to Add pro
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull());
 
   await userEvent.keyboard("{Meta>}k{/Meta}");
-  const create = within(await screen.findByRole("group", { name: "Create" }));
-  const options = create.getAllByRole("option");
+  const palette = await screen.findByRole("dialog", { name: "Command palette" });
+  await userEvent.type(
+    within(palette).getByRole("combobox", { name: "Search commands" }),
+    "Add project",
+  );
+  const options = await within(palette).findAllByRole("option");
   expect(options[0]?.textContent).toMatch(/^Add project…/);
-  const newThread = create.getByRole("option", { name: /^New thread/ });
-  expect(newThread.getAttribute("aria-disabled")).toBe("true");
-  expect(newThread.textContent).toContain("Add a project first");
+  expect(within(palette).queryByRole("option", { name: /^New thread/ })).toBeNull();
+  const first = options[0];
+  if (!first) throw new Error("Add project command is missing");
+  await userEvent.click(first);
+  expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
 });

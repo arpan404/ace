@@ -1,9 +1,10 @@
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useSidebarStore } from "@ace/client-react";
 import { ListSkeleton, Skeleton } from "@/components/ui/skeleton.tsx";
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 
-const HomeSidebar = lazy(() =>
-  import("./home-sidebar.tsx").then((module) => ({ default: module.HomeSidebar })),
+const HomeSidebar = deferredComponent(() =>
+  import("./home-sidebar.tsx").then((module) => module.HomeSidebar),
 );
 
 /**
@@ -28,7 +29,7 @@ export function ThreadsSidebar() {
           </>
         }
       >
-        <HomeSidebar />
+        <HomeSidebar.Component />
       </Suspense>
     </aside>
   );

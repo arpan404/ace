@@ -223,7 +223,14 @@ test("approvals and predefined effort keep their readable modes on a phone", asy
   layoutWidth(358);
   await open("busy");
   const approvals = await screen.findByRole("button", { name: /^Approvals: Provider default/ });
-  expect(approvals.textContent).toBe("Provider default");
+  expect(approvals.getAttribute("aria-label")).toBe("Approvals: Provider default");
+  await userEvent.click(approvals);
+  expect(
+    (await screen.findByRole("menuitemradio", { name: "Provider default" })).getAttribute(
+      "aria-checked",
+    ),
+  ).toBe("true");
+  await userEvent.keyboard("{Escape}");
   // The model chip retains identity and honestly marks the next-turn preset as a default.
   const model = await screen.findByRole("button", { name: /^Model: Opus 5\.5/ });
   expect(model.textContent).toContain("Opus 5.5");

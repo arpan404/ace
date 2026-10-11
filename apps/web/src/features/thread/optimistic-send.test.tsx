@@ -42,7 +42,7 @@ test("a message sent offline shows as its bubble at once and becomes the daemon'
   expect(message.textContent).toBe("");
   expect(within(feed).getByText("Add a route for /settings")).toBeTruthy();
   expect(within(feed).getByText("Will apply when reconnected")).toBeTruthy();
-  expect(await screen.findByText("Reconnecting to ace…")).toBeTruthy();
+  expect(await screen.findByText("Reconnecting")).toBeTruthy();
   expect(within(feed).queryByText(/^Offline since/)).toBeNull();
 
   act(() => app.daemon.refuseConnections(false));
@@ -173,7 +173,9 @@ test("a refused take-back keeps the queue and draft, then shows one delivered me
   app.daemon.refuseCommands("queue_conflict", "queue.remove");
   await userEvent.type(message, "Keep my current draft");
   await userEvent.click(within(queue).getByRole("button", { name: "Take back to composer" }));
-  expect(await screen.findByText("Couldn't take back the message")).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { name: "Couldn't take back the message" }),
+  ).toBeTruthy();
   app.daemon.restoreRequests();
   expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
     "Keep my current draft",

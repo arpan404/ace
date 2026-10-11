@@ -25,6 +25,13 @@ async function instanceRoot(
         ? dirname(dirname(parent))
         : undefined;
   if (!root) return;
+  const owned =
+    instance.managed ||
+    resolve(root) === resolve(dataDir) ||
+    /^\.ace(?:-next|-dev)?$/.test(basename(root)) ||
+    (basename(root) === "home" && basename(dirname(root)) === ".ace-dev") ||
+    (await exists(join(root, "host-id")));
+  if (!owned) return;
   if (resolve(root) !== resolve(dataDir)) throw new Error("foreign_home");
   return root;
 }

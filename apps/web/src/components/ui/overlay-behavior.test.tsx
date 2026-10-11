@@ -37,14 +37,25 @@ function Actions() {
 test("menu arrows and Enter choose an action and Escape returns focus", async () => {
   render(<Actions />);
   const trigger = screen.getByRole("button", { name: "Actions" });
-  await userEvent.click(trigger);
-  await userEvent.keyboard("{ArrowDown}{Enter}");
+  await userEvent.tab();
+  expect(document.activeElement).toBe(trigger);
+  await userEvent.keyboard("{ArrowDown}");
+  const rename = await screen.findByRole("menuitem", { name: "Rename" });
+  await waitFor(() => expect(document.activeElement).toBe(rename));
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  expect(screen.getByRole("menu")).toBeTruthy();
+  await userEvent.keyboard("{Enter}");
   expect(screen.getByRole("status").textContent).toBe("Renamed");
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-  await userEvent.click(trigger);
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+  await userEvent.keyboard("{ArrowDown}");
+  const reopened = await screen.findByRole("menuitem", { name: "Rename" });
+  await waitFor(() => expect(document.activeElement).toBe(reopened));
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  expect(screen.getByRole("menu")).toBeTruthy();
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-  expect(document.activeElement).toBe(trigger);
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
 });
 test("a popover closes on Escape and restores its trigger", async () => {
   render(

@@ -20,7 +20,7 @@ export function accountSummary(account: FakeAccount, now: number): AccountSummar
     id: account.id,
     provider: account.provider,
     ...(account.provider === "acp"
-      ? { acpAgentId: "Gemini CLI", installationId: "installed", instanceId: account.id }
+      ? { acpAgentId: "official:gemini", installationId: "installed", instanceId: account.id }
       : {}),
     installationVersion: account.cliVersion,
     label: account.label,

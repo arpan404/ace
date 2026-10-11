@@ -17,7 +17,7 @@ import type { ServiceContext } from "./services/types.ts";
 test("account migrations and failed past-session scans keep redacted log fields instead of omitted objects", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-real-shapes-"));
   const home = join(root, "ace");
-  const source = join(root, ".ace/instances/cursor-sdk-default");
+  const source = join(home, "instances/cursor/cursor-sdk-default");
   const shared = join(root, ".agents/skills/check-state");
   const openCode = join(root, "opencode");
   await mkdir(source, { recursive: true });
@@ -41,7 +41,7 @@ test("account migrations and failed past-session scans keep redacted log fields 
       tools: { schema: "definition ".repeat(17000) },
     }),
   );
-  await mkdir(home);
+  await mkdir(home, { recursive: true });
   const accountsPath = join(home, "accounts.sqlite");
   vi.stubEnv("ACE_ACCOUNTS_DB", accountsPath);
   const db = new DatabaseSync(accountsPath);

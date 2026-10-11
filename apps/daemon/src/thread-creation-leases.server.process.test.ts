@@ -376,7 +376,11 @@ test("cleanup preserves a user commit made in an unaccepted worktree", async () 
     expect(await readFile(join(tree.path, "file.txt"), "utf8")).toBe("User commit\n");
     expect((await git("git", ["-C", h.home, "rev-parse", tree.branch])).stdout).toBe(head);
     expect(await gitService.listWorktrees(h.home)).toHaveLength(2);
-    await expect(runtime.close()).rejects.toThrow("identity changed");
+    await expect(runtime.close()).rejects.toMatchObject({
+      errors: expect.arrayContaining([
+        expect.objectContaining({ message: "Worktree cleanup identity changed" }),
+      ]),
+    });
   } finally {
     gitService.proceed.resolve();
     await client.close();

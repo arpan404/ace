@@ -123,3 +123,73 @@ test("stored legacy thread modes migrate on restart and remain native after anot
     await h.close();
   }
 });
+
+test("an advertised ACP read-only choice reaches admission without being erased as a preset", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+    provider: "acp",
+  });
+  try {
+    const id = await h.create();
+    const native = [
+      { id: "read-only", label: "Read only", description: "Native", risk: "low" as const },
+    ];
+    const advertised = h.store.getThread(id)?.capabilities;
+    if (!advertised) throw new Error("Missing capabilities");
+    h.store.appendEvents(id, [
+      {
+        type: "thread.updated",
+        effectiveCapabilities: {
+          ...advertised,
+          permissionModes: native,
+          permissions: {
+            ...advertised.permissions,
+            nativeAutoReview: false,
+            modes: ["read-only"],
+            permissionModes: native,
+            toolGate: true,
+          },
+        },
+      },
+    ]);
+    expect(
+      h.command({ type: "thread.permission.set", threadId: id, permissionMode: "read-only" }),
+    ).toMatchObject({ ok: true });
+    expect(h.store.getThread(id)?.permission?.override).toBe("read-only");
+  } finally {
+    await h.close();
+  }
+});
+test("reopening an OpenCode thread replaces obsolete effect choices with its native agents", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+    provider: "opencode",
+  });
+  try {
+    const id = await h.create();
+    await h.engine.close();
+    const advertised = h.store.getThread(id)?.capabilities;
+    if (!advertised) throw new Error("Missing capabilities");
+    h.store.appendEvents(id, [
+      {
+        type: "thread.updated",
+        capabilities: {
+          ...advertised,
+          permissionModes: [{ id: "ask", label: "Ask", description: "Old", risk: "low" }],
+        },
+      },
+    ]);
+    const engine = new Engine(h.store, { registry: h.registry, clock: h.clock });
+    try {
+      await engine.ready();
+      expect(h.store.getThread(id)?.capabilities?.permissionModes?.map((mode) => mode.id)).toEqual([
+        "build",
+        "plan",
+      ]);
+    } finally {
+      await engine.close();
+    }
+  } finally {
+    await h.close();
+  }
+});

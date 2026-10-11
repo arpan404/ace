@@ -292,7 +292,10 @@ export function computerUseHandler(
       const state = await manager.selectWindow(sessionId, windowId, owner, () =>
         signal.throwIfAborted(),
       );
-      return { content: [{ type: "text", text: JSON.stringify(state) }] };
+      return {
+        content: [{ type: "text", text: JSON.stringify(state) }],
+        _meta: { "ace/screen": { sessionId: state.sessionId } },
+      };
     }
     if (name === "screen_open_url" || name === "screen_menu") {
       const operation =

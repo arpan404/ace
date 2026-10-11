@@ -144,9 +144,11 @@ import Darwin
                         reply(request, data: ["afterSeq": try await capture.setCapturing(enabled)]); return
                     }
                     if request.op == "ui.tree" {
+                        defer { accessibility.restoreInputTimeouts() }
                         try withInspectionTimeout(install: { AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), $0) }) { try reply(request, encoded: accessibility.tree(request)) }; return
                     }
                     if request.op == "ui.find" {
+                        defer { accessibility.restoreInputTimeouts() }
                         try withInspectionTimeout(install: { AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), $0) }) { try reply(request, encoded: accessibility.find(request)) }; return
                     }
                     // Human device events acknowledge injection, not a settled AX tree. A drag

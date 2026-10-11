@@ -1,15 +1,16 @@
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useConnectionState } from "@ace/client-react";
 import { UserIcon } from "@phosphor-icons/react";
 import { initials } from "@ace/ui-core";
-import { lazy } from "react";
+
 import { cn } from "@/lib/cn.ts";
 import { useProfileName } from "@/lib/profile.ts";
 import { Icon } from "@/components/icon.tsx";
 import { connectionDot, connectionLabels } from "./connection-labels.ts";
 import { SidebarMenu } from "./sidebar-menu.tsx";
 
-const AccountMenuContent = lazy(() =>
-  import("./account-menu-content.tsx").then((module) => ({ default: module.AccountMenuContent })),
+const AccountMenuContent = deferredComponent(() =>
+  import("./account-menu-content.tsx").then((module) => module.AccountMenuContent),
 );
 /**
  * The profile at the foot of the sidebar, its full width: the person's initials on a neutral disc
@@ -60,7 +61,7 @@ export function AccountMenu() {
         </button>
       }
     >
-      <AccountMenuContent />
+      <AccountMenuContent.Component />
     </SidebarMenu>
   );
 }

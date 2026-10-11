@@ -206,3 +206,22 @@ test.each([".ace", ".ace-next", ".ace-dev"])(
     }
   },
 );
+
+test("an ordinary custom home resembling an instances layout remains launchable", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-custom-instance-home-")));
+  const source = join(root, "profiles", "instances", "cursor-sdk-default");
+  await mkdir(source, { recursive: true });
+  await writeFile(join(source, "user-data"), "custom CLI state");
+  const f = await seed(root, source);
+  const registry = await openRegistryIndex(f.path, undefined, f.dataDir, {});
+  try {
+    await registry.ready;
+    await expect(registry.validateHome(f.instance)).resolves.toBeUndefined();
+    expect(registry.get(f.instance.id)?.instance.homeDir).toBe(source);
+    expect(await readFile(join(source, "user-data"), "utf8")).toBe("custom CLI state");
+    await expect(access(f.target)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    registry.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

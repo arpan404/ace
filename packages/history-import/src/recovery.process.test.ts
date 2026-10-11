@@ -32,7 +32,7 @@ test("a crashed scan restarts with backoff and cached sessions can still be list
     },
     {
       delay: (run, milliseconds) => {
-        if (milliseconds !== 5000) {
+        if (milliseconds >= 1000 && milliseconds !== 5000) {
           delays.push(milliseconds);
           retry.resolve(run);
         }
@@ -110,9 +110,9 @@ test("closing during backoff rejects waiting reads and cancels recovery", async 
     (url, options) => (isolate = new Worker(url, options)),
     {
       delay(_run, milliseconds) {
-        if (milliseconds !== 5000) failed.resolve();
+        if (milliseconds >= 1000 && milliseconds !== 5000) failed.resolve();
         return () => {
-          if (milliseconds !== 5000) retryCancelled = true;
+          if (milliseconds >= 1000 && milliseconds !== 5000) retryCancelled = true;
         };
       },
     },

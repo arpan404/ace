@@ -112,7 +112,9 @@ export function engineHandler(
         return (
           repo.permissions.accept(
             command,
-            registry.get(state.config.provider, repo.backend(p.threadId)).capabilities,
+            repo.store.getThread(p.threadId)?.effectiveCapabilities ??
+              repo.store.getThread(p.threadId)?.capabilities ??
+              registry.get(state.config.provider, repo.backend(p.threadId)).capabilities,
             now(),
           ) ?? { commandId: command.id, ok: false, error: "not_implemented" }
         );

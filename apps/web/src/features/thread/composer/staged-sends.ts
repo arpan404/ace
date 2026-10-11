@@ -6,9 +6,17 @@ import {
   TurnOptions,
   type CommandPayload,
 } from "@ace/protocol";
-import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
+import type { KeyValueStorage } from "@ace/ui-core";
+import {
+  heldSendStore,
+  saveHeldSends,
+  holdPageLock,
+  reloadHeldStore,
+  pageId as currentPageId,
+} from "@/lib/held-send-store.ts";
+export { pageId, liveOwners } from "@/lib/held-send-store.ts";
 import { z } from "zod";
-import { Observable, rememberAttachments, type StagedSend } from "./send-store.ts";
+import { rememberAttachments, type StagedSend } from "./send-store.ts";
 
 /*
  * Messages held back until their files upload (UX audit SY-2, AT-2; review of #126). The person
@@ -18,9 +26,6 @@ import { Observable, rememberAttachments, type StagedSend } from "./send-store.t
  * whatever the composer holds by then. Files and image previews only live in the page that
  * attached them; Retry can upload a file again only there.
  */
-
-const storedKey = "ace.sends.staged";
-const storedLimit = 32;
 
 const StoredFile = z.object({
   name: z.string(),
@@ -48,11 +53,6 @@ const Stored = z.object({
 
 export type { StagedSend };
 
-/** This page, while it lives: the owner of the uploads it started. */
-export let pageId: string = crypto.randomUUID();
-const ownerLock = (owner: string) => `ace-staged-${owner}`;
-let holdingLock = false;
-
 /** What only this page has of a held message: its files (for Retry) and previews. */
 interface Held {
   files: (File | undefined)[];
@@ -60,51 +60,50 @@ interface Held {
 }
 const held = new Map<string, Held>();
 
-let storage: KeyValueStorage | undefined;
-const all = new Observable<readonly StagedSend[]>([]);
-
-function load(store: KeyValueStorage | undefined): void {
-  if (storage) return;
-  storage = store;
-  all.seed(readJson(store, storedKey, z.array(Stored).catch([]), []));
-  if (typeof addEventListener === "function")
-    addEventListener("storage", (event) => {
-      if (event.key === storedKey) all.set(readJson(storage, storedKey, z.array(Stored), []));
-    });
-}
-
+// Full payloads are a cached projection of the same backing records as recovery facts.
+let records: ReturnType<ReturnType<typeof heldSendStore>["get"]> | undefined;
+let parsed: readonly StagedSend[] = [];
+const all = {
+  subscribe(listener: () => void) {
+    return heldSendStore(undefined).subscribe(listener);
+  },
+  get(): readonly StagedSend[] {
+    const next = heldSendStore(undefined).get();
+    if (next !== records) {
+      records = next;
+      parsed = next.flatMap((record) => {
+        const result = Stored.safeParse(record.value);
+        return result.success ? [result.data] : [];
+      });
+    }
+    return parsed;
+  },
+};
 function save(next: readonly StagedSend[]): void {
-  const kept = next.slice(-storedLimit);
-  all.set(kept);
-  writeJson(
-    storage,
-    storedKey,
-    // Previews are this page's: only what another page or a reload can use is kept.
-    kept.map((send) =>
-      Object.assign({}, send, {
-        attachments: send.attachments.map(({ name, mimeType, bytes, sha256 }) =>
-          sha256 ? { name, mimeType, bytes, sha256 } : { name, mimeType, bytes },
-        ),
-      }),
-    ),
+  saveHeldSends(
+    next,
+    next.map((send) => ({
+      ...send,
+      attachments: send.attachments.map(({ name, mimeType, bytes, sha256 }) =>
+        sha256 ? { name, mimeType, bytes, sha256 } : { name, mimeType, bytes },
+      ),
+    })),
   );
 }
-
-/** Every held message on this device, with this page's previews filled in. */
-export function stagedSends(store: KeyValueStorage | undefined): Observable<readonly StagedSend[]> {
-  load(store);
+/** Every held message, validated for rendering and retry by its existing owner. */
+export function stagedSends(store: KeyValueStorage | undefined): typeof all {
+  heldSendStore(store);
   return all;
 }
 
 /** Hold a message while its files upload; `files` and `previews` stay in this page. */
 export function stage(send: Omit<StagedSend, "owner">, local: Held): void {
   held.set(send.commandId, local);
-  if (!holdingLock && typeof navigator === "object" && "locks" in navigator) {
-    holdingLock = true;
-    // Held until this page goes: other pages can tell its uploads are still running.
-    void navigator.locks.request(ownerLock(pageId), () => new Promise<void>(() => {}));
-  }
-  save([...all.get().filter((s) => s.commandId !== send.commandId), { ...send, owner: pageId }]);
+  holdPageLock();
+  save([
+    ...all.get().filter((s) => s.commandId !== send.commandId),
+    { ...send, owner: currentPageId },
+  ]);
 }
 
 function patch(commandId: string, change: Partial<StagedSend>): void {
@@ -144,17 +143,6 @@ export function withPreviews(send: StagedSend): StagedSend {
       previewUrl: local.previews[index],
     })),
   };
-}
-
-/** Other pages' uploads still running: their owners still hold their locks. */
-export async function liveOwners(): Promise<ReadonlySet<string> | undefined> {
-  if (typeof navigator !== "object" || !("locks" in navigator)) return undefined;
-  const state = await navigator.locks.query();
-  return new Set(
-    (state.held ?? []).flatMap((lock) =>
-      lock.name?.startsWith("ace-staged-") ? [lock.name.slice("ace-staged-".length)] : [],
-    ),
-  );
 }
 
 /** Why a held message from a page that closed can't go as it is. */
@@ -248,7 +236,7 @@ export async function retryStaged(
   const send = all.get().find((entry) => entry.commandId === commandId);
   const local = held.get(commandId);
   if (!send) return false;
-  patch(commandId, { failed: undefined, owner: pageId });
+  patch(commandId, { failed: undefined, owner: currentPageId });
   const outcomes = await Promise.all(
     send.attachments.map(async (file, index) => {
       if (file.sha256) return { sha256: file.sha256 };
@@ -267,15 +255,15 @@ export async function retryStaged(
 /** Test seam: what a reload does to this page (its files, previews and id go; storage stays). */
 export function reloadPage(): void {
   held.clear();
-  storage = undefined;
-  all.seed([]);
-  holdingLock = false;
-  pageId = crypto.randomUUID();
+  records = undefined;
+  parsed = [];
+  reloadHeldStore();
 }
 
 /** Test seam: forget every held message. */
 export function resetStaged(): void {
   for (const commandId of held.keys()) unstage(commandId);
-  storage = undefined;
-  all.seed([]);
+  records = undefined;
+  parsed = [];
+  reloadHeldStore();
 }

@@ -5,6 +5,40 @@ import { expect, test } from "vitest";
 import { MachineDirectory } from "@ace/client/machines";
 import { paired, persistence } from "./machines-process.fixture.ts";
 
+test("identity caching preserves machines added by another window after this window loaded", async () => {
+  const f = persistence();
+  const older = f.directory;
+  await older.add(paired("first"));
+  const other = new MachineDirectory(f.storage, f.secrets);
+  await other.load();
+  await other.add(paired("second"));
+  await older.rename("first", "Verified identity");
+  const reopened = new MachineDirectory(f.storage, f.secrets);
+  expect(await reopened.load()).toEqual([
+    expect.objectContaining({ hostId: "first", displayName: "Verified identity" }),
+    expect.objectContaining({ hostId: "second" }),
+  ]);
+});
+
+test("concurrent windows retain both pairing and identity edits through their shared write coordinator", async () => {
+  const f = persistence();
+  let tail: Promise<unknown> = Promise.resolve();
+  const coordinate = <T>(work: () => Promise<T>): Promise<T> => {
+    const next = tail.then(work);
+    tail = next.catch(() => {});
+    return next;
+  };
+  const first = new MachineDirectory(f.storage, f.secrets, coordinate);
+  const second = new MachineDirectory(f.storage, f.secrets, coordinate);
+  await first.add(paired("first"));
+  await second.load();
+  await Promise.all([first.rename("first", "Renamed"), second.add(paired("second"))]);
+  expect(await new MachineDirectory(f.storage, f.secrets).load()).toEqual([
+    expect.objectContaining({ hostId: "first", displayName: "Renamed" }),
+    expect.objectContaining({ hostId: "second" }),
+  ]);
+});
+
 test("a persisted directory survives restart without credentials and a failed removal never restores deleted authorization", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-machine-directory-"));
   try {
@@ -49,36 +83,43 @@ test("a persisted directory survives restart without credentials and a failed re
 });
 
 test.each([
-  "not-json",
-  "x".repeat(1024 * 1024 + 1),
-  JSON.stringify({
-    version: 1,
-    machines: [
-      {
+  ["not-json", []],
+  ["x".repeat(1024 * 1024 + 1), []],
+  [
+    JSON.stringify({
+      version: 1,
+      machines: [
+        {
+          hostId: "host",
+          displayName: "host",
+          deviceId: "device",
+          target: { kind: "direct", url: "ws://host/" },
+          token: "a".repeat(64),
+        },
+      ],
+    }),
+    [],
+  ],
+  [
+    JSON.stringify({
+      version: 1,
+      machines: Array.from({ length: 2 }, () => ({
         hostId: "host",
         displayName: "host",
         deviceId: "device",
         target: { kind: "direct", url: "ws://host/" },
-        token: "a".repeat(64),
-      },
-    ],
-  }),
-  JSON.stringify({
-    version: 1,
-    machines: Array.from({ length: 2 }, () => ({
-      hostId: "host",
-      displayName: "host",
-      deviceId: "device",
-      target: { kind: "direct", url: "ws://host/" },
-    })),
-  }),
-])(
-  "invalid persisted directories reject before exposing any machine entries: case %#",
-  async (raw) => {
+      })),
+    }),
+    ["host"],
+  ],
+] as const)(
+  "invalid persisted directories recover valid unique entries without exposing credentials: case %#",
+  async (raw, expectedIds) => {
     const f = persistence();
     await f.storage.save(raw);
-    await expect(f.directory.load()).rejects.toThrow();
-    expect(f.directory.machines).toEqual([]);
+    const recovered = await f.directory.load();
+    expect(recovered.map((entry) => entry.hostId)).toEqual(expectedIds);
+    expect(f.raw()).not.toContain('"token"');
     expect(f.tokens.size).toBe(0);
   },
 );

@@ -58,7 +58,8 @@ export function SettingRow(props: {
               <Title
                 {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
                 id={titleId}
-                tabIndex={!props.htmlFor && compact && props.description ? 0 : undefined}
+                tabIndex={0}
+                aria-describedby={hintId}
                 className="block rounded-sm text-ui focus-ring"
               >
                 {props.title}

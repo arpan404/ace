@@ -1,5 +1,4 @@
 import { useItem } from "@ace/client-react";
-import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { CheckIcon, XIcon } from "@phosphor-icons/react";
 import type { Agent, BackgroundTask } from "@ace/protocol";
@@ -13,13 +12,15 @@ import { useTicker } from "../lib/clock.ts";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import { RowButton, TruncatedText } from "./work-card-parts.tsx";
 import { agentNeedsYou, agentRunning, useWorkCardLive } from "./work-card-live.ts";
+import { useWorkCardState } from "./work-card-state.tsx";
 
 const labelClass = "flex items-center gap-2 px-2 pt-1 text-2xs leading-3 text-subtle-foreground";
 
 /** Only agents and commands from this thread's projection; completed commands never appear. */
 export function WorkCardActivity(props: { threadId: string; onClose(): void }) {
   const { agents, tasks } = useWorkCardLive(props.threadId);
-  const [expanded, setExpanded] = useState(false);
+  const { state, update } = useWorkCardState();
+  const expanded = state.sections["completed-agents"] ?? false;
   const finished = agents.filter(
     (agent) => agent.status.state === "idle" || agent.status.state === "interrupted",
   );
@@ -38,7 +39,7 @@ export function WorkCardActivity(props: { threadId: string; onClose(): void }) {
           ))}
           {finished.length > 3 && (
             <RowButton
-              onClick={() => setExpanded(!expanded)}
+              onClick={() => update({ sections: { "completed-agents": !expanded } })}
               aria-expanded={expanded}
               className="text-muted-foreground"
             >

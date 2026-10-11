@@ -527,6 +527,7 @@ test("a sealed answer arriving after the cancellation deadline reaches the paren
   expect(f.remote.journal.get(task.id)).toMatchObject({ phase: "failed", delivered: true });
   const lease = f.remote.register("window", [], () => true);
   if (!lease) throw new Error("No broker lease");
+  expect(f.remote.poll("window", lease)).toMatchObject([{ id: task.id, phase: "failed" }]);
   const report = {
     taskId: task.id,
     phase: "completed" as const,
@@ -549,4 +550,67 @@ test("a sealed answer arriving after the cancellation deadline reaches the paren
   expect(
     text.filter((part) => part.type === "text" && part.text.includes("Late sealed answer")),
   ).toHaveLength(1);
+});
+
+test("a stale running report after cancellation deadline cannot remove its terminal fence", async () => {
+  const f = await world();
+  const task = await f.delegate();
+  f.remote.poll("window", f.lease);
+  f.remote.stopTask(task.id);
+  f.clock.advance(f.clock.now() + 30000);
+  const lease = f.remote.register("replacement", [], () => true);
+  if (!lease) throw new Error("No broker lease");
+  expect(
+    f.remote.report("replacement", lease, { taskId: task.id, phase: "running" }),
+  ).toMatchObject({ phase: "failed", delivered: true });
+});
+
+test("a sealed result after an explicit tree stop remains readable without waking the parent", async () => {
+  const f = await world();
+  const task = await f.delegate();
+  f.remote.poll("window", f.lease);
+  expect(
+    f.service.command("stop-parent", {
+      type: "thread.interrupt",
+      threadId: f.caller.threadId,
+      cascade: true,
+    }).ok,
+  ).toBe(true);
+  await f.engine.flush();
+  const before = f.inputs.get(f.caller.threadId)?.length ?? 0;
+  f.remote.report("window", f.lease, {
+    taskId: task.id,
+    phase: "completed",
+    result: "Answer after stop",
+  });
+  f.remote.report("window", f.lease, { taskId: task.id, phase: "cancelled" });
+  await f.engine.flush();
+  expect(f.remote.journal.get(task.id)).toMatchObject({
+    result: "Answer after stop",
+    delivered: true,
+  });
+  expect(f.inputs.get(f.caller.threadId)?.length ?? 0).toBe(before);
+  expect(f.store.getThread(f.caller.threadId)?.status.state).toBe("done");
+});
+
+test.each([
+  { state: "needs_you", interactions: 1 },
+  { state: "limited" },
+  { state: "unresponsive" },
+] as const)("old remote outcomes survive while the root is $state", async (status) => {
+  const f = await world();
+  const task = await f.delegate();
+  f.remote.poll("window", f.lease);
+  f.remote.report("window", f.lease, {
+    taskId: task.id,
+    phase: "completed",
+    result: "Owned answer",
+  });
+  f.store.appendEvents(f.caller.threadId, [{ type: "thread.updated", status }]);
+  f.clock.advance(f.clock.now() + 8 * 24 * 60 * 60 * 1000);
+  f.remote.journal.prune(f.clock.now());
+  expect(f.remote.journal.get(task.id)).toMatchObject({ result: "Owned answer" });
+  f.store.appendEvents(f.caller.threadId, [{ type: "thread.updated", status: { state: "done" } }]);
+  f.remote.journal.prune(f.clock.now());
+  expect(f.remote.journal.get(task.id)).toBeUndefined();
 });

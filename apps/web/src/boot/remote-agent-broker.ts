@@ -9,11 +9,17 @@ export function useRemoteAgentBroker(primary: ClientApi, pool: MachinePool | und
   const { url } = useDaemonConnection();
   useEffect(() => {
     if (!pool) return;
-    return brokerLeader(navigator.locks, url, () => startRemoteAgentBroker(primary, pool));
+    return brokerLeader(navigator.locks, url, (yieldLeadership) =>
+      startRemoteAgentBroker(primary, pool, yieldLeadership),
+    );
   }, [primary, pool, url]);
 }
 
-function startRemoteAgentBroker(primary: ClientApi, pool: MachinePool): () => void {
+function startRemoteAgentBroker(
+  primary: ClientApi,
+  pool: MachinePool,
+  yieldLeadership: () => void,
+): () => void {
   let live = true;
   let close: (() => void) | undefined;
   void import("@ace/client-worker/remote-agent-broker").then(({ RemoteAgentBroker }) => {
@@ -21,6 +27,7 @@ function startRemoteAgentBroker(primary: ClientApi, pool: MachinePool): () => vo
     const broker = new RemoteAgentBroker({
       primary,
       pool,
+      onForbidden: yieldLeadership,
       now: Date.now,
       scheduler: {
         set(ms, fn) {

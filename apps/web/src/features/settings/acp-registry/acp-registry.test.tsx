@@ -11,8 +11,7 @@ type Harness = ReturnType<typeof harness>;
 async function openRegistry(app: Harness = harness()) {
   app.daemon.services.registry.stepMs = null;
   await app.open("/settings/providers");
-  const agents = await screen.findByRole("region", { name: "ACP agents" }, { timeout: 10_000 });
-  await userEvent.click(within(agents).getByRole("button", { name: "Add" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add an ACP agent…" }));
   const dialog = await screen.findByRole(
     "dialog",
     { name: "Add an ACP agent" },
@@ -116,9 +115,12 @@ test("one click installs a registry agent, then its own sign-in makes it ready i
   );
   await userEvent.click(within(dialog).getByRole("button", { name: "Close agent setup" }));
   expect(
-    await within(await screen.findByRole("region", { name: "ACP agents" })).findByRole("link", {
-      name: "Kimi CLI",
-    }),
+    await within(await screen.findByRole("region", { name: "Installed providers" })).findByRole(
+      "link",
+      {
+        name: "Kimi CLI",
+      },
+    ),
   ).toBeTruthy();
 }, 30_000);
 
@@ -165,21 +167,57 @@ test("an agent the registry doesn't list is added by command, from a quiet link"
   await userEvent.type(within(form).getByRole("textbox", { name: "Name" }), "House Agent");
   await userEvent.type(within(form).getByRole("textbox", { name: "Command" }), "house --acp");
   await userEvent.click(within(form).getByRole("button", { name: "Add agent" }));
-  const agents = await screen.findByRole("region", { name: "ACP agents" });
+  const agents = await screen.findByRole("region", { name: "Installed providers" });
   expect(await within(agents).findByRole("link", { name: "House Agent" })).toBeTruthy();
 }, 30_000);
 
-test("an outdated registry agent updates directly from its Setup row", async () => {
+test("an outdated registry agent signs in then updates from its setup actions", async () => {
   const app = harness();
+  for (const account of app.daemon.services.accounts) {
+    if (account.provider === "acp") {
+      account.quota.auth = "unknown";
+      account.availability = "unknown";
+    }
+  }
+  const installed = app.daemon.services.registry.installations.find(
+    (entry) => entry.acpAgentId === "official:gemini",
+  );
+  const account = app.daemon.services.accounts.find((entry) => entry.provider === "acp");
+  if (!installed || !account) throw new Error("Missing installed ACP fixture");
+  const previousInstance = account.id;
+  // The account belongs to this registry installation, rather than the legacy named fixture.
+  Object.assign(account, {
+    id: installed.instanceId,
+    acpAgentId: installed.acpAgentId,
+    installationId: installed.installationId,
+    instanceId: installed.instanceId,
+    availability: "logged_out",
+    quota: { ...account.quota, auth: "logged_out" },
+  });
+  app.daemon.services.models = app.daemon.services.models.map((model) =>
+    model.instance === previousInstance ? { ...model, instance: installed.instanceId } : model,
+  );
   app.daemon.services.providerInstalls.autoComplete = false;
   await app.open("/settings/providers");
   await userEvent.click(
     await screen.findByRole("link", { name: "Gemini CLI" }, { timeout: 10_000 }),
   );
-  const setup = await screen.findByRole("region", { name: "Setup" });
+  await screen.findByRole("heading", { level: 2, name: "Gemini CLI" });
+  const setup = screen.getByRole("main");
+  await userEvent.click(
+    await within(setup).findByRole("button", { name: "Sign in to Gemini CLI" }),
+  );
+  const login = await screen.findByRole("dialog", { name: "Sign in to Gemini CLI" });
+  await within(login).findByRole("link", { name: "Open sign-in page" });
+  app.daemon.services.providerLogin.complete("fake-login-1");
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Sign in to Gemini CLI" })).toBeNull(),
+  );
   await userEvent.click(await within(setup).findByRole("button", { name: "Update" }));
   await within(setup).findByRole("progressbar", { name: "Gemini CLI installation progress" });
   app.daemon.services.providerInstalls.complete("fake-install-1");
+  await waitFor(() => expect(within(setup).queryByRole("progressbar")).toBeNull());
+  expect(await within(setup).findByText("0.63.0")).toBeTruthy();
   await waitFor(() => expect(within(setup).queryByRole("button", { name: "Update" })).toBeNull());
 }, 30_000);
 

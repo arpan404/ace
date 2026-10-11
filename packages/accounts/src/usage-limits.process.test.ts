@@ -1,4 +1,5 @@
 import { createReadStream } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { z } from "zod";
@@ -85,10 +86,12 @@ it("committed quota changes notify readers once, preserve account isolation and 
   const path = join(home, "accounts.sqlite");
   let registry = await openRegistry(path);
   try {
-    for (const id of ["a", "b"])
+    for (const id of ["a", "b"]) {
+      await mkdir(join(home, id));
       await registry.register(
         createInstance({ id, provider: "codex", label: id, homeDir: join(home, id) }),
       );
+    }
     const service = new AccountService({ registry, now: () => now, timeZone: "UTC", env: {} });
     const pushed: unknown[] = [];
     const stop = service.subscribeQuota((account) => pushed.push(account));

@@ -81,16 +81,22 @@ export class IdleWorker extends EventEmitter {
       this.stopping = new Promise<void>((resolve) => {
         this.resumeRestart = resolve;
         this.cancelRestart = this.runtime.delay(resolve, delay);
-      }).then(() => {
-        this.stopping = undefined;
-        this.cancelRestart = undefined;
-        this.resumeRestart = undefined;
-        if (this.closing) return;
-        const deferred = this.deferred.splice(0);
-        if (!deferred.length) return;
-        this.start();
-        for (const call of deferred) this.worker?.postMessage(call.message, call.transfer);
-      });
+      })
+        .then(() => {
+          this.stopping = undefined;
+          this.cancelRestart = undefined;
+          this.resumeRestart = undefined;
+          if (this.closing) return;
+          const deferred = this.deferred.splice(0);
+          if (!deferred.length) return;
+          this.start();
+          for (const call of deferred) this.worker?.postMessage(call.message, call.transfer);
+        })
+        .catch((error: unknown) => {
+          this.stopping = undefined;
+          this.deferred = [];
+          this.emit("error", error instanceof Error ? error : new Error("Worker restart failed"));
+        });
       this.emit("exit", code);
     });
   }

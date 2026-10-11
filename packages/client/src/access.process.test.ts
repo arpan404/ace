@@ -1,7 +1,16 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "vitest";
 import { AccessClient } from "./index.ts";
+import { accessTicket, type AccessOptions } from "./access.ts";
 import { setup } from "./test-support.ts";
+
+const ticketClients = [
+  { name: "access client", create: (options: AccessOptions) => new AccessClient(options) },
+  {
+    name: "ticket exchange",
+    create: (options: AccessOptions) => ({ ticket: () => accessTicket(options) }),
+  },
+];
 
 test("HTTP access reads devices, issues a ticket and revokes it without durable commands or URL credentials", async () => {
   const f = await setup();
@@ -21,6 +30,9 @@ test("HTTP access reads devices, issues a ticket and revokes it without durable 
   try {
     expect(await access.devices()).toContainEqual(paired.device);
     expect(await phone.ticket()).toMatchObject({ ticket: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    expect(await accessTicket({ origin, token: async () => paired.token, fetch })).toMatchObject({
+      ticket: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
     expect(await access.revoke(paired.device.id)).toEqual({ revoked: true });
     await expect(phone.ticket()).rejects.toMatchObject({ code: "auth", message: "HTTP 401" });
     expect(urls.every((url) => !url.includes(token) && !url.includes(paired.token))).toBe(true);
@@ -47,10 +59,14 @@ test("access rejects remote cleartext and embedded URL credentials before any ne
   ).toThrow("Trusted HTTPS");
 });
 
-test.each([401, 403, 429, 500, 503])(
-  "ticket HTTP %s chooses re-pairing only for denied credentials",
-  async (status) => {
-    const access = new AccessClient({
+test.each(
+  ticketClients.flatMap(({ name, create }) =>
+    [401, 403, 429, 500, 503].map((status) => ({ name, create, status })),
+  ),
+)(
+  "$name HTTP $status chooses re-pairing only for denied credentials",
+  async ({ status, create }) => {
+    const access = create({
       origin: "https://computer.test/",
       token: async () => "a".repeat(64),
       fetch: async () => new Response("{}", { status }),
@@ -60,8 +76,8 @@ test.each([401, 403, 429, 500, 503])(
     });
   },
 );
-test("a network failure during ticket exchange remains retryable", async () => {
-  const access = new AccessClient({
+test.each(ticketClients)("a network failure during $name remains retryable", async ({ create }) => {
+  const access = create({
     origin: "https://computer.test/",
     token: async () => "a".repeat(64),
     fetch: async () => {
@@ -91,3 +107,19 @@ test("a pairing request that never responds expires and can be retried", async (
   pending = false;
   await expect(access.redeem("a".repeat(32), "Laptop")).rejects.toMatchObject({ code: "auth" });
 });
+
+test.each(ticketClients)(
+  "$name validates the ticket response and bounds HTTP body reads",
+  async ({ create }) => {
+    for (const body of ['{"ticket":"not-a-ticket"}', " ".repeat(1_048_577)]) {
+      const access = create({
+        origin: "https://computer.test/",
+        token: async () => "a".repeat(64),
+        fetch: async () => new Response(body),
+      });
+      await expect(access.ticket()).rejects.toMatchObject(
+        body.length > 1_048_576 ? { code: "limit" } : { name: "ZodError" },
+      );
+    }
+  },
+);

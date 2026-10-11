@@ -589,8 +589,8 @@
       "sha256": "e15c399d53b52f6bcc59387d8e4bb2b7db84df100ecc1c4da4376f0226ecd639"
     },
     "schema/DeviceCredential.json": {
-      "bytes": 378,
-      "sha256": "bc5ed7c82522343da67494614a6946163ec08818c1af24969cfbfc1a43e9b742"
+      "bytes": 383,
+      "sha256": "bfefc4bae05099ebab3859106a430e821a44f5bf011f9a0b6bd6f5d90d4e7d5b"
     },
     "schema/DeviceFailure.json": {
       "bytes": 885,
@@ -635,6 +635,10 @@
     "schema/DeviceState.json": {
       "bytes": 1632,
       "sha256": "8c933e84f8fd6e9a824c8a0fa3f9430940e4dd52b50c55f1da3295cbc1ef6d7f"
+    },
+    "schema/DeviceToken.json": {
+      "bytes": 174,
+      "sha256": "6d4c6a99f9c9d415bd8aea666249ba68626a8fc9b602405ac389344f95962e00"
     },
     "schema/DiagnosticCheck.json": {
       "bytes": 561,
@@ -2985,10 +2989,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 664555,
-      "sha256": "1a0cf815ca5e1d2e70f9e24b9b42859af4fa536bab9be31b96fd4f0addb61dbe"
+      "bytes": 663033,
+      "sha256": "de85fd231a4a163f0589219f9b81922a5b3e6eca0f26b2e6a38d8a3d1e8a1202"
     }
   },
-  "input": "287c92d197a9045737c9785f878b19ba9ee38f9c79691c29be342914aee135e7",
+  "input": "e83499601410b0fcdf9b56dab69af8d0c3081b1c6c6e25e8d6abf7496dd8ebbd",
   "version": 1
 }

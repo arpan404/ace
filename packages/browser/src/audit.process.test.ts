@@ -1,6 +1,7 @@
 import { once } from "node:events";
 import { expect, it } from "vitest";
 import { backendFixture } from "./backend-test-support.ts";
+import { connectBrowser } from "./index.ts";
 import { BrowserBackendRequest } from "@ace/protocol";
 import type { NavigationClock } from "./navigation.ts";
 
@@ -279,4 +280,38 @@ it("a visible native page reduces Chromium capture and a remote viewer restores 
   expect(BrowserBackendRequest.parse(remoteRequest)).toMatchObject({
     operation: { kind: "cdp", params: { everyNthFrame: 1 } },
   });
+});
+
+it("a read-only paired viewer can Find and read selection without taking control", async () => {
+  const f = await native();
+  let result: unknown;
+  const channel = connectBrowser(f.service, {
+    connectionId: "reader",
+    authorize: (_thread, _workspace, access) => access === "read",
+    send(message) {
+      result = message;
+      return true;
+    },
+  });
+  try {
+    for (const command of [{ action: "find_text", text: "marker" }, { action: "selection" }]) {
+      await channel.handle({
+        type: "browser.execute",
+        requestId: "read",
+        threadId: "thread",
+        command,
+      });
+      expect(result).toMatchObject({ ok: true });
+    }
+    expect(f.service.state("thread").controller).toBe("agent");
+    await channel.handle({
+      type: "browser.execute",
+      requestId: "write",
+      threadId: "thread",
+      command: { action: "press", key: "a" },
+    });
+    expect(result).toMatchObject({ ok: false, error: "Browser thread access denied" });
+  } finally {
+    channel.close();
+  }
 });

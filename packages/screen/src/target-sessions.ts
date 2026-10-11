@@ -206,7 +206,7 @@ export class TargetSessions {
       }
       if (session?.failureCleanup) await session.failureCleanup;
       if (session?.stopping) await session.stopping;
-      if (helper && this.sessions.size <= (session ? 1 : 0)) await this.host.close();
+      if (helper && this.sessions.size === 0 && this.starting === 1) await this.host.close();
       if (session) {
         session.state = terminated(session.state);
         this.emit(session);

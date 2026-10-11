@@ -606,6 +606,10 @@ it("an unapproved Simulator streams to a person while computer use stays off and
   client.watchFrames(deviceId, async (frame) => {
     shown.push(Buffer.from(frame.payload).toString());
   });
+  expect(await client.request({ op: "permissions" })).toEqual({
+    screenRecording: true,
+    accessibility: true,
+  });
   await client.request({ op: "start", deviceId, fps: 10 });
   await client.request({ op: "subscribe", deviceId });
   await waitFor(() => expect(shown).toContain("simulator:home"));

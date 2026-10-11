@@ -1,8 +1,11 @@
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
 import { useLayout } from "@/lib/layout.tsx";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 
 // The sheet, the search source and its results list load the first time search opens.
-const SearchDialog = lazy(() => import("./search-dialog.tsx"));
+const SearchDialog = deferredComponent(() =>
+  import("./search-dialog.tsx").then((module) => module.default),
+);
 
 /** The search dialog over any screen, while the layout says it is open (`openSearch`). */
 export function SearchHost() {
@@ -13,7 +16,11 @@ export function SearchHost() {
   if (!used) return null;
   return (
     <Suspense fallback={null}>
-      <SearchDialog open={search !== undefined} query={search?.query ?? ""} onClose={closeSearch} />
+      <SearchDialog.Component
+        open={search !== undefined}
+        query={search?.query ?? ""}
+        onClose={closeSearch}
+      />
     </Suspense>
   );
 }

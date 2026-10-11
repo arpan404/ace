@@ -30,6 +30,18 @@ export class RemoteTaskJournal {
       )
       .map((row) => RemoteTask.parse(JSON.parse(z.string().parse(row.record))));
   }
+  /** Delivered cancellation warnings still need a bounded query for the target's sealed answer. */
+  reconciling(now: number): RemoteTask[] {
+    return this.store
+      .atomic((db) =>
+        db
+          .prepare(`SELECT record FROM remote_agent_tasks WHERE terminal=1
+      AND json_extract(record,'$.phase')='failed' AND json_extract(record,'$.cancellingAt') IS NOT NULL
+      AND json_extract(record,'$.result') IS NULL AND json_extract(record,'$.finishedAt')>? ORDER BY id LIMIT 64`)
+          .all(now - 7 * 24 * 60 * 60 * 1000),
+      )
+      .map((row) => RemoteTask.parse(JSON.parse(z.string().parse(row.record))));
+  }
   save(task: RemoteTask) {
     this.store.atomic((db) =>
       db

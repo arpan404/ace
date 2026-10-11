@@ -26,7 +26,7 @@ test("support export excludes conversations by default and downloads the chosen 
   await app.open("/settings/advanced");
   for (const include of [false, true]) {
     downloaded.length = 0;
-    await userEvent.click(await screen.findByRole("button", { name: "Export support bundle…" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Export" }));
     const dialog = await screen.findByRole("dialog", { name: "Export support bundle" });
     const checkbox = within(dialog).getByRole("checkbox", { name: "Include conversations" });
     if (include) await userEvent.click(checkbox);
@@ -70,7 +70,7 @@ test("a failed check offers a retry and a failed export keeps the dialog open", 
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run checks" }).disabled).toBe(
     false,
   );
-  await userEvent.click(screen.getByRole("button", { name: "Export support bundle…" }));
+  await userEvent.click(screen.getByRole("button", { name: "Export" }));
   const dialog = await screen.findByRole("dialog", { name: "Export support bundle" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Export" }));
   expect(await within(dialog).findByRole("alert")).toHaveProperty(

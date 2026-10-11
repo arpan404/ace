@@ -172,7 +172,7 @@ test.each(recordings)(
           ? ":read-only"
           : adapter.provider === "claude"
             ? "default"
-            : "ask",
+            : null,
       );
       expect(view.thread.status.state).toBe("needs_you");
       const result = h.command({

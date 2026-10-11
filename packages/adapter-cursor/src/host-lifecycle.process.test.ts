@@ -36,44 +36,47 @@ for await (const line of createInterface({input:process.stdin})) {
   }
 });
 
-test("a terminal SDK error lets the next input use the surviving Cursor session", async () => {
-  const { openCursorSession } = await import("./index.ts");
-  const { ThreadId } = await import("@ace/protocol");
-  const home = await mkdtemp(join(tmpdir(), "ace-cursor-terminal-"));
-  const entry = join(home, "host.mjs");
-  await writeFile(
-    entry,
-    `import {createInterface} from 'node:readline';
+test.each([true, false])(
+  "a Cursor error permits reuse only with authoritative terminal evidence: settled=%s",
+  async (settled) => {
+    const { openCursorSession } = await import("./index.ts");
+    const { ThreadId } = await import("@ace/protocol");
+    const home = await mkdtemp(join(tmpdir(), "ace-cursor-terminal-"));
+    const entry = join(home, "host.mjs");
+    await writeFile(
+      entry,
+      `import {createInterface} from 'node:readline';
 const write=data=>process.stdout.write(JSON.stringify(data)+'\\n');let sends=0;
 for await(const line of createInterface({input:process.stdin})) {
  const req=JSON.parse(line);
  if(req.method==='open')write({id:req.id,result:{agentId:'agent'}});
  else if(req.method==='send' && ++sends===1) {
-  write({method:'frame',params:{schemaVersion:1,generation:'test',agentId:'agent',operationId:req.params.operationId,segment:0,kind:'error',body:{message:'Temporary run failure'}}});
+  write({method:'frame',params:{schemaVersion:1,generation:'test',agentId:'agent',operationId:req.params.operationId,segment:0,kind:'error',body:{message:'Temporary run failure',settled:${settled}}}});
   write({id:req.id,error:{message:'Temporary run failure'}});
  }else if(req.method==='close')write({id:req.id,result:{}});
  else write({id:req.id,result:{}});
 }`,
-  );
-  const session = await openCursorSession(
-    {
-      threadId: ThreadId.parse("recoverable"),
-      cwd: home,
-      signal: new AbortController().signal,
-      onFrame: () => {},
-      onExit: () => {},
-    },
-    { entry, env: { HOME: home }, instanceId: "account", generation: () => "test" },
-  );
-  try {
-    await expect(
-      session.send([{ type: "text", text: "first" }], "queue", "first"),
-    ).rejects.toThrow();
-    await expect(
-      session.send([{ type: "text", text: "second" }], "queue", "second"),
-    ).resolves.toBeUndefined();
-  } finally {
-    await session.close("shutdown");
-    await rm(home, { recursive: true, force: true });
-  }
-});
+    );
+    const session = await openCursorSession(
+      {
+        threadId: ThreadId.parse("recoverable"),
+        cwd: home,
+        signal: new AbortController().signal,
+        onFrame: () => {},
+        onExit: () => {},
+      },
+      { entry, env: { HOME: home }, instanceId: "account", generation: () => "test" },
+    );
+    try {
+      await expect(
+        session.send([{ type: "text", text: "first" }], "queue", "first"),
+      ).rejects.toThrow();
+      const next = session.send([{ type: "text", text: "second" }], "queue", "second");
+      if (settled) await expect(next).resolves.toBeUndefined();
+      else await expect(next).rejects.toThrow("uncertain");
+    } finally {
+      await session.close("shutdown");
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);

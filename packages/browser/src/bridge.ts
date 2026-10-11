@@ -26,6 +26,8 @@ function requiredAccess(message: BrowserClientMessage): BrowserAccess {
       "find",
       "network_body",
       "navigation_history",
+      "find_text",
+      "selection",
     ].includes(message.command.action)
   )
     return "read";

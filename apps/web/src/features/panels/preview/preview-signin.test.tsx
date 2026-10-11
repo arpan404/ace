@@ -9,8 +9,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function openPreview() {
-  const app = harness();
+async function openPreview(app = harness()) {
   app.play(failingSubagent()).step();
   await app.open("/t/thread-settings");
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
@@ -22,18 +21,14 @@ async function openPreview() {
 /** A dev server the daemon previews, shown in the Preview tab. */
 async function showServer() {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response());
-  const opened = await openPreview();
-  act(() =>
-    opened.browser.serve("thread-settings", {
-      port: 3000,
-      origin: "http://localhost:3000",
-      name: "api",
-      source: "listener",
-    }),
-  );
-  await userEvent.click(within(opened.panel).getByRole("tab", { name: /^Changes/ }));
-  await userEvent.click(within(opened.panel).getByRole("tab", { name: "Preview" }));
-  return opened;
+  const app = harness();
+  app.daemon.browser.serve("thread-settings", {
+    port: 3000,
+    origin: "http://localhost:3000",
+    name: "api",
+    source: "listener",
+  });
+  return openPreview(app);
 }
 
 /** What the gateway's refusal page in the frame posts to ace. */
@@ -69,7 +64,7 @@ test("a port the daemon won't preview says why, not just that it couldn't", asyn
   );
 });
 
-test("a preview the daemon won't sign in shows its reason, and Reload signs in again", async () => {
+test("a preview the daemon won't sign in shows its reason, and Retry signs in again", async () => {
   const { promise: probed, resolve: responded } = Promise.withResolvers<void>();
   const server = createServer((_request, response) => {
     response.end("<h1>Ready</h1>", responded);
@@ -86,18 +81,15 @@ test("a preview the daemon won't sign in shows its reason, and Reload signs in a
   if (!address || typeof address === "string") throw new Error("Missing test server address");
   const origin = `http://127.0.0.1:${address.port}`;
   const title = `Preview of ${origin}`;
-  const opened = await openPreview();
-  opened.browser.refusePreviews("forbidden");
-  act(() =>
-    opened.browser.serve("thread-settings", {
-      port: address.port,
-      origin,
-      name: "api",
-      source: "listener",
-    }),
-  );
-  await userEvent.click(within(opened.panel).getByRole("tab", { name: /^Changes/ }));
-  await userEvent.click(within(opened.panel).getByRole("tab", { name: "Preview" }));
+  const app = harness();
+  app.daemon.browser.refusePreviews("forbidden");
+  app.daemon.browser.serve("thread-settings", {
+    port: address.port,
+    origin,
+    name: "api",
+    source: "listener",
+  });
+  const opened = await openPreview(app);
   const failure = await within(opened.panel).findByRole("alert");
   expect(
     within(failure).getByRole("heading", { name: "This device can't open previews" }),
@@ -105,7 +97,7 @@ test("a preview the daemon won't sign in shows its reason, and Reload signs in a
   expect(within(opened.panel).queryByTitle(title)).toBeNull();
 
   opened.browser.refusePreviews(undefined);
-  await userEvent.click(within(failure).getByRole("button", { name: "Reload" }));
+  await userEvent.click(within(failure).getByRole("button", { name: "Retry" }));
   expect(await within(opened.panel).findByTitle(title)).toBeTruthy();
   await probed;
   await waitFor(() => expect(within(opened.panel).queryByRole("alert")).toBeNull());
@@ -153,7 +145,8 @@ test("Open in your browser signs a new tab in at the click, and a refusal closes
 
   browser.refusePreviews("forbidden");
   await userEvent.click(within(panel).getByRole("button", { name: "Open in your browser" }));
-  expect(await screen.findByText("Couldn't open the page")).toBeTruthy();
-  expect(screen.getByText(/This device can't open previews/)).toBeTruthy();
+  await screen.findByRole("heading", { name: "Couldn't open the page" });
+  const notices = await screen.findByRole("region", { name: "Notifications" });
+  expect(within(notices).getByText(/This device can't open previews/)).toBeTruthy();
   expect(tab.close).toHaveBeenCalledTimes(1);
 });

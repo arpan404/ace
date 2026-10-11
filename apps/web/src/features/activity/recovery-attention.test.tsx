@@ -6,6 +6,28 @@ import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 afterEach(() => vi.unstubAllGlobals());
 
+test("the automatic recovery detail advances when another device releases its hold", async () => {
+  const app = harness();
+  seedRealThreadState(app.daemon);
+  app.daemon.updateThread("legacy-model", { execution: undefined });
+  await app.open("/activity");
+  const main = await screen.findByRole("main");
+  const first = await within(main).findByRole("link");
+  const name = first.getAttribute("aria-label");
+  const id = first.getAttribute("href")?.split("/").at(-1);
+  if (!id || !name) throw new Error("No recovery detail");
+  const queue = await app.client.request({ type: "queue.get", threadId: ThreadId.parse(id) });
+  await act(() =>
+    app.client.command({
+      type: "queue.resume",
+      threadId: queue.queue.threadId,
+      expectedRevision: queue.queue.revision,
+    }),
+  );
+  await waitFor(() => expect(within(main).queryByRole("link", { name })).toBeNull());
+  expect(await within(main).findByRole("link")).toBeTruthy();
+});
+
 test("Needs you lists model selection, restart holds and failed sends and removes released holds", async () => {
   const app = harness();
   seedRealThreadState(app.daemon);
@@ -13,7 +35,7 @@ test("Needs you lists model selection, restart holds and failed sends and remove
     execution: { provider: "opencode", model: "removed/model", options: {} },
   });
   await app.open("/activity");
-  const main = await screen.findByRole("main");
+  const main = await screen.findByRole("complementary", { name: "Activity" });
   expect(
     await within(main).findAllByRole("link", { name: "Fix the model selection: Pick a model" }),
   ).not.toHaveLength(0);
@@ -110,7 +132,7 @@ test("Needs you includes a locally failed send and an unavailable selection with
       ),
     ).rejects.toMatchObject({ code: "storage" });
   });
-  const main = await screen.findByRole("main");
+  const main = await screen.findByRole("complementary", { name: "Activity" });
   expect(
     await within(main).findAllByRole("link", { name: "Save my next message: Not sent" }),
   ).not.toHaveLength(0);

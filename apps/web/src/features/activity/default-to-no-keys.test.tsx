@@ -108,7 +108,7 @@ test("in the thread, a number key can deny a request that defaults to no but nev
   const app = harness();
   app.play(asking("truncate-logs", "Truncate the audit log?", true)).runUntilBlocked();
   await app.open("/t/thread-truncate-logs");
-  const card = await openActivityRequest("Truncate the audit log?");
+  const card = await screen.findByRole("article", { name: "Truncate the audit log?" });
   const allow = within(card).getByRole("button", { name: "Allow once" });
   const deny = within(card).getByRole("button", { name: "Deny" });
   expect(allow.getAttribute("aria-keyshortcuts")).toBeNull();
@@ -134,7 +134,7 @@ test("in the thread, a number key approves an ordinary request", async () => {
   const app = harness();
   app.play(asking("vacuum", "Vacuum the database?", false)).runUntilBlocked();
   await app.open("/t/thread-vacuum");
-  const card = await openActivityRequest("Vacuum the database?");
+  const card = await screen.findByRole("article", { name: "Vacuum the database?" });
   await focusIn(within(card).getByRole("button", { name: "Deny" }));
 
   await userEvent.keyboard("1");

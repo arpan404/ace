@@ -207,7 +207,8 @@ createInterface({input:process.stdin}).on('line', line => {
     await models.refresh();
     await models.reconcileConnections();
     const warnings = records.parse(log.recent().map((line) => JSON.parse(line)));
-    expect(warnings).toHaveLength(2);
+    // The same failed metadata generation is cooled down across both public operations.
+    expect(warnings).toHaveLength(1);
     for (const warning of warnings) {
       expect(warning).toMatchObject({
         message: "Model discovery failed",

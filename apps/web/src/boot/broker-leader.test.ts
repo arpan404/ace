@@ -53,3 +53,31 @@ test("a browser without leader coordination does not start competing broker poll
     await browser.close();
   }
 });
+
+test("a forbidden leader releases its lock so an authorized standby can serve", async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const context = await browser.newContext();
+    await context.route("http://localhost/", (route) => route.fulfill({ body: "<html></html>" }));
+    const denied = await context.newPage();
+    const authorized = await context.newPage();
+    await Promise.all([denied.goto("http://localhost/"), authorized.goto("http://localhost/")]);
+    await denied.evaluate((source) => {
+      const start = new Function(`return (${source})`)();
+      start(navigator.locks, "shared-computer", (yieldLeadership: () => void) => {
+        Object.assign(globalThis, { rejectRegistration: yieldLeadership });
+        return () => Object.assign(globalThis, { deniedStopped: true });
+      });
+    }, brokerLeader.toString());
+    await denied.waitForFunction(() => Reflect.has(globalThis, "rejectRegistration"));
+    await authorized.evaluate(install, brokerLeader.toString());
+    await authorized.waitForFunction(
+      async () => (await navigator.locks.query()).pending?.length === 1,
+    );
+    await denied.evaluate(() => Reflect.get(globalThis, "rejectRegistration")());
+    await authorized.waitForFunction(() => Reflect.get(globalThis, "windowState").polls === 1);
+    expect(await denied.evaluate(() => Reflect.get(globalThis, "deniedStopped"))).toBe(true);
+  } finally {
+    await browser.close();
+  }
+});

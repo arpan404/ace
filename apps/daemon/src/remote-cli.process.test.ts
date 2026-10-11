@@ -11,8 +11,6 @@ import { nodeBinary } from "@ace/provider-kit/testing";
 import { accessRequest, redeemPairing } from "./client-access.ts";
 import { lanAddress, refusesTcp } from "./network-test-support.ts";
 import { scanTerminalQr } from "./qr-test-support.ts";
-import { readConfig } from "./config.ts";
-import { startDaemon } from "./index.ts";
 import { copyTlsFixture, daemonCli, launchDaemon } from "./process-test-support.ts";
 import { Client } from "./socket-test-support.ts";
 
@@ -189,13 +187,18 @@ it("prints actionable Tailscale setup guidance without silently exposing the LAN
     "tailscale",
     `console.log(JSON.stringify({ BackendState: 'Stopped', TailscaleIPs: [] }));`,
   );
-  await expect(
-    cli(directory, ["start"], { ...envFor(directory), ACE_LISTEN: "tailscale", PATH: directory }),
-  ).rejects.toThrow("Start Tailscale");
-  // A failed network setup releases the startup lock.
-  const daemon = await startDaemon({
-    config: readConfig({ ACE_HOME: directory, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+  const { child, exited, ready } = launchDaemon(
+    { ...envFor(directory), ACE_LISTEN: "tailscale", PATH: directory, ACE_LOG_LEVEL: "warn" },
+    /ace daemon:/,
+    cleanups,
+  );
+  await ready;
+  const status = JSON.parse((await cli(directory, ["status"])).stdout);
+  expect(status).toMatchObject({
+    running: true,
+    remote: null,
+    remoteAccess: { enabled: false, error: expect.stringContaining("Start Tailscale") },
   });
-  cleanups.push(() => daemon.close());
-  expect(daemon.remoteUrl).toBeUndefined();
+  child.kill("SIGTERM");
+  expect((await exited)[0]).toBe(0);
 });

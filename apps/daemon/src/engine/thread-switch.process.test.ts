@@ -315,6 +315,9 @@ test("failed configuration and rollback prevent turns on an uncertain native ses
   });
   follow(h, id);
   await h.engine.flush();
-  expect(h.inputs).toHaveLength(sent);
+  expect(h.inputs).toHaveLength(sent + 1);
   expect(h.sessions[0]?.closed).toBe(true);
+  expect(h.sessions.at(-1)).not.toBe(h.sessions[0]);
+  expect(h.sessions.at(-1)?.context.resume?.nativeSessionId).toBe(h.sessions[0]?.nativeId);
+  expect(h.inputs.at(-1)?.model).toBe("model-a");
 });

@@ -54,9 +54,11 @@ test("filters keep a search to messages, tool output, commands, files or errors"
   const bar = await search(user, "validation failed");
   await within(bar).findByText("1 result");
 
-  await user.click(within(bar).getByRole("button", { name: "Messages" }));
+  await user.click(within(bar).getByRole("combobox", { name: "Search in" }));
+  await user.click(await screen.findByRole("option", { name: "Messages" }));
   expect(await within(bar).findByText("Nothing in this thread matches.")).toBeTruthy();
-  await user.click(within(bar).getByRole("button", { name: "Tool output" }));
+  await user.click(within(bar).getByRole("combobox", { name: "Search in" }));
+  await user.click(await screen.findByRole("option", { name: "Tool output" }));
   expect(await within(bar).findByText("1 result")).toBeTruthy();
 
   await user.keyboard("{Escape}");

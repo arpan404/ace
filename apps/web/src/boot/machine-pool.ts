@@ -81,6 +81,7 @@ export function browserMachinePool(options: {
   const directory = new MachineDirectory(
     directoryStorage(options.storage),
     machineSecrets(options.storage, options.session ?? sessionStorage),
+    (work) => (navigator.locks ? navigator.locks.request("ace-machine-directory", work) : work()),
   );
   return new MachinePool({
     directory,

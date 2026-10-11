@@ -10,6 +10,7 @@ import { computerUseTools, computerUseSchemas, computerUseHandler } from "./tool
 function resultMetadata(state: ScreenState) {
   return {
     "ace/screen": {
+      sessionId: state.sessionId,
       mode: state.mode,
       ...(state.target.kind !== "display"
         ? {
@@ -111,7 +112,7 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
               const observing =
                 name === "screen_measure_interaction" &&
                 computerUseSchemas.screen_measure_interaction.parse(args).action === undefined;
-              const sessionId = observing
+              let sessionId = observing
                 ? manager.measurementSession(caller, selected.sessionId)
                 : manager.agentSession(caller, selected.sessionId);
               selectedSession = sessionId;
@@ -133,6 +134,12 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
                 signal,
               )(name, actionArgs);
               signal.throwIfAborted();
+              if (name === "screen_select_window") {
+                sessionId = z
+                  .object({ "ace/screen": z.object({ sessionId: ScreenId }) })
+                  .parse(result["_meta"])["ace/screen"].sessionId;
+                selectedSession = sessionId;
+              }
               if (observing) manager.measurementSession(caller, sessionId);
               else manager.agentSession(caller, sessionId);
               const state = manager.state(sessionId);

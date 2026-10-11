@@ -82,6 +82,9 @@ export async function bindMcpSession(
     const setModel = session.setModel?.bind(session);
     const setMode = session.setMode?.bind(session);
     return {
+      get sessionConfirmed() {
+        return session.sessionConfirmed ?? true;
+      },
       get nativeSessionId() {
         return session.nativeSessionId;
       },

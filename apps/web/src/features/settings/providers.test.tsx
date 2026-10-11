@@ -48,7 +48,7 @@ test("a provider's row opens its page, with its accounts, models and facts; Back
   expect(within(about).getByText("/opt/homebrew/bin/claude")).toBeTruthy();
   const accounts = await screen.findByRole("list", { name: "Claude Code accounts" });
   expect(within(accounts).getByText("Your CLI login")).toBeTruthy();
-  expect(within(accounts).queryByText("Signed in")).toBeNull();
+  expect(within(accounts).getByText("Signed in")).toBeTruthy();
   expect(within(accounts).getByText("Work")).toBeTruthy();
   // Sign out is on the page, apart from everything else.
   await userEvent.click(within(accounts).getByRole("button", { name: "Manage Personal" }));

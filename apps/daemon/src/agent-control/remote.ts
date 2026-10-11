@@ -213,7 +213,7 @@ export class RemoteDelegations {
   poll(session: string, lease: string): RemoteTask[] | undefined {
     if (!this.owns(session, lease)) return undefined;
     return this.store.atomic(() =>
-      this.journal.active().map((task) => {
+      [...this.journal.active(), ...this.journal.reconciling(this.now())].map((task) => {
         this.revalidate(task);
         if (remoteTerminal(task)) {
           this.finish(task);
@@ -237,6 +237,7 @@ export class RemoteDelegations {
     return this.store.atomic(() => {
       const task = this.journal.get(report.taskId);
       if (!task || !task.dispatched) return undefined;
+      if (!remoteTerminal(task)) this.revalidate(task);
       if (remoteTerminal(task)) {
         // A sealed answer may arrive after a cancellation deadline or failed admission report.
         // Keep the terminal fence, but deliver that first answer even if failure was already sent.
@@ -256,7 +257,6 @@ export class RemoteDelegations {
         this.finish(task);
         return task;
       }
-      this.revalidate(task);
       if (
         task.phase !== "cancelling" &&
         ["completed", "failed"].includes(report.phase) &&
@@ -329,7 +329,12 @@ export class RemoteDelegations {
     if (!remoteTerminal(task) || task.delivered) return;
     task.finishedAt ??= this.now();
     this.journal.save(task);
-    if ((this.deliveryRetry.get(task.id) ?? 0) > this.now()) return;
+    if (
+      (this.deliveryRetry.get(task.id) ?? 0) > this.now() &&
+      !this.local.journal.stopped(task.parentThreadId) &&
+      !this.local.journal.ancestorStopped(task.parentThreadId)
+    )
+      return;
     try {
       this.store.atomic(() => {
         const parent = this.store.getThread(task.parentThreadId);
@@ -337,7 +342,11 @@ export class RemoteDelegations {
           this.engine.remoteDelegation(task);
           // Results are context on the originating host, with explicit remote identity.
           if (this.waiters.has(task.id)) return;
-          if (task.phase !== "cancelled" || task.result !== undefined) {
+          if (
+            !this.local.journal.stopped(parent.id) &&
+            !this.local.journal.ancestorStopped(parent.id) &&
+            (task.phase !== "cancelled" || task.result !== undefined)
+          ) {
             const answer =
               ["failed", "cancelled"].includes(task.phase) && task.result !== undefined
                 ? ":answer"

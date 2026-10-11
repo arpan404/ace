@@ -90,7 +90,7 @@ function model(
     instance,
     // ACP rows carry the source identity a thread starts with.
     ...(provider === "acp"
-      ? { acpAgentId: "Gemini CLI", installationId: "installed", instanceId: instance }
+      ? { acpAgentId: "official:gemini", installationId: "installed", instanceId: instance }
       : {}),
     nativeModelId: id,
     contextWindow: extra.contextWindow,

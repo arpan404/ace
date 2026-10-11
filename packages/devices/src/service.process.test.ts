@@ -201,7 +201,18 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
       });
       const owned = native;
       captureEntered.resolve();
-      if (captureGate) await captureGate.promise;
+      if (captureGate) {
+        if (cancelCapture) {
+          const cancelled = Promise.withResolvers<void>();
+          const abort = () => cancelled.resolve();
+          options.signal?.addEventListener("abort", abort, { once: true });
+          try {
+            await Promise.race([captureGate.promise, cancelled.promise]);
+          } finally {
+            options.signal?.removeEventListener("abort", abort);
+          }
+        } else await captureGate.promise;
+      }
       if (cancelCapture && options.signal?.aborted) {
         await owned.stop({ graceMs: 0 });
         throw new DOMException("Capture startup cancelled", "AbortError");
@@ -246,6 +257,7 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
     service.request(DeviceOperation.parse(raw), actor);
   return {
     service,
+    platform,
     frameDeadline,
     skipFirstFrame() {
       firstFrame = false;
@@ -279,8 +291,8 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
       inventoryGate = deferred<void>();
       return inventoryGate;
     },
-    deadlines() {
-      for (const run of timers.keys()) run();
+    deadlines(budget?: number) {
+      for (const [run, at] of timers) if (budget === undefined || at - now === budget) run();
     },
     nativeStarted() {
       return native !== undefined;
@@ -600,7 +612,7 @@ describe("in-app device ownership", () => {
     const gate = h.blockInventory();
     const starting = h.request({ op: "start", deviceId });
     await h.inventoryEntered.promise;
-    h.deadlines();
+    h.deadlines(10_000);
     gate.resolve();
     await starting;
     expect((await h.service.screenshot(deviceId, human)).payload.toString()).toBe("jpeg-0");
@@ -1203,4 +1215,88 @@ it("excess log readers are refused while existing readers can still stop cleanly
   );
   for (const reader of readers) await h.request({ op: "logs.stop", deviceId }, reader);
   await h.logExit();
+});
+
+it("capture opening expires separately and terminates its stalled native process", async () => {
+  const h = await harness(false, true);
+  await approve(h);
+  const gate = h.blockCapture();
+  const rejected = expect(h.request({ op: "start", deviceId })).rejects.toMatchObject({
+    code: "timeout",
+    message: "The live view did not open",
+  });
+  try {
+    await h.captureEntered.promise;
+    h.time(30_000);
+    h.deadlines();
+    await rejected;
+    expect((await h.nativeExit()).reason).toBe("stopped");
+    expect(h.service.states()[0]).toMatchObject({ lifecycle: "failed" });
+  } finally {
+    gate.resolve();
+  }
+});
+
+it("a failed agent log start does not retain the later human stream", async () => {
+  const h = await harness();
+  await approve(h);
+  const logs = h.platform.logs.bind(h.platform);
+  h.platform.logs = async () => {
+    throw new Error("Fixture discovery failed");
+  };
+  await expect(h.request({ op: "logs", deviceId, limit: 10 }, agent)).rejects.toThrow(
+    "Fixture discovery failed",
+  );
+  h.platform.logs = logs;
+  await h.request({ op: "logs.start", deviceId });
+  await h.request({ op: "logs.stop", deviceId });
+  expect((await h.logExit()).reason).toBe("stopped");
+});
+
+it("a supported long agent typing request stays live for six minutes through MCP", async () => {
+  const h = await harness();
+  await delegate(h);
+  let now = 0;
+  const timers = new Set<{ at: number; run(): void }>();
+  const registry = new ToolRegistry({
+    scheduler: {
+      after(ms, run) {
+        const timer = { at: now + ms, run };
+        timers.add(timer);
+        return () => {
+          timers.delete(timer);
+        };
+      },
+    },
+  });
+  devicesToolkit(h.service).register(registry);
+  const credentials = new CredentialRegistry(() => "a".repeat(64));
+  const lease = credentials.issue(
+    {
+      sessionId: "typing-session",
+      threadId: ThreadId.parse("thread-1"),
+      agentId: AgentId.parse("agent-1"),
+      capabilities: ["devices"],
+    },
+    new AbortController().signal,
+  );
+  cleanups.push(async () => lease.end());
+  const gate = h.blockInput();
+  const installing = registry.call(
+    "device_type",
+    { deviceId, text: "x".repeat(4096) },
+    lease.principal,
+    new AbortController().signal,
+  );
+  await h.entered.promise;
+  now = 360000;
+  h.time(now);
+  h.deadlines();
+  for (const timer of timers) if (timer.at <= now) timer.run();
+  gate.resolve();
+  expect(await installing).toMatchObject({
+    content: [{ type: "text", text: '{"completed":true}' }],
+  });
+  expect(h.service.states()[0]?.controller).toBe("agent");
+  expect(h.effects).toEqual(["-s emulator-5554 shell 'input' 'text' '" + "x".repeat(4096) + "'"]);
 });

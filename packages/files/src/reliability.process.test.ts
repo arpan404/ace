@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Worker } from "node:worker_threads";
@@ -281,4 +282,28 @@ test("directory deletion rechecks agent edits after a failed queued write", asyn
   await blocker;
   await deletion;
   expect(await readFile(join(f.root, "dir", "file"), "utf8")).toBe("agent edit");
+});
+
+test("directory deletion refuses a descendant edit made while its preflight finishes", async () => {
+  let edit = false;
+  let path = "";
+  const f = await setup({
+    scheduleTimeout() {
+      return () => {
+        if (edit) {
+          edit = false;
+          writeFileSync(path, "provider edit");
+        }
+      };
+    },
+  });
+  await mkdir(join(f.root, "dir"));
+  path = join(f.root, "dir", "file");
+  await writeFile(path, "before");
+  const expected = await version(f, "dir");
+  edit = true;
+  await expect(
+    f.service.request("writer", { op: "delete", path: "dir", expected }),
+  ).rejects.toMatchObject({ code: "CONFLICT" });
+  expect(await readFile(path, "utf8")).toBe("provider edit");
 });

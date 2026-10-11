@@ -41,17 +41,17 @@ test("with two machines the picker lists both with their status, and ⌘M cycles
   const radios = within(await picker()).getAllByRole("radio");
   await waitFor(() =>
     expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual([
-      "This Mac, connected",
-      "Build server, connected",
+      "This Mac, Connected",
+      "Build server, Connected",
     ]),
   );
-  expect(await checked()).toBe("This Mac, connected");
+  expect(await checked()).toBe("This Mac, Connected");
   await userEvent.keyboard("{Control>}m{/Control}");
-  expect(await checked()).toBe("Build server, connected");
+  expect(await checked()).toBe("Build server, Connected");
   // The folders below follow the chosen machine.
   expect(await option("services")).toBeTruthy();
   await userEvent.keyboard("{Control>}m{/Control}");
-  expect(await checked()).toBe("This Mac, connected");
+  expect(await checked()).toBe("This Mac, Connected");
   expect(await option("code")).toBeTruthy();
 });
 
@@ -65,8 +65,8 @@ test("the picker is reachable with the keyboard and arrows choose a machine", as
     await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
   expect(document.activeElement).toBe(selected);
   await userEvent.keyboard("{ArrowRight}");
-  expect(await checked()).toBe("Build server, connected");
-  expect(document.activeElement?.getAttribute("aria-label")).toBe("Build server, connected");
+  expect(await checked()).toBe("Build server, Connected");
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Build server, Connected");
 });
 
 test("a folder opened on the build server is added there, not on this machine", async () => {
@@ -115,7 +115,7 @@ test("a new project is created on the chosen machine", async () => {
   const { made, build } = twoMachines();
   await addProject(made);
   await userEvent.keyboard("{Control>}2{/Control}{Control>}m{/Control}");
-  expect(await checked()).toBe("Build server, connected");
+  expect(await checked()).toBe("Build server, Connected");
   await userEvent.type(await screen.findByRole("textbox", { name: "Name" }), "jobs");
   expect(await screen.findByText("Creates ~/jobs")).toBeTruthy();
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
@@ -166,7 +166,7 @@ test("a machine that goes away says so and offers nothing to open on it", async 
       "Build server isn't connected. Folders and actions come back once it is.",
     ),
   ).toBeTruthy();
-  expect(await checked()).toMatch(/^Build server, (connecting|offline)$/);
+  expect(await checked()).toMatch(/^Build server, (Connecting|Offline)$/);
   expect(screen.getByRole("button", { name: "Select a folder" }).hasAttribute("disabled")).toBe(
     true,
   );
@@ -183,7 +183,7 @@ test("a chosen machine that leaves the pool stays chosen, so nothing lands on an
   });
   await addProject(made);
   await userEvent.keyboard("{Control>}m{/Control}");
-  expect(await checked()).toBe("Build server, connected");
+  expect(await checked()).toBe("Build server, Connected");
   const search = await screen.findByRole("combobox", { name: "Search folders" });
   await userEvent.type(search, "/srv/app/");
   await option("app");
@@ -222,7 +222,7 @@ test("a path completion that answers after switching machines is dropped", async
   await userEvent.type(search, "~/co");
   await userEvent.keyboard("{Tab}");
   await userEvent.keyboard("{Control>}m{/Control}");
-  expect(await checked()).toBe("Build server, connected");
+  expect(await checked()).toBe("Build server, Connected");
   release();
   // A round trip on This Mac's connection: its completion reply has arrived by now.
   await made.client.projects.home();
@@ -255,9 +255,9 @@ test("Retry after the machine's worker is replaced clones through the new connec
   // The build server's worker dies and a fresh one connects.
   build.restoreRequests();
   made.crashMachine("build");
-  await waitFor(async () => expect(await checked()).toMatch(/^Build server, (offline|connecting)/));
+  await waitFor(async () => expect(await checked()).toMatch(/^Build server, (Offline|Connecting)/));
   made.pool().reconnect("build");
-  await waitFor(async () => expect(await checked()).toBe("Build server, connected"));
+  await waitFor(async () => expect(await checked()).toBe("Build server, Connected"));
 
   await userEvent.click(screen.getByRole("button", { name: "Retry" }));
   await screen.findByRole("progressbar", { name: "Clone progress" });

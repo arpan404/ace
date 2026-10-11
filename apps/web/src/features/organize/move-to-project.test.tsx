@@ -107,11 +107,17 @@ test("a move the daemon refuses puts the row back, with the daemon's reason", as
   await openPicker(/Backpressure/);
   await pickProject("docs");
   // Shown in the new project at once, while the command waits for the connection.
-  expect(card(/^Backpressure on broadcast fan-out.*Project docs-site/)).toBeTruthy();
+  await waitFor(() =>
+    expect(card(/^Backpressure on broadcast fan-out.*Project docs-site/)).toBeTruthy(),
+  );
 
   app.client.networkOnline(true);
-  expect(await screen.findByText("Couldn't move the thread")).toBeTruthy();
-  expect(screen.getByText("Stop its agents and close its terminals first.")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Couldn't move the thread" })).toBeTruthy();
+  expect(
+    within(screen.getByRole("alertdialog")).getByText(
+      "Stop its agents and close its terminals first.",
+    ),
+  ).toBeTruthy();
   await waitFor(() =>
     expect(card(/^Backpressure on broadcast fan-out.*Project relay/)).toBeTruthy(),
   );
@@ -132,7 +138,9 @@ test("a thread in its own worktree is refused with what to do instead", async ()
   await openPicker(/Isolated experiment/);
   await pickProject("docs");
   expect(
-    await screen.findByText("It works in its own worktree. Switch it to the local checkout first."),
+    await within(await screen.findByRole("alertdialog")).findByText(
+      "It works in its own worktree. Switch it to the local checkout first.",
+    ),
   ).toBeTruthy();
   await waitFor(() => expect(card(/^Isolated experiment.*Project relay/)).toBeTruthy());
   expect(listed(app, "thread-isolated")?.workspaceId).toBe("relay");

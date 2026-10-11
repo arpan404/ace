@@ -34,6 +34,7 @@ final class BackgroundSafetyTests: XCTestCase {
     func testBackgroundTrackingMenusRefuseBeforeDispatchButOrdinaryButtonsRemainUsable() throws {
         for role in ["AXPopUpButton", "AXMenuButton", "AXMenuBarItem", "AXMenuItem"] {
             XCTAssertThrowsError(try requireMenuConsent(mode: "background", action: "press", role: role))
+            XCTAssertThrowsError(try requireMenuConsent(mode: "background", action: "performSecondaryAction", role: role, secondary: "AXPress"))
         }
         XCTAssertThrowsError(try requireMenuConsent(mode: nil, action: "performSecondaryAction", secondary: "AXShowMenu"))
         XCTAssertThrowsError(try requireMenuConsent(mode: "background", action: "menu.press"))

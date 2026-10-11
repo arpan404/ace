@@ -140,6 +140,11 @@ async function dispatch(request: ScreenHelperRequest) {
       targets.set(id, request.windowId);
       break;
     case "start":
+      if (
+        request.target.kind !== "display" &&
+        request.target.bundleId === process.env.START_ERROR_BUNDLE
+      )
+        return reply({ code: "target_gone", message: "Fixture start rejected" });
       targets.set(id, request.target.kind === "window" ? request.target.windowId : 0);
       break;
     case "capture":

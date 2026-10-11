@@ -239,7 +239,7 @@ it("notification actions enforce authenticated identity and replay command recei
   });
   expect(errors).toEqual([]);
 });
-it("registration and preferences are bound to the connection and revoked clients cannot reconnect", async () => {
+it("registration and preferences are bound to the connection while notification revocation preserves local authorization", async () => {
   const { client, service, f, desktop, mobile, attached } = await setup();
   client.send({
     type: "notification.register",
@@ -262,9 +262,14 @@ it("registration and preferences are bound to the connection and revoked clients
   await service.revoke(desktop);
   await client.close();
   const again = await f.connect();
-  const closed = once(again.socket, "close");
-  expect(await again.next()).toMatchObject({ type: "error", code: "device_unavailable" });
-  await closed;
+  expect(await again.next()).toMatchObject({ type: "welcome" });
+  again.send({
+    type: "notification.register",
+    requestId: "revoked-enroll",
+    device: { channel: "websocket", platform: "desktop" },
+  });
+  expect(await again.next()).toMatchObject({ type: "error", code: "notification_rejected" });
+  await again.close();
   const unauthorized = await f.open();
   const unauthorizedClosed = once(unauthorized.socket, "close");
   unauthorized.socket.send(

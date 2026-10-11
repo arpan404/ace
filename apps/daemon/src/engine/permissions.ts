@@ -64,7 +64,13 @@ export class Permissions {
         const permission = this.state(id);
         const native = nativePermissionModes(thread.provider);
         const refresh = (capabilities: Capabilities | undefined): Capabilities | undefined => {
-          if (!capabilities || capabilities.permissionModes) return capabilities;
+          if (!capabilities) return capabilities;
+          const obsoleteOpenCode =
+            thread.provider === "opencode" &&
+            capabilities.permissionModes?.some((mode) =>
+              ["allow", "ask", "deny"].includes(mode.id),
+            );
+          if (capabilities.permissionModes && !obsoleteOpenCode) return capabilities;
           return {
             ...capabilities,
             permissionModes: native,

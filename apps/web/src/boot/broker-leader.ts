@@ -2,7 +2,7 @@
 export function brokerLeader(
   locks: Pick<LockManager, "request"> | undefined,
   key: string,
-  start: () => () => void,
+  start: (yieldLeadership: () => void) => () => void,
 ) {
   const controller = new AbortController();
   // Without a coordination primitive, do not start competing brokers.
@@ -11,11 +11,12 @@ export function brokerLeader(
   void locks
     .request(`ace-remote-broker:${key}`, { signal: controller.signal }, async () => {
       if (controller.signal.aborted) return;
-      const stop = start();
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const stop = start(() => release?.());
       try {
-        await new Promise<void>((resolve) => {
-          release = resolve;
-        });
+        await held;
       } finally {
         stop();
       }

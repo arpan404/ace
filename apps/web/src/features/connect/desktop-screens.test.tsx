@@ -86,7 +86,7 @@ test("a long desktop start shows its installed version and offers bounded servic
     act(() => {
       for (const timer of timers) if (timer.delay === delay) timer.run();
     });
-  expect(screen.getByRole("status").textContent).toBe("Loading your workspace…");
+  expect(screen.getByRole("status").textContent).toBe("Starting ace…");
   expect(screen.getByText("v1.2.3")).toBeTruthy();
   expect(screen.queryByText(/Preparing local services/)).toBeNull();
 

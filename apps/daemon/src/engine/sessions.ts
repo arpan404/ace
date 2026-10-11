@@ -189,6 +189,8 @@ export class Sessions {
       await this.dependencies.assertWorkspaceAvailable?.(metadata.cwd);
       this.dependencies.repo.store.workspaceReservations.assertAvailable(metadata.cwd);
       const codexContext = {
+        resetPermissions:
+          mode === null && this.dependencies.repo.permissions.effective(actor.id) !== null,
         getPermissionMode: async () => {
           const next = await this.dependencies.repo.permissions.resolve(
             actor.id,

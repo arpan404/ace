@@ -36,6 +36,7 @@ export function remoteRuntime(
     "remote.relayUrl": "",
   };
   let active = "";
+  let directSignature = "";
   let closed = false;
   let tail = Promise.resolve();
   let stop: (() => void) | undefined;
@@ -64,6 +65,7 @@ export function remoteRuntime(
     if (listener) await closeListener(listener);
     listener = undefined;
     active = "";
+    directSignature = "";
   };
   const apply = async (next: Preferences) => {
     if (closed) return;
@@ -93,9 +95,15 @@ export function remoteRuntime(
       ? { url: relayUrl, keys: await loadOrCreateHostKeys(join(config.dataDir, "relay")) }
       : undefined;
     if (closed) return;
-    await retire();
+    const keepDirect = directSignature === listen;
+    if (!keepDirect) await retire();
+    else {
+      await relay?.close();
+      relay = undefined;
+      options.relay = undefined;
+    }
     try {
-      if (remote) {
+      if (remote && !keepDirect) {
         listener = createServer({ ...remote.identity, minVersion: "TLSv1.2" }, http);
         listener.requestTimeout = 0;
         listener.headersTimeout = 10_000;
@@ -107,6 +115,7 @@ export function remoteRuntime(
           fingerprint: remote.identity.fingerprint,
         };
       }
+      directSignature = listen;
       if (relayOptions)
         relay = await startRelayTransport({ ...options, relay: relayOptions }, auth);
       options.relay = relay ? relayOptions : undefined;

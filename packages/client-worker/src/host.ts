@@ -137,6 +137,18 @@ export class ClientHost {
   join(tab: Tab, config: unknown): Entry {
     const target = this.#options.target(config);
     let entry = this.#entries.get(target.key);
+    // A fatal connection cannot reconnect. Retained tabs keep their error until
+    // they retry, but a new attachment must receive a fresh underlying client.
+    if (entry?.client.state === "fatal") {
+      this.#entries.delete(target.key);
+      entry.linger?.();
+      entry.linger = undefined;
+      if (!entry.tabs.size) {
+        entry.unwatch();
+        void entry.client.close();
+      }
+      entry = undefined;
+    }
     if (!entry) {
       const client = target.create();
       const created: Entry = {
@@ -171,7 +183,7 @@ export class ClientHost {
     if (entry.tabs.size) return;
     entry.linger = this.#options.scheduler.set(this.#options.lingerMs ?? 10_000, () => {
       if (entry.tabs.size) return;
-      this.#entries.delete(entry.key);
+      if (this.#entries.get(entry.key) === entry) this.#entries.delete(entry.key);
       entry.unwatch();
       void entry.client.close();
     });

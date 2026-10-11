@@ -15,7 +15,7 @@ const MoveDialog = deferredComponent(() =>
 export function MoveToProjectHost() {
   const mover = useThreadMover();
   const { request, open } = useMoveState();
-  useEffect(() => whenIdle(() => void MoveDialog.preload(), 4_000), []);
+  useEffect(() => whenIdle(() => void MoveDialog.preload().catch(() => {}), 4_000), []);
   if (!request) return null;
   return (
     <Suspense fallback={null}>

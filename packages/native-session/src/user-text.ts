@@ -10,7 +10,7 @@ const contextTags = [
   "command-name",
   "command-message",
 ];
-const contextOpening = new RegExp(`<(${contextTags.join("|")})\\b[^>]*>`, "i");
+const contextOpening = new RegExp(`<(${contextTags.join("|")})(?=\\s|>)[^>]*>`, "i");
 
 /** Also hide nested and unfinished envelopes in a streamed text part. */
 function withoutContextBlocks(value: string): string {

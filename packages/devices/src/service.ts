@@ -528,7 +528,7 @@ export class DevicesService {
         "This daemon has no screen helper",
         "Run ace's desktop app on a Mac to view and control iOS Simulators.",
       );
-    if (operation.op === "permissions") return screen.currentPermissions();
+    if (operation.op === "permissions") return screen.inspectDevicePermissions();
     if (actor.kind !== "human")
       throw new DeviceError(
         "permission_denied",
@@ -546,14 +546,20 @@ export class DevicesService {
   private async startLogs(session: DeviceSession, actor: Actor): Promise<void> {
     if (!session.logOwners.has(actor.owner) && session.logOwners.size >= 64)
       throw new DeviceError("limit", "Too many device log readers", "Close an unused log view.");
+    const retained = session.logOwners.has(actor.owner);
     session.logOwners.add(actor.owner);
     if (session.logs.running) return;
-    const generation = session.generation;
-    const spec = await this.options.platform.logs(session.device);
-    this.authorize(session, actor);
-    if (session.generation !== generation)
-      throw new DeviceError("busy", "Device stopped during log startup", "Restart logs.");
-    await session.logs.start(spec, this.options.env, this.options.spawnLogs);
+    try {
+      const generation = session.generation;
+      const spec = await this.options.platform.logs(session.device);
+      this.authorize(session, actor);
+      if (session.generation !== generation)
+        throw new DeviceError("busy", "Device stopped during log startup", "Restart logs.");
+      await session.logs.start(spec, this.options.env, this.options.spawnLogs);
+    } catch (error) {
+      if (!retained) session.logOwners.delete(actor.owner);
+      throw error;
+    }
   }
   private lifecycleOwner(): LifecycleOwner {
     return {

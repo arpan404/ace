@@ -64,7 +64,7 @@ export async function startCapture(options: {
         "Configure ACE_SCREEN_HELPER and grant Screen Recording and Accessibility permissions.",
       );
     // Say plainly when macOS hasn't let the helper see the screen, before looking for windows.
-    const permissions = await screen.currentPermissions();
+    const permissions = await screen.inspectDevicePermissions();
     checkAbort();
     if (!permissions.screenRecording) throw permissionDenied("screenRecording");
     if (options.scope) screen.requireApproval("com.apple.iphonesimulator", options.scope);

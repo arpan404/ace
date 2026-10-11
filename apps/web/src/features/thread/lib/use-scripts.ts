@@ -7,7 +7,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import type { Script } from "../sources/workspace-source.ts";
-import { useTaskKeys } from "./use-task-keys.ts";
+import { useTaskItemKeys } from "./use-task-keys.ts";
 
 const failure = (error: unknown) =>
   error instanceof Error ? error.message : "ace couldn't do that.";
@@ -33,7 +33,8 @@ const runningShells = (reader: ThreadReader): Shell[] =>
       : [];
   });
 const sameShells = (a: readonly Shell[], b: readonly Shell[]) =>
-  a.length === b.length && a.every((shell, i) => shell.id === b[i]?.id);
+  a.length === b.length &&
+  a.every((shell, i) => shell.id === b[i]?.id && shell.command === b[i]?.command);
 const noShells: readonly Shell[] = [];
 
 /** The project's scripts (package.json, a Makefile, justfile or Procfile), as the daemon reads them. */
@@ -62,7 +63,7 @@ export function useRunScript(thread: ThreadRef): {
   const toast = useToast();
   const workspace = useWorkspaceActions(thread.id);
   const shells =
-    useThread(thread.id, useTaskKeys(thread.id), runningShells, sameShells) ?? noShells;
+    useThread(thread.id, useTaskItemKeys(thread.id), runningShells, sameShells) ?? noShells;
   const run = async (script: Script) => {
     try {
       const agentShell = shells.find((shell) => shell.command === script.command.trim());

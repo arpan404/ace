@@ -4,7 +4,12 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { fakeClient, harness } from "@/test/harness.tsx";
-import { chooseModel, openModelControl, openModelPicker } from "@/test/model-control.ts";
+import {
+  chooseModel,
+  openModelControl,
+  openModelPicker,
+  selectAccount,
+} from "@/test/model-control.ts";
 
 beforeEach(() => localStorage.clear());
 afterEach(() => Reflect.deleteProperty(globalThis, "ace"));
@@ -38,8 +43,9 @@ const session = (n: number) => `fake-login-${n}`;
 
 async function providersList(app: Harness) {
   await app.open(`/settings/providers/${targets.get(app) ?? "codex"}`);
-  await screen.findByRole("region", { name: "Accounts" });
-  return screen.getByRole("main");
+  const row = (await screen.findByRole("button", { name: "Manage Your CLI login" })).closest("li");
+  if (!row) throw new Error("Missing the provider's own CLI account");
+  return row;
 }
 
 test("a device sign-in shows its code to copy and its page, and finishing in the browser signs in everywhere", async () => {
@@ -47,7 +53,7 @@ test("a device sign-in shows its code to copy and its page, and finishing in the
   const app = harness();
   stage(app, "codex", { auth: "logged_out", accountLabel: "grace@example.com" });
   const list = await providersList(app);
-  await user.click(await within(list).findByRole("button", { name: "Sign in to Codex" }));
+  await user.click(await within(list).findByRole("button", { name: "Sign in" }));
 
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Codex" });
   expect((await within(dialog).findByLabelText("Sign-in code")).textContent).toBe("ACEF-2048");
@@ -62,10 +68,26 @@ test("a device sign-in shows its code to copy and its page, and finishing in the
   app.daemon.services.providerLogin.complete(session(1));
   expect(await screen.findByText("Signed in to Codex")).toBeTruthy();
   // The dialog closes by itself, and Settings caught up without a reload.
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4_000 });
-  expect(within(list).getByText("Signed in as grace@example.com")).toBeTruthy();
+  await waitFor(
+    () => expect(screen.queryByRole("dialog", { name: "Sign in to Codex" })).toBeNull(),
+    { timeout: 4_000 },
+  );
+  expect(await within(list).findByText("Signed in")).toBeTruthy();
+  expect(
+    await app.client.request({ type: "providers.request", operation: "readiness" }),
+  ).toMatchObject({
+    result: {
+      providers: expect.arrayContaining([
+        expect.objectContaining({
+          provider: "codex",
+          auth: "logged_in",
+          accountLabel: "grace@example.com",
+        }),
+      ]),
+    },
+  });
   // Signed in, the list asks for nothing.
-  expect(within(list).queryByRole("button", { name: "Sign in to Codex" })).toBeNull();
+  expect(within(list).queryByRole("button", { name: "Sign in" })).toBeNull();
 }, 30_000);
 
 test("in the desktop app a browser sign-in opens its page by itself, once", async () => {
@@ -76,9 +98,7 @@ test("in the desktop app a browser sign-in opens its page by itself, once", asyn
   const app = harness();
   stage(app, "claude", { auth: "logged_out" });
   const list = await providersList(app);
-  await userEvent.click(
-    await within(list).findByRole("button", { name: "Sign in to Claude Code" }),
-  );
+  await userEvent.click(await within(list).findByRole("button", { name: "Sign in" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
   const again = await within(dialog).findByRole("link", { name: /open sign-in page again/i });
   expect(opened).toHaveLength(1);
@@ -92,7 +112,7 @@ test("connecting OpenCode lists its services with what each means; a choice then
   stage(app, "opencode", { auth: "logged_out" });
   disconnect(app, "opencode");
   const list = await providersList(app);
-  await userEvent.click(await within(list).findByRole("button", { name: "Sign in to OpenCode" }));
+  await userEvent.click(await within(list).findByRole("button", { name: "Sign in" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to OpenCode" });
   const choices = await within(dialog).findByRole("group", {
     name: "Which service do you want to connect?",
@@ -118,9 +138,7 @@ test("Cancel ends the login on the daemon, so trying again starts a fresh one", 
   const app = harness();
   stage(app, "claude", { auth: "logged_out" });
   const list = await providersList(app);
-  await userEvent.click(
-    await within(list).findByRole("button", { name: "Sign in to Claude Code" }),
-  );
+  await userEvent.click(await within(list).findByRole("button", { name: "Sign in" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
   expect(
     (await within(dialog).findByRole("link", { name: /open sign-in page/i })).getAttribute("href"),
@@ -130,7 +148,7 @@ test("Cancel ends the login on the daemon, so trying again starts a fresh one", 
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Sign in to Claude Code" })).toBeNull(),
   );
-  await userEvent.click(within(list).getByRole("button", { name: "Sign in to Claude Code" }));
+  await userEvent.click(within(list).getByRole("button", { name: "Sign in" }));
   const next = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
   expect(await within(next).findByRole("link", { name: /open sign-in page/i })).toBeTruthy();
   expect(within(next).queryByText(/already signing in/)).toBeNull();
@@ -141,9 +159,7 @@ test("a failed sign-in says why, and Try again starts over", async () => {
   stage(app, "claude", { auth: "logged_out" });
   app.daemon.services.providerLogin.scenarios.claude = "failure";
   const list = await providersList(app);
-  await userEvent.click(
-    await within(list).findByRole("button", { name: "Sign in to Claude Code" }),
-  );
+  await userEvent.click(await within(list).findByRole("button", { name: "Sign in" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
   expect(await within(dialog).findByText("The provider declined sign-in. Try again.")).toBeTruthy();
 
@@ -162,7 +178,7 @@ test("a sign-in that needs a key typed runs the CLI in an ace terminal, in three
   stage(app, "opencode", { auth: "logged_out" });
   disconnect(app, "opencode");
   const list = await providersList(app);
-  await userEvent.click(await within(list).findByRole("button", { name: "Sign in to OpenCode" }));
+  await userEvent.click(await within(list).findByRole("button", { name: "Sign in" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to OpenCode" });
   await userEvent.click(await within(dialog).findByRole("button", { name: "OpenCode Go" }));
 
@@ -183,35 +199,43 @@ test("a sign-in that needs a key typed runs the CLI in an ace terminal, in three
   ).toBeTruthy();
   expect(await within(dialog).findByText("Signed in to OpenCode")).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
-  await waitFor(() =>
-    expect(within(list).queryByRole("button", { name: "Sign in to OpenCode" })).toBeNull(),
-  );
+  await waitFor(() => expect(within(list).queryByRole("button", { name: "Sign in" })).toBeNull());
 }, 30_000);
 
 test("signing out of the default profile keeps a provider usable through its other accounts", async () => {
   const app = harness();
   stage(app, "codex", { auth: "logged_in", accountLabel: "grace@example.com" });
-  await app.open("/settings/providers/codex");
-  const signOut = await screen.findByRole(
-    "region",
-    { name: "Sign out of Codex" },
-    { timeout: 10_000 },
-  );
-  await userEvent.click(within(signOut).getByRole("button", { name: "Sign out" }));
+  const cli = await providersList(app);
+  expect(await within(cli).findByText("Signed in")).toBeTruthy();
+  await userEvent.click(within(cli).getByRole("button", { name: "Manage Your CLI login" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
   expect(await screen.findByText("Signed out of Codex")).toBeTruthy();
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4_000 });
+  await waitFor(
+    () => expect(screen.queryByRole("dialog", { name: "Sign out of Codex" })).toBeNull(),
+    { timeout: 4_000 },
+  );
   // The Personal account still works after the default CLI profile signs out.
-  expect(screen.queryByRole("button", { name: "Sign in to Codex" })).toBeNull();
+  expect(await within(cli).findByRole("button", { name: "Sign in" })).toBeTruthy();
   const accounts = await screen.findByRole("list", { name: "Codex accounts" });
-  expect(within(accounts).getByText("Signed in")).toBeTruthy();
-  expect(screen.queryByText("Signed in as grace@example.com")).toBeNull();
+  const personal = within(accounts).getByText("Personal").closest("li");
+  if (!personal) throw new Error("Missing the signed-in sibling");
+  expect(within(personal).queryByRole("button", { name: "Sign in" })).toBeNull();
+  expect(within(personal).getByRole("meter")).toBeTruthy();
+  expect(await app.client.request({ type: "accounts.list" })).toMatchObject({
+    accounts: expect.arrayContaining([
+      expect.objectContaining({
+        id: "codex-personal",
+        quota: expect.objectContaining({ auth: "logged_in" }),
+      }),
+    ]),
+  });
 }, 30_000);
 
 test("a sign-in finished on another connection updates Settings live", async () => {
   const app = harness();
   stage(app, "codex", { auth: "logged_out", accountLabel: "grace@example.com" });
   const list = await providersList(app);
-  await within(list).findByRole("button", { name: "Sign in to Codex" });
+  await within(list).findByRole("button", { name: "Sign in" });
 
   const other = fakeClient(app.daemon);
   await other.start();
@@ -220,8 +244,21 @@ test("a sign-in finished on another connection updates Settings live", async () 
   if (!started.result.ok) throw new Error("The fake refused to start");
   app.daemon.services.providerLogin.complete(started.result.progress.session);
 
-  expect(await within(list).findByText("Signed in as grace@example.com")).toBeTruthy();
-  expect(within(list).queryByRole("button", { name: "Sign in to Codex" })).toBeNull();
+  expect(await within(list).findByText("Signed in")).toBeTruthy();
+  expect(within(list).queryByRole("button", { name: "Sign in" })).toBeNull();
+  expect(
+    await app.client.request({ type: "providers.request", operation: "readiness" }),
+  ).toMatchObject({
+    result: {
+      providers: expect.arrayContaining([
+        expect.objectContaining({
+          provider: "codex",
+          auth: "logged_in",
+          accountLabel: "grace@example.com",
+        }),
+      ]),
+    },
+  });
 }, 30_000);
 
 test("the model picker's expired-sign-in row signs in to Cursor, and its models come back", async () => {
@@ -231,7 +268,8 @@ test("the model picker's expired-sign-in row signs in to Cursor, and its models 
   await screen.findByRole("feed", { name: "Transcript" });
   const popover = await openModelControl(/^Model: /);
   const list = await openModelPicker(popover);
-  await userEvent.click(within(popover).getByRole("tab", { name: "Cursor · Your Cursor login" }));
+  await userEvent.click(within(popover).getByRole("tab", { name: "Cursor" }));
+  await selectAccount(popover, "Your Cursor login");
   expect(within(list).getByText("Cursor sign-in has expired.")).toBeTruthy();
   await userEvent.click(within(list).getByRole("button", { name: "Sign in" }));
 
@@ -250,8 +288,12 @@ test("the model picker's expired-sign-in row signs in to Cursor, and its models 
   );
   await userEvent.click(
     within(screen.getByRole("dialog", { name: "Model and effort" })).getByRole("tab", {
-      name: "Cursor · Your Cursor login",
+      name: "Cursor",
     }),
+  );
+  await selectAccount(
+    screen.getByRole("dialog", { name: "Model and effort" }),
+    "Your Cursor login",
   );
   await waitFor(() => expect(within(again).queryByText("Cursor sign-in has expired.")).toBeNull());
 }, 30_000);
@@ -276,7 +318,7 @@ test("a sign-in the daemon refuses as busy says so and offers to try again", asy
   await waitFor(() => expect(other.state).toBe("ready"));
   await other.request({ type: "provider.login.start", provider: "codex" });
   const list = await providersList(app);
-  await userEvent.click(await within(list).findByRole("button", { name: "Sign in to Codex" }));
+  await userEvent.click(await within(list).findByRole("button", { name: "Sign in" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Codex" });
   expect(await within(dialog).findByText("Codex is already signing in")).toBeTruthy();
   expect(within(dialog).getByRole("button", { name: "Try again" })).toBeTruthy();
@@ -287,7 +329,7 @@ test("Pi service selection shows known marks and leads to browser sign-in withou
   stage(app, "pi", { auth: "logged_out" });
   disconnect(app, "pi");
   const list = await providersList(app);
-  await userEvent.click(await within(list).findByRole("button", { name: "Sign in to Pi" }));
+  await userEvent.click(await within(list).findByRole("button", { name: "Sign in" }));
   const dialog = await screen.findByRole("dialog", { name: "Sign in to Pi" });
   const choices = await within(dialog).findByRole("group", {
     name: "Which service do you want to connect?",
@@ -304,5 +346,5 @@ test("Pi service selection shows known marks and leads to browser sign-in withou
   app.daemon.services.providerLogin.complete(session(1));
   expect(await screen.findByText("Signed in to Pi")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sign in to Pi" })).toBeNull());
-  expect(within(list).queryByRole("button", { name: "Sign in to Pi" })).toBeNull();
+  expect(within(list).queryByRole("button", { name: "Sign in" })).toBeNull();
 }, 30_000);

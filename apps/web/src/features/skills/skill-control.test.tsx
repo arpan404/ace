@@ -49,7 +49,7 @@ test("a skill keeps its own setting while its plugin is off and explains how to 
   const control = await screen.findByRole("switch", { name: "Enabled" });
   expect(control.getAttribute("aria-checked")).toBe("true");
   expect(screen.getByText("This plugin is off. Turn it on to use its skills.")).toBeTruthy();
-  await userEvent.click(screen.getByRole("link", { name: "Release plugin" }));
+  await userEvent.click(screen.getByRole("link", { name: "Plugin: Release" }));
   await userEvent.click(await screen.findByRole("switch", { name: "Enabled" }));
   await waitFor(() =>
     expect(

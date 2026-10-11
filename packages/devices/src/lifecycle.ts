@@ -114,8 +114,19 @@ export async function startDevice(
   });
   const startup = { controller, capture: opening };
   session.startup = startup;
+  const openingDeadline = Promise.withResolvers<never>();
+  cancel = options.runtime.after(30_000, () => {
+    const error = new DeviceError(
+      "timeout",
+      "The live view did not open",
+      "Restart the device live view and check its capture transport.",
+    );
+    openingDeadline.reject(error);
+    controller.abort(error);
+  });
   try {
-    const capture = await opening;
+    const capture = await Promise.race([opening, openingDeadline.promise]);
+    cancel();
     if (session.generation !== generation || !owner.enabled()) {
       await session.stopping;
       return;

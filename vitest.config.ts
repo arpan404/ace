@@ -15,8 +15,8 @@ const historyWorkerReview = "packages/history-import/src/review.test.ts";
 export default defineConfig({
   test: {
     reporters: ["default", new FailureDetailsReporter()],
-    // Bound runner overhead too: all CPU cores are usually shared with other agents.
-    maxWorkers: 2,
+    // Keep the staging validation bounded to four test workers.
+    maxWorkers: 4,
     fsModuleCache: true,
     projects: [
       {
@@ -33,7 +33,7 @@ export default defineConfig({
             "apps/*/src/**/*.test.ts",
           ],
           exclude: ["**/*.process.test.ts", historyWorkerReview, "**/node_modules/**", ...react],
-          maxWorkers: 2,
+          maxWorkers: 4,
           sequence: { groupOrder: 0 },
         },
       },
@@ -46,7 +46,7 @@ export default defineConfig({
             historyWorkerReview,
           ],
           exclude: ["**/node_modules/**", ...react],
-          maxWorkers: 2,
+          maxWorkers: 4,
           sequence: { groupOrder: 1 },
           testTimeout: PROCESS_TEST_TIMEOUT,
           hookTimeout: PROCESS_TEST_TIMEOUT,

@@ -5,6 +5,21 @@ export function listenScrollIntent(
   stopLanding: () => void,
 ): () => void {
   let touchY: number | undefined;
+  let pointerTop: number | undefined;
+  const pointerDown = (event: PointerEvent) => {
+    stopLanding();
+    // Native scrollbar drags target the viewport, and provide only scroll direction.
+    if (event.target === element) pointerTop = element.scrollTop;
+  };
+  const pointerUp = () => {
+    pointerTop = undefined;
+  };
+  const scroll = () => {
+    if (pointerTop === undefined) return;
+    const moved = element.scrollTop - pointerTop;
+    pointerTop = element.scrollTop;
+    if (moved) direction(moved < 0);
+  };
   const wheel = (event: WheelEvent) => {
     stopLanding();
     if (event.deltaY) direction(event.deltaY < 0);
@@ -27,12 +42,18 @@ export function listenScrollIntent(
   element.addEventListener("touchstart", touchStart, { passive: true });
   element.addEventListener("touchmove", touchMove, { passive: true });
   element.addEventListener("keydown", key);
-  element.addEventListener("pointerdown", stopLanding);
+  element.addEventListener("pointerdown", pointerDown);
+  element.addEventListener("scroll", scroll, { passive: true });
+  element.ownerDocument.addEventListener("pointerup", pointerUp);
+  element.ownerDocument.addEventListener("pointercancel", pointerUp);
   return () => {
     element.removeEventListener("wheel", wheel);
     element.removeEventListener("touchstart", touchStart);
     element.removeEventListener("touchmove", touchMove);
     element.removeEventListener("keydown", key);
-    element.removeEventListener("pointerdown", stopLanding);
+    element.removeEventListener("pointerdown", pointerDown);
+    element.removeEventListener("scroll", scroll);
+    element.ownerDocument.removeEventListener("pointerup", pointerUp);
+    element.ownerDocument.removeEventListener("pointercancel", pointerUp);
   };
 }

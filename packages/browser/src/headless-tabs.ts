@@ -44,6 +44,9 @@ export class HeadlessTabs {
     if (!tab) throw new Error("Browser tab unavailable");
     return tab;
   }
+  pageStatus() {
+    return this.tabs.get(this.activeId)?.status.read() ?? { loading: false };
+  }
   active(): string {
     return this.activeId;
   }

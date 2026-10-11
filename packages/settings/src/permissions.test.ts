@@ -139,6 +139,7 @@ test("preset ids stored per provider migrate once and removed OpenCode effects r
       claude: "auto",
       codex: ":danger-full-access",
       cursor: '{"sandboxOptions":{"enabled":true},"autoReview":false}',
+      acp: "ask",
     };
     expect((await f.service.get("permissions.providerModes")).value).toEqual(expected);
     const stored = JSON.parse(await readFile(f.globalPath, "utf8"));
@@ -146,6 +147,23 @@ test("preset ids stored per provider migrate once and removed OpenCode effects r
     expect(stored.settings["future.setting"]).toBe("retained");
     await f.service.set("threads.autoSettleAfter", "1w", { kind: "global" });
     expect((await f.service.get("permissions.providerModes")).value).toEqual(expected);
+  } finally {
+    await f.close();
+  }
+});
+
+test.each(["read-only", "ask"])("native ACP %s survives saving and reopening", async (id) => {
+  const f = await fixture();
+  try {
+    await f.service.set("permissions.providerModes", { acp: id }, { kind: "global" });
+    expect((await f.service.get("permissions.providerModes")).value).toEqual({ acp: id });
+    const { SettingsService } = await import("./index.ts");
+    const restarted = new SettingsService({ dataDir: f.dataDir });
+    try {
+      expect((await restarted.get("permissions.providerModes")).value).toEqual({ acp: id });
+    } finally {
+      await restarted.close();
+    }
   } finally {
     await f.close();
   }

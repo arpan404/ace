@@ -34,6 +34,24 @@ test("Add opens without editing or persisting the draft and slash commands still
   expect(await screen.findByRole("listbox", { name: "Commands" })).toBeTruthy();
 });
 
+test("Add keeps the draft and accepts a context choice with the keyboard", async () => {
+  await open("/t/thread-pdf-locale");
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  await userEvent.type(message, "Keep this draft");
+  await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
+  const menu = await screen.findByRole("listbox", { name: "Add" });
+  expect(document.activeElement).toBe(message);
+  expect(message.textContent).toBe("Keep this draft");
+  const choices = within(menu).getAllByRole("option");
+  const files = choices.findIndex((choice) => choice.textContent?.includes("Files and folders"));
+  expect(files).toBeGreaterThanOrEqual(0);
+  for (let index = 0; index < files; index++) await userEvent.keyboard("{ArrowDown}");
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(message.textContent).toBe("Keep this draft @ "), { timeout: 1000 });
+  expect(await screen.findByRole("listbox", { name: "Files and threads" })).toBeTruthy();
+  expect(message.textContent).toBe("Keep this draft @ ");
+});
+
 test("Delete asks before removing an idle thread, and Escape preserves it", async () => {
   await open("/");
   const threads = screen.getByRole("navigation", { name: "Threads" });

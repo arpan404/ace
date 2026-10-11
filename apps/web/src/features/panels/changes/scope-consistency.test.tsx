@@ -6,8 +6,7 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
-async function openChanges() {
-  const app = harness();
+async function openChanges(app = harness()) {
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
   await screen.findByRole("feed", { name: "Transcript" });
@@ -24,15 +23,13 @@ async function pick(panel: HTMLElement, name: string) {
 }
 
 function expectTotal(panel: HTMLElement, added: number, removed: number) {
-  expect(within(panel).getByRole("tab", { name: /^Changes/ }).textContent).toContain(
-    `+${added} −${removed}`,
-  );
+  expect(within(panel).getByRole("tab", { name: /^Changes/ }).textContent).toBe("Changes");
   expect(within(panel).getByRole("toolbar", { name: "Changes" }).textContent).toContain(
     `+${added} −${removed}`,
   );
 }
 
-test("the Changes badge and toolbar count the selected turn and keep it when another tab opens", async () => {
+test("the Changes toolbar counts the selected turn and keeps it when another tab opens", async () => {
   const panel = await openChanges();
   await waitFor(() => expectTotal(panel, 9, 3));
   await pick(panel, "This thread");
@@ -50,18 +47,24 @@ test("the Changes badge and toolbar count the selected turn and keep it when ano
   ).toBeTruthy();
 });
 
-test("uncommitted totals identify the checkout and become the Changes badge when selected", async () => {
-  const panel = await openChanges();
-  const status = within(panel).getByRole("status", { name: "Working tree" });
-  expect(status.textContent).toContain("Uncommitted:+38 −6");
-  await pick(panel, "Uncommitted");
-  await waitFor(() =>
-    expect(within(panel).getByRole("tab", { name: /^Changes/ }).textContent).toContain("+38 −6"),
+test("uncommitted totals come from the live checkout and stay selected across tabs", async () => {
+  const app = harness();
+  app.daemon.workspace.setGitDiff(
+    "thread-cold-start",
+    "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1,2 +1,3 @@\n Keep\n-Old line\n+First new line\n+Second new line\n",
   );
+  const panel = await openChanges(app);
+  expect(within(panel).queryByRole("status", { name: "Working tree" })).toBeNull();
+  await pick(panel, "Uncommitted");
+  expect((await within(panel).findByLabelText("Uncommitted diff")).textContent).toContain(
+    "+First new line",
+  );
+  await waitFor(() => expectTotal(panel, 2, 1));
   expect(within(panel).getByRole("button", { name: "Scope: Uncommitted" })).toBeTruthy();
   await userEvent.click(within(panel).getByRole("tab", { name: "Agents" }));
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
   expect(within(panel).getByRole("button", { name: "Scope: Uncommitted" })).toBeTruthy();
+  await waitFor(() => expectTotal(panel, 2, 1));
 });
 
 test("diff comment controls explain the old or new line on hover and open a comment", async () => {
@@ -75,7 +78,7 @@ test("diff comment controls explain the old or new line on hover and open a comm
   });
   const panel = await openChanges();
   for (const layout of ["Unified", "Split"] as const) {
-    await userEvent.click(within(panel).getByRole("button", { name: /^Diff layout:/ }));
+    await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
     await userEvent.click(
       await screen.findByRole("menuitemradio", { name: new RegExp(`^${layout}`) }),
     );

@@ -1,0 +1,6 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceToken.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "pattern": "^[0-9a-f]{64}$",
+  "type": "string"
+}

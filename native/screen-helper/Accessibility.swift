@@ -23,8 +23,12 @@ import AppKit
     }
     func invalidate() { generation += 1; cached = nil }
     func reset() {
+        restoreInputTimeouts()
         if let observer { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode) }
         observer = nil; active = nil; root = nil; observerEpoch += 1; invalidate()
+    }
+    func restoreInputTimeouts() {
+        if let root { AXUIElementSetMessagingTimeout(root, 0.05) }
     }
     private func select(_ request: Request) throws -> AXUIElement {
         guard AXIsProcessTrusted() else { throw HelperError("Accessibility permission denied", code: "permission_denied") }

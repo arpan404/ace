@@ -73,6 +73,9 @@ export function ProviderSetupRow({
     (missing || plan.action !== "install");
   const needsSignIn =
     (provider === "cursor" && missing) ||
+    (!missing &&
+      (provider === "acp" || provider === "antigravity") &&
+      (!props.view || props.view.state === "unconfirmed")) ||
     plan?.status === "sign_in" ||
     (!missing && props.view?.primary);
   const updateAvailable = props.updateAvailable && !needsSignIn;

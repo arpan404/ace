@@ -49,6 +49,17 @@ it.each(["URL", "element"])(
     const entered = Promise.withResolvers<void>();
     const approval = Promise.withResolvers<boolean>();
     const polling = Promise.withResolvers<void>();
+    const sleeping = Promise.withResolvers<void>();
+    const rescheduled = Promise.withResolvers<void>();
+    const set = clock.set.bind(clock);
+    clock.set = (delay, work) => {
+      const cancel = set(delay, work);
+      if (delay === 50) {
+        sleeping.resolve();
+        if (clock.now() >= 60_000) rescheduled.resolve();
+      }
+      return cancel;
+    };
     let loaded = false;
     const f = await backendFixture({
       backendPreference: () => "headless",
@@ -99,10 +110,12 @@ it.each(["URL", "element"])(
         new AbortController().signal,
       );
       await polling.promise;
+      await sleeping.promise;
       clock.advance(60_000);
       approval.resolve(true);
       expect(await policy).toBe(true);
       loaded = true;
+      await rescheduled.promise;
       clock.advance(50);
       expect(await waiting).not.toHaveProperty("isError", true);
     } finally {

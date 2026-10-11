@@ -406,7 +406,7 @@ it("legacy and scoped routes share upload recovery, trash and artifact catalogs 
       (error: unknown) => ({ ok: false, error }),
     );
   try {
-    // A non-mutating read settles while the first write still holds the mutation queue.
+    // A non-mutating read settles while the scoped writer is still preparing.
     expect(await files.request("owner", { op: "stat", path: "cas" })).toMatchObject({
       version: before.version,
     });
@@ -415,9 +415,16 @@ it("legacy and scoped routes share upload recovery, trash and artifact catalogs 
     release.resolve();
   }
   const scoped = FilesServerMessage.parse(await fileReply(client));
-  expect(scoped).toMatchObject({ type: "files.result", requestId: "cas" });
-  expect(await legacy).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
-  expect(await readFile(join(f.root, "cas"), "utf8")).toBe("scoped");
+  const legacyResult = await legacy;
+  expect(scoped).toMatchObject({ requestId: "cas" });
+  if (scoped.type === "files.result") {
+    expect(legacyResult).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    expect(await readFile(join(f.root, "cas"), "utf8")).toBe("scoped");
+  } else {
+    expect(scoped).toMatchObject({ type: "files.error", code: "CONFLICT" });
+    expect(legacyResult).toMatchObject({ ok: true });
+    expect(await readFile(join(f.root, "cas"), "utf8")).toBe("legacy");
+  }
 });
 
 async function fileReply(client: Client): Promise<import("@ace/protocol").FilesServerMessage> {

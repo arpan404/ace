@@ -1,5 +1,5 @@
-export { isDefaultSelection, matchesModel } from "./catalog-cleanup.ts";
-import { isDefaultSelection, matchesModel } from "./catalog-cleanup.ts";
+export { isDefaultSelection, matchesModel } from "./model-selection.ts";
+import { isDefaultSelection, matchesModel } from "./model-selection.ts";
 import { ModelRoleSpec, type CatalogModel, type ModelResolution } from "@ace/protocol";
 
 /** Only advertised levels: explicit choice, catalog default, Medium, then the lower middle. */

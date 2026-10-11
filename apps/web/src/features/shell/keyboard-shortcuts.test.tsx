@@ -49,7 +49,8 @@ test("Reset brings the default keys back", async () => {
   await userEvent.keyboard("{Control>}k{/Control}");
   expect(palette()).toBeNull();
 
-  await userEvent.click(screen.getByRole("button", { name: "Reset Command palette" }));
+  await userEvent.click(screen.getByRole("button", { name: "Actions for Command palette" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Reset" }));
   await waitFor(async () =>
     expect(
       (await screen.findByRole("button", { name: "Command palette shortcut" })).textContent,
@@ -115,11 +116,10 @@ test("fixed keys are listed but can't be recorded or reset", async () => {
   await recorder("Command palette");
   for (const label of ["Focus notifications", "Send", "Find in a terminal or log"]) {
     expect(screen.queryByRole("button", { name: `${label} shortcut` })).toBeNull();
-    expect(screen.queryByRole("button", { name: `Reset ${label}` })).toBeNull();
+    expect(screen.queryByRole("button", { name: `Actions for ${label}` })).toBeNull();
   }
-  expect(
-    screen.getByText("Focus notifications").closest("div")?.parentElement?.textContent,
-  ).toMatch(/Can't be changed/);
+  await userEvent.hover(screen.getByLabelText("Focus notifications shortcut"));
+  expect(await screen.findByRole("tooltip", { name: /Can't be changed/ })).toBeTruthy();
 });
 
 test("a row shows its own stored keys, even when they spell another shortcut's default", async () => {

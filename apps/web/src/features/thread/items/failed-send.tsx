@@ -126,20 +126,8 @@ export function useSendActions(threadId: string) {
               });
           },
           () => {
-            if (
-              client
-                .pendingSends()
-                .getSnapshot()
-                .some((send) => send.commandId === id)
-            ) {
-              dismissSend(storage, commandId);
-              if (payload.type === "thread.create")
-                void navigate({
-                  to: "/t/$threadId",
-                  params: { threadId: `pending:${id}` },
-                  replace: true,
-                });
-            }
+            // The replacement is memory-only when its local write fails. Keep the
+            // original durable failure visible through reload until Retry saves.
             toast.error({ title: "Couldn't send it again", description: "It is still here." });
           },
         );

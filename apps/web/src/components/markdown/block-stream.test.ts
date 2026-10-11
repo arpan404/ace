@@ -365,3 +365,17 @@ test("giant open paragraphs keep a plain preview through geometric reparses unti
   const after = parser.push("\n\nDone.\n", false);
   expect([...after.settled, ...after.open]).toEqual(fullParse(source + "\n\nDone.\n"));
 });
+
+test.each([
+  "    console.log('done');\n",
+  "\tconsole.log('done');\n",
+  "-\tNext item\n",
+  "1.\tNext item\n",
+])("a large streamed table settles before an interrupting block %j", (following) => {
+  const table = "| Name | Value |\n| --- | --- |\n" + "| repeated item | **value** |\n".repeat(330);
+  const parser = new BlockStream();
+  parser.push(table, false);
+  const after = parser.push(following, false);
+  expect(after.settled[0]?.type).toBe("table");
+  expect([...after.settled, ...after.open]).toEqual(fullParse(table + following));
+});

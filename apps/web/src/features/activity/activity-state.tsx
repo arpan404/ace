@@ -19,8 +19,12 @@ interface ActivityState {
   setTab(tab: ActivityTab): void;
   /** The card J/K, A/D and 1–3 act on; the matching sidebar row is selected. */
   focused: string | undefined;
+  /** The page default follows the inbox until the person chooses a card. */
+  automaticFocus: boolean;
   /** Focus a card in the Needs-you list (from keys or a pointer on the card). */
   focusCard: Dispatch<SetStateAction<string | undefined>>;
+  /** Set the displayed card's key without turning the page default into a user choice. */
+  focusShownCard(key: string): void;
   /**
    * A Needs-you row was chosen: focus its card in the list, leaving any single item shown.
    * Rows outside this slice call it; the name is theirs.
@@ -51,7 +55,25 @@ export function ActivityProvider(props: { children: ReactNode }) {
   const [view, setView] = useState(() =>
     readJson(session(), viewKey, ActivityView, { tab: "all" as ActivityTab }),
   );
-  const [focused, focusCard] = useState<string>();
+  const [focus, setFocus] = useState<{ key: string | undefined; automatic: boolean }>({
+    key: undefined,
+    automatic: true,
+  });
+  const focusCard = useCallback<Dispatch<SetStateAction<string | undefined>>>(
+    (update) =>
+      setFocus((current) => {
+        const key = typeof update === "function" ? update(current.key) : update;
+        if (typeof update === "function" && key === current.key) return current;
+        return key === current.key && current.automatic === (key === undefined)
+          ? current
+          : { key, automatic: key === undefined };
+      }),
+    [],
+  );
+  const focusShownCard = useCallback(
+    (key: string) => setFocus((current) => (current.key === key ? current : { ...current, key })),
+    [],
+  );
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
   const search: { item?: unknown } = useSearch({ strict: false });
   const item = typeof search.item === "string" ? search.item : undefined;
@@ -79,8 +101,10 @@ export function ActivityProvider(props: { children: ReactNode }) {
         focusCard(undefined);
         selectItem(undefined);
       },
-      focused,
+      focused: focus.key,
+      automaticFocus: focus.automatic,
       focusCard,
+      focusShownCard,
       setFocused(key) {
         focusCard(key);
         if (item !== undefined) selectItem(undefined);
@@ -96,7 +120,7 @@ export function ActivityProvider(props: { children: ReactNode }) {
         }),
       clearPicked: () => setPicked(new Set()),
     }),
-    [view, save, focused, item, selectItem, picked],
+    [view, save, focus, focusCard, focusShownCard, item, selectItem, picked],
   );
   return (
     <Context.Provider value={value}>

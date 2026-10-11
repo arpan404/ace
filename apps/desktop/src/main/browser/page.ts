@@ -1,3 +1,4 @@
+import { RendererRecovery } from "./renderer-recovery.ts";
 import { NativeBasicAuth } from "./basic-auth.ts";
 import { NativePopups } from "./popups.ts";
 import { PageMetrics } from "./page-metrics.ts";
@@ -40,8 +41,7 @@ export class EmbeddedPage implements ViewPage {
   private listeners = new Set<(method: string, params: unknown) => void>();
   private blocked = new Set<() => void>();
   private gate = new WebSocketGate(new Set(["http:", "https:", "ws:", "wss:"]));
-  private restarting = false;
-  private restartTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly recovery: RendererRecovery;
   private pageZoom = 1;
   private appliedZoom = 1;
   private appZoom = 1;
@@ -79,6 +79,13 @@ export class EmbeddedPage implements ViewPage {
 
   constructor(options: PageOptions) {
     this.options = options;
+    this.recovery = new RendererRecovery(
+      (ms, run) => {
+        const timer = setTimeout(run, ms);
+        return () => clearTimeout(timer);
+      },
+      () => this.detached("The browser page could not restart. Reopen it to continue."),
+    );
     this.downloads = new NativeDownloads(options.downloadDir, (method, params) =>
       this.emit(method, params),
     );
@@ -154,7 +161,7 @@ export class EmbeddedPage implements ViewPage {
       if (sessionId) return;
       if (method === "Inspector.detached") {
         setImmediate(() => {
-          if (!this.restarting) this.detached("The browser page disconnected");
+          if (!this.recovery.active) this.detached("The browser page disconnected");
         });
         return;
       }
@@ -162,19 +169,15 @@ export class EmbeddedPage implements ViewPage {
     });
     contents.debugger.on("detach", (_event, reason) => {
       queueMicrotask(() => {
-        if (!this.restarting) this.detached(reason);
+        if (!this.recovery.active) this.detached(reason);
       });
     });
     contents.on("render-process-gone", () => {
-      if (this.restarting || this.closing) {
+      if (this.recovery.active || this.closing) {
         this.detached("The browser page stopped responding");
         return;
       }
-      this.restarting = true;
-      this.restartTimer = setTimeout(
-        () => this.detached("The browser page could not restart. Reopen it to continue."),
-        30_000,
-      );
+      this.recovery.start();
       contents.once("did-finish-load", () => {
         void (async () => {
           if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
@@ -218,7 +221,7 @@ export class EmbeddedPage implements ViewPage {
   }
 
   isRestarting(): boolean {
-    return this.restarting;
+    return this.recovery.active;
   }
 
   checkPopupRequest(url: string, reply: (allowed: boolean) => void): void {
@@ -349,7 +352,7 @@ export class EmbeddedPage implements ViewPage {
       });
     }
     if (method === "ace.rendererReady") {
-      this.restarting = false;
+      this.recovery.ready();
       return {};
     }
     if (this.popups.command(method, params) || this.dialogs.answer(method, params)) return {};
@@ -525,7 +528,7 @@ export class EmbeddedPage implements ViewPage {
     this.listeners.clear();
     this.blocked.clear();
     clearTimeout(this.throttleTimer);
-    clearTimeout(this.restartTimer);
+    this.recovery.ready();
     const { view, window, session, released } = this.options;
     if (!window.isDestroyed()) window.contentView.removeChildView(view);
     const contents = this.contents;

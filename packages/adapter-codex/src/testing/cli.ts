@@ -43,6 +43,7 @@ let delegationTurn = 0;
 let pendingKind = "";
 const mcpServers = new Map<string, string>([["docs", "failed"]]);
 const mcpWrites = new Map<string, unknown>();
+let nativePermissions = ":danger-full-access";
 let queued = 0;
 let policyTurn = 0;
 let discoveryFailed = false;
@@ -61,6 +62,11 @@ for await (const line of createInterface({ input: process.stdin })) {
   const frame = obj(JSON.parse(line));
   const p = obj(frame["params"]);
   const method = str(frame["method"]);
+  if (
+    ["thread/start", "thread/resume", "turn/start"].includes(method) &&
+    typeof p["permissions"] === "string"
+  )
+    nativePermissions = p["permissions"];
   const id = frame["id"];
   if (!method && id === 100) {
     if (pendingKind === "shell-edit" && obj(frame["result"])["decision"] === "accept")
@@ -151,6 +157,15 @@ for await (const line of createInterface({ input: process.stdin })) {
         }),
       },
     });
+  } else if (method === "config/read") {
+    respond({
+      config: {
+        default_permissions:
+          process.env["ACE_FAKE_RESUME"] === "unknown-default" ? null : ":workspace",
+        approval_policy: "on-request",
+        approvals_reviewer: "user",
+      },
+    });
   } else if (method === "thread/start" || method === "thread/resume") {
     const config = obj(obj(p["config"])["mcp_servers.ace"]);
     notify("ace/connection", {
@@ -228,6 +243,14 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (text === "native-permissions-proof") {
+      respond({ turn: { id: "turn" } });
+      active.set("native", "turn");
+      notify("turn/started", { threadId: "native", turn: { id: "turn" } });
+      message(`Effective native permissions: ${nativePermissions}`);
+      end();
+      continue;
+    }
     if (text === "attachment-proof") {
       respond({ turn: { id: "turn" } });
       notify("test/attachments", { input: p["input"] });

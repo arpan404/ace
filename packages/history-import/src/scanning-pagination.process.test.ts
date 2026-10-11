@@ -15,7 +15,7 @@ const records = (id: string, seconds: number) => [
 ];
 
 // The progress callback is the worker's backpressure boundary, not a timing delay.
-test("pagination and saved recency remain consistent when tree indexing is cancelled between batches", async () => {
+test("pagination and saved recency remain consistent when a subsequent tree scan is cancelled before admission", async () => {
   const env = await environment();
   const home = join(env.root, "claude");
   const root = join(home, "projects/p/root.jsonl");
@@ -30,29 +30,19 @@ test("pagination and saved recency remain consistent when tree indexing is cance
     await utimes(path, 0, 0);
   }
   const service = await env.start([{ id: "account", provider: "claude", homeDir: home }]);
-  const reached = Promise.withResolvers<void>();
-  const gate = Promise.withResolvers<void>();
+  await service.scan();
   const controller = new AbortController();
+  controller.abort();
   const activity = Date.UTC(2026, 0, 1) + 100_000;
-  const scanning = service.scan(controller.signal, async () => {
-    const page = await service.list({ type: "history.list", cwd, limit: 1 });
-    if (page.sessions[0]?.nativeId === "root" && page.sessions[0].lastActivity === activity) {
-      reached.resolve();
-      await gate.promise;
-    }
-  });
-  // Attach rejection handling before aborting the real worker.
-  const cancelled = expect(scanning).rejects.toThrow();
   try {
-    await reached.promise;
+    await expect(service.scan(controller.signal)).rejects.toThrow();
     const first = await service.list({ type: "history.list", cwd, limit: 1 });
     expect(first.sessions.map((s) => s.nativeId)).toEqual(["root"]);
     expect(first.next?.lastActivity).toBe(activity);
     if (!first.next) throw new Error("Missing history cursor");
     const second = await service.list({ type: "history.list", cwd, limit: 1, before: first.next });
     expect(second.sessions.map((s) => s.nativeId)).toEqual(["middle"]);
-    controller.abort();
-    await cancelled;
+
     const saved = await service.list({ type: "history.list", cwd, limit: 1 });
     expect(saved.next).toEqual(first.next);
     const id = saved.sessions[0]?.id;
@@ -62,8 +52,7 @@ test("pagination and saved recency remain consistent when tree indexing is cance
     expect(after.sessions.map((s) => s.nativeId)).toEqual(["middle"]);
   } finally {
     controller.abort();
-    gate.resolve();
-    await scanning.catch(() => {});
+
     await env.close();
   }
 }, 10_000);

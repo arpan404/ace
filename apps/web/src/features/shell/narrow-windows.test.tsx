@@ -116,9 +116,9 @@ test("on a phone the work icon stays in the header while the panel toggle folds"
   expect(screen.queryByRole("button", { name: "Right panel" })).toBeNull();
   const more = await moreActions(header);
   await userEvent.click(more);
-  expect(await screen.findByRole("button", { name: "Right panel" })).toBeTruthy();
-  await userEvent.click(more);
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Right panel" })).toBeNull());
+  expect(await screen.findByRole("menuitem", { name: "Changes" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Changes" })).toBeNull());
   await userEvent.keyboard("{Meta>}f{/Meta}");
   expect(await screen.findByRole("search", { name: "Search this thread" })).toBeTruthy();
 });

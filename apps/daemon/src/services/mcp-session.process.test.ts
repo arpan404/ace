@@ -304,3 +304,20 @@ it("a negotiated ACP lease retains its caller and ends without issuing a duplica
   await session.close("shutdown");
   expect((await h.read(query)).status).toBe(401);
 });
+
+it("fresh session identity stays unconfirmed through the MCP wrapper until native confirmation", async () => {
+  const h = await setup();
+  const original = h.adapter.openSession;
+  let confirmed = false;
+  h.adapter.openSession = async (ctx) => ({
+    ...(await original(ctx)),
+    get sessionConfirmed() {
+      return confirmed;
+    },
+  });
+  const session = await h.open();
+  cleanup.push(() => session.close("shutdown"));
+  expect(session.sessionConfirmed).toBe(false);
+  confirmed = true;
+  expect(session.sessionConfirmed).toBe(true);
+});

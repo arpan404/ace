@@ -182,6 +182,7 @@ test("reopening an old registry upgrades exhaustion without losing account state
   const root = await temp();
   const path = join(root, "accounts.sqlite");
   let registry = await openRegistry(path);
+  await mkdir(join(root, "home"));
   await registry.register(
     createInstance({ id: "a", provider: "codex", label: "a", homeDir: join(root, "home") }),
   );
@@ -232,7 +233,16 @@ test("reopening a historical registry refuses physical aliases before scheduling
     JSON.stringify(logged),
   );
   db.close();
-  await expect(openRegistry(path)).rejects.toThrow("distinct");
+  const reopened = await openRegistry(path);
+  try {
+    expect(reopened.summary("b", now)).toMatchObject({
+      availability: "unknown",
+      quota: { blockers: { homeUnavailable: "home_conflict" } },
+    });
+    expect(reopened.summary("a", now)?.quota.blockers.homeUnavailable).toBeUndefined();
+  } finally {
+    reopened.close();
+  }
 });
 test("unknown facts preserve a textual blocker and its last meaningful observation", () => {
   const state = fold({ message: "Usage limit reached" }).state;

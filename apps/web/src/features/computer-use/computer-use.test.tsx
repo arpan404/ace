@@ -192,6 +192,7 @@ test("revoking an approved app removes the daemon's grant; a sensitive app says 
 test("a missing macOS permission offers Request, which asks the daemon's Mac", async () => {
   const { app } = await openSettings();
   app.daemon.screen.permissions.accessibility = false;
+  app.daemon.screen.access.enabled = true;
   await app.open("/settings/computer-use");
 
   const permissions = await screen.findByRole("region", { name: "macOS permissions" });
@@ -373,4 +374,18 @@ test("Open live sessions dismisses the indicator before showing Settings", async
       "Calculator",
     ),
   ).toBeTruthy();
+});
+
+test("enabling computer use replaces cached disabled permissions with the helper grants", async () => {
+  const { app } = await openSettings();
+  await app.open("/settings/computer-use");
+  await page();
+  const permissions = await screen.findByRole("region", { name: "macOS permissions" });
+  await waitFor(() =>
+    expect(within(permissions).getAllByRole("button", { name: "Grant access" })).toHaveLength(2),
+  );
+  await userEvent.click(screen.getByRole("switch", { name: "Let agents use apps" }));
+  await waitFor(() =>
+    expect(within(permissions).queryByRole("button", { name: "Grant access" })).toBeNull(),
+  );
 });

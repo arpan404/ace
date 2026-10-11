@@ -1,24 +1,18 @@
 import type { ForkPoint, ThreadListEntry } from "@ace/protocol";
 import type { ThreadRowFlags } from "@ace/ui-core";
 import { Suspense, useState } from "react";
-import type { KeyboardEvent, ReactElement } from "react";
+import type { ReactElement } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.tsx";
-import {
-  ThreadActionItems,
-  useHomeSelection,
-  useSelected,
-  useThreadActions,
-} from "@/features/organize/index.ts";
+import { ThreadActionItems, useHomeSelection, useSelected } from "@/features/organize/index.ts";
 import { PrLinksDialog, ForkDialog, useLatestForkPoint } from "@/features/thread/index.ts";
 import { GitPullRequestIcon, LinkBreakIcon } from "@phosphor-icons/react";
 import { MenuItem } from "@/components/ui/menu.tsx";
-import { useKeys } from "@/lib/keybindings.ts";
-import { matchesChord, parseChord } from "@/lib/hotkeys.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { useRowMenuShortcuts } from "./use-row-menu-shortcuts.ts";
 
 /** A picked row's menu acts on every picked thread; its code comes with the selection bar's. */
 const BulkMenuItems = deferredComponent(() =>
@@ -74,10 +68,6 @@ export function ThreadMenu(props: {
   children: ReactElement;
 }) {
   const { entry } = props;
-  const actions = useThreadActions();
-  const renameKeys = useKeys("renameThread");
-  const pinKeys = useKeys("pinThread");
-  const archiveKeys = useKeys("archiveThread");
   const selection = useHomeSelection();
   const selected = useSelected(entry.id);
   const [open, setOpen] = useState(false);
@@ -85,28 +75,19 @@ export function ThreadMenu(props: {
   const bulk = open && selected && selection.getState().ids.length > 1;
   const [prDialog, setPrDialog] = useState<"link" | "unlink">();
   const [forking, setForking] = useState<ForkPoint>();
-  const run = (action: () => void) => () => {
-    setOpen(false);
-    action();
-  };
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (bulk) return;
-    if (matchesChord(event.nativeEvent, parseChord(renameKeys))) run(props.onRename)();
-    else if (matchesChord(event.nativeEvent, parseChord(pinKeys)))
-      run(() => actions.setPinned(entry, !props.state.pinned))();
-    else if (matchesChord(event.nativeEvent, parseChord(archiveKeys)))
-      run(() => actions.archive(entry))();
-    else return;
-    event.preventDefault();
-    event.stopPropagation();
-  };
+  const onKeyDown = useRowMenuShortcuts({
+    entry,
+    flags: props.state,
+    onRename: props.onRename,
+    onClose: () => setOpen(false),
+  });
   return (
     <>
       <ContextMenu open={open} onOpenChange={setOpen}>
         <ContextMenuTrigger data-row-menu-open={open ? "" : undefined} render={props.children} />
         <ContextMenuContent
           aria-label={bulk ? "Actions for the selected threads" : `Actions for ${entry.title}`}
-          onKeyDownCapture={onKeyDown}
+          onKeyDownCapture={bulk ? undefined : onKeyDown}
         >
           {bulk ? (
             <Suspense fallback={null}>

@@ -10,7 +10,7 @@ if (isMainThread) {
   let released = false;
   let announced = false;
   Worker.prototype.postMessage = function (...args: Parameters<Worker["postMessage"]>) {
-    const ack = z.object({ progressAck: z.number() }).safeParse(args[0]);
+    const ack = z.object({ request: z.object({ op: z.literal("scan") }) }).safeParse(args[0]);
     if (process.env.ACE_TEST_HOLD_HISTORY === "1" && ack.success && !released) {
       held.push(() => post.apply(this, args));
       if (!announced) {
@@ -29,6 +29,10 @@ if (isMainThread) {
     }
     post.apply(this, args);
   };
+  process.on("SIGTERM", () => {
+    released = true;
+    for (const send of held.splice(0)) send();
+  });
   process.on("message", (value: unknown) => {
     if (value === "release-history") {
       released = true;

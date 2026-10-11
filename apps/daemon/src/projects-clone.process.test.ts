@@ -155,7 +155,9 @@ test("clone cancellation returns separately from termination and quarantines its
       (await f.read({ op: "workspace.clone.cancel", commandId: CommandId.parse("cancel-me") }))
         .result,
     ).toMatchObject({ kind: "cancelled" });
-    expect(await new GitService().mutationState(f.root)).toMatchObject({ status: "quarantined" });
+    expect(await new GitService().mutationState(join(f.root, "cancelled"))).toMatchObject({
+      status: "quarantined",
+    });
     await closed.promise;
     expect(await clone).toMatchObject({ ok: false, error: "clone_cancelled" });
     expect(progress.at(-1)).toMatchObject({ phase: "cancelled" });

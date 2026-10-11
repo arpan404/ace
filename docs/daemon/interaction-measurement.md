@@ -27,8 +27,10 @@ the JPEG filmstrip as a thread-owned attachment. No video or trace is written to
 ```
 
 Omit `action` or `interaction` to observe only. Observation requires approved
-view access, Screen Recording for macOS, and no input controller or Accessibility
-grant. Measured input uses the existing controller, app or site approval, secure
+view access and Screen Recording for macOS. It does not require an input
+controller or Accessibility grant. A screen session must be ownerless or owned by
+the calling agent; human takeover and another agent's ownership prevent observation.
+Measured input uses the existing controller, app or site approval, secure
 input consent, background routing and focus guard. The screen tool defaults to
 background mode; it does not request foreground approval or change the cursor.
 An explicit browser `tabId` uses the existing tab-selection controller and effect

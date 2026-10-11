@@ -13,6 +13,7 @@ import { baseName, provisionalTitle } from "@ace/ui-core";
 import { useCallback, useState } from "react";
 import { rememberTitle } from "@/features/thread/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { dismissSend } from "@/lib/dismissed-sends.ts";
 import { rememberProvider } from "@/lib/provider-statuses.ts";
 
 export interface CreateRequest {
@@ -69,7 +70,7 @@ export const pendingThreadId = (commandId: string) => `pending:${commandId}`;
 
 /**
  * Start a thread the way a message is sent (UX audit SY-2, SY-4): `thread.create` goes into the
- * client's durable outbox under a command id made here, and the thread opens at once on its
+ * client's durable outbox under a command id made here, and the thread opens after the local save on its
  * pending route (`/t/pending:<commandId>`) with the person's message as its first bubble. The
  * pending view moves to the real thread when the daemon's receipt names it. Offline or slow is
  * never a failure, and a retry reuses nothing, so one Enter can never start two threads.
@@ -91,23 +92,18 @@ export function useCreateThread(): {
       const payload = createPayload(request);
       // Its header and row read the provisional title at once (the daemon titles it the same way).
       rememberTitle(commandId, provisionalTitle(payload.input));
-      // The pending entry is visible before the outbox has saved it: open it now.
+      // Keep the composer mounted until the outbox owns a reload-safe copy.
       const saved = client.enqueue(payload, commandId);
       rememberProvider(storage, payload.provider);
-      void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
       try {
         await saved;
+        void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
         return true;
       } catch {
-        if (
-          client
-            .pendingSends()
-            .getSnapshot()
-            .some((send) => send.commandId === commandId)
-        )
-          return true;
+        // A failed local write leaves only an in-memory send. The composer restores
+        // the original draft, so hide that duplicate recovery entry.
+        dismissSend(storage, commandId);
         setError("This device couldn't save the new thread. Try again.");
-        void navigate({ to: "/new", search: { project: request.project } });
         return false;
       }
     },

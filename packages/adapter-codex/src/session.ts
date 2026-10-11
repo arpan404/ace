@@ -7,6 +7,7 @@ import { sessionDiscovery } from "./session-discovery.ts";
 import { sessionLifetime } from "./session-lifetime.ts";
 import { isAsyncQuestion, rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
 import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
+import { configuredTurnPolicy } from "./default-permissions.ts";
 import { codexThreadPolicy, codexTurnPolicy } from "./permission-policy.ts";
 import { CodexSelectionOptions } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
@@ -33,6 +34,7 @@ export async function openCodexSession(
   options: CodexOptions = {},
 ): Promise<ProviderSession> {
   let permissionMode = ctx.permissionMode ?? null;
+  let appliedPermissionMode = permissionMode;
   let selectedOptions = CodexSelectionOptions.parse(ctx.options ?? {});
   if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");
   if (ctx.fork?.point.type === "item")
@@ -149,8 +151,10 @@ export async function openCodexSession(
           if (control.method === "turn/start") {
             const id = str(obj(result["turn"])["id"]);
             if (id) active.set(control.thread, id);
-            if (id && control.thread === nativeSessionId)
+            if (id && control.thread === nativeSessionId) {
+              appliedPermissionMode = control.mode;
               emit("note", { event: "permission-mode-applied", mode: control.mode });
+            }
           } else {
             nativeSessionId = str(snapshot["id"]);
             if (nativeSessionId) {
@@ -364,7 +368,13 @@ export async function openCodexSession(
       // Older experimental servers lack the profile catalog; preserve native startup policy.
       if (ctx.signal.aborted) throw error;
     }
-    const threadPolicy = codexThreadPolicy(permissionMode, ctx.cwd);
+    const threadPolicy: Pick<
+      ThreadStartParams,
+      "permissions" | "approvalPolicy" | "approvalsReviewer" | "config"
+    > =
+      permissionMode === null && ctx.resetPermissions
+        ? configuredTurnPolicy(await request("config/read", { cwd: ctx.cwd, includeLayers: false }))
+        : codexThreadPolicy(permissionMode, ctx.cwd);
     const params = {
       cwd: ctx.cwd,
       ...threadPolicy,
@@ -437,10 +447,16 @@ export async function openCodexSession(
       getLaunchOptions: async (_threadId) => {
         if (ctx.getPermissionMode) permissionMode = await ctx.getPermissionMode();
         const mode = permissionMode;
+        const policy =
+          mode === null && appliedPermissionMode !== null
+            ? configuredTurnPolicy(
+                await request("config/read", { cwd: ctx.cwd, includeLayers: false }),
+              )
+            : codexTurnPolicy(mode, ctx.cwd);
         return {
           mode,
           options: {
-            ...codexTurnPolicy(mode, ctx.cwd),
+            ...policy,
             ...(selectedOptions.effort !== undefined ? { effort: selectedOptions.effort } : {}),
             ...(selectedOptions.serviceTier !== undefined
               ? { serviceTier: selectedOptions.serviceTier }

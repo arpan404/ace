@@ -6,7 +6,7 @@ import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { StepDetail } from "./items/step-detail.tsx";
 import { MessageReferences } from "./items/message-references.tsx";
-import { Item } from "@ace/protocol";
+import { Item, type ContentPart } from "@ace/protocol";
 import { render } from "@testing-library/react";
 
 import { preloadStepLabels } from "./items/step-labels.ts";
@@ -73,6 +73,33 @@ test("adapter evidence is hidden and a reviewed diagnostic uses plain copy", asy
     ),
   ).toBeTruthy();
   expect(feed.textContent).not.toMatch(/SDK|UUID|uncertain|cursor\.work/);
+});
+
+test.each([
+  "SDK JSON-RPC session.updateConfig failed",
+  "[cursor:sdk_error] SDK JSON-RPC session.updateConfig failed",
+])("a failed turn uses reviewed diagnostic copy and keeps %j in Details", async (native) => {
+  const { feed } = await open([
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "failure",
+      draft: {
+        type: "notice",
+        level: "error",
+        diagnostic: true,
+        code: "cursor.run-failed",
+        text: native,
+        complete: true,
+      },
+    },
+    facts.endTurn("root", "failed"),
+  ]);
+  const failed = await within(feed).findByRole("group", { name: /^Turn failed/ });
+  expect(failed.textContent).toContain("Cursor couldn't finish the request. Try again.");
+  expect(failed.textContent).not.toContain(native);
+  await userEvent.click(within(failed).getByRole("button", { name: "Details" }));
+  expect(within(failed).getByText(native)).toBeTruthy();
 });
 
 test("live provider wrappers vanish while the person's words survive", async () => {
@@ -292,4 +319,91 @@ test("cleaning an injected text part preserves spaces between the person's words
     />,
   );
   expect(view.container.textContent).toBe("Read the file please.");
+});
+
+const mention = (name: string): ContentPart => ({
+  type: "mention",
+  kind: "skill",
+  entryId: `skill:${name}`,
+  name,
+  title: name,
+  arguments: "",
+});
+
+test("envelopes split across text parts stay hidden beside mentions and preserve spacing", () => {
+  const view = render(
+    <MessageReferences
+      parts={[
+        { type: "text", text: "Read " },
+        mention("README.md"),
+        { type: "text", text: " and <system-" },
+        { type: "text", text: "reminder>private first" },
+        { type: "text", text: "private second</system-reminder>the file " },
+        mention("package.json"),
+        { type: "text", text: " please." },
+      ]}
+    />,
+  );
+  expect(view.container.textContent).toBe("Read README.md and the file package.json please.");
+  expect(screen.getByText("README.md")).toBeTruthy();
+  expect(screen.getByText("package.json")).toBeTruthy();
+});
+
+test("hidden envelopes omit their mentions while ordinary marker characters remain text", () => {
+  const view = render(
+    <MessageReferences
+      parts={[
+        { type: "text", text: "Read \uE0000\uE000 <system-reminder>private" },
+        mention("private.txt"),
+        { type: "text", text: "</system-reminder>then " },
+        mention("visible.txt"),
+        { type: "text", text: " please." },
+      ]}
+    />,
+  );
+  expect(view.container.textContent).toBe("Read \uE0000\uE000 then visible.txt please.");
+  expect(screen.queryByText("private.txt")).toBeNull();
+  expect(screen.getByText("visible.txt")).toBeTruthy();
+});
+
+test("ordinary marker characters beside a mention preserve both the text and the chip", () => {
+  const view = render(
+    <MessageReferences
+      parts={[
+        { type: "text", text: "Read \uE000ace-reference\uE001 \uE000" },
+        mention("visible.txt"),
+        { type: "text", text: " please." },
+      ]}
+    />,
+  );
+  expect(view.container.textContent).toBe(
+    "Read \uE000ace-reference\uE001 \uE000visible.txt please.",
+  );
+  expect(screen.getByText("visible.txt")).toBeTruthy();
+});
+
+test("returning to the live end with the scrollbar resumes following output", async () => {
+  const { app, feed } = await open();
+  const viewport = feed.closest<HTMLElement>("[data-virtual-viewport]");
+  if (!viewport) throw new Error("Missing transcript viewport");
+  let height = 1000;
+  Object.defineProperties(viewport, {
+    scrollHeight: { configurable: true, get: () => height },
+    clientHeight: { configurable: true, value: 600 },
+  });
+  viewport.scrollTop = 400;
+  fireEvent.scroll(viewport);
+  fireEvent.wheel(viewport, { deltaY: -100 });
+  viewport.scrollTop = 200;
+  fireEvent.scroll(viewport);
+  fireEvent.pointerDown(viewport);
+  viewport.scrollTop = 400;
+  fireEvent.scroll(viewport);
+  fireEvent.pointerUp(document);
+  height = 1200;
+  act(() =>
+    app.daemon.apply("hygiene", [facts.message("root", "reply", "assistant", "New output")]),
+  );
+  await within(feed).findByText("New output");
+  await waitFor(() => expect(viewport.scrollTop).toBeGreaterThan(400));
 });

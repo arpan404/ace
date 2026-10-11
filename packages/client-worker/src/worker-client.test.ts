@@ -327,6 +327,28 @@ test("an exponentially expanding shared setting is refused before JSON expansion
   expect(remote.state).toBe("ready");
 });
 
+test("a broad setting below the byte limit is refused without blocking later reads", async () => {
+  const { tab } = world();
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  for (const value of [
+    Array.from({ length: 80_000 }, () => true),
+    Array.from({ length: 16 }, () => Array.from({ length: 4096 }, () => true)),
+  ]) {
+    await expect(
+      remote.request({
+        type: "settings.set",
+        key: "clients.theme",
+        value,
+        layer: { kind: "global" },
+      }),
+    ).rejects.toMatchObject({ code: "limit", message: expect.stringContaining("JSON workload") });
+    await remote.request({ type: "diagnostics.health" });
+  }
+  expect(remote.state).toBe("ready");
+});
+
 test("an excessively deep setting is refused while ordinary shared settings still save", async () => {
   const { tab } = world();
   const remote = tab();

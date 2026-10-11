@@ -5,6 +5,7 @@ import { environment, jsonl, claudeRecords, cwd } from "./test-support.ts";
 import { openHistory, type HistoryService, type HistoryRuntime } from "./index.ts";
 import { Worker } from "node:worker_threads";
 import { once } from "node:events";
+import { Options } from "./contracts.ts";
 
 const noop = () => {};
 function watchBoundary() {
@@ -213,19 +214,67 @@ test("a subscriber observes already dirty history after the idle worker exits an
 test("closing a scan drains cancellation while its progress observer is held and ignores its late completion", async () => {
   const env = await environment();
   const home = join(env.root, "claude");
-  const entered = Promise.withResolvers<void>();
+  const entered = Promise.withResolvers<number>();
   const release = Promise.withResolvers<void>();
   const finished = Promise.withResolvers<void>();
+  const workerGate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+  let service: HistoryService | undefined;
   try {
-    await jsonl(join(home, "projects/p/first.jsonl"), claudeRecords("first", "first"));
-    const service = await env.start([{ id: "account", provider: "claude", homeDir: home }]);
-    const scanning = service.scanChanges(undefined, async () => {
-      entered.resolve();
+    for (let index = 0; index < 128; index++)
+      await jsonl(
+        join(home, `projects/p/${index}.jsonl`),
+        claudeRecords(`prompt-${index}`, `native-${index}`),
+      );
+    service = await openHistory(
+      {
+        indexPath: join(env.root, "ace/index.sqlite"),
+        instances: [{ id: "account", provider: "claude", homeDir: home }],
+      },
+      (url, options) => {
+        // Control scheduling at the real worker transport, not by holding the
+        // observational progress callback. The native scan pauses after its first
+        // intermediate report until cancellation has actually been enqueued.
+        const worker = new Worker(
+          `const { parentPort, workerData } = require("node:worker_threads");
+          const gate = new Int32Array(workerData.gate);
+          const send = parentPort.postMessage.bind(parentPort);
+          let held = false;
+          parentPort.postMessage = (message, transfers) => {
+            send(message, transfers);
+            if (!held && typeof message?.progress === "number") {
+              held = true;
+              Atomics.wait(gate, 0, 0);
+            }
+          };
+          void import(workerData.target);`,
+          {
+            ...options,
+            eval: true,
+            workerData: {
+              ...Options.parse(options.workerData),
+              gate: workerGate.buffer,
+              target: url.href,
+            },
+          },
+        );
+        const send = worker.postMessage.bind(worker);
+        worker.postMessage = (value, transfers) => {
+          send(value, transfers);
+          if (value === "cancel") {
+            Atomics.store(workerGate, 0, 1);
+            Atomics.notify(workerGate, 0);
+          }
+        };
+        return worker;
+      },
+    );
+    const scanning = service.scanChanges(undefined, async (files) => {
+      entered.resolve(files);
       await release.promise;
       finished.resolve();
     });
-    const rejected = expect(scanning).rejects.toThrow();
-    await entered.promise;
+    const rejected = expect(scanning).rejects.toThrow("aborted");
+    expect(await entered.promise).toBeLessThan(128);
     await service.close();
     await rejected;
     release.resolve();
@@ -234,6 +283,9 @@ test("closing a scan drains cancellation while its progress observer is held and
     await service.close();
   } finally {
     release.resolve();
+    Atomics.store(workerGate, 0, 1);
+    Atomics.notify(workerGate, 0);
+    await service?.close();
     await env.close();
   }
 });

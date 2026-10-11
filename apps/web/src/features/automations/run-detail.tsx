@@ -27,7 +27,7 @@ export function AutomationRunDetail(props: { run: AutomationRun }) {
   });
   const duration = runDurationMinutes(run);
   return (
-    <article aria-label={run.title}>
+    <article tabIndex={-1} aria-label={run.title}>
       <p className="flex items-center gap-2 text-sm text-muted-foreground">
         <Dot tone={runTone(run)} />
         Automation run

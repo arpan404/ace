@@ -1,4 +1,4 @@
-import { teamAtLimit } from "@ace/fake-daemon";
+import { flakyCheckout, teamAtLimit } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -23,7 +23,7 @@ afterEach(() => {
 
 type App = ReturnType<typeof harness>;
 
-const toasts = () => screen.getByRole("region", { name: "Notifications" });
+const toasts = () => screen.findByRole("region", { name: "Notifications" });
 /** Usage reads quota again; every screen showing it gets the new reading. */
 const refresh = () => userEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
@@ -71,7 +71,7 @@ test("Activity lists threads paused at a usage limit by account and moves them t
 
   const team = await screen.findByRole("article", { name: "Codex · Team" });
   expect(
-    within(team).getByText(/^3 threads paused · Resets \d{1,2}:\d{2}(?: [ap]m)? · in 1h 27m$/i),
+    within(team).getByText(/^Codex · Team — Resets \d{1,2}:\d{2}(?: [ap]m)? · in 1h 27m$/i),
   ).toBeTruthy();
   expect(
     within(team)
@@ -85,10 +85,33 @@ test("Activity lists threads paused at a usage limit by account and moves them t
 
   await userEvent.click(within(team).getByRole("button", { name: "Move to Codex · Personal" }));
 
-  expect(await within(toasts()).findByText("Moved 3 threads to Codex · Personal")).toBeTruthy();
+  expect(
+    await within(await toasts()).findByText("Moved 3 threads to Codex · Personal"),
+  ).toBeTruthy();
   await waitFor(() =>
     expect(screen.queryByRole("heading", { name: "Paused at a usage limit" })).toBeNull(),
   );
+});
+
+test("usage-limit reset information and Move stay available beside a pending approval", async () => {
+  const app = harness();
+  report(app, "codex-team", { five_hour: [100, 87 * minute] });
+  report(app, "codex-personal", { five_hour: [38, 3 * hour] });
+  for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
+  app.play(flakyCheckout()).runThrough("approval-requested");
+  await app.open("/activity");
+  await screen.findByRole("article", { name: "Run rm -rf node_modules/.cache/vitest?" });
+  const team = await screen.findByRole("article", { name: "Codex · Team" });
+  expect(within(team).getByText(/in 1h 27m$/)).toBeTruthy();
+  expect(within(team).getAllByRole("link")).toHaveLength(3);
+  await userEvent.click(within(team).getByRole("button", { name: "Move to Codex · Personal" }));
+  expect(
+    await within(await toasts()).findByText("Moved 3 threads to Codex · Personal"),
+  ).toBeTruthy();
+  expect(app.daemon.isPending("thread-checkout", "approve-clear-cache")).toBe(true);
+  expect(
+    screen.getByRole("article", { name: "Run rm -rf node_modules/.cache/vitest?" }),
+  ).toBeTruthy();
 });
 
 test("toasts say when an account nears its limit, reaches it and can work again", async () => {
@@ -103,19 +126,19 @@ test("toasts say when an account nears its limit, reaches it and can work again"
   report(app, "claude-work", { five_hour: [92, 2 * hour] });
   await refresh();
   expect(
-    await within(toasts()).findByText("Claude Code · Work is near its usage limit"),
+    await within(await toasts()).findByText("Claude Code · Work is near its usage limit"),
   ).toBeTruthy();
-  expect(within(toasts()).getByText(/^92% of the 5-hour window used\. Resets/)).toBeTruthy();
+  expect(within(await toasts()).getByText(/^92% of the 5-hour window used\. Resets/)).toBeTruthy();
 
   report(app, "claude-work", { five_hour: [100, 2 * hour] });
   await refresh();
   expect(
-    await within(toasts()).findByText("Claude Code · Work reached its usage limit"),
+    await within(await toasts()).findByText("Claude Code · Work reached its usage limit"),
   ).toBeTruthy();
 
   report(app, "claude-work", { five_hour: [4, 5 * hour] });
   await refresh();
-  expect(await within(toasts()).findByText("Claude Code · Work can work again")).toBeTruthy();
+  expect(await within(await toasts()).findByText("Claude Code · Work can work again")).toBeTruthy();
 });
 
 test("with limit toasts turned off, an account reaching its limit stays quiet", async () => {
@@ -145,11 +168,11 @@ test("losing track of an account at its limit doesn't say it can work again; a r
   await refresh();
   const work = screen.getByRole("article", { name: "Claude Code Work" });
   await waitFor(() => expect(within(work).queryByText("Limit reached")).toBeNull());
-  expect(within(toasts()).queryByText("Claude Code · Work can work again")).toBeNull();
+  expect(screen.queryByText("Claude Code · Work can work again")).toBeNull();
 
   report(app, "claude-work", { five_hour: [4, 5 * hour] });
   await refresh();
-  expect(await within(toasts()).findByText("Claude Code · Work can work again")).toBeTruthy();
+  expect(await within(await toasts()).findByText("Claude Code · Work can work again")).toBeTruthy();
 });
 
 test("once its full window resets, the account says it can work again without anything new from the provider", async () => {
@@ -159,7 +182,7 @@ test("once its full window resets, the account says it can work again without an
   // The reset passes; the daemon still holds the same quota, and nobody presses Refresh.
   vi.setSystemTime(now + 3_000);
   expect(
-    await within(toasts()).findByText("Claude Code · Work can work again", {}, { timeout: 6_000 }),
+    await screen.findByText("Claude Code · Work can work again", {}, { timeout: 6_000 }),
   ).toBeTruthy();
 }, 10_000);
 
@@ -171,10 +194,10 @@ test("a hidden page doesn't read quota at a reset; it reads once shown again", a
   vi.setSystemTime(now + 3_000);
   // Longer than the read after a reset waits: none happens while hidden.
   await act(() => new Promise((resolve) => setTimeout(resolve, 2_500)));
-  expect(within(toasts()).queryByText("Claude Code · Work can work again")).toBeNull();
+  expect(screen.queryByText("Claude Code · Work can work again")).toBeNull();
 
   visibility("visible");
   expect(
-    await within(toasts()).findByText("Claude Code · Work can work again", {}, { timeout: 6_000 }),
+    await screen.findByText("Claude Code · Work can work again", {}, { timeout: 6_000 }),
   ).toBeTruthy();
 }, 15_000);

@@ -12,7 +12,8 @@ export function migrateProviderPermissions(value: Record<string, string>): Recor
   const next: Record<string, string> = {};
   for (const [key, id] of Object.entries(value)) {
     const provider = ProviderKind.safeParse(key);
-    const native = provider.success ? migratePermissionMode(provider.data, id) : id;
+    const native =
+      provider.success && provider.data !== "acp" ? migratePermissionMode(provider.data, id) : id;
     if (native !== null) next[key] = native;
   }
   return next;

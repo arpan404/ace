@@ -25,9 +25,11 @@ export const PairingRedemption = z.object({
   name: z.string().min(1).max(256),
 });
 export const PairingResponse = z.object({ url: z.url(), expiresAt: timestamp });
+export const DeviceToken = z.string().regex(/^[0-9a-f]{64}$/);
+export type DeviceToken = z.infer<typeof DeviceToken>;
 export const DeviceCredential = z.object({
   device: Device,
-  token: z.string().regex(/^[0-9a-f]{64}$/),
+  token: DeviceToken,
 });
 export type DeviceCredential = z.infer<typeof DeviceCredential>;
 export const SocketTicket = z.object({

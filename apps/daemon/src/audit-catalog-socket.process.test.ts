@@ -1,6 +1,72 @@
 import { expect, test } from "vitest";
 import { ProviderStatuses } from "./provider-status.ts";
 import { fixture } from "./socket-test-support.ts";
+import { setImmediate } from "node:timers/promises";
+
+test("replacing a pending catalog subscription still allows the replacement to unsubscribe", async () => {
+  const { CommandLibrary } = await import("@ace/commands");
+  const held = Promise.withResolvers<{ entries: []; stale: boolean }>();
+  const reading = Promise.withResolvers<void>();
+  const changes = new Set<() => void>();
+  let first = true;
+  let stale = false;
+  const library = new CommandLibrary({
+    aceHome: process.env.HOME ?? "/unused",
+    instances: [],
+    now: () => 0,
+    context: () => ({ workspace: "/unused", provider: "codex", instance: "codex" }),
+  });
+  library.listCatalog = async () => {
+    if (first) {
+      first = false;
+      reading.resolve();
+      return held.promise;
+    }
+    return { entries: [], stale };
+  };
+  library.subscribeCatalog = (callback) => {
+    changes.add(callback);
+    return () => {
+      changes.delete(callback);
+    };
+  };
+  const f = await fixture({ commands: library });
+  try {
+    const client = await f.connect();
+    await client.next();
+    const request = {
+      type: "catalog.list" as const,
+      requestId: "replaced",
+      threadId: f.thread.id,
+      subscribe: true,
+      query: "",
+      limit: 10,
+    };
+    client.send(request);
+    await reading.promise;
+    client.send(request);
+    expect(await client.next()).toMatchObject({
+      type: "catalog.list.result",
+      requestId: "replaced",
+    });
+    held.resolve({ entries: [], stale: false });
+    await setImmediate();
+    client.send({ type: "ping" });
+    expect((await client.next()).type).toBe("pong");
+    client.send({ type: "catalog.unsubscribe", requestId: "replaced" });
+    client.send({ type: "ping" });
+    expect((await client.next()).type).toBe("pong");
+    stale = true;
+    for (const change of changes) change();
+    await setImmediate();
+    client.send({ type: "ping" });
+    expect((await client.next()).type).toBe("pong");
+  } finally {
+    held.resolve({ entries: [], stale: false });
+    await f.close();
+    await library.close();
+  }
+});
 
 // Hold metadata at its provider boundary; the socket and server remain real.
 test("a slow provider refresh cannot hold a later ping behind it", async () => {
