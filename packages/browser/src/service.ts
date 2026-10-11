@@ -78,7 +78,13 @@ export class BrowserService {
     if (existing && !existing.state.closed) {
       // Every client and the agent share the thread's one page, on whichever backend it runs.
       const resume = this.resumable.get(options.threadId);
-      if (resume && (!options.background || agentResumes(existing.state))) await resume();
+      if (resume && (!options.background || agentResumes(existing.state))) {
+        // A replacement can be lost immediately after publishing ready, while its
+        // installation promise is still unwinding. Retry after that work settles.
+        await this.recoveries.get(options.threadId);
+        const retry = this.resumable.get(options.threadId);
+        if (retry && (!options.background || agentResumes(existing.state))) await retry();
+      }
       return existing.state;
     }
     if (existing) await existing.close();
@@ -150,6 +156,12 @@ export class BrowserService {
       this.resumable.delete(options.threadId);
       const native = this.embedded;
       const recover = async () => {
+        await owned.releaseLostBackend();
+        if (recoveryProfile) {
+          await rm(recoveryProfile, { recursive: true, force: true });
+          recoveryProfile = undefined;
+        }
+        let replacementProfile: string | undefined;
         if (!native)
           return recoverHeadless({
             request: recoveryRequest,
@@ -159,9 +171,15 @@ export class BrowserService {
             url: owned.state.url,
             profileCreated: (path) => {
               recoveryProfile = path;
+              replacementProfile = path;
+            },
+            lost: (reason) => {
+              if (signal.aborted || owned.state.closed || recoveryProfile !== replacementProfile)
+                return;
+              owned.suspend(reason);
+              this.resumable.set(options.threadId, resume);
             },
           });
-        await owned.releaseLostBackend();
         const replacement = await native.open(recoveryRequest);
         try {
           replacement.privateMode?.(owned.state.takeoverMode === "private");
