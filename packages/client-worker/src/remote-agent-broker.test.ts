@@ -53,10 +53,13 @@ function world(
   afterTransfer: "running" | "cancelling" | "expired" = "running",
   tasks: RemoteTask[] = [task],
   poll: () => RemoteTask[] = () => tasks,
+  inactive?: (ids: string[]) => string[],
 ) {
   const calls: string[] = [];
   const phases: string[] = [];
   const emitted: RemoteTaskReport[] = [];
+  const probes: string[][] = [];
+  let online = true;
   let admitted = false;
   let cancelled = false;
   let reports = 0;
@@ -69,7 +72,15 @@ function world(
     calls.push(input.type);
     if (input.type === "delegation.broker.register")
       return reply(input, { ok: true, lease: "lease" });
-    if (input.type === "delegation.broker.poll") return reply(input, { ok: true, tasks: poll() });
+    if (input.type === "delegation.broker.poll") {
+      const ids = input.trackedTaskIds ?? [];
+      probes.push(ids);
+      return reply(input, {
+        ok: true,
+        tasks: poll(),
+        ...(inactive ? { inactiveTaskIds: inactive(ids) } : {}),
+      });
+    }
     if (input.type !== "delegation.broker.report") throw new Error("Unexpected source request");
     reports++;
     phases.push(input.report.phase);
@@ -152,7 +163,7 @@ function world(
     pool: {
       ids: [],
       machine: () => ({
-        status: "online",
+        status: online ? "online" : "offline",
         entry: MachineEntry.parse({
           hostId: "target",
           displayName: "Target",
@@ -178,7 +189,18 @@ function world(
     scheduler: { set: () => () => {} },
     now: () => 0,
   });
-  return { broker, calls, phases, emitted, admitted: () => admitted, cancelled: () => cancelled };
+  return {
+    broker,
+    calls,
+    phases,
+    emitted,
+    probes,
+    setOnline: (value: boolean) => {
+      online = value;
+    },
+    admitted: () => admitted,
+    cancelled: () => cancelled,
+  };
 }
 
 test("broker recovers adopted target status without repeating context uploads or admission", async () => {
@@ -321,7 +343,13 @@ test("file-import attempts survive disjoint poll pages until both preserved answ
   });
   const tasks = [task, second];
   let polls = 0;
-  const f = world("files", "running", tasks, () => [tasks[polls++ % 2] ?? task]);
+  const f = world(
+    "files",
+    "running",
+    tasks,
+    () => [tasks[polls++ % 2] ?? task],
+    () => [],
+  );
   try {
     await vi.waitFor(
       async () => {
@@ -344,6 +372,106 @@ test("file-import attempts survive disjoint poll pages until both preserved answ
         artifactsUnavailable: true,
         error: expect.stringContaining("output.txt"),
       });
+  } finally {
+    f.broker.close();
+  }
+});
+
+test("source-confirmed reconciliation expiry releases routing and file-import attempts despite an offline target", async () => {
+  const tasks = [task];
+  let page = tasks;
+  let expired = false;
+  const f = world(
+    "files",
+    "running",
+    tasks,
+    () => page,
+    (ids) => (expired ? ids : []),
+  );
+  try {
+    await f.broker.cycle();
+    await vi.waitFor(() => expect(f.phases).toContain("unavailable"));
+    f.setOnline(false);
+    tasks[0] = RemoteTask.parse({
+      ...task,
+      phase: "failed",
+      delivered: true,
+      cancellingAt: 0,
+      finishedAt: 30_000,
+    });
+    await f.broker.cycle();
+    page = [];
+    // An ordinary page omission still receives a positive source liveness result.
+    await vi.waitFor(async () => {
+      await f.broker.cycle();
+      expect(f.probes.at(-1)).toContain(task.id);
+    });
+    expired = true;
+    await f.broker.cycle();
+    await f.broker.cycle();
+    expect(f.probes.at(-1)).toEqual([]);
+    await f.broker.cycle();
+    expect(f.probes.at(-1)).toEqual([]);
+
+    // The source may admit the same stable request identity again after pruning.
+    // It must get a fresh three-attempt import budget, without the old failure.
+    expired = false;
+    tasks[0] = task;
+    page = tasks;
+    f.setOnline(true);
+    const before = f.emitted.length;
+    await vi.waitFor(async () => {
+      await f.broker.cycle();
+      expect(f.emitted.slice(before).some((report) => report.phase === "completed")).toBe(true);
+    });
+    const returned = f.emitted.slice(before);
+    expect(returned.filter((report) => report.phase === "unavailable")).toHaveLength(2);
+    expect(returned.find((report) => report.phase === "completed")).toMatchObject({
+      result: "Already finished",
+      artifactsUnavailable: true,
+      error: expect.stringContaining("output.txt"),
+    });
+  } finally {
+    f.broker.close();
+  }
+});
+
+test("source liveness checks rotate through more than one tracked page and stop after confirmed removal", async () => {
+  const tasks = Array.from({ length: 128 }, (_, index) => {
+    const id = index.toString(16).padStart(64, "0");
+    return RemoteTask.parse({
+      ...task,
+      id,
+      threadId: `remote-${id}`,
+      phase: "failed",
+      delivered: true,
+      cancellingAt: 0,
+      finishedAt: 30_000,
+    });
+  });
+  const pages = [tasks.slice(0, 64), tasks.slice(64)];
+  let page = 0;
+  let removed = false;
+  const f = world(
+    "running",
+    "running",
+    tasks,
+    () => (removed ? [] : (pages[page++ % 2] ?? [])),
+    (ids) => (removed ? ids : []),
+  );
+  f.setOnline(false);
+  try {
+    await vi.waitFor(
+      async () => {
+        await f.broker.cycle();
+        expect(new Set(f.probes.flat())).toEqual(new Set(tasks.map((candidate) => candidate.id)));
+      },
+      { timeout: 4000, interval: 1 },
+    );
+    removed = true;
+    for (let cycle = 0; cycle < 4; cycle++) await f.broker.cycle();
+    expect(f.probes.at(-1)).toEqual([]);
+    expect(f.probes.every((ids) => ids.length <= 64)).toBe(true);
   } finally {
     f.broker.close();
   }
