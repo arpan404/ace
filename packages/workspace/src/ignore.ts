@@ -16,6 +16,10 @@ export class GitIgnore {
   static async create(safe: SafeRoot): Promise<GitIgnore> {
     return new GitIgnore(safe);
   }
+  /** Repository identity is mutable between traversals, but stable within one. */
+  traversal(): GitIgnore {
+    return this.stream ? this : new GitIgnore(this.safe);
+  }
   /** Linked worktrees keep index/exclude metadata outside the workspace directory. */
   async metadataPaths(signal?: AbortSignal): Promise<string[]> {
     await this.safe.resolve("");
