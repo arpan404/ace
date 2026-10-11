@@ -117,3 +117,12 @@ export { freeModelMarker } from "./model-picker.ts";
 export { recoveryAttention, type RecoveryAttention } from "./recovery-attention.ts";
 export { sanitizeUserText } from "@ace/native-session/user-text";
 export { stripAnsi } from "./notice-text.ts";
+export {
+  subagentState,
+  delegatedState,
+  subagentTerminal,
+  rollupSubagent,
+  subagentStatusLine,
+  subagentLabels,
+  type SubagentState,
+} from "./subagents.ts";
