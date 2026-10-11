@@ -6,6 +6,9 @@
     "artifacts": {
       "$ref": "https://ace.local/protocol/v1/RemoteArtifactManifest.json"
     },
+    "artifactsUnavailable": {
+      "type": "boolean"
+    },
     "context": {
       "oneOf": [
         {

@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { traceBatches } from "./trace-batches.ts";
+import { compactPolicyEvent } from "@ace/browser/policy-events";
 import {
   type BrowserOpen,
   type BrowserBackendClientMessage,
@@ -76,7 +78,20 @@ export interface BackendOptions {
   log(message: string): void;
 }
 
+const TabTrace = z.looseObject({
+  tabId: z.string().max(256),
+  method: z.literal("Tracing.dataCollected"),
+  params: z.unknown(),
+});
+
 const Frame = z.object({ data: z.string(), sessionId: z.number().int() });
+
+interface PendingOpen {
+  threadId: string;
+  canceled: boolean;
+  settled: Promise<void>;
+  finish(): void;
+}
 
 interface Session {
   id: string;
@@ -101,7 +116,8 @@ export class BrowserBackend {
   private sessions = new Map<string, Session>();
   /** Renderers' claims to hold each thread's page (by thread id). */
   private claims = new Map<string, RendererClaim>();
-  private opening = new Set<string>();
+  private opening = new Map<string, PendingOpen>();
+  private purging = new Set<string>();
   private link: BackendLink | undefined;
   private host: ViewHost;
   private options: BackendOptions;
@@ -123,6 +139,7 @@ export class BrowserBackend {
    */
   detach(): void {
     this.link = undefined;
+    for (const pending of this.opening.values()) pending.canceled = true;
     for (const session of this.sessions.values()) void this.dispose(session);
   }
 
@@ -181,10 +198,28 @@ export class BrowserBackend {
   ): Promise<unknown> {
     if (operation.kind === "open") return this.open(link, sessionId, operation);
     if (operation.kind === "purge") {
-      const open = this.byThread(operation.threadId);
-      if (open) await this.dispose(open);
-      if (!this.host.purge) throw new Error("Browser partition purge unavailable");
-      await this.host.purge({ threadId: operation.threadId, workspaceId: operation.workspaceId });
+      if (this.purging.has(operation.threadId))
+        throw new Error("Browser partition purge in progress");
+      this.purging.add(operation.threadId);
+      try {
+        const pending = [...this.opening.values()].filter(
+          (entry) => entry.threadId === operation.threadId,
+        );
+        for (const entry of pending) entry.canceled = true;
+        const open = this.byThread(operation.threadId);
+        if (open) await this.dispose(open);
+        await Promise.all(pending.map((entry) => entry.settled));
+        if (!this.host.purge) throw new Error("Browser partition purge unavailable");
+        await this.host.purge({ threadId: operation.threadId, workspaceId: operation.workspaceId });
+        return {};
+      } finally {
+        this.purging.delete(operation.threadId);
+      }
+    }
+    const pending = this.opening.get(sessionId);
+    if (operation.kind === "close" && pending) {
+      // Fence ownership now, even if native creation cannot be interrupted.
+      pending.canceled = true;
       return {};
     }
     const session = this.sessions.get(sessionId);
@@ -218,41 +253,50 @@ export class BrowserBackend {
       throw new Error("Browser session already open");
     if (this.sessions.size + this.opening.size >= relayLimits.sessions)
       throw new Error("Embedded browser session limit");
-    this.opening.add(sessionId);
-    let page: ViewPage;
+    if (this.purging.has(operation.options.threadId))
+      throw new Error("Browser partition purge in progress");
+    const completion = Promise.withResolvers<void>();
+    const pending: PendingOpen = {
+      threadId: operation.options.threadId,
+      canceled: false,
+      settled: completion.promise,
+      finish: completion.resolve,
+    };
+    this.opening.set(sessionId, pending);
     try {
-      page = await this.host.open({
+      const page = await this.host.open({
         sessionId,
         downloadDir: operation.downloadDir,
         options: operation.options,
         viewport: operation.viewport,
       });
+      if (pending.canceled || this.link !== link) {
+        // The connection dropped while the view was being made; the daemon forgot the session.
+        await page.close().catch(() => {});
+        throw new Error("Desktop browser open canceled");
+      }
+      const session: Session = {
+        id: sessionId,
+        threadId: operation.options.threadId,
+        page,
+        lease: { generation: -1, controller: "none" },
+        stops: [],
+        inFlight: undefined,
+        latest: undefined,
+      };
+      this.sessions.set(sessionId, session);
+      session.stops.push(
+        page.onEvent((method, params) => this.event(session, method, params)),
+        page.onBlockedInput(() => {
+          if (!this.allowsInput(session)) this.options.onTakeover?.(session.threadId);
+        }),
+      );
+      this.applyLease(session, operation.lease);
+      return { url: page.url(), ...page.snapshot?.() };
     } finally {
       this.opening.delete(sessionId);
+      pending.finish();
     }
-    if (this.link !== link) {
-      // The connection dropped while the view was being made; the daemon forgot the session.
-      await page.close().catch(() => {});
-      throw new Error("Desktop browser backend lost");
-    }
-    const session: Session = {
-      id: sessionId,
-      threadId: operation.options.threadId,
-      page,
-      lease: { generation: -1, controller: "none" },
-      stops: [],
-      inFlight: undefined,
-      latest: undefined,
-    };
-    this.sessions.set(sessionId, session);
-    session.stops.push(
-      page.onEvent((method, params) => this.event(session, method, params)),
-      page.onBlockedInput(() => {
-        if (!this.allowsInput(session)) this.options.onTakeover?.(session.threadId);
-      }),
-    );
-    this.applyLease(session, operation.lease);
-    return { url: page.url(), ...page.snapshot?.() };
   }
 
   private applyLease(session: Session, lease: BrowserControllerLease): void {
@@ -284,48 +328,57 @@ export class BrowserBackend {
     const link = this.link;
     if (!link || this.sessions.get(session.id) !== session) return;
     if (method === "Page.screencastFrame") return this.frame(session, params);
-    if (method === "Tracing.dataCollected") {
-      const batch = z.object({ value: z.array(z.unknown()) }).safeParse(params);
-      if (!batch.success) return;
-      let value: unknown[] = [],
-        bytes = 0,
-        truncated = false;
-      const flush = () => {
-        if (!value.length && !truncated) return;
+    const nested = method === "ace.tabs.event" ? TabTrace.safeParse(params) : undefined;
+    if (method === "Tracing.dataCollected" || nested?.success) {
+      for (const batch of traceBatches(nested?.success ? nested.data.params : params)) {
         this.send({
           type: "browser.backend.event",
           backendId: link.backendId,
           sessionId: session.id,
           method,
-          params: { value, ...(truncated ? { aceTruncated: true } : {}) },
+          params: nested?.success ? { ...nested.data, params: batch } : batch,
         });
-        value = [];
-        bytes = 0;
-        truncated = false;
-      };
-      for (const event of batch.data.value) {
-        const text = JSON.stringify(event);
-        const size = text === undefined ? 0 : Buffer.byteLength(text);
-        if (size > 256 * 1024) {
-          truncated = true;
-          continue;
-        }
-        if (bytes + size > 256 * 1024 || value.length >= 1000) flush();
-        value.push(event);
-        bytes += size;
       }
-      flush();
       return;
     }
-    this.send({
+    const policyEvent = [
+      "Fetch.requestPaused",
+      "Target.receivedMessageFromTarget",
+      "ace.tabs.event",
+    ].includes(method);
+    let forwarded: unknown;
+    try {
+      forwarded = compactPolicyEvent(method, params);
+    } catch {
+      this.losePolicySession(session);
+      return;
+    }
+    const sent = this.send({
       type: "browser.backend.event",
       backendId: link.backendId,
       sessionId: session.id,
       method,
-      params,
+      params: forwarded,
     });
+    if (!sent && policyEvent) {
+      this.losePolicySession(session);
+      return;
+    }
     // The view is gone (closed by the person, crashed, or the debugger detached).
     if (method === "Inspector.detached") void this.dispose(session);
+  }
+
+  private losePolicySession(session: Session): void {
+    const link = this.link;
+    if (!link) return;
+    this.send({
+      type: "browser.backend.event",
+      backendId: link.backendId,
+      sessionId: session.id,
+      method: "Inspector.detached",
+      params: { reason: "Browser policy event payload limit" },
+    });
+    void this.dispose(session);
   }
 
   private frame(session: Session, params: unknown): void {

@@ -4,24 +4,51 @@ import type { PluginManager } from "./manager.ts";
 /** Standalone validated command boundary for the daemon command owner to mount. */
 export class PluginService {
   private readonly manager: PluginManager;
+  private readonly pending = new Set<Promise<unknown>>();
+  private stopped = false;
+  private closing: Promise<void> | undefined;
   constructor(manager: PluginManager) {
     this.manager = manager;
   }
   private readonly listeners = new Set<() => void>();
   subscribeCatalog(listener: () => void): () => void {
-    if (this.listeners.size >= 64) throw new Error("Plugin catalog listener limit");
+    if (this.stopped || this.listeners.size >= 64) throw new Error("Plugin catalog listener limit");
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
   extensions(provider: import("@ace/protocol").ProviderKind) {
-    return this.manager.extensions(provider);
+    return this.admit(() => this.manager.extensions(provider));
   }
-  async handle(input: unknown): Promise<PluginResponse> {
+  handle(input: unknown): Promise<PluginResponse> {
+    return this.admit(() => this.publish(input));
+  }
+  private admit<T>(run: () => Promise<T>): Promise<T> {
+    if (this.stopped) return Promise.reject(new Error("Plugin service closed"));
+    if (this.pending.size >= 64) return Promise.reject(new Error("Plugin service busy"));
+    const work = Promise.resolve().then(run);
+    this.pending.add(work);
+    return work.finally(() => {
+      this.pending.delete(work);
+    });
+  }
+  stopAdmission(): void {
+    this.stopped = true;
+    this.listeners.clear();
+  }
+  close(): Promise<void> {
+    this.stopAdmission();
+    this.closing ??= Promise.allSettled(this.pending).then(() => this.manager.close());
+    return this.closing;
+  }
+  private async publish(input: unknown): Promise<PluginResponse> {
     const result = await this.respond(input);
     if (
-      ["plugins.availability", "plugins.accept", "plugins.remove"].includes(
-        PluginRequest.parse(input).type,
-      )
+      [
+        "plugins.availability",
+        "plugins.skillAvailability",
+        "plugins.accept",
+        "plugins.remove",
+      ].includes(PluginRequest.parse(input).type)
     )
       for (const listener of this.listeners) listener();
     return result;

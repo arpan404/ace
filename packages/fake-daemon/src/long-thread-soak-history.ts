@@ -88,6 +88,23 @@ export class SyntheticHistory {
     return multiDayItemsBefore(this.shape, ordinal);
   }
 
+  itemById(id: string): { item: Item; seq: number } | undefined {
+    const prefix = `${this.threadId}.item.`;
+    if (!id.startsWith(prefix)) return undefined;
+    const number = Number(id.slice(prefix.length));
+    if (!Number.isSafeInteger(number) || number < 1) return undefined;
+    let low = 1,
+      high = this.shape.turns;
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      const before = this.itemsBefore(middle);
+      if (number <= before) high = middle - 1;
+      else if (number > before + this.itemCount(middle)) low = middle + 1;
+      else return this.turn(middle).items.find((entry) => entry.item.id === id);
+    }
+    return undefined;
+  }
+
   /** The prelude's events: the thread and its root agent. */
   prelude(): DeliveryEvent[] {
     return [...multiDayPrelude(this.shape)].map((event, index) => this.delivery(event, index + 1));

@@ -39,7 +39,11 @@ not advertise it. New-thread admission stays blocked until the person explicitly
 chooses an available mode or resets to Provider default; absence must never be
 introduced silently. This supersedes the earlier automatic clearing rule.
 Defaults are stored per provider rather than interpreted as a universal
-permission preference.
+permission preference. Native picker selections never pass through legacy preset
+migration: an advertised ACP `read-only` ID stays `read-only` after a switch,
+even if another provider has a legacy mapping for those words. Compatibility
+migration belongs to identifiable deprecated settings/input fields, not live
+native selections.
 
 Apply mode changes at the native boundary the provider supports. A pending
 change is distinct from an acknowledged effective selection. A process restart

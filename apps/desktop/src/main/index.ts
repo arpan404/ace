@@ -26,7 +26,8 @@ import { applicationMenu } from "./menu.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { checkWithFeedback } from "./os/update-feedback.ts";
 import { appPaths } from "./paths.ts";
-import { applyDevCsp, registerAppScheme, serveRenderer } from "./renderer.ts";
+import { applyDevCsp, installDaemonNetwork, registerAppScheme, serveRenderer } from "./renderer.ts";
+import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
 import { createMainWindow } from "./window/main-window.ts";
@@ -256,17 +257,15 @@ function main(target: DaemonTarget): void {
   void app.whenReady().then(async () => {
     if (paths.devIcon) app.dock?.setIcon(paths.devIcon);
     const devUrl = process.env.ACE_DESKTOP_RENDERER_URL;
-    // A remote-only app lets the person enter a daemon, which must use TLS (`wss:`).
-    const remote =
-      runtime.target.kind === "remote"
-        ? [new URL(runtime.target.url).origin]
-        : runtime.target.kind === "remote-only"
-          ? ["wss:"]
-          : [];
+    const network = new DaemonNetwork();
+    if (runtime.target.kind === "remote") network.authorize(runtime.target.url);
+    if (devUrl && !app.isPackaged) network.authorize(new URL(devUrl).origin);
+    installDaemonNetwork(network);
+    const remote = runtime.target.kind === "remote" ? [new URL(runtime.target.url).origin] : [];
     if (devUrl && !app.isPackaged) {
-      applyDevCsp(devUrl, remote);
+      applyDevCsp(devUrl, remote, network);
       rendererUrl = devUrl;
-    } else rendererUrl = await serveRenderer(paths.renderer, remote);
+    } else rendererUrl = await serveRenderer(paths.renderer, remote, network);
 
     // The page shows "Starting ace…" until its daemon answers, however long a first start
     // takes. Only a real failure rejects; the page then shows its connection screen and
@@ -300,6 +299,7 @@ function main(target: DaemonTarget): void {
       window: () => window,
       env: process.env,
       connection,
+      authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),
       showLogs,
       updateKeymap: (next) => {

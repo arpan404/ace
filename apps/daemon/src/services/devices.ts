@@ -6,6 +6,7 @@ import {
   consumeDeviceRecording,
   devicePacketDelivery,
   deviceControlDelivery,
+  deviceFailure,
 } from "@ace/devices";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { logFields } from "@ace/diagnostics";
@@ -136,14 +137,26 @@ export function createDevicesSession(context: SocketContext): SocketService {
     },
     handle(message) {
       if (message.type !== "devices.request") return false;
-      if (!channel || !context.authorize("admin"))
-        context.fail("forbidden", "Admin scope is required for device access");
+      const refuse = (error: import("@ace/protocol").DeviceFailure) =>
+        context.send({ type: "devices.result", requestId: message.requestId, ok: false, error });
+      if (!context.authorize("admin"))
+        refuse({
+          code: "permission_denied",
+          message: "Administrator scope is required for device access",
+          hint: "Connect with an administrator device credential to use Devices.",
+        });
+      else if (!channel)
+        refuse({
+          code: "not_supported",
+          message: "Devices service is unavailable on this daemon",
+          hint: "Check the daemon's device service and reconnect.",
+        });
       else {
         const task = channel
           .request(message)
           .catch((error: unknown) => {
             context.options.log?.(error);
-            context.fail("devices_failed", "Device request failed");
+            refuse(deviceFailure(error));
           })
           .finally(() => context.tasks.delete(task));
         context.tasks.add(task);

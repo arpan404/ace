@@ -49,7 +49,7 @@ export function createDaemonNotifications(
     transport: {
       async send(device, notification, deliverySignal) {
         const paired = store.devices.get(device.id);
-        if (paired?.revokedAt !== undefined && paired.revokedAt !== null) return "gone";
+        if (paired?.revokedAt !== undefined && paired.revokedAt !== null) return "revoked";
         if (paired && !allows(paired, "read")) return "failed";
         return delivery.send(device, notification, deliverySignal);
       },

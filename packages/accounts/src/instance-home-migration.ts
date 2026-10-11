@@ -32,7 +32,8 @@ async function instanceRoot(
     (basename(root) === "home" && basename(dirname(root)) === ".ace-dev") ||
     (await exists(join(root, "host-id")));
   if (!owned) return;
-  if (resolve(root) !== resolve(dataDir)) throw new Error("foreign_home");
+  if ((await canonicalHome(root)) !== (await canonicalHome(dataDir)))
+    throw new Error("foreign_home");
   return root;
 }
 

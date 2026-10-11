@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{BufRead, Write};
 pub const MAX_LINE: usize = 64 * 1024;
-pub const MAX_REPLY: usize = 1024 * 1024;
+// Match the daemon ownership boundary, including the JSON envelope.
+pub const MAX_REPLY: usize = 64 * 1024;
 pub const MAX_FRAME: usize = 8 * 1024 * 1024;
 #[derive(Debug, Deserialize)]
 pub struct Request {

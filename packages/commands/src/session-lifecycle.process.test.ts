@@ -1,8 +1,8 @@
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
-import { CommandLibrary } from "./index.ts";
+import { afterEach, expect, it, vi } from "vitest";
+import { CommandLibrary, SecureCommandIo } from "./index.ts";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
@@ -114,5 +114,57 @@ it("a full account registry can still list commands for its last registered acco
     );
   } finally {
     await library.close();
+  }
+});
+
+it("closing a session during plugin replacement leaves its context evictable and accepts a later session", async () => {
+  const path = await home();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const closeIo = SecureCommandIo.prototype.close;
+  let pause = false;
+  const spy = vi.spyOn(SecureCommandIo.prototype, "close").mockImplementation(async function (
+    this: SecureCommandIo,
+  ) {
+    await closeIo.call(this);
+    if (pause) {
+      pause = false;
+      entered.resolve();
+      await release.promise;
+    }
+  });
+  const library = new CommandLibrary({
+    aceHome: join(path, "ace"),
+    instances: [{ id: "personal", provider: "claude", home: join(path, "claude") }],
+    now: () => 0,
+    context: (thread) => ({
+      workspace: join(path, thread),
+      provider: "claude",
+      instance: "personal",
+    }),
+  });
+  const frame = { type: "system", subtype: "init", slash_commands: ["session-command"] };
+  const pluginFrame = (name: string) => ({ ...frame, plugins: [{ name, path: join(path, name) }] });
+  try {
+    for (let i = 1; i < 8; i++) await library.updateRuntime(`thread-${i}`, frame);
+    await library.updateRuntime("thread-0", pluginFrame("first"));
+    pause = true;
+    const updating = library.updateRuntime("thread-0", pluginFrame("second"));
+    await entered.promise;
+    library.clearRuntime("thread-0");
+    release.resolve();
+    expect(await updating).toBe(false);
+    expect((await library.list("thread-0", "session-command", 10)).commands).toEqual([]);
+    expect((await library.list("thread-8", "fork", 10)).commands.map((c) => c.id)).toContain(
+      "ace#fork",
+    );
+    expect(await library.updateRuntime("thread-0", frame)).toBe(true);
+    expect(
+      (await library.list("thread-0", "session-command", 10)).commands.map((c) => c.name),
+    ).toEqual(["session-command"]);
+  } finally {
+    release.resolve();
+    await library.close();
+    spy.mockRestore();
   }
 });

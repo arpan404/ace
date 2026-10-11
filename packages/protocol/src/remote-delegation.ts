@@ -138,6 +138,7 @@ export const RemoteDelegationResult = z.strictObject({
   context: ContextResult.shape.result.optional(),
   relay: RemoteRelayTarget.optional(),
   artifacts: RemoteArtifactManifest.optional(),
+  artifactsUnavailable: z.boolean().optional(),
   usage: RemoteTaskUsage.optional(),
   phase: RemoteTaskPhase.optional(),
   result: z.string().max(4096).optional(),

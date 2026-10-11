@@ -110,7 +110,8 @@ export function deviceControls(
   now: number,
 ): DeviceControls {
   const controller = state?.controller ?? "none";
-  const leaseLeftMs = controller === "human" ? Math.max(0, (state?.leaseExpiresAt ?? 0) - now) : 0;
+  const remaining = Math.max(0, (state?.leaseExpiresAt ?? 0) - now);
+  const leaseLeftMs = controller === "human" && state?.ownedHere === true ? remaining : 0;
   const inControl = leaseLeftMs > 0;
   const lifecycle = state?.lifecycle ?? "idle";
   const live = lifecycle === "live";
@@ -134,7 +135,9 @@ export function deviceControls(
     : controller === "agent"
       ? "The agent is in control"
       : controller === "human"
-        ? "Your control ended"
+        ? remaining > 0
+          ? "Another connection is in control"
+          : "Your control ended"
         : undefined;
   return {
     approvedHere: state?.threadId === threadId,

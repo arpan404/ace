@@ -218,6 +218,16 @@ describe("page hooks", () => {
     expect(target.events).toEqual(["popstate"]);
   });
 
+  it("distinct item links navigate within the already visible thread", () => {
+    const main = fakeIpc();
+    const target = page("/t/t-1");
+    attachPageHooks(createBridge(main.ipc, info), target.window, deepLinkRoute);
+    main.emit(eventChannel("deep-link"), { kind: "thread", threadId: "t-1", itemId: "first /?#" });
+    main.emit(eventChannel("deep-link"), { kind: "thread", threadId: "t-1", itemId: "second" });
+    expect(target.pushed).toEqual(["/t/t-1?item=first%20%2F%3F%23", "/t/t-1?item=second"]);
+    expect(target.events).toEqual(["popstate", "popstate"]);
+  });
+
   it("opens New thread on a folder from an ace://open link", () => {
     const main = fakeIpc();
     const target = page("/t/t-1");

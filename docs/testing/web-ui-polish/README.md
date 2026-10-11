@@ -29,7 +29,7 @@ An opt-in, fake-only observer is provided at `tools/web-perf/src/steady-motion.t
 
 ## Behavior coverage written for CI
 
-- Permission presentation keeps native IDs/risk/enforcement, uses Full access only for verified unrestricted modes, and explicitly displays unavailable saved choices. New-thread account/provider switching blocks sending until explicit replacement/reset, including an account with an empty catalog.
+- Permission presentation keeps native IDs/risk/enforcement, uses Full access only for verified unrestricted modes, and explicitly displays unavailable saved choices. New-thread account/provider switching blocks sending until explicit replacement/reset, including an account with an empty catalog. ACP Codex-bridge native `read-only` stays unavailable after a Cursor switch until the person explicitly replaces it; native IDs never pass through legacy preset migration.
 - Work details preserve checkout commands, primary next action, full context, nested agent/background attention, root-agent pending state, dismissal focus and scroll/draft persistence. Outside dismissal preserves composer focus; Escape restores the trigger. Browser regressions exercise the final action in 220px/320px-high windows.
 - Copy preserves multiline visible text and mention names while excluding injected provider text.
 - Search keeps active scope visible when filters close and Clear restores all kinds.
@@ -39,11 +39,24 @@ An opt-in, fake-only observer is provided at `tools/web-perf/src/steady-motion.t
 
 Per the latest orchestrator instruction, tests were written but not run locally after the override. CI must run full typecheck, behavioral tests, dependency/UI/size/protocol guards, browser checks and the remaining performance verification. Local final verification is limited to formatting, lint and sequential typechecks of changed workspace packages.
 
+The Check workflow now invokes the full fake Playwright project through `e2e:fake` in its
+existing Linux browser job. The fake-only config starts one Vite server and uses two workers;
+it starts no daemon or provider CLI. CI uploads failure traces and limits the step to 15
+minutes. This wires sidebar hover/focus visibility and short-window Work actions into the
+merge checks; it is not evidence that the browser checks or final performance traces passed.
+
 ## Local command results
 
 Formatting completed before the final small diagnostic corrections. Lint reported a shadowed preview parameter and a hook dependency; both were corrected without repeating the root command. Sequential typechecks passed for `@ace/protocol`, `@ace/provider-kit`, `@ace/ui-core`, `@ace/adapter-acp`, `@ace/adapter-codex`, `@ace/models`, `@ace/commands` and `@ace/web-e2e`. Web typecheck found test-fixture typing errors, and web-perf found two Playwright API typing errors; those diagnostics were corrected without rerunning those packages. These results are not a claim that the final full gate passed. CI must verify the final source.
 
 PR #525 review follow-up: formatting completed, and sequential `@ace/web` and `@ace/web-e2e` typechecks passed. Lint reported three shadowed names introduced by the fallback-theme binding; that binding was renamed without repeating the command. Tests, browser checks, full typecheck and final matched rendering traces remain unexecuted locally under the orchestrator restriction. CI must verify the final source.
+
+Round-2 follow-up: formatting, lint and the scoped `@ace/web` typecheck passed.
+`@ace/web-e2e` reported an exact-optional-property error in the new fake-only config;
+the project list was changed to always be an array, without repeating the command.
+CI must confirm the correction and execute the tests and full typecheck. Final
+screenshots and optimized-build matched traces remain outstanding, so the PR
+references #428, #429 and #431 without closing them.
 
 ## #412 scope retained for parallel owners
 
