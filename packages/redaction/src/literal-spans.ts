@@ -1,4 +1,5 @@
 import { QUOTED_SECRET_ASSIGNMENT } from "./quoted-assignments.ts";
+import type { EnvironmentMatcher } from "./environment.ts";
 
 export interface SensitiveSpan {
   start: number;
@@ -9,41 +10,43 @@ export interface SensitiveSpan {
 /** Merge overlapping original-byte matches before replacing either spelling. */
 export function* sensitiveSpans(
   text: string,
-  environment?: RegExp,
+  environment?: EnvironmentMatcher,
 ): Generator<SensitiveSpan, undefined> {
-  const scans = [
-    ...(environment ? [{ pattern: environment, replacement: "<ENV>" }] : []),
-    { pattern: QUOTED_SECRET_ASSIGNMENT, replacement: "<SECRET>" },
-  ].map(({ pattern, replacement }) => {
-    const regex = new RegExp(pattern.source, pattern.flags);
-    return { regex, replacement, match: regex.exec(text) };
-  });
+  const env = environment?.spans(text) ?? [];
+  let index = 0;
+  const quoted = new RegExp(QUOTED_SECRET_ASSIGNMENT.source, QUOTED_SECRET_ASSIGNMENT.flags);
+  let assignment = quoted.exec(text);
   for (;;) {
-    let start = Infinity;
-    for (const scan of scans) if (scan.match) start = Math.min(start, scan.match.index);
+    const start = Math.min(env[index]?.start ?? Infinity, assignment?.index ?? Infinity);
     if (!Number.isFinite(start)) return;
     let end = start + 1;
     let replacement = "<ENV>";
     let extended = true;
     while (extended) {
       extended = false;
-      for (const scan of scans) {
-        while (scan.match && scan.match.index < end) {
-          const matchEnd = scan.match.index + scan.match[0].length;
-          if (matchEnd > end) {
-            end = matchEnd;
-            extended = true;
-          }
-          if (scan.replacement === "<SECRET>") replacement = "<SECRET>";
-          scan.match = scan.regex.exec(text);
+      while (env[index] && (env[index]?.start ?? Infinity) < end) {
+        const matchEnd = env[index]?.end ?? end;
+        if (matchEnd > end) {
+          end = matchEnd;
+          extended = true;
         }
+        index++;
+      }
+      while (assignment && assignment.index < end) {
+        const matchEnd = assignment.index + assignment[0].length;
+        if (matchEnd > end) {
+          end = matchEnd;
+          extended = true;
+        }
+        replacement = "<SECRET>";
+        assignment = quoted.exec(text);
       }
     }
     yield { start, end, replacement };
   }
 }
 
-export function redactOriginalText(text: string, environment?: RegExp): string {
+export function redactOriginalText(text: string, environment?: EnvironmentMatcher): string {
   const parts: string[] = [];
   let start = 0;
   for (const span of sensitiveSpans(text, environment)) {

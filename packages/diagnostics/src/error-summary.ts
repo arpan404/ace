@@ -1,8 +1,12 @@
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 
-const scrub = createDiagnosticRedactor({});
+const scrubStructured = createDiagnosticRedactor({});
 function short(value: string, redact: (text: string) => string): string {
-  const safe = redact(value);
+  if (value.length > 512) return "<OVERSIZED ERROR MESSAGE OMITTED>";
+  if (/[\r\n]/.test(value)) return "<MULTILINE ERROR MESSAGE OMITTED>";
+  // Contextual exact values must be scrubbed before embedded records normalize.
+  // Error containers still need diagnostic classification with a lexical logger.
+  const safe = scrubStructured(redact(value));
   // Omit whole values so a later environment redactor never receives half a secret.
   if (safe.length > 512) return "<OVERSIZED ERROR MESSAGE OMITTED>";
   if (/[\r\n]/.test(safe)) return "<MULTILINE ERROR MESSAGE OMITTED>";
@@ -15,7 +19,7 @@ export function ownData(input: object, key: string): unknown {
 /** Fixed own fields only: never enumerate, invoke accessors, or retain stack/cause/stderr. */
 export function errorSummary(
   error: unknown,
-  redact: (text: string) => string = scrub,
+  redact: (text: string) => string,
 ): { message: string; code?: string; name?: string } {
   const field = (key: string): unknown => {
     if (!error || typeof error !== "object") return undefined;

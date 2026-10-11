@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { createRedactor, createTextRedactor } from "@ace/redaction";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
-import { createFileSink, createLogger, logFields, logMetadata } from "@ace/diagnostics";
+import { createFileSink, createLogger, logFields, logMetadata, logError } from "@ace/diagnostics";
 import { temporary, controlledWorker } from "./test-support.ts";
 
 const secret = "OPAQUE_CLI_CREDENTIAL";
@@ -13,6 +13,84 @@ const diagnostics = [
   `request failed: ${JSON.stringify(JSON.stringify(payload))}`,
   `request failed: {"credentials":{"login":"${secret}"`,
 ];
+
+it.each([false, true])(
+  "logger error preparation protects configured secrets in recent and saved output with worker=%s",
+  async (worker) => {
+    const directory = await temporary();
+    const value = 'left{ "value": "OPAQUE_ENV_CREDENTIAL" }right';
+    const context = { env: { CUSTOM: value } };
+    const log = createLogger({
+      sink: await createFileSink(
+        { directory, fileBytes: 65536, totalBytes: 131072, context },
+        worker ? controlledWorker : undefined,
+      ),
+      now: () => 1,
+      redact: createDiagnosticRedactor(context),
+    });
+    try {
+      const error = Object.assign(new Error(`request failed: ${value}`), { code: "EIO" });
+      log.log("error", "Engine failure", logError(error));
+      log.child("engine").log("error", "Automatic Error", error);
+      log.log("error", "Automatic error object", { message: error.message, code: "EIO" });
+      log.log("error", "Nested error", logFields([["error", error]]));
+      await log.flush();
+      const saved = await readFile(join(directory, "ace.jsonl"), "utf8");
+      const recent = log.recent();
+      expect(recent).toHaveLength(4);
+      for (const bytes of [saved, ...recent]) {
+        expect(bytes).not.toContain("OPAQUE_ENV_CREDENTIAL");
+        expect(bytes).toContain("request failed");
+        expect(bytes).toContain("<ENV>");
+        expect(bytes).toContain("EIO");
+      }
+    } finally {
+      await log.close();
+    }
+  },
+);
+
+it.each([false, true])(
+  "overlapping values and consumed container openers cannot leak through file logging with worker=%s",
+  async (worker) => {
+    const directory = await temporary();
+    const context = {
+      env: {
+        FIRST: "left{",
+        SECOND: '{ "value": "OPAQUE_ENV_CREDENTIAL" }right',
+        PREFIX: 'lead{"credentials":',
+      },
+    };
+    const log = createLogger({
+      sink: await createFileSink(
+        { directory, fileBytes: 65536, totalBytes: 131072, context },
+        worker ? controlledWorker : undefined,
+      ),
+      now: () => 1,
+      redact: createDiagnosticRedactor(context),
+    });
+    try {
+      log.log("warn", 'left{ "value": "OPAQUE_ENV_CREDENTIAL" }right');
+      log.log(
+        "warn",
+        "Provider diagnostic",
+        logFields([
+          ["stderr", 'lead{"credentials":{"login":"OPAQUE_CONTAINER_CREDENTIAL"},"code":7}'],
+        ]),
+      );
+      await log.flush();
+      const saved = await readFile(join(directory, "ace.jsonl"), "utf8");
+      expect(log.recent()).toHaveLength(2);
+      for (const bytes of [saved, log.recent().join("\n")]) {
+        expect(bytes).not.toContain("OPAQUE");
+        expect(bytes).toContain("Provider diagnostic");
+        expect(bytes).toContain("<ENV>");
+      }
+    } finally {
+      await log.close();
+    }
+  },
+);
 
 it.each([false, true])(
   "file logging protects nested configured objects and prepared metadata with worker=%s",

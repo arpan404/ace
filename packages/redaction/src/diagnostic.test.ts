@@ -1,5 +1,41 @@
 import { expect, it } from "vitest";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
+import { createRedactor, createStreamingRedactor, createTextRedactor } from "@ace/redaction";
+
+it("overlapping configured secrets mask their complete union in raw and escaped output", () => {
+  const context = { env: { FIRST: "left{", SECOND: '{ "value": "OPAQUE_ENV_CREDENTIAL" }right' } };
+  const value = 'left{ "value": "OPAQUE_ENV_CREDENTIAL" }right';
+  for (const spelling of [value, JSON.stringify(value).slice(1, -1)]) {
+    expect(createTextRedactor(context)(spelling)).toBe("<ENV>");
+    expect(createDiagnosticRedactor(context)(spelling)).toBe("<ENV>");
+    const general = createRedactor(context)(spelling);
+    expect(general).not.toContain("OPAQUE");
+    expect(general).toContain("<ENV>");
+    const prefix = "A".repeat(4090);
+    expect([...createStreamingRedactor(context)(`${prefix}${spelling} after`)].join("")).toBe(
+      `${prefix}<ENV> after`,
+    );
+  }
+});
+
+it("a configured prefix consuming a credential-container opener cannot expose its contents", () => {
+  const context = { env: { CUSTOM: 'lead{"credentials":' } };
+  for (const evidence of [
+    'lead{"credentials":{"login":"OPAQUE_CONTAINER_CREDENTIAL"},"code":7}',
+    'lead{"credentials":{"login":"OPAQUE_CONTAINER_CREDENTIAL"}',
+    'lead{"credentials":[{"login":"OPAQUE_CONTAINER_CREDENTIAL"}],"code":7}',
+  ]) {
+    for (const input of [evidence, JSON.stringify({ stderr: evidence })]) {
+      expect(createDiagnosticRedactor(context)(input)).not.toContain("OPAQUE_CONTAINER_CREDENTIAL");
+      expect(createDiagnosticRedactor(context)(input)).toContain("<ENV>");
+    }
+  }
+});
+
+it("repeated overlapping configured prefixes keep the trailing credential private", () => {
+  const context = { env: { FIRST: "A".repeat(129), SECOND: "A".repeat(128) + "B" } };
+  expect(createTextRedactor(context)("A".repeat(5000) + "B after")).toBe("<ENV> after");
+});
 
 const values = [
   'left{ "value": "OPAQUE_ENV_CREDENTIAL" }right',

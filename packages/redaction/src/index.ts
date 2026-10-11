@@ -1,6 +1,7 @@
 import { QUOTED_SECRET_ASSIGNMENT } from "./quoted-assignments.ts";
 import { redactOriginalText } from "./literal-spans.ts";
 import { redactRecordEnvironment } from "./record-environment.ts";
+import { createEnvironmentMatcher, type EnvironmentMatcher } from "./environment.ts";
 
 export type RedactionContext = {
   workspace?: string | undefined;
@@ -93,15 +94,12 @@ function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function environmentPattern(ctx: RedactionContext): RegExp | undefined {
-  const values = [
-    ...new Set(
-      sensitiveEnvironment(ctx)
-        .filter(([key, value]) => value.length >= 4 || isSecretKey(key))
-        .flatMap(([, value]) => [value, JSON.stringify(value).slice(1, -1)]),
-    ),
-  ].toSorted((a, b) => b.length - a.length);
-  return values.length ? new RegExp(values.map(escape).join("|"), "g") : undefined;
+function environmentMatcher(ctx: RedactionContext): EnvironmentMatcher {
+  return createEnvironmentMatcher(
+    sensitiveEnvironment(ctx)
+      .filter(([key, value]) => value.length >= 4 || isSecretKey(key))
+      .map(([, value]) => value),
+  );
 }
 
 /** Lexical rules are shared by literal diagnostics and recursive JSON redaction. */
@@ -125,7 +123,7 @@ function createLexicalRedactor(ctx: RedactionContext): (text: string) => string 
   const shortValues = new Set(
     environmentValues.map(([, value]) => value).filter((value) => value.length < 4),
   );
-  const environment = environmentPattern(ctx);
+  const environment = environmentMatcher(ctx);
   return (line: string): string => {
     if (shortValues.has(line)) return "<ENV>";
     let out = redactOriginalText(line, environment);
@@ -177,13 +175,12 @@ export function createRedactor(
     text: string,
     scrubPlain: (text: string) => string,
     scrubRecord: (record: string) => string,
-    environment?: RegExp,
+    environment?: EnvironmentMatcher,
   ) => string,
 ): (line: string) => string {
   const literalFields = new Set(literalTextFields);
   const scrub = createLexicalRedactor(ctx);
-  const environment = environmentPattern(ctx);
-  const knownValues = new Set(sensitiveEnvironment(ctx).map(([, value]) => value));
+  const environment = environmentMatcher(ctx);
   const identity =
     /^(installationId|deviceId|accountId|account_uuid|userId|user_id|organizationId|organization_uuid|orgId)$/;
   return (line) => {
@@ -199,19 +196,14 @@ export function createRedactor(
             scrub,
             (record) =>
               JSON.stringify(
-                clean(
-                  JSON.parse(redactRecordEnvironment(record, environment, knownValues)),
-                  depth + 1,
-                ),
+                clean(JSON.parse(redactRecordEnvironment(record, environment)), depth + 1),
               ),
             environment,
           );
         const text = value.trimStart();
         if (text.startsWith("{") || text.startsWith("[") || text.startsWith('"')) {
           try {
-            const embedded: unknown = JSON.parse(
-              redactRecordEnvironment(value, environment, knownValues),
-            );
+            const embedded: unknown = JSON.parse(redactRecordEnvironment(value, environment));
             return JSON.stringify(clean(embedded, depth + 1));
           } catch {
             return "<INVALID STRUCTURED DATA OMITTED>";
@@ -247,9 +239,7 @@ export function createRedactor(
           line,
           scrub,
           (record) =>
-            JSON.stringify(
-              clean(JSON.parse(redactRecordEnvironment(record, environment, knownValues)), 0),
-            ),
+            JSON.stringify(clean(JSON.parse(redactRecordEnvironment(record, environment)), 0)),
           environment,
         );
       } catch {
@@ -258,7 +248,7 @@ export function createRedactor(
     }
     let value: unknown;
     try {
-      value = JSON.parse(redactRecordEnvironment(line, environment, knownValues));
+      value = JSON.parse(redactRecordEnvironment(line, environment));
     } catch {
       // A damaged structured record must never fall back to weaker lexical rules.
       if (/^\s*[[{"]/.test(line)) return '"<INVALID STRUCTURED DATA OMITTED>"';
@@ -275,7 +265,7 @@ export function createRedactor(
 /** Preserve token matches across bounded chunks without rescanning the remaining text. */
 export function createStreamingRedactor(ctx: RedactionContext): (text: string) => Iterable<string> {
   const scrub = createTextRedactor(ctx);
-  const environment = environmentPattern(ctx);
+  const environment = environmentMatcher(ctx);
   const sources = [
     ...SECRETS,
     QUOTED_SECRET_ASSIGNMENT,
@@ -284,9 +274,10 @@ export function createStreamingRedactor(ctx: RedactionContext): (text: string) =
     /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)[^"\n]*"\s*:\s*)"(?:[^"\\]|\\.)*"/gi,
     /\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi,
     /([#&](?:code|ticket|token)=)[^&#\s]+/gi,
-    ...(environment ? [environment] : []),
   ];
   return function* (text: string) {
+    const env = environment.spans(text);
+    let envIndex = 0;
     const scans = sources.map((pattern) => {
       const regex = new RegExp(pattern.source, pattern.flags);
       return { regex, match: regex.exec(text) };
@@ -301,6 +292,14 @@ export function createStreamingRedactor(ctx: RedactionContext): (text: string) =
       let changed = true;
       while (changed) {
         changed = false;
+        while (env[envIndex] && (env[envIndex]?.start ?? Infinity) < end) {
+          const matchEnd = env[envIndex]?.end ?? end;
+          if (matchEnd > end) {
+            end = matchEnd;
+            changed = true;
+          }
+          envIndex++;
+        }
         for (const scan of scans) {
           while (scan.match && scan.match.index < end) {
             const matchEnd = scan.match.index + scan.match[0].length;

@@ -10,8 +10,17 @@ class Fields {
 export function logFields(entries: readonly (readonly [string, unknown])[]): object {
   return new Fields(entries);
 }
-/** Prepare a bounded, sanitized error summary without enumerating external payloads. */
-export function logError(error: unknown, redact?: (text: string) => string): object {
+class ErrorEvidence {
+  error: unknown;
+  constructor(error: unknown) {
+    this.error = error;
+  }
+}
+/** Defer error preparation until the receiving logger supplies its redactor. */
+export function logError(error: unknown): object {
+  return new ErrorEvidence(error);
+}
+function preparedError(error: unknown, redact: (text: string) => string): object {
   const summary = errorSummary(error, redact);
   return logFields([
     ["message", summary.message],
@@ -49,7 +58,7 @@ function* metadataFields(input: object): Iterable<readonly [string, unknown]> {
 function normalize(
   value: unknown,
   fields: (input: object) => Iterable<readonly [string, unknown]>,
-  redactText?: (text: string) => string,
+  redactText: (text: string) => string,
 ): unknown {
   let remaining = 64;
   let characters = 4096;
@@ -59,14 +68,16 @@ function normalize(
     if (typeof input === "string") {
       if (input.length > 2048 || input.length > characters) return "<OVERSIZED>";
       characters -= input.length;
-      const safe = redactText ? redactText(input) : input;
+      const safe = fields === metadataFields ? redactText(input) : input;
       return safe.length > 2048 ? "<OVERSIZED>" : safe;
     }
     if (input === null || typeof input === "number" || typeof input === "boolean") return input;
     if (typeof input !== "object") return "<UNSUPPORTED>";
     if (seen.has(input)) return "<CYCLE>";
     seen.add(input);
-    if (input instanceof Error) return visit(logError(input, redactText), depth + 1);
+    if (input instanceof ErrorEvidence)
+      return visit(preparedError(ownData(input, "error"), redactText), depth + 1);
+    if (input instanceof Error) return visit(preparedError(input, redactText), depth + 1);
     if (Array.isArray(input)) {
       const length = own(input, "length");
       if (typeof length !== "number") return "<INVALID ARRAY>";
@@ -82,7 +93,7 @@ function normalize(
         typeof code === "string" ||
         typeof code === "number"
       )
-        return visit(logError(input), depth + 1);
+        return visit(preparedError(input, redactText), depth + 1);
       return "<UNPREPARED OBJECT OMITTED>";
     }
     const result: Record<string, unknown> = {};
@@ -111,10 +122,10 @@ function normalize(
     return "<NORMALIZATION FAILED: DATA OMITTED>";
   }
 }
-export function bounded(value: unknown): unknown {
-  return normalize(value, producerFields);
+export function bounded(value: unknown, redactText: (text: string) => string): unknown {
+  return normalize(value, producerFields, redactText);
 }
-export function boundedMetadata(value: unknown, redactText?: (text: string) => string): unknown {
+export function boundedMetadata(value: unknown, redactText: (text: string) => string): unknown {
   return normalize(value, metadataFields, redactText);
 }
 

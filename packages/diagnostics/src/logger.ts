@@ -91,7 +91,7 @@ export function createLogger(options: LoggerOptions) {
           level,
           component,
           message: message.length > 2048 ? "<OVERSIZED>" : message,
-          data: bounded(data),
+          data: bounded(data, options.redact),
         };
         queue[(head + size) % capacity] = record;
         size++;

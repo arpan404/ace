@@ -1,3 +1,5 @@
+import type { EnvironmentMatcher } from "./environment.ts";
+
 interface QuotedSpan {
   start: number;
   end: number;
@@ -9,12 +11,8 @@ interface QuotedSpan {
  * If decoding would destroy an exact match, omit its value or key's record.
  * A match crossing a string boundary omits the record rather than guessing at
  * how to repair its syntax. */
-export function redactRecordEnvironment(
-  record: string,
-  environment?: RegExp,
-  knownValues?: ReadonlySet<string>,
-): string {
-  if (!environment) return record;
+export function redactRecordEnvironment(record: string, environment?: EnvironmentMatcher): string {
+  if (!environment || !environment.values.size) return record;
   const strings: QuotedSpan[] = [];
   for (let start = 0; start < record.length; start++) {
     if (record[start] !== '"') continue;
@@ -31,17 +29,14 @@ export function redactRecordEnvironment(
   const parts: string[] = [];
   let plain = 0;
   let quoted = 0;
-  const regex = new RegExp(environment.source, environment.flags);
-  for (const match of record.matchAll(regex)) {
-    const start = match.index;
-    const end = start + match[0].length;
+  for (const { start, end } of environment.spans(record)) {
     if (start < plain) continue;
     while (strings[quoted] && (strings[quoted]?.end ?? Infinity) <= start) quoted++;
     const first = strings[quoted];
     let remainsKnown = false;
     try {
-      const decoded: unknown = JSON.parse(`"${match[0]}"`);
-      remainsKnown = typeof decoded === "string" && (knownValues?.has(decoded) ?? false);
+      const decoded: unknown = JSON.parse(`"${record.slice(start, end)}"`);
+      remainsKnown = typeof decoded === "string" && environment.values.has(decoded);
     } catch {
       // An escape cut by the match cannot safely be repaired in place.
     }

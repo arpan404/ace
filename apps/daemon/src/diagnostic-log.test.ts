@@ -1,6 +1,29 @@
 import { expect, test } from "vitest";
-import { logFields } from "@ace/diagnostics";
+import { logError, logFields } from "@ace/diagnostics";
 import { createDaemonLogger } from "./diagnostic-log.ts";
+
+test("daemon error preparation preserves configured secret masks before recent output", async () => {
+  const value = 'left{ "value": "OPAQUE_ENV_CREDENTIAL" }right';
+  const log = createDaemonLogger(
+    { sink: { async write() {}, async close() {} }, now: () => 1 },
+    { env: { CUSTOM: value } },
+  );
+  try {
+    const error = Object.assign(new Error(`request failed: ${value}`), { code: "EIO" });
+    log.log("error", "Engine failure", logError(error));
+    log.child("engine").log("error", "Automatic error", error);
+    const recent = log.recent();
+    expect(recent).toHaveLength(2);
+    for (const line of recent) {
+      expect(line).not.toContain("OPAQUE");
+      expect(line).toContain("request failed");
+      expect(line).toContain("<ENV>");
+      expect(line).toContain("EIO");
+    }
+  } finally {
+    await log.close();
+  }
+});
 
 test("daemon recent output protects nested configured objects and contextual provider metadata", async () => {
   const object = '{ "value": "OPAQUE_ENV_CREDENTIAL" }';
