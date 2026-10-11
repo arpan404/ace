@@ -1,4 +1,4 @@
-import type { ForgePrStatus } from "@ace/protocol";
+import type { ForgePrRef, ForgePrStatus } from "@ace/protocol";
 import { actionErrorText, mergeMethods, prBlocker, type Checkout } from "@ace/ui-core";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { InlineMarkdown } from "@/components/inline-markdown.tsx";
@@ -7,6 +7,7 @@ import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useCheckoutState, useGitActions, type GitChange } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import type { GitDialogKind } from "./git-dialog.tsx";
+import { GitWriteConfirm } from "./git-write-confirm.tsx";
 
 // Loaded on first open: the thread route's first paint doesn't need the commit or PR form.
 const GitDialog = lazy(() => import("./git-dialog.tsx").then((m) => ({ default: m.GitDialog })));
@@ -79,7 +80,7 @@ export function useGitFlow(thread: ThreadRef): {
   /** A change made straight away (Merge), confirmed or explained by a toast. */
   run(change: GitChange): void;
   /** Ask the forge for the PR's status now. */
-  refreshPr(): Promise<void>;
+  refreshPr(pr?: ForgePrRef): Promise<ForgePrStatus | undefined>;
   open(kind: GitDialogKind): void;
   /** Why a pull request can't be opened, when it can't. */
   prBlocked: string | undefined;
@@ -93,15 +94,31 @@ export function useGitFlow(thread: ThreadRef): {
   const { checkout, status, state, linkedPrs } = useCheckoutState(thread);
   const { change, pending, refreshPr } = useGitActions(thread, checkout);
   const [dialog, setDialog] = useState<GitDialogKind>();
+  const [confirm, setConfirm] = useState<Extract<GitChange, { kind: "merge" | "push" }>>();
   const toast = useToast();
   const workspace = useWorkspaceActions(thread.id);
   const submit = async (next: GitChange) => {
     toast.add({ title: confirmation(next, await change(next)) });
   };
-  const run = (next: GitChange) =>
+  const run = (next: GitChange) => {
+    if (next.kind === "push") return setConfirm(next);
+    if (next.kind === "merge") {
+      const repository = checkout?.pr?.repo ?? checkout?.repository;
+      return setConfirm({
+        ...next,
+        ...(next.pr
+          ? {}
+          : checkout?.pr && repository
+            ? {
+                pr: { repository, number: checkout.pr.number },
+              }
+            : {}),
+      });
+    }
     void submit(next).catch((error: unknown) =>
       toast.error({ title: failed[next.kind], description: failure(error) }),
     );
+  };
   const prBlocked = checkout ? prBlocker(checkout) : "Not a git checkout";
   const pr = checkout?.pr;
   const live = pr?.state === "open" || pr?.state === "draft";
@@ -147,6 +164,20 @@ export function useGitFlow(thread: ThreadRef): {
     prBlocked,
     draftBlocked,
     linkBlocked,
-    dialog: dialog && checkout && <Suspense fallback={null}>{form(checkout)}</Suspense>,
+    dialog: (
+      <>
+        {dialog && checkout && <Suspense fallback={null}>{form(checkout)}</Suspense>}
+        {confirm && (
+          <GitWriteConfirm
+            change={confirm}
+            branch={checkout?.branch ?? "detached HEAD"}
+            pending={pending}
+            onSubmit={submit}
+            renderError={failure}
+            onClose={() => setConfirm(undefined)}
+          />
+        )}
+      </>
+    ),
   };
 }
