@@ -83,6 +83,7 @@ interface Watch {
   generation: number;
   count: number;
   subscribed: boolean;
+  subscribing: boolean;
   capture?: BrowserCaptureViewport;
   /** Cancels the next poll. */
   cancel: (() => void) | undefined;
@@ -212,19 +213,29 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     const watch = watches.get(threadId);
     if (!watch || client.state !== "ready" || !visibility.visible()) return;
     void readServers(threadId).catch(() => {});
-    if (!watch.subscribed)
-      call("browser.subscribe", threadId).then(
+    if (!watch.subscribed && !watch.subscribing) {
+      watch.subscribing = true;
+      const generation = watch.generation;
+      void call("browser.subscribe", threadId).then(
         () => {
           // A view that left and came back meanwhile (a tab replaced by another, a remount)
           // is served by this same subscription; only nobody watching gives it up.
           const current = watches.get(threadId);
-          if (current) {
+          if (current === watch && current.generation === generation) {
             current.subscribed = true;
             sendCapture(threadId, current);
-          } else void call("browser.unsubscribe", threadId).catch(() => {});
+          } else if (!current) void call("browser.unsubscribe", threadId).catch(() => {});
         },
         () => {},
-      );
+      ).finally(() => {
+        watch.subscribing = false;
+        // State can follow the initial frame. Replay resets that viewer's backpressure
+        // without acknowledging a decode from a previous lifetime.
+        if (watches.get(threadId) === watch && watch.generation !== generation) poll(threadId);
+        else if (watches.get(threadId) && watches.get(threadId) !== watch) poll(threadId);
+      });
+    }
+    watch.cancel?.();
     watch.cancel = later(() => poll(threadId), retryMs);
   };
   const ack = (threadId: string, sequence: number) => {
@@ -275,13 +286,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       const previous = views.get(state.threadId);
       if (
         state.closed ||
-        state.status === "paused" ||
-        state.status === "recovering" ||
+        ((state.status === "paused" || state.status === "recovering") &&
+          previous?.status !== state.status) ||
         (previous &&
           (previous.backend !== state.backend || previous.activeTabId !== state.activeTabId))
       ) {
         invalidate(state.threadId, watch);
-        if (state.closed) watch.subscribed = false;
+        watch.subscribed = false;
+        if (!state.closed) queueMicrotask(() => {
+          if (watches.get(state.threadId) === watch) poll(state.threadId);
+        });
       }
       views.set(state.threadId, view(state));
       if (state.controller !== "human") held.delete(state.threadId);
@@ -356,6 +370,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           generation: 0,
           count: 1,
           subscribed: false,
+          subscribing: false,
           cancel: undefined,
           latest: undefined,
           owed: undefined,

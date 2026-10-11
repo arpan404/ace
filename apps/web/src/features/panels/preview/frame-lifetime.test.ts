@@ -3,6 +3,7 @@ import { BrowserState, DeviceId, ServerMessage } from "@ace/protocol";
 import { waitFor } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { Client, type OneWayMessage } from "@ace/client";
+import { FrameFanout } from "@ace/browser";
 import { memoryStorage } from "@/boot/client.ts";
 import { daemonPreview } from "./daemon-preview.ts";
 import type { DecodedFrame } from "./frames.ts";
@@ -35,10 +36,14 @@ async function setup() {
   await client.start();
   await waitFor(() => expect(client.state).toBe("ready"));
   let receive: (message: ServerMessage) => void = ignoreMessage;
+  let quiet = false;
   const onMessage = client.onMessage.bind(client);
   client.onMessage = (listener) => {
     receive = listener;
-    return onMessage(listener);
+    return onMessage((message) => {
+      if (!quiet || (message.type !== "browser.frame" && message.type !== "browser.state"))
+        listener(message);
+    });
   };
   const sent: OneWayMessage[] = [];
   const send = client.send.bind(client);
@@ -83,7 +88,21 @@ async function setup() {
       });
     await Promise.resolve();
   };
-  return { source, client, threadId, stop, frame, finish, sent, released, receive };
+  return {
+    source,
+    client,
+    threadId,
+    stop,
+    frame,
+    finish,
+    sent,
+    released,
+    receive,
+    quiet: () => {
+      quiet = true;
+    },
+    decoding: (data: string) => decodes.has(data),
+  };
 }
 
 test.each(["local close", "remote close", "unwatch", "disconnect"])(
@@ -150,3 +169,88 @@ test("an obsolete decode failure cannot acknowledge the replacement browser's fr
   expect(t.source.frame(t.threadId)?.src).toBe("pending-new");
   expect(t.sent.at(-1)).toMatchObject({ type: "browser.ack", sequence: 100 });
 });
+
+test.each(["backend replacement", "recovery"])(
+  "a frame delivered before %s state is replayed and later frames keep flowing",
+  async (transition) => {
+    const t = await setup();
+    t.quiet();
+    const state = BrowserState.parse({
+      threadId: t.threadId,
+      url: "about:blank",
+      controller: "agent",
+      closed: false,
+      backend: transition === "backend replacement" ? "embedded" : "headless",
+      status: "ready",
+    });
+    t.receive({ type: "browser.state", state });
+    t.stop();
+    await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
+    const fanout = new FrameFanout();
+    const publish = (sequence: number, data: string) =>
+      fanout.publish({
+        sequence,
+        data,
+        timestamp: 1000,
+        width: 100,
+        height: 100,
+      });
+    publish(100, "pending-before-state");
+    const replayStarted = Promise.withResolvers<void>();
+    const resumeReplay = Promise.withResolvers<void>();
+    let subscribed = false;
+    let stopFrames = ignoreMessage;
+    const request = t.client.request.bind(t.client);
+    t.client.request = async (input, options) => {
+      if (input.type === "browser.subscribe" && subscribed) {
+        replayStarted.resolve();
+        await resumeReplay.promise;
+      }
+      const result = await request(input, options);
+      if (input.type === "browser.subscribe") {
+        subscribed = true;
+        stopFrames();
+        stopFrames = fanout.subscribe("viewer", {
+          send: (frame) => {
+            t.receive({ type: "browser.frame", threadId: state.threadId, frame });
+            return true;
+          },
+        });
+        // This is the production initial subscription/recovery order.
+        t.receive({
+          type: "browser.state",
+          state: {
+            ...state,
+            backend: "headless",
+            status: transition === "recovery" ? "recovering" : "ready",
+          },
+        });
+      }
+      return result;
+    };
+    const send = t.client.send.bind(t.client);
+    t.client.send = (message) => {
+      if (message.type === "browser.ack") fanout.acknowledge("viewer", message.sequence);
+      else send(message);
+    };
+    const stop = t.source.watch(t.threadId);
+    try {
+      await replayStarted.promise;
+      await t.finish("pending-before-state");
+      expect(t.released).toContain("pending-before-state");
+      publish(101, "pending-replayed");
+      resumeReplay.resolve();
+      await waitFor(() => expect(t.decoding("pending-replayed")).toBe(true));
+      await t.finish("pending-replayed");
+      expect(t.source.frame(t.threadId)?.src).toBe("pending-replayed");
+      publish(102, "pending-following");
+      await waitFor(() => expect(t.decoding("pending-following")).toBe(true));
+      await t.finish("pending-following");
+      expect(t.source.frame(t.threadId)?.src).toBe("pending-following");
+    } finally {
+      resumeReplay.resolve();
+      stopFrames();
+      stop();
+    }
+  },
+);
