@@ -107,14 +107,8 @@ export function createAgentRegistry(config: {
         name: str(p["agentNickname"], str(p["agentPath"]).split("/").at(-1) ?? id),
       });
     }
-    if (
-      p["status"] &&
-      (agent.bufferLost ||
-        !buffered.some((frame) =>
-          ["turn/started", "turn/completed"].includes(str(obj(frame.data)["method"])),
-        )) &&
-      (!agent.hadTurn || agent.bufferLost)
-    ) {
+    if (p["status"]) {
+      const preserveObserved = agent.hadTurn;
       const turns = list(p["turns"]);
       for (const turn of turns) {
         const t = obj(turn);
@@ -127,9 +121,11 @@ export function createAgentRegistry(config: {
               now,
             ),
           );
-        if (!agent.ended.has(turnId)) replay("turn/started", { threadId: id, turn: t });
+        if (!preserveObserved && !agent.ended.has(turnId))
+          replay("turn/started", { threadId: id, turn: t });
         for (const value of list(t["items"])) {
           const item = obj(value);
+          if (agent.completed.has(str(item["id"]))) continue;
           const incomplete = item["status"] === "inProgress";
           replay(incomplete ? "item/started" : "item/completed", { threadId: id, turnId, item });
         }
