@@ -282,3 +282,82 @@ test("slow visible summaries make progress during sustained revisions and catch 
     vi.useRealTimers();
   }
 });
+
+test("a final revision arriving as a slow visible read settles gets a follow-up read", async () => {
+  let time = 1000;
+  const daemon = new SlowTurnsDaemon({ clock: () => ++time });
+  new ScenarioPlayer(daemon, {
+    thread: {
+      id: "turn-freshness",
+      workspaceId: "project",
+      provider: "codex",
+      title: "Settlement boundary",
+    },
+    steps: [
+      {
+        kind: "facts",
+        facts: [
+          facts.rootAgent("codex"),
+          facts.turn("root"),
+          facts.message("root", "ask", "user", "Work"),
+          facts.message("root", "answer", "assistant", "Draft answer", false),
+        ],
+      },
+    ],
+  }).runUntilBlocked();
+  const client = fakeClient(daemon);
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  let view: ReturnType<typeof render> | undefined;
+  let unsubscribe: (() => void) | undefined;
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    await act(async () => {
+      await client.start();
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    view = render(
+      <ClientProvider client={client}>
+        <QueryClientProvider client={cache}>
+          <ThreadNavProvider threadId="turn-freshness">
+            <Summaries />
+          </ThreadNavProvider>
+        </QueryClientProvider>
+      </ClientProvider>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(screen.getByLabelText("block").textContent).toContain("Draft answer");
+    daemon.delayed = true;
+    let finalSent = false;
+    // The public cache success notification is the read's settlement boundary.
+    unsubscribe = cache.getQueryCache().subscribe((event) => {
+      if (
+        finalSent ||
+        event.type !== "updated" ||
+        event.action.type !== "success" ||
+        event.query.queryKey[2] !== "block"
+      )
+        return;
+      finalSent = true;
+      daemon.apply("turn-freshness", [
+        facts.message("root", "answer", "assistant", "Settlement answer"),
+        facts.endTurn("root"),
+      ]);
+    });
+    await act(async () => {
+      daemon.apply("turn-freshness", [
+        facts.message("root", "answer", "assistant", "Before settlement", false),
+      ]);
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(screen.getByLabelText("head").textContent).toBe("completed");
+    expect(screen.getByLabelText("block").textContent).toBe("completed: Settlement answer stopped");
+    expect(daemon.reads).toBeLessThanOrEqual(4);
+  } finally {
+    unsubscribe?.();
+    view?.unmount();
+    cache.clear();
+    vi.useRealTimers();
+  }
+});
