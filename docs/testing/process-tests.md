@@ -2,9 +2,12 @@
 
 The `process` Vitest project owns tests that launch real CLIs, child processes,
 Node workers or listening sockets. Its per-test and hook deadlines come from
-`PROCESS_TEST_TIMEOUT` in the public `@ace/provider-kit/testing` module. Both
-projects use two workers and run in sequence, so unit workers do not compete
-with integration startup. Unit tests retain Vitest's default five-second budget.
+`PROCESS_TEST_TIMEOUT` in the public `@ace/provider-kit/testing` module. All
+test projects use a four-worker cap. Unit and jsdom tests run first, followed by
+general process tests. The real browser startup suites run after the bundle-building
+process suites, and the history scale workload runs after those browsers close.
+These groups retain the shared process deadlines and every workload assertion.
+Unit tests retain Vitest's default five-second budget.
 
 Global setup builds the actual daemon CLI once per invocation, signs one TLS
 fixture and initializes one empty Git repository in parallel. Each daemon gets

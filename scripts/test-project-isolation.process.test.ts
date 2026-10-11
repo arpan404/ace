@@ -88,7 +88,7 @@ async function rehearsal(cleanup: (close: () => Promise<void>) => void) {
   return { root, protectedHome, config, fixture, setup, run };
 }
 
-test("all four projects and concurrent runs own distinct homes and remove them after worker cleanup", async ({
+test("all projects and concurrent runs own distinct homes and remove them after worker cleanup", async ({
   onTestFinished,
 }) => {
   const fixture = await rehearsal(onTestFinished);
@@ -99,7 +99,9 @@ test("all four projects and concurrent runs own distinct homes and remove them a
   for (const result of results) {
     const records = (await readFile(result, "utf8")).trim().split("\n").map(observation);
     expect(records.map((record) => record.project).toSorted()).toEqual([
+      "browser-process",
       "client-react",
+      "history-scale",
       "process",
       "unit",
       "web",
@@ -107,7 +109,7 @@ test("all four projects and concurrent runs own distinct homes and remove them a
     observations.push(...records);
   }
   for (const field of ["home", "data", "xdg", "tmp"] as const)
-    expect(new Set(observations.map((record) => record[field])).size).toBe(8);
+    expect(new Set(observations.map((record) => record[field])).size).toBe(observations.length);
   for (const record of observations)
     await expect(stat(record.home)).rejects.toMatchObject({ code: "ENOENT" });
   await expect(stat(join(fixture.protectedHome, "accounts.sqlite"))).rejects.toMatchObject({

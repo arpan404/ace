@@ -11,6 +11,11 @@ const react = ["apps/web/**", "packages/client-react/**"];
 // This review suite owns real history workers and awaits their replies and shutdown.
 // Preserve its review path while applying the process project's shared hang guards.
 const historyWorkerReview = "packages/history-import/src/review.test.ts";
+const browserStartupSuites = [
+  "tools/real-smoke/src/browser.process.test.ts",
+  "tools/web-perf/src/search-jump.process.test.ts",
+];
+const historyScaleSuite = "packages/history-import/src/scale.process.test.ts";
 
 export default defineConfig({
   test: {
@@ -45,7 +50,7 @@ export default defineConfig({
             "scripts/**/*.process.test.ts",
             historyWorkerReview,
           ],
-          exclude: ["**/node_modules/**", ...react],
+          exclude: ["**/node_modules/**", ...react, ...browserStartupSuites, historyScaleSuite],
           maxWorkers: 4,
           sequence: { groupOrder: 1 },
           testTimeout: PROCESS_TEST_TIMEOUT,
@@ -55,6 +60,35 @@ export default defineConfig({
             "./scripts/process-test-setup.ts",
             "./tools/web-perf/src/browser-test-setup.ts",
           ],
+          setupFiles: ["./scripts/test-home-setup.ts"],
+        },
+      },
+      {
+        test: {
+          name: "browser-process",
+          include: browserStartupSuites,
+          maxWorkers: 4,
+          // Browser startup follows the desktop and browser bundle-building suites.
+          sequence: { groupOrder: 2 },
+          testTimeout: PROCESS_TEST_TIMEOUT,
+          hookTimeout: PROCESS_TEST_TIMEOUT,
+          globalSetup: [
+            "./scripts/test-home-global-setup.ts",
+            "./tools/web-perf/src/browser-test-setup.ts",
+          ],
+          setupFiles: ["./scripts/test-home-setup.ts"],
+        },
+      },
+      {
+        test: {
+          name: "history-scale",
+          include: [historyScaleSuite],
+          maxWorkers: 4,
+          // The production-memory scale workload runs after fixture builds and browsers close.
+          sequence: { groupOrder: 3 },
+          testTimeout: PROCESS_TEST_TIMEOUT,
+          hookTimeout: PROCESS_TEST_TIMEOUT,
+          globalSetup: ["./scripts/test-home-global-setup.ts"],
           setupFiles: ["./scripts/test-home-setup.ts"],
         },
       },
