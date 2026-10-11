@@ -181,22 +181,19 @@ export class Intents {
   acknowledge(result: CommandResult): Promise<void> {
     this.#retries.get(result.commandId)?.cancel?.();
     this.#retries.delete(result.commandId);
-    if (
-      this.#acknowledging.has(result.commandId) ||
-      this.#records.get(result.commandId)?.state !== "pending"
-    )
-      return Promise.resolve();
+    if (this.#acknowledging.has(result.commandId)) return Promise.resolve();
     this.#acknowledging.add(result.commandId);
+    let saved = false;
     return this.#serialize(async () => {
       const previous = this.#records.get(result.commandId);
-      if (!previous || previous.state !== "pending") return;
-      const next: Intent = {
+      if (!previous) { saved = true; return; }
+      const next: Intent = previous.state === "pending" ? {
         ...previous,
         state: result.ok ? "acked" : "failed",
         error: result.error,
         result,
         threadId: result.threadId,
-      };
+      } : { ...previous, result };
       this.#put(result.commandId, next);
       try {
         const evicted = this.#evict(result.commandId);
@@ -205,11 +202,11 @@ export class Intents {
         this.#put(result.commandId, previous);
         throw new ClientError("storage");
       }
+      saved = true;
       this.#options.changed(result.commandId);
     }).finally(() => {
       this.#acknowledging.delete(result.commandId);
-      this.#inFlight.delete(result.commandId);
-      this.#pump();
+      if (saved) this.#releaseSlot(result.commandId);
     });
   }
   /**
@@ -221,7 +218,7 @@ export class Intents {
   reopen(id: string): { undo(): void } {
     const previous = this.#records.get(id);
     if (previous?.state !== "failed" || previous.localFailure) return { undo() {} };
-    const { error: _error, waiting: _waiting, ...rest } = previous;
+    const { error: _error, result: _result, waiting: _waiting, ...rest } = previous;
     const next: Intent = { ...rest, state: "pending" };
     this.#put(id, next);
     this.#inFlight.add(id);
@@ -293,8 +290,15 @@ export class Intents {
         this.#put(id, previous);
         throw new ClientError("storage");
       }
+      if (acknowledged) this.#releaseSlot(id);
       this.#options.changed(id);
     });
+  }
+  #releaseSlot(id: string): void {
+    this.#inFlight.delete(id);
+    this.#retries.get(id)?.cancel?.();
+    this.#retries.delete(id);
+    this.#pump();
   }
   #put(id: string, intent: Intent): void {
     const size = new TextEncoder().encode(JSON.stringify(intent)).byteLength;

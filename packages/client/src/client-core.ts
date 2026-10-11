@@ -267,7 +267,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           this.#waitingHints.delete(id);
         }
         if (intent?.state === "failed" && !intent.localFailure)
-          this.requests.resolve(id, { commandId: id, ok: false, error: intent.error });
+          this.requests.resolve(id, intent.result ?? { commandId: id, ok: false, error: intent.error });
         const hadEntry = this.#pendingSendEntries.has(id);
         const entry = intent && pendingSend(intent);
         if (entry) this.#pendingSendEntries.set(id, entry);
