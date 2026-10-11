@@ -164,6 +164,13 @@ export function draftScopes(client: ClientApi) {
   const ask = async (operation: ContextOperation) =>
     (await client.request({ type: "context.request", operation })).result;
   return {
+    async resume(draftId: string): Promise<string> {
+      expect(
+        await ask({ op: "draft.mention.complete", draftId, query: "", limit: 1 }),
+        "completion",
+      );
+      return draftId;
+    },
     async create(workspaceId: string): Promise<string> {
       return expect(
         await ask({ op: "draft.create", workspaceId: WorkspaceId.parse(workspaceId) }),

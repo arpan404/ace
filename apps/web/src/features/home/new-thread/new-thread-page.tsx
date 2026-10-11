@@ -21,6 +21,8 @@ import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { WorkspaceId } from "@ace/protocol";
 import {
+  readJson,
+  writeJson,
   defaultWorktreeBase,
   permissionUnavailable,
   permissionCoverage,
@@ -35,6 +37,8 @@ import { ModelPicker } from "./model-picker.tsx";
 import { useBaseRefs } from "@/lib/branches.ts";
 import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import * as z from "zod/mini";
 import { SignInNotice } from "@/features/sign-in/index.ts";
 
 /** Where the thread runs, below the composer. */
@@ -171,20 +175,37 @@ export function NewThreadPage(props: {
   }, [upgraded, choices, storage]);
   // Mentions, uploads and slash commands go to a draft scope on the daemon before the thread
   // exists; the new thread adopts it. A draft ref's id is that scope.
-  const scope = useDraftScope(project);
+  const host = useHostIdentity()?.hostId;
+  const scopeKey =
+    host && project
+      ? `ace.composer.scope:${JSON.stringify([host, draftKeyFor(project)])}`
+      : undefined;
+  const readScope = () =>
+    scopeKey ? readJson(storage, scopeKey, z.string(), undefined) : undefined;
+  const scope = useDraftScope(host ? project : undefined, {
+    read: readScope,
+    granted(id) {
+      if (scopeKey) writeJson(storage, scopeKey, id);
+    },
+    owns: (id) => readScope() === id,
+  });
   const accountId = resolved.account?.id;
   const draftThread = useDraftThreadRef(scope.draftId, project, provider, accountId, scope.retry);
   const waitingForAdmission =
-    !start.loaded || options === undefined || (!!provider && (defaultMode === undefined || permissions.loading));
+    !start.loaded ||
+    options === undefined ||
+    (!!provider && (defaultMode === undefined || permissions.loading));
   const admissionProblem = waitingForAdmission
     ? "Checking provider settings…"
     : permissions.failed
       ? "Couldn't check provider permissions. Reconnect and try again."
-      : !resolved.model
-        ? "No model selected. Open the model menu to refresh or sign in."
-        : admitted.fallback;
+      : !scope.draftId
+        ? "Preparing attachment storage…"
+        : !resolved.model
+          ? "No model selected. Open the model menu to refresh or sign in."
+          : admitted.fallback;
   const send = async (draft: Draft) => {
-    if (!project || !resolved.model || admissionProblem) return false;
+    if (!project || !resolved.model || admissionProblem || !scope.draftId) return false;
     choose({ project });
     const draftId = scope.draftId;
     // The new thread takes the draft scope over: keep it when this page closes, which is now.
@@ -267,6 +288,7 @@ export function NewThreadPage(props: {
               }}
               thread={draftThread}
               draftKey={project ? draftKeyFor(project) : undefined}
+              keepsAttachments
               initialText={props.skill ? `/${props.skill} ` : undefined}
               busy={false}
               sendBlocked={

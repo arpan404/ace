@@ -1,5 +1,5 @@
 import { useClient, useConnectionState } from "@ace/client-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import { draftScopes } from "../sources/context-source.ts";
 
 /**
@@ -7,7 +7,14 @@ import { draftScopes } from "../sources/context-source.ts";
  * (and while offline). `adopt()` marks it taken by the thread that was just created, so it is
  * not released when the page closes.
  */
-export function useDraftScope(workspaceId: string | undefined): {
+export function useDraftScope(
+  workspaceId: string | undefined,
+  owner?: {
+    read(): string | undefined;
+    granted(id: string): void;
+    owns(id: string): boolean;
+  },
+): {
   draftId: string | undefined;
   adopt(): void;
   retry(): void;
@@ -18,20 +25,30 @@ export function useDraftScope(workspaceId: string | undefined): {
   const retryScope = useCallback(() => setAttempt((value) => value + 1), []);
   const [scope, setScope] = useState<{ workspaceId: string; draftId: string; attempt: number }>();
   const adopted = useRef<string>(undefined);
+  const currentOwner = useEffectEvent(() => owner);
   useEffect(() => {
     if (!workspaceId || !ready) return;
     const scopes = draftScopes(client);
+    // Cleanup must consult the owner of this scope, even after the project changes.
+    const scopeOwner = currentOwner();
     let live = true;
     let granted: string | undefined;
     let attempts = 0;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const create = () => {
       attempts++;
-      void scopes.create(workspaceId).then(
+      const remembered = scopeOwner?.read();
+      void (
+        remembered
+          ? scopes.resume(remembered).catch(() => scopes.create(workspaceId))
+          : scopes.create(workspaceId)
+      ).then(
         (draftId) => {
           granted = draftId;
-          if (live) setScope({ workspaceId, draftId, attempt });
-          else scopes.release(draftId);
+          if (live) {
+            scopeOwner?.granted(draftId);
+            setScope({ workspaceId, draftId, attempt });
+          } else if (!scopeOwner?.owns(draftId)) scopes.release(draftId);
         },
         () => {
           if (live && attempts < 3) retry = setTimeout(create, 1000 * attempts);
@@ -42,7 +59,8 @@ export function useDraftScope(workspaceId: string | undefined): {
     return () => {
       if (retry) clearTimeout(retry);
       live = false;
-      if (granted && adopted.current !== granted) scopes.release(granted);
+      if (granted && adopted.current !== granted && !scopeOwner?.owns(granted))
+        scopes.release(granted);
     };
   }, [client, workspaceId, ready, attempt]);
   const draftId =
