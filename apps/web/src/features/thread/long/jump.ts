@@ -31,9 +31,12 @@ export class Jump {
   private tail: (() => LiveTail) | undefined;
   private client: ClientApi;
   private threadId: string;
-  constructor(client: ClientApi, threadId: string) {
+  private revision = 0;
+  private load: () => Promise<Loaded>;
+  constructor(client: ClientApi, threadId: string, load: () => Promise<Loaded> = preloadJump) {
     this.client = client;
     this.threadId = threadId;
+    this.load = load;
   }
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -42,7 +45,7 @@ export class Jump {
   snapshot = (): JumpSnapshot => this.controller?.snapshot() ?? atLive;
 
   private start(): Promise<JumpController> {
-    this.starting ??= preloadJump().then((loaded) => {
+    this.starting ??= this.load().then((loaded) => {
       this.loaded = loaded;
       const controller = new loaded.JumpController(this.client, this.threadId);
       if (this.tail) controller.setTail(this.tail);
@@ -55,7 +58,9 @@ export class Jump {
     return this.starting;
   }
   private async run(action: (controller: JumpController) => Promise<void>): Promise<void> {
-    await action(await this.start());
+    const revision = ++this.revision;
+    const controller = await this.start();
+    if (revision === this.revision) await action(controller);
   }
 
   setTail(tail: () => LiveTail): void {
@@ -78,6 +83,7 @@ export class Jump {
     return this.controller?.newer() ?? Promise.resolve();
   }
   live(): void {
+    ++this.revision;
     this.controller?.live();
   }
   tailMoved(): void {
@@ -92,6 +98,7 @@ export class Jump {
   }
   /** Cancel what is in flight (the thread view unmounting; StrictMode remounts it after). */
   dispose(): void {
+    ++this.revision;
     this.controller?.dispose();
   }
 }
