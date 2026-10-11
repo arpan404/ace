@@ -23,7 +23,7 @@ export function WorkLogHeader(props: {
         aria-expanded={open}
         aria-controls={props.panel}
         onClick={props.onToggle}
-        className="group inline-flex h-[26px] max-w-full items-center gap-1.5 rounded-sm px-1.5 text-[13.5px] text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground hover:underline"
+        className="group inline-flex h-6 max-w-full items-center gap-1.5 rounded-sm px-1.5 text-xs text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground hover:underline"
       >
         <span className={headline.running ? "shrink-0 shimmer" : "shrink-0"}>{headline.label}</span>
         <CaretRightIcon
@@ -35,11 +35,11 @@ export function WorkLogHeader(props: {
           )}
         />
         {headline.counts && (
-          <span className="ml-1 truncate text-sm text-subtle-foreground">{headline.counts}</span>
+          <span className="ml-1 truncate text-xs text-subtle-foreground">{headline.counts}</span>
         )}
       </button>
       {headline.current && !open && (
-        <p className="mt-1 flex items-center gap-2 text-ui text-muted-foreground">
+        <p className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
           <Spinner />
           <span className="truncate">{headline.current}</span>
         </p>
