@@ -9,12 +9,12 @@
       "sha256": "21e1f73af1e80d2ba6a47fafce222cc156036e994fec4f1f2721c488c26022bd"
     },
     "commands.md": {
-      "bytes": 36357,
-      "sha256": "2c456247846979af87183d48cfdcc827a74adac2f5972ef19c74e0a63dbe62d4"
+      "bytes": 36429,
+      "sha256": "7ef3c1026c713112d6e921ecdd2ada2dc0c8452c17595e104de313caa2af6a85"
     },
     "events.md": {
-      "bytes": 19709,
-      "sha256": "107fbef2d635748d94c0256cb2a6adb18f952b157fe032f47897e41d4b845982"
+      "bytes": 19750,
+      "sha256": "6ab8647208cae5adb79800e2873ab5715d0839885a6de2f75d96552f320c4aa1"
     },
     "forge.md": {
       "bytes": 16696,
@@ -465,8 +465,8 @@
       "sha256": "b65cdd57e3595d55d32fdb9bce3c5498945bfac9be2f122383582635ed9ad4ec"
     },
     "schema/CommandPayload.json": {
-      "bytes": 38400,
-      "sha256": "2d57bc271d02ae5fe0256d5073ee652601e3367533c199326d7892ddb96fcac8"
+      "bytes": 38525,
+      "sha256": "5d448c9e248f436502058afa0b444800a54a335567c57ca0966e288efc1b2ae5"
     },
     "schema/CommandPlan.json": {
       "bytes": 1803,
@@ -693,8 +693,8 @@
       "sha256": "21567123f34d6cb1202d462e74a6ae138d0b8128e08a231d80d06b2071ccac8a"
     },
     "schema/EventPayload.json": {
-      "bytes": 11190,
-      "sha256": "36dbcdc7cc98885b5918ea2f970960ac965b6b538deab90c5c68818b470f0953"
+      "bytes": 11261,
+      "sha256": "5837e5429c8dcdc44b797714b5766f0e2162903cf5658a08ae2f709015214d4c"
     },
     "schema/EventSequence.json": {
       "bytes": 193,
@@ -2449,8 +2449,8 @@
       "sha256": "c12732417bfd65262978f51f4d6defb6c952e0fd18746a7310b1f47279e257de"
     },
     "schema/ThreadRunMetadata.json": {
-      "bytes": 2579,
-      "sha256": "efb8b6949b485d67d17207b6b7dde54efedb56f47cd6b086cd5164f417d2b2f9"
+      "bytes": 2757,
+      "sha256": "78fe0300902ce9d5589a18116697e2875310a5b24418aabdef9c7cef60966e3f"
     },
     "schema/ThreadSearchRequest.json": {
       "bytes": 1096,
@@ -2857,8 +2857,8 @@
       "sha256": "22ae0188b964246cec5f773212f13da4664bf8d67dfb7ebf074a72972b88775c"
     },
     "schema/ace_thread_info.output.json": {
-      "bytes": 65623,
-      "sha256": "6cf9256a4282fdabcc18f99677cdcbeb0783b03af5289272e5654c551e87881c"
+      "bytes": 65881,
+      "sha256": "63e527513206f5c6d914df7f78b33bebda40c5e6693ba49ca676f1066ad4f076"
     },
     "schema/ace_thread_interrupt.input.json": {
       "bytes": 484,
@@ -2989,10 +2989,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 663033,
-      "sha256": "de85fd231a4a163f0589219f9b81922a5b3e6eca0f26b2e6a38d8a3d1e8a1202"
+      "bytes": 663097,
+      "sha256": "7dfea601aa08c6a7d487f9067efb726ab8dd1eaa54754e0df13ec4ead05eb442"
     }
   },
-  "input": "e83499601410b0fcdf9b56dab69af8d0c3081b1c6c6e25e8d6abf7496dd8ebbd",
+  "input": "315dea85eecd45da0050639db89f6ed0bb0d6886df53f68c3211f7866dd5751e",
   "version": 1
 }

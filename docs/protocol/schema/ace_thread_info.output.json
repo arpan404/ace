@@ -1759,6 +1759,17 @@
               ],
               "type": "string"
             },
+            "rootRunId": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "runningSubagentCount": {
               "maximum": 9007199254740991,
               "minimum": 0,
