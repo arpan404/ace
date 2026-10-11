@@ -1,4 +1,5 @@
 import { logError } from "@ace/diagnostics";
+import { followAutomationSetting } from "../automation-lifecycle.ts";
 import { AgentPreviews } from "./previews.ts";
 export { AgentPreviews } from "./previews.ts";
 import { createHandoffs } from "./handoffs.ts";
@@ -102,7 +103,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
   });
   resources.own(() => automations.stop());
   resources.onShutdown(() => automations.stop());
-  context.onListen.push(() => automations.start());
+  context.onListen.push(() => followAutomationSetting(context, automations));
   const previews = new AgentPreviews();
   const handoffs = createHandoffs(context, delegations);
   return {
