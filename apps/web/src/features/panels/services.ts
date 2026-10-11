@@ -2,6 +2,7 @@ import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import type { ReviewDraft } from "./changes/drafts.ts";
+import type { Compositions } from "./changes/compositions.ts";
 import type { ClearedLines } from "./logs/cleared.ts";
 import type { PreviewSource } from "./sources.ts";
 import { LocalStore } from "./store.ts";
@@ -24,6 +25,7 @@ export interface PanelServices {
   terminals: TerminalSessions;
   preview: PreviewSource;
   drafts: LocalStore<readonly ReviewDraft[]>;
+  compositions: LocalStore<Compositions>;
   diffPrefs: LocalStore<DiffPrefs>;
   viewed: LocalStore<ViewedFiles>;
   /**
@@ -50,6 +52,7 @@ export function panelServices(client: ClientApi): Promise<PanelServices> {
       const value: PanelServices = {
         ...sources,
         drafts: new LocalStore<readonly ReviewDraft[]>([]),
+        compositions: new LocalStore<Compositions>({ entries: new Map(), active: new Map() }),
         diffPrefs: new LocalStore<DiffPrefs>({ mode: "auto", wrap: false, tree: true }),
         viewed: new LocalStore<ViewedFiles>(new Map()),
         logCleared: new LocalStore<ClearedLines>(new Map()),

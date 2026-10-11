@@ -66,27 +66,54 @@ async function readFile(app: ReturnType<typeof harness>) {
 }
 
 test.each([
-  { extendTo: 1, label: "Comment on lines 1–2", lines: ["header", "const b = 2;"], result: "const b = 4;\nfooter\n" },
-  { extendTo: 3, label: "Comment on lines 2–3", lines: ["const b = 2;", "footer"], result: "header\nconst b = 4;\n" },
-])("extending a written suggestion to line $extendTo keeps its content and applies to the extended selection", async ({ extendTo, label, lines, result }) => {
-  const { app, panel } = await openChanges();
-  const block = within(panel).getByRole("region", { name: path });
-  await begin(block, "Keep this finding", "const b = 4;");
-  await userEvent.keyboard("{Shift>}");
-  await userEvent.click(within(block).getByRole("button", { name: `Comment on line ${extendTo}` }));
-  await userEvent.keyboard("{/Shift}");
-  expect(within(block).getByRole("textbox", { name: label })).toHaveProperty("value", "Keep this finding");
-  expect(within(block).getByRole("textbox", { name: "Suggested change" })).toHaveProperty("value", "const b = 4;");
-  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
-  await userEvent.click(within(block).getByRole("button", { name: "Apply" }));
-  await within(block).findByText("Applied");
-  expect(await readFile(app)).toBe(result);
-  expect(app.daemon.review.comments()).toEqual([
-    expect.objectContaining({ text: "Keep this finding", originalAnchor: expect.objectContaining({ fingerprint: expect.objectContaining({ lines }) }) }),
-  ]);
-}, 30000);
+  {
+    extendTo: 1,
+    label: "Comment on lines 1–2",
+    lines: ["header", "const b = 2;"],
+    result: "const b = 4;\nfooter\n",
+  },
+  {
+    extendTo: 3,
+    label: "Comment on lines 2–3",
+    lines: ["const b = 2;", "footer"],
+    result: "header\nconst b = 4;\n",
+  },
+])(
+  "extending a written suggestion to line $extendTo keeps its content and applies to the extended selection",
+  async ({ extendTo, label, lines, result }) => {
+    const { app, panel } = await openChanges();
+    const block = within(panel).getByRole("region", { name: path });
+    await begin(block, "Keep this finding", "const b = 4;");
+    await userEvent.keyboard("{Shift>}");
+    await userEvent.click(
+      within(block).getByRole("button", { name: `Comment on line ${extendTo}` }),
+    );
+    await userEvent.keyboard("{/Shift}");
+    expect(within(block).getByRole("textbox", { name: label })).toHaveProperty(
+      "value",
+      "Keep this finding",
+    );
+    expect(within(block).getByRole("textbox", { name: "Suggested change" })).toHaveProperty(
+      "value",
+      "const b = 4;",
+    );
+    await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+    await userEvent.click(within(block).getByRole("button", { name: "Apply" }));
+    await within(block).findByText("Applied");
+    expect(await readFile(app)).toBe(result);
+    expect(app.daemon.review.comments()).toEqual([
+      expect.objectContaining({
+        text: "Keep this finding",
+        originalAnchor: expect.objectContaining({
+          fingerprint: expect.objectContaining({ lines }),
+        }),
+      }),
+    ]);
+  },
+  30000,
+);
 
-test("changing to a cached diff scope cancels its historical suggestion and a fresh suggestion applies only the newly selected text", async () => {
+test("changing to a cached diff scope retains its historical suggestion without admitting it against the newer text", async () => {
   const { app, panel } = await openChanges();
   // Warm both scopes so the same annotation position survives the scope transition.
   await pickScope(panel, "Turn 3");
@@ -96,6 +123,17 @@ test("changing to a cached diff scope cancels its historical suggestion and a fr
   const newer = await pickScope(panel, "Last turn");
   expect(within(newer).queryByRole("textbox", { name: "Comment on line 2" })).toBeNull();
   expect(within(newer).queryByRole("textbox", { name: "Suggested change" })).toBeNull();
+  const retained = within(panel).getByRole("region", { name: "Unfinished review comment" });
+  expect(within(retained).getByRole("textbox", { name: "Suggested change" })).toHaveProperty(
+    "value",
+    "const a = 3;",
+  );
+  expect(within(retained).getByRole("button", { name: "Comment" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  await userEvent.click(within(retained).getByRole("textbox", { name: "Comment on line 2" }));
+  await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
   expect(await readFile(app)).toBe(current);
   expect(app.daemon.review.comments()).toEqual([]);
 
@@ -114,6 +152,107 @@ test("changing to a cached diff scope cancels its historical suggestion and a fr
     }),
   ]);
 }, 30000);
+
+test.each(["new comment", "edited saved comment"])(
+  "a background edit keeps an unfinished %s and requires reselection before saving its suggestion",
+  async (kind) => {
+    const { app, panel } = await openChanges();
+    const block = within(panel).getByRole("region", { name: path });
+    await begin(block, "Original finding", "const b = 4;");
+    if (kind === "edited saved comment") {
+      await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+      await userEvent.click(within(block).getByRole("button", { name: "Edit" }));
+    }
+    const text = within(block).getByRole("textbox", { name: "Comment on line 2" });
+    await userEvent.clear(text);
+    await userEvent.type(text, "Keep my unfinished edits");
+    const suggestion = within(block).getByRole("textbox", { name: "Suggested change" });
+    await userEvent.clear(suggestion);
+    await userEvent.type(suggestion, "const b = 5;");
+    const updated = "header\nconst b = 2;\nagent changed the footer\n";
+    const stat = await app.client.request({
+      type: "files.request",
+      threadId,
+      operation: { op: "stat", path },
+    });
+    if (
+      stat.type !== "files.result" ||
+      typeof stat.value !== "object" ||
+      stat.value === null ||
+      !("version" in stat.value) ||
+      typeof stat.value.version !== "string"
+    )
+      throw new Error("Missing file version");
+    await app.client.request({
+      type: "files.request",
+      threadId,
+      operation: { op: "write", path, expected: stat.value.version, text: updated },
+    });
+    app.daemon.apply(threadId, edit("background", updated));
+    const retained = await within(panel).findByRole("region", {
+      name: "Unfinished review comment",
+    });
+    expect(within(retained).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty(
+      "value",
+      "Keep my unfinished edits",
+    );
+    expect(within(retained).getByRole("textbox", { name: "Suggested change" })).toHaveProperty(
+      "value",
+      "const b = 5;",
+    );
+    expect(within(retained).getByRole("button", { name: "Comment" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(app.daemon.review.comments()).toEqual([]);
+    expect(await readFile(app)).toBe(updated);
+
+    // Annotation and tab unmounts must not own the only copy of the unfinished edit.
+    await userEvent.click(within(panel).getByRole("tab", { name: "Agents" }));
+    await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+    const older = await pickScope(panel, "Turn 4");
+    expect(within(older).queryByRole("textbox", { name: "Comment on line 2" })).toBeNull();
+    const recovered = within(panel).getByRole("region", { name: "Unfinished review comment" });
+    expect(within(recovered).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty(
+      "value",
+      "Keep my unfinished edits",
+    );
+    expect(within(recovered).getByRole("textbox", { name: "Suggested change" })).toHaveProperty(
+      "value",
+      "const b = 5;",
+    );
+    expect(within(recovered).getByRole("button", { name: "Comment" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    await pickScope(panel, "Last turn");
+    await userEvent.click(within(panel).getByRole("button", { name: "Reselect lines" }));
+    const newer = within(panel).getByRole("region", { name: path });
+    await userEvent.click(within(newer).getByRole("button", { name: "Comment on line 2" }));
+    expect(within(newer).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty(
+      "value",
+      "Keep my unfinished edits",
+    );
+    await userEvent.click(within(newer).getByRole("button", { name: "Comment" }));
+    await userEvent.click(within(newer).getByRole("button", { name: "Apply" }));
+    await within(newer).findByText("Applied");
+    expect(await readFile(app)).toBe("header\nconst b = 5;\nagent changed the footer\n");
+    expect(app.daemon.review.comments()).toEqual([
+      expect.objectContaining({
+        text: "Keep my unfinished edits",
+        suggestion: "const b = 5;",
+        originalAnchor: expect.objectContaining({
+          fingerprint: expect.objectContaining({
+            lines: ["const b = 2;"],
+            after: ["agent changed the footer"],
+          }),
+        }),
+      }),
+    ]);
+  },
+  30000,
+);
 
 function conversation(block: HTMLElement, text: string) {
   const found = within(block)
@@ -160,6 +299,15 @@ test("switching between same-line draft editors saves only the selected comment'
     within(conversation(block, "Second finding revised")).getByLabelText("Suggested change")
       .textContent,
   ).toBe("const b = 6;");
+  await userEvent.click(within(panel).getByRole("button", { name: /Resume .*Unsaved first edit/ }));
+  expect(within(block).getByRole("textbox", { name: "Comment on line 2" })).toHaveProperty(
+    "value",
+    "Unsaved first edit",
+  );
+  expect(within(block).getByRole("textbox", { name: "Suggested change" })).toHaveProperty(
+    "value",
+    "const b = 4;",
+  );
 }, 30000);
 
 test("starting a new comment on an edited line clears the earlier editor without changing its draft", async () => {
