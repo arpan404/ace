@@ -11,7 +11,7 @@ import {
   type ReviewRevision,
   type ReviewData,
 } from "@ace/protocol";
-import { anchorComment, anchorComments, reanchorComments } from "./anchors.ts";
+import { anchorComment, anchorComments, reanchorComments, matchesSelection } from "./anchors.ts";
 import { buildFixIntent, parseReviewerOutput, type ReviewExecutor } from "./intents.ts";
 import { suggestionPatch, selectedUnterminated } from "./suggestions.ts";
 import { ReviewStore } from "./store.ts";
@@ -223,6 +223,21 @@ export class ReviewService {
         p.position,
         p.position.side === "old" ? session.source.from : session.source.to,
       );
+      const expected = p.expectedFingerprint;
+      if (expected) {
+        const start = p.position.start - expected.before.length;
+        if (start < 1 || anchor.revision.kind === "working-tree")
+          throw new Error("review_selection_mismatch");
+        const actual = await this.git.readRevisionLines({
+          worktree,
+          revision: anchor.revision,
+          path: p.position.file,
+          start,
+          end: p.position.end + expected.after.length,
+        });
+        if (!matchesSelection(p.position, expected, actual))
+          throw new Error("review_selection_mismatch");
+      }
       const comment = ReviewComment.parse({
         id: this.options.id(),
         sessionId: session.id,
