@@ -109,6 +109,9 @@ export interface PreviewOptions {
  * thread workspace (or losing the connection) hands it back.
  */
 export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): PreviewSource {
+  const lifetime = new AbortController();
+  const request: ClientApi["request"] = (payload, requestOptions) =>
+    client.request(payload, { ...requestOptions, signal: lifetime.signal });
   const later = options.schedule ?? defaultSchedule;
   const visibility = options.visibility ?? documentVisibility;
   const decode = options.decode ?? decodeFrame;
@@ -126,12 +129,15 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   const held = new Map<string, string | undefined>();
   /** Threads this client took privately: their hold outlives the view (no automatic handback). */
   const privateHolds = new Set<string>();
+  let disposed = false;
+  const stops: (() => void)[] = [];
   let version = 0;
   let requests = 0;
   let download: BrowserDownload | undefined;
   let gateway = true;
   /** A change to one thread (or, without one, to every thread: the download, the gateway). */
   const changed = (threadId?: string) => {
+    if (disposed) return;
     version++;
     for (const [listener, scope] of listeners)
       if (scope === undefined || threadId === undefined || scope === threadId) listener();
@@ -153,10 +159,11 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     threadId: string,
     mode?: "shared" | "private",
   ) => {
+    if (disposed) throw new Error("preview_disposed");
     const reply =
       type === "browser.takeover" && mode
-        ? await client.request({ type, threadId: ThreadId.parse(threadId), mode })
-        : await client.request({ type, threadId: ThreadId.parse(threadId) });
+        ? await request({ type, threadId: ThreadId.parse(threadId), mode })
+        : await request({ type, threadId: ThreadId.parse(threadId) });
     if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
     return reply.result;
   };
@@ -164,11 +171,12 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     threadId: string,
     operation: { op: "list" } | { op: "forward" | "unforward"; port: number },
   ) => {
-    const reply = await client.request({
+    const reply = await request({
       type: "preview.request",
       threadId: ThreadId.parse(threadId),
       operation,
     });
+    if (disposed) return;
     const available = reply.ok || reply.error !== "preview_unavailable";
     if (available !== gateway) {
       gateway = available;
@@ -181,7 +189,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   };
   const readServers = (threadId: string) => previews(threadId, { op: "list" });
   const link = async (threadId: string, port: number): Promise<PreviewLink> => {
-    const reply = await client.request({
+    const reply = await request({
       type: "preview.request",
       threadId: ThreadId.parse(threadId),
       operation: { op: "link", port },
@@ -191,18 +199,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   };
   const sendCapture = (threadId: string, watch: Watch) => {
     if (!watch.subscribed || !watch.capture || client.state !== "ready") return;
-    void client
-      .request({
-        type: "browser.capture",
-        threadId: ThreadId.parse(threadId),
-        viewport: watch.capture,
-      })
-      .catch(() => {});
+    void request({
+      type: "browser.capture",
+      threadId: ThreadId.parse(threadId),
+      viewport: watch.capture,
+    }).catch(() => {});
   };
   /** Reads the dev servers and retries the browser, every few seconds while the page shows. */
   const poll = (threadId: string) => {
     const watch = watches.get(threadId);
-    if (!watch || client.state !== "ready" || !visibility.visible()) return;
+    if (disposed || !watch || client.state !== "ready" || !visibility.visible()) return;
     void readServers(threadId).catch(() => {});
     if (!watch.subscribed)
       call("browser.subscribe", threadId).then(
@@ -213,7 +219,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           if (current) {
             current.subscribed = true;
             sendCapture(threadId, current);
-          } else void call("browser.unsubscribe", threadId).catch(() => {});
+          } else if (!disposed) void call("browser.unsubscribe", threadId).catch(() => {});
         },
         () => {},
       );
@@ -242,6 +248,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     else watch.owed = sequence;
   };
   const receive = (message: ServerMessage) => {
+    if (disposed) return;
     if (message.type === "browser.download.progress") {
       download =
         message.phase === "ready"
@@ -287,39 +294,61 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     );
   };
   try {
-    client.onMessage(receive);
-    client.connectionState().subscribe(() => {
-      const ready = client.state === "ready";
-      for (const [threadId, watch] of watches) {
-        // The daemon dropped this connection's subscriptions and control leases.
-        watch.subscribed = false;
-        watch.owed = undefined;
-        held.delete(threadId);
-        watch.cancel?.();
-        if (ready) poll(threadId);
-      }
-    });
-    visibility.watch(() => {
-      if (!visibility.visible()) return;
-      for (const [threadId, watch] of watches) {
-        if (watch.owed !== undefined) ack(threadId, watch.owed);
-        watch.owed = undefined;
-        watch.cancel?.();
-        poll(threadId);
-      }
-    });
+    stops.push(client.onMessage(receive));
+    stops.push(
+      client.connectionState().subscribe(() => {
+        const ready = client.state === "ready";
+        for (const [threadId, watch] of watches) {
+          // The daemon dropped this connection's subscriptions and control leases.
+          watch.subscribed = false;
+          watch.owed = undefined;
+          held.delete(threadId);
+          watch.cancel?.();
+          if (ready) poll(threadId);
+        }
+      }),
+    );
+    stops.push(
+      visibility.watch(() => {
+        if (!visibility.visible()) return;
+        for (const [threadId, watch] of watches) {
+          if (watch.owed !== undefined) ack(threadId, watch.owed);
+          watch.owed = undefined;
+          watch.cancel?.();
+          poll(threadId);
+        }
+      }),
+    );
   } catch {
     // A closed client: nothing will arrive.
   }
   return {
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      lifetime.abort();
+      for (const stop of stops) stop();
+      for (const watch of watches.values()) watch.cancel?.();
+      watches.clear();
+      for (const threadId of frames.keys()) release(threadId);
+      views.clear();
+      servers.clear();
+      unwatched.clear();
+      held.clear();
+      privateHolds.clear();
+      listeners.clear();
+      download = undefined;
+    },
     get version() {
       return version;
     },
     subscribe(listener, threadId) {
+      if (disposed) return () => {};
       listeners.set(listener, threadId);
       return () => listeners.delete(listener);
     },
     watch(threadId) {
+      if (disposed) return () => {};
       let watch = watches.get(threadId);
       if (watch) watch.count++;
       else {
@@ -366,22 +395,20 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     unforward: (threadId, port) => previews(threadId, { op: "unforward", port }),
     link,
     async open(threadId, workspaceId) {
-      const reply = await client
-        .request(
-          {
-            type: "browser.open",
-            options: {
-              threadId: ThreadId.parse(threadId),
-              workspaceId: WorkspaceId.parse(workspaceId),
-            },
+      const reply = await request(
+        {
+          type: "browser.open",
+          options: {
+            threadId: ThreadId.parse(threadId),
+            workspaceId: WorkspaceId.parse(workspaceId),
           },
-          { timeoutMs: openTimeoutMs },
-        )
-        .finally(() => {
-          if (!download) return;
-          download = undefined;
-          changed();
-        });
+        },
+        { timeoutMs: openTimeoutMs },
+      ).finally(() => {
+        if (disposed || !download) return;
+        download = undefined;
+        changed();
+      });
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
       const watch = watches.get(threadId);
       if (watch) {
@@ -390,7 +417,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       }
     },
     async navigate(threadId, url) {
-      const reply = await client.request(
+      const reply = await request(
         {
           type: "browser.execute",
           threadId: ThreadId.parse(threadId),
@@ -403,7 +430,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       return reached(reply.result, url);
     },
     async navigationHistory(threadId) {
-      const reply = await client.request({
+      const reply = await request({
         type: "browser.execute",
         threadId: ThreadId.parse(threadId),
         command: { action: "navigation_history" },
@@ -412,7 +439,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       return z.object({ back: z.boolean(), forward: z.boolean() }).parse(reply.result);
     },
     async navigateHistory(threadId, direction) {
-      const reply = await client.request({
+      const reply = await request({
         type: "browser.execute",
         threadId: ThreadId.parse(threadId),
         command: { action: "history", direction },
@@ -420,7 +447,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
     },
     async findText(threadId, text, forward) {
-      const reply = await client.request({
+      const reply = await request({
         type: "browser.execute",
         threadId: ThreadId.parse(threadId),
         command: { action: "find_text", text, forward },
@@ -429,7 +456,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       return reply.result;
     },
     async emulate(threadId, emulation) {
-      const reply = await client.request({
+      const reply = await request({
         type: "browser.execute",
         threadId: ThreadId.parse(threadId),
         command: {
@@ -451,6 +478,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     },
     async takeover(threadId, mode) {
       const state = BrowserState.safeParse(await call("browser.takeover", threadId, mode));
+      if (disposed) return;
       if (mode === "private") privateHolds.add(threadId);
       held.set(threadId, state.success ? state.data.owner : undefined);
     },
@@ -467,17 +495,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       await call("browser.handback", threadId);
     },
     input(threadId, input) {
-      return client
-        .request({
-          type: "browser.input",
-          threadId: ThreadId.parse(threadId),
-          input: wireInput(input),
-        })
+      return request({
+        type: "browser.input",
+        threadId: ThreadId.parse(threadId),
+        input: wireInput(input),
+      })
         .then(() => {})
         .catch(() => {});
     },
     async selection(threadId) {
-      const reply = await client.request({
+      const reply = await request({
         type: "browser.execute",
         threadId: ThreadId.parse(threadId),
         command: { action: "selection" },
@@ -516,13 +543,11 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       sendCapture(threadId, watch);
     },
     resize(threadId, width, height) {
-      void client
-        .request({
-          type: "browser.execute",
-          threadId: ThreadId.parse(threadId),
-          command: { action: "resize", width: clamp(width), height: clamp(height) },
-        })
-        .catch(() => {});
+      void request({
+        type: "browser.execute",
+        threadId: ThreadId.parse(threadId),
+        command: { action: "resize", width: clamp(width), height: clamp(height) },
+      }).catch(() => {});
     },
   };
 }

@@ -61,26 +61,48 @@ export function panelServices(
 ): Promise<PanelServices> {
   const existing = byClient.get(client);
   if (existing) return existing;
-  const services = Promise.resolve().then(() => loadSources(client)).then((sources) => {
-    const value: PanelServices = {
-      ...sources,
-      drafts: new LocalStore<readonly ReviewDraft[]>([]),
-      diffPrefs: new LocalStore<DiffPrefs>({ mode: "auto", wrap: false, tree: true }),
-      viewed: new LocalStore<ViewedFiles>(new Map()),
-      logCleared: new LocalStore<ClearedLines>(new Map()),
-      terminalUi: new LocalStore<TabUiState>(new Map()),
-    };
-    ready.set(client, value);
-    publish(client, { status: "ready", services: value });
-    return value;
-  }, (error: unknown) => {
-    byClient.delete(client);
-    publish(client, { status: "failed", message: error instanceof Error ? error.message : "Couldn't load the panels." });
-    throw error;
-  });
+  const services = Promise.resolve()
+    .then(() => loadSources(client))
+    .then(
+      (sources) => {
+        if (byClient.get(client) !== services) {
+          sources.preview.dispose();
+          throw new Error("panel_services_disposed");
+        }
+        const value: PanelServices = {
+          ...sources,
+          drafts: new LocalStore<readonly ReviewDraft[]>([]),
+          diffPrefs: new LocalStore<DiffPrefs>({ mode: "auto", wrap: false, tree: true }),
+          viewed: new LocalStore<ViewedFiles>(new Map()),
+          logCleared: new LocalStore<ClearedLines>(new Map()),
+          terminalUi: new LocalStore<TabUiState>(new Map()),
+        };
+        ready.set(client, value);
+        publish(client, { status: "ready", services: value });
+        return value;
+      },
+      (error: unknown) => {
+        if (byClient.get(client) !== services) throw error;
+        byClient.delete(client);
+        publish(client, {
+          status: "failed",
+          message: error instanceof Error ? error.message : "Couldn't load the panels.",
+        });
+        throw error;
+      },
+    );
   byClient.set(client, services);
   publish(client, loading);
   return services;
+}
+
+/** Retire one daemon client's cached previews and ignore pending service loads. */
+export function disposePanelServices(client: ClientApi): void {
+  ready.get(client)?.preview.dispose();
+  byClient.delete(client);
+  ready.delete(client);
+  states.delete(client);
+  listeners.delete(client);
 }
 
 /** A client's services if they have loaded, without loading them. */
@@ -91,13 +113,18 @@ export function loadedPanelServices(client: ClientApi): PanelServices | undefine
 /** Shared loading, failure and readiness, including loads started outside a mounted panel. */
 export function usePanelServiceLoad(): ServiceLoad {
   const client = useClient();
-  const subscribe = useCallback((changed: () => void) => {
-    let group = listeners.get(client);
-    if (!group) { group = new Set(); listeners.set(client, group); }
-    group.add(changed);
-    if (!states.has(client)) void panelServices(client).catch(() => {});
-    return () => { group.delete(changed); };
-  }, [client]);
+  const subscribe = useCallback(
+    (changed: () => void) => {
+      const group = listeners.get(client) ?? new Set<() => void>();
+      listeners.set(client, group);
+      group.add(changed);
+      if (!states.has(client)) void panelServices(client).catch(() => {});
+      return () => {
+        group.delete(changed);
+      };
+    },
+    [client],
+  );
   const read = useCallback(() => states.get(client) ?? loading, [client]);
   return useSyncExternalStore(subscribe, read, read);
 }
