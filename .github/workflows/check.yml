@@ -84,7 +84,7 @@ jobs:
 
       - name: Install Linux screen build libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libspa-0.2-dev
+        run: sudo apt-get update && sudo apt-get install -y libpipewire-0.3-dev libspa-0.2-dev dbus
 
       - name: Build native screen interoperability fixtures
         run: |

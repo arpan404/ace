@@ -15,7 +15,7 @@ impl Lifecycle {
         let mut stream = MessageStream::from(conn);
         if conn.is_bus() {
             let bus = zbus::fdo::DBusProxy::new(conn).await.map_err(internal)?;
-            for interface in ["org.a11y.atspi.Event.Object", "org.freedesktop.DBus"] {
+            for interface in ["org.a11y.atspi.Event.Object", "org.a11y.atspi.Cache", "org.freedesktop.DBus"] {
                 let rule = zbus::MatchRule::builder()
                     .msg_type(zbus::message::Type::Signal)
                     .interface(interface).map_err(internal)?.build();
@@ -60,6 +60,9 @@ fn invalidates(message: &Message) -> bool {
     let interface = header.interface().map(|v| v.as_str());
     let member = header.member().map(|v| v.as_str());
     match (interface, member) {
+        // Removal ends identity continuity even if the provider immediately reuses
+        // the same bus/path and never exposes a failed read or Defunct state.
+        (Some("org.a11y.atspi.Cache"), Some("RemoveAccessible")) => true,
         (Some("org.a11y.atspi.Event.Object"), Some("ChildrenChanged")) => true,
         (Some("org.a11y.atspi.Event.Object"), Some("StateChanged")) => {
             type Body = (String, i32, i32, OwnedValue, HashMap<String, OwnedValue>);

@@ -30,7 +30,14 @@ impl Action {
     fn get_name(&self, _index: i32) -> &str { "click" }
     fn do_action(&self, _index: i32) -> bool { self.0.lock().unwrap().presses += 1; true }
 }
-struct Fixture { ui: Accessibility, server: Connection, control: Arc<Mutex<Control>> }
+struct PrivateBus(std::process::Child);
+impl Drop for PrivateBus {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+struct Fixture { ui: Accessibility, server: Connection, control: Arc<Mutex<Control>>, _bus: Option<PrivateBus> }
 impl Fixture {
     async fn new() -> Self {
         let control = Arc::new(Mutex::new(Control { name: "original".into(), ..Default::default() }));
@@ -43,11 +50,47 @@ impl Fixture {
         let (server, client) = futures_util::try_join!(server.build(), client.build()).unwrap();
         let mut ui = Accessibility::from_connection(client).await.unwrap();
         ui.scope = Some(("org.ace.Fixture".into(), OwnedObjectPath::try_from("/control").unwrap()));
-        Self { ui, server, control }
+        Self { ui, server, control, _bus: None }
+    }
+    #[cfg(target_os = "linux")]
+    async fn on_bus() -> Self {
+        use std::io::{BufRead, BufReader};
+        let mut bus = PrivateBus(std::process::Command::new("dbus-daemon")
+            .args(["--session", "--nofork", "--print-address=1"])
+            .stdout(std::process::Stdio::piped()).spawn().unwrap());
+        let mut address = String::new();
+        BufReader::new(bus.0.stdout.take().unwrap()).read_line(&mut address).unwrap();
+        let control = Arc::new(Mutex::new(Control { name: "original".into(), ..Default::default() }));
+        let server = zbus::connection::Builder::address(address.trim()).unwrap()
+            .serve_at("/control", Accessible(control.clone())).unwrap()
+            .serve_at("/control", Action(control.clone())).unwrap().build().await.unwrap();
+        let client = zbus::connection::Builder::address(address.trim()).unwrap().build().await.unwrap();
+        let mut ui = Accessibility::from_connection(client).await.unwrap();
+        ui.scope = Some((server.unique_name().unwrap().to_string(), OwnedObjectPath::try_from("/control").unwrap()));
+        Self { ui, server, control, _bus: Some(bus) }
     }
     async fn reference(&mut self) -> String {
         self.ui.tree(0, 1).await.unwrap()["tree"]["ref"].as_str().unwrap().into()
     }
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn cache_removal_retires_saved_refs_before_successful_reads_of_a_reused_bus_path() {
+    // A real private bus requires the Cache match rule; a peer-to-peer connection
+    // alone would not catch a missing subscription.
+    let mut fixture = Fixture::on_bus().await;
+    let old = fixture.reference().await;
+    let removed = (fixture.server.unique_name().unwrap().to_string(), OwnedObjectPath::try_from("/control").unwrap());
+    fixture.server.emit_signal(None::<&str>, "/org/a11y/atspi/cache", "org.a11y.atspi.Cache", "RemoveAccessible", &(removed,)).await.unwrap();
+    fixture.control.lock().unwrap().name = "replacement".into();
+    let found = fixture.ui.find(&Query { name: Some("replacement".into()), ..Default::default() }, 1).await.unwrap();
+    let replacement = found["nodes"][0]["ref"].as_str().unwrap();
+    assert_ne!(old, replacement);
+    assert_eq!(fixture.ui.act(&old, "press", None).await.unwrap_err().code, "target_gone");
+    assert_eq!(fixture.control.lock().unwrap().presses, 0);
+    fixture.ui.act(replacement, "press", None).await.unwrap();
+    assert_eq!(fixture.control.lock().unwrap().presses, 1);
 }
 
 #[tokio::test]
