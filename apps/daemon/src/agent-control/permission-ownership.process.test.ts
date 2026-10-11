@@ -57,3 +57,28 @@ test("unverifiable cross-provider policies fail before child creation", async ()
   ).toThrow();
   expect(h.store.listThreads()).toHaveLength(1);
 });
+
+test("a child cannot delegate under an obsolete ceiling after an ancestor narrows", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const child = h.delegate(parent, "child");
+  await h.engine.flush();
+  await h.complete(child.childId, "ready");
+  await h.complete(parent.threadId, "ready");
+  expect(
+    h.service.command("narrow-parent", {
+      type: "thread.permission.set",
+      threadId: parent.threadId,
+      permissionMode: ":read-only",
+    }).ok,
+  ).toBe(true);
+  h.service.command("apply-narrow-parent", {
+    type: "thread.send",
+    threadId: parent.threadId,
+    input: [{ type: "text", text: "continue" }],
+  });
+  await h.engine.flush();
+  expect(h.store.getThread(parent.threadId)?.permission?.effective).toBe(":read-only");
+  expect(() => h.delegate(h.caller(child.childId), "grandchild")).toThrow();
+  expect(h.store.listThreads()).toHaveLength(2);
+});

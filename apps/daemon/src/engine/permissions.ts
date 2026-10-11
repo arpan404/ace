@@ -207,10 +207,12 @@ export class Permissions {
     id: ThreadId,
     provider: import("@ace/protocol").ProviderKind,
     selected: PermissionMode | null,
-  ) {
+    depth = 0,
+  ): PermissionMode | null {
     const record = this.read(id);
     if (!record.parent) return selected;
-    const mode = this.narrow(importThreadId.parse(record.parent), provider, selected);
+    if (depth >= 64) throw new Error("Permission ancestry exceeds capacity");
+    const mode = this.narrow(importThreadId.parse(record.parent), provider, selected, depth + 1);
     if (
       !record.ceiling_provider ||
       !permissionWithinCeiling(
@@ -226,10 +228,14 @@ export class Permissions {
     parentId: ThreadId,
     provider: import("@ace/protocol").ProviderKind,
     requested?: PermissionMode | null,
-  ) {
+    depth = 0,
+  ): PermissionMode | null {
     const parent = this.repo.store.getThread(parentId);
     if (!parent) throw new Error("permission_parent_not_found");
-    const ceiling = { provider: parent.provider, mode: this.effective(parentId) };
+    const ceiling = {
+      provider: parent.provider,
+      mode: this.contained(parentId, parent.provider, this.effective(parentId), depth),
+    };
     const mode = requested ?? inheritedPermissionMode(ceiling, provider);
     if (!permissionWithinCeiling(ceiling, { provider, mode }))
       throw new Error("permission_ceiling_unverifiable");
@@ -326,6 +332,8 @@ export class Permissions {
     return this.contained(id, provider, selected);
   }
   applied(id: ThreadId, mode: PermissionMode | null, at: number): void {
+    const provider = this.repo.requireState(id).config.provider;
+    mode = this.contained(id, provider, mode);
     this.ensure(id);
     this.repo.store.atomic(() => {
       this.repo.store.atomic((db) =>
