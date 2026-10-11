@@ -60,7 +60,14 @@ export async function writeAll(handle: FileHandle, bytes: Buffer, offset: number
     done += result.bytesWritten;
   }
 }
-export async function hashFile(handle: FileHandle): Promise<string> {
+export async function hashFile(handle: {
+  read(
+    buffer: Buffer,
+    offset: number,
+    length: number,
+    position: number,
+  ): Promise<{ bytesRead: number }>;
+}): Promise<string> {
   const digest = createHash("sha256");
   const bytes = Buffer.allocUnsafe(CHUNK_SIZE);
   let position = 0;

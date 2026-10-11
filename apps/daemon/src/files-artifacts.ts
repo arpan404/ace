@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { FileError, createBlobExport, type FilesService } from "@ace/files";
 import { z } from "zod";
-import type { WorkspaceId } from "@ace/protocol";
+import type { WorkspaceId, ThreadId } from "@ace/protocol";
 import type { Store } from "./store.ts";
 
 /** Local producers publish bounded files; clients address only the resulting registry ID. */
@@ -41,7 +41,14 @@ export function daemonArtifacts(
     category: "output" | "support",
     write: (temporary: string) => Promise<void>,
     assertAuthorized: () => void,
-  ) => publishArtifact(files, root, { size, path, name, category, write }, assertAuthorized);
+    sourceThread?: ThreadId,
+  ) =>
+    publishArtifact(
+      files,
+      root,
+      { size, path, name, category, write, sourceThread },
+      assertAuthorized,
+    );
   return {
     async support(hostId: string) {
       const temporary = join(root, `.support-${randomUUID()}`);
@@ -126,6 +133,7 @@ export function daemonArtifacts(
             }
           },
           assertAuthorized,
+          info.threadId,
         );
       });
     },
@@ -170,6 +178,7 @@ export function daemonArtifacts(
             });
           },
           assertAuthorized,
+          info.threadId,
         );
       });
     },

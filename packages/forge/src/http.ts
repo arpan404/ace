@@ -166,8 +166,7 @@ export class GhApi {
     }
     if (code === 304) {
       if (!cached) throw new ForgeError("invalid_data");
-      this.#cache.delete(cacheKey);
-      this.#cache.set(cacheKey, cached);
+      this.#retain(cacheKey, cached);
       return cached;
     }
     if (
@@ -205,8 +204,7 @@ export class GhApi {
     };
     if (cached?.version === version) {
       cached.headers = safeHeaders;
-      this.#cache.delete(cacheKey);
-      this.#cache.set(cacheKey, cached);
+      this.#retain(cacheKey, cached);
       return cached;
     }
     let data: unknown;
@@ -226,20 +224,26 @@ export class GhApi {
       this.#cache.clear();
       this.#cacheBytes = 0;
     } else {
-      if (cached) {
-        this.#cache.delete(cacheKey);
-        this.#cacheBytes -= cached.bytes;
-      }
-      while (this.#cache.size >= 128 || this.#cacheBytes + page.bytes > 8_388_608) {
-        const oldest = this.#cache.entries().next().value;
-        if (!oldest) break;
-        this.#cache.delete(oldest[0]);
-        this.#cacheBytes -= oldest[1].bytes;
-      }
-      this.#cache.set(cacheKey, page);
-      this.#cacheBytes += page.bytes;
+      this.#retain(cacheKey, page);
     }
     return page;
+  }
+  /** Completion reconciles the entry actually retained, never an earlier request snapshot. */
+  #retain(key: string, page: Page): void {
+    const current = this.#cache.get(key);
+    if (current) {
+      this.#cache.delete(key);
+      this.#cacheBytes -= current.bytes;
+    }
+    if (page.bytes > 8_388_608) return;
+    while (this.#cache.size >= 128 || this.#cacheBytes + page.bytes > 8_388_608) {
+      const oldest = this.#cache.entries().next().value;
+      if (!oldest) break;
+      this.#cache.delete(oldest[0]);
+      this.#cacheBytes -= oldest[1].bytes;
+    }
+    this.#cache.set(key, page);
+    this.#cacheBytes += page.bytes;
   }
   async pages(path: string, signal: AbortSignal, budget: ReadBudget): Promise<Page[]> {
     const result: Page[] = [];
