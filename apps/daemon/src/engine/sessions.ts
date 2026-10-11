@@ -39,7 +39,6 @@ interface SessionDependencies {
   clock: EngineClock;
   closing(): boolean;
   wake(id: ThreadId): void;
-  expireDelivery(actor: ThreadActor): void;
   openFailed?(
     id: ThreadId,
     details: import("@ace/protocol").ProviderErrorDetails,
@@ -330,12 +329,14 @@ export class Sessions {
             actor.session = undefined;
             this.turnPermissions.delete(actor.id);
             lifetime.abort();
-            actor.generation++;
             // No input can have been consumed until open returns a usable session.
-            if (!opening) this.dependencies.expireDelivery(actor);
+            if (opening) actor.generation++;
+            else actor.retireGeneration();
             // Say so in the transcript only when the death cost work, not after an idle exit.
             const before = this.dependencies.repo.requireState(actor.id);
-            const lost = !exit.deliberate && lostWork(before, 0, undefined, this.dependencies.clock.now()) !== undefined;
+            const lost =
+              !exit.deliberate &&
+              lostWork(before, 0, undefined, this.dependencies.clock.now()) !== undefined;
             actor.apply([
               { type: "process.exited", ...exit },
               ...(lost
@@ -519,8 +520,7 @@ export class Sessions {
       this.dependencies.commandEvent?.({ type: "session.closed", threadId: actor.id });
       lifetime?.abort();
       if (actor.generation === generation) {
-        actor.generation++;
-        this.dependencies.expireDelivery(actor);
+        actor.retireGeneration();
         actor.idleDue = false;
         this.dependencies.repo.apply(
           actor.id,

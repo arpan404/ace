@@ -176,7 +176,6 @@ export class Engine {
       clock: this.clock,
       closing: () => this.closing,
       wake: (id) => this.wake(id),
-      expireDelivery: (actor) => this.delivery.expire(actor, actor.generation - 1),
       released: (id) => {
         this.releaseDormant(id);
         this.wakeQueued();
@@ -353,6 +352,7 @@ export class Engine {
         () => this.flushDepth > 0,
         this.batchScheduler,
         this.diagnostic,
+        (retired, generation) => this.delivery.expire(retired, generation),
       );
       actor.generation = Math.max(
         this.repo.pending.latestGeneration(id),
