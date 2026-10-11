@@ -13,3 +13,4 @@ export { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.
 export { createBlobExport } from "./blob-export.ts";
 
 export { chunkFilesChannel } from "./chunk-channel.ts";
+export { attachmentChannel } from "./attachment-channel.ts";

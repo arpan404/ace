@@ -2,6 +2,7 @@ import type { Token } from "marked";
 import { z } from "zod";
 import { offThread } from "@/lib/off-thread.ts";
 import { codeLines, type CodeLines } from "./code-lines.ts";
+import { CodeLinesReply } from "./code-lines-wire.ts";
 import type { CodeToken } from "./highlight.ts";
 import { StreamRegistry, type StreamJob, type StreamReply } from "./stream-registry.ts";
 
@@ -37,7 +38,7 @@ const Reply = z.union([
     ms: z.number(),
   }),
   z.object({ resync: z.literal(true) }),
-  z.object({ hash: z.string(), lines: z.custom<CodeToken[][]>(Array.isArray) }),
+  CodeLinesReply,
   z.null(),
 ]);
 

@@ -1,4 +1,5 @@
-import { BoundedCache } from "@ace/provider-kit/bounded-cache";
+import { RecordBudget, type CachedRecord, type RecordTransaction } from "./record-cache.ts";
+export { RecordBudget } from "./record-cache.ts";
 import type { DatabaseSync } from "node:sqlite";
 import type { ThreadId } from "@ace/protocol";
 import { Append, restoreAppend } from "./append.ts";
@@ -12,42 +13,15 @@ function parseRecord<T>(schema: z.ZodType<T>, value: unknown): T {
   return value;
 }
 
-interface CachedRecord<T> {
-  value: T;
-  json: string;
-  bytes: number;
-}
-/** Shared across every resident snapshot; keys never cross a section's typed owner. */
-export class RecordBudget {
-  private readonly entries = new BoundedCache<string, CachedRecord<unknown>>(8192, 8_388_608);
-  private serial = 0;
-  section<T>() {
-    const prefix = `${++this.serial}:`;
-    const entries = this.entries;
-    return {
-      get(key: string): CachedRecord<T> | undefined {
-        // Values enter only through this section's T-typed set method.
-        return entries.get(prefix + key) as CachedRecord<T> | undefined;
-      },
-      set(key: string, value: CachedRecord<T>, bytes: number) {
-        // Charge decoded strings as well as the retained JSON.
-        entries.set(prefix + key, value, bytes * 4);
-      },
-      delete(key: string) {
-        entries.delete(prefix + key);
-      },
-    };
-  }
-}
-
 /** Disk-backed dictionaries return plain entities, so core can clone emitted events. */
 export class Records<T> {
   readonly values: Record<string, T>;
-  private cache: {
+  private readonly cache: {
     get(key: string): CachedRecord<T> | undefined;
     set(key: string, value: CachedRecord<T>, bytes: number): void;
     delete(key: string): void;
   };
+  private readonly transaction: RecordTransaction | undefined;
   private tracking = false;
   private appendValue: { key: string; value: T } | undefined;
   private replaced = new Set<string>();
@@ -71,8 +45,10 @@ export class Records<T> {
     decorate: (key: string, value: T) => T = (_key, value) => value,
     encode: (key: string, value: T) => string = (_key, value) => JSON.stringify(value),
     budget = new RecordBudget(),
+    transaction?: RecordTransaction,
   ) {
     this.cache = budget.section<T>();
+    this.transaction = transaction;
     this.db = db;
     this.thread = thread;
     this.group = group;
@@ -104,6 +80,7 @@ export class Records<T> {
       },
       deleteProperty: (_target, key) => {
         if (typeof key === "string") {
+          this.access(true);
           this.touched.set(key, undefined);
           this.cache.delete(key);
           this.enumerated?.delete(key);
@@ -113,19 +90,27 @@ export class Records<T> {
     });
     for (const [key, value] of Object.entries(initial)) this.write(key, value);
   }
+  private access(write = false): void {
+    if (this.transaction?.tracking) {
+      this.tracking = true;
+      this.transaction.touch(this);
+    } else if (write) this.transaction?.touch(this);
+  }
   private write(key: string, value: T): void {
+    this.access(true);
     const decorated = this.decorate(key, value);
     const previous = this.cache.get(key)?.json ?? "";
-    this.cache.set(
-      key,
-      { value: decorated, json: previous, bytes: Buffer.byteLength(previous) },
-      Buffer.byteLength(previous),
-    );
+    this.cache.set(key, {
+      value: decorated,
+      json: previous,
+      bytes: Buffer.byteLength(previous),
+    }, Buffer.byteLength(previous));
     this.replaced.add(key);
     this.touched.set(key, decorated);
     this.enumerated?.add(key);
   }
   private read(key: string): T | undefined {
+    this.access();
     if (this.appendValue?.key === key) {
       if (this.tracking) this.touched.set(key, this.appendValue.value);
       return this.appendValue.value;
@@ -161,6 +146,7 @@ export class Records<T> {
     return entry.value;
   }
   private keys(): string[] {
+    this.access();
     const keys =
       this.enumerated ??
       new Set(
@@ -193,6 +179,7 @@ export class Records<T> {
     };
   }
   append(key: string, patch: Append): void {
+    this.access(true);
     const entry = this.cache.get(key);
     if (this.replaced.has(key) || (!entry?.json && this.appendValue?.key !== key)) return;
     this.db

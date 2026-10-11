@@ -1,11 +1,13 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { z } from "zod";
-import { Agent, McpScope } from "@ace/protocol";
+import { Agent, DeviceId, McpScope } from "@ace/protocol";
 import { ScreenManager } from "@ace/screen";
 import { startDaemon, readConfig, createDevThread } from "./index.ts";
+import { Client } from "./socket-test-support.ts";
 
 it("a configured daemon exposes scoped screen tools and returns screenshot images over MCP", async () => {
   const directory = await mkdtemp(join(tmpdir(), "screen-mcp-"));
@@ -130,13 +132,18 @@ it("a configured daemon exposes scoped screen tools and returns screenshot image
     });
     await screen.mode(session.sessionId, "foreground");
     const other = createDevThread(daemon.store, workspace);
-    daemon.store.appendEvents(
-      other.id,
-      [{ type: "agent.created", agent: { ...agent, threadId: other.id } }],
-      2,
+    const otherAgent = Agent.parse({ ...agent, id: "other-root", threadId: other.id });
+    daemon.store.appendEvents(other.id, [{ type: "agent.created", agent: otherAgent }], 2);
+    // The same agent ID in a different thread must not inherit the screen delegation.
+    const wrongThreadScope = { ...scope, threadId: other.id };
+    expect(() => screen.agentSession(wrongThreadScope, session.sessionId)).toThrow(
+      "Screen delegation required",
+    );
+    expect(() => daemon.mcp.openSession(wrongThreadScope, new AbortController().signal)).toThrow(
+      "Unknown MCP caller",
     );
     const otherLease = daemon.mcp.openSession(
-      { ...scope, threadId: other.id },
+      { ...scope, threadId: other.id, agentId: otherAgent.id },
       new AbortController().signal,
     );
     expect(await request(otherLease.bearer, "tools/call", "screen_ui_tree", {})).toMatchObject({
@@ -182,6 +189,32 @@ it("a configured daemon exposes scoped screen tools and returns screenshot image
     expect(await request(denied.bearer, "tools/call", "screen_screenshot", {})).toMatchObject({
       result: { isError: true },
     });
+    // Replay both canonical thread identities before cleanup can race its background work.
+    const client = new Client(daemon.url);
+    try {
+      await once(client.socket, "open");
+      client.send({
+        type: "hello",
+        protocolVersion: 1,
+        deviceId: DeviceId.parse("screen-mcp-test"),
+        token: await readFile(daemon.tokenPath, "utf8"),
+      });
+      expect(await client.next()).toMatchObject({ type: "welcome" });
+      for (const current of [thread, other]) {
+        client.send({
+          type: "usage.session_totals",
+          requestId: current.id,
+          query: { thread: current.id, limit: 100 },
+        });
+        expect(await client.next()).toEqual({
+          type: "usage.session_totals.result",
+          requestId: current.id,
+          totals: [],
+        });
+      }
+    } finally {
+      await client.close();
+    }
   } finally {
     await daemon.close();
     await rm(directory, { recursive: true, force: true });

@@ -3,6 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
+// General's lazy body must be transformed before the first interaction's deadline starts.
+await import("./general-page.tsx");
+
 const select = () => screen.findByRole("combobox", { name: "Default provider for new threads" });
 
 async function offered() {

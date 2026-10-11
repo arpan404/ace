@@ -4,7 +4,8 @@ import { RunId, type Item, type EventPayload } from "@ace/protocol";
 import { z } from "zod";
 import { recordSchemas } from "./snapshot.ts";
 import { itemMetadata } from "./item-metadata.ts";
-import { Records, RecordBudget } from "./records.ts";
+import { RecordBudget, type RecordTransaction } from "./record-cache.ts";
+import { Records } from "./records.ts";
 import { engineSchemaVersion } from "./schema-version.ts";
 const nativeRunId = z.custom<RunId>((value) => RunId.safeParse(value).success);
 
@@ -14,8 +15,16 @@ export class Snapshot {
   private deadlines: DeadlineIndex | undefined;
   private items: Records<Item>;
   private metadata: Records<Item>;
-  private sections: { flush(): void; begin(): void }[] = [];
+  private readonly sections = new Set<{ flush(): void }>();
+  private readonly cache: RecordBudget;
+  private readonly transaction: RecordTransaction & { tracking: boolean } = {
+    tracking: false,
+    touch: (section) => {
+      this.sections.add(section);
+    },
+  };
   constructor(db: Pick<DatabaseSync, "prepare">, state: ThreadState, budget = new RecordBudget()) {
+    this.cache = budget;
     const segment = <T>(section: string, schema: z.ZodType<T>, initial: Record<string, T>) => {
       const records = new Records(
         db,
@@ -25,9 +34,9 @@ export class Snapshot {
         initial,
         undefined,
         undefined,
-        budget,
+        this.cache,
+        this.transaction,
       );
-      this.sections.push(records);
       return records.values;
     };
     const nativeRuns = new Map<string, Record<string, RunId>>();
@@ -54,9 +63,9 @@ export class Snapshot {
         const { nativeRuns: runs, ...agent } = record;
         return JSON.stringify({ ...agent, ...(runs === undefined ? {} : { nativeRuns: {} }) });
       },
-      budget,
+      this.cache,
+      this.transaction,
     );
-    this.sections.push(agents);
     state.agents = agents.values;
     this.items = new Records(
       db,
@@ -66,9 +75,9 @@ export class Snapshot {
       state.items,
       undefined,
       undefined,
-      budget,
+      this.cache,
+      this.transaction,
     );
-    this.sections.push(this.items);
     state.items = this.items.values;
     this.metadata = new Records(
       db,
@@ -78,9 +87,9 @@ export class Snapshot {
       {},
       undefined,
       undefined,
-      budget,
+      this.cache,
+      this.transaction,
     );
-    this.sections.push(this.metadata);
     state.runs = segment("runs", recordSchemas.runs, state.runs);
     state.interactions = segment("interactions", recordSchemas.interactions, state.interactions);
     state.tasks = segment("tasks", recordSchemas.tasks, state.tasks);
@@ -210,7 +219,7 @@ export class Snapshot {
     });
   }
   begin(): void {
-    for (const section of this.sections) section.begin();
+    this.transaction.tracking = true;
   }
   retainChanges(events: EventPayload[]): void {
     const changed = new Set(
@@ -226,6 +235,12 @@ export class Snapshot {
   }
   flush(): void {
     // Agent serialization can add a new native-run section on this pass.
-    for (const section of this.sections) section.flush();
+    while (this.sections.size) {
+      const section = this.sections.values().next().value;
+      if (!section) break;
+      this.sections.delete(section);
+      section.flush();
+    }
+    this.transaction.tracking = false;
   }
 }

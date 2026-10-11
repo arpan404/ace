@@ -44,6 +44,9 @@ export default defineConfig(({ mode }) => ({
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   build: {
     target: "es2023",
+    // Standard compression keeps the full validated worker within its existing byte budget.
+    minify: "terser",
+    terserOptions: { compress: { passes: 3 } },
     sourcemap: true,
     modulePreload: { resolveDependencies: preloads.resolveDependencies },
     rolldownOptions: {
@@ -70,6 +73,12 @@ export default defineConfig(({ mode }) => ({
     ],
     // Vite strips annotation, JSDoc and legal comments from the page's minified chunks but not from
     // workers', where `@__PURE__` and `@__NO_SIDE_EFFECTS__` alone were 0.5 KB gzip.
-    rolldownOptions: { output: { comments: { annotation: false, jsdoc: false, legal: false } } },
+    rolldownOptions: {
+      output: {
+        // Retain Oxc's worker compression before Vite's final Terser pass.
+        minify: true,
+        comments: { annotation: false, jsdoc: false, legal: false },
+      },
+    },
   },
 }));

@@ -45,8 +45,12 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
 export class FactBatch {
   private state: ThreadState;
   private pendingAt: number | undefined;
-  constructor(state: ThreadState) {
+  private readonly signalDeadline: number | undefined;
+  private preserveSignals: boolean;
+  constructor(state: ThreadState, stableSignals?: { deadline: number | undefined }) {
     this.state = state;
+    this.signalDeadline = stableSignals?.deadline;
+    this.preserveSignals = stableSignals !== undefined;
   }
   apply(fact: Fact, ctx: ApplyContext): EventPayload[] {
     const batchable =
@@ -57,10 +61,35 @@ export class FactBatch {
         fact.draft.complete === true &&
         get(this.state.items, fact.item)?.type !== "tool_call");
     const preceding = !batchable || this.pendingAt !== ctx.now ? this.flush() : [];
+    const stableSignal =
+      this.preserveSignals &&
+      fact.type === "signal" &&
+      fact.agent !== undefined &&
+      get(this.state.agents, fact.agent) !== undefined &&
+      this.state.processExit === undefined &&
+      this.state.statusObservedAt !== undefined &&
+      ctx.now >= this.state.statusObservedAt &&
+      ctx.now >= (this.state.lastTransportSignalAt ?? ctx.now) &&
+      (this.signalDeadline === undefined || ctx.now < this.signalDeadline) &&
+      !(
+        this.state.config.liveness === "transport" &&
+        ctx.now - transportSignalAt(this.state) > this.state.config.silenceMs
+      ) &&
+      !hasUnresponsiveAncestor(this.state, fact.agent);
     const emitted = fold(this.state, fact, ctx, (events) => {
+      if (stableSignal && events.length === 0) {
+        this.state.statusObservedAt = ctx.now;
+        return;
+      }
       if (batchable) this.pendingAt = ctx.now;
       else recomputeStatuses(this.state, ctx.now, events);
     });
+    // Any non-signal control fact invalidates the cached eligibility window for this batch.
+    if (
+      (fact.type !== "signal" && fact.type !== "item.delta") ||
+      emitted.some((event) => event.type !== "item.delta")
+    )
+      this.preserveSignals = false;
     return [...preceding, ...emitted];
   }
   flush(): EventPayload[] {

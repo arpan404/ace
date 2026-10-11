@@ -5,6 +5,10 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { harness } from "@/test/harness.tsx";
 
+// The outer menu preload does not load its nested editor submenu. Warm its code before
+// behavioural deadlines; editor discovery and launch still run through the real fixture wire.
+await import("./header/thread-open-in.tsx");
+
 beforeEach(() => localStorage.clear());
 afterEach(() => Reflect.deleteProperty(globalThis, "ace"));
 

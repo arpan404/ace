@@ -13,7 +13,7 @@ export class WireEncoder {
     let bytes = Buffer.byteLength(JSON.stringify({ ...message, events: [] })) + 64;
     const overhead = bytes;
     for (const event of message.events) {
-      const size = Buffer.byteLength(this.event(event)) + 1;
+      const size = this.eventBytes(event) + 1;
       if (events.length && bytes + size > eventFrameBytes) {
         const throughSeq = events.at(-1)?.seq ?? afterSeq;
         frames.push({ ...message, afterSeq, throughSeq, events });
@@ -35,6 +35,15 @@ export class WireEncoder {
     }
     return value;
   }
+  eventBytes(event: DeliveryEvent): number {
+    let bytes = this.sizes.get(event);
+    if (bytes === undefined) {
+      bytes = Buffer.byteLength(this.event(event));
+      this.sizes.set(event, bytes);
+    }
+    return bytes;
+  }
+  private sizes = new WeakMap<DeliveryEvent, number>();
   private events = new WeakMap<DeliveryEvent, string>();
   encode(message: ServerMessage | PluginServerMessage): string {
     if (message.type !== "events") return JSON.stringify(message);

@@ -542,6 +542,29 @@
         "op"
       ],
       "type": "object"
+    },
+    {
+      "properties": {
+        "maxBytes": {
+          "exclusiveMinimum": 0,
+          "maximum": 33554432,
+          "type": "integer"
+        },
+        "op": {
+          "const": "attachment.download",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "sha256",
+        "maxBytes"
+      ],
+      "type": "object"
     }
   ]
 }

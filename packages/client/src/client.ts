@@ -1,3 +1,4 @@
+import { attachmentReadScope } from "./attachment-scope.ts";
 import { ClientCore } from "./client-core.ts";
 import { projectCalls } from "./project-calls.ts";
 import { projectEvents } from "./projects.ts";
@@ -22,10 +23,17 @@ export type CursorAuthQuery = WithoutRequestId<CursorAuthRequest>;
 
 /** Full in-process client with convenience APIs. Workers share only ClientCore. */
 export class Client extends ClientCore implements ClientApi {
-  attachmentBytes(input: import("./attachments.ts").AttachmentInput, options: RequestOptions = {}) {
-    return import("./attachments.ts").then(({ attachmentBytes }) =>
-      attachmentBytes(this, input, options),
-    );
+  async attachmentBytes(
+    input: import("./attachments.ts").AttachmentInput,
+    options: RequestOptions = {},
+  ) {
+    const scope = attachmentReadScope(this, options.signal);
+    try {
+      const { attachmentBytes } = await import("./attachments.ts");
+      return await attachmentBytes(this, input, { ...options, signal: scope.signal });
+    } finally {
+      scope.close();
+    }
   }
   /** Project calls forward through `command`/`request`; pushes arrive through `onMessage`. */
   readonly projects: ProjectsApi = { ...projectCalls(this), ...projectEvents(this) };

@@ -4,9 +4,11 @@ import type { DeviceId, HostId } from "@ace/protocol";
 export interface TransportEvents {
   open(): void;
   message(text: string): void;
+  binary?(bytes: Uint8Array): void;
   close(code: number): void;
 }
 export interface Transport {
+  readonly supportsBinary?: boolean;
   open(events: TransportEvents): void;
   send(text: string): void;
   close(): void;
@@ -42,6 +44,14 @@ export interface ClientOptions {
   /** Pin a directory entry before subscriptions or durable intents can replay. */
   expectedHostId?: HostId;
   transport(): Transport;
+  /**
+   * Optional owning-host source (for example, its encrypted relay). Honor cancellation and
+   * emit validated metadata then owned chunks of at most 64 KiB, with exact size/hash EOF.
+   */
+  attachmentSource?(
+    input: import("./attachment-types.ts").AttachmentInput & { maxBytes: number },
+    options: RequestOptions,
+  ): AsyncGenerator<import("./attachment-types.ts").AttachmentFrame>;
   credential(): Promise<Credential>;
   storage: Storage;
   scheduler: Scheduler;

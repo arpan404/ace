@@ -1,6 +1,11 @@
 import { createHash, type Hash } from "node:crypto";
 import { z } from "zod";
-import { FilesClientMessage, type FilesServerMessage, type ThreadId } from "@ace/protocol";
+import {
+  FilesClientMessage,
+  type FilesServerMessage,
+  type FileOperation,
+  type ThreadId,
+} from "@ace/protocol";
 import type { FilesService } from "./service.ts";
 import { codeOf, FileError, type Download } from "./types.ts";
 import { drainUpload } from "./upload-lifetime.ts";
@@ -35,7 +40,11 @@ type Channel = {
 /** Pull/ACK frames bound memory to one 64 KiB chunk per channel, even through a shared worker. */
 export function chunkFilesChannel(options: {
   device: string;
-  resolve(threadId: ThreadId | undefined, scope?: "support"): Promise<Binding>;
+  resolve(
+    threadId: ThreadId | undefined,
+    scope?: "support",
+    operation?: FileOperation,
+  ): Promise<Binding>;
   send(message: FilesServerMessage): void;
 }) {
   const channels = new Map<number, Channel>();
@@ -179,185 +188,3 @@ export function chunkFilesChannel(options: {
     const threadId = message.threadId;
     if (!threadId && message.scope !== "support")
       throw new FileError("INVALID_MESSAGE", "Thread scope required");
-    const binding = await options.resolve(threadId, message.scope);
-    try {
-      assertOpening();
-      const op = message.operation;
-      const access = [
-        "list",
-        "stat",
-        "download",
-        "artifact.download",
-        "artifact.support",
-        "archive.download",
-        "archive.preview",
-        "artifacts.list",
-        "trash.list",
-      ].includes(op.op)
-        ? "read"
-        : "operate";
-      assert(binding, access);
-      if (op.op === "download" || op.op === "artifact.download" || op.op === "archive.download") {
-        const id = allocate();
-        const download = await binding.service.downloadForTransport(options.device, op);
-        try {
-          assert(binding, "read");
-          assertOpening();
-        } catch (error) {
-          await download.close();
-          throw error;
-        }
-        channels.set(id, {
-          binding,
-          requestId: message.requestId,
-          threadId,
-          busy: false,
-          kind: "download",
-          value: download,
-          hash: createHash("sha256"),
-          offset: download.offset,
-        });
-        const opened = channels.get(id);
-        if (opened) armIdle(id, opened);
-        send({
-          type: "files.ready",
-          requestId: message.requestId,
-          channel: id,
-          offset: download.offset,
-          size: download.size,
-          validator: download.validator,
-        });
-        return;
-      }
-      if (op.op === "upload.begin" || op.op === "upload.resume") {
-        const id = allocate();
-        const release = binding.service.reserve();
-        try {
-          const upload = Upload.parse(
-            await binding.service.request(options.device, op, () => assert(binding, "operate")),
-          );
-          assert(binding, "operate");
-          assertOpening();
-          for (const [old, channel] of channels)
-            if (
-              channel.kind === "upload" &&
-              channel.uploadId === upload.uploadId &&
-              channel.binding.service === binding.service
-            )
-              await stop(old);
-          channels.set(id, {
-            binding,
-            threadId,
-            requestId: message.requestId,
-            busy: false,
-            kind: "upload",
-            ...upload,
-            release,
-          });
-          send({ type: "files.upload", requestId: message.requestId, channel: id, ...upload });
-        } catch (error) {
-          release();
-          throw error;
-        }
-        return;
-      }
-      if (op.op === "upload.commit" || op.op === "upload.cancel") {
-        for (const channel of channels.values())
-          if (
-            channel.kind === "upload" &&
-            channel.uploadId === op.uploadId &&
-            channel.binding.service === binding.service &&
-            channel.busy
-          )
-            throw new FileError("BUSY", "Wait for upload acknowledgement");
-      }
-      const value = await binding.service.request(options.device, op, () =>
-        assert(binding, access),
-      );
-      assert(binding, access);
-      if (op.op === "upload.commit" || op.op === "upload.cancel")
-        for (const [id, channel] of channels)
-          if (
-            channel.kind === "upload" &&
-            channel.uploadId === op.uploadId &&
-            channel.binding.service === binding.service
-          )
-            await stop(id);
-      send({ type: "files.result", requestId: message.requestId, value });
-    } finally {
-      binding.release?.();
-    }
-  };
-  // Serialize control requests. Binary chunks still flow one at a time and never buffer a file.
-  let serial = Promise.resolve();
-  return {
-    accept(input: unknown) {
-      const parsed = FilesClientMessage.safeParse(input);
-      if (!parsed.success || closed) return;
-      const message = parsed.data;
-      const fail = (error: unknown) =>
-        send({
-          type: "files.error",
-          ...("requestId" in message ? { requestId: message.requestId } : {}),
-          ...("channel" in message ? { channel: message.channel } : {}),
-          code: codeOf(error),
-          message: "File operation failed",
-        });
-      // Cleanup is bounded by the admitted openings/channels, not the normal control queue.
-      // Invalidate synchronously so an in-flight resolve cannot subsequently publish a channel.
-      if (message.type === "files.abort") {
-        const opening = openings.get(message.sourceRequestId);
-        if (opening) opening.cancelled = true;
-        for (const [id, channel] of channels)
-          if (channel.requestId === message.sourceRequestId) void stop(id).catch(fail);
-        return;
-      }
-      if (message.type === "files.cancel") {
-        if (closing.has(message.channel)) return;
-        if (!channels.has(message.channel)) {
-          send({ type: "files.cancelled", channel: message.channel });
-          return;
-        }
-        void stop(message.channel)
-          .then(() => send({ type: "files.cancelled", channel: message.channel }))
-          .catch(fail);
-        return;
-      }
-      if (pending >= 8) {
-        fail(new FileError("BUSY", "File request limit"));
-        return;
-      }
-      const opening =
-        message.type === "files.request" &&
-        [
-          "download",
-          "artifact.download",
-          "archive.download",
-          "upload.begin",
-          "upload.resume",
-        ].includes(message.operation.op)
-          ? { cancelled: false }
-          : undefined;
-      if (opening && "requestId" in message) {
-        if (openings.has(message.requestId)) {
-          fail(new FileError("BUSY", "Duplicate opening"));
-          return;
-        }
-        openings.set(message.requestId, opening);
-      }
-      pending++;
-      serial = serial
-        .then(() => handle(message, opening))
-        .catch(fail)
-        .finally(() => {
-          pending--;
-          if (opening && "requestId" in message) openings.delete(message.requestId);
-        });
-    },
-    close() {
-      closed = true;
-      for (const opening of openings.values()) opening.cancelled = true;
-      for (const id of channels.keys()) void stop(id).catch(() => {});
-    },
-  };
-}

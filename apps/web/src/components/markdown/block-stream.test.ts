@@ -1,5 +1,5 @@
 import { Lexer, type Token } from "marked";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { BlockStream, isContent } from "./block-stream.ts";
 import { highlight } from "./highlight.ts";
 import { longAnswer, markdownSamples } from "./markdown-samples.fixture.ts";
@@ -197,4 +197,171 @@ describe("the markdown worker's streams", () => {
       fullParse("Hello\n\nworld"),
     );
   });
+});
+
+test("large unfinished fences and paragraphs retain their full source and settle exactly", () => {
+  for (const text of [
+    "```ts\n" + "const value = 42;\n".repeat(4000) + "```\n\nAfter\n",
+    "[label] " + "words ".repeat(12_000) + "\n\n[label]: https://example.com\n\n",
+  ]) {
+    const pieces = Array.from({ length: Math.ceil(text.length / 127) }, (_, index) =>
+      text.slice(index * 127, (index + 1) * 127),
+    );
+    expect(stream(pieces).settled).toEqual(fullParse(text));
+  }
+});
+
+test("a giant fence closes live without consuming the prose that follows", () => {
+  for (const marker of ["```", "~~~~"]) {
+    const parser = new BlockStream();
+    const body = "const value = 42;\n".repeat(800);
+    parser.push(`${marker}ts\n${body}`, false);
+    // Even a closing marker split between provider deltas must be recognized before final.
+    parser.push(marker.slice(0, 2), false);
+    const closed = parser.push(`${marker.slice(2)}\n`, false);
+    expect([...closed.settled, ...closed.open]).toEqual(
+      fullParse(`${marker}ts\n${body}${marker}\n`),
+    );
+    const after = parser.push("\n## Explanation\nHere is the result.\n", false);
+    expect([...after.settled, ...after.open]).toEqual(
+      fullParse(`${marker}ts\n${body}${marker}\n\n## Explanation\nHere is the result.\n`),
+    );
+  }
+});
+
+test("new paragraphs and headings following giant prose are parsed while streaming", () => {
+  for (const following of [
+    "\n\nNext paragraph.\n",
+    "\n## Explanation\nNext paragraph.\n",
+    "\n\n- One\n- Two\n",
+  ]) {
+    const parser = new BlockStream();
+    const paragraph = "words ".repeat(1800);
+    parser.push(paragraph, false);
+    const after = parser.push(following, false);
+    expect([...after.settled, ...after.open]).toEqual(fullParse(paragraph + following));
+  }
+});
+
+test("code-like content inside a giant fence does not close it prematurely", () => {
+  const parser = new BlockStream();
+  const source = "````ts\n" + "const value = 42;\n".repeat(800);
+  parser.push(source, false);
+  const more = "\n## Heading\n```\n```` trailing text\n    ````\nconst next = 1;\n";
+  const after = parser.push(more, false);
+  expect(after.settled).toEqual([]);
+  expect(after.open).toHaveLength(1);
+  expect(after.open[0]?.type).toBe("code");
+  expect(after.open[0]).toHaveProperty("text", (source + more).slice("````ts\n".length));
+});
+
+test("a giant fence's EOF closing candidate is exact live and remains revisable", () => {
+  const parser = new BlockStream();
+  const body = "const value = 42;\n".repeat(800);
+  const start = "```ts\n" + body;
+  parser.push(start, false);
+  const closed = parser.push("```", false);
+  expect(closed.settled).toEqual([]);
+  expect(closed.open).toEqual(fullParse(start + "```"));
+  const padding = parser.push("   ", false);
+  expect(padding.open).toEqual(fullParse(start + "```   "));
+  const reopened = parser.push("still code\n", false);
+  expect(reopened.settled).toEqual([]);
+  expect(reopened.open).toEqual(fullParse(start + "```   still code\n"));
+  expect(parser.push("```\n\nDone.\n", true).settled).toEqual(
+    fullParse(start + "```   still code\n```\n\nDone.\n"),
+  );
+});
+
+test("an invalid backtick fence opening stays prose while its giant tail streams", () => {
+  const parser = new BlockStream();
+  const start = "```some`thing\n" + "words ".repeat(1800);
+  parser.push(start, false);
+  const next = parser.push("more words", false);
+  expect(next.settled).toEqual([]);
+  expect(next.open[0]?.type).toBe("paragraph");
+  expect(next.open[0]?.raw).toBe(start + "more words");
+  expect(parser.push("", true).settled).toEqual(fullParse(start + "more words"));
+});
+
+test("giant indented fences dedent live across partial lines and settle with exact whitespace", () => {
+  for (const indent of [" ", "  ", "   "]) {
+    const parser = new BlockStream();
+    const start = indent + "```ts\n" + `${indent}const value = 42;\n`.repeat(800) + "tail";
+    parser.push(start, false);
+    let source = start;
+    for (const append of ["\n ", " \t", "next", "\n\t", "value", "\n  ", "  deep", "\n", "plain"]) {
+      source += append;
+      const live = parser.push(append, false);
+      expect(live.settled).toEqual([]);
+      expect(live.open[0]?.raw).toBe(source);
+      const body = live.open[0];
+      const expected = fullParse(source)[0];
+      if (body?.type !== "code" || expected?.type !== "code")
+        throw new Error("Expected an open fenced code block");
+      expect(body.text).toBe(expected.text);
+    }
+    const close = `\n${indent}\`\`\`\n\nDone.\n`;
+    expect(parser.push(close, true).settled).toEqual(fullParse(source + close));
+  }
+});
+
+test("a huge unfinished table stays readable with bounded parser work and settles before following prose", () => {
+  const table =
+    "| Name | Value |\n| --- | --- |\n" + "| repeated item | **value** |\n".repeat(6000);
+  const parser = new BlockStream();
+  let source = "";
+  let examined = 0;
+  const parse = Lexer.prototype.blockTokens;
+  // Count characters reaching the real parser boundary, including its nested calls. This
+  // guards total work rather than a particular caching implementation or wall-clock speed.
+  const probe = vi.spyOn(Lexer.prototype, "blockTokens").mockImplementation(function (
+    this: Lexer,
+    ...args
+  ) {
+    examined += args[0].length;
+    return parse.apply(this, args);
+  });
+  try {
+    for (let at = 0; at < table.length; at += 127) {
+      const append = table.slice(at, at + 127);
+      source += append;
+      const live = parser.push(append, false);
+      expect(live.settled).toEqual([]);
+      expect(live.open[0]?.raw).toBe(source);
+      if (source.length > 8192) {
+        expect(live.open[0]?.type).toBe("paragraph");
+        expect(live.open[0]).toHaveProperty("text", source);
+      }
+    }
+    const following = "\n## Explanation\nThe table is complete.\n";
+    const after = parser.push(following, false);
+    expect(after.settled[0]?.type).toBe("table");
+    expect([...after.settled, ...after.open]).toEqual(fullParse(table + following));
+    expect(examined).toBeLessThan((table.length + following.length) * 16);
+    expect([...after.settled, ...parser.push("", true).settled]).toEqual(
+      fullParse(table + following),
+    );
+  } finally {
+    probe.mockRestore();
+  }
+});
+
+test("giant open paragraphs keep a plain preview through geometric reparses until closing", () => {
+  const parser = new BlockStream();
+  let source = "**bold** and [a link](https://example.com) " + "words ".repeat(1400);
+  for (let index = 0; index < 30; index++) {
+    const append = index === 0 ? source : " more words".repeat(150);
+    if (index) source += append;
+    const live = parser.push(append, false);
+    expect(live.settled).toEqual([]);
+    expect(live.open[0]).toEqual({
+      type: "paragraph",
+      raw: source,
+      text: source,
+      tokens: [{ type: "text", raw: source, text: source }],
+    });
+  }
+  const after = parser.push("\n\nDone.\n", false);
+  expect([...after.settled, ...after.open]).toEqual(fullParse(source + "\n\nDone.\n"));
 });

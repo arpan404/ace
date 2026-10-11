@@ -388,6 +388,7 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
 }
 
 export function recomputeStatuses(state: ThreadState, now: number, events: EventPayload[]): void {
+  state.statusObservedAt = now;
   const resolve = statusResolver(state, now);
   for (const [key, record] of Object.entries(state.agents)) {
     const status = resolve(key);

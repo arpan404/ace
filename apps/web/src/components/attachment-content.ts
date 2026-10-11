@@ -1,5 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import { ThreadId } from "@ace/protocol";
+import { artifactBlob } from "./artifact-loads.ts";
 import type { FileSource } from "./attachment-format.ts";
 
 /*
@@ -50,13 +51,27 @@ export async function readTextPrefix(
     return { text: decode(bytes, truncated), total: source.file.size, truncated };
   }
   if (source.kind === "artifact") {
-    const blob = await readWhole(client, source, "text/plain", signal);
-    return {
-      text: await blob.slice(0, textPreviewBytes).text(),
-      total: blob.size,
-      truncated: blob.size > textPreviewBytes,
-    };
+    const chunks: Uint8Array<ArrayBuffer>[] = [];
+    let total = 0;
+    for await (const chunk of client.downloadFile(
+      {
+        threadId: ThreadId.parse(source.threadId),
+        op: "artifact.download",
+        artifactId: source.artifactId,
+        offset: 0,
+      },
+      { signal },
+    )) {
+      const available = Math.min(chunk.length, textPreviewBytes - total);
+      chunks.push(chunk.slice(0, available));
+      total += available;
+      if (total === textPreviewBytes) break;
+    }
+    const bytes = new Uint8Array(await new Blob(chunks).arrayBuffer());
+    const size = source.bytes || total;
+    return { text: decode(bytes, size > total), total: size, truncated: size > total };
   }
+
   const reply = await client.request(
     {
       type: "context.request",
@@ -93,24 +108,10 @@ export async function readWhole(
   if (source.kind === "file")
     return type && source.file.type !== type ? new Blob([source.file], { type }) : source.file;
   if (source.kind === "artifact") {
-    const chunks: Uint8Array<ArrayBuffer>[] = [];
-    let total = 0;
-    for await (const chunk of client.downloadFile(
-      {
-        threadId: ThreadId.parse(source.threadId),
-        op: "artifact.download",
-        artifactId: source.artifactId,
-        offset: 0,
-      },
-      { signal },
-    )) {
-      total += chunk.length;
-      if (total > 64 * 1024 * 1024)
-        throw new Error("Recording is too large to preview. Save a shorter recording.");
-      chunks.push(chunk.slice());
-    }
-    return new Blob(chunks, { type: type ?? "application/octet-stream" });
+    const blob = await artifactBlob(client, source, signal);
+    return blob.slice(0, blob.size, type ?? "application/octet-stream");
   }
+
   const { bytes, mimeType } = await client.attachmentBytes(
     {
       threadId: source.threadId,
@@ -121,5 +122,9 @@ export async function readWhole(
     },
     { signal },
   );
-  return new Blob([bytes.slice()], { type: type ?? mimeType });
+  const owned =
+    bytes.buffer instanceof ArrayBuffer
+      ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+      : bytes.slice();
+  return new Blob([owned], { type: type ?? mimeType });
 }

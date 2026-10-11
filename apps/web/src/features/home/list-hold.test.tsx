@@ -5,6 +5,9 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
+// The shared sidebar loads on demand in production; these tests start with its body ready.
+await import("./home-sidebar.tsx");
+
 beforeEach(() => localStorage.clear());
 
 type Facts = Parameters<FakeDaemon["apply"]>[1];

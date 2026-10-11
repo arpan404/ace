@@ -3,14 +3,17 @@ import { highlight, type CodeToken } from "./highlight.ts";
 
 /*
  * Whole source files as highlighted lines, for a file viewer with a line-number gutter. Built in
- * the markdown worker (it already highlights code blocks); in place where there is no worker.
+ * a worker; in place where there is no worker.
  */
 
-export interface CodeLines {
-  hash: string;
-  /** One entry per line of the source (a final newline leaves an empty last line). */
-  lines: CodeToken[][];
-}
+/** Plain results reuse the caller's source rather than cloning a second per-line graph. */
+export type CodeLines =
+  | { hash: string; plain: true }
+  | {
+      hash: string;
+      /** One entry per line of the source (a final newline leaves an empty last line). */
+      lines: CodeToken[][];
+    };
 
 /** The key a file's lines are cached under: its language and its text. */
 export function codeHash(code: string, lang: string | undefined): string {
@@ -31,6 +34,7 @@ export function splitLines(tokens: readonly CodeToken[]): CodeToken[][] {
 }
 
 export function codeLinesWeight(doc: CodeLines): number {
+  if ("plain" in doc) return 64;
   return doc.lines.reduce(
     (sum, line) =>
       sum +
@@ -46,11 +50,24 @@ export function codeLinesWeight(doc: CodeLines): number {
   );
 }
 
+const resultLimit = 8 * 1024 * 1024;
 const built = new LruCache<string, CodeLines>({
   maxEntries: 16,
-  maxWeight: 8 * 1024 * 1024,
+  maxWeight: resultLimit,
   weigh: codeLinesWeight,
 });
+
+/** The line arrays and source alone may exceed the result budget before tokenization. */
+function exceedsMinimumWeight(code: string): boolean {
+  let weight = 80 + code.length * 2;
+  if (weight > resultLimit) return true;
+  for (let at = code.indexOf("\n"); at >= 0; at = code.indexOf("\n", at + 1)) {
+    // Each newline replaces two source bytes with a sixteen-byte line entry.
+    weight += 14;
+    if (weight > resultLimit) return true;
+  }
+  return false;
+}
 
 export async function codeLines(
   code: string,
@@ -59,12 +76,20 @@ export async function codeLines(
 ) {
   const cached = built.get(hash);
   if (cached) return cached;
+  if (exceedsMinimumWeight(code)) {
+    const plain: CodeLines = { hash, plain: true };
+    built.set(hash, plain);
+    return plain;
+  }
   const colored = lang
     ? await import("./source-highlight.ts")
         .then((module) => module.sourceHighlight(code, lang))
         .catch(() => undefined)
     : undefined;
-  const doc: CodeLines = { hash, lines: colored ?? splitLines(highlight(code, lang)) };
+  let doc: CodeLines = { hash, lines: colored ?? splitLines(highlight(code, lang)) };
+  // Cache eviction alone cannot bound the worker reply: dense grammars can turn modest
+  // source into a much larger token graph. The caller already owns the exact plain source.
+  if (codeLinesWeight(doc) > resultLimit) doc = { hash, plain: true };
   built.set(hash, doc);
   return doc;
 }

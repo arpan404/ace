@@ -1,6 +1,6 @@
 import { ThreadId } from "@ace/protocol";
 import { devWorld, facts, flakyCheckout, workbench, type Scenario } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -73,11 +73,27 @@ test("a needs-you toast goes once the request is answered", async () => {
   checkout.runThrough("approval-requested");
   await within(toasts()).findByText(request);
 
-  await userEvent.click(within(toasts()).getByRole("button", { name: "Review" }));
-  const card = await screen.findByRole("article", { name: request });
-  await userEvent.click(within(card).getByRole("button", { name: "Allow once" }));
+  // Reviewing the request dismisses its toast before an answer. Keep this page open so
+  // disappearance proves the answer's live state update closes it, as on another device.
+  const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-checkout") });
+  if (!view || !("thread" in view)) throw new Error("Missing checkout thread");
+  const interaction = Object.values(view.interactions).find((entry) => entry.state === "pending");
+  if (!interaction) throw new Error("Missing cleanup approval");
+  await act(async () => {
+    expect(
+      await app.client.command({
+        type: "interaction.resolve",
+        interactionId: interaction.id,
+        resolution: { kind: "approval", optionId: "allow" },
+      }),
+    ).toMatchObject({ ok: true });
+  });
 
   await waitFor(() => expect(within(toasts()).queryByText(request)).toBeNull());
+  expect(app.daemon.resolution("thread-checkout", "approve-clear-cache")).toEqual({
+    kind: "approval",
+    optionId: "allow",
+  });
 });
 
 test("while the window is in the background no toast is raised", async () => {

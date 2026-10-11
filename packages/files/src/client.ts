@@ -1,4 +1,5 @@
 import { decodePortableFileFrame } from "./frame-portable.ts";
+export { decodePortableFileFrame } from "./frame-portable.ts";
 import { FilesServerMessage } from "@ace/protocol";
 import type { ClientMessage, ServerMessage } from "@ace/protocol";
 

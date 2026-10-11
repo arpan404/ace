@@ -1,4 +1,5 @@
 import { AttachmentBytes } from "./attachment-bytes.ts";
+import { attachmentDownload } from "./attachment-download.ts";
 import { prepareFiles } from "./prepare-files.ts";
 import { join } from "node:path";
 import {
@@ -290,6 +291,16 @@ export class ContextService {
     } finally {
       lease.release();
     }
+  }
+  async downloadAttachment(
+    device: string,
+    thread: string,
+    hash: string,
+    maxBytes: number,
+    access: () => boolean,
+  ) {
+    requireContext(access(), "forbidden", "Thread read permission required");
+    return attachmentDownload(await this.uploads.acquire(device, thread, [hash]), maxBytes, access);
   }
   async close(): Promise<void> {
     await this.workspaces.close();

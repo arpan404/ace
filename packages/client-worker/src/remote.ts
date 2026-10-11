@@ -1,4 +1,5 @@
 import {
+  attachmentReadScope,
   fitsUtf8,
   matchesPendingThread,
   pendingSendsEqual,
@@ -413,11 +414,26 @@ export class RemoteClient implements ClientApi {
     if (this.closed || this.current !== "ready") throw new ClientError("offline");
     this.post({ t: "send", message });
   }
-  attachmentBytes(input: AttachmentInput, options: RequestOptions = {}) {
-    // A subpath keeps the validating reader (and zod) out of the page's first paint.
-    return import("@ace/client/attachments").then(({ attachmentBytes }) =>
-      attachmentBytes(this, input, options),
-    );
+  async attachmentBytes(input: AttachmentInput, options: RequestOptions = {}) {
+    const scope = attachmentReadScope(this, options.signal);
+    try {
+      const { attachmentBytes } = await import("@ace/client/attachments");
+      return await attachmentBytes(
+        {
+          request: (request, requestOptions) => this.request(request, requestOptions),
+          attachmentChunks: (attachment, requestOptions) =>
+            this.stream<import("@ace/client/attachments").AttachmentFrame>(
+              "attachment",
+              [attachment, timeout(requestOptions)],
+              requestOptions.signal,
+            ),
+        },
+        input,
+        { ...options, signal: scope.signal },
+      );
+    } finally {
+      scope.close();
+    }
   }
   async *downloadFile(
     input: FileDownloadInput,
@@ -561,6 +577,7 @@ export class RemoteClient implements ClientApi {
     args: unknown[],
     signal?: AbortSignal,
   ): AsyncGenerator<T> {
+    if (signal?.aborted) throw new ClientError("aborted");
     if (this.closed) throw new ClientError("offline");
     const call = ++this.sequence;
     const step = () =>

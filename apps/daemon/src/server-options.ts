@@ -102,6 +102,7 @@ export interface ServerOptions {
   toolchains?: () => Promise<import("@ace/protocol").Toolchain[]>;
   supportFiles?: FilesService;
   context?: {
+    downloadAttachment?: import("@ace/context").ContextService["downloadAttachment"];
     readAttachment?(
       device: string,
       thread: string,

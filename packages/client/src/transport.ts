@@ -1,6 +1,7 @@
 import type { Transport, TransportEvents } from "./types.ts";
 
 export interface SocketLike {
+  binaryType?: string;
   addEventListener(type: "open" | "error", listener: () => void): void;
   addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
   addEventListener(type: "close", listener: (event: { code: number }) => void): void;
@@ -12,10 +13,12 @@ export function webSocketTransport(createSocket: () => SocketLike): Transport {
   let socket: SocketLike | undefined;
   let events: TransportEvents | undefined;
   return {
+    supportsBinary: true,
     open(next) {
       socket?.close();
       events = next;
       const opened = createSocket();
+      opened.binaryType = "arraybuffer";
       socket = opened;
       const current = () => socket === opened && events === next;
       opened.addEventListener("open", () => {
@@ -24,6 +27,11 @@ export function webSocketTransport(createSocket: () => SocketLike): Transport {
       opened.addEventListener("message", (event) => {
         if (!current()) return;
         if (typeof event.data === "string") next.message(event.data);
+        else if (
+          next.binary &&
+          (event.data instanceof ArrayBuffer || event.data instanceof Uint8Array)
+        )
+          next.binary(event.data instanceof Uint8Array ? event.data : new Uint8Array(event.data));
         else {
           next.close(4002);
           opened.close();

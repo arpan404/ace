@@ -206,24 +206,29 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
             )
           )?.value ?? "pause",
         )),
-    onArtifact: (rawThreadId, artifact) => {
+    onArtifact: async (rawThreadId, artifact) => {
       const threadId = ThreadId.parse(rawThreadId);
       const thread = store.getThread(threadId);
-      if (!thread) throw new Error("Recording thread no longer exists");
-      store.appendEvents(threadId, [
-        {
-          type: "item.created",
-          item: {
-            type: "artifact",
-            id: ItemId.parse(id()),
-            ...(thread.rootAgentId ? { agentId: thread.rootAgentId } : {}),
-            createdAt: now(),
-            complete: true,
-            source: "browser",
-            ...artifact,
+      if (!thread || thread.deletedAt !== undefined) return;
+      const files = services.threadFiles;
+      const append = (artifactId?: string) =>
+        store.appendEvents(threadId, [
+          {
+            type: "item.created",
+            item: {
+              type: "artifact",
+              id: ItemId.parse(id()),
+              ...(thread.rootAgentId ? { agentId: thread.rootAgentId } : {}),
+              createdAt: now(),
+              complete: true,
+              source: "browser",
+              ...artifact,
+              ...(artifactId ? { artifactId } : {}),
+            },
           },
-        },
-      ]);
+        ]);
+      if (files) await files.browserArtifacts.publish(threadId, artifact, append);
+      else append();
     },
   });
   resources.own(() => browser.close());

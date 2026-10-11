@@ -67,6 +67,11 @@ export const FileOperation = z.discriminatedUnion("op", [
     after: id.optional(),
     limit: z.number().int().min(1).max(64).default(32),
   }),
+  z.object({
+    op: z.literal("attachment.download"),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    maxBytes: offset.positive().max(32 * 1024 * 1024),
+  }),
 ]);
 export type FileOperation = z.infer<typeof FileOperation>;
 export const FilesClientMessage = z.discriminatedUnion("type", [
@@ -141,6 +146,7 @@ export const FilesServerMessage = z.discriminatedUnion("type", [
     offset,
     size: offset.nullable(),
     validator: FileVersion,
+    mimeType: z.string().max(128).optional(),
   }),
   z.object({
     type: z.literal("files.end"),

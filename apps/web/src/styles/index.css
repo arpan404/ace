@@ -351,8 +351,21 @@
   user-select: none;
 }
 
-/* Confirmations wait behind open popovers, including translucent surfaces. */
-body:has([data-slot="popover-content"][data-open]) [data-slot="toast-viewport"] {
+/*
+ * Confirmations wait behind open popovers, including translucent surfaces. Anchor relational
+ * matching on portal siblings in either order: a body-wide :has also invalidates on every
+ * streamed text mutation. Nested popovers remain inside their outer body's portal root.
+ */
+body
+  > [data-base-ui-portal]:has([data-slot="popover-content"][data-open])
+  [data-slot="toast-viewport"],
+body
+  > [data-base-ui-portal]:has([data-slot="popover-content"][data-open])
+  ~ [data-base-ui-portal]
+  [data-slot="toast-viewport"],
+body
+  > [data-base-ui-portal]:has(~ [data-base-ui-portal] [data-slot="popover-content"][data-open])
+  [data-slot="toast-viewport"] {
   visibility: hidden;
 }
 

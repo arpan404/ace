@@ -31,7 +31,10 @@ export function foldProviderFacts(
 ): ThreadState {
   const id = state.threadId;
   ports.snapshot?.begin();
-  const batch = new FactBatch(state);
+  const batch = new FactBatch(
+    state,
+    ports.snapshot ? { deadline: ports.snapshot.deadline() } : undefined,
+  );
   let continuationStarted = false;
   const events = coalesceFacts(facts).flatMap((input) => {
     if (repo.interactions.obsolete(id, input)) return [];

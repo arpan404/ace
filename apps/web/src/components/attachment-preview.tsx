@@ -222,7 +222,11 @@ function Download(props: { file: PreviewFile }) {
 
 function useWholeUrl(source: FileSource, type: string | undefined): Loaded<string> {
   const client = useClient();
-  const [loaded, setLoaded] = useState<{ source: FileSource; value: Loaded<string> }>();
+  const [loaded, setLoaded] = useState<{
+    client: typeof client;
+    source: FileSource;
+    value: Loaded<string>;
+  }>();
   useEffect(() => {
     const abort = new AbortController();
     let url: string | undefined;
@@ -230,10 +234,10 @@ function useWholeUrl(source: FileSource, type: string | undefined): Loaded<strin
       (blob) => {
         if (abort.signal.aborted) return;
         url = URL.createObjectURL(blob);
-        setLoaded({ source, value: { state: "ready", value: url } });
+        setLoaded({ client, source, value: { state: "ready", value: url } });
       },
       () => {
-        if (!abort.signal.aborted) setLoaded({ source, value: { state: "failed" } });
+        if (!abort.signal.aborted) setLoaded({ client, source, value: { state: "failed" } });
       },
     );
     return () => {
@@ -241,23 +245,27 @@ function useWholeUrl(source: FileSource, type: string | undefined): Loaded<strin
       if (url) URL.revokeObjectURL(url);
     };
   }, [client, source, type]);
-  return loaded?.source === source ? loaded.value : loading;
+  return loaded?.client === client && loaded.source === source ? loaded.value : loading;
 }
 
 function useTextPrefix(source: FileSource): Loaded<TextPrefix> {
   const client = useClient();
-  const [loaded, setLoaded] = useState<{ source: FileSource; value: Loaded<TextPrefix> }>();
+  const [loaded, setLoaded] = useState<{
+    client: typeof client;
+    source: FileSource;
+    value: Loaded<TextPrefix>;
+  }>();
   useEffect(() => {
     const abort = new AbortController();
     readTextPrefix(client, source, abort.signal).then(
       (value) => {
-        if (!abort.signal.aborted) setLoaded({ source, value: { state: "ready", value } });
+        if (!abort.signal.aborted) setLoaded({ client, source, value: { state: "ready", value } });
       },
       () => {
-        if (!abort.signal.aborted) setLoaded({ source, value: { state: "failed" } });
+        if (!abort.signal.aborted) setLoaded({ client, source, value: { state: "failed" } });
       },
     );
     return () => abort.abort();
   }, [client, source]);
-  return loaded?.source === source ? loaded.value : loading;
+  return loaded?.client === client && loaded.source === source ? loaded.value : loading;
 }
