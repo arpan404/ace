@@ -13,6 +13,8 @@ const stateSchema = z.object({
   loseReply: z.boolean(),
   hold: z.boolean(),
   remote: z.json().nullable(),
+  users: z.number(),
+  invalidUser: z.number(),
 });
 /** Only gh is substituted: SQLite, filesystem, Git and command receipts remain real. */
 export async function publicationCli(options: { loseReply?: boolean; hold?: boolean } = {}) {
@@ -27,6 +29,8 @@ export async function publicationCli(options: { loseReply?: boolean; hold?: bool
       loseReply: options.loseReply ?? false,
       hold: options.hold ?? false,
       remote: null,
+      users: 0,
+      invalidUser: 0,
     }),
   );
   await writeFile(join(root, "package.json"), '{"type":"module"}');
@@ -38,7 +42,7 @@ const path=process.env.ACE_PUBLICATION_STATE;
 const state=JSON.parse(readFileSync(path,'utf8'));
 const args=process.argv.slice(2);
 let text=''; for await (const chunk of process.stdin) text+=chunk;
-if(args[0]==='api' && args[1]==='user'){ console.log(JSON.stringify({login:state.account})); }
+if(args[0]==='api' && args[1]==='user'){ state.users++;writeFileSync(path,JSON.stringify(state));console.log(JSON.stringify(state.users===state.invalidUser?{}:{login:state.account})); }
 else {
  const reply=(status,body)=>{console.log('HTTP/2.0 '+status+' status\\r\\n\\r'); console.log(JSON.stringify(body)); if(status>=400) process.exitCode=1;};
  if(args[1]==='user/repos' || args[1]?.startsWith('orgs/')) {

@@ -124,13 +124,28 @@ export class RepositoryPublications {
         try {
           publication.remote = await remote.create(value, signal);
         } catch (error) {
-          if (error instanceof ForgeMutationOutcome) {
-            publication.remote = HostedRepository.parse(error.receipt);
+          if (!(error instanceof ForgeMutationOutcome)) {
+            // The shared transport confirms that no write was dispatched (or HTTP rejected it).
+            // Release the creation reservation and preserve the failure so the form can retry.
+            publication.phase = "prepared";
+            this.save(device, publication);
+            throw error;
+          }
+          const receipt = HostedRepository.safeParse(error.receipt);
+          if (receipt.success) {
+            publication.remote = receipt.data;
             uncertain = error;
           } else {
-            signal.throwIfAborted();
-            check();
-            publication.remote = await remote.find(value.owner, value.name, signal);
+            // The writer has settled before lookup begins; the workspace flight still owns
+            // both reconciliation and receipt cleanup, preventing a concurrent create.
+            try {
+              check();
+              publication.remote = await remote.find(value.owner, value.name, signal);
+              check();
+            } catch {
+              throw error;
+            }
+            if (!publication.remote) throw error;
           }
         }
       } else if (publication.phase === "creating") {

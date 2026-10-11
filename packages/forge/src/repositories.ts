@@ -105,7 +105,12 @@ export class GitHubRepositories {
       private: value.visibility === "private",
       auto_init: false,
     });
-    const repository = hosted(this.host, response.body);
+    let repository: HostedRepository;
+    try {
+      repository = hosted(this.host, response.body);
+    } catch {
+      throw new ForgeMutationOutcome({ dispatched: true });
+    }
     if (response.identityChanged) throw new ForgeMutationOutcome(repository);
     return repository;
   }

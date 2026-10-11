@@ -38,6 +38,7 @@ function RepositoryBrowser(props: {
   const [fork, setFork] = useState<RepositoryListInput["fork"]>("all");
   const [revision, setRevision] = useState(0);
   const status = useQuery({
+    meta: { daemonClient: props.client },
     queryKey: ["projects", "github-readiness", props.machineId, revision],
     queryFn: async ({ signal }) => {
       const reply = await props.client.request(
@@ -64,6 +65,7 @@ function RepositoryBrowser(props: {
     fork,
   });
   const repositories = useQuery({
+    meta: { daemonClient: props.client },
     queryKey: [
       "projects",
       "github-repositories",

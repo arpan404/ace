@@ -279,3 +279,45 @@ test("preferences changed during creation retain the remote receipt and stop loc
     await f.cleanup();
   }
 });
+
+test("a creation preflight failure releases its reservation and a new command can publish", async () => {
+  const f = await setup();
+  try {
+    // Initial admission and exact-name GET precede the create's identity probe.
+    await f.cli.update({ invalidUser: 4 });
+    expect(await f.publish()).toMatchObject({
+      ok: false,
+      error: "forge_invalid_data",
+      publication: { phase: "prepared", remote: null },
+    });
+    expect((await f.cli.state()).creates).toBe(0);
+    expect((await f.git(f.path, ["remote"])).stdout.trim()).toBe("");
+    expect(await f.publish()).toMatchObject({
+      ok: true,
+      publication: { phase: "empty", remote: { id: 1 } },
+    });
+    expect((await f.cli.state()).creates).toBe(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("case-equivalent publication intents resume the saved repository without another creation", async () => {
+  const f = await setup();
+  try {
+    expect(
+      await f.command({
+        type: "workspace.publish",
+        workspaceId: f.id,
+        input: { ...input, owner: "Octo", name: "Engine" },
+      }),
+    ).toMatchObject({ ok: true, publication: { phase: "empty", remote: { id: 1 } } });
+    expect(await f.publish()).toMatchObject({
+      ok: true,
+      publication: { phase: "empty", remote: { id: 1 } },
+    });
+    expect((await f.cli.state()).creates).toBe(1);
+  } finally {
+    await f.cleanup();
+  }
+});

@@ -1,4 +1,4 @@
-import { ForgeError } from "@ace/forge";
+import { ForgeError, repositoryKey } from "@ace/forge";
 import { GitError } from "@ace/git";
 import type {
   HostedRepository,
@@ -6,6 +6,11 @@ import type {
   RepositoryPublishInput,
   WorkspaceId,
 } from "@ace/protocol";
+
+function intentKey(input: RepositoryPublishInput): string {
+  const { host, owner, name, ...options } = input;
+  return JSON.stringify([repositoryKey({ forge: "github", host, owner, name }), options]);
+}
 
 export type PublicationRecord = { device: string; publication: RepositoryPublication };
 /** Only an intent that never dispatched creation can be edited. */
@@ -19,7 +24,7 @@ export function publicationIntent(
   if (previous?.device !== undefined && previous.device !== device)
     throw new Error("publication_intent_mismatch");
   if (previous && previous.publication.phase !== "prepared") {
-    if (JSON.stringify(previous.publication.input) !== JSON.stringify(input))
+    if (intentKey(previous.publication.input) !== intentKey(input))
       throw new Error("publication_intent_mismatch");
     return previous.publication;
   }
@@ -30,9 +35,8 @@ export function publicationRemoteMatches(
   remote: HostedRepository,
 ): boolean {
   return (
-    remote.repository.owner.toLowerCase() === input.owner.toLowerCase() &&
-    remote.repository.name.toLowerCase() === input.name.toLowerCase() &&
-    remote.repository.host === input.host &&
+    repositoryKey(remote.repository) ===
+      repositoryKey({ forge: "github", host: input.host, owner: input.owner, name: input.name }) &&
     remote.visibility === input.visibility &&
     remote.description === input.description &&
     !remote.archived &&
