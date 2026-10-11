@@ -11,11 +11,12 @@ import {
 export { isInlineInteraction } from "@ace/ui-core";
 
 /**
- * The transcript reads like a document: a turn's tool work collapses into one "Worked for" line
+ * The transcript reads like a document: tool work collapses into "Worked for" segments
  * and each narrated launch batch into a subagent card (subagents' own work interleaves with the
  * parent's, so these are per turn, not per run of adjacent items). What the agent says between
  * steps sits inside that log, in order; what it says after its last step is the answer, shown
- * below it. Background tasks, questions and notices show where they happened without opening a
+ * below it. Launch cards separate work segments, and batch narration stays between the cards.
+ * Background tasks, questions and notices show where they happened without opening a
  * second log, and a run the agent starts by itself when its background work finishes carries
  * the same log on. Once a turn's whole tree has settled, one changed-files card follows its
  * last answer, and a turn that failed, was stopped or was paused by a usage limit says so after
@@ -186,6 +187,9 @@ type WorkBlock = Extract<Block, { kind: "work" }>;
 
 /** The person's own words: not a message ace or the provider wrote for them. */
 const isPerson = (item: Item) => item.type === "message" && item.role === "user" && !item.synthetic;
+const isLaunch = (item: Item) =>
+  item.type === "delegation.started" ||
+  (item.type === "tool_call" && item.call.kind === "agent.spawn");
 
 /**
  * Whether turn `next` carries on the stretch before it: the agent started it by itself once its
@@ -242,6 +246,8 @@ function lastWorkOf(
         turn = next;
       }
     }
+    // Look ahead only within the work segment on this side of a launch card.
+    if (isLaunch(item)) stretch++;
     stretchAt[index] = stretch;
     const question =
       anchors.has(id) && item.type === "tool_call" && item.call.detail.kind === "ask_user";
@@ -251,8 +257,8 @@ function lastWorkOf(
 }
 
 /**
- * The transcript's blocks. A stretch of work (one "Worked for" log, one subagent
- * log) is a turn's output until its answer or the person's next message, never across turns:
+ * The transcript's blocks. A work segment ends at a launch card, an answer or the person's
+ * next message. Narration following a launch batch stays in its own transcript block:
  * the agent's words between steps join the log in order, and notices, background tasks,
  * questions, injected messages and other events show inline without ending it. A turn's files
  * card and ending wait until its whole tree has settled (ADR 0062).
@@ -333,6 +339,7 @@ export function buildBlocks(source: BlockSource): Block[] {
         if (batch?.run === item.runId) open = batch;
       }
       if (!open) {
+        close(item.createdAt);
         const itemIds: string[] = [];
         const at = blocks.push({ kind, key: `${kind}:${id}`, itemIds }) - 1;
         open = { run: item.runId, itemIds, at };
@@ -370,6 +377,11 @@ export function buildBlocks(source: BlockSource): Block[] {
     const item = source.item(id);
     if (!item) continue;
     const person = isPerson(item);
+    const launchNarration =
+      item.type === "message" &&
+      item.role === "assistant" &&
+      !item.synthetic &&
+      batches.has(item.agentId ?? "");
     if (person) batches.clear();
     else if (item.type === "message" && !item.synthetic) batches.delete(item.agentId ?? "");
     const known = source.turnOf?.(id);
@@ -408,12 +420,13 @@ export function buildBlocks(source: BlockSource): Block[] {
           else {
             // Said between steps: it reads inside the log, in order. After the last step: the
             // answer, below the log.
-            const between = (lastWork.get(stretchAt[index] ?? -1) ?? -1) > index;
+            const between =
+              !launchNarration && (lastWork.get(stretchAt[index] ?? -1) ?? -1) > index;
             if (between) group("work", id);
             else
               push(
                 { kind: "message", key: id, itemId: id },
-                item.complete ? item.createdAt : false,
+                launchNarration || item.complete ? item.createdAt : false,
                 true,
               );
             // The agent spoke after the error: that error was not how the turn ended.

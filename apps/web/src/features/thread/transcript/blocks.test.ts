@@ -53,6 +53,95 @@ const ended = (state: RunFacts["state"]): RunFacts => ({ state, trigger: "user",
 const shown = (blocks: readonly Block[]) =>
   blocks.map((block) => ("itemId" in block ? block.itemId : `${block.kind}:${block.key}`));
 
+const mcpTool = (id: string, at: number) =>
+  Item.parse({
+    id,
+    agentId: "root",
+    runId: "turn",
+    createdAt: at,
+    complete: true,
+    type: "tool_call",
+    call: {
+      id,
+      agentId: "root",
+      kind: "mcp",
+      title: "Delegate work",
+      detail: { kind: "mcp", server: "ace", tool: "delegate_task" },
+      status: "succeeded",
+      startedAt: at,
+      raw: [],
+    },
+  });
+const delegationLaunch = (id: string, at: number) =>
+  Item.parse({
+    id,
+    agentId: "root",
+    runId: "turn",
+    createdAt: at,
+    complete: false,
+    type: "delegation.started",
+    origin: "ace",
+    childThreadId: `thread-${id}`,
+    provider: "codex",
+    title: id,
+    role: "review",
+    phase: "running",
+    status: { state: "working", agents: 1 },
+    updatedAt: at,
+    generation: 0,
+  });
+
+test.each([true, false])(
+  "MCP batch narration stays between cards and work segments stop at each card (complete=%s)",
+  (complete) => {
+    const items = [
+      mcpTool("mcp-first", 0),
+      delegationLaunch("first", 1),
+      mcpTool("mcp-second", 2),
+      delegationLaunch("second", 3),
+      Item.parse({
+        id: "narration",
+        agentId: "root",
+        runId: "turn",
+        createdAt: 4,
+        complete,
+        type: "message",
+        role: "assistant",
+        parts: [{ type: "text", text: "Starting the next batch" }],
+      }),
+      mcpTool("mcp-third", 5),
+      delegationLaunch("third", 6),
+      mcpTool("later-work", 7),
+    ];
+    const byId = new Map<string, Item>(items.map((item) => [item.id, item]));
+    const blocks = buildBlocks({
+      order: items.map((item) => item.id),
+      item: (id) => byId.get(id),
+      background: new Map(),
+    });
+    expect(shown(blocks)).toEqual([
+      "work:work:mcp-first",
+      "subagents:subagents:first",
+      "work:work:mcp-second",
+      "narration",
+      "work:work:mcp-third",
+      "subagents:subagents:third",
+      "work:work:later-work",
+    ]);
+    const work = blocks.filter((block) => block.kind === "work");
+    expect(work.map((block) => block.itemIds)).toEqual([
+      ["mcp-first"],
+      ["mcp-second"],
+      ["mcp-third"],
+      ["later-work"],
+    ]);
+    expect(work.map((block) => block.until)).toEqual([1, 4, 6, undefined]);
+    expect(
+      blocks.filter((block) => block.kind === "subagents").map((block) => block.itemIds),
+    ).toEqual([["first", "second"], ["third"]]);
+  },
+);
+
 test("delayed canonical launch records deduplicate at the original batch without reopening it", () => {
   const items = [
     Item.parse({

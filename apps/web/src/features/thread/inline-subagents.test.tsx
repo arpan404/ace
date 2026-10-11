@@ -95,8 +95,19 @@ test("MCP batches separated by parent narration have disclosures at separate lau
   await app.open("/t/inline-subagents");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const first = await group(feed, "2 subagents");
+  const message = within(feed).getByText("Starting the next batch.");
   const second = await group(feed, "1 subagent");
-  expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(first.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(message.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // Narration stays outside the collapsible Work segments in both disclosure states.
+  for (const work of within(feed).getAllByRole("button", { name: /^Work/ })) {
+    await userEvent.click(work);
+    expect(within(feed).getAllByText("Starting the next batch.")).toHaveLength(1);
+    expect(first.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(message.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(work);
+    expect(within(feed).getByText("Starting the next batch.")).toBe(message);
+  }
   await userEvent.click(within(first).getByRole("button", { name: "2 subagents" }));
   expect(
     within(first)
