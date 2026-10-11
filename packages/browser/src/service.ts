@@ -210,6 +210,10 @@ export class BrowserService {
         profileDir: profile,
         signal,
         allowed: policies.allowed,
+        popup: (url, target) =>
+          session
+            ? session.popup(url, target)
+            : Promise.reject(new Error("Browser session not ready")),
         initiator: () => session?.initiatingHuman() ?? false,
         navigation: () => session?.navigation(),
         restarted: () => session?.restarted(),

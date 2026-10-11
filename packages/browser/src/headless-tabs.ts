@@ -26,6 +26,11 @@ export class HeadlessTabs {
   private starting = new Map<Page, Promise<Tab>>();
   private sequence = 0;
   private activeId = "";
+  private targetGeneration = 0;
+  private activate(id: string): void {
+    if (this.activeId !== id) this.targetGeneration++;
+    this.activeId = id;
+  }
   private popupKinds = new Map<Page, boolean[]>();
   private controller: "agent" | "human" | "none" = "agent";
   private stopped = false;
@@ -106,13 +111,23 @@ export class HeadlessTabs {
         const kinds = this.popupKinds.get(page) ?? [];
         if (kinds.length < 8) kinds.push(reuse);
         this.popupKinds.set(page, kinds);
-        if (reuse)
+        if (reuse) {
+          const tab = this.tabs.get(id);
+          const generation = this.targetGeneration;
           void this.request
-            .allowed(popup.data.url, { navigation: true, human: this.controller === "human" })
-            .then((allowed) =>
-              allowed ? page.goto(popup.data.url, { waitUntil: "domcontentloaded" }) : undefined,
-            )
+            .popup?.(popup.data.url, {
+              current: () =>
+                !this.stopped &&
+                !page.isClosed() &&
+                this.activeId === id &&
+                this.tabs.get(id) === tab &&
+                this.targetGeneration === generation,
+              navigate: async () => {
+                await page.goto(popup.data.url, { waitUntil: "domcontentloaded" });
+              },
+            })
             .catch(() => {});
+        }
       });
       const viewport = page.viewportSize();
       if (viewport) await sizeHeadlessContents(cdp, viewport.width, viewport.height);
@@ -135,7 +150,7 @@ export class HeadlessTabs {
         throw new Error("Browser closed");
       }
       this.tabs.set(id, tab);
-      if (!this.activeId || (await page.opener())) this.activeId = id;
+      if (!this.activeId || (await page.opener())) this.activate(id);
       page.once("close", () => {
         this.tabs.delete(id);
         this.popupKinds.delete(page);
@@ -144,7 +159,7 @@ export class HeadlessTabs {
         tab.status.close();
         release();
         if (this.activeId === id) {
-          this.activeId = this.tabs.keys().next().value ?? "";
+          this.activate(this.tabs.keys().next().value ?? "");
           if (!this.stopped) this.request.navigation();
         }
         if (!this.stopped && this.tabs.size === 0) this.request.lost("All browser tabs closed");
@@ -258,7 +273,7 @@ export class HeadlessTabs {
   }
   async switch(id: string): Promise<void> {
     if (!this.tabs.has(id)) throw new Error("Browser tab unavailable");
-    this.activeId = id;
+    this.activate(id);
     this.request.navigation();
     this.request.changed?.();
   }
