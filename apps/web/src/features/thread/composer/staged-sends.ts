@@ -10,6 +10,7 @@ import type { KeyValueStorage } from "@ace/ui-core";
 import {
   heldSendStore,
   saveHeldSend,
+  retainHeldSend,
   deleteHeldSend,
   refreshHeldSends,
   holdPageLock,
@@ -106,7 +107,20 @@ export function stage(send: Omit<StagedSend, "owner">, local: Held): boolean {
 function patch(commandId: string, change: Partial<StagedSend>): boolean {
   refreshHeldSends();
   const send = all.get().find((entry) => entry.commandId === commandId);
-  return send ? save({ ...send, ...change }) : false;
+  if (!send) return false;
+  const next = { ...send, ...change };
+  if (save(next)) return true;
+  const failed = {
+    ...next,
+    failed: [
+      change.failed,
+      "This device couldn't save the upload results. Free space, then Retry or Edit.",
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  };
+  retainHeldSend(failed, failed);
+  return false;
 }
 
 /**

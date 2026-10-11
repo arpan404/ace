@@ -141,3 +141,43 @@ test("a staged storage refusal keeps the text and uploading file in the composer
   );
   expect(screen.getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
 });
+
+test("a completion storage refusal exposes Retry and Edit, and Retry sends the already uploaded file", async () => {
+  const backing = memoryKeyValue();
+  let full = false;
+  const storage = {
+    ...backing,
+    get length() {
+      return backing.data.size;
+    },
+    setItem(key: string, value: string) {
+      if (full && key.startsWith("ace.sends.staged")) throw new Error("quota");
+      backing.setItem(key, value);
+    },
+  };
+  const { app, feed, message } = await open(storage);
+  await sendWhileUploading(app, message);
+  expect(await within(feed).findByText("Uploading an image…")).toBeTruthy();
+  full = true;
+  act(() => app.daemon.restoreRequests());
+  const alert = await within(feed).findByRole("alert");
+  expect(within(alert).getByText(/This device couldn't save the upload results/)).toBeTruthy();
+  expect(within(alert).getByRole("button", { name: "Retry" })).toBeTruthy();
+  expect(within(alert).getByRole("button", { name: "Edit" })).toBeTruthy();
+  expect(within(feed).queryByText("Uploading an image…")).toBeNull();
+  expect(delivered(app)).toBeUndefined();
+
+  // A second refusal stays actionable. No new context requests may finish: Retry must reuse
+  // the daemon's completed upload, rather than trying to upload the original File again.
+  app.daemon.holdRequests("context.request");
+  await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+  await screen.findByRole("heading", { name: "It still didn't go" });
+  expect(within(feed).queryByText("Uploading an image…")).toBeNull();
+  expect(within(feed).getByRole("button", { name: "Edit" })).toBeTruthy();
+  full = false;
+  await userEvent.click(within(feed).getByRole("button", { name: "Retry" }));
+  await waitFor(() =>
+    expect(delivered(app)).toMatchObject({ attachments: [{ name: "screen.png" }] }),
+  );
+  expect(within(feed).queryByRole("alert")).toBeNull();
+});

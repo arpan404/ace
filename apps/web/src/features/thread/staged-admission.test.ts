@@ -29,7 +29,16 @@ function harness() {
   return { client, storage };
 }
 import { sendMessage } from "./composer/send-message.ts";
-import { reloadPage, resetStaged, stagedSends, sendWhenUploaded } from "./composer/staged-sends.ts";
+import {
+  reloadPage,
+  resetStaged,
+  stagedSends,
+  sendWhenUploaded,
+  stage,
+  canRetry,
+  retryStaged,
+  interrupted,
+} from "./composer/staged-sends.ts";
 import type { Draft } from "./composer/draft.ts";
 
 beforeEach(() => resetStaged());
@@ -177,5 +186,79 @@ test("two initialized tabs retain both uploads and one tab's removal cannot eras
   first.reloadPage();
   second.reloadPage();
   localStorage.clear();
+  await app.client.close();
+});
+
+async function unavailableUpload(): Promise<never> {
+  throw new Error("The original File is no longer available");
+}
+
+test("completion write failures preserve the durable original and completed hashes for retry", async () => {
+  const app = harness();
+  let full = false;
+  const storage = {
+    getItem: app.storage.getItem,
+    setItem(key: string, value: string) {
+      if (full) throw new Error("quota");
+      app.storage.setItem(key, value);
+    },
+  };
+  const sends = stagedSends(storage);
+  expect(
+    stage(makeStaged("completed", "Keep the completed upload"), { files: [], previews: [] }),
+  ).toBe(true);
+  const original = app.storage.getItem("ace.sends.staged");
+  full = true;
+  expect(
+    await sendWhenUploaded(app.client, "completed", Promise.resolve([{ sha256: "c".repeat(64) }])),
+  ).toBe(false);
+  const failed = sends.get().find((send) => send.commandId === "completed");
+  expect(failed?.failed).toContain("This device couldn't save the upload results");
+  if (!failed) throw new Error("accepted message disappeared");
+  expect(canRetry(failed)).toBe(true);
+  expect(app.storage.getItem("ace.sends.staged")).toBe(original);
+
+  // Completion outcomes remain usable through subsequent refreshes and storage refusals.
+  expect(await retryStaged(app.client, "completed", unavailableUpload)).toBe(false);
+  expect(sends.get().find((send) => send.commandId === "completed")?.failed).toContain(
+    "couldn't save",
+  );
+  full = false;
+  expect(await retryStaged(app.client, "completed", unavailableUpload)).toBe(true);
+  const sent = app.client
+    .pendingSends()
+    .getSnapshot()
+    .find((send) => send.commandId === "completed");
+  expect(sent?.payload.type === "thread.send" && sent.payload.context?.attachments).toEqual([
+    { sha256: "c".repeat(64) },
+  ]);
+  reloadPage();
+  expect(stagedSends(storage).get()).toEqual([]);
+  await app.client.close();
+});
+
+test("closing after a completion write refusal leaves the original message available to edit", async () => {
+  const app = harness();
+  let full = false;
+  const storage = {
+    getItem: app.storage.getItem,
+    setItem(key: string, value: string) {
+      if (full) throw new Error("quota");
+      app.storage.setItem(key, value);
+    },
+  };
+  stagedSends(storage);
+  expect(stage(makeStaged("reload", "Keep this original"), { files: [], previews: [] })).toBe(true);
+  full = true;
+  expect(
+    await sendWhenUploaded(app.client, "reload", Promise.resolve([{ error: "disconnected" }])),
+  ).toBe(false);
+  expect(stagedSends(storage).get()[0]?.failed).toContain("disconnected");
+  reloadPage();
+  const retained = stagedSends(storage).get()[0];
+  expect(retained?.text).toBe("Keep this original");
+  if (!retained) throw new Error("accepted message disappeared");
+  expect(canRetry(retained)).toBe(false);
+  expect(interrupted(retained)).toContain("The page closed before notes.txt finished uploading");
   await app.client.close();
 });

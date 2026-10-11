@@ -21,6 +21,9 @@ const RawEntries = z.array(z.unknown());
 const all = new Observable<readonly HeldRecord[]>([]);
 let storage: KeyValueStorage | undefined;
 let loaded = false;
+// Settled uploads that storage refused still belong to this live page. The durable original
+// remains untouched; refreshes retain this overlay only while its original owner still holds it.
+const retained = new Map<string, { owner: string; record: HeldRecord }>();
 
 export let pageId: string = crypto.randomUUID();
 const ownerLock = (owner: string) => `ace-staged-${owner}`;
@@ -47,8 +50,26 @@ function read(): readonly HeldRecord[] {
   for (const entry of entries(values)) records.set(entry.commandId, entry);
   return [...records.values()];
 }
+function view(): readonly HeldRecord[] {
+  const durable = read();
+  const owners = new Map(durable.map((record) => [record.commandId, record.owner]));
+  for (const [id, local] of retained) if (owners.get(id) !== local.owner) retained.delete(id);
+  return durable.map((record) => retained.get(record.commandId)?.record ?? record);
+}
+
+/** Expose an actionable local failure without replacing the accepted durable original. */
+export function retainHeldSend(value: Metadata, settled: unknown): void {
+  const original = read().find((record) => record.commandId === value.commandId);
+  if (!original) return;
+  retained.set(value.commandId, {
+    owner: original.owner,
+    record: { ...value, value: settled },
+  });
+  all.set(view());
+}
+
 function changed(event: StorageEvent): void {
-  if (event.key === null || event.key === key || event.key.startsWith(prefix)) all.set(read());
+  if (event.key === null || event.key === key || event.key.startsWith(prefix)) all.set(view());
 }
 
 /** The one persisted hold store, shared by recovery metadata and deferred payload readers. */
@@ -56,7 +77,7 @@ export function heldSendStore(store: KeyValueStorage | undefined): typeof all {
   if (!loaded) {
     loaded = true;
     storage = store;
-    all.seed(read());
+    all.seed(view());
     if (typeof addEventListener === "function") addEventListener("storage", changed);
   }
   return all;
@@ -64,7 +85,7 @@ export function heldSendStore(store: KeyValueStorage | undefined): typeof all {
 
 /** Read durable ownership before a mutation, without relying on asynchronous storage events. */
 export function refreshHeldSends(): void {
-  all.set(read());
+  all.set(view());
 }
 
 function migrate(): void {
@@ -97,7 +118,8 @@ export function saveHeldSend(value: Metadata, persisted: unknown): boolean {
           persisted,
         ]),
       );
-    all.set(read());
+    retained.delete(value.commandId);
+    all.set(view());
     return true;
   } catch {
     return false;
@@ -122,7 +144,8 @@ export function deleteHeldSend(commandId: string): boolean {
         ),
       );
     }
-    all.set(read());
+    retained.delete(commandId);
+    all.set(view());
     return true;
   } catch {
     return false;
@@ -151,6 +174,7 @@ export function reloadHeldStore(): void {
   if (typeof removeEventListener === "function") removeEventListener("storage", changed);
   storage = undefined;
   loaded = false;
+  retained.clear();
   all.seed([]);
   holdingLock = false;
   pageId = crypto.randomUUID();
