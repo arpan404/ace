@@ -14,9 +14,10 @@ import { scriptFrames, start, end } from "./test-support.ts";
 
 afterEach(cleanupRecovery);
 
-test.each(["manual", "stopped"] as const)(
+test.each(["manual", "stopped", "stopped-after-resend"] as const)(
   "resending an uncertain continuation preserves a later %s hold until explicit Resume",
-  async (reason) => {
+  async (hold) => {
+    const reason = hold === "manual" ? "manual" : "stopped";
     const frames = scriptFrames();
     const h = await fixture(
       [
@@ -58,6 +59,14 @@ test.each(["manual", "stopped"] as const)(
     );
     expect(resume(h, h.engine, id).ok).toBe(true);
     await h.engine.flush();
+    const resend = () => h.command({
+      type: "queue.resend",
+      threadId: id,
+      messageId: CommandId.parse("recovery-command"),
+      expectedRevision: h.engine.queue(id).revision,
+    });
+    // Both receipts commit before any microtask can claim the replacement.
+    if (hold === "stopped-after-resend") expect(resend().ok).toBe(true);
     expect(
       h.command(
         reason === "manual"
@@ -66,14 +75,7 @@ test.each(["manual", "stopped"] as const)(
       ).ok,
     ).toBe(true);
     await h.engine.flush();
-    expect(
-      h.command({
-        type: "queue.resend",
-        threadId: id,
-        messageId: CommandId.parse("recovery-command"),
-        expectedRevision: h.engine.queue(id).revision,
-      }).ok,
-    ).toBe(true);
+    if (hold !== "stopped-after-resend") expect(resend().ok).toBe(true);
     await h.engine.flush();
     expect(h.engine.queue(id)).toMatchObject({ paused: true, reason, pendingCount: 1 });
     expect(sends(replacement).map((command) => command.input)).toEqual([text("continue")]);
