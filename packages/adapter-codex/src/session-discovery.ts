@@ -1,4 +1,5 @@
-import { hydrateControls, parentOf } from "./session-state.ts";
+import { hydrateControls, parentOf, recoveryUncertain, type ReadObservation } from "./session-state.ts";
+import { RecentSet } from "./retention.ts";
 import { rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
 import { obj, str, list } from "./native.ts";
 /** Discovery is an I/O shell around native history and revision-fenced controls. */
@@ -35,6 +36,8 @@ export function sessionDiscovery(config: {
   } = config;
   const recovering = new Set<string>();
   const reads = new Map<string, Promise<void>>();
+  const observations = new Map<string, ReadObservation>();
+  const dependencies = new Map<string, string>();
   const queueCounts = new Map<string, number>();
   let unknownRecoveries = 0;
   function scheduleRecovery(threadId: string): void {
@@ -73,16 +76,24 @@ export function sessionDiscovery(config: {
     const pending = reads.get(threadId);
     if (pending) return pending;
     reading.add(threadId);
-    const read = readSnapshot(threadId, new Set(ancestors).add(threadId));
+    const observed = { completed: new RecentSet() };
+    observations.set(threadId, observed);
+    const read = readSnapshot(threadId, new Set(ancestors).add(threadId), observed);
     reads.set(threadId, read);
     const release = () => {
       reads.delete(threadId);
       reading.delete(threadId);
+      observations.delete(threadId);
+      dependencies.delete(threadId);
     };
     void read.then(release, release);
     return read;
   }
-  async function readSnapshot(threadId: string, ancestors: Set<string>): Promise<void> {
+  async function readSnapshot(
+    threadId: string,
+    ancestors: Set<string>,
+    observed: ReadObservation,
+  ): Promise<void> {
     // This evidence belongs to this request, including while ancestry is being loaded.
     const revision = revisions.get(threadId) ?? 0;
     const result = obj(await request("thread/read", { threadId, includeTurns: true }));
@@ -90,24 +101,39 @@ export function sessionDiscovery(config: {
     if (str(thread["id"]) !== threadId)
       throw new Error("Codex thread read returned a different id");
     const parent = parentOf(thread);
-    if (parent && !known.has(parent)) await readThread(parent, ancestors);
+    if (parent && !known.has(parent)) {
+      dependencies.set(threadId, parent);
+      const seen = new Set(ancestors);
+      for (let next = parent; next; next = dependencies.get(next) ?? "") {
+        if (seen.has(next)) throw new Error("Cyclic Codex thread ancestry");
+        seen.add(next);
+      }
+      await readThread(parent, ancestors);
+    }
     if (threadId !== config.getRoot() && (!parent || !known.has(parent))) {
       revisions.delete(threadId);
       return;
     }
     if (!Array.isArray(thread["turns"])) throw new Error("Codex read omitted turn history");
     known.add(threadId);
-    recovered.add(threadId);
-    timers.get(threadId)?.();
-    timers.delete(threadId);
     if (parent) parents.set(threadId, parent);
     const current = revisions.get(threadId) ?? 0;
+    const evidence = { read: revision, current };
+    const uncertain = recoveryUncertain(thread, evidence, observed);
+    if (uncertain) {
+      recovered.delete(threadId);
+      scheduleRecovery(threadId);
+    } else {
+      recovered.add(threadId);
+      timers.get(threadId)?.();
+      timers.delete(threadId);
+    }
     if (revision === current) hydrateControls(thread, active, shells);
     rememberHistoricalQuestions(thread, seenQuestions);
     emit("note", {
       event: "thread-discovered",
       thread,
-      revision: { read: revision, current },
+      revision: { ...evidence, uncertain },
     });
   }
   async function refreshQueue(threadId: string): Promise<void> {
@@ -149,5 +175,11 @@ export function sessionDiscovery(config: {
         );
     }
   }
-  return { scheduleRecovery, reconcileLoaded, refreshQueue };
+  function observeRecovery(thread: string, method: string, turn: string): void {
+    const observed = observations.get(thread);
+    if (!observed || !turn) return;
+    if (method === "turn/started") observed.started = turn;
+    if (method === "turn/completed") observed.completed.add(turn);
+  }
+  return { scheduleRecovery, reconcileLoaded, refreshQueue, observeRecovery };
 }

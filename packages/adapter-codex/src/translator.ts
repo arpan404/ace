@@ -17,6 +17,7 @@ import { z } from "zod";
 const recoveryRevision = z.object({
   read: z.number().int().nonnegative(),
   current: z.number().int().nonnegative(),
+  uncertain: z.boolean().optional(),
 });
 
 export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {

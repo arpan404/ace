@@ -748,6 +748,20 @@ for await (const line of createInterface({ input: process.stdin })) {
     }
     respond({ data: active.has("hidden") ? ["native", "hidden"] : ["native"], nextCursor: null });
   } else if (method === "thread/read") {
+    if (
+      process.env["ACE_FAKE_RESUME"] === "read-after-observed-item" &&
+      p["threadId"] === "hidden"
+    ) {
+      if (!discoveryFailed) {
+        discoveryFailed = true;
+        item("hidden", "hidden-turn", { id: "mid-turn", type: "agentMessage", text: "Still working" });
+      }
+      respond({ thread: {
+        id: "hidden", parentThreadId: "native", status: { type: "active" },
+        turns: [{ id: "hidden-turn", status: "inProgress", items: [] }],
+      } });
+      continue;
+    }
     if (process.env["ACE_FAKE_RESUME"] === "overlap-reads" && p["threadId"] === "hidden") {
       if (heldRead === undefined) {
         heldRead = id;

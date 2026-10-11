@@ -77,15 +77,19 @@ export function createAgentRegistry(config: {
     // Known threads receive frames directly; repeated metadata cannot imply newly lost history.
     const retained = wasKnown ? { frames: [], lost: false } : config.takeBuffer(id);
     const buffered = retained.frames;
+    if (Array.isArray(p["turns"])) agent.recoveryUncertain = revision?.uncertain === true;
     if (retained.lost) agent.bufferLost = true;
-    if (agent.bufferLost && !Array.isArray(p["turns"]) && !agent.unknownTask) {
+    if (
+      ((agent.bufferLost && !Array.isArray(p["turns"])) || agent.recoveryUncertain) &&
+      !agent.unknownTask
+    ) {
       agent.unknownTask = true;
       facts.push({
         type: "background.started",
         agent: config.rootKey,
         task: `unknown:${id}`,
         kind: "other",
-        title: "Recovering a truncated Codex thread",
+        title: "Recovering uncertain Codex child work",
         stoppable: false,
       });
     }
@@ -155,7 +159,11 @@ export function createAgentRegistry(config: {
     }
     if (!agent.bufferLost || !Array.isArray(p["turns"]))
       for (const frame of buffered) facts.push(...config.replay(frame, now));
-    if (agent.unknownTask && (!agent.bufferLost || Array.isArray(p["turns"]))) {
+    if (
+      agent.unknownTask &&
+      !agent.recoveryUncertain &&
+      (!agent.bufferLost || Array.isArray(p["turns"]))
+    ) {
       facts.push({ type: "background.ended", task: `unknown:${id}`, status: "completed" });
       delete agent.unknownTask;
       delete agent.bufferLost;

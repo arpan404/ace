@@ -147,6 +147,7 @@ export async function openCodexSession(
       )
         controlRequests.set(m["id"], { method, thread, mode: submittedMode });
       if (dir === "recv") {
+        observeRecovery(thread, method, str(obj(p["turn"])["id"]));
         const control = method ? undefined : controlRequests.get(m["id"]);
         if (!method) controlRequests.delete(m["id"]);
         const result = obj(m["result"]);
@@ -262,7 +263,7 @@ export async function openCodexSession(
   });
   const request = (method: string, params: unknown, interactive = false) =>
     rpc.request(method, params, { timeoutMs: interactive ? null : 30_000, signal: ctx.signal });
-  const { scheduleRecovery, reconcileLoaded, refreshQueue } = sessionDiscovery({
+  const { scheduleRecovery, reconcileLoaded, refreshQueue, observeRecovery } = sessionDiscovery({
     request,
     emit,
     diagnostic,
