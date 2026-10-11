@@ -7,6 +7,7 @@ const Intent = z.object({
   command: Command,
   state: z.enum(["saving", "pending", "acked", "failed"]),
   error: z.string().optional(),
+  result: CommandResult.optional(),
   delivered: z.boolean().optional(),
   acknowledged: z.boolean().optional(),
   threadId: z.string().optional(),
@@ -193,6 +194,7 @@ export class Intents {
         ...previous,
         state: result.ok ? "acked" : "failed",
         error: result.error,
+        result,
         threadId: result.threadId,
       };
       this.#put(result.commandId, next);

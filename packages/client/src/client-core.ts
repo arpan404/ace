@@ -503,11 +503,16 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       );
     if (this.closed) return Promise.reject(new ClientError("offline"));
     return this.requests.waitDurable(id, CommandResult.parse, options, () => {
-      void this.enqueue(payload, id).catch((error: unknown) =>
-        this.requests.reject(
-          id,
-          error instanceof ClientError ? error : new ClientError("protocol"),
-        ),
+      void this.enqueue(payload, id).then(
+        () => {
+          const result = this.#intents.get(id)?.result;
+          if (result) this.requests.resolve(id, result);
+        },
+        (error: unknown) =>
+          this.requests.reject(
+            id,
+            error instanceof ClientError ? error : new ClientError("protocol"),
+          ),
       );
     });
   }
