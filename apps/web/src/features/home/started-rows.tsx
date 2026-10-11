@@ -9,6 +9,7 @@ import { useLayout } from "@/lib/layout.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { providerNames } from "@ace/ui-core";
 import { useProjectName } from "@/lib/projects.ts";
+import { Dot } from "@/components/ui/dot.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { startedTitle } from "@/features/thread/index.ts";
@@ -88,21 +89,20 @@ function StartedRow(props: { send: PendingSend }) {
         aria-label={`${titleOf(send)}. ${label}, ${provider}, Project ${project}`}
         className={cn(
           // The thread rows' shape, so the row doesn't jump when the daemon's row replaces it.
-          "flex h-20 compact:h-18 w-full flex-col justify-center items-stretch gap-1 compact:gap-0.5 rounded-md px-2 text-ui text-sidebar-foreground outline-none transition-[background-color,opacity] duration-(--dur-1) focus-ring-inset hover:bg-sidebar-accent",
+          "flex h-8 pointer-coarse:h-11 w-full items-center gap-1.5 rounded-md px-2 text-ui text-sidebar-foreground outline-none transition-[background-color,opacity] duration-(--dur-1) focus-ring-inset hover:bg-sidebar-accent",
           "data-[status=active]:bg-foreground/8",
           !accepted && !failed && "opacity-60",
         )}
       >
-        <span className="flex items-center justify-between gap-2 text-xs">
-          <span className="truncate text-muted-foreground">{project}</span>
-          <StatusLabel
-            tone={failed ? "failed" : "working"}
-            label={label}
-            mark={failed ? undefined : <Spinner />}
-          />
+        <span aria-hidden className="grid w-3 shrink-0 place-items-center">
+          {failed ? <Dot tone="failed" /> : <Spinner className="text-muted-foreground" />}
         </span>
-        <span className="truncate">{titleOf(send)}</span>
-        <span className="text-xs text-subtle-foreground">{provider}</span>
+        <span className="min-w-0 flex-1 truncate leading-4">{titleOf(send)}</span>
+        {failed ? (
+          <StatusLabel tone="failed" label={label} mark={false} />
+        ) : (
+          <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
+        )}
       </Link>
     </li>
   );

@@ -76,20 +76,26 @@ export function AccountBadge(props: {
   decorative?: boolean | undefined;
   tooltip?: boolean | undefined;
   focusable?: boolean | undefined;
+  /** Colour is retained only in the account colour editor. */
+  colorPreview?: boolean | undefined;
 }) {
   const { account } = props;
   const mark = (
     <span
       className={cn(
-        "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-2xs font-semibold",
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground/8 text-2xs font-medium text-muted-foreground",
         props.focusable && "focus-ring",
         props.className,
       )}
       tabIndex={props.focusable ? 0 : undefined}
-      style={{
-        background: accountColors[account.badgeColor ?? "neutral"],
-        color: "var(--background)",
-      }}
+      style={
+        props.colorPreview
+          ? {
+              background: accountColors[account.badgeColor ?? "neutral"],
+              color: "var(--background)",
+            }
+          : undefined
+      }
       {...(props.decorative
         ? { "aria-hidden": true }
         : { role: "img", "aria-label": `${account.label} account` })}

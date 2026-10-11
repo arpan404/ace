@@ -191,7 +191,7 @@ export class FakeForgeWire {
         ],
       });
     }
-    return { ok: true, pr: status.ref, prStatus: this.status(id) ?? undefined };
+    return { ok: true, pr: status.ref, prStatus: this.links.get(linkKey(id, status.ref)) };
   }
 }
 

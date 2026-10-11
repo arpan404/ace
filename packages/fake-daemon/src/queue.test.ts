@@ -105,3 +105,43 @@ test("a usage limit holds the queue until resumed, and a timed resume needs a kn
     await f.client.close();
   }
 });
+
+test("cursor pages require the current queue revision and preserve the remaining messages", async () => {
+  const f = await busyThread();
+  try {
+    await f.send("first", "q1");
+    await f.send("second", "q2");
+    const first = await f.client.request({ type: "queue.get", threadId, limit: 1 });
+    const after = CommandId.parse("q1");
+    await expect(f.client.request({ type: "queue.get", threadId, after })).rejects.toMatchObject({
+      code: "queue_revision_required",
+    });
+    await f.send("third", "q3");
+    await expect(
+      f.client.request({
+        type: "queue.get",
+        threadId,
+        after,
+        expectedRevision: first.queue.revision,
+      }),
+    ).rejects.toMatchObject({ code: "queue_conflict" });
+    const current = await f.queue();
+    const tail = await f.client.request({
+      type: "queue.get",
+      threadId,
+      after,
+      expectedRevision: current.revision,
+    });
+    expect(tail.queue.messages.map((message) => message.id)).toEqual(["q2", "q3"]);
+    await expect(
+      f.client.request({
+        type: "queue.get",
+        threadId,
+        after: CommandId.parse("missing"),
+        expectedRevision: current.revision,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_queue_cursor" });
+  } finally {
+    await f.client.close();
+  }
+});

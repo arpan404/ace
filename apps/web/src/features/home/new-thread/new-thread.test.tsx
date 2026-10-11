@@ -460,7 +460,7 @@ test("the speed toggle starts the thread on the model's faster tier", async () =
   expect(created?.live?.options).toMatchObject({ serviceTier: "priority" });
 });
 
-test("reset puts effort and speed back to the model's defaults", async () => {
+test("effort reset keeps Fast selected until it is explicitly switched off", async () => {
   const made = app();
   await made.open("/new?project=relay");
   await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
@@ -470,10 +470,17 @@ test("reset puts effort and speed back to the model's defaults", async () => {
   ).toBe("true");
   await chooseEffort(popover, "{End}");
   await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
-  await userEvent.click(within(popover).getByRole("button", { name: "Reset effort and speed" }));
+  expect(
+    within(popover)
+      .getAllByRole("button", { name: /^Reset/ })
+      .map((button) => button.getAttribute("aria-label")),
+  ).toEqual(["Reset effort"]);
+  await userEvent.click(within(popover).getByRole("button", { name: "Reset effort" }));
   expect(
     within(popover).getByRole("slider", { name: "Effort" }).getAttribute("aria-valuetext"),
   ).toBe("Medium");
+  expect(within(popover).getByRole("button", { name: "Fast mode" }).ariaPressed).toBe("true");
+  await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
   expect(within(popover).getByRole("button", { name: "Fast mode" }).ariaPressed).toBe("false");
   await closeModelControl();
 

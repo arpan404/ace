@@ -32,7 +32,7 @@ import {
 } from "../deferred.ts";
 import { BlockView } from "../items/block-view.tsx";
 import { JumpedItem } from "../items/jumped-item.ts";
-import { DeferredLocalSends, DeferredQueuedMessages } from "../composer/deferred-parts.tsx";
+import { DeferredLocalSends } from "../composer/deferred-parts.tsx";
 import { useLocalSendsView } from "../composer/send-store.ts";
 import { readingColumn } from "../lib/column.ts";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
@@ -598,13 +598,7 @@ export function Feed(props: FeedProps) {
                 activity={liveBlock || activity?.tone === "paused" ? undefined : activity}
               />
             )}
-            <div ref={dock} className="mt-4 empty:hidden">
-              {!detached && (
-                <Suspense fallback={null}>
-                  <DeferredQueuedMessages.Component threadId={threadId} />
-                </Suspense>
-              )}
-            </div>
+            <div ref={dock} className="mt-4 empty:hidden" />
             {!detached && (
               <Suspense fallback={null}>
                 <DeferredLocalSends.Component threadId={threadId} />
