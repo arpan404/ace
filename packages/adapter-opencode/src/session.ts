@@ -98,7 +98,12 @@ export class OpenCodeSession implements ProviderSession {
       ownership: this.ownership,
       directory: () => this.ownership.sessions.get(this.ownership.root)?.directory ?? this.ctx.cwd,
       info: (info) => this.emit("recv", "snapshot.info", { info }),
-      receive: (data) => this.receive(data),
+      receive: (data, watermark) => {
+        if (!this.recovering || !this.evidence.covered(data, watermark)) this.receive(data);
+      },
+      buffered: (data, watermark) => {
+        if (this.recovering) this.evidence.observe(data, watermark);
+      },
       pending: (id, data) => this.emit("note", "lifecycle", { type: "ancestry.pending", id, data }),
       settled: (id) => this.emit("note", "lifecycle", { type: "ancestry.settled", id }),
       failed: (data) => {
@@ -126,13 +131,14 @@ export class OpenCodeSession implements ProviderSession {
     const s = new OpenCodeSession(ctx, server);
     s.unsubscribe = server.subscribe({
       ...(ctx.outputFlow ? { outputFlow: ctx.outputFlow } : {}),
-      accepts: (data) => s.owns(data),
+      accepts: (data, watermark) => s.owns(data, watermark),
       receive: (data) => s.receive(data),
       buffered: (data, watermark) => s.evidence.observe(data, watermark),
       frame: s.emit,
       disconnected: (started) => {
         s.recovering = true;
         s.evidence.reset();
+        s.ancestry.observePending((data, watermark) => s.evidence.observe(data, watermark));
         s.recoveryStarted = started;
         s.emit("note", "lifecycle", { type: "disconnected" });
       },
@@ -141,12 +147,12 @@ export class OpenCodeSession implements ProviderSession {
       },
       prepareReplay: () => {
         for (const snap of s.evidence.positive()) s.emit("recv", snap.channel, snap.data);
+        s.ancestry.reconciled();
       },
       close: () => s.close("shutdown"),
       resync: () => s.resync(),
       finalizeSnapshots: () => s.finalizeSnapshots(),
       recovered: () => {
-        s.ancestry.reconciled();
         s.recovering = false;
         s.evidence.reset();
         s.emit("note", "lifecycle", { type: "resynced" });
@@ -249,7 +255,7 @@ export class OpenCodeSession implements ProviderSession {
     this.translator.translate(frame, t);
     this.ctx.onFrame(frame);
   };
-  private owns(data: unknown): boolean {
+  private owns(data: unknown, watermark = this.server.eventWatermark): boolean {
     if (this.closed) return false;
     if (this.opening) {
       const directory = string(object(object(data).location).directory);
@@ -269,7 +275,7 @@ export class OpenCodeSession implements ProviderSession {
     )
       return false;
     const accepted = this.ownership.accept(data);
-    if (!accepted) this.ancestry.prove(data);
+    if (!accepted) this.ancestry.prove(data, watermark);
     if (accepted && object(data).type === "session.moved") {
       const id = eventSession(data);
       // Refetch a known ID before changing its stored location or accepting new-project frames.

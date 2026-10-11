@@ -29,6 +29,9 @@ it("failed child verification recovers and replays the observed interaction", as
         location: { directory: "/one" },
       },
     ],
+    permissions: [
+      { sessionID: "recovery-child", id: "recovery-ask", action: "edit", resources: ["x"] },
+    ],
   });
   const recovered = h.recovered();
   await h.control("/test/events", [

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { coveredPrefix } from "./text-coverage.ts";
-import { NativeEvent } from "./boundaries.ts";
+import { NativeEvent, eventSession } from "./boundaries.ts";
 import { array, object, string, number } from "./data.ts";
 
 type Snapshot = { channel: string; data: unknown; session: string; started: number };
@@ -99,6 +99,25 @@ export class RecoveryEvidence {
   covered(value: unknown, watermark: number): boolean {
     const e = NativeEvent.parse(value),
       p = e.data;
+    if (["permission.asked", "form.created", "session.execution.started"].includes(e.type)) {
+      const session = eventSession(e);
+      return this.snapshots.some((snap) => {
+        if (snap.session !== session || watermark > snap.started) return false;
+        if (e.type === "session.execution.started") {
+          const idleAt = object(snap.data).idleAt;
+          return (
+            snap.channel === "snapshot.active" &&
+            object(snap.data).running === false &&
+            typeof idleAt === "number" &&
+            (typeof e.created !== "number" || idleAt >= e.created)
+          );
+        }
+        if (snap.channel !== "snapshot.interactions") return false;
+        const interaction = e.type === "form.created" ? object(p.form) : p;
+        const key = `${e.type === "form.created" ? "form" : "permission"}:${session}:${string(interaction.id)}`;
+        return !this.interactionKeys(snap.data).has(key);
+      });
+    }
     if (e.type !== "session.text.delta" && e.type !== "session.reasoning.delta") return false;
     const key = this.key(
       e.type.includes("reasoning") ? "reasoning" : "text",
