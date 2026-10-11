@@ -167,13 +167,18 @@ export async function sendDrafts(
   patch(store, sending, ({ error: _error, ...draft }) => ({ ...draft, state: "sending" }));
   try {
     const { sessionId, commentIds } = await record(client, store, thread, drafts);
-    await review(client, {
-      type: "review.sendToAgent",
-      sessionId,
-      threadId: thread.id,
-      commentIds,
-    });
-    patch(store, sending, (draft) => ({ ...draft, state: "sent", anchor: "active" }));
+    // The public review command admits at most twenty comments per queued turn.
+    for (let offset = 0; offset < commentIds.length; offset += 20) {
+      await review(client, {
+        type: "review.sendToAgent",
+        sessionId,
+        threadId: thread.id,
+        commentIds: commentIds.slice(offset, offset + 20),
+      });
+      const delivered = new Set(drafts.slice(offset, offset + 20).map((draft) => draft.key));
+      patch(store, delivered, (draft) => ({ ...draft, state: "sent", anchor: "active" }));
+      for (const key of delivered) sending.delete(key);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : actionErrorText(undefined);
     patch(store, sending, (draft) => ({ ...draft, state: "failed", error: message }));

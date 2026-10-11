@@ -176,3 +176,73 @@ test("retrying an admitted review comment reuses its session without duplicating
     await f.client.close();
   }
 });
+
+test.each([1, 20, 21])("sending %i comments delivers each recorded comment once", async (count) => {
+  const f = await fixture();
+  try {
+    const thread = {
+      id: ThreadId.parse("thread-cold-start"),
+      workspaceId: WorkspaceId.parse("ace"),
+    };
+    const store = new LocalStore<readonly ReviewDraft[]>([]);
+    for (let line = 1; line <= count; line++)
+      saveDraft(store, {
+        threadId: thread.id,
+        file: "apps/server/src/replay.ts",
+        side: "new",
+        line,
+        text: `Finding ${line}`,
+        createdAt: line,
+      });
+    await sendDrafts(
+      f.client,
+      store,
+      thread,
+      store.get().map((draft) => draft.key),
+    );
+    expect(store.get().every((draft) => draft.state === "sent")).toBe(true);
+    expect(f.daemon.review.comments()).toHaveLength(count);
+    expect(f.daemon.review.comments().every((comment) => comment.sent)).toBe(true);
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("a failed delivery batch retries only pending comments without recording duplicates", async () => {
+  const f = await fixture();
+  try {
+    const thread = {
+      id: ThreadId.parse("thread-cold-start"),
+      workspaceId: WorkspaceId.parse("ace"),
+    };
+    const store = new LocalStore<readonly ReviewDraft[]>([]);
+    for (let line = 1; line <= 21; line++)
+      saveDraft(store, {
+        threadId: thread.id,
+        file: "apps/server/src/replay.ts",
+        side: "new",
+        line,
+        text: `Finding ${line}`,
+        createdAt: line,
+      });
+    const stop = store.subscribe(() => {
+      if (store.get().filter((draft) => draft.state === "sent").length === 20)
+        f.daemon.refuseCommands("review_queue_rejected", "review.sendToAgent");
+    });
+    const keys = store.get().map((draft) => draft.key);
+    await sendDrafts(f.client, store, thread, keys);
+    stop();
+    expect(store.get().filter((draft) => draft.state === "sent")).toHaveLength(20);
+    expect(store.get().filter((draft) => draft.state === "failed")).toHaveLength(1);
+    const comments = f.daemon.review.comments();
+    f.daemon.restoreRequests();
+    await sendDrafts(f.client, store, thread, keys);
+    expect(store.get().every((draft) => draft.state === "sent")).toBe(true);
+    expect(f.daemon.review.comments().map((comment) => comment.id)).toEqual(
+      comments.map((comment) => comment.id),
+    );
+    expect(f.daemon.review.comments().every((comment) => comment.sent)).toBe(true);
+  } finally {
+    await f.client.close();
+  }
+});
