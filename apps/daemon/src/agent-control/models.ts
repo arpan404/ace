@@ -52,8 +52,6 @@ export function delegationModel(
       "model_unavailable",
       `Cannot delegate to ${request.provider}${instance ? ` account ${instance}` : ""}: requested model ${request.model ?? "(default)"} is unavailable and no valid configured default exists. Refresh the target account's model catalog or choose an available model.`,
     );
-  if (request.model && !isDefaultSelection(request.model) && !find(request.model))
-    throw new AgentControlError("model_unavailable", "The selected catalog model is unavailable");
   if (
     (request.options?.effort &&
       chosen.reasoningEfforts.length > 0 &&
