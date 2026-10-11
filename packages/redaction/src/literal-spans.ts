@@ -1,4 +1,4 @@
-import { QUOTED_SECRET_ASSIGNMENT } from "./quoted-assignments.ts";
+import { CREDENTIAL_PATTERNS } from "./credential-patterns.ts";
 import type { EnvironmentMatcher } from "./environment.ts";
 
 export interface SensitiveSpan {
@@ -14,10 +14,20 @@ export function* sensitiveSpans(
 ): Generator<SensitiveSpan, undefined> {
   const env = environment?.spans(text) ?? [];
   let index = 0;
-  const quoted = new RegExp(QUOTED_SECRET_ASSIGNMENT.source, QUOTED_SECRET_ASSIGNMENT.flags);
-  let assignment = quoted.exec(text);
+  const scans = CREDENTIAL_PATTERNS.map(({ pattern, prefix, suffix }) => {
+    const regex = new RegExp(pattern.source, pattern.flags);
+    const next = () => {
+      const match = regex.exec(text);
+      return match && {
+        start: match.index + (prefix === undefined ? 0 : (match[1]?.length ?? 0) + prefix),
+        end: match.index + match[0].length - (suffix ?? 0),
+      };
+    };
+    return { next, match: next() };
+  });
   for (;;) {
-    const start = Math.min(env[index]?.start ?? Infinity, assignment?.index ?? Infinity);
+    let start = env[index]?.start ?? Infinity;
+    for (const scan of scans) if (scan.match) start = Math.min(start, scan.match.start);
     if (!Number.isFinite(start)) return;
     let end = start + 1;
     let replacement = "<ENV>";
@@ -32,14 +42,15 @@ export function* sensitiveSpans(
         }
         index++;
       }
-      while (assignment && assignment.index < end) {
-        const matchEnd = assignment.index + assignment[0].length;
-        if (matchEnd > end) {
-          end = matchEnd;
-          extended = true;
+      for (const scan of scans) {
+        while (scan.match && scan.match.start < end) {
+          if (scan.match.end > end) {
+            end = scan.match.end;
+            extended = true;
+          }
+          replacement = "<SECRET>";
+          scan.match = scan.next();
         }
-        replacement = "<SECRET>";
-        assignment = quoted.exec(text);
       }
     }
     yield { start, end, replacement };
