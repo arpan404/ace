@@ -254,6 +254,22 @@ export class IntentDelivery {
         {
           paused: true,
           reason: unavailable ? "model_unavailable" : "not_sent",
+          lastFailure: {
+            code:
+              details?.code === "resume_unavailable"
+                ? "resume_unavailable"
+                : unavailable
+                  ? "model_unavailable"
+                  : "delivery_failed",
+            title:
+              details?.code === "resume_unavailable"
+                ? "The previous provider session could not be resumed. Start a new thread and include the context you need."
+                : unavailable
+                  ? "The selected model is unavailable. Choose another model."
+                  : /Context preparation is unavailable/.test(message)
+                    ? "Your attachments could not be prepared. Try again when the connection is ready."
+                    : "The provider could not accept your message. Check your connection and sign-in, then try again.",
+          },
           resumeAt: null,
           timerAction: null,
         },

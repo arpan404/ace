@@ -373,6 +373,9 @@ export class AccountService {
               }
             : {}),
           ...(session.mcp ? { mcp: session.mcp } : {}),
+          get sessionConfirmed() {
+            return session.sessionConfirmed ?? true;
+          },
           get nativeSessionId() {
             return session.nativeSessionId;
           },

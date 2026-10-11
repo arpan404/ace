@@ -68,6 +68,7 @@ export async function openSession(
   const started = performance.now();
   let closed = false;
   let exited = false;
+  let sessionConfirmed = Boolean(ctx.resume);
   let failureMessage: string | undefined;
   let ownedProcess: SupervisedProcess | undefined;
   let closePromise: Promise<void> | undefined;
@@ -220,6 +221,15 @@ export async function openSession(
         if (ctx.outputFlow?.paused()) await ctx.outputFlow.wait();
         try {
           const data = object(message);
+          if (
+            (data["type"] === "system" && data["subtype"] === "init") ||
+            (data["type"] === "user" && !data["parent_tool_use_id"])
+          ) {
+            if (!sessionConfirmed && string(data["session_id"]) === sessionId) {
+              sessionConfirmed = true;
+              ctx.onSessionConfirmed?.(sessionId);
+            }
+          }
           frame("recv", "sdk", message);
           taskIndex.observe(data);
           if (data["type"] === "rate_limit_event") {
@@ -280,6 +290,9 @@ export async function openSession(
   };
   return {
     nativeSessionId: sessionId,
+    get sessionConfirmed() {
+      return sessionConfirmed;
+    },
     mcp: mcpControls(q, ensureOpen),
     async configure(selection) {
       const executionOptions = ClaudeSelectionOptions.parse(selection.options);

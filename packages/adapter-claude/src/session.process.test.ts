@@ -365,3 +365,26 @@ test("the fake Claude CLI receives text and binary paths plus a native PDF docum
     await h.session.close("user");
   }
 });
+
+test("Claude does not publish a resumable conversation before native initialization", async () => {
+  const confirmed: string[] = [];
+  const h = await harness(
+    undefined,
+    "root",
+    {},
+    { onSessionConfirmed: (id) => confirmed.push(id) },
+  );
+  try {
+    expect(h.session.sessionConfirmed).toBe(false);
+    expect(confirmed).toEqual([]);
+    await h.session.send([{ type: "text", text: "hello" }], "queue");
+    await h.wait(
+      (frame) =>
+        frame.channel === "sdk" && frame.dir === "recv" && object(frame.data)["subtype"] === "init",
+    );
+    expect(h.session.sessionConfirmed).toBe(true);
+    expect(confirmed).toEqual([h.session.nativeSessionId]);
+  } finally {
+    await h.session.close("user");
+  }
+});

@@ -40,7 +40,10 @@ export interface QueueNotice {
   actions: QueueAction[];
 }
 
-export type QueueHold = Pick<QueueSnapshot, "paused" | "reason" | "resumeAt" | "pendingCount">;
+export type QueueHold = Pick<
+  QueueSnapshot,
+  "paused" | "reason" | "resumeAt" | "pendingCount" | "lastFailure"
+>;
 
 /**
  * Why the queue isn't sending, and the way out; undefined while it flows. `account` is what
@@ -124,7 +127,8 @@ export function queueNotice(
       return {
         kind: "not_sent",
         title: "Message not sent",
-        detail: "Your message is kept in the queue. Try sending it again.",
+        detail:
+          queue?.lastFailure?.title ?? "Your message is kept in the queue. Try sending it again.",
         actions: [{ id: "resume", label: "Try again" }],
       };
     case "stopped":

@@ -36,7 +36,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management|process-guardian|pi-login-driver)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management|process-guardian|pi-login-driver|session|api-key)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -73,6 +73,10 @@ export async function bundleDaemon(
                 );
               if (args.path.endsWith("/adapter-claude/src/fork.ts"))
                 contents = contents.replace('"./fork-worker.ts"', '"./claude-fork-worker.mjs"');
+              if (args.path.endsWith("/adapter-pi/src/session.ts"))
+                contents = contents.replaceAll('"./extension.ts"', '"./pi-extension.mjs"');
+              if (args.path.endsWith("/adapter-cursor/src/api-key.ts"))
+                contents = contents.replace('"./api-key-entry.ts"', '"./cursor-api-key.mjs"');
               if (args.path.endsWith("/adapter-cursor/src/host.ts"))
                 contents = contents.replace('"./host-entry.ts"', '"./cursor-sdk-host.mjs"');
               if (args.path.endsWith("/workspace/src/descriptor.ts"))
@@ -119,7 +123,10 @@ export async function bundleDaemon(
                   '"./sqlite-process.ts"',
                   '"./diagnostics-sqlite-process.mjs"',
                 );
-              if (args.path.endsWith("/daemon/src/diagnostics-cli.ts"))
+              if (
+                args.path.endsWith("/daemon/src/diagnostics-cli.ts") ||
+                args.path.endsWith("/daemon/src/diagnostics-report.ts")
+              )
                 contents = contents.replace('"./index.ts"', '"./ace.mjs"');
               if (args.path.endsWith("/release/src/runtime.ts"))
                 contents = contents.replace(
@@ -164,6 +171,8 @@ export async function bundleDaemon(
     ["apps/daemon/src/cursor-account-terminal.ts", "cursor-account-terminal.mjs"],
     ["apps/daemon/src/history-publish-worker.ts", "history-publish-worker.mjs"],
     ["packages/adapter-cursor/src/host-entry.ts", "cursor-sdk-host.mjs"],
+    ["packages/adapter-cursor/src/api-key-entry.ts", "cursor-api-key.mjs"],
+    ["packages/adapter-pi/src/extension.ts", "pi-extension.mjs"],
     ["packages/mcp-server/src/stdio-entry.ts", "acp-mcp-bridge.mjs"],
     ["packages/files/src/blob-worker.ts", "files-blob-worker.mjs"],
     ["packages/files/src/rename-worker.ts", "files-rename-worker.mjs"],

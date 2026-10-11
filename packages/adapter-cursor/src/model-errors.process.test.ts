@@ -19,6 +19,7 @@ hostWire(async () => { throw { code: ${JSON.stringify(code)}, message: 'Bearer p
     try {
       await expect(host.request("models")).rejects.toMatchObject({ code });
       expect(host.failureMessage ?? "").not.toContain("private");
+      await host.stop();
       await host.process.exited;
     } finally {
       await host.stop();

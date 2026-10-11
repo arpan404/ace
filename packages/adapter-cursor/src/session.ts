@@ -84,9 +84,11 @@ export async function openCursorSession(
         if (
           data.kind === "error" ||
           (result.success && ["finished", "cancelled", "error"].includes(result.data.status))
-        )
+        ) {
           active = false;
-        else uncertain = true;
+          terminal = true;
+          uncertain = false;
+        } else uncertain = true;
       }
       await context.onFrame({
         seq: ++seq,
@@ -104,6 +106,7 @@ export async function openCursorSession(
   let segment = 0;
   let active = false;
   let uncertain = false;
+  let terminal = false;
   let control = false;
   let closing: Promise<void> | undefined;
   const abort = () => {
@@ -119,7 +122,7 @@ export async function openCursorSession(
       ...(deliberate
         ? {}
         : {
-            message: `${host.failureMessage ? host.failureMessage + " " : ""}Cursor SDK host exited; unresolved child/background work and pending delivery remain uncertain`,
+            message: `${host.failureMessage ? host.failureMessage + " " : ""}Cursor session ended. Check the conversation before continuing.`,
           }),
     });
   });
@@ -191,6 +194,7 @@ export async function openCursorSession(
             segment = 0;
           }
           active = true;
+          terminal = false;
           try {
             if (commandId) context.onInputMessage?.({ commandId, nativeId: commandId });
             await host.request("send", {
@@ -201,7 +205,7 @@ export async function openCursorSession(
             });
           } catch (error) {
             active = false;
-            uncertain = true;
+            uncertain = !terminal;
             throw error;
           }
         } finally {

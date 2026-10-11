@@ -108,3 +108,23 @@ test("a kept pre-delivery failure offers retry while a restart offers continuati
     ),
   ).toMatchObject({ title: "Message not sent", actions: [{ id: "resume", label: "Try again" }] });
 });
+
+test("a held message explains a failed resume after reloading the queue", () => {
+  const title =
+    "The previous provider session could not be resumed. Start a new thread and include the context you need.";
+  const notice = queueNotice(
+    undefined,
+    {
+      paused: true,
+      reason: "not_sent",
+      resumeAt: null,
+      lastFailure: { title, code: "resume_unavailable" },
+    },
+    now,
+  );
+  expect(notice).toMatchObject({
+    title: "Message not sent",
+    detail: title,
+    actions: [{ id: "resume", label: "Try again" }],
+  });
+});

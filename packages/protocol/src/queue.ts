@@ -25,6 +25,10 @@ export const QueueState = z.object({
   pendingCount: z.number().int().nonnegative().optional(),
   revision: z.number().int().nonnegative(),
   paused: z.boolean(),
+  lastFailure: z
+    .object({ title: z.string().min(1).max(256), code: z.string().min(1).max(128) })
+    .nullable()
+    .optional(),
   reason: z
     .enum([
       "manual",

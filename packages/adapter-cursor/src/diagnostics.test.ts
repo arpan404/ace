@@ -44,3 +44,28 @@ test("routine Cursor operations retain raw diagnostics without transcript notice
   ).toEqual([[{ type: "text", text: "user question" }], [{ type: "text", text: "answer" }]]);
   expect(deriveThreadStatus(state).state).toBe("done");
 });
+
+test("an idle Cursor host exit does not claim that work became uncertain", () => {
+  const threadId = ThreadId.parse("idle-exit");
+  const translator = new CursorTranslator({ threadId, rootKey: "root" });
+  const facts = translator.translate(
+    {
+      seq: 1,
+      t: 1,
+      dir: "note",
+      channel: "sdk",
+      data: {
+        schemaVersion: 1,
+        generation: "host",
+        operationId: "open",
+        segment: 0,
+        kind: "host-exit",
+        body: { deliberate: false },
+      },
+    },
+    1,
+  );
+  expect(
+    facts.filter((fact) => fact.type === "item.upsert" && fact.draft.type === "notice"),
+  ).toEqual([]);
+});

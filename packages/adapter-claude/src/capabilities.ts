@@ -2,7 +2,9 @@ import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { Capabilities } from "@ace/protocol";
 export function capabilities(cli: DiscoveryResult): Capabilities {
-  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(cli.version ?? "");
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.exec(
+    cli.version ?? "",
+  );
   const version = match ? [Number(match[1]), Number(match[2]), Number(match[3])] : [0, 0, 0];
   // The recorded baseline is the only version for which the full tree contract is proven.
   const supported =

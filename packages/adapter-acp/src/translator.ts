@@ -118,6 +118,10 @@ class AcpTranslator implements Translator {
       }
     }
     if (frame.dir === "recv" && method === "session/update") {
+      if ([...s.sent.values()].some((request) => request.method === "session/load")) {
+        s.diagnostics.push(raw(frame.data, "session/load replay"));
+        return facts;
+      }
       const agent = s.agent(string(params["sessionId"]), facts);
       if (this.update(agent, object(params["update"]), frame.data, facts)) return facts;
     }

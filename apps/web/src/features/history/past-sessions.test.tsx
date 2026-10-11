@@ -119,6 +119,7 @@ test("Continue opens a resumed conversation without sending a made-up message", 
 test("Setup can be reopened from the palette and filters past sessions by project", async () => {
   const made = app();
   await made.open("/new?project=relay");
+  await screen.findByRole("combobox", { name: "Message" });
   await userEvent.keyboard("{Meta>}k{/Meta}");
   await userEvent.type(await screen.findByRole("combobox", { name: "Search commands" }), "Setup");
   await userEvent.keyboard("{Enter}");
@@ -321,4 +322,16 @@ test("an empty inventory stays accessible while scanning and retrying instead of
     await within(dialog).findByText("Past sessions will be back shortly. Retrying…"),
   ).toBeTruthy();
   expect(within(dialog).queryByRole("button", { name: /^Retry$/ })).toBeNull();
+});
+
+test("New thread exposes saved sessions for the selected project and imports their transcript", async () => {
+  const made = app();
+  await made.open("/new?project=relay");
+  const list = await screen.findByRole("list", { name: "Past sessions in relay" });
+  expect(screen.getByRole("button", { name: "Show all past sessions" })).toBeTruthy();
+  await userEvent.click(
+    within(list).getByRole("button", { name: "Import Fix the old retry loop" }),
+  );
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  expect(await within(feed).findByText("Retries now stop at the configured cap.")).toBeTruthy();
 });

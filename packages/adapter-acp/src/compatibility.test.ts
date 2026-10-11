@@ -138,7 +138,21 @@ it("binds load replay to the existing root before the load response arrives", ()
     { sessionUpdate: "user_message_chunk", content: { type: "text", text: "old input" } },
     "existing",
   );
+  h.update(
+    { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "old answer" } },
+    "existing",
+  );
+  h.update(
+    { sessionUpdate: "tool_call", toolCallId: "old-tool", title: "Read", status: "completed" },
+    "existing",
+  );
   h.frame("recv", { id: 1, result: {} });
+  expect(Object.values(h.state.items)).toEqual([]);
+  h.update(
+    { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "new answer" } },
+    "existing",
+  );
+  expect(Object.values(h.state.items).filter((item) => item.type === "message")).toHaveLength(1);
   expect(Object.values(h.state.agents)).toHaveLength(1);
   expect(h.state.agents["root"]?.agent.native.nativeId).toBe("existing");
 });

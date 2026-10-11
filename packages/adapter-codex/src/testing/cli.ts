@@ -556,6 +556,9 @@ for await (const line of createInterface({ input: process.stdin })) {
       message(JSON.stringify(p), "plan-proof");
       end();
     }
+  } else if (method === "turn/steer" && process.env["ACE_FAKE_RESUME"] === "steer-race") {
+    active.delete(str(p["threadId"]));
+    write({ id, error: { message: "no active turn to steer" } });
   } else if (method === "turn/steer") {
     if (p["expectedTurnId"] !== active.get(str(p["threadId"])))
       write({ id, error: { message: "stale turn" } });

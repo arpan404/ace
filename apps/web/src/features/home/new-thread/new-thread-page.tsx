@@ -1,3 +1,4 @@
+import { PastSessions } from "@/features/history/index.ts";
 import { ProjectPicker } from "./project-picker.tsx";
 import type { BranchRef, PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
 import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -348,6 +349,7 @@ export function NewThreadPage(props: {
               </p>
             )}
             <SignInNotice provider={provider} />
+            {project && <PastSessions projectId={project} />}
             {error && (
               <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
                 {error}

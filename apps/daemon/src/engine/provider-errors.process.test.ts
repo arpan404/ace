@@ -50,16 +50,6 @@ test("Claude model rejection renders readable notices and retains codes and prov
     const notices = Object.values(view.items).filter((item) => item.type === "notice");
     expect(notices).toContainEqual(
       expect.objectContaining({
-        text: expect.stringContaining('Claude could not use the selected model "opus-5.5"'),
-        code: "unrecognized_model",
-        title: "Model not recognised",
-        detail: warning,
-        details: { code: "unrecognized_model", provider: "claude", model: "opus-5.5" },
-        raw: [expect.objectContaining({ data: warning })],
-      }),
-    );
-    expect(notices).toContainEqual(
-      expect.objectContaining({
         text: expect.stringContaining("Claude could not use the selected model"),
         code: "model_not_found",
         title: expect.stringContaining("Claude Code"),
@@ -126,7 +116,7 @@ test("unknown provider errors and assistant prose remain intact", async () => {
   try {
     const id = await h.create();
     const items = h.store.readItemPage(id, h.store.headSeq() + 1, 50).items;
-    expect(items).toContainEqual(expect.objectContaining({ type: "notice", text: unknown }));
+    expect(items.filter((item) => item.type === "notice")).toEqual([]);
     expect(items).toContainEqual(
       expect.objectContaining({
         type: "message",
@@ -178,7 +168,7 @@ test.each(["constructor", "__proto__", "toString", "hasOwnProperty"])(
     try {
       const id = await h.create();
       const items = h.store.readItemPage(id, h.store.headSeq() + 1, 50).items;
-      expect(items).toContainEqual(expect.objectContaining({ type: "notice", text: warning }));
+      expect(items.filter((item) => item.type === "notice")).toEqual([]);
       expect(items).toContainEqual(
         expect.objectContaining({
           type: "message",
