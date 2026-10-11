@@ -131,12 +131,14 @@ export class Engine {
     const worktreeGit =
       options.worktreeGit ?? ((cwd, args) => runWorktreeGit(executeGit, cwd, args));
     this.nextThreadId = options.threadId ?? randomUUID;
+    this.clock = options.clock ?? systemClock;
     this.repo = new EngineRepository(
       store,
       options.ids,
       this.limits.maxActiveThreads,
       options.commandId,
       options.aceToolAction,
+      () => this.clock.now(),
     );
     const models = (this.models = new EngineModels(
       this.repo,
@@ -147,7 +149,6 @@ export class Engine {
     this.admissions = new CreationAdmissions(this.repo, this.nextThreadId);
     this.selectInstance = options.selectInstance;
     this.registry = options.registry ?? new AdapterRegistry();
-    this.clock = options.clock ?? systemClock;
     this.batchScheduler = options.batchScheduler ?? systemClock;
     this.idleMs = options.idleMs ?? 30 * 60_000;
     const silenceMs = options.silenceMs ?? 60_000;

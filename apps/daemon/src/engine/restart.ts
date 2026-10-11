@@ -80,7 +80,7 @@ export function recoverEngine(
       // remains the source for a new restart continuation, never the old input.
       repo.pending.finishContinuation(state.threadId);
       const backend = repo.backend(state.threadId);
-      const interrupted = lostWork(state, 0, backend);
+      const interrupted = lostWork(state, 0, backend, clock.now());
       const live = !state.processExit && interrupted !== undefined;
       if (live && backend === "cursor-sdk")
         repo.apply(

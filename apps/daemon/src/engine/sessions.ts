@@ -335,7 +335,7 @@ export class Sessions {
             if (!opening) this.dependencies.expireDelivery(actor);
             // Say so in the transcript only when the death cost work, not after an idle exit.
             const before = this.dependencies.repo.requireState(actor.id);
-            const lost = !exit.deliberate && lostWork(before) !== undefined;
+            const lost = !exit.deliberate && lostWork(before, 0, undefined, this.dependencies.clock.now()) !== undefined;
             actor.apply([
               { type: "process.exited", ...exit },
               ...(lost

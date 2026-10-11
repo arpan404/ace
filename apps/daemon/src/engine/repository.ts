@@ -69,6 +69,7 @@ export class EngineRepository {
     capacity = 64,
     commandId: () => string = randomUUID,
     aceAction?: typeof import("@ace/mcp-server").aceToolAction,
+    now: () => number = Date.now,
   ) {
     this.aceAction = aceAction;
     this.capacity = capacity;
@@ -103,7 +104,7 @@ export class EngineRepository {
     this.inputs = new InputJournal(store);
     this.interactions = new InteractionLedger(store);
     this.transitions = new TransitionState(store);
-    this.readiness = store.atomic((_db) => new TransitionReadiness(_db));
+    this.readiness = store.atomic((_db) => new TransitionReadiness(_db, now));
     store.atomic((_db) => _db.exec("DELETE FROM engine_slots"));
     this.admissionStatements = store.atomic((_db) => ({
       has: this.store.statement(

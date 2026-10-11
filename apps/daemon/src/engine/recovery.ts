@@ -172,6 +172,7 @@ export class Recovery {
       this.repo.requireState(id),
       this.repo.pending.recoveryAcknowledgement(id) ? 1 : 0,
       this.repo.backend(id),
+      this.clock.now(),
     );
     if (!text) return;
     this.repo.queue.set(id, { continuation: "continue", trigger: "restart" }, this.clock.now());
