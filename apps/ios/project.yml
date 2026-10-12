@@ -2,17 +2,17 @@ name: Ace
 options:
   bundleIdPrefix: app.ace
   deploymentTarget:
-    iOS: '18.0'
+    iOS: "18.0"
 settings:
   base:
-    SWIFT_VERSION: '6.0'
+    SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     OTHER_SWIFT_FLAGS: -j4
     SWIFT_APPROACHABLE_CONCURRENCY: YES
     SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
     CODE_SIGNING_ALLOWED: NO
-    DEVELOPMENT_TEAM: ''
-    TARGETED_DEVICE_FAMILY: '1,2'
+    DEVELOPMENT_TEAM: ""
+    TARGETED_DEVICE_FAMILY: "1,2"
 targets:
   Ace:
     type: application

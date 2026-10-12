@@ -62,10 +62,8 @@ final class NativeHost: @unchecked Sendable {
         context.setObject(functions, forKeyedSubscript: "aceHost" as NSString)
     }
     private func call(_ operation: String, json: String, callback: Callback) {
-        print("Host call: \(operation)")
         storageQueue.async { [self] in
             let result: Result<String, Error> = Result {
-                if operation == "diagnostic" { print("Spike startup: \(json)"); return "" }
                 if operation == "credential" { return try target.credential() }
                 if store == nil { store = try DurableStore(url: storageURL) }
                 guard let store, let data = json.data(using: .utf8), data.count <= 9 * 1024 * 1024 else { throw HostError.storage }
@@ -109,5 +107,6 @@ final class NativeHost: @unchecked Sendable {
         sockets.removeAll()
         for timer in timers.values { timer.invalidate() }
         timers.removeAll()
+        storageQueue.sync { store = nil }
     }
 }

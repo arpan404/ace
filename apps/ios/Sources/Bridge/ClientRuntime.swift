@@ -10,6 +10,8 @@ final class ClientRuntime: @unchecked Sendable {
     private var thread: Thread?
     private var host: NativeHost?
     private var stopped = false
+    private var finished = false
+    private var completions: [@Sendable () -> Void] = []
     private let target: ConnectionTarget
     private let storageURL: URL
     private let receive: @Sendable (Data) -> Void
@@ -35,12 +37,7 @@ final class ClientRuntime: @unchecked Sendable {
                     fail("Could not create the JavaScript runtime"); ready.signal(); return
                 }
                 self.context = context
-                context.exceptionHandler = { [weak self] _, exception in
-                    #if DEBUG
-                    if self?.target.endpoint.host == "127.0.0.1" { print("Spike JSC exception: \(exception?.toString() ?? "unknown")") }
-                    #endif
-                    self?.fail("The client runtime encountered a JavaScript error")
-                }
+                context.exceptionHandler = { [weak self] _, _ in self?.fail("The client runtime encountered a JavaScript error") }
                 let native = NativeHost(runtime: self, target: target, storageURL: storageURL, receive: receive)
                 host = native
                 native.install(in: context)
@@ -50,7 +47,6 @@ final class ClientRuntime: @unchecked Sendable {
                     context.evaluateScript(script, withSourceURL: path)
                     let config = RuntimeConfig(deviceId: target.deviceId, hostId: target.hostId, itemLimit: itemLimit)
                     let json = String(decoding: try JSONEncoder().encode(config), as: UTF8.self)
-                    print("aceStart exists: \(context.objectForKeyedSubscript("aceStart")?.isObject ?? false)")
                     context.objectForKeyedSubscript("aceStart")?.call(withArguments: [json])
                 } catch { fail("Could not load the shared client") }
             }
@@ -59,6 +55,15 @@ final class ClientRuntime: @unchecked Sendable {
             host = nil
             context = nil
             source.invalidate()
+            let callbacks = lock.withLock {
+                loop = nil
+                thread = nil
+                finished = true
+                let callbacks = completions
+                completions.removeAll()
+                return callbacks
+            }
+            for callback in callbacks { callback() }
         }
         worker.name = "ace.client.javascript"
         worker.qualityOfService = .userInitiated
@@ -81,8 +86,12 @@ final class ClientRuntime: @unchecked Sendable {
     func acknowledge() {
         execute { context in context.objectForKeyedSubscript("aceAck")?.call(withArguments: []) }
     }
-    func stop() {
-        let runLoop = lock.withLock { stopped = true; return loop }
+    func stop(completion: @escaping @Sendable () -> Void = {}) {
+        let runLoop = lock.withLock {
+            stopped = true
+            if finished { completion() } else { completions.append(completion) }
+            return loop
+        }
         if let runLoop { CFRunLoopStop(runLoop); CFRunLoopWakeUp(runLoop) }
     }
 }

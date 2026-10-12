@@ -7,12 +7,12 @@ import XCTest
         XCTAssertTrue(app.buttons["thread.ios-approval"].waitForExistence(timeout: 25))
         screenshot("inbox")
         app.buttons["thread.ios-approval"].tap()
-        XCTAssertTrue(app.otherElements["approval.card"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["approval.allow_once"].waitForExistence(timeout: 10))
         screenshot("approval")
         app.navigationBars.buttons.firstMatch.tap()
         app.buttons["thread.ios-stream"].tap()
         XCTAssertTrue(app.staticTexts["spike.loaded"].waitForExistence(timeout: 25))
-        let loaded = NSPredicate(format: "label CONTAINS '2000 items'")
+        let loaded = NSPredicate(format: "label CONTAINS '2,000 items'")
         expectation(for: loaded, evaluatedWith: app.staticTexts["spike.loaded"])
         waitForExpectations(timeout: 25)
         screenshot("thread")
@@ -21,7 +21,7 @@ import XCTest
         let app = launch()
         XCTAssertTrue(app.buttons["thread.ios-stream"].waitForExistence(timeout: 25))
         app.buttons["thread.ios-stream"].tap()
-        let loaded = NSPredicate(format: "label CONTAINS '2000 items'")
+        let loaded = NSPredicate(format: "label CONTAINS '2,000 items'")
         expectation(for: loaded, evaluatedWith: app.staticTexts["spike.loaded"])
         waitForExpectations(timeout: 25)
         let options = XCTMeasureOptions()
@@ -31,6 +31,55 @@ import XCTest
             app.collectionViews.firstMatch.swipeDown(velocity: .fast)
             app.collectionViews.firstMatch.swipeUp(velocity: .fast)
         }
+    }
+    func testTypingWhileStreaming() async throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["thread.ios-stream"].waitForExistence(timeout: 25))
+        app.buttons["thread.ios-stream"].tap()
+        let loaded = NSPredicate(format: "label CONTAINS '2,000 items'")
+        expectation(for: loaded, evaluatedWith: app.staticTexts["spike.loaded"])
+        waitForExpectations(timeout: 25)
+        let field = app.textViews["composer.input"]
+        field.tap()
+        field.typeText("Keep process ownership explicit. Preserve every pending send through reconnect and restart. ")
+        try await Task.sleep(for: .seconds(6))
+        screenshot("typing")
+    }
+    func testOfflineSendSurvivesProcessTerminationAndReplaysOnce() async throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["thread.ios-stream"].waitForExistence(timeout: 25))
+        app.buttons["thread.ios-stream"].tap()
+        XCTAssertTrue(app.textViews["composer.input"].waitForExistence(timeout: 25))
+        try await control(false)
+        let text = "Offline simulator send \(UUID().uuidString)"
+        app.textViews["composer.input"].tap()
+        app.textViews["composer.input"].typeText(text)
+        app.buttons["composer.send"].tap()
+        XCTAssertTrue(app.staticTexts["Sends on reconnect"].waitForExistence(timeout: 10))
+        screenshot("offline")
+        app.terminate()
+        try await control(true)
+        app.launch()
+        XCTAssertTrue(app.buttons["thread.ios-stream"].waitForExistence(timeout: 25))
+        let request = try XCTUnwrap(URL(string: "http://127.0.0.1:9841/state"))
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(15))
+        var count = 0
+        repeat {
+            let (data, _) = try await URLSession.shared.data(from: request)
+            let state = try JSONDecoder().decode(TranscriptState.self, from: data)
+            count = state.items.values.filter { $0.parts?.contains { $0.text == text } == true }.count
+            if count == 0 { try await Task.sleep(for: .milliseconds(100)) }
+        } while count == 0 && clock.now < deadline
+        XCTAssertEqual(count, 1)
+    }
+    private func control(_ online: Bool) async throws {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:9841/control")))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(OnlineControl(online: online))
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
     }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
@@ -44,4 +93,10 @@ import XCTest
         attachment.lifetime = .keepAlways
         add(attachment)
     }
+}
+
+private struct OnlineControl: Encodable { let online: Bool }
+private struct TranscriptState: Decodable {
+    struct Entry: Decodable { struct Part: Decodable { let text: String? }; let parts: [Part]? }
+    let items: [String: Entry]
 }

@@ -2,7 +2,9 @@ import { host } from "./host.ts";
 
 // Only the portable SDK's required Web APIs. Encoding and entropy belong to the native host.
 class UTF8Encoder {
-  encode(text = ""): Uint8Array { return Uint8Array.from(host.encode(text)); }
+  encode(text = ""): Uint8Array {
+    return Uint8Array.from(host.encode(text));
+  }
   encodeInto(text: string, destination: Uint8Array): { read: number; written: number } {
     let read = 0;
     let written = 0;
@@ -17,11 +19,18 @@ class UTF8Encoder {
   }
 }
 class UTF8Decoder {
-  constructor(readonly encoding = "utf-8", readonly options: { fatal?: boolean } = {}) {}
+  readonly encoding: string;
+  readonly options: { fatal?: boolean };
+  constructor(encoding = "utf-8", options: { fatal?: boolean } = {}) {
+    this.encoding = encoding;
+    this.options = options;
+  }
   decode(input?: ArrayBuffer | ArrayBufferView): string {
     if (!input) return "";
-    const bytes = input instanceof ArrayBuffer ? new Uint8Array(input)
-      : new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+    const bytes =
+      input instanceof ArrayBuffer
+        ? new Uint8Array(input)
+        : new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
     return host.decode(Array.from(bytes), this.encoding, this.options.fatal ?? false);
   }
 }
@@ -29,9 +38,15 @@ class CancellationSignal {
   aborted = false;
   reason: unknown;
   readonly listeners = new Set<() => void>();
-  addEventListener(_type: string, callback: () => void): void { this.listeners.add(callback); }
-  removeEventListener(_type: string, callback: () => void): void { this.listeners.delete(callback); }
-  throwIfAborted(): void { if (this.aborted) throw this.reason; }
+  addEventListener(_type: string, callback: () => void): void {
+    this.listeners.add(callback);
+  }
+  removeEventListener(_type: string, callback: () => void): void {
+    this.listeners.delete(callback);
+  }
+  throwIfAborted(): void {
+    if (this.aborted) throw this.reason;
+  }
   abort(reason: unknown): void {
     if (this.aborted) return;
     this.aborted = true;
@@ -42,13 +57,17 @@ class CancellationSignal {
 }
 class CancellationController {
   readonly signal = new CancellationSignal();
-  abort(reason: unknown = new Error("Aborted")): void { this.signal.abort(reason); }
+  abort(reason: unknown = new Error("Aborted")): void {
+    this.signal.abort(reason);
+  }
 }
 Object.assign(globalThis, {
   TextEncoder: UTF8Encoder,
   TextDecoder: UTF8Decoder,
   AbortController: CancellationController,
-  queueMicrotask: (callback: () => void) => { void Promise.resolve().then(callback); },
+  queueMicrotask: (callback: () => void) => {
+    void Promise.resolve().then(callback);
+  },
   btoa: (value: string) => host.base64(value, false),
   atob: (value: string) => host.base64(value, true),
   crypto: {
@@ -60,3 +79,5 @@ Object.assign(globalThis, {
     },
   },
 });
+
+export { host };

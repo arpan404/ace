@@ -30,6 +30,7 @@ import CryptoKit
     var inboxLoaded = false
     @ObservationIgnored private var runtime: ClientRuntime?
     @ObservationIgnored let now: () -> Double
+    @ObservationIgnored var metrics: SpikeMetrics?
     @ObservationIgnored var largestFrame = 0
     @ObservationIgnored var patchCount = 0
     @ObservationIgnored var streamedUpdates = 0
@@ -119,6 +120,11 @@ import CryptoKit
     private func action(_ value: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return }
         runtime?.invoke("aceAction", json: String(decoding: data, as: UTF8.self))
+    }
+    func disconnectAndWait() async {
+        guard let runtime else { return }
+        self.runtime = nil
+        await withCheckedContinuation { continuation in runtime.stop { continuation.resume() } }
     }
     func disconnect() { runtime?.stop(); runtime = nil }
 }

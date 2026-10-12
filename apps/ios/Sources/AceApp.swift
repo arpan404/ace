@@ -1,4 +1,5 @@
 import SwiftUI
+import QuartzCore
 
 @main struct AceApp: App {
     @State private var model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
@@ -18,6 +19,11 @@ import SwiftUI
                     let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
                         .appendingPathComponent("ace", isDirectory: true)
                     model.connect(target: target, directory: directory, itemLimit: 2200)
+                    #if DEBUG
+                    let metrics = SpikeMetrics(model: model, now: { CACurrentMediaTime() }, output: directory.appendingPathComponent("spike-metrics.json"))
+                    model.metrics = metrics
+                    metrics.start()
+                    #endif
                     started = true
                 } catch { model.error = "Could not open local storage" }
             }
