@@ -58,7 +58,7 @@ test.each([
       : [
           { body: threads() },
           read(),
-          { body: { data: { enablePullRequestAutoMerge: { clientMutationId: null } } } },
+          { body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
           { body: threads() },
           read(armed),
           read(),

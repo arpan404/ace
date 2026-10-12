@@ -32,6 +32,38 @@ const read = (overrides: Record<string, unknown> = {}) => ({
   },
 });
 
+for (const action of ["enable", "disable", "dequeue"] as const) {
+  test.each([
+    ["malformed", true],
+    ["mismatched PR", { pullRequest: { id: "PR_8" } }],
+  ])(`a %s ${action} acknowledgement cannot confirm an unchanged PR`, async (_label, payload) => {
+    const mutation =
+      action === "enable"
+        ? "enablePullRequestAutoMerge"
+        : action === "disable"
+          ? "disablePullRequestAutoMerge"
+          : "dequeuePullRequest";
+    const before = read({
+      autoMergeRequest: action === "disable" ? armed : null,
+      viewerCanDisableAutoMerge: action === "disable",
+      mergeQueueEntry: action === "dequeue" ? queue : null,
+    });
+    const f = await fakeGh({
+      graphql: [before, { body: { data: { [mutation]: payload } } }, before],
+    });
+    try {
+      await expect(
+        f.forge.changeMergeState(7, sha, action, "squash", signal()),
+      ).rejects.toMatchObject({ kind: "outcome_uncertain" });
+      expect((await f.requests())[1]?.body).toMatchObject({
+        query: expect.stringContaining(`${mutation}(input:$input){pullRequest{id}}`),
+      });
+    } finally {
+      await f.cleanup();
+    }
+  });
+}
+
 test("green CI with outstanding reviews still exposes GitHub's auto-merge capability and blockers", async () => {
   const f = await fakeGh({ graphql: [read()] });
   try {
@@ -49,10 +81,10 @@ test("enable and cancel return GitHub state and a subsequent external disablemen
   const f = await fakeGh({
     graphql: [
       read(),
-      { body: { data: { enablePullRequestAutoMerge: { clientMutationId: null } } } },
+      { body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
       read({ autoMergeRequest: armed, viewerCanDisableAutoMerge: true }),
       read({ autoMergeRequest: armed, viewerCanDisableAutoMerge: true }),
-      { body: { data: { disablePullRequestAutoMerge: { clientMutationId: null } } } },
+      { body: { data: { disablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
       read(),
       read(),
     ],
@@ -81,7 +113,7 @@ test("queue cancellation is separate from auto-merge cancellation and observes q
   const f = await fakeGh({
     graphql: [
       read({ mergeQueueEntry: queue }),
-      { body: { data: { dequeuePullRequest: { clientMutationId: null } } } },
+      { body: { data: { dequeuePullRequest: { pullRequest: { id: "PR_7" } } } } },
       read(),
     ],
   });
@@ -96,7 +128,7 @@ test("queue cancellation is separate from auto-merge cancellation and observes q
   const cancel = await fakeGh({
     graphql: [
       read({ mergeQueueEntry: queue }),
-      { body: { data: { dequeuePullRequest: { clientMutationId: null } } } },
+      { body: { data: { dequeuePullRequest: { pullRequest: { id: "PR_7" } } } } },
       read(),
     ],
   });
@@ -191,7 +223,7 @@ test("the legacy auto-merge API uses the same authoritative guarded mutation", a
   const f = await fakeGh({
     graphql: [
       read(),
-      { body: { data: { enablePullRequestAutoMerge: { clientMutationId: null } } } },
+      { body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
       read({ autoMergeRequest: armed }),
     ],
   });

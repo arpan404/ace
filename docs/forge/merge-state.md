@@ -13,8 +13,10 @@ writing through the installed `gh api` process. Enabling auto-merge supplies
 not expose an expected revision on those cancellation inputs, so ace checks the
 head immediately before the mutation; GitHub still enforces its permissions.
 
-A complete mutation acknowledgement is persisted before later state reads. If a
-read fails, that accepted receipt remains accepted and the workspace asks for a
+A complete mutation acknowledgement must return the preflight PR id in
+`pullRequest { id }`. A missing or mismatched PR acknowledgement stays uncertain
+unless a later host read confirms completion. A matching acknowledgement is
+persisted before later state reads. If a read fails, that accepted receipt remains accepted and the workspace asks for a
 refresh. Only the shared forge transport can prove a definite refusal or that
 nothing was sent. A later read failure cannot change the mutation's certainty.
 

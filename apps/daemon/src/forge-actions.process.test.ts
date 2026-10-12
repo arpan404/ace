@@ -468,7 +468,7 @@ for (const action of [merge, { ...merge, type: "forge.pr.auto-merge" } as const]
         },
       }));
       records["merge-state-write"] = [
-        { body: { data: { enablePullRequestAutoMerge: { clientMutationId: null } } } },
+        { body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
       ];
     }
     records[path] = [{ body: hosted }, { body: merged }];

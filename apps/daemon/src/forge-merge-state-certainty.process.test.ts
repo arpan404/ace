@@ -40,7 +40,7 @@ function refusal(type: string): Response {
   return { code: 1, body: { errors: [{ type, message: "GitHub refused this request" }] } };
 }
 const accepted: Response = {
-  body: { data: { enablePullRequestAutoMerge: { clientMutationId: null } } },
+  body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } },
 };
 async function fixture(
   reads: Response[],
@@ -122,6 +122,51 @@ async function fixture(
   };
 }
 
+test.each([
+  ["malformed", true],
+  ["missing PR", { clientMutationId: null }],
+  ["mismatched PR", { pullRequest: { id: "PR_8" } }],
+])(
+  "a %s acknowledgement keeps the durable outcome uncertain and fences retry after restart",
+  async (_description, acknowledgement) => {
+    const f = await fixture(
+      [state()],
+      [{ body: { data: { enablePullRequestAutoMerge: acknowledgement } } }],
+    );
+    try {
+      expect(await f.command("unconfirmed")).toMatchObject({
+        ok: false,
+        error: "forge_write_uncertain",
+      });
+      expect(await f.read()).toMatchObject({
+        result: {
+          kind: "forge",
+          data: { value: { autoMerge: null, writeState: "uncertain" } },
+        },
+      });
+      await f.restart();
+      expect(await f.command("reviewed-retry")).toMatchObject({
+        ok: false,
+        error: "forge_write_uncertain",
+      });
+      expect(await f.read()).toMatchObject({
+        result: {
+          kind: "forge",
+          data: { value: { autoMerge: null, writeState: "uncertain" } },
+        },
+      });
+      const writes = (await f.gh.requests()).filter((r) => r.path === "merge-state-write");
+      expect(writes).toHaveLength(1);
+      expect(writes[0]?.body).toMatchObject({
+        query: expect.stringContaining("pullRequest{id}"),
+        variables: { input: { pullRequestId: "PR_7" } },
+      });
+    } finally {
+      await f.close();
+    }
+  },
+);
+
 test.each(["FORBIDDEN", "RATE_LIMITED", "NOT_FOUND"])(
   "a %s reconciliation read cannot release an ambiguously accepted mutation after restart",
   async (type) => {
@@ -200,7 +245,7 @@ test("partial mutation data with a forbidden error stays uncertain and cannot re
       {
         code: 1,
         body: {
-          data: { enablePullRequestAutoMerge: { clientMutationId: null } },
+          data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } },
           errors: [{ type: "FORBIDDEN", message: "Another field could not be read" }],
         },
       },

@@ -152,14 +152,21 @@ export class GitHubMergeState {
         "graphql",
         signal,
         {
-          query: `mutation($input:${mutation[0]?.toUpperCase()}${mutation.slice(1)}Input!){${mutation}(input:$input){clientMutationId}}`,
+          query: `mutation($input:${mutation[0]?.toUpperCase()}${mutation.slice(1)}Input!){${mutation}(input:$input){pullRequest{id}}}`,
           variables: { input },
         },
         "POST",
         dispatch,
       );
-      const result = z.object({ data: z.record(z.string(), z.unknown()) }).safeParse(page.body);
-      if (!result.success || !result.data.data[mutation]) throw new ForgeError("invalid_data");
+      const result = z
+        .object({
+          data: z.object({
+            [mutation]: z.object({ pullRequest: z.object({ id: text }) }),
+          }),
+        })
+        .safeParse(page.body);
+      if (!result.success || result.data.data[mutation]?.pullRequest.id !== pr.id)
+        throw new ForgeMutationOutcome({ number, headSha });
       if (page.identityChanged) throw new ForgeMutationOutcome({ number, headSha });
       // Return the acknowledgement before any read. The shell persists acceptance
       // before fetching host state, which may fail or lag behind this write.

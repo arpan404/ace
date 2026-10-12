@@ -79,7 +79,7 @@ else if(path==='graphql') {
   const query=JSON.parse(input).query;
   if(query.includes('enablePullRequestAutoMerge(input:')) {
     state.autoMerge={mergeMethod:'SQUASH',enabledAt:'2026-10-11',enabledBy:{login:'octo'}};
-    writeFileSync(file,JSON.stringify(state));body={data:{enablePullRequestAutoMerge:{clientMutationId:null}}};
+    writeFileSync(file,JSON.stringify(state));body={data:{enablePullRequestAutoMerge:{pullRequest:{id:'PR_42'}}}};
   } else if(query.includes('viewerCanEnableAutoMerge')) {
     body={data:{repository:{viewerPermission:'WRITE',pullRequest:{id:'PR_42',number:42,headRefOid:'${"a".repeat(40)}',state:state.merged?'MERGED':'OPEN',isDraft:false,mergeStateStatus:'BLOCKED',reviewDecision:'REVIEW_REQUIRED',statusCheckRollup:{state:'SUCCESS'},autoMergeRequest:state.autoMerge??null,mergeQueueEntry:null,viewerCanEnableAutoMerge:!state.autoMerge,viewerCanDisableAutoMerge:!!state.autoMerge}}}};
   } else body={data:{repository:{pullRequest:{reviewThreads:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[]}}}}};
