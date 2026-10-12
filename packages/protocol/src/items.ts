@@ -1,3 +1,4 @@
+import { HtmlVisualization } from "./html.ts";
 import { CatalogMention } from "./extension-catalog.ts";
 import { StepMeasurement } from "./interaction-measurement.ts";
 import { ProviderErrorDetails } from "./provider-error-details.ts";
@@ -78,6 +79,11 @@ const ItemBase = z.object({
 
 /** Agent-owned transcript entries always identify their owner. */
 export const AgentItem = z.discriminatedUnion("type", [
+  ItemBase.extend({
+    type: z.literal("html"),
+    visualization: HtmlVisualization,
+    raw: z.array(RawPayload).default([]),
+  }),
   ItemBase.extend({
     type: z.literal("message"),
     role: z.enum(["user", "assistant"]),

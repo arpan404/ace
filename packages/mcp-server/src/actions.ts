@@ -1,12 +1,15 @@
+import { htmlToolCatalog } from "./html-tools.ts";
 import type { ApprovalTarget } from "@ace/protocol";
 import { agentControlToolCatalog } from "./agent-control.ts";
 import { builtinToolCatalog, handoffToolCatalog } from "./catalog.ts";
 
 const definitions = new Map(
-  [...agentControlToolCatalog, ...builtinToolCatalog, ...handoffToolCatalog].map((entry) => [
-    entry.name,
-    entry,
-  ]),
+  [
+    ...agentControlToolCatalog,
+    ...builtinToolCatalog,
+    ...handoffToolCatalog,
+    ...htmlToolCatalog,
+  ].map((entry) => [entry.name, entry]),
 );
 /** Callers must establish ace server identity before using a bare tool name. */
 export function aceToolAction(name: string, input: unknown): ApprovalTarget | undefined {

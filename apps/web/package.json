@@ -26,6 +26,7 @@
     "@ace/commands": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/forge": "workspace:*",
+    "@ace/html": "workspace:*",
     "@ace/project-picker": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",

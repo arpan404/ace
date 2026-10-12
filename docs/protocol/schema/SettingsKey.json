@@ -2,8 +2,6 @@
   "$id": "https://ace.local/protocol/v1/SettingsKey.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "enum": [
-    "storage.retention",
-    "storage.scheduledCleanup",
     "sourceControl.preferences",
     "providers.configuration",
     "host.displayName",

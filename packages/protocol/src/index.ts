@@ -140,3 +140,4 @@ export * from "./forge-review.ts";
 export * from "./hosted-repositories.ts";
 
 export * from "./storage.ts";
+export * from "./html.ts";
