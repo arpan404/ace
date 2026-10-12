@@ -720,7 +720,7 @@ function PreparationPage(props: {
               onSubmit={send}
               autoFocus
               placeholder="Describe the change, a bug, or a question. @ to mention a file"
-              shortPlaceholder="Describe a change or a bug"
+              shortPlaceholder="Describe a task"
               // Nothing renders below the composer: its notices sit in the strip's place above.
               attached={
                 <div className={composerNoticeSurface}>
