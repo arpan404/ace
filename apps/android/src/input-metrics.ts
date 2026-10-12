@@ -12,7 +12,7 @@ const Metrics = z.object({
   misses: z.number().int().nonnegative(),
   coverage: z.number().min(0).max(1),
   minimumCoverage: z.literal(0.95),
-  allAttemptP95LowerBoundMs: z.number().nonnegative(),
+  allAttemptP95ConservativeMs: z.number().nonnegative(),
   samples: z.number().int().nonnegative(),
   p95Ms: z.number().nonnegative(),
   maxMs: z.number().nonnegative(),
