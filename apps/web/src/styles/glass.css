@@ -40,7 +40,7 @@
       radial-gradient(120% 60% at 22% 0%, var(--glass-sheen), transparent 60%),
       var(--glass-tint-liquid);
     /* --liquid-filter is this layer's own filter (theme/liquid-glass.ts); blur alone until set. */
-    backdrop-filter: var(--liquid-filter,) blur(var(--glass-liquid-blur, 8px)) saturate(170%);
+    backdrop-filter: var(--liquid-filter,) blur(var(--glass-liquid-blur, 12px)) saturate(170%);
   }
 
   /* A layer announces itself to liquid-glass.ts when it appears: a 1ms marker animation on a

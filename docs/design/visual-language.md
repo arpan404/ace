@@ -136,7 +136,7 @@ them through `overlaySurface` and `popupSurface` in `components/ui/menu-styles.t
 Engines:
 
 - **Chromium and Electron** (`data-glass-engine="liquid"`) use
-  `backdrop-filter: var(--liquid-filter) blur(8px) saturate(170%)` over a thinner tint.
+  `backdrop-filter: var(--liquid-filter) blur(12px) saturate(170%)` over a thinner tint.
   - `--liquid-filter` points at an SVG `feDisplacementMap` sized to that layer's own box and
     corner radius (`theme/liquid-glass.ts`).
   - The bending rim is at most 24px deep and bends at most 24px, so a tooltip and a 620px palette
