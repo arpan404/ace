@@ -336,6 +336,27 @@ test("changing repositories replaces the old detail with an honest inaccessible 
   );
 });
 
+test("Work on PR opens a project-scoped task with its review description and a pinned isolated environment", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  const pr = detail();
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), number: 42 },
+    { resource: "prDetail", value: pr },
+  );
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), repository, number: 42 },
+    { resource: "prDetail", value: pr },
+  );
+  await app.open("/pull-requests?project=api&number=42");
+  await userEvent.click(await screen.findByRole("link", { name: "Work on PR in a new task" }));
+  expect(await screen.findByText(/Isolated worktree · PR #42 · aaaaaaaaaaaa/)).toBeTruthy();
+  expect((await screen.findByRole("combobox", { name: /Message/i })).textContent).toContain(
+    "Work on GitHub PR #42: Retry reconnects",
+  );
+  expect(screen.queryByRole("checkbox", { name: "Worktree" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Start from:/ })).toBeNull();
+});
 test("the PR workspace renders authoritative auto-merge and queue state and removes externally cancelled requests on refresh", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();

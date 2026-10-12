@@ -9,7 +9,7 @@ afterEach(async () => {
   await Promise.all(services.splice(0).map((service) => service.close()));
 });
 function own(options: ConstructorParameters<typeof GitService>[0] = {}) {
-  const service = new GitService(options);
+  const service = new GitService({ transportProtocols: ["file"], ...options });
   services.push(service);
   return service;
 }

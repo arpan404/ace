@@ -204,6 +204,7 @@ export function PrScreen(props: {
                   />
                 )}
                 <PrList
+                  workspaceId={workspaceId}
                   key={`${workspaceId}/${location.repo}/${location.search}/${location.author}/${location.reviewer}`}
                   value={query.data}
                   extensions={props.listExtensions}

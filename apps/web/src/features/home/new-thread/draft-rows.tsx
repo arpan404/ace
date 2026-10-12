@@ -29,7 +29,12 @@ export function DraftRows() {
           <li key={key} className="flex items-center rounded-md hover:bg-sidebar-accent">
             <Link
               to="/new"
-              search={{ project: row.project, skill: row.skill, issue: row.issue }}
+              search={{
+                project: row.project,
+                skill: row.skill,
+                issue: row.issue,
+                pullRequest: row.pullRequest,
+              }}
               aria-label={`${row.title}. Draft, Project ${directory.name(row.project)}`}
               className="flex min-w-0 flex-1 flex-col gap-1 rounded-md px-2 py-3 text-ui focus-ring-inset"
             >
@@ -58,6 +63,7 @@ export function DraftRows() {
                     project: row.project,
                     skill: row.skill,
                     issue: row.issue,
+                    pullRequest: row.pullRequest,
                     discard: (previous.discard ?? 0) + 1,
                   }),
                 });

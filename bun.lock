@@ -436,6 +436,12 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/design-tokens": {
+      "name": "@ace/design-tokens",
+      "dependencies": {
+        "zod": "^4.6.5",
+      },
+    },
     "packages/devices": {
       "name": "@ace/devices",
       "dependencies": {
@@ -924,6 +930,8 @@
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
+
+    "@ace/design-tokens": ["@ace/design-tokens@workspace:packages/design-tokens"],
 
     "@ace/desktop": ["@ace/desktop@workspace:apps/desktop"],
 

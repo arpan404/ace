@@ -1,0 +1,44 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgePrCheckout.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "baseBranch": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "baseSha": {
+      "pattern": "^[a-f0-9]{40,64}$",
+      "type": "string"
+    },
+    "headBranch": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "headRepository": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "headSha": {
+      "pattern": "^[a-f0-9]{40,64}$",
+      "type": "string"
+    },
+    "ref": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+    }
+  },
+  "required": [
+    "ref",
+    "headSha",
+    "baseSha",
+    "headBranch",
+    "baseBranch",
+    "headRepository"
+  ],
+  "type": "object"
+}
