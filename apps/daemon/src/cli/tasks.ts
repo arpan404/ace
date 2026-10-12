@@ -1,9 +1,9 @@
-import { AgentTaskView, CliOperation, ThreadId } from "@ace/protocol";
+import { CliTaskStatus, CliOperation, ThreadId } from "@ace/protocol";
 import type { Client } from "@ace/client";
 import { option, validateArgs, type Args } from "./args.ts";
 import { key } from "./work.ts";
 import { waitThread } from "./threads.ts";
-import { prompt, result } from "./io.ts";
+import { prompt, result, mutationResult } from "./io.ts";
 import { CliFailure } from "./output.ts";
 export async function taskCommand(args: Args, client: Client, signal: AbortSignal) {
   const verb = args.words[1];
@@ -54,12 +54,18 @@ export async function taskCommand(args: Args, client: Client, signal: AbortSigna
     );
   const data = response.result.data;
   if (verb === "status") {
-    const view = AgentTaskView.parse(data);
+    const view = CliTaskStatus.parse(data);
     return result(
       args,
       data,
-      view.state === "waiting_on_human" ? "needs-human" : view.state === "failed" ? "failed" : "ok",
+      view.state === "unresponsive"
+        ? "uncertain"
+        : view.state === "waiting_on_human"
+          ? "needs-human"
+          : ["failed", "cancelled"].includes(view.state)
+            ? "failed"
+            : "ok",
     );
   }
-  return result(args, { ok: true, idempotencyKey: id, data });
+  return mutationResult(args, { ok: true, idempotencyKey: id, data });
 }

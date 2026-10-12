@@ -3,8 +3,97 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "items": {
     "properties": {
+      "attention": {
+        "type": "string"
+      },
       "pending": {
         "type": "boolean"
+      },
+      "queue": {
+        "properties": {
+          "lastFailure": {
+            "anyOf": [
+              {
+                "properties": {
+                  "code": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "title": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "title",
+                  "code"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "paused": {
+            "type": "boolean"
+          },
+          "pendingCount": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "manual",
+                  "restart",
+                  "limit",
+                  "snooze",
+                  "uncertain",
+                  "stopped",
+                  "not_sent",
+                  "model_unavailable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resumeAt": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "uncertain": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "revision",
+          "paused",
+          "reason",
+          "resumeAt",
+          "uncertain"
+        ],
+        "type": "object"
       },
       "status": {
         "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
@@ -16,7 +105,8 @@
     "required": [
       "threadId",
       "status",
-      "pending"
+      "pending",
+      "queue"
     ],
     "type": "object"
   },

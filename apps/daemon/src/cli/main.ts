@@ -2,7 +2,7 @@ import { ClientError } from "@ace/client";
 import { readConfig } from "../config.ts";
 import { parseArgs, type Args } from "./args.ts";
 import { CliFailure, exitCodes } from "./output.ts";
-import { print } from "./io.ts";
+import { print, validateOutput } from "./io.ts";
 import { runtimeCommand } from "./runtime.ts";
 import { accessCommand } from "./access.ts";
 import { connectCli } from "./connection.ts";
@@ -27,6 +27,7 @@ export async function main(input: string[]): Promise<void> {
   let args: Args = { words: [], flags: input.includes("--json") ? { json: true } : {} };
   try {
     args = parseArgs(input);
+    await validateOutput(args);
     if (args.flags.help) {
       await print(args, args.flags.json || args.flags.jq ? { help } : help.trimEnd());
       return;
@@ -38,6 +39,9 @@ export async function main(input: string[]): Promise<void> {
       const lines: string[] = [];
       await runAccountsCommand([...args.words, ...(args.flags.console ? ["--console"] : [])], {
         write: (value) => lines.push(value),
+        progress: (value) =>
+          (args.flags.json || args.flags.jq ? process.stderr : process.stdout).write(value),
+        loginOutput: args.flags.json || args.flags.jq ? "stderr" : "stdout",
       });
       const output = lines.flatMap((line) => line.trim().split("\n")).filter(Boolean);
       if (args.flags.json || args.flags.jq) {
@@ -106,12 +110,21 @@ export async function main(input: string[]): Promise<void> {
               : "uncertain"
           : "refused";
     const message = error instanceof Error ? error.message : "Command failed";
-    if (args.flags.json || args.flags.jq || args.flags.stream === "jsonl")
-      await print(
-        { ...args, flags: { ...args.flags, jq: "", json: true } },
-        { ok: false, status: outcome, error: message },
-      );
-    else process.stderr.write(`${message}\n`);
+    const evidence = error instanceof CliFailure ? error.evidence : undefined;
+    const failure = {
+      ok: false,
+      status: outcome,
+      error: message,
+      ...(evidence !== undefined ? { admission: evidence } : {}),
+    };
     process.exitCode = exitCodes[outcome];
+    if (args.flags.json || args.flags.jq || args.flags.stream === "jsonl")
+      await print({ ...args, flags: { ...args.flags, jq: "", json: true } }, failure).catch(() => {
+        process.stderr.write(`${JSON.stringify(failure)}\n`);
+      });
+    else
+      process.stderr.write(
+        `${message}\n${evidence === undefined ? "" : `${JSON.stringify(evidence)}\n`}`,
+      );
   }
 }

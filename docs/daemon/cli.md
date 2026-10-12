@@ -29,10 +29,17 @@ A task is an independently owned delegated child of `--parent`, and its id is
 its child thread id. Cancellation is acceptance of a cascade, not proof of exit.
 
 All commands accept `--json`; `--jq EXPR` implies JSON and uses your installed jq.
+The executable and filter syntax are checked before any command effects. Filter
+evaluation can still fail on the returned data; retain mutation keys for retries.
 JSONL streams have admission/status/event/outcome records. Waits return on a human
 interaction so automation can hand back control. Supply `--interaction` when more
 than one is pending. Approval defaults to allow-once; `--option` selects a native
 option explicitly. Questions and elicitation require a suitable client.
+Held input requiring intervention returns needs-human, uncertain delivery returns
+uncertain, and queued input awaiting automatic resumption keeps the wait open.
+Tree outcomes include authoritative queue metadata for each member. Unresponsive
+task status returns uncertain. Interactive account login progress is shown as it
+arrives, on stderr when JSON output is selected.
 
 Exit codes: 0 successful operation, 1 failed work, 2 needs human input, 3 observation
 timeout, 4 refused/invalid invocation, 5 uncertain outcome. A wait timeout leaves

@@ -492,9 +492,13 @@
       "bytes": 463,
       "sha256": "6511bdb84c204a15e826c2097793a2c87eabf76d5956679fe2584ad8f9683e30"
     },
+    "schema/CliTaskStatus.json": {
+      "bytes": 839,
+      "sha256": "55d33fce37e9cec63ddda0273cb90922c076503f1808c954331869afe1799fb8"
+    },
     "schema/CliTree.json": {
-      "bytes": 534,
-      "sha256": "2417ae31fda7185a6241873c7abeee5f17b91e66aae4f755f8b594b568f48f9d"
+      "bytes": 2676,
+      "sha256": "c45edf88ee57f229030ff05ee8110584a55f0fa200d0a99b51586b28c7572b76"
     },
     "schema/ClientMessage.json": {
       "bytes": 58227,
@@ -3333,10 +3337,10 @@
       "sha256": "8483e2fd08a5b7f6d6ca7be1172e25765a4dbcc863fa1983e8bcea54b8dd5593"
     },
     "types.md": {
-      "bytes": 705635,
-      "sha256": "29b6c1fb82e9f8c295e32d3d32eb8ce121912aeae8da23cb756b79e5fbc0fffa"
+      "bytes": 706467,
+      "sha256": "d6704ab7dbdf49cf0d4b1528f459d3dafbb7a29fa36f0525cde518217eb61fed"
     }
   },
-  "input": "c0bf15b86a4c2a362cab51af9013ea04bc2385a4769ffef03df82093ae9f6cee",
+  "input": "e1804e4c402449e8befb971ec34542ea536f5820b6cc596cde62b95bc9d387da",
   "version": 1
 }

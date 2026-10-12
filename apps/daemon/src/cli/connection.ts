@@ -58,6 +58,26 @@ export function waitSelection<T>(
     else check();
   });
 }
+/** Queue-only descendant facts do not necessarily advance the parent's cursor. */
+export async function waitSelectionOrRefresh<T>(
+  selection: Selection<T>,
+  accept: (value: T) => boolean,
+  signal: AbortSignal,
+): Promise<void> {
+  const observation = new AbortController();
+  const abort = () => observation.abort();
+  signal.addEventListener("abort", abort, { once: true });
+  if (signal.aborted) abort();
+  const timer = setTimeout(abort, 500);
+  try {
+    await waitSelection(selection, accept, observation.signal);
+  } catch (error) {
+    if (signal.aborted || !observation.signal.aborted) throw error;
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", abort);
+  }
+}
 export async function connectCli(home: string, args: Args) {
   const connection = hostConnection(home);
   const persistence = cliStorage(home);

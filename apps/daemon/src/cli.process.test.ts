@@ -161,6 +161,7 @@ test("CLI tree waits hand back control for a descendant approval instead of repo
         ],
       },
     });
+    await f.daemon.engine?.flush();
     const waiting = await invoke(home, ["thread", "wait", f.caller.threadId, "--tree", "--json"]);
     expect(waiting.code, waiting.stderr).toBe(2);
     expect(JSON.parse(waiting.stdout)).toMatchObject({ status: "needs-human" });
@@ -177,6 +178,48 @@ test("CLI tree waits hand back control for a descendant approval instead of repo
       "--json",
     ]);
     expect(approved.code, approved.stderr).toBe(0);
+  } finally {
+    await f.daemon.close();
+  }
+});
+
+test("task status returns to working when a completed child starts autonomous native work", async () => {
+  const f = await daemonFixture();
+  const home = join(f.h.home, "daemon");
+  try {
+    const output = await invoke(home, [
+      "task",
+      "spawn",
+      "Synthetic task",
+      "--parent",
+      f.caller.threadId,
+      "--provider",
+      "claude",
+      "--json",
+    ]);
+    expect(output.code, output.stderr).toBe(0);
+    const child = ThreadId.parse(
+      z.object({ data: z.object({ threadId: z.string() }) }).parse(JSON.parse(output.stdout)).data
+        .threadId,
+    );
+    await f.daemon.engine?.flush();
+    await f.h.complete(child, "First answer");
+    await f.daemon.engine?.flush();
+    const complete = await invoke(home, ["task", "status", child, "--json"]);
+    expect(JSON.parse(complete.stdout)).toMatchObject({
+      state: "result_available",
+      outcome: { result: "First answer" },
+    });
+    await f.h.emit(child, {
+      type: "turn.started",
+      agent: "root",
+      trigger: "background_completion",
+      nativeTurnId: "native-revival",
+    });
+    await f.daemon.engine?.flush();
+    const working = await invoke(home, ["task", "status", child, "--json"]);
+    expect(JSON.parse(working.stdout)).toMatchObject({ state: "working" });
+    expect(JSON.parse(working.stdout)).not.toHaveProperty("outcome");
   } finally {
     await f.daemon.close();
   }

@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { resolve, basename } from "node:path";
 import type { Client } from "@ace/client";
 import { option, validateArgs, type Args } from "./args.ts";
-import { prompt, result } from "./io.ts";
+import { prompt, mutationResult } from "./io.ts";
 import { CliFailure } from "./output.ts";
 export function key(args: Args): string {
   const value = option(args, "idempotency-key") ?? randomUUID();
@@ -26,7 +26,7 @@ export async function command(client: Client, payload: unknown, id: string, sign
         receipt.error?.includes("uncertain") ? "uncertain" : "refused",
         receipt.error ?? receipt.code ?? "Command refused",
       );
-    return receipt;
+    return { ...receipt, idempotencyKey: id };
   } catch (error) {
     if (signal.aborted)
       throw new CliFailure(
@@ -79,11 +79,12 @@ export async function runCommand(args: Args, client: Client, signal: AbortSignal
     id,
     signal,
   );
-  await result(args, {
+  await mutationResult(args, {
     type: "admission",
     ok: true,
     status: "accepted",
     commandId: id,
+    idempotencyKey: id,
     threadId: receipt.threadId ?? threadId,
   });
   return receipt.threadId ?? threadId;

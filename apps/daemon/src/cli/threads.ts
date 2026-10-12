@@ -1,10 +1,10 @@
 import { CliTree, Interaction, ThreadId, InteractionId } from "@ace/protocol";
 import type { Client } from "@ace/client";
 import { option, validateArgs, type Args } from "./args.ts";
-import { waitSelection } from "./connection.ts";
+import { waitSelection, waitSelectionOrRefresh } from "./connection.ts";
 import { command, key } from "./work.ts";
-import { prompt, print, result } from "./io.ts";
-import { CliFailure, statusOutcome, treeOutcome } from "./output.ts";
+import { prompt, print, result, mutationResult } from "./io.ts";
+import { CliFailure, treeOutcome } from "./output.ts";
 export async function listThreads(args: Args, client: Client, signal: AbortSignal) {
   validateArgs(args, ["project"], 2);
   if (args.words[1] !== "list") throw new CliFailure("refused", "Usage: ace threads list");
@@ -85,34 +85,37 @@ export async function waitThread(args: Args, client: Client, id: string, signal:
       if (streamError) throw streamError;
       if (value.error) throw value.error;
       if (!value.thread) throw new CliFailure("uncertain", "Thread state unavailable");
-      let outcome = statusOutcome(value.thread.status);
-      if (outcome !== undefined) {
-        const response = await client.request(
-          { type: "cli.request", operation: { op: "thread.tree", threadId: ThreadId.parse(id) } },
-          { signal },
-        );
-        if (!response.result.ok)
-          throw new CliFailure("uncertain", response.result.code ?? "Tree state unavailable");
-        const tree = CliTree.parse(response.result.data);
-        outcome = args.flags.tree
-          ? treeOutcome(tree)
-          : tree[0]
-            ? statusOutcome(tree[0].status)
-            : "uncertain";
-      }
+      const response = await client.request(
+        { type: "cli.request", operation: { op: "thread.tree", threadId: ThreadId.parse(id) } },
+        { signal },
+      );
+      if (!response.result.ok)
+        throw new CliFailure("uncertain", response.result.code ?? "Tree state unavailable");
+      const observedTree = CliTree.parse(response.result.data);
+      const outcome = args.flags.tree
+        ? treeOutcome(observedTree)
+        : observedTree[0]
+          ? treeOutcome([{ ...observedTree[0], pending: false }])
+          : "uncertain";
       if (outcome !== undefined && client.state === "ready") {
         await stream;
         await result(
           args,
-          { type: "outcome", threadId: id, status: outcome, thread: value.thread },
+          {
+            type: "outcome",
+            threadId: id,
+            status: outcome,
+            thread: value.thread,
+            tree: observedTree,
+          },
           outcome,
         );
         return;
       }
       if (args.flags.stream === "jsonl")
         await print(args, { type: "status", threadId: id, status: value.thread.status });
-      // Canonical cursor changes wake the observer; reconnects must provide fresh facts.
-      await waitSelection(
+      // Refresh bounded tree facts even when only a descendant's queue changes.
+      await waitSelectionOrRefresh(
         selection,
         (next) => !!next.error || next.cursor !== value.cursor,
         signal,
@@ -162,7 +165,7 @@ export async function threadCommand(args: Args, client: Client, signal: AbortSig
   const id = ThreadId.parse(args.words[2]);
   if (verb === "wait") return waitThread(args, client, id, signal);
   if (verb === "send" || verb === "steer")
-    return result(
+    return mutationResult(
       args,
       await command(
         client,
@@ -177,7 +180,7 @@ export async function threadCommand(args: Args, client: Client, signal: AbortSig
       ),
     );
   if (verb === "cancel" || verb === "interrupt")
-    return result(
+    return mutationResult(
       args,
       await command(
         client,
@@ -218,7 +221,7 @@ export async function threadCommand(args: Args, client: Client, signal: AbortSig
         : undefined;
     if (!interaction)
       throw new CliFailure("refused", "Select a pending interaction with --interaction");
-    return result(
+    return mutationResult(
       args,
       await command(
         client,

@@ -5680,6 +5680,32 @@ Example:
 }
 ```
 
+## CliTaskStatus
+
+[JSON Schema](schema/CliTaskStatus.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| state | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AgentTaskState.json"},{"type":"string","const":"unresponsive"}]} |
+| generation | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| status | yes | [ThreadStatus.json](schema/ThreadStatus.json) |  |
+| outcome | no | [DelegationOutcome.json](schema/DelegationOutcome.json) |  |
+
+Example:
+
+```json
+{
+  "generation": 1,
+  "state": "unresponsive",
+  "status": {
+    "interactions": 7,
+    "state": "needs_you"
+  },
+  "threadId": "example"
+}
+```
+
 ## CliTree
 
 [JSON Schema](schema/CliTree.json), input validation.
@@ -5741,7 +5767,7 @@ Example:
 {
   "kind": "native",
   "metadata": {},
-  "provider": "acp",
+  "provider": "antigravity",
   "text": "example"
 }
 ```
@@ -5777,7 +5803,7 @@ Example:
 
 ```json
 {
-  "action": "O",
+  "action": "2Ozs-D",
   "arguments": {},
   "kind": "ace",
   "positional": []
@@ -5801,10 +5827,10 @@ Example:
 {
   "ok": true,
   "plan": {
-    "action": "bF2Ozs-",
-    "arguments": {},
-    "kind": "ace",
-    "positional": []
+    "kind": "native",
+    "metadata": {},
+    "provider": "cursor",
+    "text": "example"
   }
 }
 ```
@@ -5821,8 +5847,7 @@ Example:
 
 ```json
 {
-  "argument": "example",
-  "error": "unsupported_command",
+  "error": "limit_exceeded",
   "ok": false
 }
 ```
@@ -5846,6 +5871,7 @@ Example:
 
 ```json
 {
+  "query": "example",
   "requestId": "example",
   "threadId": "example",
   "type": "commands.list"
@@ -5892,7 +5918,6 @@ Example:
 ```json
 {
   "commandId": "example",
-  "positional": [],
   "requestId": "example",
   "threadId": "example",
   "type": "commands.resolve"
@@ -5919,7 +5944,7 @@ Example:
     "plan": {
       "kind": "native",
       "metadata": {},
-      "provider": "cursor",
+      "provider": "codex",
       "text": "example"
     }
   },
@@ -5950,11 +5975,11 @@ Example:
 ```json
 {
   "entryId": "example",
-  "kind": "plugin",
+  "icon": "example",
+  "kind": "agent",
   "name": "example",
   "title": "example",
-  "type": "mention",
-  "values": {}
+  "type": "mention"
 }
 ```
 
@@ -5970,6 +5995,11 @@ Example:
 
 ```json
 {
+  "source": {
+    "bytes": 3,
+    "encoding": "utf-16le",
+    "streamId": "example"
+  },
   "text": "example",
   "type": "text"
 }
@@ -6026,8 +6056,9 @@ Example:
 
 ```json
 {
-  "code": "invalid_request",
-  "message": "example"
+  "code": "invalid_image",
+  "message": "example",
+  "path": "example"
 }
 ```
 
@@ -6040,7 +6071,7 @@ Type: ["invalid_request","forbidden","not_found","outside_workspace","ignored","
 Example:
 
 ```json
-"quota"
+"binary"
 ```
 
 ## ContextMeter
@@ -6061,10 +6092,10 @@ Example:
 ```json
 {
   "agentId": "example",
-  "epoch": 3,
+  "epoch": 5,
   "source": "provider",
-  "usedTokens": 4,
-  "windowTokens": null
+  "usedTokens": 2,
+  "windowTokens": 6
 }
 ```
 

@@ -1,5 +1,12 @@
-import { AgentId, CliTree, type CliOperation, type AgentControlResult } from "@ace/protocol";
+import {
+  AgentId,
+  CliTree,
+  CliTaskStatus,
+  type CliOperation,
+  type AgentControlResult,
+} from "@ace/protocol";
 import { agentTaskView } from "../agent-control/task-view.ts";
+import { threadAttention } from "@ace/projection";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
@@ -18,14 +25,22 @@ export function cliControl(context: ServiceContext) {
       .family(root)
       .filter((edge) => journal.isDescendant(edge.childId, threadId));
     if (operation.op === "thread.tree") {
+      if (!services.engine) return { ok: false, code: "unavailable" };
       const members = [threadId, ...descendants.map((edge) => edge.childId)];
       const data = members.map((id) => {
         const value = store.getThread(id);
         const edge = journal.get(id);
+        const snapshot = services.engine?.queue(id);
+        const queue = value?.queue ?? snapshot;
         return {
           threadId: id,
           status: value?.status ?? { state: "unresponsive" as const },
           pending: !!edge && edge.phase !== "settled",
+          queue: queue && {
+            ...queue,
+            uncertain: snapshot?.messages.some((message) => message.state === "uncertain") ?? false,
+          },
+          attention: threadAttention({ queue }),
         };
       });
       return { ok: true, data: CliTree.parse(data) };
@@ -39,7 +54,16 @@ export function cliControl(context: ServiceContext) {
         descendants.some((edge) => edge.phase !== "settled"),
         !!agent && ["idle", "blocked", "interrupted"].includes(agent.status.state),
       );
-      return { ok: true, data: { ...view, outcome: record.outcome } };
+      const available = ["result_available", "failed", "cancelled"].includes(view.state);
+      return {
+        ok: true,
+        data: CliTaskStatus.parse({
+          ...view,
+          state: thread.status.state === "unresponsive" ? "unresponsive" : view.state,
+          status: thread.status,
+          ...(available && record.outcome ? { outcome: record.outcome } : {}),
+        }),
+      };
     }
     const parent =
       operation.op === "task.spawn" ? thread : record && store.getThread(record.parentId);
