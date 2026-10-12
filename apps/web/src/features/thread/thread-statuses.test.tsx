@@ -36,7 +36,7 @@ test("a background command appears once in the transcript while its row keeps th
   const { header, row, feed } = await open(watchingRelay());
   expect(within(feed).getAllByText("bun run dev:relay")).toHaveLength(1);
   expect(screen.queryByRole("status", { name: "Watching bun run dev:relay" })).toBeNull();
-  expect(row.getAttribute("aria-label")).toContain("Watching bun run dev:relay");
+  expect(row.getAttribute("aria-label")).toContain("Working · bun run dev:relay");
   expect(within(header).queryByRole("status")).toBeNull();
 });
 
@@ -46,7 +46,7 @@ test("a thread waiting on subagents keeps the transcript live with their count",
     "2 subagents",
   );
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
-  expect(row.getAttribute("aria-label")).toContain("Waiting on 2 subagents");
+  expect(row.getAttribute("aria-label")).toContain("2 subagents running");
   expect(within(header).queryByRole("status")).toBeNull();
 });
 
@@ -62,6 +62,14 @@ test.each([
     );
     expect(within(row).getByText("Working", { exact: true })).toBeTruthy();
     expect(within(row).queryByText("Waiting", { exact: true })).toBeNull();
+    // What the row says aloud and what its hover card shows read the same word.
+    const spoken = row.getAttribute("aria-label") ?? "";
+    expect(spoken).toContain(". Working");
+    expect(spoken).not.toMatch(/Waiting on|Watching/);
+    await userEvent.hover(row);
+    const details = await screen.findByLabelText(/^Details for /);
+    expect(details.textContent).toContain("Working");
+    expect(details.textContent).not.toMatch(/Waiting on|Watching/);
   },
 );
 
@@ -82,7 +90,7 @@ test("a thread running tests names its current action in the transcript live lin
     "Running tests…",
   );
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
-  expect(row.getAttribute("aria-label")).toContain("Running tests…");
+  expect(row.getAttribute("aria-label")).toContain("Working · running tests");
   expect(within(header).queryByRole("status")).toBeNull();
 });
 

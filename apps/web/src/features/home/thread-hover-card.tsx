@@ -6,7 +6,7 @@ import { HoverCardContent } from "@/components/ui/hover-card.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useAccountViews } from "@/lib/account-views.ts";
-import { ProjectMark, PullRequest } from "./row-parts.tsx";
+import { ProjectMark, PullRequest, RowStatus } from "./row-parts.tsx";
 
 /** One compact line of the card: a glyph and its fact. */
 function Fact(props: { children: ReactNode }) {
@@ -39,9 +39,10 @@ export function ThreadHoverContent(props: {
       className="w-72 max-h-[min(var(--available-height),400px,calc(100dvh-24px))] overflow-y-auto px-3 py-2.5 break-words"
     >
       <p className="text-ui leading-5 font-medium text-foreground">{card.title}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">
-        {card.status.label} · {card.age}
-      </p>
+      {/* The row's own status, so the card and the row can never word it differently. */}
+      <div data-hover-status className="mt-0.5 flex">
+        <RowStatus card={card} />
+      </div>
       <div className="mt-1.5 text-ui text-muted-foreground">
         <Fact>
           <ProjectMark badge={card.badge} />

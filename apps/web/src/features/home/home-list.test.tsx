@@ -96,9 +96,7 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   const dedupe = card(/^Dedupe thread events after reconnect/);
   expect(within(dedupe).getByText("fix/replay-dedupe")).toBeTruthy();
   expect(dedupe.getAttribute("aria-label")).toContain("Claude Code · 2 subagents running");
-  expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toContain(
-    "Waiting on 2 subagents",
-  );
+  expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toMatch(/\. Working, /);
   // The branch stays available while diff totals stay out of the sidebar.
   const install = card(/^Rewrite the install page for the daemon/);
   expect(install.getAttribute("aria-label")).toContain("OpenCode");
@@ -154,7 +152,7 @@ test("a row's name says its status, provider and subagents, branch, pull request
   ).toBeTruthy();
   expect(
     card(
-      /^Dedupe thread events after reconnect\. Waiting on 2 subagents, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
+      /^Dedupe thread events after reconnect\. Working, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
     ),
   ).toBeTruthy();
   expect(card(/^Backpressure on broadcast fan-out\..*Running on build-box/)).toBeTruthy();

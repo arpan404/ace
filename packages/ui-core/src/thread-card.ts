@@ -193,6 +193,20 @@ export function middleTruncateText(text: string, max: number): string {
   return `${chars.slice(0, head).join("")}…${chars.slice(-tail).join("")}`;
 }
 
+/**
+ * A working tree's full status: "Working", then what holds it when that names something the
+ * row doesn't already say ("Working · bun run dev:relay"). Its subagents are already in the
+ * provider label ("Claude Code · 2 subagents running").
+ */
+function workingLabel(fact: LiveFact | undefined): string {
+  if (fact?.kind === "watching")
+    return fact.count === 1 && fact.title
+      ? `Working · ${fact.title}`
+      : `Working · ${fact.count} background tasks`;
+  if (fact?.kind === "tests") return "Working · running tests";
+  return "Working";
+}
+
 /** Short row wording; the full status remains in the row name and tooltip. */
 function compactStatus(
   entry: ThreadListEntry,
@@ -232,11 +246,17 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
   const described = fact && describeLive(fact, now, input.locale);
   // A tree still running reads as Working on every surface, whatever its root waits on.
   const working = treeWorking(listTreeFacts(entry));
-  const live = described && working ? { ...described, tone: "working" as const } : described;
   const since = entry.live?.workingSince ?? activityOf(entry);
+  // Every surface's word for a working tree is Working, spoken label and hover card included;
+  // what it waits on or runs only follows it.
+  const live = working ? undefined : described;
   const { label, tone } =
     recovery ??
-    (live ? { label: liveStatusText(live), tone: live.tone } : threadStatusLabel(entry.status));
+    (working
+      ? { label: workingLabel(fact), tone: "working" as const }
+      : live
+        ? { label: liveStatusText(live), tone: live.tone }
+        : threadStatusLabel(entry.status));
   return {
     id: entry.id,
     title: entry.title,
@@ -250,12 +270,14 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
       ? undefined
       : recovery
         ? { ...recovery, icon: recovery.tone === "failed" ? "failed" : "waiting" }
-        : live
-          ? { ...livePill(live), ...(working ? { since } : {}) }
-          : taskPill(entry.status, {
-              unread,
-              since: entry.live?.workingSince ?? activityOf(entry),
-            }),
+        : working
+          ? { label: "Working", tone: "working", icon: "working", since }
+          : live
+            ? livePill(live)
+            : taskPill(entry.status, {
+                unread,
+                since: entry.live?.workingSince ?? activityOf(entry),
+              }),
     diff:
       details?.diff && (details.diff.added > 0 || details.diff.removed > 0)
         ? details.diff
