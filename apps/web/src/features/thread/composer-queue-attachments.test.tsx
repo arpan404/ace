@@ -41,7 +41,7 @@ function stalledImage() {
 }
 
 function interruptedActions() {
-  const failure = screen.getByText("Upload interrupted").closest('[role="alert"]');
+  const failure = screen.getByText(/Upload interrupted$/).closest('[role="alert"]');
   if (!(failure instanceof HTMLElement)) throw new Error("Missing interrupted-upload actions");
   expect(
     within(failure)
@@ -69,7 +69,7 @@ test("reload interrupts an unfinished upload and Remove releases later messages 
     resetSendStore();
     const again = harness({ daemon: app.daemon, storage: app.storage, uiClock: () => 1000 });
     await again.open(`/t/${threadId}`);
-    await screen.findByText("Upload interrupted");
+    await screen.findByText(/Upload interrupted$/);
     expect((await readQueue(again)).messages).toEqual([]);
     await userEvent.click(interruptedActions());
     await waitFor(async () =>
@@ -101,7 +101,7 @@ test("an upload past its injected-clock timeout cannot send after late completio
     await userEvent.type(message, "A timed out{Enter}B after A{Enter}");
     wall += uploadTimeoutMs;
     fireEvent(document, new Event("visibilitychange"));
-    await screen.findByText("Upload interrupted");
+    await screen.findByText(/Upload interrupted$/);
     interruptedActions();
     release.resolve();
     await waitFor(async () =>

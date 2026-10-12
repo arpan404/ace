@@ -104,7 +104,7 @@ test("a message held for its uploads survives a reload, as a failed bubble sayin
   reloadPage();
   const again = await open(first.storage);
   const alert = await within(again.feed).findByRole("alert");
-  expect(within(alert).getByText("Upload interrupted")).toBeTruthy();
+  expect(within(alert).getByText(/Upload interrupted$/)).toBeTruthy();
   expect(within(again.feed).getByText("Why is this banner orange?")).toBeTruthy();
   // Reload never offers to reconstruct or resend an unfinished upload.
   expect(within(alert).queryByRole("button", { name: "Retry" })).toBeNull();

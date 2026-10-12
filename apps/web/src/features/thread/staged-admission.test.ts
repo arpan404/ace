@@ -43,8 +43,10 @@ import {
   canRetry,
   retryStaged,
   isInterrupted,
+  removeStagedUpload,
 } from "./composer/staged-sends.ts";
 import type { Draft } from "./composer/draft.ts";
+import { daemonContextSource } from "./sources/context-source.ts";
 
 beforeEach(() => resetStaged());
 
@@ -284,5 +286,48 @@ test("closing after a completion write refusal keeps the original message interr
   if (!retained) throw new Error("accepted message disappeared");
   expect(canRetry(retained)).toBe(false);
   expect(isInterrupted(retained, 1000)).toBe(true);
+  await app.client.close();
+});
+
+test("removing an unfinished upload cleans its late attachment while keeping its successor's file", async () => {
+  const app = harness();
+  const thread = { id: "thread-a", workspaceId: "ace", title: "Remove interrupted upload" };
+  app.daemon.createThread({ ...thread, provider: "codex" });
+  app.daemon.apply(thread.id, [facts.rootAgent("codex"), facts.turn("root")]);
+  await app.client.start();
+  const context = daemonContextSource(app.client);
+  const alpha = await context.upload(
+    thread,
+    new File(["alpha"], "alpha.txt", { type: "text/plain" }),
+    () => {},
+  );
+  const beta = await context.upload(
+    thread,
+    new File(["beta"], "beta.txt", { type: "text/plain" }),
+    () => {},
+  );
+  stagedSends(app.storage);
+  expect(
+    stage(
+      { ...makeStaged("alpha", "Alpha"), uploadInterrupted: true },
+      { files: [], previews: [] },
+    ),
+  ).toBe(true);
+  const outcomes = Promise.withResolvers<readonly { sha256: string }[]>();
+  const sending = sendWhenUploaded(app.client, "alpha", outcomes.promise, app.storage);
+  expect(
+    stage({ ...makeStaged("beta", "Beta"), attachments: [beta] }, { files: [], previews: [] }),
+  ).toBe(true);
+  expect(await removeStagedUpload(app.client, "alpha", app.storage)).toBe(true);
+  outcomes.resolve([{ sha256: alpha.sha256 }]);
+  expect(await sending).toBe(false);
+  expect(await removeStagedUpload(app.client, "alpha", app.storage)).toBe(true);
+  const { queue } = await app.client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse(thread.id),
+  });
+  expect(queue.messages.map((send) => send.input)).toEqual([[{ type: "text", text: "Beta" }]]);
+  expect(queue.messages[0]?.context?.attachments).toEqual([{ sha256: beta.sha256 }]);
+  expect((await context.list(thread)).map((file) => file.sha256)).toEqual([beta.sha256]);
   await app.client.close();
 });

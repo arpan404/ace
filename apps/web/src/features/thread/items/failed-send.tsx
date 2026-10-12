@@ -177,9 +177,9 @@ export function useSendActions(threadId: string) {
 
 /**
  * A message held for its uploads that can't go as it is (a file didn't upload, or the page
- * closed mid-upload): "Not sent" with why, Retry where this page still has the files (it
- * uploads them again, then sends under the same id), and Edit, which gives the text, the
- * files the daemon holds and the picks back to the composer.
+ * closed mid-upload). Interrupted uploads offer only Remove. Ordinary failures offer Retry
+ * and Edit only while this page still holds their files; a ready failed save can retry its
+ * durable payload after reload.
  */
 export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
   const { staged } = props;
@@ -200,6 +200,7 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
       staged.commandId,
       (file) => sources.context.upload(thread, file, () => {}),
       uploadClock(time.read),
+      storage,
     )
       .then((sent) => {
         if (!sent) toast.error({ title: "It still didn't go", description: "It is still here." });

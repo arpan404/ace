@@ -6,7 +6,6 @@ import { Observable } from "./observable.ts";
 const Metadata = z.object({
   commandId: z.string(),
   threadId: z.string(),
-  owner: z.string(),
   preparing: z.optional(z.boolean()),
   uploadStartedAt: z.optional(z.number().check(z.int(), z.gte(0), z.lte(Number.MAX_SAFE_INTEGER))),
   uploadInterrupted: z.optional(z.boolean()),
@@ -15,7 +14,7 @@ const Metadata = z.object({
 });
 type Metadata = z.infer<typeof Metadata>;
 interface HeldRecord extends Metadata {
-  /** Kept raw until the staged-send owner validates the full message for rendering or retry. */
+  /** Kept raw until the composer validates the full message for rendering or retry. */
   value: unknown;
 }
 const limit = 32;
@@ -24,10 +23,9 @@ const all = new Observable<readonly HeldRecord[]>([]);
 let storage: KeyValueStorage | undefined;
 let loaded = false;
 // Settled uploads that storage refused still belong to this live page. The durable original
-// remains untouched; refreshes retain this overlay only while its original owner still holds it.
-const retained = new Map<string, { owner: string; record: HeldRecord }>();
+// remains untouched; an external durable change invalidates the local overlay.
+const retained = new Map<string, { original: string; record: HeldRecord }>();
 
-export let pageId: string = crypto.randomUUID();
 function entries(values: readonly unknown[]): readonly HeldRecord[] {
   return values.flatMap((value, index) => {
     const metadata = Metadata.safeParse(value);
@@ -50,8 +48,10 @@ function read(): readonly HeldRecord[] {
 }
 function view(): readonly HeldRecord[] {
   const durable = read();
-  const owners = new Map(durable.map((record) => [record.commandId, record.owner]));
-  for (const [id, local] of retained) if (owners.get(id) !== local.owner) retained.delete(id);
+  const originals = new Map(
+    durable.map((record) => [record.commandId, JSON.stringify(record.value)]),
+  );
+  for (const [id, local] of retained) if (originals.get(id) !== local.original) retained.delete(id);
   return durable.map((record) => retained.get(record.commandId)?.record ?? record);
 }
 
@@ -60,7 +60,7 @@ export function retainHeldSend(value: Metadata, settled: unknown): void {
   const original = read().find((record) => record.commandId === value.commandId);
   if (!original) return;
   retained.set(value.commandId, {
-    owner: original.owner,
+    original: JSON.stringify(original.value),
     record: { ...value, value: settled },
   });
   all.set(view());
@@ -81,7 +81,7 @@ export function heldSendStore(store: KeyValueStorage | undefined): typeof all {
   return all;
 }
 
-/** Read durable ownership before a mutation, without relying on asynchronous storage events. */
+/** Read durable records before a mutation, without relying on asynchronous storage events. */
 export function refreshHeldSends(): void {
   all.set(view());
 }
@@ -127,5 +127,4 @@ export function reloadHeldStore(): void {
   loaded = false;
   retained.clear();
   all.seed([]);
-  pageId = crypto.randomUUID();
 }

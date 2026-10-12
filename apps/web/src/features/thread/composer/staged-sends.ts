@@ -14,9 +14,7 @@ import {
   deleteHeldSend,
   refreshHeldSends,
   reloadHeldStore,
-  pageId as currentPageId,
 } from "@/lib/held-send-store.ts";
-export { pageId } from "@/lib/held-send-store.ts";
 import { z } from "zod";
 import { readDraft } from "./draft-store.ts";
 import { releaseUploadFiles } from "./release-upload-files.ts";
@@ -53,8 +51,6 @@ const Stored = z.object({
   attachments: z.array(StoredFile),
   options: TurnOptions.optional(),
   delivery: z.enum(["steer", "queue"]).optional(),
-  /** The page that is uploading its files; another page can't finish them. */
-  owner: z.string(),
   /** Why it can't go as it is, in words; undefined while its files upload. */
   failed: z.string().optional(),
 });
@@ -97,7 +93,7 @@ function save(send: StagedSend): boolean {
     ),
   });
 }
-/** Every held message, validated for rendering and retry by its existing owner. */
+/** Every held message, validated for rendering and submission. */
 export function stagedSends(store: KeyValueStorage | undefined): typeof all {
   heldSendStore(store);
   return all;
@@ -105,7 +101,7 @@ export function stagedSends(store: KeyValueStorage | undefined): typeof all {
 
 /** Hold a message while its files upload; `files` and `previews` stay in this page. */
 export function stage(
-  send: Omit<StagedSend, "owner">,
+  send: StagedSend,
   local: Pick<Held, "files" | "previews">,
   clock: UploadClock = browserUploadClock,
 ): boolean {
@@ -116,7 +112,6 @@ export function stage(
       ...send,
       preparing: !!uploading,
       uploadStartedAt: uploading ? clock.now() : undefined,
-      owner: currentPageId,
     })
   ) {
     held.delete(send.commandId);
@@ -346,8 +341,8 @@ export async function retryStaged(
   commandId: string,
   upload: (file: File) => Promise<{ sha256: string }>,
   clock: UploadClock = browserUploadClock,
+  storage?: KeyValueStorage,
 ): Promise<boolean> {
-  const epoch = generation;
   refreshHeldSends();
   const send = all.get().find((entry) => entry.commandId === commandId);
   const local = held.get(commandId);
@@ -359,11 +354,10 @@ export async function retryStaged(
       preparing: true,
       uploadStartedAt: clock.now(),
       failed: undefined,
-      owner: currentPageId,
     })
   )
     return false;
-  const outcomes = await Promise.all(
+  const outcomes = Promise.all(
     send.attachments.map(async (file, index) => {
       if (file.sha256) return { sha256: file.sha256 };
       const original = local?.files[index];
@@ -375,7 +369,7 @@ export async function retryStaged(
       }
     }),
   );
-  return epoch === generation && settle(commandId, outcomes) && enqueueStaged(client, commandId);
+  return sendWhenUploaded(client, commandId, outcomes, storage);
 }
 
 function retainedHashes(
@@ -415,18 +409,29 @@ export async function removeStagedUpload(
   // A stale Remove from another tab must not delete a message that has already finished.
   if (!send.failed && !isInterrupted(send, clock.now())) return true;
   if (!patch(commandId, { uploadInterrupted: true })) return false;
-  const released = await releaseUploadFiles(
-    client,
-    send.threadId,
-    send.attachments.flatMap((file) => (file.sha256 ? [file.sha256] : [])),
-    () => retainedHashes(client, send, storage),
-  );
-  if (!released || !unstage(commandId)) return false;
+  const released = new Set<string>();
+  while (true) {
+    refreshHeldSends();
+    const current = all.get().find((entry) => entry.commandId === commandId);
+    const hashes =
+      current?.attachments.flatMap((file) =>
+        file.sha256 && !released.has(file.sha256) ? [file.sha256] : [],
+      ) ?? [];
+    if (!hashes.length) break;
+    if (
+      !(await releaseUploadFiles(client, send.threadId, hashes, () =>
+        retainedHashes(client, send, storage),
+      ))
+    )
+      return false;
+    for (const hash of hashes) released.add(hash);
+  }
+  if (!unstage(commandId)) return false;
   await drainStaged(client, send.threadId);
   return true;
 }
 
-/** Test seam: what a reload does to this page (its files, previews and id go; storage stays). */
+/** Test seam: what a reload does to this page (its files and previews go; storage stays). */
 export function reloadPage(): void {
   generation++;
   drains = new WeakMap();

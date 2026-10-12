@@ -47,7 +47,7 @@ export async function sendMessage(request: SendRequest): Promise<boolean> {
   return true;
 }
 
-function heldMessage(request: SendRequest): Omit<StagedSend, "owner" | "attachments"> {
+function heldMessage(request: SendRequest): Omit<StagedSend, "attachments"> {
   const { commandId, threadId, draft } = request;
   return {
     commandId,

@@ -35,7 +35,6 @@ export interface StagedSend {
   options?: TurnOptions | undefined;
   delivery?: "steer" | "queue" | undefined;
   /** The page uploading its files; another page can't finish them. */
-  owner: string;
   /** Why it can't go as it is, in words; undefined while its files upload. */
   failed?: string | undefined;
   /** View-only: a predecessor still owns this submission's place. */
