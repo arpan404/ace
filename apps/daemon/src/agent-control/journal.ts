@@ -82,6 +82,7 @@ export class DelegationJournal {
       CREATE INDEX IF NOT EXISTS delegation_reserved_parent ON delegation_reservations(parent_id);
       CREATE INDEX IF NOT EXISTS delegated_results ON delegated_threads(parent_id, result_pending, child_id);
       CREATE TABLE IF NOT EXISTS delegation_subtree_stops (thread_id TEXT PRIMARY KEY REFERENCES threads(id));
+      CREATE TABLE IF NOT EXISTS delegation_member_stops (thread_id TEXT PRIMARY KEY REFERENCES threads(id));
       CREATE TABLE IF NOT EXISTS delegation_wakes (
         parent_id TEXT PRIMARY KEY REFERENCES threads(id), due INTEGER NOT NULL
       );
@@ -341,12 +342,15 @@ export class DelegationJournal {
       const edge = this.get(id);
       return {
         ...(edge ? { parentId: edge.parentId } : {}),
-        stopped: this.stopped(id) || edge?.phase === "cancelling",
+        // A filtered host stop fences this member's admission, not its unselected children.
+        stopped:
+          this.subtreeStopped(id) || (edge?.phase === "cancelling" && !this.memberStopped(id)),
       };
     });
   }
   reopen(record: DelegationRecord) {
     this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(record.childId);
+    this.sql("DELETE FROM delegation_member_stops WHERE thread_id=?").run(record.childId);
     this.sql("UPDATE delegated_threads SET wake_suppressed=0 WHERE child_id=?").run(record.childId);
     this.revive(record);
   }
@@ -435,9 +439,20 @@ export class DelegationJournal {
     this.sql("DELETE FROM delegation_wakes WHERE parent_id=?").run(parent);
   }
   stopped(thread: ThreadId) {
+    return this.subtreeStopped(thread) || this.memberStopped(thread);
+  }
+  private subtreeStopped(thread: ThreadId) {
     return !!this.sql("SELECT thread_id FROM delegation_subtree_stops WHERE thread_id=?").get(
       thread,
     );
+  }
+  private memberStopped(thread: ThreadId) {
+    return !!this.sql("SELECT thread_id FROM delegation_member_stops WHERE thread_id=?").get(
+      thread,
+    );
+  }
+  stopMember(thread: ThreadId) {
+    this.sql("INSERT OR IGNORE INTO delegation_member_stops VALUES (?)").run(thread);
   }
   stop(thread: ThreadId) {
     this.sql("INSERT OR IGNORE INTO delegation_subtree_stops VALUES (?)").run(thread);
@@ -454,6 +469,7 @@ export class DelegationJournal {
   /** A new accepted person input reopens only the root, preserving child stops and budgets. */
   resumeRoot(thread: ThreadId) {
     this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(thread);
+    this.sql("DELETE FROM delegation_member_stops WHERE thread_id=?").run(thread);
     this.sql("UPDATE delegation_trees SET cancelled=0,budget_cancelled=0 WHERE root_id=?").run(
       thread,
     );

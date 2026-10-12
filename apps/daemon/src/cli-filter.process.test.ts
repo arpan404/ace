@@ -6,6 +6,94 @@ import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { invoke } from "./cli-test-support.ts";
 const identity = z.object({ threadId: ThreadId });
 
+test.each(["subtree", "provider"] as const)(
+  "%s kill suppresses asynchronous child result wakes after the coalescing deadline",
+  async (scope) => {
+    const f = await daemonFixture();
+    const home = join(f.h.home, "daemon");
+    try {
+      const launched = await invoke(home, [
+        "run",
+        "Working parent",
+        "--provider",
+        "claude",
+        "--project",
+        f.workspace,
+        "--json",
+      ]);
+      const parent = identity.parse(JSON.parse(launched.stdout)).threadId;
+      const spawned = await invoke(home, [
+        "task",
+        "spawn",
+        "Asynchronous child",
+        "--parent",
+        parent,
+        "--provider",
+        scope === "subtree" ? "claude" : "codex",
+        "--json",
+      ]);
+      const child = z.object({ data: identity }).parse(JSON.parse(spawned.stdout)).data.threadId;
+      await f.daemon.engine?.flush();
+      if (scope === "provider") {
+        await f.h.emit(child, {
+          type: "turn.started",
+          agent: "root",
+          trigger: "background_completion",
+          nativeTurnId: "unfinished-child",
+        });
+        await f.daemon.engine?.flush();
+      }
+      const killed = await invoke(home, [
+        "kill-all",
+        ...(scope === "subtree" ? ["--thread", parent] : ["--provider", "claude"]),
+        "--json",
+      ]);
+      expect(killed.code, killed.stderr).toBe(0);
+      if (scope === "provider") {
+        const followup = await invoke(home, [
+          "thread",
+          "send",
+          child,
+          "Still selected for work",
+          "--json",
+        ]);
+        expect(followup.code, followup.stderr).toBe(0);
+        await f.daemon.engine?.flush();
+        await f.h.complete(child, "Unmatched child completed");
+      }
+      f.h.clock.advance(f.h.clock.now() + f.controls.delegations.policy.coalesceMs + 1000);
+      await f.daemon.engine?.flush();
+      const waited = await invoke(home, [
+        "thread",
+        "wait",
+        parent,
+        "--tree",
+        "--timeout",
+        "2s",
+        "--json",
+      ]);
+      expect(waited.code, waited.stderr).toBe(1);
+      expect(JSON.parse(waited.stdout)).toMatchObject({
+        status: "failed",
+        tree: expect.arrayContaining([
+          expect.objectContaining({
+            threadId: parent,
+            queue: expect.objectContaining({ pendingCount: 0 }),
+          }),
+        ]),
+      });
+      const status = await invoke(home, ["task", "status", child, "--json"]);
+      expect(JSON.parse(status.stdout)).toMatchObject(
+        scope === "subtree"
+          ? { state: "cancelled", outcome: { outcome: "cancelled" } }
+          : { state: "result_available", outcome: { outcome: "completed" } },
+      );
+    } finally {
+      await f.daemon.close();
+    }
+  },
+);
+
 test("kill-all cleans idle sessions while preserving completed work with the same provider", async () => {
   const f = await daemonFixture();
   const home = join(f.h.home, "daemon");

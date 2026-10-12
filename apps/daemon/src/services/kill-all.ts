@@ -42,6 +42,8 @@ export async function killAll(
         stopped.add(thread.id);
         continue;
       }
+      // Own admission and result delivery must be fenced before an interruption can settle children.
+      owner.delegations.cancelMember(thread.id);
       const receipt = owner.delegations.command(
         `kill:${createHash("sha256").update(operation.key).update(thread.id).digest("hex")}`,
         {
