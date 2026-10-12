@@ -22,6 +22,7 @@ export function ProviderAccountIcon(
   props: ProviderIconProps & {
     instance?: string | undefined;
     account?: AccountView | undefined;
+    /** False hides the account mark where room is short; the accessible name keeps it. */
     accountLabel?: boolean;
     tooltip?: boolean;
   },
@@ -53,7 +54,7 @@ export function ProviderAccountIcon(
         className={undefined}
         decorative
       />
-      {multiple && account && (
+      {multiple && account && props.accountLabel !== false && (
         <AccountBadge
           account={account}
           tooltip={props.tooltip}

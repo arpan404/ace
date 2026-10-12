@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/cn.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import type { ModelControlActions, ModelControlView } from "./control-view.ts";
-import { isDeepReasoning } from "./reasoning-level.ts";
+import { isDeepReasoning, reasoningShortLabel } from "./reasoning-level.ts";
 import { SpeedGlyph } from "./speed-glyph.tsx";
 
 /** The popover's Tune and Picker panes: loaded on hover, focus or idle. */
@@ -83,7 +83,7 @@ export function ModelControl(props: {
             <span className="shrink-0 text-xs text-status-failed">Unavailable</span>
           )}
           {view.label && view.effort !== undefined && view.efforts.length > 0 && (
-            <EffortSignal view={view} />
+            <EffortSignal view={view} compact={props.compact} />
           )}
           {view.label && view.speed !== "standard" && (
             <span
@@ -132,8 +132,11 @@ export function ModelControl(props: {
   );
 }
 
-/** The effort in effect, after a dot: "· High". Ultra and Max get the accent sheen. */
-function EffortSignal(props: { view: ModelControlView }) {
+/**
+ * The effort in effect, after a dot: "· High", or "· Med" on a compact composer. Ultra and Max
+ * get the accent sheen.
+ */
+function EffortSignal(props: { view: ModelControlView; compact: boolean }) {
   const { efforts, effort } = props.view;
   if (effort === undefined) return null;
   return (
@@ -145,7 +148,7 @@ function EffortSignal(props: { view: ModelControlView }) {
         data-slot="model-effort"
         className={isDeepReasoning(effort, efforts) ? "model-effort-deep" : "text-muted-foreground"}
       >
-        {effortLabel(effort)}
+        {props.compact ? reasoningShortLabel(effort) : effortLabel(effort)}
       </span>
     </span>
   );

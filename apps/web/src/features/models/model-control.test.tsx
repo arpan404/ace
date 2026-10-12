@@ -54,6 +54,11 @@ test("one chip shows the model, its effort and its speed, with no separate effor
   expect(screen.getAllByRole("button")).toEqual([chip]);
 });
 
+test("a compact chip names the effort briefly, so the model's name keeps its room", () => {
+  const { chip } = draw({ effort: "medium" });
+  expect(chip.querySelector("[data-slot=model-effort]")?.textContent).toBe("Med");
+});
+
 test("standard speed shows no speed icon on the chip", () => {
   const { chip } = draw({ speed: "standard" });
   expect(within(chip).queryByRole("img", { name: /fast/i })).toBeNull();
