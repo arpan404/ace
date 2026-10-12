@@ -77,8 +77,13 @@ export class DelegationService {
     this.policy = DelegationPolicy.parse(deps.policy ?? {});
     this.journal = new DelegationJournal(deps.store, deps.journalCapacity);
     recoverIncomingUsage(deps.store, this.journal, deps.clock.now());
-    recoverLocalUsage(deps.store, this.journal);
     this.conversations = new ConversationJournal(deps.store);
+    // Upgrade old ownership metadata once without decoding prompts or transcripts.
+    for (const conversation of this.conversations.unenrolledMembers()) {
+      this.journal.enroll(conversation.thread_id, conversation.root_id);
+      this.journal.activity(conversation.thread_id, conversation.active);
+    }
+    recoverLocalUsage(deps.store, this.journal);
     const external = deps.externalCapacity;
     this.deps = {
       ...deps,
@@ -129,11 +134,6 @@ export class DelegationService {
       }),
     );
     this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
-    // Upgrade old ownership metadata once without decoding prompts or transcripts.
-    for (const conversation of this.conversations.unenrolledMembers()) {
-      this.journal.enroll(conversation.thread_id, conversation.root_id);
-      this.journal.activity(conversation.thread_id, conversation.active);
-    }
     // Recovery visits indexed current work, never transcript history or old receipts.
     for (const participant of this.journal.activeParticipants()) {
       this.reconcileConversation(participant.thread_id);

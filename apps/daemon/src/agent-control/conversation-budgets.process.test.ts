@@ -303,3 +303,44 @@ test("a reopened SQLite conversation spends only the time left on its persisted 
   ).toMatchObject({ ok: false });
   expect(reopened.inputs.get(thread)).toEqual(["More work"]);
 });
+
+
+for (const [budget, policy, sample] of [
+  ["tokens", { tokens: 100 }, { inputTokens: 100, outputTokens: 0 }],
+  ["cost", { cost: 10 }, { inputTokens: 0, outputTokens: 0, costUsd: 10 }],
+] as const) {
+  test(`committed conversation ${budget} usage missed after event commit is recovered before a SQLite follow-up`, async () => {
+    const { h, caller, thread, runtime } = await launch(policy);
+    await h.complete(thread, "Persisted result");
+    const agentId = h.caller(thread).agentId;
+    h.service.close();
+    h.store.appendEvents(thread, [{ type: "usage.updated", agentId, ...sample,
+      counterMode: "incremental", counterKey: "committed-before-accounting" }]);
+    await runtime.close();
+    await h.close();
+    const reopened = setup(policy, h.dbPath);
+    const port = createAgentControlPort(reopened.store, reopened.service);
+    expect(await port.execute(reopened.caller(caller.threadId), message(thread, "after-crash"), signal())).toMatchObject({ ok: false });
+    await reopened.engine.flush();
+    expect(reopened.inputs.get(thread)).toBeUndefined();
+    reopened.restartOwner();
+    expect(await createAgentControlPort(reopened.store, reopened.service).execute(reopened.caller(caller.threadId), message(thread, "after-second-startup"), signal())).toMatchObject({ ok: false });
+  });
+}
+
+test("replaying a previously accounted incremental conversation sample does not double charge its budget", async () => {
+  const { h, caller, thread, runtime } = await launch({ tokens: 100 });
+  await h.emit(thread, { type: "usage", agent: "root", inputTokens: 50, outputTokens: 0,
+    counterMode: "incremental", counterKey: "accounted" });
+  await h.complete(thread, "First result");
+  await runtime.close();
+  await h.close();
+  const reopened = setup({ tokens: 100 }, h.dbPath);
+  reopened.restartOwner();
+  const port = createAgentControlPort(reopened.store, reopened.service);
+  expect((await port.execute(reopened.caller(caller.threadId), message(thread, "within-budget"), signal())).ok).toBe(true);
+  await reopened.engine.flush();
+  await reopened.emit(thread, { type: "usage", agent: "root", inputTokens: 50, outputTokens: 0,
+    counterMode: "incremental", counterKey: "new-sample" });
+  expect(await port.execute(reopened.caller(caller.threadId), message(thread, "spent"), signal())).toMatchObject({ ok: false });
+});

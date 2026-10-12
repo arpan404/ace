@@ -465,10 +465,10 @@ export class DelegationJournal {
     );
   }
   usageThreads(after: string) {
-    return this.sql(
-      "SELECT child_id AS thread_id,root_id FROM delegated_threads WHERE child_id>? ORDER BY child_id LIMIT 64",
-    )
-      .all(after)
+    return this.sql(`SELECT child_id AS thread_id,root_id FROM delegated_threads WHERE child_id>?
+        UNION ALL SELECT thread_id,root_id FROM delegation_participants WHERE thread_id>?
+        ORDER BY thread_id LIMIT 64`)
+      .all(after, after)
       .map((row) => z.object({ thread_id: ThreadId, root_id: ThreadId }).parse(row));
   }
   /** Counters and the replay position share one commit, including incremental samples. */
