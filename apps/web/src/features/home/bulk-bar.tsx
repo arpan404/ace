@@ -110,7 +110,7 @@ export function BulkBar() {
       <div
         role="toolbar"
         aria-label="Selected threads"
-        className="glass mx-2 mb-2 flex items-center gap-0.5 rounded-lg py-1 pr-1 pl-3 text-ui"
+        className="ace-floating mx-2 mb-2 flex items-center gap-0.5 rounded-lg py-1 pr-1 pl-3 text-ui"
       >
         <span className="mr-auto font-medium whitespace-nowrap tabular-nums" aria-live="polite">
           {entries.length} selected

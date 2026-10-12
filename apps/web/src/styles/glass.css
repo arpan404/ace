@@ -1,0 +1,42 @@
+/*
+ * Floating material (docs/design/visual-language.md, "Glass"): popovers, menus, dialogs,
+ * tooltips, the command palette, the Work card and the composer strip.
+ *
+ *   .ace-floating        glass under Surfaces: Translucent, solid otherwise
+ *   .ace-floating-solid  always solid (a layer that must never show what's behind it)
+ *
+ * <html> carries the resolved choice: `data-surface` is "solid" under the Solid setting or while
+ * the OS reduces transparency, and `data-glass-engine` is "liquid" only where SVG backdrop
+ * filters render (Chromium and Electron; src/theme/glass.ts). Liquid bends the backdrop at the
+ * rim through one shared filter; elsewhere glass is blur and saturate. Everything here is static
+ * CSS: no per-frame script, and the filter only ever sits on small floating layers, never on a
+ * large scrolling area.
+ */
+@layer components {
+  .ace-floating,
+  .ace-floating-solid {
+    background: var(--surface-2);
+    box-shadow:
+      0 0 0 1px var(--float-edge),
+      var(--float-shadow);
+  }
+
+  :root[data-surface="translucent"] .ace-floating {
+    /* A faint sheen across the top; background-attachment keeps it still while content scrolls. */
+    background:
+      radial-gradient(120% 60% at 22% 0%, var(--glass-sheen), transparent 60%), var(--glass-tint);
+    box-shadow:
+      inset 0 1px 0 var(--glass-inner),
+      0 0 0 1px var(--glass-edge),
+      var(--float-shadow);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 20px)) saturate(180%);
+    backdrop-filter: blur(var(--glass-blur, 20px)) saturate(180%);
+  }
+
+  :root[data-surface="translucent"][data-glass-engine="liquid"] .ace-floating {
+    background:
+      radial-gradient(120% 60% at 22% 0%, var(--glass-sheen), transparent 60%),
+      var(--glass-tint-liquid);
+    backdrop-filter: url(#ace-liquid-glass) blur(var(--glass-liquid-blur, 7px)) saturate(170%);
+  }
+}

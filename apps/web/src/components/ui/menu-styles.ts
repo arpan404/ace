@@ -16,14 +16,14 @@ export const layers = {
  * quicker and accelerate away (styles/motion.css).
  */
 export const popupMotion = [
-  "origin-(--transform-origin) transition-[opacity,transform] duration-(--dur-2) ease-spring",
+  "origin-(--transform-origin) transition-[opacity,transform] duration-(--motion-base) ease-spring",
   "data-starting-style:scale-[0.98] data-starting-style:opacity-0",
   "data-[side=bottom]:data-starting-style:-translate-y-(--rise) data-[side=top]:data-starting-style:translate-y-(--rise)",
   "data-[side=right]:data-starting-style:-translate-x-(--rise) data-[side=left]:data-starting-style:translate-x-(--rise)",
-  "data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--dur-exit) data-ending-style:ease-exit",
+  "data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--motion-exit) data-ending-style:ease-exit",
 ].join(" ");
-export const overlaySurface =
-  "bg-popover border border-border shadow-glass text-popover-foreground";
+/** Floating glass (styles/glass.css): solid under Surfaces: Solid or reduced transparency. */
+export const overlaySurface = "ace-floating text-popover-foreground";
 export const popupSurface = `${overlaySurface} rounded-popup p-1 text-ui text-popover-foreground focus-visible:outline-none ${popupMotion}`;
 /** Positioners provide the space remaining after collision handling; long lists scroll inside it. */
 export const popupBounds =

@@ -13,7 +13,7 @@ export const inputMinLines = 2;
 
 /** One size for every footer control; labels are 13/16 so nothing lands on a half pixel. */
 const control =
-  "inline-flex h-(--composer-control) items-center justify-center gap-1.5 rounded-full text-ui leading-4 font-medium text-muted-foreground outline-none transition-[background-color,color,transform] duration-(--dur-1) hover:bg-accent hover:text-foreground active:scale-95 aria-expanded:text-foreground focus-visible:bg-accent focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-40 data-disabled:pointer-events-none data-disabled:opacity-40";
+  "inline-flex h-(--composer-control) items-center justify-center gap-1.5 rounded-full text-ui leading-4 font-medium text-muted-foreground outline-none transition-[background-color,color,transform] duration-(--motion-fast) hover:bg-accent hover:text-foreground active:scale-95 aria-expanded:text-foreground focus-visible:bg-accent focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-40 data-disabled:pointer-events-none data-disabled:opacity-40";
 
 /** A square icon control: plus, send and stop. It never gives up its room. */
 export const iconControl = `${control} size-(--composer-control) shrink-0 px-0`;
@@ -29,7 +29,7 @@ export const pillControl = `${control} shrink-0 gap-1 pr-2.5 pl-3.5`;
 export const chipControl = `${control} min-w-(--composer-control) shrink px-2.5`;
 
 /** One material for the input and its attached panels. Cast shadows would tint the footer. */
-export const composerSurface = "glass border border-sidebar-border shadow-none outline-none";
+export const composerSurface = "ace-floating border border-sidebar-border shadow-none outline-none";
 
 /** The top card's inset, overlap and lower padding share the surface spacing tokens. */
 export const attachedInset = "mx-[calc(var(--surface-gap)*2)]";
@@ -52,4 +52,4 @@ export const environmentRow = `${stripRowLayout} h-7`;
 
 /** A control on a tab's row: a 28px pill, quiet until hovered or open. */
 export const stripControl =
-  "inline-flex h-7 min-w-0 items-center gap-1.5 rounded-sm px-2 outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground aria-expanded:text-foreground focus-visible:bg-accent focus-visible:text-foreground";
+  "inline-flex h-7 min-w-0 items-center gap-1.5 rounded-sm px-2 outline-none transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground aria-expanded:text-foreground focus-visible:bg-accent focus-visible:text-foreground";
