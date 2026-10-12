@@ -16,6 +16,7 @@ const noKeys: readonly string[] = [];
 
 /** Full identities include late ancestry links on settled entities, not only active status. */
 function watchedEntity(reader: ThreadReader, key: string): unknown {
+  if (key === "thread") return reader.thread;
   if (key.startsWith("run:")) return reader.run(key.slice(4));
   if (key.startsWith("item:")) return reader.item(key.slice(5));
   if (key.startsWith("task:")) return reader.task(key.slice(5));
@@ -75,7 +76,8 @@ export function createBlockReader(
       status?.state === "blocked" &&
       status.on === "rate_limit" &&
       limitHoldShown(reader.thread?.status, reader.queue);
-    const heldTurn = limited ? newestTurn(reader) : undefined;
+    const newest = limited ? newestTurn(reader) : undefined;
+    const heldTurn = newest ? tree.turnId(newest) : undefined;
     if (heldTurn) paused.add(heldTurn);
     if (agentId !== undefined && ownOrder?.from !== reader.order)
       ownOrder = {
@@ -123,6 +125,24 @@ export function createBlockReader(
       pending: [...ledger.pending()].length > 0,
       turnSettled: agentId === undefined ? (id) => tree.settled(id) : undefined,
       turnEndedAt: (id) => tree.endedAt(id),
+      turnIdle: (id) => tree.clock(id)?.idle,
+      turnEnding:
+        agentId === undefined
+          ? (id) => {
+              const runId = tree.endingRun(id);
+              const run = ancestry.run(runId);
+              return run
+                ? {
+                    runId,
+                    state: run.state,
+                    trigger: run.trigger,
+                    startedAt: run.startedAt,
+                    endedAt: run.endedAt,
+                    failedOn: failedOn(run),
+                  }
+                : undefined;
+            }
+          : undefined,
       order,
       item: (id) => reader.item(id),
       background: ledger.background,

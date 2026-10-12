@@ -158,8 +158,13 @@ export function readTurnActivity(
   const run = runId ? reader.run(runId) : undefined;
   if (runId) watch.push(`run:${runId}`);
   // The server's turn start survives snapshots, partial messages and child work outliving it.
+  const clock = runId ? tree.clock(runId) : undefined;
   const from =
-    stretch.origin ?? run?.startedAt ?? reader.thread?.live?.workingSince ?? stretch.start;
+    clock?.from ??
+    stretch.origin ??
+    run?.startedAt ??
+    reader.thread?.live?.workingSince ??
+    stretch.start;
   const active = activity?.tone === "working" || workingTree;
   const shown =
     active &&
@@ -178,7 +183,7 @@ export function readTurnActivity(
             from === undefined
               ? undefined
               : from +
-                stretch.idle +
+                (clock?.idle ?? stretch.idle) +
                 ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from),
           current:
             activity?.current ??

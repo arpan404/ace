@@ -118,6 +118,8 @@ export interface BlockSource {
   /** Shared canonical settlement, including descendants without transcript output. */
   turnSettled?: ((runId: string) => boolean) | undefined;
   turnEndedAt?(runId: string): number | undefined;
+  turnIdle?(runId: string): number | undefined;
+  turnEnding?: ((runId: string) => (RunFacts & { runId: string }) | undefined) | undefined;
   /** The tool call an interaction was raised from, for ace's review notices. */
   reviewedCall?(interactionId: string): string | undefined;
   /** The turn a usage limit holds right now, and turns seen held earlier. */
@@ -299,6 +301,11 @@ export function buildBlocks(source: BlockSource): Block[] {
   const markOf = (id: string, ask: string | undefined) => {
     let found = turns.get(id);
     if (!found) {
+      const previous = ordered.at(-1);
+      if (previous && carriesOnStretch(source.run?.(id)?.trigger)) {
+        turns.set(id, previous);
+        return previous;
+      }
       found = {
         id,
         askId: ask,
@@ -316,7 +323,6 @@ export function buildBlocks(source: BlockSource): Block[] {
       };
       // A turn ace started after the previous one stopped (a restart, a limit resume).
       const trigger = source.run?.(id)?.trigger;
-      const previous = ordered.at(-1);
       if (previous && (trigger === "limit_resume" || trigger === "restart")) {
         previous.automatic = true;
         if (trigger === "limit_resume") previous.paused = true;
@@ -550,6 +556,8 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (turn.lastBlock < 0) continue;
     const pseudo = turn.id === "" || turn.id.startsWith("ask:");
     const facts = pseudo ? undefined : source.run?.(turn.id);
+    const ending =
+      source.turnEnding?.(turn.id) ?? (facts ? { ...facts, runId: turn.id } : undefined);
     const held = !pseudo && (source.heldTurn === turn.id || source.pausedTurns?.has(turn.id));
     if (held) turn.paused = true;
     if (
@@ -559,7 +567,7 @@ export function buildBlocks(source: BlockSource): Block[] {
       for (const block of turn.work) block.ongoing = true;
       // A pause shows while the turn waits on the limit, before anything settles.
       if (source.heldTurn === turn.id) {
-        place(turn.lastBlock, endBlock(turn, "paused", newest === turn));
+        place(turn.lastBlock, endBlock(turn, "paused", newest === turn, ending?.runId));
         for (const block of turn.work) absorbed.add(workAt.get(block) ?? -1);
       }
       continue;
@@ -575,9 +583,13 @@ export function buildBlocks(source: BlockSource): Block[] {
         ...taskEnds,
       );
       const first = turn.work[0];
-      const outcome = turn.paused ? "paused" : facts.state === "active" ? "completed" : facts.state;
+      const state = ending?.state ?? facts.state;
+      const outcome = turn.paused ? "paused" : state === "active" ? "completed" : state;
       if (first) {
         first.startedAt = facts.startedAt;
+        first.idle =
+          source.turnIdle?.(turn.id) ??
+          turn.work.reduce((total, work) => total + (work.idle ?? 0), 0);
         first.until = until;
         first.outcome = outcome;
         first.itemIds = turn.work.flatMap((block) => block.itemIds);
@@ -589,6 +601,7 @@ export function buildBlocks(source: BlockSource): Block[] {
           key: `work:turn:${turn.id}`,
           itemIds: [],
           startedAt: facts.startedAt,
+          idle: source.turnIdle?.(turn.id),
           until,
           outcome,
         };
@@ -602,25 +615,25 @@ export function buildBlocks(source: BlockSource): Block[] {
         key: `files:${turn.id || turn.askId || "start"}`,
         itemIds: turn.edits,
       });
-    const quota = facts?.failedOn === "quota";
+    const quota = ending?.failedOn === "quota";
     if (turn.paused && !quota) {
-      place(turn.lastBlock, endBlock(turn, "paused", newest === turn));
+      place(turn.lastBlock, endBlock(turn, "paused", newest === turn, ending?.runId));
       for (const block of turn.work) absorbed.add(workAt.get(block) ?? -1);
     }
     // A limit resume interrupts the paused turn: the pause already says why it stopped.
-    if (facts?.state === "failed") {
-      const end = endBlock(turn, "failed", newest === turn);
+    if (ending?.state === "failed") {
+      const end = endBlock(turn, "failed", newest === turn, ending.runId);
       if (turn.failure) {
         absorbed.add(turn.failure.index);
         end.errorId = turn.failure.itemId;
       }
       place(turn.lastBlock, end);
     } else if (
-      facts?.state === "interrupted" &&
+      ending?.state === "interrupted" &&
       !turn.paused &&
-      (facts.endedAt === undefined || facts.startedAt === undefined)
+      (ending.endedAt === undefined || facts?.startedAt === undefined)
     )
-      place(turn.lastBlock, endBlock(turn, "interrupted", newest === turn));
+      place(turn.lastBlock, endBlock(turn, "interrupted", newest === turn, ending.runId));
   }
   const result =
     after.size || before.size || absorbed.size
@@ -648,12 +661,13 @@ function endBlock(
   turn: TurnMark,
   ending: "failed" | "interrupted" | "paused",
   latest: boolean,
+  runId = turn.id,
 ): Extract<Block, { kind: "end" }> {
   return {
     kind: "end",
     key: `${ending === "paused" ? "pause" : "end"}:${turn.id}`,
     ending,
-    runId: turn.id,
+    runId,
     askId: turn.askId,
     automatic: turn.automatic,
     latest,

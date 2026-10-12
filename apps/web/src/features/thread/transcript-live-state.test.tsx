@@ -428,3 +428,71 @@ test("only the visible activity line ticks while ongoing work logs stay static",
     vi.useRealTimers();
   }
 });
+
+for (const outcome of ["completed", "interrupted", "failed"] as const) {
+  test(`a continuation stays working with no output yet and uses the whole stretch's ${outcome} ending`, async () => {
+    const { app, setTime } = await running();
+    act(() =>
+      app.daemon.apply(id, [
+        facts.toolDone("root", "build"),
+        facts.message("root", "first-answer", "assistant", "The first pass is complete."),
+        facts.endTurn("root"),
+      ]),
+    );
+    await screen.findByRole("button", { name: /^Worked for 1m 14s/ });
+    setTime(100_000);
+    act(() =>
+      app.daemon.apply(id, [
+        {
+          type: "turn.started",
+          agent: "root",
+          nativeTurnId: "continue",
+          trigger: "subagent_result",
+        },
+      ]),
+    );
+    await waitFor(() => expect(live().textContent).toContain("Working for 1m 14s"));
+    expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
+    setTime(105_000);
+    act(() =>
+      app.daemon.apply(id, [
+        facts.tool("root", "continued-build", {
+          kind: "shell",
+          title: "bun run build web",
+          detail: { kind: "shell", command: "bun run build web" },
+        }),
+      ]),
+    );
+    await waitFor(() => expect(live().textContent).toContain("Working for 1m 19s"));
+    expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
+    setTime(107_000);
+    act(() =>
+      app.daemon.apply(id, [
+        facts.toolDone("root", "continued-build"),
+        {
+          type: "turn.ended",
+          agent: "root",
+          nativeTurnId: "continue",
+          outcome,
+          ...(outcome === "failed"
+            ? { error: { kind: "unknown", message: "Continuation failed." } }
+            : {}),
+        },
+      ]),
+    );
+    const label =
+      outcome === "completed"
+        ? "Worked for"
+        : outcome === "interrupted"
+          ? "Stopped after"
+          : "Failed after";
+    expect(
+      await screen.findByRole("button", { name: new RegExp(`^${label} 1m 21s`) }),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole("button", { name: /^(Worked for|Stopped after|Failed after)/ }),
+    ).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Open work and agents" })).toBeNull();
+    if (outcome === "failed") expect(await screen.findByText("Continuation failed.")).toBeTruthy();
+  });
+}

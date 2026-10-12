@@ -417,6 +417,7 @@ test("continuations preserve the first server start and exclude the idle gap, in
     startedAt: 40_000,
   });
   thread.liveRun("run-2");
+  expect(turnTreeOf(thread.reader).settled("run-1")).toBe(false);
   // The server can start the continuation before its first output arrives.
   expect(activityText(turnActivity(thread.reader, "root")!, 40_000)).toBe("Working for 10s");
   thread.add({
@@ -426,6 +427,17 @@ test("continuations preserve the first server start and exclude the idle gap, in
   expect(activityText(turnActivity(thread.reader, "root")!, 45_000)).toBe("Working for 15s");
   // A new reader replays the same server facts instead of inheriting client-side timer state.
   expect(activityText(turnActivity({ ...thread.reader }, "root")!, 45_000)).toBe("Working for 15s");
+  expect(turnTreeOf({ ...thread.reader }).settled("run-1")).toBe(false);
+  thread.runs.set("run-2", {
+    ...run("run-2", "root"),
+    trigger: "subagent_result",
+    startedAt: 40_000,
+    endedAt: 50_000,
+    state: "completed",
+  });
+  thread.status({ state: "idle" });
+  expect(turnTreeOf(thread.reader).settled("run-1")).toBe(true);
+  expect(turnTreeOf(thread.reader).endedAt("run-1")).toBe(50_000);
 });
 
 test("running-step updates do not revisit retained agents or enumerate historical tasks", () => {
@@ -514,4 +526,21 @@ test("an unanchored root request stays with its server turn after a newer run st
   expect(turnTreeOf({ ...thread.reader }).settled("run-1")).toBe(false);
   thread.ask(approval("first-approval", 5_000, 45_000));
   expect(turnTreeOf(thread.reader).settled("run-1")).toBe(true);
+});
+
+test("a continuation recovered with only its new output still uses the original server stretch clock", () => {
+  const thread = world(working, []);
+  thread.runs.set("run-1", { ...run("run-1", "root"), state: "completed", endedAt: 10_000 });
+  thread.runs.set("run-2", {
+    ...run("run-2", "root"),
+    trigger: "background_completion",
+    startedAt: 40_000,
+  });
+  thread.liveRun("run-2");
+  thread.add({
+    ...shell("new-step", "bun run build", "running", 40_000),
+    runId: "run-2" as Run["id"],
+  });
+  expect(activityText(turnActivity(thread.reader, "root")!, 45_000)).toBe("Working for 15s");
+  expect(turnTreeOf(thread.reader).settled("run-1")).toBe(false);
 });
