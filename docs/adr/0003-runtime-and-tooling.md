@@ -13,7 +13,7 @@ Date: 2026-10-02. Status: accepted.
 | Effect                   | Not used                                                                                           | Heavy in mobile bundles and raises the bar for contributors. Process supervision uses plain TypeScript with `AbortController`                              |
 | Tests                    | Vitest                                                                                             |                                                                                                                                                            |
 | Lint, format             | oxlint, oxfmt                                                                                      |                                                                                                                                                            |
-| Clients                  | React (web and Electron share one bundle), SwiftUI + shared @ace/client via JavaScriptCore for iOS | Native iOS decision and measured gate in ADR 0072                                                                                                          |
+| Clients                  | React (web and Electron share one bundle), SwiftUI + shared @ace/client via JavaScriptCore for iOS | Native iOS decision and measured gate in ADR 0074                                                                                                          |
 
 ## Consequences
 
@@ -22,7 +22,7 @@ Date: 2026-10-02. Status: accepted.
 
 ## Amendment, 2026-10-12: native iOS spike
 
-[ADR 0072](0072-native-ios-client.md) supersedes "Expo for mobile" with the requested
+[ADR 0074](0074-native-ios-client.md) supersedes "Expo for mobile" with the requested
 SwiftUI + shared `@ace/client` via JavaScriptCore architecture. This names the current
 spike, not a passed shipping gate. Phase 1 remains held because stable 60/120 fps
 rendering has not been established. An approach change requires the maintainer's

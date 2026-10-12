@@ -1,4 +1,4 @@
-# 0072: Native iOS client on the shared SDK through JavaScriptCore
+# 0074: Native iOS client on the shared SDK through JavaScriptCore
 
 Date: 2026-10-12. Status: Phase 0 implemented; smoothness gate not passed. Phase 1 held.
 Amends [ADR 0003](0003-runtime-and-tooling.md). Refs #560.
@@ -28,7 +28,13 @@ device credential; it implements no provider credential collection or storage.
 The bridge retains changed keys and readers, with one acknowledged frame in flight.
 Each frame is capped at 32 patches and 32 KiB UTF-8. Streaming changes update one
 observable row. Membership changes send item/position changes without copying
-unchanged text. Navigation generations reject stale patches, including reopening
+unchanged text. Display titles and metadata use 512-code-unit previews, approval
+descriptions 2,048, commands 8,192 and option labels 128, with visible shortening.
+Canonical state, identities and action IDs stay exact. Exceptional patches use
+acknowledged 4,096-byte UTF-8 fragments rather than being discarded; native assembly
+admits one complete patch at a time, capped at 8 MiB against the SDK's 2 MiB wire
+frame limit. The SDK's existing item truncation flag is preserved alongside bridge
+truncation. Navigation generations reject stale patches, including reopening
 the same thread. Leaving a thread cancels its outstanding SDK history reads.
 The spike retains at most 2,200 items with SDK text bounds of 8,192 code units.
 Snapshots still contain at most 200 items; the 2,000-item run hydrates through
@@ -79,10 +85,46 @@ Raw evidence: [summary](../design/ios-spike/results.json), [input/cadence sample
 [XCTest scroll metrics](../design/ios-spike/scroll-xctest.json),
 [memory samples](../design/ios-spike/memory-raw.json). Latency uses nearest-rank p95.
 The input/cadence runs precede the final navigation-cancellation review fixes and
-the shared typography/layout token follow-up. Navigation fixes receive separate
-behavior verification; refreshed screenshots verify the token follow-up. No
-performance improvement is claimed for either change; these numbers are not a new
-measurement of the final visual revision.
+the shared typography/layout token follow-up and round-1 command/fragment fixes.
+These fixes receive separate behavior verification; refreshed screenshots verify
+the final visual revision. No performance improvement is claimed for these changes;
+the numbers above are not a new measurement of the final revision.
+
+## Round-1 review fixes and verification
+
+Local UI request IDs correlate admission and receipt results; the SDK allocates
+protocol command IDs. `ClientCore.enqueue()` confirms durable local admission.
+Composer text stays visible until that promise succeeds, remains on SDK limit or
+SQLite write failure, and does not erase edits made while a save is in flight.
+Daemon refusal remains represented by the SDK's retained failed send payload.
+No native layer implements its own admission, replay or outbox state machine.
+
+Approval submission state is keyed by interaction and request ID. Failed local
+admission or a refused receipt restores controls for that attempt. Successful
+admission displays Waiting for the daemon; only canonical interaction updates
+close the card. Unrelated or older attempt results cannot release another card.
+
+Fourteen Swift behavior/bridge tests pass on iOS 26.5. New real-edge contracts cover
+Done → Working with oversized Unicode metadata, large approval details and an
+exact 40,007-character action ID, SDK send-limit rejection, SQLite trigger-induced
+rollback, successful durable retry, and approval recovery after persistence failure
+and daemon refusal. Scoped formatter, lint, `@ace/ios` typecheck and theme
+reproducibility also pass. Xcode builds remain serial with `-jobs 4`.
+The three-screen capture and actual offline-send/termination/relaunch UI cases
+also pass. The latter exposed a focus failure with the token-sized composer field;
+the field now uses the shared 48-point minimum touch height and token insets, and
+the replay case passes with native typing. This is functional verification, not a
+new input-latency or rendering measurement.
+
+Two round-1 gaps remain for Phase 1:
+
+- A second `ClientModel.connect()` still replaces a runtime without awaiting its
+  shutdown or rejecting callbacks from the older connection. The spike app starts
+  one connection; reusable multi-machine connection lifecycle needs this fix.
+- The termination/relaunch test covers a persisted send before daemon admission.
+  It does not force the separate failure window of daemon admission followed by a
+  lost receipt, termination and replay. Add that contract and verify one canonical
+  input after replay settles. Existing replay evidence does not cover this window.
 
 ## Screens and remaining scope
 

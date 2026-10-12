@@ -1,7 +1,7 @@
 # Native iOS spike
 
 Phase 0 of #560. SwiftUI runs the shared `@ace/client` SDK in JavaScriptCore on a
-dedicated thread. See [ADR 0072](../../docs/adr/0072-native-ios-client.md) for the
+dedicated thread. See [ADR 0074](../../docs/adr/0074-native-ios-client.md) for the
 measured gate and current hold on Phase 1.
 
 ## Run
@@ -43,7 +43,7 @@ uses the shared enter duration and respects Reduce Motion.
 ## Verification
 
 With the fixture running, use the same destination and `-jobs 4`, adding
-`-parallel-testing-enabled NO`. Select `-only-testing:AceTests` for the nine Swift
+`-parallel-testing-enabled NO`. Select `-only-testing:AceTests` for the fourteen Swift
 behavior/bridge tests, or individual `AceUITests/SpikeUITests` methods for screenshots,
 scrolling, typing, actual offline termination/relaunch, and the two-minute memory run.
 Keep a fresh fixture for screenshot/scroll/memory runs; restart verification accepts
@@ -66,6 +66,9 @@ simulator screenshots.
 - `Sources/Bridge/` owns a VM and run loop. Swift callbacks return to that thread;
   SwiftUI receives decoded, owned data. A single acknowledged frame carries at most
   32 patches and 32 KiB. Pending changes retain keys and readers, not transcript copies.
+  Oversized updates use acknowledged 4,096-byte fragments with one native assembly
+  capped at 8 MiB. Display previews are shortened; canonical identities and actions
+  stay exact. No oversized update is silently discarded.
 - `Sources/Host/` owns URLSession sockets and transactional SQLite. Durable record writes
   use WAL with FULL synchronous commits before resolving JS promises. The database path
   includes daemon/device identity; its immutable host binding rejects another daemon.
@@ -73,6 +76,9 @@ simulator screenshots.
   change the order separately. The SDK bounds the spike window to 2,200 items and text
   to 8,192 code units. Snapshots remain capped at 200; the spike calls the SDK's history
   paging API to admit the rest.
+- Composer drafts clear after `ClientCore.enqueue()` confirms local persistence.
+  Failure preserves the input. Approval controls recover through correlated
+  admission/receipt results; canonical interaction updates close the card.
 - Encoding and secure entropy adapters provide the portable core's required globals.
   This is a direct TLS spike, not a browser runtime or a full Web Crypto implementation.
   Additional URL/crypto APIs for future service and encrypted-relay flows need contracts
@@ -86,6 +92,11 @@ QR-confirmed SHA-256 DER SPKI pin; redirects are refused. Actual paired TLS, tic
 exchange, QR onboarding, Keychain, Face ID, multi-machine UI, questions, Agents and
 Changes remain Phase 1 work. SPKI adapter implementation is present; it has not been
 validated against a real paired daemon in this spike.
+
+Round-1 deferred gaps: replacing a connection must await the old runtime and reject
+its callbacks; a contract must force daemon admission followed by a lost receipt,
+termination and replay. The current app starts only one runtime and the existing
+restart test covers pre-admission offline persistence.
 
 APNs and Live Activity remain Phase 2. No hosted relay, paid Apple service or APNs
 signing credentials are implemented here. The proposed delivery design and approval
