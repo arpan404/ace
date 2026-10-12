@@ -4,6 +4,7 @@ import { z } from "zod";
 import { DeviceId, HostId } from "@ace/protocol";
 import { call, scheduler } from "./host.ts";
 import { PatchPump, followInbox, followThread } from "./patches.ts";
+import { preview } from "./presentation.ts";
 import { dispatchCommand } from "./commands.ts";
 
 const Config = z.object({
@@ -104,11 +105,13 @@ async function start(json: string): Promise<void> {
               threadId: pending.threadId,
               state: pending.state,
               waiting: pending.waiting,
-              text: pending.payload.input
-                .filter((part) => part.type === "text")
-                .map((part) => part.text)
-                .join("\n")
-                .slice(0, 8192),
+              text: preview(
+                pending.payload.input
+                  .filter((part) => part.type === "text")
+                  .map((part) => part.text)
+                  .join("\n"),
+                8192,
+              ),
             }
           : null,
       };

@@ -1,3 +1,4 @@
+import { preview } from "./presentation.ts";
 import { CommandPayload } from "@ace/protocol";
 import type { ClientCore } from "@ace/client";
 import type { PatchPump } from "./patches.ts";
@@ -25,7 +26,7 @@ export async function dispatchCommand(
         type: "receipt",
         id: requestId,
         ok: result.ok,
-        message: result.ok ? "" : (result.error ?? "Request refused"),
+        message: result.ok ? "" : preview(result.error ?? "Request refused", 2048),
       }));
     };
     stop = intent.subscribe(receipt);

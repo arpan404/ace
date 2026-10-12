@@ -1,11 +1,11 @@
 import type { Item, Thread, ThreadListEntry, Interaction } from "@ace/protocol";
 import { threadAttention } from "@ace/projection";
 import type { ThreadReader } from "@ace/client";
+import { host } from "./host.ts";
 
-function preview(text: string, limit = 512): string {
-  if (text.length <= limit) return text;
-  const end = text.charCodeAt(limit - 1);
-  return text.slice(0, end >= 0xd800 && end <= 0xdbff ? limit - 1 : limit) + "…";
+/** Native Unicode segmentation also replaces ill-formed display text before JSON encoding. */
+export function preview(text: string, limit = 512): string {
+  return host.previewHead(text, limit);
 }
 
 export function threadRow(thread: Thread | ThreadListEntry) {
@@ -43,7 +43,7 @@ export function itemRow(item: Item, index?: number, sourceTruncated = false) {
     index: index ?? null,
     type: item.type,
     role,
-    text: text.slice(-8192),
+    text: host.previewTail(text, 8192),
     complete: item.complete,
     createdAt: item.createdAt,
     agentId: "agentId" in item ? item.agentId : "",

@@ -34,6 +34,8 @@ final class NativeHost: @unchecked Sendable {
         let random: @convention(block) () -> Double = { Double(UInt32.random(in: .min ... .max)) / 4294967296 }
         let encode: @convention(block) (String) -> [UInt8] = { Array($0.utf8) }
         let utf8Base64: @convention(block) (String) -> String = { Data($0.utf8).base64EncodedString() }
+        let previewHead: @convention(block) (String, Int) -> String = { DisplayText.head($0, limit: $1) }
+        let previewTail: @convention(block) (String, Int) -> String = { DisplayText.tail($0, limit: $1) }
         let decode: @convention(block) ([UInt8], String, Bool) -> String = { bytes, encoding, fatal in
             let data = Data(bytes)
             let selected: String.Encoding = encoding.lowercased() == "utf-16le" ? .utf16LittleEndian : .utf8
@@ -59,7 +61,8 @@ final class NativeHost: @unchecked Sendable {
         }
         let functions: [String: Any] = ["call": call, "emit": emit, "socket": socket, "timer": timer,
             "cancelTimer": cancel, "now": now, "uuid": uuid, "random": random, "encode": encode,
-            "decode": decode, "randomBytes": entropy, "base64": base64, "utf8Base64": utf8Base64]
+            "decode": decode, "randomBytes": entropy, "base64": base64, "utf8Base64": utf8Base64,
+            "previewHead": previewHead, "previewTail": previewTail]
         context.setObject(functions, forKeyedSubscript: "aceHost" as NSString)
     }
     private func call(_ operation: String, json: String, callback: Callback) {
