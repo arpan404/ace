@@ -42,7 +42,8 @@ export function forgeError(code: string): string {
     forge_limit:
       "GitHub returned more data than ace can safely display. Open GitHub for the complete resource.",
     forge_conflict: "The pull request changed while reading. Refresh before continuing.",
-    forge_unsupported: "This repository's forge is not supported yet. Choose a GitHub project.",
+    forge_unsupported:
+      "This host or GitHub capability is not supported. Open GitHub for this action.",
     forge_invalid_data: "GitHub returned an unreadable response. Refresh to try again.",
   };
   return messages[code] ?? actionErrorText(code);

@@ -1,3 +1,4 @@
+import { decodeStackMergeOperation } from "./github-stack-operation.ts";
 import { MutationDispatch, isForgeMutation } from "./mutation.ts";
 import { createHash } from "node:crypto";
 import { immutable } from "./immutable.ts";
@@ -185,11 +186,33 @@ export class GhApi {
       dispatch.reject();
       throw new ForgeError("rate_limit", rateLimitRetryAt(headers, this.#now()), false);
     }
-    if ([401, 403, 404, 409, 422].includes(code)) dispatch.reject();
+    if ([401, 403, 404, 422].includes(code)) dispatch.reject();
     if (code === 404) throw new ForgeError("not_found", undefined, false);
     if (code === 401 || code === 403) throw new ForgeError("forbidden", undefined, false);
-    if (code === 409 || code === 422) throw new ForgeError("conflict", undefined, false);
-    if (code < 200 || code >= 300) throw new ForgeError("cli");
+    // Only a validated native result can turn an error status into acknowledgement.
+    const nativeResultCandidate =
+      (code === 409 || code === 400) &&
+      method === "PUT" &&
+      /^repos\/[\w.-]+\/[\w.-]+\/pulls\/[1-9]\d*\/merge-async$/.test(path);
+    let nativeBody: unknown;
+    if (nativeResultCandidate) {
+      try {
+        nativeBody = immutable(redactData(JSON.parse(text)));
+      } catch {
+        // An unreadable error body cannot establish a native acknowledgement.
+      }
+    }
+    const operation = nativeResultCandidate ? decodeStackMergeOperation(nativeBody) : undefined;
+    // A known native result or a validated polling UUID establishes acknowledgement.
+    // Unknown native states with a UUID remain uncertain and recoverable.
+    const mergeResult =
+      operation !== undefined &&
+      (code !== 409 || operation.state !== "uncertain" || operation.uuid !== undefined);
+    if ((code === 409 && !mergeResult) || code === 422) {
+      dispatch.reject();
+      throw new ForgeError("conflict", undefined, false);
+    }
+    if (!mergeResult && (code < 200 || code >= 300)) throw new ForgeError("cli");
     // gh exits 1 for GraphQL errors even with HTTP 200. Classify complete bodies
     // before the CLI fallback, including before any cached representation is reused.
     if (path === "graphql") {
@@ -202,7 +225,7 @@ export class GhApi {
       }
       assertGraphqlResult(graphqlBody, dispatch, rateLimitRetryAt(headers, this.#now()));
     }
-    if (output.code !== 0) throw new ForgeError("cli");
+    if (output.code !== 0 && !mergeResult) throw new ForgeError("cli");
     const version = createHash("sha256").update(text).digest("hex");
     const safeHeaders = {
       ...(headers.etag && /^[\x20-\x7e]{1,512}$/.test(headers.etag) ? { etag: headers.etag } : {}),
@@ -213,11 +236,13 @@ export class GhApi {
       this.#retain(cacheKey, cached);
       return cached;
     }
-    let data: unknown;
-    try {
-      data = text.trim() ? immutable(redactData(JSON.parse(text))) : null;
-    } catch {
-      throw new ForgeError("invalid_data");
+    let data: unknown = nativeBody;
+    if (!mergeResult) {
+      try {
+        data = text.trim() ? immutable(redactData(JSON.parse(text))) : null;
+      } catch {
+        throw new ForgeError("invalid_data");
+      }
     }
     const page: Page = {
       version,
