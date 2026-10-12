@@ -1,6 +1,12 @@
-import { ArrowLeftIcon, ArrowRightIcon, CaretLeftIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  CaretLeftIcon,
+  DotsThreeIcon,
+  SidebarSimpleIcon,
+} from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { Suspense, useRef, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { SidebarTrigger } from "@/components/ui/sidebar.tsx";
 import { HeaderMenu } from "./sidebar-menu.tsx";
@@ -39,9 +45,15 @@ export interface HeaderProps {
  * sidebar while it shows beside the content, at the header's far left while it doesn't.
  * ⌘[ and ⌘] go back and forward; ⌘\ shows or hides the sidebar.
  */
-export function NavButtons() {
+export function NavButtons(props: { placement: "sidebar" | "header" }) {
   const nav = useHistoryNav();
   const frame = useViewFrame();
+  const toggle = useRef<HTMLButtonElement>(null);
+  // The toggle that just took the other's place takes its focus too.
+  const shown = (props.placement === "sidebar") === frame.sidebarShown;
+  useEffect(() => {
+    if (shown && frame.takeToggleFocus()) toggle.current?.focus();
+  }, [shown, frame]);
   return (
     <>
       <IconButton
@@ -58,9 +70,17 @@ export function NavButtons() {
         disabled={!nav.canGoForward}
         onClick={nav.forward}
       />
-      <SidebarTrigger
+      <IconButton
+        ref={toggle}
+        data-sidebar="trigger"
+        icon={SidebarSimpleIcon}
         label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
         shortcut="toggleSidebar"
+        onClick={(event) => {
+          if (event.currentTarget === document.activeElement) frame.passToggleFocus();
+          if (frame.sidebarShown) frame.hideSidebar();
+          else frame.showSidebar();
+        }}
       />
     </>
   );
@@ -83,7 +103,7 @@ export function HeaderNav() {
       className="mr-1.5 flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]"
     >
       {!phone ? (
-        <NavButtons />
+        <NavButtons placement="header" />
       ) : frame.sidebarShown ? (
         <SidebarTrigger label="Hide sidebar" shortcut="toggleSidebar" />
       ) : (

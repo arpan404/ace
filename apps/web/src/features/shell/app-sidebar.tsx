@@ -85,7 +85,7 @@ export function AppSidebar(props: {
             </>
           )}
           {/* Beside the content, the sidebar's top row holds back, forward and its toggle. */}
-          {!sheet && <NavButtons />}
+          {!sheet && <NavButtons placement="sidebar" />}
         </div>
       </nav>
       {/* The thread list, or a view's own (`ViewFrame`): the only part that scrolls. */}
