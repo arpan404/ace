@@ -1,8 +1,14 @@
 import type { ThreadReader } from "@ace/client";
 import { isTestCommand } from "@ace/projection";
-import type { Interaction, Item, ThreadStatus } from "@ace/protocol";
+import type { AgentStatus, Interaction, Item, ThreadStatus } from "@ace/protocol";
 import { turnTreeOf } from "./turn-tree.ts";
-import { askingLabel, describeLive, type LiveFact } from "./live-status.ts";
+import {
+  askingLabel,
+  describeLive,
+  treeWorking,
+  type LiveFact,
+  type RootStand,
+} from "./live-status.ts";
 import { providerNames } from "./providers.ts";
 import { limitHoldShown } from "./queue.ts";
 import { formatClock, formatElapsed } from "./time.ts";
@@ -151,7 +157,6 @@ export function readTurnActivity(
     waitingCount,
   );
   const backgroundCommands = tree.backgroundCommands;
-  const workingTree = subagents > 0 || backgroundCommands > 0;
   const stretch = ledgerOf(reader).currentStretch(reader);
   for (const id of stretch.watch) watch.push(`item:${id}`);
   const runId = reader.thread?.live?.rootRunId ?? stretch.runId;
@@ -165,35 +170,49 @@ export function readTurnActivity(
     run?.startedAt ??
     reader.thread?.live?.workingSince ??
     stretch.start;
-  const active = activity?.tone === "working" || workingTree;
-  const shown =
-    active &&
-    activity?.tone !== "needs-you" &&
-    activity?.tone !== "paused" &&
-    (!activity ||
-      activity.tone === "working" ||
-      activity.label.startsWith("Watching") ||
-      activity.label.startsWith("Waiting on"))
-      ? {
-          ...activity,
-          code: undefined,
-          label: options.stopping ? "Stopping…" : "Working",
-          tone: "working" as const,
-          elapsedFrom:
-            from === undefined
-              ? undefined
-              : from +
-                (clock?.idle ?? stretch.idle) +
-                ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from),
-          current:
-            activity?.current ??
-            currentAction(stretch.current, options.labels) ??
-            tree.currentCommand(),
-          subagents,
-          backgroundCommands,
-        }
-      : activity;
+  const working = treeWorking({
+    needsYou: tree.needsYou || activity?.tone === "needs-you",
+    root: rootStandOf(activity, status),
+    subagents,
+    backgroundCommands,
+  });
+  const shown = working
+    ? {
+        ...activity,
+        code: undefined,
+        label: options.stopping ? "Stopping…" : "Working",
+        tone: "working" as const,
+        elapsedFrom:
+          from === undefined
+            ? undefined
+            : from +
+              (clock?.idle ?? stretch.idle) +
+              ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from),
+        current:
+          activity?.current ??
+          currentAction(stretch.current, options.labels) ??
+          tree.currentCommand(),
+        subagents,
+        backgroundCommands,
+      }
+    : activity;
   return { activity: shown, watch: [...new Set(watch)] };
+}
+
+/** Where the root stands under its live line, for the shared `treeWorking` rule. */
+function rootStandOf(
+  activity: TurnActivity | undefined,
+  status: AgentStatus | undefined,
+): RootStand {
+  if (!activity) return "idle";
+  if (activity.tone === "working") return "working";
+  if (
+    activity.tone === "held" &&
+    status?.state === "blocked" &&
+    (status.on === "subagents" || status.on === "background_task")
+  )
+    return "on-tree";
+  return "held";
 }
 
 function readActivity(

@@ -22,8 +22,10 @@ import {
 import { formatAge, formatShortClock } from "./time.ts";
 import {
   describeLive,
+  listTreeFacts,
   liveStatusText,
   threadLiveFact,
+  treeWorking,
   type LiveStatus,
   type LiveFact,
 } from "./live-status.ts";
@@ -195,16 +197,19 @@ export function middleTruncateText(text: string, max: number): string {
 function compactStatus(
   entry: ThreadListEntry,
   fact: LiveFact | undefined,
+  working: boolean,
   now: number,
   locale?: string,
 ): string {
+  // The transcript's live line reads the same rule, so the two never disagree.
+  if (working) return "Working";
   if (fact?.kind === "asking") {
     if (fact.request === "approval") return "Approve";
     return fact.request === "plan_review" ? "Needs you" : "Answer";
   }
   if (fact?.kind === "limited" && fact.until !== undefined && fact.until > now)
     return `Limited ${formatShortClock(fact.until, locale)}`;
-  if (fact?.kind === "subagents" || entry.status.state === "waiting") return "Waiting";
+  if (entry.status.state === "waiting") return "Waiting";
   if (entry.status.state === "unresponsive") return "Failed";
   return threadStatusLabel(entry.status).label;
 }
@@ -224,7 +229,11 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
   const subagents = entry.live?.runningSubagentCount ?? runningSubagents(entry.status);
   // What it is doing, when the daemon's live hints say more than its state.
   const fact = threadLiveFact(entry);
-  const live = fact && describeLive(fact, now, input.locale);
+  const described = fact && describeLive(fact, now, input.locale);
+  // A tree still running reads as Working on every surface, whatever its root waits on.
+  const working = treeWorking(listTreeFacts(entry));
+  const live = described && working ? { ...described, tone: "working" as const } : described;
+  const since = entry.live?.workingSince ?? activityOf(entry);
   const { label, tone } =
     recovery ??
     (live ? { label: liveStatusText(live), tone: live.tone } : threadStatusLabel(entry.status));
@@ -242,7 +251,7 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
       : recovery
         ? { ...recovery, icon: recovery.tone === "failed" ? "failed" : "waiting" }
         : live
-          ? livePill(live)
+          ? { ...livePill(live), ...(working ? { since } : {}) }
           : taskPill(entry.status, {
               unread,
               since: entry.live?.workingSince ?? activityOf(entry),
@@ -273,10 +282,8 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
       label,
       tone,
       mark: recovery?.mark ?? threadStatusMark(entry.status),
-      compact: recovery?.label ?? compactStatus(entry, fact, now, input.locale),
-      ...(entry.status.state === "working" && fact?.kind !== "subagents"
-        ? { since: entry.live?.workingSince ?? activityOf(entry) }
-        : {}),
+      compact: recovery?.label ?? compactStatus(entry, fact, working, now, input.locale),
+      ...(working ? { since } : {}),
     },
     provider: entry.provider,
     subagents,

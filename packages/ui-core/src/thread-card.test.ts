@@ -222,13 +222,13 @@ test("a row says what its thread is doing when the daemon's live hints know more
   );
   expect(watching.pill).toMatchObject({ label: "Watching", code: "bun run dev:relay" });
   expect(watching.status.label).toBe("Watching bun run dev:relay");
-  expect(watching.status.compact).toBe("Waiting");
+  // The command still runs, so the row's word is the transcript's: Working.
+  expect(watching.status).toMatchObject({ compact: "Working", tone: "working" });
 
   const subagents = card({ state: "working", agents: 3 }, { waitingOn: 2 });
   expect(subagents.pill).toMatchObject({ label: "Waiting on 2 subagents", tone: "working" });
-  expect(subagents.pill?.since).toBeUndefined();
-  expect(subagents.status.compact).toBe("Waiting");
-  expect(subagents.status.since).toBeUndefined();
+  expect(subagents.status.compact).toBe("Working");
+  expect(subagents.status.since).toBe(subagents.pill?.since);
 
   const asking = card(
     { state: "needs_you", interactions: 1 },

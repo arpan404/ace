@@ -56,8 +56,8 @@ test("a plan review says Needs you and explains the request on hover", async () 
 
 test.each([
   [askingQuestion, "Answer", "Waiting for your answer"],
-  [waitingOnSubagents, "Waiting", "Waiting on 2 subagents"],
-  [watchingRelay, "Waiting", "Watching bun run dev:relay"],
+  [waitingOnSubagents, "Working", "Waiting on 2 subagents"],
+  [watchingRelay, "Working", "Watching bun run dev:relay"],
   [runningTests, "Working", "Running tests…"],
 ])(
   "short row statuses keep the full explanation for hover and screen readers: %s",

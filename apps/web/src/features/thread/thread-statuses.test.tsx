@@ -50,6 +50,21 @@ test("a thread waiting on subagents keeps the transcript live with their count",
   expect(within(header).queryByRole("status")).toBeNull();
 });
 
+test.each([
+  ["waiting on its subagents", waitingOnSubagents],
+  ["watching its background command", watchingRelay],
+])(
+  "a thread %s reads Working in its sidebar row and its transcript alike",
+  async (_name, scenario) => {
+    const { feed, row } = await open(scenario());
+    expect(within(feed).getByRole("status", { name: "Working" }).textContent).toMatch(
+      /^Working for/,
+    );
+    expect(within(row).getByText("Working", { exact: true })).toBeTruthy();
+    expect(within(row).queryByText("Waiting", { exact: true })).toBeNull();
+  },
+);
+
 test("a thread that asked a question keeps the waiting state in the thread and row", async () => {
   const { header, row } = await open(askingQuestion());
   expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
