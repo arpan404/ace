@@ -78,6 +78,12 @@ continuations, delegation results and reservations. A pinned or live descendant
 protects its ancestors and siblings. Force never overrides these protections.
 Referenced or leased attachments remain protected independently of thread age.
 
+Worktree discovery requires durable proof that ace created the checkout inside
+its managed worktree root. The record pins the root, checkout, repository and Git
+administration directory identities. Hand-created linked worktrees, including
+ones inside that root, and older checkouts without creation provenance are never
+cleanup candidates. Replaced directories cannot inherit cleanup authority.
+
 A force request names individual IDs from a preview, then creates another plan.
 It can bypass only a worktree's uncommitted and unpublished-work refusals. Main
 checkouts, locked worktrees, unknown Git state and mutation quarantine remain
@@ -107,8 +113,12 @@ and branch removal use `GitService.nonExecuting`, retaining mutation quarantine.
 Reviewed plans persist in SQLite before apply. Apply validates the whole plan
 before its first effect, then checks every item again. It records an admission
 fence and running progress before destructive I/O. Thread fences deny new sends,
-terminal opens and organization changes. Worktree root reservations fence other
-owners of that cwd. Removal records a permanent root marker, preventing a retained
+terminal opens and organization changes. Worktree root reservations are committed
+before final asynchronous Git inspection. Current root owners, including local
+workspace owners without engine sessions, are then revalidated under that fence
+and immediately before Git dispatch. Confirmed pre-deletion refusals become
+protected and release their fences; uncertain effects keep the running journal
+and fences for recovery. Removal records a permanent root marker, preventing a retained
 thread from reopening a missing checkout. Startup resumes accepted running plans.
 Attachment deletion has a second journal inside its existing serializer, covering
 the original file, its MIME alias and byte accounting across a crash.
@@ -131,7 +141,11 @@ cleanliness proof.
 
 Optional compaction checks that execution and history publication are idle and
 that at least three database sizes of free disk remain. It uses a separate
-connection, no surrounding transaction, and zero busy timeout. Existing
+child process, no surrounding transaction, and zero busy timeout. A scoped
+maintenance lease closes new work admission and pauses parent writes while SQLite
+readers and socket heartbeats remain available. The helper has a 30-second
+deadline and is killed on timeout or shutdown. Admission is restored only after
+confirmed process termination; uncertain termination keeps its fence. Existing
 incremental auto-vacuum databases reclaim 256 pages; other databases use VACUUM.
 A busy database or insufficient disk returns `deferred`. See SQLite's
 [VACUUM contract](https://www.sqlite.org/lang_vacuum.html) and Git's
@@ -158,6 +172,10 @@ verification should include these production mutations:
 - Follow a substituted directory symlink.
 - Remove a blob while a provider lease owns it.
 - Bypass pushed-commit or hidden-index checks.
+- Infer cleanup ownership from a linked worktree or directory name.
+- Admit a new root owner during final cleanup inspection.
+- Retain admission fences after a confirmed pre-deletion refusal.
+- Block socket reads and heartbeats on compaction.
 - Enable repository fsmonitor/filter execution during cleanup.
 - Remove a changed branch instead of compare-and-deleting it.
 - Omit either running journal or its startup replay.

@@ -1,9 +1,9 @@
-import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { statfs } from "node:fs/promises";
 import { join } from "node:path";
+import { startCompactionProcess } from "./compaction-process.ts";
 import type { StorageOwner } from "./types.ts";
 
-/** An idle-only operation on a separate connection, outside every receipt transaction. */
+/** Reserve maintenance admission and parent writes before starting the separate SQLite process. */
 export async function compactStorage(owner: StorageOwner): Promise<"complete" | "deferred"> {
   const idle = () =>
     !owner.store.isHistoryWriting() &&
@@ -16,22 +16,36 @@ export async function compactStorage(owner: StorageOwner): Promise<"complete" | 
     (!owner.services.engine || owner.services.engine.workload().activeSessions === 0);
   if (!idle()) return "deferred";
   const free = await statfs(owner.root);
-  if (!idle()) return "deferred";
-  const db = new DatabaseSync(join(owner.root, "events.sqlite"));
+  if (!idle() || owner.signal?.aborted) return "deferred";
+  const release = owner.maintenance?.storageLease();
+  let worker: ReturnType<typeof startCompactionProcess> | undefined;
+  let restored = false;
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    try {
+      owner.store.endStorageCompaction();
+    } finally {
+      release?.();
+    }
+  };
   try {
-    db.exec("PRAGMA busy_timeout=0");
-    const pageSize = Number(db.prepare("PRAGMA page_size").get()?.page_size);
-    const pages = Number(db.prepare("PRAGMA page_count").get()?.page_count);
-    if (free.bavail * free.bsize < pages * pageSize * 3) return "deferred";
-    // No awaits after the idle check. The daemon cannot admit another event while SQLite runs.
-    const mode = Number(db.prepare("PRAGMA auto_vacuum").get()?.auto_vacuum);
-    if (mode === 2) db.exec("PRAGMA incremental_vacuum(256)");
-    else db.exec("VACUUM");
-    const checkpoint = db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get();
-    return Number(checkpoint?.busy) === 0 ? "complete" : "deferred";
+    owner.store.beginStorageCompaction();
+    worker = startCompactionProcess(
+      { database: join(owner.root, "events.sqlite"), availableBytes: free.bavail * free.bsize },
+      owner.signal ?? new AbortController().signal,
+      owner.compaction,
+    );
+    const result = await worker.result;
+    if (!result.confirmed) {
+      // Unknown termination cannot release a writer fence. Keep it until the owned process exits.
+      void worker.exited.then(restore).catch(() => {});
+      return "deferred";
+    }
+    restore();
+    return result.status;
   } catch {
+    if (!worker) restore();
     return "deferred";
-  } finally {
-    db.close();
   }
 }

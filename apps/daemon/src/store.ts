@@ -310,7 +310,7 @@ export class Store {
         this.depth--;
       }
     }
-    this.db.exec("BEGIN IMMEDIATE");
+    this.db.exec(this.storageCompacting ? "BEGIN" : "BEGIN IMMEDIATE");
     this.transactionEvents = [];
     let result: T;
     let events: Event[];
@@ -400,6 +400,21 @@ export class Store {
     } finally {
       this.publishing = false;
     }
+  }
+  private storageCompacting = false;
+  /** Engine intake waits; synchronous metadata mutations fail fast while WAL readers stay available. */
+  beginStorageCompaction(): void {
+    if (this.isHistoryWriting() || this.transactionEvents)
+      throw new Error("storage_compaction_busy");
+    this.setHistoryWriting(true);
+    this.storageCompacting = true;
+    this.db.exec("PRAGMA query_only=ON; PRAGMA busy_timeout=0");
+  }
+  endStorageCompaction(): void {
+    if (!this.storageCompacting) return;
+    this.db.exec("PRAGMA query_only=OFF; PRAGMA busy_timeout=5000");
+    this.storageCompacting = false;
+    this.setHistoryWriting(false);
   }
   private historyWaiters = new Set<() => void>();
   isHistoryWriting(): boolean {

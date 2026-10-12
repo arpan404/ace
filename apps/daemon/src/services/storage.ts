@@ -10,9 +10,15 @@ export async function startStorage(context: ServiceContext): Promise<void> {
     now: context.now,
     id: context.id,
     root: context.config.dataDir,
+    signal: context.signal,
+    ...(context.options.storageCompaction ? { compaction: context.options.storageCompaction } : {}),
   };
   const storage = new StorageService(owner);
   context.resources.own(() => storage.close());
+  context.resources.onShutdown(() => storage.stop());
+  context.onListen.push((server) => {
+    storage.bindMaintenance(server.maintenance);
+  });
   // Recovery finishes after the other listener-phase services have recovered their ownership.
   const scheduled =
     (await context.services.settings?.get("storage.scheduledCleanup"))?.value === true;
@@ -49,8 +55,16 @@ export function createStorageSession(context: SocketContext): SocketService {
       }
       const allowed =
         context.authorityLease?.(scope) ?? (() => context.connected() && context.authorize(scope));
-      const result = await context.options.storage.handle(device, message, allowed);
-      if (context.authorize(scope)) context.send(result);
+      const task = context.options.storage
+        .handle(device, message, allowed)
+        .then((result) => {
+          if (context.authorize(scope)) context.send(result);
+        })
+        .catch((error: unknown) => {
+          context.options.log?.(error);
+        })
+        .finally(() => context.tasks.delete(task));
+      context.tasks.add(task);
       return true;
     },
   };

@@ -27,8 +27,12 @@ export class StorageService {
   private tail: Promise<unknown> = Promise.resolve();
   private queued = 0;
   private closed = false;
+  private lifetime = new AbortController();
   constructor(owner: StorageOwner) {
     this.owner = owner;
+    this.owner.signal = owner.signal
+      ? AbortSignal.any([owner.signal, this.lifetime.signal])
+      : this.lifetime.signal;
     initializeThreadCleanup(owner.store);
     this.journal = new StorageJournal(owner.store);
     this.inventory = new StorageInventory(owner);
@@ -214,7 +218,13 @@ export class StorageService {
     });
   }
   private run(journal: CleanupJournal, allowed: () => boolean): Promise<StorageApply> {
-    return applyStorageItems(this.owner, this.inventory, this.journal, journal, () => !this.closed && allowed());
+    return applyStorageItems(
+      this.owner,
+      this.inventory,
+      this.journal,
+      journal,
+      () => !this.closed && allowed(),
+    );
   }
   /** Automation hook. Host opt-in preauthorizes only the ordinary, non-forced retention policy. */
   async scheduledCleanup(allowed = () => true): Promise<StorageApply> {
@@ -274,8 +284,15 @@ export class StorageService {
     }
     return { type: "storage.result", requestId: request.requestId, result };
   }
-  async close(): Promise<void> {
+  bindMaintenance(maintenance: NonNullable<StorageOwner["maintenance"]>): void {
+    this.owner.maintenance = maintenance;
+  }
+  stop(): void {
     this.closed = true;
+    this.lifetime.abort();
+  }
+  async close(): Promise<void> {
+    this.stop();
     await this.tail;
     await this.inventory.files.close();
   }

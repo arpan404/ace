@@ -16,6 +16,7 @@ import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
+  storageCompaction?: import("../storage/compaction-process.ts").CompactionRuntime;
   storageSchedule?: import("../storage/schedule.ts").StorageSchedule;
   diagnostics?: {
     doctor(): Promise<import("@ace/protocol").DiagnosticReport>;
