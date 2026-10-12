@@ -60,6 +60,14 @@
     "wait": {
       "default": false,
       "type": "boolean"
+    },
+    "waitMs": {
+      "maximum": 240000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "workspace": {
+      "$ref": "https://ace.local/protocol/v1/AgentWorkspace.json"
     }
   },
   "required": [

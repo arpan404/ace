@@ -15,6 +15,8 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { PrMarkdown } from "./pr-markdown.tsx";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
+import { usePrReview } from "./pr-review-context.tsx";
+import { PrOwnComment, PrReviewSubmission, PrThreadControls } from "./pr-review-forms.tsx";
 
 export function PrSection(props: { title: string; children: ReactNode; action?: ReactNode }) {
   const [open, setOpen] = useState(true);
@@ -46,6 +48,8 @@ export function PrSummary(props: {
 }) {
   const { detail } = props.context;
   const toast = useToast();
+  const review = usePrReview();
+  const prKey = JSON.stringify(detail.status.ref);
   return (
     <div className="space-y-3 px-4 pt-3 pb-16">
       <dl className="space-y-2 text-ui">
@@ -118,6 +122,12 @@ export function PrSummary(props: {
         />
       </PrSection>
       {props.extensions?.summary?.(props.context)}
+      {review?.state &&
+        (review.state.canReview || review.state.canComment || review.state.drafts.length > 0) && (
+          <PrSection title="Review">
+            <PrReviewSubmission detail={detail} />
+          </PrSection>
+        )}
       <PrSection title="Checks">
         {detail.status.checks.length ? (
           <ul className="divide-y divide-border">
@@ -150,23 +160,30 @@ export function PrSummary(props: {
       <PrSection title={`Comments (${detail.status.comments.length})`}>
         {detail.status.comments.length ? (
           <ol className="space-y-2">
-            {detail.status.comments.map((comment) => (
-              <li key={`${comment.kind}:${comment.id}`} className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <PrAvatar name={comment.author} url={comment.authorAvatarUrl} />
-                  <span className="font-medium">{comment.author}</span>
-                  <span className="text-muted-foreground">
-                    {comment.kind === "review"
-                      ? comment.reviewState
-                      : comment.kind === "inline"
-                        ? `${comment.file}:${comment.line ?? ""}`
-                        : "commented"}
-                  </span>
-                  <PrTime at={comment.createdAt ?? comment.updatedAt} />
-                </div>
-                <Prose text={comment.body} className="text-ui leading-normal" />
-              </li>
-            ))}
+            {detail.status.comments
+              .toSorted(
+                (a, b) =>
+                  (a.createdAt ?? a.updatedAt).localeCompare(b.createdAt ?? b.updatedAt) ||
+                  a.id - b.id,
+              )
+              .map((comment) => (
+                <li key={`${comment.kind}:${comment.id}`} className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <PrAvatar name={comment.author} url={comment.authorAvatarUrl} />
+                    <span className="font-medium">{comment.author}</span>
+                    <span className="text-muted-foreground">
+                      {comment.kind === "review"
+                        ? comment.reviewState
+                        : comment.kind === "inline"
+                          ? `${comment.file}:${comment.line ?? ""}`
+                          : "commented"}
+                    </span>
+                    <PrTime at={comment.createdAt ?? comment.updatedAt} />
+                  </div>
+                  <Prose text={comment.body} className="text-ui leading-normal" />
+                  <PrOwnComment comment={comment} />
+                </li>
+              ))}
           </ol>
         ) : (
           <p className="text-ui text-muted-foreground">No comments yet.</p>
@@ -181,6 +198,12 @@ export function PrSummary(props: {
                   {thread.file}:{thread.line ?? ""} · {thread.resolved ? "Resolved" : "Unresolved"}
                   {thread.outdated ? " · Outdated" : ""}
                 </summary>
+                <PrThreadControls
+                  id={thread.id}
+                  resolved={thread.resolved}
+                  replyTo={thread.comments[0]?.id}
+                  prKey={prKey}
+                />
                 {thread.comments.map((comment) => (
                   <div key={comment.id} className="mt-2 border-l border-border pl-4">
                     <p className="text-xs">{comment.author}</p>

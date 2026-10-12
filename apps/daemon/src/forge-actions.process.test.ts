@@ -1,3 +1,4 @@
+import { createCommandRunner, type CommandRunner, type CommandRequest } from "@ace/forge";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, rm, rename } from "node:fs/promises";
@@ -59,6 +60,7 @@ function fixtures(): Fixtures {
 async function environment(
   records: Fixtures,
   options: { timeoutMs?: number; maxBytes?: number } = {},
+  transform?: (request: CommandRequest, run: CommandRunner) => ReturnType<CommandRunner>,
 ) {
   const gh = await fakeGh(records, options);
   const root = await mkdtemp(join(tmpdir(), "ace-forge-actions-"));
@@ -79,7 +81,10 @@ async function environment(
   store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
   const create = () =>
     new WorkspaceRuntime(store, root, () => 1000, {
-      forgeRunner: () => (request) => gh.runner({ ...request, command: gh.executable }),
+      forgeRunner: () => (request) =>
+        transform
+          ? transform(request, (next) => gh.runner({ ...next, command: gh.executable }))
+          : gh.runner({ ...request, command: gh.executable }),
     });
   let runtime = create();
   return {
@@ -577,6 +582,48 @@ test("revoking permission during auto-merge metadata reads prevents mutation dis
       ok: true,
       prStatus: { state: "merged" },
     });
+  } finally {
+    await app.close();
+  }
+});
+
+test("a merge that cannot launch gh settles as failed and permits a new command after restart", async () => {
+  const records = fixtures();
+  records[mergePath] = [{ body: { merged: true } }];
+  records[path] = [{ body: merged }];
+  let missing = true;
+  const app = await environment(records, {}, (request, run) =>
+    missing && request.args[1] === mergePath
+      ? createCommandRunner({ cwd: "/" })({ ...request, command: "/ace-missing-gh" })
+      : run(request),
+  );
+  try {
+    expect(await app.command("not-dispatched")).toMatchObject({ ok: false, error: "forge_cli" });
+    await app.restart();
+    missing = false;
+    expect(await app.command("new-intent")).toMatchObject({
+      ok: true,
+      prStatus: { state: "merged" },
+    });
+    expect(await app.command("not-dispatched")).toMatchObject({ ok: false, error: "forge_cli" });
+  } finally {
+    await app.close();
+  }
+});
+
+test("an explicit merged-false acknowledgement releases the merge fence", async () => {
+  const records = fixtures();
+  records[mergePath] = [{ body: { merged: false } }, { body: { merged: true } }];
+  records[path] = [{ body: merged }];
+  const app = await environment(records);
+  try {
+    expect(await app.command("refused-ack")).toMatchObject({ ok: false, error: "forge_conflict" });
+    await app.restart();
+    expect(await app.command("explicit-retry")).toMatchObject({
+      ok: true,
+      prStatus: { state: "merged" },
+    });
+    expect(await app.command("refused-ack")).toMatchObject({ ok: false, error: "forge_conflict" });
   } finally {
     await app.close();
   }

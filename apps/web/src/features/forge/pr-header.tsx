@@ -100,7 +100,12 @@ export function PrHeader(props: {
                 </Button>
               </div>
               {props.extensions?.overflow?.(props.context)}
-              <PrActions detail={detail} writeReady={!disabled} onRefresh={refresh} />
+              <PrActions
+                key={JSON.stringify(status.ref)}
+                detail={detail}
+                writeReady={!disabled}
+                onRefresh={refresh}
+              />
             </PopoverContent>
           </Popover>
         </div>

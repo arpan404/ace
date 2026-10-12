@@ -1,8 +1,18 @@
 # Pull request workspace integration
 
-This layout is stacked on #499, `feat/forge-pr-issue-browser`. It uses that branch's
-daemon reads and existing guarded commands. The six companion diffs were inspected
-for their contracts; their implementations are not included here.
+This layout started stacked on #499, `feat/forge-pr-issue-browser`, and now targets
+main. It uses the existing daemon reads and guarded commands. Companion features
+that have landed on main are reused directly; pending features retain adapter slots.
+
+After #499 and #521 landed, main was merged into the redesign. The existing hosted
+review provider is keyed by PR identity around the workspace. Summary retains
+review submission, owned-comment editing/deletion, and thread resolve/reply controls;
+the floating comment control uses the durable conversation form. Code reuses those
+hosted draft and viewed commands through the shared renderer. Native line writes and
+viewed marks apply only to the full PR range; historical extensions still receive
+the exact displayed identity. Review reconciliation remains available while stale
+detail blocks ordinary writes. Supplied extension adapters take precedence over
+native diff/composer controls.
 
 `apps/web/src/features/forge/index.ts` exports `PrScreen`, `PrDetail`,
 `PrWorkspaceExtensions`, `PrListExtensions`, `PrWorkspaceContext`, `PrDiffContext`, and

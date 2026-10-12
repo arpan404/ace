@@ -1,3 +1,7 @@
+import {
+  PermissionPolicyIdentity as importPermissionPolicyIdentity,
+  AcpIdentity as importAcpIdentity,
+} from "@ace/protocol";
 import { backfillThreadTitles } from "./title-input.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
@@ -373,12 +377,25 @@ export class Engine {
   spawn(
     command: Command,
     scope: { permissionMode?: PermissionMode; parentThreadId?: ThreadId } = {},
+    prepared?: Pick<import("../commands.ts").CommandContext, "preparedWorkspace">,
   ): CommandResult {
     const p = command.payload;
     if (p.type !== "thread.create" && p.type !== "thread.prepare")
       throw new Error("Spawn requires thread.create or thread.prepare");
     const id = p.threadId ?? ThreadId.parse(this.nextThreadId());
-    const requested = scope.permissionMode ?? p.permissionMode;
+    let requested = scope.permissionMode ?? p.permissionMode;
+    if (scope.parentThreadId) {
+      try {
+        requested =
+          this.repo.permissions.narrow(
+            scope.parentThreadId,
+            this.permissionTarget(p.provider, p),
+            requested,
+          ) ?? undefined;
+      } catch {
+        return { commandId: command.id, ok: false, error: "permission_ceiling_unverifiable" };
+      }
+    }
     return this.repo.store.recordCommand(command.id, command.deviceId, () =>
       this.repo.store.atomic(() => {
         if (this.repo.store.getThread(id))
@@ -386,10 +403,10 @@ export class Engine {
         if (scope.parentThreadId && !this.repo.state(scope.parentThreadId))
           return { commandId: command.id, ok: false, error: "permission_parent_not_found" };
         const payload = { ...p, threadId: id, ...(requested ? { permissionMode: requested } : {}) };
-        const result = this.internalHandler.handle(
-          CommandSchema.parse({ ...command, payload }),
-          commandContext(this.repo.store),
-        );
+        const result = this.internalHandler.handle(CommandSchema.parse({ ...command, payload }), {
+          ...commandContext(this.repo.store),
+          ...prepared,
+        });
         if (result.ok && scope.parentThreadId)
           this.repo.permissions.parent(id, scope.parentThreadId, this.clock.now());
         return result;
@@ -401,6 +418,36 @@ export class Engine {
   }
   permissionMode(id: ThreadId): PermissionMode | null {
     return this.repo.permissions.effective(id);
+  }
+  private permissionTarget(
+    provider: ProviderKind,
+    selection?: Partial<import("@ace/protocol").AgentSelection>,
+  ) {
+    return importPermissionPolicyIdentity.parse({
+      provider,
+      backend: this.registry.get(provider).adapter.backend,
+      ...(provider === "acp"
+        ? importAcpIdentity.parse(selection)
+        : {
+            instanceId:
+              selection?.accountId ??
+              selection?.instanceId ??
+              this.selectInstance?.(provider, this.registry.get(provider).adapter.backend) ??
+              `${provider}-cli-default`,
+          }),
+    });
+  }
+  childPermissionMode(
+    parent: ThreadId,
+    provider: ProviderKind,
+    requested?: PermissionMode,
+    selection?: Partial<import("@ace/protocol").AgentSelection>,
+  ) {
+    return this.repo.permissions.narrow(
+      parent,
+      this.permissionTarget(provider, selection),
+      requested,
+    );
   }
   /** Host-owned summary attachment. Child transcript and native session stay independent. */
   attachChild(

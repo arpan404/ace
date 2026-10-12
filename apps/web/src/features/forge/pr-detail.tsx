@@ -14,6 +14,7 @@ import { PrFiles } from "./pr-files.tsx";
 import { QueryState } from "./query-state.tsx";
 import { readForge } from "./source.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
+import { PrReviewWorkspace } from "./pr-review-context.tsx";
 
 export function prWorkspaceTab(tab: string): "summary" | "timeline" | "code" {
   return tab === "timeline" || tab === "commits"
@@ -80,14 +81,22 @@ export function PrDetail(props: {
         <QueryState query={query} />
       </div>
       {context && (
-        <>
-          <PrHeader
-            context={context}
-            extensions={props.extensions}
-            onBack={props.onBack}
-            actionsOpen={actionsOpen}
-            onActionsOpen={setActionsOpen}
-          />
+        <PrReviewWorkspace
+          key={JSON.stringify(context.detail.status.ref)}
+          workspaceId={props.workspaceId}
+          detail={context.detail}
+          disabled={context.disabled}
+          onRefresh={() => void query.refetch()}
+          header={
+            <PrHeader
+              context={context}
+              extensions={props.extensions}
+              onBack={props.onBack}
+              actionsOpen={actionsOpen}
+              onActionsOpen={setActionsOpen}
+            />
+          }
+        >
           {context.disabled && (
             <p
               role="status"
@@ -171,7 +180,7 @@ export function PrDetail(props: {
             </TabsPanel>
           </Tabs>
           <PrComposer context={context} extensions={props.extensions} />
-        </>
+        </PrReviewWorkspace>
       )}
     </article>
   );

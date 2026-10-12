@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentConversationRecord.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "createdAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "ownerAgentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "ownerThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "request": {
+      "$ref": "https://ace.local/protocol/v1/ThreadStartOperation.json"
+    },
+    "rootId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "ownerThreadId",
+    "ownerAgentId",
+    "rootId",
+    "createdAt",
+    "request"
+  ],
+  "type": "object"
+}

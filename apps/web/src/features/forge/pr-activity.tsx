@@ -18,6 +18,7 @@ import { readForge } from "./source.ts";
 import { usePrCommits } from "./pr-commits.tsx";
 import { eventText, prTimeline } from "./pr-timeline.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
+import { PrOwnComment } from "./pr-review-forms.tsx";
 
 export function PrActivity(props: {
   workspaceId: string;
@@ -143,6 +144,7 @@ export function PrActivity(props: {
                     </p>
                     <PrTime at={row.at} />
                     <Prose text={row.comment.body} className="text-ui leading-normal" />
+                    <PrOwnComment comment={row.comment} />
                   </>
                 ) : (
                   <>

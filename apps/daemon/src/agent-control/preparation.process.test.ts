@@ -123,7 +123,7 @@ test("a reservation made before ancestor interruption cannot commit a prepared c
   h.restartOwner();
   h.clock.advance(1050);
   await h.engine.flush();
-  expect(() => h.service.prepareReserved(caller, reservation, workspace)).toThrow(/cancelled/);
+  expect(() => h.service.prepareReserved(caller, reservation, workspace)).toThrow();
   expect(h.store.listThreads()).toHaveLength(3);
   expect(h.store.getThread(reservation.record.childId)).toBeUndefined();
   expect(

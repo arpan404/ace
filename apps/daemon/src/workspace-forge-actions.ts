@@ -1,4 +1,5 @@
-import { ForgeError, WriteDispatch, repositoryKey, type GitHubForge } from "@ace/forge";
+import { ForgeError, WriteDispatch, type GitHubForge } from "@ace/forge";
+import { ForgeResourceOwner, forgeResourceKey } from "./forge-resource-owner.ts";
 import type { CommandResult, ForgePrRef, ForgePrStatus } from "@ace/protocol";
 import { z } from "zod";
 import type { Store } from "./store.ts";
@@ -12,7 +13,9 @@ import {
 export class WorkspaceForgeActions {
   private store: Store;
   private live = new Set<string>();
-  constructor(store: Store) {
+  private owner: ForgeResourceOwner;
+  constructor(store: Store, owner = new ForgeResourceOwner()) {
+    this.owner = owner;
     this.store = store;
     store.atomic((db) =>
       db.exec(`CREATE TABLE IF NOT EXISTS forge_action_receipts (
@@ -30,7 +33,7 @@ export class WorkspaceForgeActions {
       );
   }
   private key(pr: ForgePrRef): string {
-    return JSON.stringify([repositoryKey(pr.repository), pr.number]);
+    return forgeResourceKey(pr);
   }
   private read(key: string): ForgeWriteReceipt | undefined {
     const row = this.store.atomic((db) =>
@@ -87,9 +90,10 @@ export class WorkspaceForgeActions {
     const key = this.key(pr);
     if (this.live.has(key) || this.live.size >= 16)
       return { ok: false, error: "forge_write_pending" };
-    const previous = this.read(key);
+    const release = this.owner.acquire(pr);
     this.live.add(key);
     try {
+      const previous = this.read(key);
       if (previous && !["reconciled", "failed"].includes(previous.phase)) {
         // This command is reconciliation only. It never repeats the previous write.
         const status = await backend.status(pr.number, signal);
@@ -155,6 +159,7 @@ export class WorkspaceForgeActions {
       }
     } finally {
       this.live.delete(key);
+      release();
     }
   }
 }

@@ -24,6 +24,8 @@ import { readForge } from "./source.ts";
 import { QueryState } from "./query-state.tsx";
 import { usePrCommits } from "./pr-commits.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions, PrDiffContext } from "./pr-extensions.ts";
+import { PrFileReview } from "./pr-file-review.tsx";
+import { usePrReview } from "./pr-review-context.tsx";
 
 const fileStatus = (file: ForgeFile) =>
   file.status === "added"
@@ -74,6 +76,7 @@ function PrFilePage(
   const [collapsed, setCollapsed] = useState(false);
   const [views, setViews] = useState<ReadonlyMap<string, FileView>>(new Map());
   const toast = useToast();
+  const review = usePrReview();
   const ref = props.detail.status.ref;
   const query = useDaemonQuery({
     queryKey: [
@@ -137,7 +140,13 @@ function PrFilePage(
         disabled: props.context.disabled || query.isFetching || query.isError,
       }
     : undefined;
-  const viewedCount = diffContext && props.extensions?.viewedCount?.(diffContext);
+  const nativeViewed =
+    !props.commit && review?.state?.headSha === props.detail.status.headSha
+      ? review.state.viewed?.filter((file) => file.state === "VIEWED")
+      : undefined;
+  const viewedCount = props.extensions?.viewedCount
+    ? diffContext && props.extensions.viewedCount(diffContext)
+    : nativeViewed?.length;
   const fileCount = props.commit ? (query.data?.files.length ?? 0) : props.detail.changedFiles;
   return (
     <section aria-label="Hosted PR diff" className="min-w-0">
@@ -244,7 +253,11 @@ function PrFilePage(
                 viewed={
                   new Set(
                     query.data.files
-                      .filter((file) => props.extensions?.viewed?.(file, diffContext)?.checked)
+                      .filter((file) =>
+                        props.extensions?.viewed
+                          ? props.extensions.viewed(file, diffContext)?.checked
+                          : nativeViewed?.some((viewed) => viewed.path === file.path),
+                      )
                       .map((file) => file.path),
                   )
                 }
@@ -272,69 +285,77 @@ function PrFilePage(
                 const viewed = props.extensions?.viewed?.(file, diffContext);
                 const view = views.get(file.path) ?? { ...freshView, open: !collapsed };
                 return (
-                  <div key={file.path} className="border-b border-border">
-                    {diff ? (
-                      <FileDiffBlock
-                        id={`pr-file-${page}-${index}`}
-                        file={{
-                          ...diff,
-                          status: fileStatus(file),
-                          additions: file.additions,
-                          deletions: file.deletions,
-                        }}
-                        view={view}
-                        onView={(next) =>
-                          setViews((previous) => new Map(previous).set(file.path, next))
-                        }
-                        mode={mode}
-                        wrap={wrap}
-                        whitespace={whitespace}
-                        statusIcon={<Icon aria-label={file.status} size={18} />}
-                        highlighted={() => false}
-                        renderAnnotation={(target) =>
-                          props.extensions?.annotation?.(file.path, target, diffContext)
-                        }
-                        onComment={
-                          props.extensions?.onLineComment && !diffContext.disabled
-                            ? (range) =>
-                                props.extensions?.onLineComment?.(file.path, range, diffContext)
-                            : undefined
-                        }
-                        viewed={viewed?.checked}
-                        actions={
-                          viewed && (
-                            <label className="flex shrink-0 items-center gap-2 px-2 text-xs text-muted-foreground">
-                              <input
-                                type="checkbox"
-                                aria-label={`Viewed ${file.path}`}
-                                checked={viewed.checked}
-                                disabled={diffContext.disabled || viewed.disabled}
-                                onChange={(e) =>
-                                  void viewed
-                                    .change(e.target.checked)
-                                    .catch(() =>
-                                      toast.error({ title: "Couldn't save viewed state" }),
-                                    )
-                                }
-                                className="size-4 rounded-sm focus-ring"
-                              />
-                              Viewed
-                            </label>
-                          )
-                        }
-                      />
-                    ) : (
-                      <p className="p-3 text-sm">Preparing {file.path}…</p>
+                  <PrFileReview key={file.path} file={file} context={diffContext}>
+                    {(native) => (
+                      <div className="border-b border-border">
+                        {diff ? (
+                          <FileDiffBlock
+                            id={`pr-file-${page}-${index}`}
+                            file={{
+                              ...diff,
+                              status: fileStatus(file),
+                              additions: file.additions,
+                              deletions: file.deletions,
+                            }}
+                            view={view}
+                            onView={(next) =>
+                              setViews((previous) => new Map(previous).set(file.path, next))
+                            }
+                            mode={mode}
+                            wrap={wrap}
+                            whitespace={whitespace}
+                            statusIcon={<Icon aria-label={file.status} size={18} />}
+                            highlighted={() => false}
+                            renderAnnotation={(target) =>
+                              props.extensions?.annotation?.(file.path, target, diffContext)
+                            }
+                            onComment={
+                              props.extensions?.onLineComment && !diffContext.disabled
+                                ? (range) =>
+                                    props.extensions?.onLineComment?.(file.path, range, diffContext)
+                                : !props.extensions?.onLineComment
+                                  ? native.onComment
+                                  : undefined
+                            }
+                            viewed={props.extensions?.viewed ? viewed?.checked : native.viewed}
+                            actions={
+                              viewed ? (
+                                <label className="flex shrink-0 items-center gap-2 px-2 text-xs text-muted-foreground">
+                                  <input
+                                    type="checkbox"
+                                    aria-label={`Viewed ${file.path}`}
+                                    checked={viewed.checked}
+                                    disabled={diffContext.disabled || viewed.disabled}
+                                    onChange={(e) =>
+                                      void viewed
+                                        .change(e.target.checked)
+                                        .catch(() =>
+                                          toast.error({ title: "Couldn't save viewed state" }),
+                                        )
+                                    }
+                                    className="size-4 rounded-sm focus-ring"
+                                  />
+                                  Viewed
+                                </label>
+                              ) : !props.extensions?.viewed ? (
+                                native.actions
+                              ) : null
+                            }
+                          />
+                        ) : (
+                          <p className="p-3 text-sm">Preparing {file.path}…</p>
+                        )}
+                        {view.open && (file.patch === null || file.truncated) && (
+                          <p role="status" className="p-3 text-sm text-muted-foreground">
+                            {file.patch === null
+                              ? "Binary or large file: GitHub did not provide a text patch."
+                              : "This patch is truncated."}{" "}
+                            Open GitHub to inspect the complete file.
+                          </p>
+                        )}
+                      </div>
                     )}
-                    {view.open && (file.patch === null || file.truncated) && (
-                      <p role="status" className="p-3 text-sm text-muted-foreground">
-                        {file.patch === null
-                          ? "Binary or large file: GitHub did not provide a text patch."
-                          : "This patch is truncated."}{" "}
-                        Open GitHub to inspect the complete file.
-                      </p>
-                    )}
-                  </div>
+                  </PrFileReview>
                 );
               })}
               {!query.data.files.length && (
