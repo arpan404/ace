@@ -31,9 +31,17 @@ observable row. Membership changes send item/position changes without copying
 unchanged text. Display titles and metadata use 512-code-unit previews, approval
 descriptions 2,048, commands 8,192 and option labels 128, with visible shortening.
 Canonical state, identities and action IDs stay exact. Exceptional patches use
-acknowledged 4,096-byte UTF-8 fragments rather than being discarded; native assembly
-admits one complete patch at a time, capped at 8 MiB against the SDK's 2 MiB wire
-frame limit. The SDK's existing item truncation flag is preserved alongside bridge
+acknowledged base64 fragments containing at most 18 KiB UTF-8 rather than being
+discarded. The SDK's 2 MiB physical wire-frame cap does not limit reconstructed
+logical messages. Its default fragment admission budget is 64 MiB retained UTF-16.
+That can encode up to 96 MiB UTF-8 before the bridge wraps identities and attaches
+a scope from another reader. Native assembly admits one complete patch at a time
+with a conservative 512 MiB UTF-8 allowance for those DTOs. It allocates only bytes
+received, not the allowance up front. The SDK still owns logical wire admission.
+Dirty keys stay queued until the final frame is accepted. Rejected frames send a
+negative acknowledgment and restart delivery from the still-dirty reader; they do
+not retire the update. Updates arriving during delivery remain dirty after an
+older transfer is confirmed. The SDK's existing item truncation flag is preserved alongside bridge
 truncation. Navigation generations reject stale patches, including reopening
 the same thread. Leaving a thread cancels its outstanding SDK history reads.
 The spike retains at most 2,200 items with SDK text bounds of 8,192 code units.
@@ -85,7 +93,7 @@ Raw evidence: [summary](../design/ios-spike/results.json), [input/cadence sample
 [XCTest scroll metrics](../design/ios-spike/scroll-xctest.json),
 [memory samples](../design/ios-spike/memory-raw.json). Latency uses nearest-rank p95.
 The input/cadence runs precede the final navigation-cancellation review fixes and
-the shared typography/layout token follow-up and round-1 command/fragment fixes.
+the shared typography/layout token follow-up and round-1/round-2 bridge fixes.
 These fixes receive separate behavior verification; refreshed screenshots verify
 the final visual revision. No performance improvement is claimed for these changes;
 the numbers above are not a new measurement of the final revision.
@@ -125,6 +133,28 @@ Two round-1 gaps remain for Phase 1:
   It does not force the separate failure window of daemon admission followed by a
   lost receipt, termination and replay. Add that contract and verify one canonical
   input after replay settles. Existing replay evidence does not cover this window.
+
+## Round-2 transfer correction
+
+The previous 8 MiB native assembly limit incorrectly treated physical wire frames
+as the ceiling for logical SDK data. A failing native regression reproduced the
+loss of an approval containing 300 distinct action IDs, each over 32 KiB. It failed
+with "Could not read a client update" and no visible approval. That regression now
+passes with all identities intact.
+
+Real JavaScriptCore/socket contracts receive the same large approval through
+`snapshot.part` reassembly in `@ace/client`, then resolve an exact offered action
+and verify its canonical daemon resolution. A second contract rejects the final
+native frame once, requires the approval to remain absent while the transfer is
+unconfirmed, then verifies redelivery and exact resolution without resnapshotting.
+This guards both the native acceptance result and retirement of dirty keys.
+
+Seventeen Swift behavior/bridge tests pass. A simulator UI case opens the large
+approval, selects an action through its native More choices menu, and observes
+canonical closure. The card shows up to three direct controls; larger collections
+retain every remaining action in the menu. Scoped formatter, lint, `@ace/ios`
+typecheck and theme reproducibility pass. These are correctness checks, with no new
+rendering, memory or input-latency gate claim. The performance gate remains held.
 
 ## Screens and remaining scope
 
