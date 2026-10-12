@@ -62,7 +62,7 @@ export function HomeSidebar() {
           </Suspense>
         )}
         {!loaded ? (
-          <ListSkeleton label="threads" shape="thread" className="px-2" />
+          <ListSkeleton label="threads" shape="thread" />
         ) : empty ? (
           <>
             <EmptyState

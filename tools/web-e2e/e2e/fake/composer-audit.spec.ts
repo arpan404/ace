@@ -87,6 +87,10 @@ test("failed starts retain three-line row height and recovery text", async ({ pa
   });
   await page.goto("/new?project=relay");
   await expect(page.getByRole("button", { name: /^Model: Opus/ })).toBeVisible();
+  const first = page
+    .getByRole("navigation", { name: "Threads", exact: true })
+    .getByRole("link", { name: /^Partial refunds/ });
+  const firstHeight = (await first.boundingBox())?.height;
   await page
     .getByRole("combobox", { name: "Message", exact: true })
     .fill("Recover this failed start");
@@ -94,11 +98,9 @@ test("failed starts retain three-line row height and recovery text", async ({ pa
   const started = page
     .getByRole("list", { name: "Starting threads" })
     .getByRole("link", { name: /Recover this failed start/ });
+  await scrollToRow(page, started);
   await expect(started).toContainText("Not sent");
-  const first = page
-    .getByRole("navigation", { name: "Threads", exact: true })
-    .getByRole("link", { name: /^Partial refunds/ });
-  expect((await started.boundingBox())?.height).toBe((await first.boundingBox())?.height);
+  expect((await started.boundingBox())?.height).toBe(firstHeight);
   await page.screenshot({ path: `${shots}/failed-start-1440.png` });
 });
 
