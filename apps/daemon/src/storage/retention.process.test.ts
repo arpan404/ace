@@ -186,11 +186,7 @@ test("cleanup removes reviewed bytes and leaves durable writes available", async
     },
   });
   await expect(access(path)).rejects.toMatchObject({ code: "ENOENT" });
-  f.store.appendEvents(
-    thread.id,
-    [{ type: "thread.updated", title: "Still writable" }],
-    2,
-  );
+  f.store.appendEvents(thread.id, [{ type: "thread.updated", title: "Still writable" }], 2);
   expect(f.store.getThread(thread.id)?.title).toBe("Still writable");
   expect(await f.storage.apply("owner", plan.id, plan.revision)).toEqual(
     f.storage.status("owner", plan.id),
