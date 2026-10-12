@@ -6,6 +6,25 @@
       "maxLength": 65536,
       "type": "string"
     },
+    "authorAvatarUrl": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "ci": {
+      "enum": [
+        "none",
+        "pending",
+        "success",
+        "failure",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "commentCount": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "labels": {
       "items": {
         "maxLength": 65536,
@@ -17,6 +36,11 @@
     "raw": {},
     "ref": {
       "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+    },
+    "reviewCount": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
     },
     "state": {
       "enum": [

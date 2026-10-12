@@ -1,10 +1,14 @@
 import { z } from "zod";
 import { GitHubPr } from "./github-schemas.ts";
 const text = z.string().max(65_536);
-export const User = z.looseObject({ login: text });
+export const User = z.looseObject({ login: text, avatar_url: text.optional() });
 const Labels = z.array(z.looseObject({ name: text })).max(100);
 const Repo = z.looseObject({ name: text, owner: User });
 export const BrowserPr = GitHubPr.extend({
+  updated_at: text.optional(),
+  created_at: text.optional(),
+  additions: z.number().int().nonnegative().optional(),
+  deletions: z.number().int().nonnegative().optional(),
   body: text.nullable(),
   user: User.nullable(),
   labels: Labels,
@@ -28,6 +32,7 @@ export const SearchPage = z.looseObject({
         draft: z.boolean().optional(),
         labels: Labels,
         updated_at: text,
+        comments: z.number().int().nonnegative().optional(),
         pull_request: z.looseObject({ merged_at: text.nullable().optional() }),
       }),
     )

@@ -38,6 +38,7 @@ export function PrMergeState(props: {
   workspaceId: string;
   detail: ForgePrDetail;
   onRefresh(): void;
+  writeDisabled?: boolean | undefined;
 }) {
   return (
     <PrMergeControls
@@ -45,6 +46,7 @@ export function PrMergeState(props: {
       pr={props.detail.status.ref}
       relatedThreads={props.detail.relatedThreads}
       onRefresh={props.onRefresh}
+      writeDisabled={props.writeDisabled}
     />
   );
 }
@@ -55,6 +57,7 @@ export function PrMergeControls(props: {
   pr: ForgePrRef;
   relatedThreads: readonly { id: string; title: string }[];
   onRefresh(): void;
+  writeDisabled?: boolean | undefined;
 }) {
   const client = useClient();
   const ready = useConnectionState() === "ready";
@@ -90,6 +93,7 @@ export function PrMergeControls(props: {
   const state = query.data;
   const associated = props.relatedThreads.some((thread) => thread.id === threadId);
   const disabled =
+    props.writeDisabled ||
     !ready ||
     pending ||
     query.isFetching ||

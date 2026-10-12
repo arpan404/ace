@@ -20,6 +20,8 @@ export function PrReviewWorkspace(props: {
   workspaceId: string;
   detail: ForgePrDetail;
   onRefresh(): void;
+  disabled?: boolean;
+  header?: ReactNode;
   children: ReactNode;
 }) {
   const client = useClient();
@@ -50,8 +52,10 @@ export function PrReviewWorkspace(props: {
   const workspaceId = props.workspaceId;
   const onRefresh = props.onRefresh;
   const refetch = query.refetch;
+  const disabled = props.disabled ?? false;
   const run = useCallback(
     async (action: ForgeReviewAction) => {
+      if (action.kind !== "reconcile" && (disabled || pending || !ready)) return false;
       setPending(true);
       setMessage("Waiting for GitHub…");
       try {
@@ -80,15 +84,16 @@ export function PrReviewWorkspace(props: {
         setPending(false);
       }
     },
-    [client, workspaceId, pr, refetch, onRefresh],
+    [client, workspaceId, pr, refetch, onRefresh, disabled, pending, ready],
   );
   const value = useMemo(
-    () => ({ state: query.data, pending, ready, run }),
-    [query.data, pending, ready, run],
+    () => ({ state: query.data, pending: pending || disabled, ready: ready && !disabled, run }),
+    [query.data, pending, ready, run, disabled],
   );
   return (
     <Context value={value}>
-      <div className="space-y-2" aria-label="GitHub review status">
+      {props.header}
+      <div className="space-y-2 px-4 py-1.5 text-xs" aria-label="GitHub review status">
         <Button disabled={!ready || pending} onClick={() => void query.refetch()}>
           Refresh review state
         </Button>

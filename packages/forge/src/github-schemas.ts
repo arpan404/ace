@@ -31,7 +31,7 @@ export const GitHubStatus = z.looseObject({
 export const GitHubComment = z.looseObject({
   id: z.number().int().positive(),
   body: str,
-  user: z.looseObject({ login: str }).nullable(),
+  user: z.looseObject({ login: str, avatar_url: str.optional() }).nullable(),
   path: str.optional(),
   line: z.number().int().nullable().optional(),
   original_line: z.number().int().nullable().optional(),
@@ -104,7 +104,7 @@ export const GitHubReview = z.looseObject({
   id: z.number().int().positive(),
   body: str.nullable(),
   state: z.string().max(256),
-  user: z.looseObject({ login: str }).nullable(),
+  user: z.looseObject({ login: str, avatar_url: str.optional() }).nullable(),
   submitted_at: str.nullable().optional(),
 });
 export const ReviewPage = z.array(GitHubReview).max(100);

@@ -6,6 +6,10 @@
       "maxLength": 65536,
       "type": "string"
     },
+    "authorAvatarUrl": {
+      "maxLength": 65536,
+      "type": "string"
+    },
     "body": {
       "maxLength": 65536,
       "type": "string"

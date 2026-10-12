@@ -5,6 +5,7 @@ import { ThreadReference, ThreadReferenceScope } from "../thread-reference.tsx";
 import { MarkdownImage } from "@/components/attachment-markdown.tsx";
 import { codeSpanClass } from "@/components/inline-markdown.tsx";
 import type { MarkdownBlock } from "./blocks.ts";
+import type { MarkdownLinks } from "./link-options.ts";
 import { CodeBlock } from "./code-block.tsx";
 import { MarkdownLoading } from "./loading.tsx";
 import { useMarkdown } from "./use-markdown.ts";
@@ -55,7 +56,10 @@ function inline(tokens: readonly Token[] | undefined): ReactNode {
   return tokens?.map((token, index) => <Inline key={index} token={token} />);
 }
 
+const Links = createContext<MarkdownLinks | undefined>(undefined);
+
 function Inline(props: { token: Token }): ReactNode {
+  const links = useContext(Links);
   const token = props.token;
   if (!isKnown(token)) return token.raw;
   switch (token.type) {
@@ -70,6 +74,9 @@ function Inline(props: { token: Token }): ReactNode {
     case "br":
       return <br />;
     case "link": {
+      const children = <Links value={undefined}>{inline(token.tokens)}</Links>;
+      const custom = links?.link(token.href, children);
+      if (custom !== undefined) return custom;
       const href = safeHref(token.href);
       if (!href)
         return <ThreadReference reference={token.href}>{inline(token.tokens)}</ThreadReference>;
@@ -80,14 +87,14 @@ function Inline(props: { token: Token }): ReactNode {
           rel="noreferrer noopener"
           className="text-link underline decoration-ring/40 underline-offset-[3px] hover:decoration-current"
         >
-          {inline(token.tokens)}
+          {children}
         </a>
       );
     }
     case "image":
       return <MarkdownImage src={token.href} alt={token.text} />;
     case "text":
-      return token.tokens ? inline(token.tokens) : token.text;
+      return token.tokens ? inline(token.tokens) : links ? links.text(token.text) : token.text;
     case "escape":
       return token.text;
     case "html":
@@ -293,6 +300,7 @@ const TopBlock = memo(function TopBlock(props: { block: MarkdownBlock; writing: 
  */
 export const Markdown = memo(function Markdown(props: {
   text: string;
+  links?: MarkdownLinks | undefined;
   stream?: string | undefined;
   streaming?: boolean | undefined;
   className?: string | undefined;
@@ -302,19 +310,21 @@ export const Markdown = memo(function Markdown(props: {
   const doc = useMarkdown(props.text, props.stream, !props.streaming);
   if (!doc) return <MarkdownLoading text={props.text} className={props.className} />;
   return (
-    <ThreadReferenceScope value={props.thread}>
-      <div className={props.className}>
-        {doc.blocks.length === 0 && props.tail}
-        {doc.blocks.map((block, index) => (
-          // A block's place is its identity: the open block keeps it when it settles.
-          <Tail.Provider
-            key={index}
-            value={index === doc.blocks.length - 1 ? props.tail : undefined}
-          >
-            <TopBlock block={block} writing={index >= doc.settled} />
-          </Tail.Provider>
-        ))}
-      </div>
-    </ThreadReferenceScope>
+    <Links value={props.links}>
+      <ThreadReferenceScope value={props.thread}>
+        <div className={props.className}>
+          {doc.blocks.length === 0 && props.tail}
+          {doc.blocks.map((block, index) => (
+            // A block's place is its identity: the open block keeps it when it settles.
+            <Tail.Provider
+              key={index}
+              value={index === doc.blocks.length - 1 ? props.tail : undefined}
+            >
+              <TopBlock block={block} writing={index >= doc.settled} />
+            </Tail.Provider>
+          ))}
+        </div>
+      </ThreadReferenceScope>
+    </Links>
   );
 });

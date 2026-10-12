@@ -2,7 +2,16 @@
   "$id": "https://ace.local/protocol/v1/ForgePrDetail.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "additions": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "author": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "authorAvatarUrl": {
       "maxLength": 65536,
       "type": "string"
     },
@@ -24,6 +33,15 @@
       "type": "integer"
     },
     "commits": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "createdAt": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "deletions": {
       "maximum": 9007199254740991,
       "minimum": 0,
       "type": "integer"
@@ -71,6 +89,16 @@
         }
       ]
     },
+    "reviewerAvatars": {
+      "additionalProperties": {
+        "maxLength": 65536,
+        "type": "string"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
     "reviewers": {
       "items": {
         "maxLength": 65536,
@@ -81,6 +109,10 @@
     },
     "status": {
       "$ref": "https://ace.local/protocol/v1/ForgePrStatus.json"
+    },
+    "updatedAt": {
+      "maxLength": 65536,
+      "type": "string"
     },
     "writeState": {
       "enum": [

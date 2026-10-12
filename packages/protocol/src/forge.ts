@@ -57,6 +57,7 @@ export const ForgeComment = z.object({
   id: z.number().int().positive(),
   body: text,
   author: text,
+  authorAvatarUrl: text.optional(),
   file: text.nullable(),
   line: z.number().int().nullable(),
   updatedAt: z.string(),
