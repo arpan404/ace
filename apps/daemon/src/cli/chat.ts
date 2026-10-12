@@ -319,6 +319,14 @@ export async function chatCommand(
           message: error instanceof Error ? error.message : "Chat action failed",
           ...(evidence === undefined ? {} : { admission: evidence }),
         });
+        if (status === "uncertain" && !threadId && lastMutation !== undefined)
+          lifetime.abort(
+            new CliFailure(
+              "uncertain",
+              "Initial thread admission is unconfirmed. Check the admitted ID or retry the original prompt with its key.",
+              evidence ?? lastMutation,
+            ),
+          );
       }
     }
     if (failure) throw failure;

@@ -5,7 +5,7 @@ import { open, rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { option, timeoutMs, validateArgs, type Args } from "./args.ts";
 import { waitSelection } from "./connection.ts";
-import { result } from "./io.ts";
+import { mutationResult } from "./io.ts";
 import { CliFailure } from "./output.ts";
 export async function browserCommand(args: Args, client: Client, signal: AbortSignal) {
   validateArgs(args, ["output", "duration", "url"], 3);
@@ -16,6 +16,7 @@ export async function browserCommand(args: Args, client: Client, signal: AbortSi
       "Usage: ace browser shot|record THREAD [--output PATH] [--url URL]",
     );
   const threadId = ThreadId.parse(args.words[2]);
+  const duration = timeoutMs({ words: [], flags: { timeout: option(args, "duration") ?? "5s" } });
   const lease = client.thread(threadId);
   let recording = false;
   const stopFrames = client.onMessage((message) => {
@@ -78,11 +79,7 @@ export async function browserCommand(args: Args, client: Client, signal: AbortSi
       );
       if (!started.ok) throw new CliFailure("refused", started.error ?? "Recording unavailable");
       recording = true;
-      await delay(
-        timeoutMs({ words: [], flags: { timeout: option(args, "duration") ?? "5s" } }),
-        undefined,
-        { signal },
-      );
+      await delay(duration, undefined, { signal });
       const stopped = await client.request(
         { type: "browser.recording.stop", threadId },
         { signal },
@@ -122,7 +119,7 @@ export async function browserCommand(args: Args, client: Client, signal: AbortSi
       await file.close();
       if (!complete) await rm(output, { force: true });
     }
-    await result(args, {
+    await mutationResult(args, {
       path: output,
       mimeType: artifact.mimeType,
       artifactId: published.artifactId,
