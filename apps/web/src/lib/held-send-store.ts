@@ -8,6 +8,7 @@ const Metadata = z.object({
   threadId: z.string(),
   owner: z.string(),
   failed: z.optional(z.string()),
+  submissionOrder: z.optional(z.number().check(z.int(), z.gte(0), z.lte(Number.MAX_SAFE_INTEGER))),
 });
 type Metadata = z.infer<typeof Metadata>;
 interface HeldRecord extends Metadata {
@@ -28,9 +29,11 @@ const ownerLock = (owner: string) => `ace-staged-${owner}`;
 let holdingLock = false;
 
 function entries(values: readonly unknown[]): readonly HeldRecord[] {
-  return values.flatMap((value) => {
+  return values.flatMap((value, index) => {
     const metadata = Metadata.safeParse(value);
-    return metadata.success ? [{ ...metadata.data, value }] : [];
+    return metadata.success
+      ? [{ ...metadata.data, submissionOrder: metadata.data.submissionOrder ?? index, value }]
+      : [];
   });
 }
 function read(): readonly HeldRecord[] {
@@ -43,7 +46,7 @@ function read(): readonly HeldRecord[] {
       if (record !== undefined) values.push(record);
     }
   }
-  return entries(values);
+  return entries(values).toSorted((a, b) => (a.submissionOrder ?? 0) - (b.submissionOrder ?? 0));
 }
 function view(): readonly HeldRecord[] {
   const durable = read();
@@ -90,7 +93,13 @@ export function saveHeldSend(value: Metadata, persisted: unknown): boolean {
     const current = read();
     if (current.length >= limit && !current.some((entry) => entry.commandId === value.commandId))
       return false;
-    storage.setItem(prefix + value.commandId, JSON.stringify(persisted));
+    if (typeof persisted !== "object" || persisted === null || Array.isArray(persisted))
+      return false;
+    const submissionOrder =
+      current.find((entry) => entry.commandId === value.commandId)?.submissionOrder ??
+      Math.max(-1, ...current.map((entry) => entry.submissionOrder ?? 0)) + 1;
+    if (!Metadata.safeParse({ ...value, submissionOrder }).success) return false;
+    storage.setItem(prefix + value.commandId, JSON.stringify({ ...persisted, submissionOrder }));
     retained.delete(value.commandId);
     all.set(view());
     return true;

@@ -41,6 +41,8 @@ const StoredFile = z.object({
 const Stored = z.object({
   commandId: z.string(),
   threadId: z.string(),
+  submissionOrder: z.number().int().nonnegative().safe().optional(),
+  preparing: z.boolean().optional(),
   text: z.string(),
   mentions: z.array(z.string()),
   input: z.array(ContentPart).optional(),
@@ -62,6 +64,7 @@ interface Held {
   previews: (string | undefined)[];
 }
 const held = new Map<string, Held>();
+let generation = 0;
 
 // Full payloads are a cached projection of the same backing records as recovery facts.
 let records: ReturnType<ReturnType<typeof heldSendStore>["get"]> | undefined;
@@ -182,6 +185,7 @@ function settle(
       : [],
   );
   const saved = patch(commandId, {
+    preparing: false,
     attachments,
     failed: failed.length ? failed.join(" · ") : undefined,
   });
@@ -198,12 +202,70 @@ export async function sendWhenUploaded(
   commandId: string,
   outcomes: Promise<readonly ({ sha256: string } | { error: string })[]>,
 ): Promise<boolean> {
-  if (!settle(commandId, await outcomes)) return false;
+  const epoch = generation;
+  const uploaded = await outcomes;
+  if (epoch !== generation || !settle(commandId, uploaded)) return false;
   return enqueueStaged(client, commandId);
 }
 
-/** Enqueue a held message whose files the daemon all holds. */
+// One drain per client and thread; each enqueue must be durably saved before its successor.
+let drains = new WeakMap<ClientApi, Map<string, Promise<void>>>();
+
+/** Move ready messages into the outbox in persisted submission order. */
+export function drainStaged(client: ClientApi, threadId: string): Promise<void> {
+  let threads = drains.get(client);
+  if (!threads) {
+    threads = new Map();
+    drains.set(client, threads);
+  }
+  const epoch = generation;
+  const active = threads.get(threadId);
+  if (active)
+    return active.then(() => (epoch === generation ? drainStaged(client, threadId) : undefined));
+  const slots = threads;
+  const running = drainThread(client, threadId, generation).finally(() => slots.delete(threadId));
+  threads.set(threadId, running);
+  return running;
+}
+
+async function drainThread(client: ClientApi, threadId: string, epoch: number): Promise<void> {
+  const passed = new Set<string>();
+  while (true) {
+    if (epoch !== generation) return;
+    const send = all
+      .get()
+      .find((entry) => entry.threadId === threadId && !passed.has(entry.commandId));
+    if (!send) return;
+    const pending = client
+      .pendingSends(threadId)
+      .getSnapshot()
+      .find((entry) => entry.commandId === send.commandId);
+    if (pending && pending.state !== "saving" && pending.state !== "failed") {
+      passed.add(send.commandId);
+      unstage(send.commandId, true);
+      continue;
+    }
+    if (
+      pending?.state === "saving" ||
+      send.preparing ||
+      send.failed ||
+      send.attachments.some((file) => !file.sha256)
+    )
+      return;
+    if (!(await enqueueReady(client, send.commandId))) return;
+    passed.add(send.commandId);
+  }
+}
+
+/** A ready message may wait behind an earlier upload or failed local save. */
 export async function enqueueStaged(client: ClientApi, commandId: string): Promise<boolean> {
+  const send = all.get().find((entry) => entry.commandId === commandId);
+  if (!send) return false;
+  await drainStaged(client, send.threadId);
+  return !all.get().some((entry) => entry.commandId === commandId);
+}
+
+async function enqueueReady(client: ClientApi, commandId: string): Promise<boolean> {
   refreshHeldSends();
   const send = all.get().find((entry) => entry.commandId === commandId);
   if (!send || send.attachments.some((file) => !file.sha256)) return false;
@@ -214,9 +276,9 @@ export async function enqueueStaged(client: ClientApi, commandId: string): Promi
     context: {
       ...send.context,
       mentions: send.context?.mentions ?? send.mentions.map((path) => ({ path })),
-      attachments: send.attachments.flatMap((file) =>
-        file.sha256 ? [{ sha256: file.sha256 }] : [],
-      ),
+      attachments: [
+        ...new Set(send.attachments.flatMap((file) => (file.sha256 ? [file.sha256] : []))),
+      ].map((sha256) => ({ sha256 })),
     },
     ...(send.delivery ? { delivery: send.delivery } : {}),
     ...(send.options ? { options: send.options } : {}),
@@ -247,11 +309,12 @@ export async function retryStaged(
   commandId: string,
   upload: (file: File) => Promise<{ sha256: string }>,
 ): Promise<boolean> {
+  const epoch = generation;
   refreshHeldSends();
   const send = all.get().find((entry) => entry.commandId === commandId);
   const local = held.get(commandId);
   if (!send) return false;
-  patch(commandId, { failed: undefined, owner: currentPageId });
+  patch(commandId, { preparing: true, failed: undefined, owner: currentPageId });
   const outcomes = await Promise.all(
     send.attachments.map(async (file, index) => {
       if (file.sha256) return { sha256: file.sha256 };
@@ -264,11 +327,13 @@ export async function retryStaged(
       }
     }),
   );
-  return settle(commandId, outcomes) && enqueueStaged(client, commandId);
+  return epoch === generation && settle(commandId, outcomes) && enqueueStaged(client, commandId);
 }
 
 /** Test seam: what a reload does to this page (its files, previews and id go; storage stays). */
 export function reloadPage(): void {
+  generation++;
+  drains = new WeakMap();
   held.clear();
   records = undefined;
   parsed = [];
@@ -277,6 +342,8 @@ export function reloadPage(): void {
 
 /** Test seam: forget every held message. */
 export function resetStaged(): void {
+  generation++;
+  drains = new WeakMap();
   for (const commandId of held.keys()) unstage(commandId);
   records = undefined;
   parsed = [];

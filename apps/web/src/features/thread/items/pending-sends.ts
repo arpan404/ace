@@ -1,11 +1,12 @@
 import type { PendingSend, ThreadKey, ThreadReader } from "@ace/client";
-import { arrayEqual, useThread, usePendingSends } from "@ace/client-react";
+import { arrayEqual, useThread, usePendingSends, useClient } from "@ace/client-react";
 import type { QueuePage } from "@ace/protocol";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useLayout } from "@/lib/layout.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { dismissedSends, loadDismissed } from "../composer/dismissed-sends.ts";
 import {
+  drainStaged,
   interrupted,
   liveOwners,
   pageId,
@@ -99,6 +100,7 @@ export function useQueuedCommands(threadId: string): ReadonlySet<string> {
  * page that has since closed (its uploads died with it) reads as failed, with why.
  */
 export function useStaged(threadId: string): readonly StagedSend[] {
+  const client = useClient();
   const { storage } = useLayout();
   const store = stagedSends(storage);
   const all = useSyncExternalStore(store.subscribe, store.get, store.get);
@@ -129,6 +131,11 @@ export function useStaged(threadId: string): readonly StagedSend[] {
         unstage(send.commandId, true);
     }
   }, [here, outbox, owned]);
+  useEffect(() => {
+    if (!here.some((send) => !owned.has(send.commandId) && outbox.get(send.commandId) !== "saving"))
+      return;
+    void drainStaged(client, threadId);
+  }, [client, threadId, here, outbox, owned]);
   // Other pages' holds: alive while their pages hold their locks.
   const others = here.some((send) => send.owner !== pageId && !send.failed);
   const [live, setLive] = useState<ReadonlySet<string>>();
@@ -150,8 +157,8 @@ export function useStaged(threadId: string): readonly StagedSend[] {
             !owned.has(send.commandId) &&
             (!outbox.has(send.commandId) || outbox.get(send.commandId) === "failed"),
         )
-        .map((send) => {
-          const shown = withPreviews(send);
+        .map((send, index) => {
+          const shown = Object.assign({}, withPreviews(send), { waitingForEarlier: index > 0 });
           const gone = send.owner !== pageId && !send.failed && live && !live.has(send.owner);
           return gone ? Object.assign({}, shown, { failed: interrupted(send) }) : shown;
         }),
