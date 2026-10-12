@@ -10,6 +10,7 @@ import type { PrListExtensions } from "./pr-extensions.ts";
 import { useState } from "react";
 
 export function PrList(props: {
+  workspaceId: string;
   value?: ForgePrList | undefined;
   query: ForgePrSearch;
   selected?: number | undefined;

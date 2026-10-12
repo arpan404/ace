@@ -102,6 +102,12 @@ export interface ClientApi {
   threadsMore(options?: RequestOptions): Promise<void>;
   enqueue(payload: CommandPayload, id?: string): Promise<string>;
   command(payload: CommandPayload, options?: RequestOptions, id?: string): Promise<CommandResult>;
+  /** Allocate internally and finish recording the ID before the command can be dispatched. */
+  submitNew(
+    payload: CommandPayload,
+    record: (id: string) => void | Promise<void>,
+    options?: RequestOptions,
+  ): Promise<CommandResult>;
   registry(input: RegistryQuery, options?: RequestOptions): Promise<RegistryResult>;
   /** One-off service operation (ADR 0052). Never persisted or replayed after a disconnect. */
   request<Q extends ServiceRequest>(

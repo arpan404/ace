@@ -184,7 +184,12 @@ function PreparationPage(props: {
   const project = props.project;
   const prSource = usePrSource(project, props.pullRequest);
   const issueSource = useIssueSource(project, props.issue);
-  const draftKey = preparationKey(props.host, project, props.skill, props.issue ?? props.pullRequest);
+  const draftKey = preparationKey(
+    props.host,
+    project,
+    props.skill,
+    props.issue ?? props.pullRequest,
+  );
   const [restored] = useState<Preparation | undefined>(() => {
     const previous = preparation(storage, props.host, draftKey);
     if (previous?.discardRecovery) {

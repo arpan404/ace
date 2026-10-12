@@ -105,6 +105,7 @@ export class Sessions {
     if (actor.session && this.dependencies.repo.permissions.effective(actor.id) !== mode)
       await this.close(actor, "idle");
     if (actor.session) {
+      await this.assertWorkspaceAvailable(this.dependencies.repo.session(actor.id).cwd);
       this.dependencies.repo.permissions.applied(actor.id, mode, this.dependencies.clock.now());
       return;
     }
@@ -189,8 +190,7 @@ export class Sessions {
       await this.dependencies.repo.store.writable();
       if (lifetime.signal.aborted || this.dependencies.repo.cleaning(actor.id))
         throw new Error("Thread is being deleted");
-      await this.dependencies.assertWorkspaceAvailable?.(metadata.cwd);
-      this.dependencies.repo.store.workspaceReservations.assertAvailable(metadata.cwd);
+      await this.assertWorkspaceAvailable(metadata.cwd);
       const codexContext = {
         resetPermissions:
           mode === null && this.dependencies.repo.permissions.effective(actor.id) !== null,
@@ -483,6 +483,10 @@ export class Sessions {
     } finally {
       this.dependencies.repo.finishSessionOpen(actor.id);
     }
+  }
+  async assertWorkspaceAvailable(cwd: string): Promise<void> {
+    await this.dependencies.assertWorkspaceAvailable?.(cwd);
+    this.dependencies.repo.store.workspaceReservations.assertAvailable(cwd);
   }
 
   confirmModel(actor: ThreadActor, model: string): void {
