@@ -1,7 +1,7 @@
 import { ClientError } from "@ace/client";
 import { useConnectionState } from "@ace/client-react";
 import type { Attachment } from "@ace/protocol";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChipAttachment } from "@/components/attachment-chips.tsx";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -93,6 +93,10 @@ export function useAttachments(
     ),
   );
   const [restoredFiles] = useState(restored);
+  const restoredHashes = useMemo(
+    () => new Set(restoredFiles.map((file) => file.sha256)),
+    [restoredFiles],
+  );
   const [metadata, setMetadata] = useState<readonly Attachment[]>([]);
   const connection = useConnectionState();
   const ownerId = thread.id;
@@ -103,8 +107,9 @@ export function useAttachments(
     void sources.context.list({ id: ownerId, workspaceId: "", title: "" }, controller.signal).then(
       (loaded) => {
         if (controller.signal.aborted) return;
-        setMetadata(loaded);
-        const byHash = new Map(loaded.map((file) => [file.sha256, file]));
+        const relevant = loaded.filter((file) => restoredHashes.has(file.sha256));
+        setMetadata(relevant);
+        const byHash = new Map(relevant.map((file) => [file.sha256, file]));
         for (const [key, held] of known.current) {
           const file = byHash.get(held.id?.split("\0")[0] ?? "");
           if (file) known.current.set(key, { ...held, bytes: file.bytes });
@@ -115,8 +120,11 @@ export function useAttachments(
       },
     );
     return () => controller.abort();
-  }, [sources, ownerId, draftScope, restoredFiles, connection]);
-  const metadataByHash = new Map(metadata.map((file) => [file.sha256, file]));
+  }, [sources, ownerId, draftScope, restoredFiles, restoredHashes, connection]);
+  const metadataByHash = useMemo(
+    () => new Map(metadata.map((file) => [file.sha256, file])),
+    [metadata],
+  );
   const displayed = items.map((item) => {
     const file = metadataByHash.get(item.sha256 ?? "");
     return file ? { ...item, mimeType: file.mimeType, kind: file.kind, bytes: file.bytes } : item;

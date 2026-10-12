@@ -1,6 +1,6 @@
 import { useState, type KeyboardEvent } from "react";
 import { XIcon } from "@phosphor-icons/react";
-import { ImageUrl } from "./attachment-bytes.tsx";
+import { VisibleImageUrl } from "./visible-image-url.tsx";
 import type { ImageSource } from "./attachment-format.ts";
 import type { ChipAttachment } from "./attachment-chips.tsx";
 import { FileGlyph, FileName } from "./attachment-face.tsx";
@@ -36,47 +36,48 @@ export function AttachmentChipImage(props: {
         onKeyDown={keys}
         className="focus-ring block w-full min-w-0 rounded-md text-left"
       >
-        <span className="relative grid h-20 w-full place-items-center overflow-hidden rounded-md bg-secondary">
-          {props.source ? (
-            <ImageUrl source={props.source}>
-              {(image) =>
-                image.state === "loading" ? (
-                  <Skeleton className="absolute inset-0 size-full" />
-                ) : image.state === "ready" && image.url !== failedUrl ? (
-                  <img
-                    src={image.url}
-                    alt={item.name}
-                    draggable={false}
-                    onError={() => setFailedUrl(image.url)}
-                    className="size-full object-cover"
+        <VisibleImageUrl
+          source={props.source}
+          className="relative grid h-20 w-full place-items-center overflow-hidden rounded-md bg-secondary"
+        >
+          {(image) => (
+            <>
+              {image.state === "loading" ? (
+                <Skeleton className="absolute inset-0 size-full" />
+              ) : image.state === "ready" && image.url !== failedUrl ? (
+                <img
+                  src={image.url}
+                  alt={item.name}
+                  draggable={false}
+                  loading="lazy"
+                  decoding="async"
+                  onError={() => setFailedUrl(image.url)}
+                  className="size-full object-cover"
+                />
+              ) : (
+                <span className="flex flex-col items-center gap-1 text-xs text-muted-foreground">
+                  <FileGlyph kind="image" />
+                  Preview unavailable
+                </span>
+              )}
+              {uploading && (
+                <span
+                  role="progressbar"
+                  aria-label={`Uploading ${item.name}`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={percent}
+                  className="absolute inset-x-0 bottom-0 h-1 bg-foreground/20"
+                >
+                  <span
+                    style={{ width: `${percent}%` }}
+                    className="block h-full bg-tint transition-[width] duration-(--dur-1)"
                   />
-                ) : (
-                  <span className="flex flex-col items-center gap-1 text-xs text-muted-foreground">
-                    <FileGlyph kind="image" />
-                    Preview unavailable
-                  </span>
-                )
-              }
-            </ImageUrl>
-          ) : (
-            <FileGlyph kind="image" />
+                </span>
+              )}
+            </>
           )}
-          {uploading && (
-            <span
-              role="progressbar"
-              aria-label={`Uploading ${item.name}`}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={percent}
-              className="absolute inset-x-0 bottom-0 h-1 bg-foreground/20"
-            >
-              <span
-                style={{ width: `${percent}%` }}
-                className="block h-full bg-tint transition-[width] duration-(--dur-1)"
-              />
-            </span>
-          )}
-        </span>
+        </VisibleImageUrl>
         <span className="mt-1 block px-0.5 text-xs text-foreground">
           <FileName name={item.name} />
         </span>

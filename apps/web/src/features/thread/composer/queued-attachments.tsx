@@ -1,6 +1,6 @@
 import type { Attachment, MessageContext } from "@ace/protocol";
 import { useState } from "react";
-import { ImageUrl } from "@/components/attachment-bytes.tsx";
+import { VisibleImageUrl } from "@/components/visible-image-url.tsx";
 import { FileGlyph, FileName } from "@/components/attachment-face.tsx";
 import { describeFile } from "@/components/attachment-kind.ts";
 import { useFilePreview, useLightbox } from "@/components/attachment-open.tsx";
@@ -76,17 +76,26 @@ export function QueuedAttachments(props: {
                 className="focus-ring flex min-w-0 max-w-full items-center gap-1.5 rounded-md bg-background/50 pr-2 text-xs"
               >
                 {image >= 0 ? (
-                  <ImageUrl source={file.source}>
+                  <VisibleImageUrl
+                    source={file.source}
+                    className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-md bg-secondary"
+                  >
                     {(url) => (
-                      <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-md bg-secondary">
+                      <>
                         {url.state === "ready" ? (
-                          <img src={url.url} alt={file.name} className="size-full object-cover" />
+                          <img
+                            src={url.url}
+                            alt={file.name}
+                            loading="lazy"
+                            decoding="async"
+                            className="size-full object-cover"
+                          />
                         ) : (
                           <FileGlyph kind="image" />
                         )}
-                      </span>
+                      </>
                     )}
-                  </ImageUrl>
+                  </VisibleImageUrl>
                 ) : (
                   <FileGlyph kind={describeFile(file).kind} />
                 )}
