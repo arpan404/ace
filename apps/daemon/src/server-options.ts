@@ -30,6 +30,7 @@ import type { CommandHandler } from "./commands.ts";
 import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
+  cliControl?: ReturnType<typeof import("./services/cli-control.ts").cliControl>;
   storage?: import("./storage/service.ts").StorageService;
   sourceControl?: import("./source-control.ts").SourceControl;
   remoteContextTransfers?: import("./agent-control/remote-context-transfer.ts").RemoteContextTransfers;

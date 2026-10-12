@@ -1,3 +1,4 @@
+import { cliControl } from "./services/cli-control.ts";
 export { StorageService } from "./storage/service.ts";
 export { planStorageItem, type StorageCandidate } from "./storage/planner.ts";
 import { shutdownDeadline } from "./shutdown.ts";
@@ -363,6 +364,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       storage: services.storage,
       engine: services.engine,
       agentControl: services.agentControl,
+      cliControl: cliControl(serviceContext),
       accounts: services.accounts,
       accountManagement: services.accountManagement,
       cursorAuth: services.cursorAuth,

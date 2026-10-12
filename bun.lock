@@ -35,6 +35,7 @@
         "@ace/agent-registry": "workspace:*",
         "@ace/automations": "workspace:*",
         "@ace/browser": "workspace:*",
+        "@ace/client": "workspace:*",
         "@ace/commands": "workspace:*",
         "@ace/context": "workspace:*",
         "@ace/core": "workspace:*",
@@ -75,7 +76,6 @@
       },
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
-        "@ace/client": "workspace:*",
         "@ace/client-worker": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@ace/perf-kit": "workspace:*",
