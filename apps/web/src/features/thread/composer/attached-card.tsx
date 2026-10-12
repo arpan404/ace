@@ -1,9 +1,18 @@
 import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
-import { attachedSurface } from "./composer-styles.ts";
+import {
+  attachedSurface,
+  attachedInset,
+  attachedOverlap,
+  attachedStripPadding,
+  attachedCardPadding,
+} from "./composer-styles.ts";
 
 /** Cards waiting behind the top one, drawn as slivers above it, farthest first. */
-const slivers = ["inset-x-6 -top-4 opacity-60", "inset-x-3 -top-2 opacity-90"];
+const slivers = [
+  "inset-x-[calc(var(--surface-inset)*2)] -top-[calc(var(--surface-gap)*2)] opacity-60",
+  "inset-x-(--surface-inset) -top-(--surface-gap) opacity-90",
+];
 
 /**
  * The tab attached to the composer: above it, a little narrower, its bottom tucked behind the
@@ -27,7 +36,7 @@ export function AttachedCard(props: {
 }) {
   const behind = Math.min(props.behind ?? 0, slivers.length);
   return (
-    <div className="relative z-0 mx-4">
+    <div className={cn("relative z-0", attachedInset, attachedOverlap)}>
       {slivers.slice(slivers.length - behind).map((place) => (
         <div
           key={place}
@@ -43,8 +52,10 @@ export function AttachedCard(props: {
         onKeyDownCapture={props.onKeyDown}
         className={cn(
           "fx-panel-in relative",
-          props.strip ? "" : "max-h-[50vh] overflow-y-auto overscroll-contain pb-3",
-          props.label === "Plan" || props.label === "Waiting for you" ? "" : attachedSurface,
+          props.strip
+            ? attachedStripPadding
+            : cn("max-h-[50vh] overflow-y-auto overscroll-contain", attachedCardPadding),
+          attachedSurface,
         )}
       >
         {/* What it shows changing settles in place; the surface stays. */}

@@ -42,6 +42,8 @@ const BlockContent = memo(function BlockContent(props: {
           ongoing={block.ongoing}
           until={block.until}
           idle={block.idle}
+          startedAt={block.startedAt}
+          outcome={block.outcome}
         />
       );
     case "subagents":

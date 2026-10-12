@@ -35,6 +35,12 @@ export const ProjectsRequest = z.object({
   type: z.literal("projects.request"),
   requestId: z.string().min(1).max(128),
   operation: z.discriminatedUnion("op", [
+    z.object({
+      op: z.literal("workspace.list"),
+      after: WorkspaceId.optional(),
+      limit: z.number().int().min(1).max(100).default(50),
+    }),
+    z.object({ op: z.literal("workspace.get"), workspaceId: WorkspaceId }),
     z.object({ op: z.literal("workspace.inspect"), path }),
     z.object({
       op: z.literal("fs.search"),
@@ -69,6 +75,12 @@ export const ProjectsResult = z.object({
   type: z.literal("projects.result"),
   requestId: z.string().min(1).max(128),
   result: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("projects"),
+      projects: z.array(Project).max(100),
+      next: WorkspaceId.nullable(),
+    }),
+    z.object({ kind: z.literal("project"), project: Project }),
     ProjectInspection.extend({ kind: z.literal("inspection") }),
     z.object({
       kind: z.literal("search"),

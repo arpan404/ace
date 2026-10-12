@@ -11,7 +11,8 @@ const Steps = DeferredWorkLogSteps.Component;
 /**
  * "Worked for 4m 12s › Explored 6 files · Ran 3 commands · Edited 2 files". The whole tool log
  * at rest; expanding shows each step as a quiet row, and what the agent said between steps.
- * Opens by itself when a step needs approval, or when a jump or a search hit lands inside it.
+ * A jump or search hit opens its steps. Live turns keep only their images here; the footer
+ * owns their activity, and the composer owns pending approvals.
  */
 export function WorkLog(props: {
   threadId: string;
@@ -22,26 +23,36 @@ export function WorkLog(props: {
   until?: number | undefined;
   /** Time the agent sat idle between two of its runs inside the log. */
   idle?: number | undefined;
+  startedAt?: number | undefined;
+  outcome?: "completed" | "interrupted" | "failed" | "paused" | undefined;
 }) {
   const headline = useWorkLog(props.threadId, props.itemIds, {
     live: props.live,
     ongoing: props.ongoing,
     until: props.until,
     idle: props.idle,
+    startedAt: props.startedAt,
+    outcome: props.outcome,
   });
   const [toggled, setOpen] = useState<boolean>();
   const jumped = use(JumpedItem);
   const landed = jumped !== undefined && props.itemIds.includes(jumped);
-  const open = toggled ?? (landed || (headline?.awaiting ?? false));
+  const open = toggled ?? landed;
   const panel = useId();
   // Rows load after first paint, ready before the log is opened.
   useEffect(() => void DeferredWorkLogSteps.preload(), []);
   if (!headline) return null;
+  if (props.ongoing && !open)
+    return props.itemIds.map((itemId) => (
+      <WorkLogImage key={itemId} threadId={props.threadId} itemId={itemId} />
+    ));
   return (
     <div>
       <WorkLogHeader
         headline={
-          headline.awaiting ? { ...headline, label: "Working", current: undefined } : headline
+          headline.awaiting
+            ? { ...headline, label: "Waiting for your approval", current: undefined }
+            : headline
         }
         open={open}
         panel={panel}
@@ -51,7 +62,7 @@ export function WorkLog(props: {
         props.itemIds.map((itemId) => (
           <WorkLogImage key={itemId} threadId={props.threadId} itemId={itemId} />
         ))}
-      {open && (
+      {open && props.itemIds.length > 0 && (
         <Suspense fallback={null}>
           <Steps threadId={props.threadId} itemIds={props.itemIds} panel={panel} />
         </Suspense>

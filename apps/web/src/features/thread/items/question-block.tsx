@@ -1,5 +1,6 @@
+import { useInteraction } from "@ace/client-react";
 import { Suspense } from "react";
-import { DeferredQuestionRecord } from "../interactions/deferred-card.ts";
+import { DeferredQuestionRecord, DeferredApprovalRecord } from "../interactions/deferred-card.ts";
 
 const QuestionRecord = DeferredQuestionRecord.Component;
 
@@ -9,9 +10,17 @@ const QuestionRecord = DeferredQuestionRecord.Component;
  * folded into a work log.
  */
 export function QuestionBlock(props: { threadId: string; interactionId: string }) {
+  const interaction = useInteraction(props.threadId, props.interactionId);
   return (
     <Suspense fallback={null}>
-      <QuestionRecord threadId={props.threadId} interactionId={props.interactionId} />
+      {interaction?.request.kind === "approval" ? (
+        <DeferredApprovalRecord.Component
+          threadId={props.threadId}
+          interactionId={props.interactionId}
+        />
+      ) : (
+        <QuestionRecord threadId={props.threadId} interactionId={props.interactionId} />
+      )}
     </Suspense>
   );
 }

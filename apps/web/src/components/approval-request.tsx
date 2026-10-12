@@ -100,13 +100,16 @@ export function ApprovalRequest(props: {
       {!compact && copy.reason && <p className="text-ui text-muted-foreground">{copy.reason}</p>}
       {high &&
         (compact ? (
-          <p className="text-ui text-status-failed">Hard to undo</p>
+          <p className="text-ui text-status-failed">High risk · {high.text}</p>
         ) : (
           <p className="text-ui text-muted-foreground">
             <b className="mr-[7px] font-medium text-status-failed">High risk.</b>
             {high.text}
           </p>
         ))}
+      {compact && medium && (
+        <p className="text-ui text-muted-foreground">Medium risk · {medium.text}</p>
+      )}
       {props.answered || (
         <div className="flex flex-wrap items-center gap-2">
           {copy.decisions.map((decision, index) => {

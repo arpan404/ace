@@ -805,6 +805,17 @@ export class Engine {
   stopForDeletion(id: ThreadId): Promise<void> {
     return this.liveness.stop(id);
   }
+  hasUnfinishedWork(id: ThreadId): boolean {
+    return this.liveness.unfinished(id);
+  }
+  /** Close a retained session without cancelling its already settled work. */
+  cleanupSession(id: ThreadId): Promise<void> {
+    return this.liveness.stop(id);
+  }
+  /** Host cancellation retires one thread and records why it ended. */
+  stopForCancellation(id: ThreadId): Promise<void> {
+    return this.liveness.stopCancelled(id);
+  }
   private deletionPolicy?: (id: ThreadId, commandId: string) => void;
   bindDeletionPolicy(policy: (id: ThreadId, commandId: string) => void): void {
     this.deletionPolicy = policy;

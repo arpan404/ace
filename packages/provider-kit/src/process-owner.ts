@@ -1,8 +1,14 @@
+import type { ProcessJournal } from "./process-inventory.ts";
 import { setTimeout as delay } from "node:timers/promises";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<number, (graceMs: number) => Promise<unknown>>();
 let shutdownInstalled = false;
+const journals = new Set<ProcessJournal>();
+export function observeProcessGroups(journal: ProcessJournal): () => void {
+  journals.add(journal);
+  return () => journals.delete(journal);
+}
 
 export function killGroup(pid: number, signal: NodeJS.Signals): void {
   try {
@@ -37,12 +43,23 @@ export async function stopRetainedGroup(pid: number, graceMs: number): Promise<v
 function cleanup(): void {
   for (const pid of owned.keys()) killGroup(pid, "SIGKILL");
 }
-export function registerGroup(pid: number, stop: (graceMs: number) => Promise<unknown>): void {
+export function registerGroup(
+  pid: number,
+  stop: (graceMs: number) => Promise<unknown>,
+  metadata: { name: string; cwd?: string } = { name: "ace-process" },
+): void {
+  try {
+    for (const journal of journals) journal.add(pid, metadata);
+  } catch (error) {
+    killGroup(pid, "SIGKILL");
+    throw error;
+  }
   if (owned.size === 0) process.on("exit", cleanup);
   owned.set(pid, stop);
 }
 export function unregisterGroup(pid: number): void {
   owned.delete(pid);
+  for (const journal of journals) journal.remove(pid);
   if (owned.size === 0) process.removeListener("exit", cleanup);
 }
 
@@ -74,4 +91,10 @@ export function installShutdownHandlers({
   process.on("SIGINT", onInt);
   process.on("SIGTERM", onTerm);
   return dispose;
+}
+
+export async function stopOwnedGroups(graceMs = 500): Promise<void> {
+  const results = await Promise.allSettled([...owned.values()].map((stop) => stop(graceMs)));
+  if (results.some((result) => result.status === "rejected"))
+    throw new Error("Some owned process groups could not be stopped");
 }

@@ -1,5 +1,6 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
+import { formatClock } from "@ace/ui-core";
 import { GitForkIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useCallback } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -29,11 +30,6 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
   const name = agent && agent.origin !== "root" ? (agent.name ?? "Subagent") : undefined;
   return (
     <div className="group/answer text-prose leading-[1.6] tracking-[-0.005em]">
-      {name && (
-        <p className="mb-1 text-xs text-muted-foreground">
-          {name.charAt(0).toUpperCase() + name.slice(1)} subagent
-        </p>
-      )}
       <Prose
         text={text}
         thread={{
@@ -69,23 +65,26 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
         </div>
       )}
       {(item.complete || (answer.truncated && !streaming)) && (
-        <div className="mt-1 flex opacity-0 transition-opacity duration-(--dur-1) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
-          <Suspense fallback={null}>
-            <CopyAnswer
-              key={answer.partial ? "preview" : "answer"}
-              text={text}
-              label={answer.partial ? "Copy preview" : "Copy answer"}
-            />
-          </Suspense>
-          {item.complete &&
-            !name &&
-            item.nativeId &&
-            (item.executionSource?.selection.provider ?? agent?.native.provider) === "pi" && (
-              <Suspense fallback={null}>
-                <RewindControl threadId={props.threadId} entryId={item.nativeId} />
-              </Suspense>
-            )}
-          {item.complete && !name && <ForkHere threadId={props.threadId} itemId={props.itemId} />}
+        <div className="mt-1 flex min-h-6 items-center gap-2">
+          <span className="text-xs text-subtle-foreground">{formatClock(item.createdAt)}</span>
+          <div className="flex opacity-0 transition-opacity duration-(--dur-1) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
+            <Suspense fallback={null}>
+              <CopyAnswer
+                key={answer.partial ? "preview" : "answer"}
+                text={text}
+                label={answer.partial ? "Copy preview" : "Copy answer"}
+              />
+            </Suspense>
+            {item.complete &&
+              !name &&
+              item.nativeId &&
+              (item.executionSource?.selection.provider ?? agent?.native.provider) === "pi" && (
+                <Suspense fallback={null}>
+                  <RewindControl threadId={props.threadId} entryId={item.nativeId} />
+                </Suspense>
+              )}
+            {item.complete && !name && <ForkHere threadId={props.threadId} itemId={props.itemId} />}
+          </div>
         </div>
       )}
     </div>

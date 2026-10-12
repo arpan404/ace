@@ -43,7 +43,7 @@ export function useTurnActivity(threadId: string, enabled = true): TurnActivity 
   );
   const activity = useWatched(threadId, keys, read, sameActivity);
   return activity && live.staleLabel
-    ? { label: "Work so far", tone: "held", elapsedFrom: undefined, current: undefined }
+    ? { label: live.staleLabel, tone: "held", elapsedFrom: undefined, current: undefined }
     : activity?.tone === "paused"
       ? {
           ...activity,

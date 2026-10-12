@@ -10,7 +10,7 @@ const follows = (a: Element, b: Element) =>
   !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
 const logs = (feed: HTMLElement) =>
-  within(feed).queryAllByRole("button", { name: /^(?:Work(ed|ing) for|Work so far)/ });
+  within(feed).queryAllByRole("button", { name: /^(?:Work(ed|ing) for)/ });
 
 test("one turn that talks between steps, finishes a background task and starts a subagent reads as one Worked for", async () => {
   const app = harness();
@@ -54,12 +54,13 @@ test("while the turn runs, a note followed by more work never opens a second log
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   // The agent's latest words read below its log while nothing follows them yet.
   const interim = await within(feed).findByText(/The outbox clears its buffer/);
-  expect(logs(feed)).toHaveLength(1);
-  expect(follows(logs(feed)[0]!, interim)).toBe(true);
+  expect(logs(feed)).toHaveLength(0);
+  expect(screen.getByRole("status", { name: "Working" })).toBeTruthy();
+  expect(interim).toBeTruthy();
 
   // Work after it: the note moves into the same log, which carries the turn's live line.
   act(() => script.runThrough("background-done"));
   await within(feed).findByRole("button", { name: "1 subagent" });
-  expect(logs(feed)).toHaveLength(1);
+  expect(logs(feed)).toHaveLength(0);
   expect(within(feed).queryByText(/The outbox clears its buffer/)).toBeNull();
 });

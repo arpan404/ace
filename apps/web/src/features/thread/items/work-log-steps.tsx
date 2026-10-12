@@ -145,7 +145,7 @@ function StepLine(props: { threadId: string; data: ReturnType<typeof useStepDisp
   // Details start folded; pending requests remain visible above the composer.
   const [open, setOpen] = useState(false);
   const panel = useId();
-  if (!data) return null;
+  if (!data || data.awaiting) return null;
   const expandable = hasStepDetail(data.item);
   return (
     <li>

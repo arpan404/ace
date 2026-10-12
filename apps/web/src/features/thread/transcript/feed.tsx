@@ -13,7 +13,6 @@ import {
   useState,
 } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useTopFade } from "@/lib/edge-fade.ts";
@@ -45,7 +44,6 @@ import { useRunOrdinals } from "./run-ordinals.ts";
 import { useBlocks } from "./use-blocks.ts";
 import { useTurnActivity } from "./use-turn-activity.ts";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
-import { useNewActivity } from "./use-new-activity.ts";
 import { useReadMarker } from "./seen.ts";
 
 const none: readonly string[] = [];
@@ -83,7 +81,7 @@ const nearEdge = 64;
 /** Room above a row brought into view, for the bars that float over the transcript's top. */
 const topRoom = 56;
 const gap: Record<Block["kind"], string> = {
-  user: "pb-7",
+  user: "pb-4",
   message: "pb-4",
   work: "pb-2.5",
   files: "pb-4",
@@ -153,7 +151,6 @@ export interface FeedProps {
   seqTurns: ReadonlyMap<string, number> | undefined;
   /** Items that reached the live end since the reader left it. */
   fresh: { count: number; more: boolean };
-  liveNewest: string | undefined;
 }
 
 /**
@@ -216,20 +213,12 @@ export function Feed(props: FeedProps) {
     [blocks, ordinalOf, open, openFrom, keep],
   );
   const keys = useMemo(() => rows.map(rowKey), [rows]);
-  const divider = useNewActivity(threadId, blocks, order, props.liveNewest);
   const { rows: motionRows } = useListMotion(blocks, (block: Block) => block.key);
   const entering = useMemo(
     () => new Set(motionRows.flatMap((row) => (row.phase === "enter" ? [row.key] : []))),
     [motionRows],
   );
-  // The turn's one live line: the bottom work log's header while the agent works on it, else
-  // the footer under the last block. Never both.
   const activity = useTurnActivity(threadId);
-  const openWork = blocks.findLast((block) => block.kind === "work" && block.until === undefined);
-  const liveBlock =
-    !detached && activity && (activity.tone === "held" || activity.elapsedFrom !== undefined)
-      ? openWork?.key
-      : undefined;
 
   const viewport = useRef<HTMLDivElement>(null);
   const feed = useRef<HTMLDivElement>(null);
@@ -481,7 +470,6 @@ export function Feed(props: FeedProps) {
 
   const lastWindowOrdinal = window ? ordinalOf(window.items.at(-1)?.id ?? "") : undefined;
   const fadeTop = useTopFade(viewport);
-  const dividerRow = divider && rows.find((row) => row.key === divider)?.key;
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       {/* The rows and the bars that float over their top (search, the jump bar). */}
@@ -509,23 +497,18 @@ export function Feed(props: FeedProps) {
           }}
         >
           <div className={`${readingColumn} pt-6 pb-[calc(var(--composer-clearance,0px)+4rem)]`}>
-            <div className="flex justify-center pb-4">
-              {hasOlder ? (
+            {hasOlder && (
+              <div className="flex justify-center pb-4">
                 <Button
                   variant="ghost"
                   size="sm"
                   disabled={loading}
                   onClick={() => void loadOlder()}
                 >
-                  {loading && <Spinner />}
-                  Load earlier messages
+                  {loading && <Spinner />} Load earlier messages
                 </Button>
-              ) : (
-                <Marker variant="separator" className="text-xs text-subtle-foreground">
-                  <MarkerContent>Beginning of thread</MarkerContent>
-                </Marker>
-              )}
-            </div>
+              </div>
+            )}
             {pager.error && (
               <p role="alert" className="pb-3 text-center text-xs text-status-failed">
                 Couldn't load earlier messages. Try again.
@@ -560,11 +543,10 @@ export function Feed(props: FeedProps) {
                         className={entering.has(row.key) ? "fx-rise-in" : undefined}
                         style={lit ? highlight : undefined}
                       >
-                        {dividerRow === row.key && <NewActivity />}
                         <RowView
                           threadId={threadId}
                           row={row}
-                          live={row.key === liveBlock}
+                          live={false}
                           onOpen={(ordinal) =>
                             setOpened((previous) => new Set(previous).add(ordinal))
                           }
@@ -594,8 +576,16 @@ export function Feed(props: FeedProps) {
               </Suspense>
             ) : (
               <LiveFooter
-                // A usage-limit pause is a transcript block, not a live line.
-                activity={liveBlock || activity?.tone === "paused" ? undefined : activity}
+                threadId={threadId}
+                activity={
+                  activity?.tone === "paused" ||
+                  (activity?.label === "Waiting for your approval" &&
+                    blocks.some(
+                      (block) => block.kind === "question" && block.requestKind === "approval",
+                    ))
+                    ? undefined
+                    : activity
+                }
               />
             )}
             <div ref={dock} className="mt-4 empty:hidden" />
@@ -708,17 +698,5 @@ function TurnLine(props: { ordinal: number }) {
     <p className="flex h-8 items-center font-mono text-xs tabular-nums text-subtle-foreground">
       Turn {props.ordinal}
     </p>
-  );
-}
-
-function NewActivity() {
-  return (
-    <div
-      role="separator"
-      aria-label="New activity"
-      className="mt-2 mb-6 flex items-center gap-3 text-xs font-medium tracking-[0.01em] text-[color-mix(in_oklab,var(--ring)_80%,var(--foreground))] before:h-px before:flex-1 before:bg-ring/28 after:h-px after:flex-1 after:bg-ring/28"
-    >
-      New activity
-    </div>
   );
 }

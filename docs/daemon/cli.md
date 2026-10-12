@@ -3,6 +3,11 @@
 `ace` connects to the daemon in `ACE_HOME`, defaulting to the existing ace home.
 Start it with `ace start` before sending work. Providers use your installed CLIs.
 
+Published releases include a target-specific npm tarball for `npx`, for example
+`npx --yes https://github.com/arpan404/ace/releases/download/vVERSION/ace-cli-VERSION-linux-x64.tgz --help`.
+Choose the matching OS and architecture. It runs the same packaged CLI and Node
+runtime with no service installation. See [release publication](../../tools/release/README.md).
+
 ```
 ace run "Fix the parser" --provider codex --project /path/to/repo --json
 printf 'Review the diff' | ace run --provider claude --worktree --stream jsonl
@@ -47,3 +52,200 @@ work running. An acknowledgement timeout is uncertain; retry the identical mutat
 with its printed idempotency key. The SDK persists pending commands before sending
 and validates daemon identity before replay. No disconnect is treated as completion.
 Never reuse a key with different input. Task receipts are scoped to their parent.
+
+## Process and provider control
+
+```
+ace stop --json
+ace kill-all --provider claude --json
+ace capabilities --json
+ace providers status --json
+ace login codex --stream jsonl
+ace login claude --json
+ace mcp enroll --scope read --ttl 1h --project WORKSPACE
+ace mcp list --json
+ace mcp revoke ENROLLMENT --json
+```
+
+`stop` waits for a correlated cleanup receipt and reports cleanup failures. A closed
+listener alone does not prove shutdown completion. `kill-all` records cancellation;
+subsequent waits return failed with the cancelled thread IDs. Provider and project
+filters apply to every terminated thread. `--thread` selects its subtree.
+Idle provider sessions are closed without changing completed work outcomes.
+Only unfinished selected work receives cancellation metadata; subtree cleanup
+also preserves the results of completed descendants.
+Without filters it also stops owned supervised groups. Retrying its key returns the
+receipt and does not terminate a later generation. Unfinished receipts are uncertain.
+The shared process supervisor journals kernel start identity, owner identity and
+non-secret labels in `processes.sqlite`. Startup kills verified orphan groups;
+recycled or unverifiable live groups fail closed. Existing terminal guardians retain
+PTY session ownership and already clean up on daemon death.
+
+MCP enrollment is a separate loopback `/mcp` endpoint built on ace's existing MCP
+server. Its lease identity is external and grants no internal agent impersonation.
+Read leases expose bounded project inspection. Operate adds thread starts/messages
+and delegated task control. Neither exposes approvals or administration. TTL is at
+most 24 hours; revoke aborts active tools, and restart invalidates all bearers.
+Only local host administrators can enroll/list/revoke. Enrollment writes the ace
+bearer to a private 0600 file. The setup command loads `ACE_MCP_TOKEN` from that file;
+Claude and Codex config reference the variable. The paste-ready commands and config
+contain no token literals. Revocation and expiry remove the current credential file.
+Launch the provider from the shell where the variable is exported. JSON output also
+includes the ace bearer once. No provider credential is read or persisted.
+The snippets use [Claude HTTP MCP configuration](https://code.claude.com/docs/en/mcp)
+and [Codex HTTP MCP configuration](https://developers.openai.com/codex/mcp).
+
+Login uses the reviewed supervised native CLI device/browser flow. Verification
+URLs and device codes go to stderr, or typed JSONL records. Providers without an
+SSH-compatible reviewed flow return needs-human with native terminal instructions.
+ace cancels and drains an active supervised session before printing fallback
+instructions, so a new login can start immediately.
+The CLI never accepts provider API keys or performs a token exchange.
+
+## Projects and opening ace
+
+```
+ace add
+ace project add ./another-repository --json
+ace project list --limit 50 --json
+ace project list --after WORKSPACE_ID --json
+ace project rename WORKSPACE_ID "A clearer name"
+ace project remove WORKSPACE_ID
+ace project open WORKSPACE_ID
+ace open ./repository --web
+```
+
+`add` defaults to the current directory. The daemon applies its project policy and
+canonicalizes the path, so aliases register the same project. Listing includes
+projects with no threads and returns a bounded page with a `next` cursor. Removal
+unregisters a project and preserves its files and thread history. Active trees
+require explicit `--archive-threads`, using the same policy as the GUI.
+
+`open` registers the path and opens its project. `project open` selects an existing
+registered ID. Local opening starts the daemon if needed, then dispatches the
+existing `ace://open?folder=...` deep link; `--web` selects the web route. An unavailable
+desktop handler falls back to the web route. Opening requires an OS URL handler;
+headless hosts receive needs-human with the URL. No token is placed in the URL.
+Remote project paths must be absolute paths on the remote host. Remote opening uses
+that host's web app after the CLI verifies the profile connection.
+
+## Terminal chat
+
+```
+ace chat --project . --provider claude
+ace chat --thread THREAD
+ace chat --thread THREAD --stream jsonl
+```
+
+Chat creates a real ace thread on the first prompt, or attaches to `--thread`.
+Its messages and approvals appear in the GUI and mobile clients. `/stop` interrupts
+the tree, `/steer TEXT` redirects work, `/model MODEL` changes the thread's selection,
+and `/resume [THREAD]` resumes its held input or session. `/approve [INTERACTION]
+[OPTION]` and `/deny [INTERACTION]` resolve permissions. A single displayed approval
+also accepts `y` or `n`. Questions and elicitation require a suitable ace client.
+Use `//` to send a prompt that begins with `/`.
+
+Tree status includes descendant work and queue attention. A disconnected observer
+shows uncertainty. `/quit` or EOF detaches and leaves work running; that successful
+detach does not claim that work completed. Chat has no default observation deadline;
+an explicit `--timeout` limits the session. Human terminals show a bounded streaming
+preview above the input prompt, then print the completed message. Terminal control
+sequences in provider text are stripped. Piped human output streams text directly.
+`--json` and `--stream jsonl` emit one typed chat record per line, with admitted IDs
+and retry keys when an action becomes uncertain.
+Credential revocation stops chat input and returns uncertain with the latest
+thread and retry key. `/quit` also interrupts receipt observation immediately;
+an unacknowledged command remains in the durable outbox for a later retry.
+
+## Server and remote profiles
+
+```
+ace serve --json
+ace service install --linger --json
+ace pair redeem - --name "SSH client" --profile workstation --json
+ace remote add workstation https://host:4243/ --fingerprint SPKI_SHA256 --device DEVICE_ID --token-file /private/device-token
+ace remote list --json
+ace remote use workstation
+ace threads list --json
+ace thread read THREAD --remote workstation --json
+ace remote use local
+ace remote remove workstation
+```
+
+`serve` runs the daemon without a desktop and selects the headless browser backend.
+`service install --linger` uses Linux `loginctl enable-linger` for the invoking user
+so the user service survives logout. It refuses other operating systems.
+
+Pipe the one-time pairing URL into `pair redeem`; the host chooses device scopes.
+Redemption consumes it once, validates its SPKI pin and saves only ace device access.
+`remote add` requires an explicit HTTPS origin, SPKI pin, device id and private token
+file, and confirms pinned ticket exchange before storing the profile. `remote list`
+hides tokens. Profile names have separate SDK outboxes and host bindings. Removal
+clears selection, not the daemon's device registration; `devices revoke` owns that.
+
+The active profile selects WebSocket work commands. `--remote NAME` overrides it;
+`--remote local` selects the local host token. Runtime, service, enrollment, pairing,
+cloud wrappers and local log files are local operations. Use a registered workspace
+id when starting work on a remote profile. Each connection exchanges its device
+token for a fresh ticket before pinned WSS hello. No provider credentials enter a
+profile or the SDK outbox.
+Temporary ticket transport failures, rate limits and server outages retry through
+the SDK. Rejected credentials and changed public-key pins remain fatal.
+
+## Cloud, logs, browser and automations
+
+```
+ace cloud codex exec "Review the repository" --env ENV_ID --idempotency-key review-cloud --json
+ace cloud codex list --json
+ace cloud codex status TASK_ID --json
+ace cloud codex diff TASK_ID --json
+ace cloud codex apply TASK_ID --json
+ace logs -f --json
+ace browser shot THREAD --url https://example.com --output shot.png --json
+ace browser record THREAD --duration 10s --output recording.mp4 --json
+ace automation list --json
+ace automation run ID --variables '{"branch":"main"}' --json
+```
+
+Cloud commands invoke the installed, logged-in `codex cloud` in the current
+checkout. JSON envelopes retain bounded native stdout, operation and exit status;
+cloud execution success means submission succeeded. Status/diff/apply depend on
+the installed Codex version. No provider HTTP API or credential store is added.
+Exec/apply receipts prevent repeat submission after retries. A crash/timeout before
+a receipt is uncertain and is never automatically resubmitted. Inspect the native
+cloud task list before choosing a new key.
+
+Logs read the local daemon's redacted JSONL with native tail rotation handling.
+`-f --json` emits one typed log record per line until interrupted. Browser commands
+reuse the thread's browser, origin approvals and ownership. Recording subscribes
+and acknowledges frames, then finalizes through the browser owner. Artifacts are
+downloaded through `@ace/client` even for remote profiles. Output files are created
+exclusively; existing files are never replaced. Recording requires the daemon's
+Chromium/ffmpeg prerequisites. Automation runs use the existing durable owner.
+
+See [cloud CLI evaluation](../research/cli-cloud.md) for the other vendor wrappers
+considered for this phase.
+
+## Storage and cleanup
+
+```
+ace storage --json
+ace clean --kinds logs,artifacts --json
+ace clean apply PLAN_ID --revision REVISION --json
+ace clean status PLAN_ID --json
+```
+
+`storage` measures bounded daemon-owned usage. `clean` only previews a reviewed
+batch; it never applies implicitly. Inspect the plan's removal and protection
+reasons, then pass its exact ID and revision to `apply`. This ID is the durable
+retry key. Read `status` after an uncertain reply or apply the identical plan
+again. Pending effects return uncertain; stale previews return refused and need
+a new plan. Force requires individual IDs from a preview via `--force-items`
+JSON, which creates another preview. `--retention` accepts the daemon's six-key
+retention JSON object without changing saved settings.
+
+The CLI calls #554's [retention API](storage-cleanup.md); it has no filesystem
+inventory or deletion implementation. Whole-tree protection, reviewed file
+identities and recovery remain with that owner. Plans and application require
+host administration; paired read authority can see usage. The API and CLI expose
+no database compaction operation.

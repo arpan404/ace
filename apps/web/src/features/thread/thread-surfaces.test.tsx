@@ -12,19 +12,19 @@ test("a disconnected thread pauses its live line and removes Stop until replay c
   app.play(replayCursor()).runThrough("worked");
   await app.open("/t/thread-replay-cursor");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await within(feed).findByRole("button", { name: /^Work so far/ });
+  expect(within(feed).queryByText("Work so far")).toBeNull();
   act(() => {
     app.daemon.refuseConnections(true);
     app.daemon.disconnectAll();
   });
   await waitFor(() => expect(app.client.state).not.toBe("ready"));
-  await within(feed).findByRole("button", { name: /^Work so far/ });
+  expect(within(feed).queryByText("Work so far")).toBeNull();
   expect(screen.getByText("Reconnecting")).toBeTruthy();
   expect(within(feed).queryByText(/Connection lost|Offline since|Reconnecting/)).toBeNull();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
   act(() => app.daemon.refuseConnections(false));
-  await within(feed).findByRole("button", { name: /^Work so far/ });
+  expect(within(feed).queryByText("Work so far")).toBeNull();
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });
 
@@ -38,12 +38,12 @@ test("a usage-limited thread shows a pause and no Stop control", async () => {
   expect(screen.queryByRole("status", { name: "Working" })).toBeNull();
 });
 
-test("a streaming answer keeps one quiet work log without a body working timer", async () => {
+test("a streaming answer keeps a single live Working line at the transcript end", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("worked");
   await app.open("/t/thread-replay-cursor");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await within(feed).findByRole("button", { name: /^Work so far/ });
+  expect(within(feed).queryByText("Work so far")).toBeNull();
   act(() =>
     app.daemon.apply("thread-replay-cursor", [
       {
@@ -61,7 +61,8 @@ test("a streaming answer keeps one quiet work log without a body working timer",
   );
   await within(feed).findByText("The reconnect fix is ready");
   expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
-  expect(within(feed).getAllByRole("button", { name: /^Work so far/ })).toHaveLength(1);
+  expect(screen.getByRole("status", { name: "Working" }).textContent).toMatch(/^Working for/);
+  expect(within(feed).queryByText("Work so far")).toBeNull();
 });
 
 test("the usage pause and queue show the account reset while the header stays status-free", async () => {

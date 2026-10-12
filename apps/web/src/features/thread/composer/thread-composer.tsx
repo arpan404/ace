@@ -33,9 +33,8 @@ import {
   DeferredQueueArea,
   DeferredQueuedMessages,
 } from "./deferred-parts.tsx";
-import { DeferredPlanTab, DeferredRequestStack, DeferredStatusStrip } from "./deferred-cards.ts";
+import { DeferredRequestStack } from "./deferred-cards.ts";
 import { UsageNotice } from "./usage-notice.tsx";
-import { useShownPlans } from "./plan-state.ts";
 import {
   runsOn,
   runsNow,
@@ -65,8 +64,8 @@ export function isBusy(status: ThreadStatus | undefined): boolean {
  * default), and ⌘↵ / Ctrl+↵ does the opposite where the provider can steer. Queued messages
  * wait in its queue tray, with the reason above when the queue is held. Its footer shows how actions
  * are approved and the model, both changeable from the next turn. One tab is attached to its top
- * edge, the first of: the agent's open requests (a deck of cards answered there, a picked answer
- * sent with the send button), the agents' to-do list, what the agents are doing with Stop. Stop is in the send slot only while the tab doesn't carry it, and never
+ * edge for the agent's open requests (a deck of cards answered there, a picked answer
+ * sent with the send button). Stop is in the send slot while the composer is empty, and never
  * while a request waits. The unsent draft is kept per thread.
  */
 export function ThreadComposer({
@@ -221,11 +220,12 @@ export function ThreadComposer({
   // something: then its first option takes focus (UX audit CMP-2).
   const open = useInteractions(props.thread.id);
   const asking = !!open?.length;
-  const plans = useShownPlans(props.thread.id);
   const answer = useComposerAnswer(props.thread.id);
-  const tab = asking ? "requests" : plans.length ? "plan" : busy ? "status" : "environment";
+  const tab = asking ? "requests" : undefined;
   const toMessage = () =>
-    box.current?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')?.focus();
+    box.current
+      ?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')
+      ?.focus({ preventScroll: true });
   const [focusOnOpen] = useState(wideEnoughToFocus);
   const asked = useRef(false);
   useEffect(() => {
@@ -277,7 +277,7 @@ export function ThreadComposer({
         followUp={selectionWaiting ? "queue" : followUp}
         canSteer={canSteer && !selectionWaiting}
         onSubmit={submit}
-        onStop={tab === "plan" && activityState.canStop ? stop : undefined}
+        onStop={activityState.canStop ? stop : undefined}
         stopping={stopping}
         onReturnedOptions={(options) => {
           const identity = selectionIdentity(runsOn(meta));
@@ -301,15 +301,6 @@ export function ThreadComposer({
                 ids={open}
                 target={props.requestTarget}
                 onLeave={toMessage}
-              />
-            ) : tab === "plan" ? (
-              <DeferredPlanTab.Component threadId={props.thread.id} plans={plans} />
-            ) : tab === "status" ? (
-              <DeferredStatusStrip.Component
-                threadId={props.thread.id}
-                status={props.status}
-                stopping={stopping}
-                onStop={stop}
               />
             ) : null}
           </Suspense>

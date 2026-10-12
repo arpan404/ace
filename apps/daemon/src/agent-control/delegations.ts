@@ -555,6 +555,19 @@ export class DelegationService {
       )
         this.journal.release(reservation);
   }
+  /** A host-filtered cancellation suppresses this member's wakes without cancelling descendants. */
+  cancelMember(thread: ThreadId): void {
+    this.deps.store.atomic(() => {
+      this.journal.stopMember(thread);
+      this.journal.suppressWake(thread);
+      this.journal.consume(thread);
+      this.reservationLifetimes.cancel(thread, () => false);
+      for (const reservation of this.journal.reservations())
+        if (reservation.record.parentId === thread) this.journal.release(reservation);
+      this.deps.engine.discardRecovery(thread);
+    });
+    this.arm();
+  }
   cancelDescendants(thread: ThreadId, request = this.deps.id()) {
     this.deps.store.atomic(() => {
       this.onRemoteCancel?.(thread);

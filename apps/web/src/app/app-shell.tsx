@@ -36,7 +36,8 @@ export function AppShell() {
             ref={shell}
             data-connection={connection}
             className={cn(
-              "relative flex h-dvh min-h-0 overflow-hidden",
+              // Focus belongs to the inner panes; the shell must never become a scrollport.
+              "relative flex h-dvh min-h-0 overflow-clip",
               "[&:not([data-connection=ready])_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
               "[&:not([data-connection=ready])_:is([data-slot=spinner],[data-live])]:opacity-60",
             )}

@@ -1,6 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { isTestCommand } from "@ace/projection";
-import type { Interaction, ThreadStatus } from "@ace/protocol";
+import type { Interaction, Item, ThreadStatus } from "@ace/protocol";
+import { turnTreeOf } from "./turn-tree.ts";
 import { askingLabel, describeLive, type LiveFact } from "./live-status.ts";
 import { providerNames } from "./providers.ts";
 import { limitHoldShown } from "./queue.ts";
@@ -35,6 +36,8 @@ export interface TurnActivity {
   elapsedFrom: number | undefined;
   /** The step in flight: "Running bun install". */
   current: string | undefined;
+  subagents?: number | undefined;
+  backgroundCommands?: number | undefined;
 }
 
 export type ActivityReader = Pick<
@@ -42,7 +45,9 @@ export type ActivityReader = Pick<
   | "order"
   | "item"
   | "run"
+  | "runIds"
   | "agent"
+  | "agentIds"
   | "thread"
   | "interactionIds"
   | "interaction"
@@ -131,9 +136,64 @@ export function readTurnActivity(
   rootId: string,
   options: ActivityOptions = {},
 ): ActivityReading {
-  const watch: string[] = [];
-  const activity = readActivity(reader, rootId, options, watch);
-  return { activity, watch };
+  const tree = turnTreeOf(reader);
+  const watch = [...tree.watch()];
+  const pending = tree.pending();
+  const activity = tree.needsYou
+    ? waitingOnYou(pending)
+    : readActivity(reader, rootId, options, watch);
+  const status = reader.agent(rootId)?.status;
+  const waitingCount =
+    status?.state === "blocked" && status.on === "subagents" ? status.refs.length : 0;
+  const subagents = Math.max(
+    tree.subagents,
+    reader.thread?.live?.runningSubagentCount ?? 0,
+    waitingCount,
+  );
+  const backgroundCommands = tree.backgroundCommands;
+  const workingTree = subagents > 0 || backgroundCommands > 0;
+  const stretch = ledgerOf(reader).currentStretch(reader);
+  for (const id of stretch.watch) watch.push(`item:${id}`);
+  const runId = reader.thread?.live?.rootRunId ?? stretch.runId;
+  const run = runId ? reader.run(runId) : undefined;
+  if (runId) watch.push(`run:${runId}`);
+  // The server's turn start survives snapshots, partial messages and child work outliving it.
+  const clock = runId ? tree.clock(runId) : undefined;
+  const from =
+    clock?.from ??
+    stretch.origin ??
+    run?.startedAt ??
+    reader.thread?.live?.workingSince ??
+    stretch.start;
+  const active = activity?.tone === "working" || workingTree;
+  const shown =
+    active &&
+    activity?.tone !== "needs-you" &&
+    activity?.tone !== "paused" &&
+    (!activity ||
+      activity.tone === "working" ||
+      activity.label.startsWith("Watching") ||
+      activity.label.startsWith("Waiting on"))
+      ? {
+          ...activity,
+          code: undefined,
+          label: options.stopping ? "Stopping…" : "Working",
+          tone: "working" as const,
+          elapsedFrom:
+            from === undefined
+              ? undefined
+              : from +
+                (clock?.idle ?? stretch.idle) +
+                ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from),
+          current:
+            activity?.current ??
+            currentAction(stretch.current, options.labels) ??
+            tree.currentCommand(),
+          subagents,
+          backgroundCommands,
+        }
+      : activity;
+  return { activity: shown, watch: [...new Set(watch)] };
 }
 
 function readActivity(
@@ -175,16 +235,7 @@ function readActivity(
           : stretch.start +
             stretch.idle +
             ledger.waitedWithin(stretch.start, Number.POSITIVE_INFINITY, stretch.start);
-      const step = stretch.current
-        ? describeStep(stretch.current, { labels: options.labels })
-        : undefined;
-      const call = stretch.current?.type === "tool_call" ? stretch.current.call : undefined;
-      const current =
-        call?.detail.kind === "shell" && isTestCommand(call.detail.command)
-          ? "Running tests…"
-          : step
-            ? [step.verb, step.target].filter(Boolean).join(" ")
-            : status.detail;
+      const current = currentAction(stretch.current, options.labels) ?? status.detail;
       const label =
         activityLabels[status.activity] ??
         (elapsedFrom === undefined && status.activity === "thinking" ? "Thinking" : "Working");
@@ -239,6 +290,19 @@ function readActivity(
   }
 }
 
+/** Name a tree's current step the same way while the root works or waits on children. */
+function currentAction(item: Item | undefined, labels: StepLabels | undefined): string | undefined {
+  if (!item) return undefined;
+  if (
+    item.type === "tool_call" &&
+    item.call.detail.kind === "shell" &&
+    isTestCommand(item.call.detail.command)
+  )
+    return "Running tests…";
+  const step = describeStep(item, { labels });
+  return [step.verb, step.target].filter(Boolean).join(" ");
+}
+
 export function sameActivity(a: TurnActivity | undefined, b: TurnActivity | undefined): boolean {
   return (
     a === b ||
@@ -248,6 +312,8 @@ export function sameActivity(a: TurnActivity | undefined, b: TurnActivity | unde
       a.code === b.code &&
       a.tone === b.tone &&
       a.elapsedFrom === b.elapsedFrom &&
-      a.current === b.current)
+      a.current === b.current &&
+      a.subagents === b.subagents &&
+      a.backgroundCommands === b.backgroundCommands)
   );
 }

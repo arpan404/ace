@@ -11,18 +11,6 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 export const DeferredRequestStack = deferredComponent(() =>
   import("./request-stack.tsx").then((module) => module.RequestStack),
 );
-/** The agents' to-do list: its current step, raised to the whole list. */
-export const DeferredPlanTab = deferredComponent(() =>
-  import("./plan-tab.tsx").then((module) => module.PlanTab),
-);
-/** "2 agents working · 1m 12s · Stop". */
-export const DeferredStatusStrip = deferredComponent(() =>
-  import("./status-strip.tsx").then((module) => module.StatusStrip),
-);
 export function preloadComposerCards(): Promise<unknown> {
-  return Promise.all([
-    DeferredRequestStack.preload(),
-    DeferredPlanTab.preload(),
-    DeferredStatusStrip.preload(),
-  ]);
+  return DeferredRequestStack.preload();
 }

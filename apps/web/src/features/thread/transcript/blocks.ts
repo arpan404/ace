@@ -1,6 +1,6 @@
 import { visibleHistoryOrder } from "@ace/projection";
 import { executionOrder } from "./execution-order.ts";
-import type { Item, Run } from "@ace/protocol";
+import type { BackgroundTask, Item, Run } from "@ace/protocol";
 import {
   carriesOnStretch,
   isBareErrorCode,
@@ -46,6 +46,8 @@ export type Block =
        * itself when its background work or subagent finished: not counted as work.
        */
       idle?: number | undefined;
+      startedAt?: number | undefined;
+      outcome?: "completed" | "interrupted" | "failed" | "paused" | undefined;
     }
   | { kind: "subagents"; key: string; itemIds: string[] }
   | { kind: "background"; key: string; itemId: string; taskId: string }
@@ -60,6 +62,7 @@ export type Block =
       kind: "question";
       key: string;
       interactionId: string;
+      requestKind?: string | undefined;
       itemId?: string | undefined;
       anchorId?: string | undefined;
     }
@@ -85,6 +88,7 @@ export type Block =
       automatic?: boolean | undefined;
       latest?: boolean | undefined;
       errorId?: string | undefined;
+      itemIds?: string[] | undefined;
     };
 
 /** What the blocks need of a run. */
@@ -101,6 +105,8 @@ export interface BlockSource {
   background: ReadonlyMap<string, string>;
   /** Interactions that render inline (questions), oldest first. */
   questions?: readonly InlineQuestion[];
+  task?(id: string): BackgroundTask | undefined;
+  pending?: boolean | undefined;
   /** Canonical child-thread link for a native spawn, including late agent links. */
   launchThread?(agentId: string): string | undefined;
   /** The turn (the root agent's run) an item belongs to, where known. */
@@ -109,6 +115,12 @@ export interface BlockSource {
   run?(runId: string): RunFacts | undefined;
   /** Whether a spawned agent has finished its part of the turn. */
   agentSettled?(agentId: string): boolean;
+  /** Shared canonical settlement, including descendants without transcript output. */
+  turnSettled?: ((runId: string) => boolean) | undefined;
+  turnEndedAt?(runId: string): number | undefined;
+  turnIdle?(runId: string): number | undefined;
+  turnStartedAt?(runId: string): number | undefined;
+  turnEnding?: ((runId: string) => (RunFacts & { runId: string }) | undefined) | undefined;
   /** The tool call an interaction was raised from, for ace's review notices. */
   reviewedCall?(interactionId: string): string | undefined;
   /** The turn a usage limit holds right now, and turns seen held earlier. */
@@ -172,6 +184,7 @@ interface TurnMark {
   /** Every run of its tree, and the agents it spawned (whose runs may not have started). */
   runs: Set<string>;
   agents: Set<string>;
+  tasks: Set<string>;
   /** Its work log still open when it ended, to freeze at the turn's end. */
   openWork: Extract<Block, { kind: "work" }> | undefined;
   work: WorkBlock[];
@@ -265,7 +278,14 @@ function lastWorkOf(
  */
 export function buildBlocks(source: BlockSource): Block[] {
   const blocks: Block[] = [];
+  const workAt = new Map<WorkBlock, number>();
   const anchors = anchorQuestions(source);
+  const requests = new Map((source.questions ?? []).map((request) => [request.id, request]));
+  const approvalCalls = new Set(
+    (source.questions ?? [])
+      .filter((request) => request.kind === "approval")
+      .map((request) => request.toolCallId),
+  );
   const order = visibleHistoryOrder(executionOrder(source), source.item);
   const { stretchAt, lastWork } = lastWorkOf(order, source, anchors);
   const turns = new Map<string, TurnMark>();
@@ -282,6 +302,11 @@ export function buildBlocks(source: BlockSource): Block[] {
   const markOf = (id: string, ask: string | undefined) => {
     let found = turns.get(id);
     if (!found) {
+      const previous = ordered.at(-1);
+      if (previous && carriesOnStretch(source.run?.(id)?.trigger)) {
+        turns.set(id, previous);
+        return previous;
+      }
       found = {
         id,
         askId: ask,
@@ -290,6 +315,7 @@ export function buildBlocks(source: BlockSource): Block[] {
         lastBlock: -1,
         runs: new Set(),
         agents: new Set(),
+        tasks: new Set(),
         openWork: undefined,
         work: [],
         paused: false,
@@ -298,7 +324,6 @@ export function buildBlocks(source: BlockSource): Block[] {
       };
       // A turn ace started after the previous one stopped (a restart, a limit resume).
       const trigger = source.run?.(id)?.trigger;
-      const previous = ordered.at(-1);
       if (previous && (trigger === "limit_resume" || trigger === "restart")) {
         previous.automatic = true;
         if (trigger === "limit_resume") previous.paused = true;
@@ -361,6 +386,7 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (!open) {
       const block: WorkBlock = { kind, key: `${kind}:${id}`, itemIds: [] };
       open = stretch.work = { block, at: blocks.push(block) - 1 };
+      workAt.set(block, open.at);
       mark?.work.push(block);
     }
     open.block.itemIds.push(id);
@@ -410,8 +436,14 @@ export function buildBlocks(source: BlockSource): Block[] {
     }
     const asked = anchors.get(id);
     // A question's own step: the question block stands in for it.
+    const approval = approvalCalls.has(id);
     const replaced =
-      !!asked && item.type === "tool_call" && item.call.detail.kind === "ask_user" ? id : undefined;
+      !!asked &&
+      item.type === "tool_call" &&
+      (item.call.detail.kind === "ask_user" ||
+        (approval && (item.call.status === "awaiting_approval" || item.call.status === "pending")))
+        ? id
+        : undefined;
     if (!replaced)
       switch (item.type) {
         case "message":
@@ -439,9 +471,10 @@ export function buildBlocks(source: BlockSource): Block[] {
             group("subagents", id);
             if (item.call.detail.kind === "agent.spawn" && item.call.detail.childAgentId)
               mark?.agents.add(item.call.detail.childAgentId);
-          } else if (taskId !== undefined)
+          } else if (taskId !== undefined) {
+            mark?.tasks.add(taskId);
             push({ kind: "background", key: id, itemId: id, taskId }, false);
-          else {
+          } else {
             group("work", id);
             if (editKinds.has(item.call.kind)) mark?.edits.push(id);
           }
@@ -498,6 +531,7 @@ export function buildBlocks(source: BlockSource): Block[] {
           kind: "question",
           key: `question:${interactionId}`,
           interactionId,
+          requestKind: requests.get(interactionId)?.kind,
           itemId: interactionId === asked?.[0] ? replaced : undefined,
           anchorId: id,
         },
@@ -506,10 +540,12 @@ export function buildBlocks(source: BlockSource): Block[] {
   }
   if (turnId !== undefined) close(undefined);
   const newest = ordered.at(-1);
+  const newestRun = ordered.findLast((turn) => source.run?.(turn.id) !== undefined);
 
   // Each turn whose whole tree has settled: its changed files after its last answer, then how
   // it ended after its last block. One pass places them after those blocks.
   const after = new Map<number, Block[]>();
+  const before = new Map<number, Block[]>();
   // Error notices a failed ending shows instead (QA-10).
   const absorbed = new Set<number>();
   const place = (index: number, block: Block) => {
@@ -521,44 +557,94 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (turn.lastBlock < 0) continue;
     const pseudo = turn.id === "" || turn.id.startsWith("ask:");
     const facts = pseudo ? undefined : source.run?.(turn.id);
+    const startedAt = source.turnStartedAt?.(turn.id) ?? facts?.startedAt;
+    const ending =
+      source.turnEnding?.(turn.id) ?? (facts ? { ...facts, runId: turn.id } : undefined);
     const held = !pseudo && (source.heldTurn === turn.id || source.pausedTurns?.has(turn.id));
     if (held) turn.paused = true;
     if (
       (pseudo && newest === turn && source.unsettledTail) ||
-      (!pseudo && !settled(source, turn, newest === turn))
+      (!pseudo && !settled(source, turn, newestRun === turn))
     ) {
       for (const block of turn.work) block.ongoing = true;
       // A pause shows while the turn waits on the limit, before anything settles.
-      if (source.heldTurn === turn.id)
-        place(turn.lastBlock, endBlock(turn, "paused", newest === turn));
+      if (source.heldTurn === turn.id) {
+        place(turn.lastBlock, endBlock(turn, "paused", newest === turn, ending?.runId));
+        for (const block of turn.work) absorbed.add(workAt.get(block) ?? -1);
+      }
       continue;
     }
     if (turn.openWork && facts?.endedAt !== undefined) turn.openWork.until = facts.endedAt;
+    if (facts?.endedAt !== undefined && startedAt !== undefined && !turn.paused) {
+      const ends = [...turn.runs].flatMap((id) => source.run?.(id)?.endedAt ?? []);
+      const taskEnds = [...turn.tasks].flatMap((id) => source.task?.(id)?.endedAt ?? []);
+      const until = Math.max(
+        facts.endedAt,
+        source.turnEndedAt?.(turn.id) ?? facts.endedAt,
+        ...ends,
+        ...taskEnds,
+      );
+      const first = turn.work[0];
+      const state = ending?.state ?? facts.state;
+      const outcome = turn.paused ? "paused" : state === "active" ? "completed" : state;
+      if (first) {
+        first.startedAt = startedAt;
+        first.idle =
+          source.turnIdle?.(turn.id) ??
+          turn.work.reduce((total, work) => total + (work.idle ?? 0), 0);
+        first.until = until;
+        first.outcome = outcome;
+        first.itemIds = turn.work.flatMap((block) => block.itemIds);
+        for (const block of turn.work.slice(1)) absorbed.add(workAt.get(block) ?? -1);
+      } else {
+        const at = turn.lastMessage >= 0 ? turn.lastMessage : turn.lastBlock + 1;
+        const summary: Block = {
+          kind: "work",
+          key: `work:turn:${turn.id}`,
+          itemIds: [],
+          startedAt,
+          idle: source.turnIdle?.(turn.id),
+          until,
+          outcome,
+        };
+        if (at < blocks.length) before.set(at, [...(before.get(at) ?? []), summary]);
+        else place(turn.lastBlock, summary);
+      }
+    }
     if (turn.edits.length)
       place(turn.lastMessage >= 0 ? turn.lastMessage : turn.lastBlock, {
         kind: "files",
         key: `files:${turn.id || turn.askId || "start"}`,
         itemIds: turn.edits,
       });
-    const quota = facts?.failedOn === "quota";
-    if (turn.paused && !quota) place(turn.lastBlock, endBlock(turn, "paused", newest === turn));
+    const quota = ending?.failedOn === "quota";
+    if (turn.paused && !quota) {
+      place(turn.lastBlock, endBlock(turn, "paused", newest === turn, ending?.runId));
+      for (const block of turn.work) absorbed.add(workAt.get(block) ?? -1);
+    }
     // A limit resume interrupts the paused turn: the pause already says why it stopped.
-    if (facts?.state === "failed") {
-      const end = endBlock(turn, "failed", newest === turn);
+    if (ending?.state === "failed") {
+      const end = endBlock(turn, "failed", newest === turn, ending.runId);
       if (turn.failure) {
         absorbed.add(turn.failure.index);
         end.errorId = turn.failure.itemId;
       }
       place(turn.lastBlock, end);
-    } else if (facts?.state === "interrupted" && !turn.paused)
-      place(turn.lastBlock, endBlock(turn, "interrupted", newest === turn));
+    } else if (
+      ending?.state === "interrupted" &&
+      !turn.paused &&
+      (ending.endedAt === undefined || startedAt === undefined)
+    )
+      place(turn.lastBlock, endBlock(turn, "interrupted", newest === turn, ending.runId));
   }
-  const result = after.size
-    ? blocks.flatMap((block, index) => [
-        ...(absorbed.has(index) ? [] : [block]),
-        ...(after.get(index) ?? []),
-      ])
-    : blocks;
+  const result =
+    after.size || before.size || absorbed.size
+      ? blocks.flatMap((block, index) => [
+          ...(before.get(index) ?? []),
+          ...(absorbed.has(index) ? [] : [block]),
+          ...(after.get(index) ?? []),
+        ])
+      : blocks;
   // A turn that stopped, failed or paused before any of its output (or its run) is known.
   const last = result.at(-1);
   if (source.stoppedTail && last?.kind === "user")
@@ -577,15 +663,17 @@ function endBlock(
   turn: TurnMark,
   ending: "failed" | "interrupted" | "paused",
   latest: boolean,
+  runId = turn.id,
 ): Extract<Block, { kind: "end" }> {
   return {
     kind: "end",
     key: `${ending === "paused" ? "pause" : "end"}:${turn.id}`,
     ending,
-    runId: turn.id,
+    runId,
     askId: turn.askId,
     automatic: turn.automatic,
     latest,
+    itemIds: turn.work.flatMap((block) => block.itemIds),
   };
 }
 
@@ -594,26 +682,29 @@ function endBlock(
  * has finished. What is still open is added to `watch`, so its settling rebuilds the blocks.
  */
 function settled(source: BlockSource, turn: TurnMark, newest: boolean): boolean {
-  let done = true;
+  if (source.turnSettled) return source.turnSettled(turn.id);
+  let done = !(newest && (source.pending || (source.unsettledTail && !source.heldTurn)));
+  for (const taskId of turn.tasks) {
+    const task = source.task?.(taskId);
+    if (task?.status === "running" || task?.status === "unknown") done = false;
+  }
   for (const runId of turn.runs) {
     if (source.run?.(runId)?.state !== "active") continue;
     done = false;
     source.watch?.runs.add(runId);
   }
-  // A child's status is about its latest work: it decides only the newest turn (an older
-  // turn's children are judged by their runs in it).
-  if (newest)
-    for (const agentId of turn.agents) {
-      if (source.agentSettled?.(agentId) ?? true) continue;
-      done = false;
-      source.watch?.agents.add(agentId);
-    }
+  // Compatibility for callers without the canonical tree projection.
+  for (const agentId of turn.agents) {
+    if (source.agentSettled?.(agentId) ?? true) continue;
+    done = false;
+    source.watch?.agents.add(agentId);
+  }
   return done && source.run?.(turn.id) !== undefined;
 }
 
 /** The items a block shows, for finding its turn and the row a jump lands on. */
 export function blockItems(block: Block): readonly string[] {
-  if ("itemIds" in block) return block.itemIds;
+  if ("itemIds" in block) return block.itemIds ?? [];
   if (block.kind === "question") {
     const shown = block.itemId ?? block.anchorId;
     return shown === undefined ? [] : [shown];

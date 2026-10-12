@@ -117,6 +117,7 @@ export async function startServer(options: ServerOptions): Promise<{
             ...access,
             authenticate: auth.localBearer.bind(auth),
             maintenance,
+            ...(options.shutdown ? { shutdown: options.shutdown } : {}),
           }),
         ),
       ),

@@ -72,6 +72,8 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
     },
     itemsBefore: window.before,
     agentIds: () => live.agentIds(),
+    // Retained runs carry both silent continuation membership and root start timestamps.
+    runIds: () => live.runIds?.() ?? [],
     children: (agentId) => live.children(agentId),
     interactionIds: () => live.interactionIds(),
     taskIds: () => live.taskIds(),
