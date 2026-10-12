@@ -329,6 +329,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       engineOptions.onError ?? ((error) => log.log("error", "Engine failure", logError(error))),
   });
   resources.own(() => engine.close());
+  // DB recovery orders startup; each projection's kernel process lease separately gates deletion.
   await recoverSkillRoots(engine.ready(), (error) =>
     log.log("warn", "Abandoned skill projection cleanup failed", logError(error)),
   );

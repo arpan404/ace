@@ -91,13 +91,39 @@ than installed through third-party plugin consent.
 The daemon uses the ADR 0014 plugin projector and writer for each launched
 Claude Code or Codex session. Claude's SDK receives a local plugin directory.
 Codex's app-server process receives session-only local marketplace/plugin
-configuration arguments. Each session owns a separate ace data directory and
-removes it after provider exit or close. Startup captures old roots before the
-engine starts and reclaims owned projections after provider-session recovery. New
-roots created during recovery are retained; failed recovery preserves old roots.
-Unowned nonempty roots and symlinks are refused, with cleanup diagnostics logged.
-User CLI homes and project files are unchanged. Release packaging copies the
-bundle beside the daemon's split modules.
+configuration arguments. Each session owns a separate ace data directory.
+A private process lease records its daemon owner and each provider's PID, kernel
+start identity, UID and process group. Linux uses procfs start ticks with the boot
+ID; macOS uses the kernel start timeval through
+[Apple's proc_bsdinfo interface](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info.h).
+No command arguments, environment, provider input or credentials enter the lease.
+
+Before native spawn, the lease atomically persists a pending marker. After spawn,
+it records the provider identity. A crash in that gap leaves the root retained.
+The shared provider-kit spawn boundary brackets launches for both Claude and
+Codex, including subsequent SDK spawns. A recording failure stops the newly
+spawned group; its uncertain lease remains available for inspection.
+
+Startup captures old roots before the engine starts. Database recovery only
+reconciles agent state; it does not prove OS process exit. Cleanup separately
+checks the kernel identities and groups. A live owning daemon, live provider or
+surviving provider group retains the projection. A closed session can release its
+root only after its providers and their groups are gone. Cleanup never signals
+surviving providers. UID or group changes do not turn a matching live kernel start
+identity into evidence of exit.
+
+Missing, malformed or unreadable leases, interrupted spawn recording, and
+unverifiable kernel liveness retain their roots. This includes legacy projections
+without process evidence. New roots created after the startup snapshot and roots
+from failed recovery are retained. The plugin writer still refuses unowned
+nonempty roots and symlinks, with cleanup diagnostics logged. User CLI homes and
+project files are unchanged. Release packaging copies the bundle beside the
+daemon's split modules.
+
+The unrun process regression kills a simulated daemon while its detached local
+Node provider survives, verifies that restart keeps the skill, then terminates the
+provider and verifies reclamation. Additional guards cover pending spawn records,
+missing evidence, denied inspection, failed recovery and fresh projections.
 
 The skill teaches when a visual is useful, self-contained assets, accessible
 colour and semantic HTML, fluid widths, theme tokens, preview before render,

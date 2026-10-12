@@ -72,7 +72,11 @@ export interface SessionContext {
   /** Backpressure shared by stdout, stderr, SDK iterators and HTTP streams. */
   outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
   /** Daemon-owned, session-only plugin projection; never accepted from wire data. */
-  builtinSkills?: { args: readonly string[]; directories: readonly string[] };
+  builtinSkills?: {
+    args: readonly string[];
+    directories: readonly string[];
+    lease?: import("@ace/provider-kit/process").ProcessLease;
+  };
   /** Engine root identity, also used by targeted interrupts. */
   rootKey?: Key;
   threadId: ThreadId;

@@ -1,5 +1,10 @@
 import { rm } from "node:fs/promises";
 import { createBuiltinSkillRoot } from "../builtin-skill-roots.ts";
+import {
+  builtinSkillProcessLease,
+  builtinSkillRootUnused,
+  type BuiltinSkillProcessLease,
+} from "../builtin-skill-processes.ts";
 import { prepareBuiltinSkills } from "@ace/plugins";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
@@ -23,10 +28,12 @@ export function withDaemonMcp(
         throw new Error("Provider MCP scope unavailable");
       let skills: Awaited<ReturnType<typeof prepareBuiltinSkills>> | undefined;
       let root: string | undefined;
+      let lease: BuiltinSkillProcessLease | undefined;
       if (context.config && (adapter.provider === "claude" || adapter.provider === "codex")) {
         root = await createBuiltinSkillRoot(context.config.dataDir);
         try {
           skills = await prepareBuiltinSkills(adapter.provider, root);
+          lease = builtinSkillProcessLease(root);
         } catch (error) {
           await rm(root, { recursive: true, force: true });
           throw error;
@@ -35,6 +42,8 @@ export function withDaemonMcp(
       let cleanup: Promise<void> | undefined;
       const closeSkills = () =>
         (cleanup ??= (async () => {
+          lease?.close();
+          if (root && !builtinSkillRootUnused(root)) return;
           await skills?.close();
           if (root) await rm(root, { recursive: true, force: true });
         })());
@@ -44,7 +53,13 @@ export function withDaemonMcp(
           {
             ...session,
             ...(skills
-              ? { builtinSkills: { args: skills.args, directories: skills.directories } }
+              ? {
+                  builtinSkills: {
+                    args: skills.args,
+                    directories: skills.directories,
+                    ...(lease ? { lease } : {}),
+                  },
+                }
               : {}),
             onExit(exit) {
               void closeSkills().catch(() => {});

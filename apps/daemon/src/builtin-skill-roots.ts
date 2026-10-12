@@ -2,6 +2,11 @@ import { lstat, mkdir, mkdtemp, opendir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { removeProjection } from "@ace/plugins";
 import { missingEntry } from "./project-picker-filesystem.ts";
+import {
+  builtinSkillRootUnused,
+  skillProcessRuntime,
+  type SkillProcessRuntime,
+} from "./builtin-skill-processes.ts";
 
 const prefix = "session-";
 const directory = (dataDir: string) => join(dataDir, "builtin-skill-sessions");
@@ -13,7 +18,10 @@ export async function createBuiltinSkillRoot(dataDir: string): Promise<string> {
 }
 
 /** Capture before engine startup; recovery may create fresh sessions in the same directory. */
-export async function builtinSkillRecovery(dataDir: string) {
+export async function builtinSkillRecovery(
+  dataDir: string,
+  runtime: SkillProcessRuntime = skillProcessRuntime,
+) {
   const base = directory(dataDir);
   const info = await lstat(base).catch((error: unknown) => {
     if (!missingEntry(error)) throw error;
@@ -38,6 +46,7 @@ export async function builtinSkillRecovery(dataDir: string) {
     await providersRecovered;
     for (const root of roots) {
       try {
+        if (!builtinSkillRootUnused(root, runtime)) continue;
         // The plugin writer validates ownership and refuses symlinks/unowned nonempty roots.
         await removeProjection(root);
         await rm(root, { recursive: true, force: true });
