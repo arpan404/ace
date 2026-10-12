@@ -1,3 +1,4 @@
+import { ThreadId } from "@ace/protocol";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import {
@@ -84,8 +85,18 @@ const stream = setInterval(() => {
 }, 100);
 const server = createServer((request, response) => {
   response.setHeader("Content-Type", "application/json");
-  if (request.url === "/metrics") response.end(JSON.stringify({ streamTicks: ticks }));
-  else {
+  if (request.url === "/metrics") {
+    const view = daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("stream-thread") });
+    const replayAdmissions =
+      view?.kind === "thread"
+        ? Object.values(view.items).flatMap((item) =>
+            item.type === "message" && item.origin?.commandId?.startsWith("android-spike-")
+              ? [item.origin.commandId]
+              : [],
+          )
+        : [];
+    response.end(JSON.stringify({ streamTicks: ticks, replayAdmissions }));
+  } else {
     response.statusCode = 404;
     response.end("{}");
   }

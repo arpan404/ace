@@ -46,6 +46,13 @@ export function Composer({
   const { text: draft, saving } = useSelection(model.selection);
   useLayoutEffect(() => {
     void commitInput(draft.length);
+    if (__DEV__ && draft.length > 0 && draft.length % 20 === 0) {
+      void Promise.all([inputMetrics(), fontEvidence()])
+        .then(([m, font]) => {
+          console.info("AceSpikeMetrics", JSON.stringify({ input: m, font }));
+        })
+        .catch(() => console.info("AceSpikeMetrics unavailable"));
+    }
   }, [draft]);
   async function send() {
     try {

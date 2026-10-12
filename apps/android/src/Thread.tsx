@@ -1,5 +1,6 @@
 import { useMemo, useEffect, memo, useState } from "react";
 import { View, Text, KeyboardAvoidingView } from "react-native";
+import { useHeaderHeight } from "@react-navigation/elements";
 import { FlashList } from "@shopify/flash-list";
 import type { ClientApi, ThreadSource } from "@ace/client";
 import { useSelection, sameIds } from "./selection.ts";
@@ -68,6 +69,7 @@ export function ThreadScreen({
   notify(text: string): void;
 }) {
   const theme = useTheme();
+  const headerHeight = useHeaderHeight();
   const [agents, setAgents] = useState(false);
   const lease = useMemo(() => client.thread(id), [client, id]);
   useEffect(() => () => lease.release(), [lease]);
@@ -107,7 +109,11 @@ export function ThreadScreen({
     }
   }
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior="height">
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior="height"
+      keyboardVerticalOffset={headerHeight}
+    >
       <View style={{ paddingHorizontal: tokens.spacing.lg, paddingVertical: tokens.spacing.sm }}>
         <AceHost style={{ width: "100%" }}>
           <Row horizontalArrangement="spaceBetween">
@@ -133,6 +139,7 @@ export function ThreadScreen({
         </AceHost>
       </View>
       <FlashList
+        style={{ flex: 1 }}
         data={ids}
         keyExtractor={(item) => item}
         renderItem={({ item }) => <TranscriptRow id={item} store={lease.store} />}
