@@ -9,7 +9,7 @@ import { isDeepReasoning, reasoningDescription } from "./reasoning-level.ts";
 import { SpeedGlyph } from "./speed-glyph.tsx";
 
 const iconButton =
-  "grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground focus-ring-inset transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground data-disabled:opacity-40";
+  "grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground focus-ring-inset transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground data-disabled:opacity-40";
 
 /** The model has something to tune here: effort levels, or more than one speed. */
 export function tunable(view: Pick<ModelControlView, "efforts" | "speeds">): boolean {
@@ -47,7 +47,10 @@ export function TunePane(props: {
             <Tip label={view.effortReason ?? reasoningDescription(view.effort)} side="top">
               <span
                 aria-live="polite"
-                className={cn("text-ui font-medium", deep ? "model-effort-deep" : "text-link")}
+                className={cn(
+                  "text-ui font-medium",
+                  deep ? "model-effort-deep fx-flourish" : "text-link",
+                )}
               >
                 {view.effort ? effortLabel(view.effort) : "Choose effort"}
               </span>
@@ -162,7 +165,7 @@ function SpeedSegment(props: { view: ModelControlView; onSpeed(speed: Speed): vo
               tabIndex={checked ? 0 : -1}
               onClick={() => choose(tier.speed)}
               className={cn(
-                "grid size-7 place-items-center rounded-full pointer-coarse:size-8 text-muted-foreground focus-ring-inset transition-[background-color,color] duration-(--dur-1) hover:text-foreground aria-disabled:opacity-40",
+                "grid size-7 place-items-center rounded-full pointer-coarse:size-8 text-muted-foreground focus-ring-inset transition-[background-color,color] duration-(--motion-fast) hover:text-foreground aria-disabled:opacity-40",
                 checked && "bg-popover text-foreground shadow-raised",
               )}
             >

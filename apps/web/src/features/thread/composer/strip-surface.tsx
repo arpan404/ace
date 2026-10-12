@@ -32,7 +32,7 @@ export function StripSurface(props: { slot: string; children: ReactNode }) {
   return (
     <div data-composer-strip className={cn("relative z-0", attachedInset, attachedOverlap)}>
       {/* It rises from behind the composer when it first arrives. */}
-      <div data-edge="bottom" className={cn("ace-floating fx-panel-in relative", attachedSurface)}>
+      <div data-edge="bottom" className={cn("fx-panel-in relative", attachedSurface)}>
         <div ref={body} className="composer-strip-body">
           <div
             ref={content}

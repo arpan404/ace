@@ -212,7 +212,7 @@ function QuestionField(props: {
   ));
   // The last row is the free answer itself: its control picks it, the field holds the words.
   const otherRow = question.allowOther && (
-    <div className="flex min-h-8 items-center gap-2.5 rounded-sm px-1.5 py-1 text-ui hover:bg-accent/50">
+    <div className="flex min-h-8 items-center gap-2.5 rounded-sm px-1.5 py-1 text-ui hover:bg-accent/50 focus-within:bg-accent/50">
       <span className="relative shrink-0">{control(other, "Something else")}</span>
       <input
         ref={field}
@@ -226,7 +226,7 @@ function QuestionField(props: {
           if (!props.picked.includes(other) && !question.multiSelect) props.onToggle(other);
         }}
         onChange={(event) => props.onText(event.target.value)}
-        className="h-7 min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none placeholder:text-subtle-foreground"
+        className="h-7 min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none placeholder:text-subtle-foreground focus-visible:placeholder:text-muted-foreground"
       />
     </div>
   );

@@ -136,7 +136,7 @@ function StepSlider(props: {
             style={{ width: `calc(${at(value, count)} + ${inset}px)` }}
           >
             {props.deepReasoning && (
-              <span className="step-slider-convergence">
+              <span className="step-slider-convergence fx-flourish">
                 <span />
                 <span />
                 <span />
@@ -172,7 +172,7 @@ function StepSlider(props: {
             style={{ left: at(value, count) }}
           >
             {props.deepReasoning && (
-              <AceMark className="step-slider-ace absolute inset-0 m-auto size-4 text-ring" />
+              <AceMark className="step-slider-ace fx-flourish absolute inset-0 m-auto size-4 text-ring" />
             )}
           </span>
         )}

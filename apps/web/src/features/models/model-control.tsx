@@ -146,7 +146,11 @@ function EffortSignal(props: { view: ModelControlView; compact: boolean }) {
       </span>
       <span
         data-slot="model-effort"
-        className={isDeepReasoning(effort, efforts) ? "model-effort-deep" : "text-muted-foreground"}
+        className={
+          isDeepReasoning(effort, efforts)
+            ? "model-effort-deep fx-flourish"
+            : "text-muted-foreground"
+        }
       >
         {props.compact ? reasoningShortLabel(effort) : effortLabel(effort)}
       </span>

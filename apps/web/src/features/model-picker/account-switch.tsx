@@ -48,7 +48,7 @@ export function AccountSwitch(props: {
               onClick={() => {
                 if (!entry.reason) props.onSelect(entry.id);
               }}
-              className="h-6 shrink-0 rounded-sm px-2 text-xs text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground focus-ring-inset aria-disabled:opacity-40 aria-selected:bg-accent aria-selected:text-foreground pointer-coarse:h-8"
+              className="h-6 shrink-0 rounded-sm px-2 text-xs text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground focus-ring-inset aria-disabled:opacity-40 aria-selected:bg-accent aria-selected:text-foreground pointer-coarse:h-8"
             >
               {label}
             </button>

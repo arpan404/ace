@@ -1,27 +1,16 @@
 /*
  * The composer's one strip slot. When what it shows changes, the surface eases to the new
- * content's height while the content fades in. Reduced motion (the system's, or
- * `[data-reduce-motion]` on <html> from Settings) keeps the fade and drops the height motion.
- * The motion tokens are Foundation's, with this file's values until they land.
+ * content's height while the content fades in. Reduced motion (`[data-reduce-motion]`, the
+ * setting or the system's under System) keeps the fade and drops the height motion.
  */
 .composer-strip-body {
   overflow: hidden;
-  transition: height var(--motion-base, 200ms) var(--ease-spring, var(--spring));
+  transition: height var(--motion-base) var(--ease-spring);
 }
 .composer-strip-swap {
-  animation: composer-strip-in var(--motion-base, 200ms) var(--ease-out, var(--ease)) both;
+  animation: fx-fade-in var(--motion-base) var(--ease-out) both;
 }
-@keyframes composer-strip-in {
-  from {
-    opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .composer-strip-body {
-    transition: none;
-  }
-}
-[data-reduce-motion] .composer-strip-body {
+:root[data-reduce-motion] .composer-strip-body {
   transition: none;
 }
 
@@ -37,8 +26,8 @@
   font-size: var(--text-xs);
   color: var(--muted-foreground);
   transition:
-    background-color var(--motion-fast, 120ms) var(--ease-out, var(--ease)),
-    color var(--motion-fast, 120ms) var(--ease-out, var(--ease));
+    background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
 }
 .composer-strip-indicator:hover,
 .composer-strip-indicator:focus-visible {
