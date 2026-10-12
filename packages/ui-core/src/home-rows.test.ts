@@ -10,7 +10,9 @@ const words = (rows: ReturnType<typeof homeRows>) =>
         ? `pinned ${row.count}`
         : row.kind === "pinned-end"
           ? "—"
-          : row.id,
+          : "id" in row
+            ? row.id
+            : "unsent",
   );
 const groups = (patch: Partial<HomeGroups>): HomeGroups => ({
   pinned: [],
@@ -74,4 +76,15 @@ test("a thread keeps its key when pinned, unpinned or settled, so each move slid
 
 test("an empty Settled group stays out of the list even when expanded", () => {
   expect(words(homeRows(groups({ active: ["a"] }), { settledOpen: true }))).toEqual(["a"]);
+});
+
+test("unsent work follows admitted tasks and precedes settled work", () => {
+  expect(
+    words(
+      homeRows(
+        groups({ pinned: ["pin"], active: ["active"], recent: ["recent"], settled: ["settled"] }),
+        { settledOpen: true, includeUnsent: true },
+      ),
+    ),
+  ).toEqual(["pinned 1", "pin", "—", "active", "recent", "unsent", "settled 1", "settled"]);
 });

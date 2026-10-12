@@ -31,7 +31,7 @@ function titleOf(send: PendingSend): string {
 
 /**
  * Threads started from this window that the list doesn't show yet (UX audit SY-2): each is a
- * row at the top at once, dimmed until the daemon accepts it, opening the thread on its pending
+ * row in Unsent at once, opening the thread on its pending
  * route or its real one. Once the daemon accepts the create, its own row takes over, reading
  * the title published here while the daemon's still says "New thread". Successful receipts
  * must never become provisional rows again when a thread leaves the list.
