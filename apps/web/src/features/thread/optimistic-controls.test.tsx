@@ -1,3 +1,4 @@
+import { openEffortControl, chooseEffort } from "@/test/model-control.ts";
 import { chooseAccount } from "@/test/model-control.ts";
 import { replayCursor } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
@@ -82,12 +83,11 @@ test("an approval mode the daemon refuses goes back to the one in effect, with a
 test("offline, the model popover still changes effort and the account, which go once the daemon is back", async () => {
   const app = await open();
   await offline(app);
+  const effortPopover = await openEffortControl();
+  await chooseEffort(effortPopover, "{End}");
+  await closeModelControl();
   const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
   expect(within(popover).getByText("Offline: changes apply when reconnected")).toBeTruthy();
-  within(within(popover).getByRole("group", { name: "Effort" }))
-    .getByRole("button", { name: "High" })
-    .focus();
-  await userEvent.keyboard(" ");
   await chooseAccount(popover, "Work");
   await closeModelControl();
 

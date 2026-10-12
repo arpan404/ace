@@ -1,3 +1,4 @@
+import { fileCapability } from "./access.ts";
 import { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.ts";
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
@@ -59,11 +60,18 @@ export class FilesService {
       const safe = await SafeRoot.create(root, options.workspaceRuntime);
       roots.set(safe.root, safe);
     }
-    return new FilesService(
+    const service = new FilesService(
       await SafeRoot.create(options.workspace, options.workspaceRuntime),
       options,
       roots,
     );
+    try {
+      await service.uploads.reconcile();
+      return service;
+    } catch (error) {
+      await service.close();
+      throw error;
+    }
   }
   authorize(device: string, capability: "files.read" | "files.write"): void {
     if (this.closed) throw new FileError("CLOSED", "File service closed");
@@ -163,17 +171,8 @@ export class FilesService {
   ): Promise<unknown> {
     guard();
     const operation = FileOperation.parse(input);
-    const reading = [
-      "list",
-      "stat",
-      "archive.preview",
-      "artifacts.list",
-      "trash.list",
-      "artifact.output",
-      "artifact.raw",
-      "artifact.support",
-    ].includes(operation.op);
-    this.authorize(device, reading ? "files.read" : "files.write");
+    const capability = fileCapability(operation);
+    this.authorize(device, capability);
     if (operation.op === "list") {
       const page = await listWorkspace(this.safe, await GitIgnore.create(this.safe), {
         dir: operation.path,
@@ -243,7 +242,7 @@ export class FilesService {
     }
     return this.serial(async () => {
       guard();
-      this.authorize(device, reading ? "files.read" : "files.write");
+      this.authorize(device, capability);
       switch (operation.op) {
         case "upload.begin":
           return this.uploads.begin(device, operation.path, operation.expected, operation.size);
@@ -371,12 +370,20 @@ export class FilesService {
       throw error;
     }
   }
+  /** Durable provenance lets the daemon authorize the source again on every download. */
+  artifactSource(artifactId: string): ArtifactRecord["sourceThread"] {
+    const record = ArtifactRecord.parse(this.catalog.get(artifactId));
+    if (record.category === "output" && !record.sourceThread)
+      throw new FileError("FORBIDDEN", "Export has no source provenance");
+    return record.sourceThread;
+  }
   /** Trusted local producers register paths; clients can only address opaque IDs. */
   async registerArtifact(input: {
     root: string;
     path: string;
     name: string;
     category: ArtifactRecord["category"];
+    sourceThread?: ArtifactRecord["sourceThread"];
     id?: string;
   }): Promise<string> {
     return this.serial(async () => {
@@ -391,7 +398,8 @@ export class FilesService {
         if (
           existing.root !== input.root ||
           existing.path !== input.path ||
-          existing.category !== input.category
+          existing.category !== input.category ||
+          existing.sourceThread !== input.sourceThread
         )
           throw new FileError("CONFLICT", "Artifact identity already belongs to another producer");
         replacing = true;
@@ -431,6 +439,7 @@ export class FilesService {
   sweep(signal?: AbortSignal): Promise<void> {
     return this.serial(async () => {
       signal?.throwIfAborted();
+      await this.uploads.reconcile();
       await this.uploads.removeMany(
         this.catalog
           .list("upload")

@@ -167,7 +167,9 @@ describe("GitHub CLI boundary", () => {
       { body: { merged: true } },
       { body: { merged: false } },
     ];
-    fixtures["auto-merge"] = [{ raw: "" }];
+    fixtures.graphql = [
+      { body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
+    ];
     const { forge, requests } = await setup(fixtures);
     expect(
       await forge.createPr(
@@ -208,17 +210,11 @@ describe("GitHub CLI boundary", () => {
       sha,
       merge_method: "squash",
     });
-    expect(calls.find((call) => call.path === "auto-merge")?.args).toEqual([
-      "pr",
-      "merge",
-      "7",
-      "--repo",
-      "github.com/octo/ace",
-      "--auto",
-      "--squash",
-      "--match-head-commit",
-      sha,
-    ]);
+    expect(calls.find((call) => call.path === "graphql")?.body).toMatchObject({
+      variables: {
+        input: { pullRequestId: "PR_7", expectedHeadOid: sha, mergeMethod: "SQUASH" },
+      },
+    });
   });
   it("keeps only the latest legacy status per context and distinguishes issue and inline comments", async () => {
     const fixtures = standard();

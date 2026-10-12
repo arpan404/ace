@@ -8,3 +8,4 @@ export { useAutomationRuns, useAutomations } from "./use-automations.ts";
 
 export { AutomationRunDetail } from "./run-detail.tsx";
 export { RunOutput } from "./run-output.tsx";
+export { WorkAutomations } from "./work-automations.tsx";

@@ -103,7 +103,10 @@ export function standard(): Fixtures {
   return structuredClone(recorded);
 }
 
-export async function fakeGh(fixtures: Fixtures, options: { maxBytes?: number } = {}) {
+export async function fakeGh(
+  fixtures: Fixtures,
+  options: { maxBytes?: number; timeoutMs?: number } = {},
+) {
   const dir = await mkdtemp(join(tmpdir(), "ace-forge-"));
   const executable = join(dir, "gh");
   const config = join(dir, "fixtures.json");

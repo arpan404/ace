@@ -176,11 +176,11 @@ export async function writeSupportBundle(options: BundleOptions): Promise<void> 
     );
     await entry(
       "versions.json",
-      Readable.from([JSON.stringify(boundedMetadata(options.versions)) + "\n"]),
+      Readable.from([JSON.stringify(boundedMetadata(options.versions, options.redact)) + "\n"]),
     );
     await entry(
       "settings.json",
-      Readable.from([JSON.stringify(boundedMetadata(options.settings)) + "\n"]),
+      Readable.from([JSON.stringify(boundedMetadata(options.settings, options.redact)) + "\n"]),
     );
     const logs: string[] = [];
     const directory = await opendir(options.logsDirectory).catch((error: unknown) => {

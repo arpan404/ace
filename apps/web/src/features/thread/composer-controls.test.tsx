@@ -1,3 +1,4 @@
+import { openEffortControl, chooseEffort } from "@/test/model-control.ts";
 import { longHistory, replayCursor } from "@ace/fake-daemon";
 import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { configure, act, screen, waitFor, within } from "@testing-library/react";
@@ -125,25 +126,29 @@ test("a mode chosen mid-turn takes over at the agent's next turn", async () => {
   });
 });
 
-test("the model chip opens effort and speed for the thread's model", async () => {
+test("the effort chip opens a slider independently of the model picker", async () => {
   await open("busy");
   // The daemon hasn't reported this thread's effort: it runs at the provider's default.
-  const popover = await openModelControl("Model: Opus 5.5, Personal, Medium effort (default)");
-  expect(within(popover).getByRole("listbox", { name: "Models" })).toBeTruthy();
-  expect(within(popover).getByRole("button", { name: "Medium" }).getAttribute("aria-pressed")).toBe(
-    "true",
-  );
-  expect(within(popover).queryByRole("button", { name: "Fast" })).toBeNull();
-  expect(within(popover).queryByRole("button", { name: "Reset" })).toBeNull();
+  const popover = await openEffortControl();
+  expect(within(popover).queryByRole("listbox", { name: "Models" })).toBeNull();
+  expect(
+    within(popover).getByRole("slider", { name: "Effort" }).getAttribute("aria-valuetext"),
+  ).toBe("Medium");
+  expect(
+    within(popover).getByRole("button", { name: "Fast mode" }).getAttribute("aria-disabled"),
+  ).toBe("true");
+  expect(
+    within(popover).getByRole("button", { name: "Reset effort" }).getAttribute("aria-disabled"),
+  ).toBe("true");
 });
 
 test("effort chosen in the menu goes with the next message and applies to its turn", async () => {
   const { app, message } = await open("busy");
-  const popover = await openModelControl(/^Model: Opus 5\.5/);
-  await userEvent.click(within(popover).getByRole("button", { name: "High" }));
-  expect(within(popover).getByRole("button", { name: "High" }).getAttribute("aria-pressed")).toBe(
-    "true",
-  );
+  const popover = await openEffortControl();
+  await chooseEffort(popover, "{End}");
+  expect(
+    within(popover).getByRole("slider", { name: "Effort" }).getAttribute("aria-valuetext"),
+  ).toBe("High");
   await closeModelControl();
   // Nothing changes on the daemon until the message goes.
   expect(
@@ -182,14 +187,16 @@ test("an unresolved running effort stays untouched until the predefined next tur
 
 test("reset drops the effort picked for the next message, so it can steer again", async () => {
   const { message } = await open("busy");
-  const popover = await openModelControl(/^Model: Opus 5\.5/);
-  expect(within(popover).queryByRole("button", { name: "Reset" })).toBeNull();
-  await userEvent.click(within(popover).getByRole("button", { name: "High" }));
-  const reset = within(popover).getByRole("button", { name: "Reset" });
+  const popover = await openEffortControl();
+  expect(
+    within(popover).getByRole("button", { name: "Reset effort" }).getAttribute("aria-disabled"),
+  ).toBe("true");
+  await chooseEffort(popover, "{End}");
+  const reset = within(popover).getByRole("button", { name: "Reset effort" });
   await userEvent.click(reset);
-  expect(within(popover).getByRole("button", { name: "Medium" }).getAttribute("aria-pressed")).toBe(
-    "true",
-  );
+  expect(
+    within(popover).getByRole("slider", { name: "Effort" }).getAttribute("aria-valuetext"),
+  ).toBe("Medium");
   await closeModelControl();
   expect(
     screen.getByRole("button", { name: "Model: Opus 5.5, Personal, Medium effort (default)" }),

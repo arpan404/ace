@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 
 /** Copies the answer's markdown, as written, with a moment of "Copied". */
-export function CopyAnswer(props: { text: string }) {
+export function CopyAnswer(props: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   const reset = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(reset.current), []);
@@ -19,7 +19,7 @@ export function CopyAnswer(props: { text: string }) {
   return (
     <IconButton
       icon={copied ? CheckIcon : CopyIcon}
-      label={copied ? "Copied" : "Copy answer"}
+      label={copied ? "Copied" : (props.label ?? "Copy answer")}
       size="sm"
       onClick={copy}
     />

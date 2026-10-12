@@ -1,5 +1,4 @@
-import { WriteDispatch } from "./write-dispatch.ts";
-import { assertGraphqlResult } from "./graphql-errors.ts";
+import { MutationDispatch, isForgeMutation } from "./mutation.ts";
 import { createHash } from "node:crypto";
 import { immutable } from "./immutable.ts";
 import { z } from "zod";
@@ -13,11 +12,55 @@ const envelope = z.object({
   status: z.number().int().min(100).max(599),
   headers: z.record(z.string(), z.string()),
 });
+const graphqlResult = z.object({
+  data: z.record(z.string(), z.unknown()).nullish(),
+  errors: z
+    .array(
+      z.looseObject({
+        type: z.string().optional(),
+        extensions: z.looseObject({ code: z.string().optional() }).optional(),
+      }),
+    )
+    .optional(),
+});
+/** Successful fields or unknown errors cannot prove that a mutation was refused. */
+function assertGraphqlResult(body: unknown, dispatch: MutationDispatch, retryAt: number): void {
+  const parsed = graphqlResult.safeParse(body);
+  if (!parsed.success) throw new ForgeError("invalid_data");
+  const { data, errors } = parsed.data;
+  if (!errors?.length) return;
+  const refused = !data || Object.values(data).every((value) => value === null);
+  const codes = errors.map((error) => error.type ?? error.extensions?.code);
+  let error: ForgeError | undefined;
+  if (refused && codes.every((code) => code === "RATE_LIMITED"))
+    error = new ForgeError("rate_limit", retryAt, false);
+  else if (refused && codes.every((code) => code === "FORBIDDEN" || code === "UNAUTHORIZED"))
+    error = new ForgeError("forbidden", undefined, false);
+  else if (refused && codes.every((code) => code === "NOT_FOUND"))
+    error = new ForgeError("not_found", undefined, false);
+  else if (refused && codes.every((code) => code === "UNPROCESSABLE"))
+    error = new ForgeError("conflict", undefined, false);
+  else if (refused && codes.every((code) => code === "GRAPHQL_VALIDATION_FAILED"))
+    error = new ForgeError("invalid_data", undefined, false);
+  if (!error) throw new ForgeError("invalid_data");
+  dispatch.reject();
+  throw error;
+}
+function rateLimitRetryAt(headers: Record<string, string>, now: number): number {
+  const seconds = Number(headers["retry-after"]);
+  const reset = Number(headers["x-ratelimit-reset"]) * 1_000;
+  return Number.isFinite(seconds) && seconds >= 0
+    ? now + seconds * 1_000
+    : Number.isFinite(reset) && reset > now
+      ? reset
+      : now + 60_000;
+}
 export type Page = {
   body: unknown;
   headers: Record<string, string>;
   bytes: number;
   version: string;
+  identityChanged?: true;
 };
 type Cached = Page;
 export class GhApi {
@@ -43,21 +86,27 @@ export class GhApi {
     signal: AbortSignal,
     body?: unknown,
     method = body === undefined ? "GET" : "POST",
-    dispatch?: WriteDispatch,
+    dispatch = new MutationDispatch(),
   ): Promise<Page> {
+    const request = {
+      command: this.#command,
+      args: ["api", path, "--method", method],
+      ...(body === undefined ? {} : { input: JSON.stringify(body) }),
+      signal,
+      mode: "json" as const,
+    };
     try {
       return await this.#request(path, signal, body, method, dispatch);
     } catch (error) {
-      dispatch?.reject(error);
-      throw error;
+      throw isForgeMutation(request) ? dispatch.failure(error) : error;
     }
   }
   async #request(
     path: string,
     signal: AbortSignal,
-    body?: unknown,
-    method = body === undefined ? "GET" : "POST",
-    dispatch?: WriteDispatch,
+    body: unknown,
+    method: string,
+    dispatch: MutationDispatch,
   ): Promise<Page> {
     const args = [
       "api",
@@ -71,12 +120,13 @@ export class GhApi {
       "Accept: application/vnd.github+json",
     ];
     const input = body === undefined ? undefined : JSON.stringify(body);
-    const graphqlRead =
-      path === "graphql" &&
-      method === "POST" &&
-      z.object({ query: z.string() }).safeParse(body).data?.query.trimStart().startsWith("query");
-    const reusable = method === "GET" || Boolean(graphqlRead);
-    // An unreadable acknowledgement can still follow an accepted write.
+    const reusable = !isForgeMutation({
+      args,
+      ...(input === undefined ? {} : { input }),
+      command: this.#command,
+      signal,
+      mode: "json",
+    });
     if (!reusable) {
       this.#cache.clear();
       this.#cacheBytes = 0;
@@ -91,14 +141,13 @@ export class GhApi {
     if (method === "GET" && cached?.headers.etag)
       args.push("--header", `If-None-Match: ${cached.headers.etag}`);
     if (input !== undefined) args.push("--input", "-");
-    if (signal.aborted) throw new ForgeError("cancelled", undefined, false);
-    dispatch?.begin();
     const output = await this.#runner({
       command: this.#command,
       args,
       signal,
       mode: "json",
       ...(input === undefined ? {} : { input }),
+      dispatch,
     });
     const split = /\r?\n\r?\n/.exec(output.stdout);
     if (!split) throw new ForgeError("cli");
@@ -123,8 +172,7 @@ export class GhApi {
     }
     if (code === 304) {
       if (!cached) throw new ForgeError("invalid_data");
-      this.#cache.delete(cacheKey);
-      this.#cache.set(cacheKey, cached);
+      this.#retain(cacheKey, cached);
       return cached;
     }
     if (
@@ -134,24 +182,27 @@ export class GhApi {
           headers["retry-after"] !== undefined ||
           /secondary rate limit|rate limit exceeded|abuse detection/i.test(rateMessage)))
     ) {
-      const seconds = Number(headers["retry-after"]);
-      const reset = Number(headers["x-ratelimit-reset"]) * 1_000;
-      const retryAt =
-        Number.isFinite(seconds) && seconds >= 0
-          ? this.#now() + seconds * 1_000
-          : Number.isFinite(reset) && reset > this.#now()
-            ? reset
-            : this.#now() + 60_000;
-      throw new ForgeError("rate_limit", retryAt, false);
+      dispatch.reject();
+      throw new ForgeError("rate_limit", rateLimitRetryAt(headers, this.#now()), false);
     }
+    if ([401, 403, 404, 409, 422].includes(code)) dispatch.reject();
     if (code === 404) throw new ForgeError("not_found", undefined, false);
     if (code === 401 || code === 403) throw new ForgeError("forbidden", undefined, false);
     if (code === 409 || code === 422) throw new ForgeError("conflict", undefined, false);
     if (code < 200 || code >= 300) throw new ForgeError("cli");
-    const graphqlResponse = path === "graphql";
-    // gh exits nonzero for GraphQL errors even when HTTP succeeded. Decode the
-    // acknowledgement first so a complete refusal can release the write fence.
-    if (output.code !== 0 && !graphqlResponse) throw new ForgeError("cli");
+    // gh exits 1 for GraphQL errors even with HTTP 200. Classify complete bodies
+    // before the CLI fallback, including before any cached representation is reused.
+    if (path === "graphql") {
+      if (output.truncated) throw new ForgeError("invalid_data");
+      let graphqlBody: unknown;
+      try {
+        graphqlBody = JSON.parse(text);
+      } catch {
+        throw new ForgeError("invalid_data");
+      }
+      assertGraphqlResult(graphqlBody, dispatch, rateLimitRetryAt(headers, this.#now()));
+    }
+    if (output.code !== 0) throw new ForgeError("cli");
     const version = createHash("sha256").update(text).digest("hex");
     const safeHeaders = {
       ...(headers.etag && /^[\x20-\x7e]{1,512}$/.test(headers.etag) ? { etag: headers.etag } : {}),
@@ -159,8 +210,7 @@ export class GhApi {
     };
     if (cached?.version === version) {
       cached.headers = safeHeaders;
-      this.#cache.delete(cacheKey);
-      this.#cache.set(cacheKey, cached);
+      this.#retain(cacheKey, cached);
       return cached;
     }
     let data: unknown;
@@ -169,30 +219,37 @@ export class GhApi {
     } catch {
       throw new ForgeError("invalid_data");
     }
-    if (graphqlResponse) assertGraphqlResult(data);
-    if (output.code !== 0) throw new ForgeError("cli");
-    const page = { version, bytes: Buffer.byteLength(text), body: data, headers: safeHeaders };
+    const page: Page = {
+      version,
+      bytes: Buffer.byteLength(text),
+      body: data,
+      headers: safeHeaders,
+      ...(output.identityChanged ? { identityChanged: true } : {}),
+    };
     if (!reusable) {
       this.#cache.clear();
       this.#cacheBytes = 0;
     } else {
-      if (cached) {
-        this.#cache.delete(cacheKey);
-        this.#cacheBytes -= cached.bytes;
-      }
-      while (this.#cache.size >= 128 || this.#cacheBytes + page.bytes > 8_388_608) {
-        const oldest = this.#cache.entries().next().value;
-        if (!oldest) break;
-        this.#cache.delete(oldest[0]);
-        this.#cacheBytes -= oldest[1].bytes;
-      }
-      this.#cache.set(cacheKey, page);
-      this.#cacheBytes += page.bytes;
+      this.#retain(cacheKey, page);
     }
     return page;
   }
-  next(page: Page, path: string): string | undefined {
-    return this.#next(page.headers.link, path);
+  /** Completion reconciles the entry actually retained, never an earlier request snapshot. */
+  #retain(key: string, page: Page): void {
+    const current = this.#cache.get(key);
+    if (current) {
+      this.#cache.delete(key);
+      this.#cacheBytes -= current.bytes;
+    }
+    if (page.bytes > 8_388_608) return;
+    while (this.#cache.size >= 128 || this.#cacheBytes + page.bytes > 8_388_608) {
+      const oldest = this.#cache.entries().next().value;
+      if (!oldest) break;
+      this.#cache.delete(oldest[0]);
+      this.#cacheBytes -= oldest[1].bytes;
+    }
+    this.#cache.set(key, page);
+    this.#cacheBytes += page.bytes;
   }
   async pages(path: string, signal: AbortSignal, budget: ReadBudget): Promise<Page[]> {
     const result: Page[] = [];
@@ -205,6 +262,9 @@ export class GhApi {
     }
     if (endpoint) throw new ForgeError("limit");
     return result;
+  }
+  next(page: Page, path: string): string | undefined {
+    return this.#next(page.headers.link, path);
   }
   #next(link: string | undefined, path: string): string | undefined {
     const match = link
@@ -239,42 +299,5 @@ export class GhApi {
     });
     if (result.code !== 0) throw new ForgeError("cli");
     return { text: result.stdout, truncated: result.truncated };
-  }
-  async autoMerge(
-    repo: string,
-    number: number,
-    sha: string,
-    method: "merge" | "squash" | "rebase",
-    signal: AbortSignal,
-    dispatch?: WriteDispatch,
-  ): Promise<void> {
-    this.#cache.clear();
-    this.#cacheBytes = 0;
-    dispatch?.begin();
-    let result;
-    try {
-      result = await this.#runner({
-        command: this.#command,
-        args: [
-          "pr",
-          "merge",
-          String(number),
-          "--repo",
-          repo,
-          "--auto",
-          `--${method}`,
-          "--match-head-commit",
-          sha,
-        ],
-        signal,
-        mode: "json",
-      });
-    } catch (error) {
-      dispatch?.reject(error);
-      throw error;
-    }
-    if (result.code !== 0) throw new ForgeError("cli");
-    this.#cache.clear();
-    this.#cacheBytes = 0;
   }
 }

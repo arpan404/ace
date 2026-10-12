@@ -147,11 +147,12 @@ test("taking back a queued message hides its bubble and preserves the current dr
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   await waitFor(() =>
     expect(
-      within(queue).getByRole("button", { name: "Take back to composer" }).hasAttribute("disabled"),
+      within(queue).getByRole("button", { name: "Edit queued message" }).hasAttribute("disabled"),
     ).toBe(false),
   );
   await userEvent.type(message, "Keep my current draft");
-  await userEvent.click(within(queue).getByRole("button", { name: "Take back to composer" }));
+  await userEvent.click(within(queue).getByRole("button", { name: "Edit queued message" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Take back to composer" }));
   await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
   expect(within(feed).queryByText("Also check the iOS cold-start path")).toBeNull();
   await waitFor(() =>
@@ -167,12 +168,13 @@ test("a refused take-back keeps the queue and draft, then shows one delivered me
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   await waitFor(() =>
     expect(
-      within(queue).getByRole("button", { name: "Take back to composer" }).hasAttribute("disabled"),
+      within(queue).getByRole("button", { name: "Edit queued message" }).hasAttribute("disabled"),
     ).toBe(false),
   );
   app.daemon.refuseCommands("queue_conflict", "queue.remove");
   await userEvent.type(message, "Keep my current draft");
-  await userEvent.click(within(queue).getByRole("button", { name: "Take back to composer" }));
+  await userEvent.click(within(queue).getByRole("button", { name: "Edit queued message" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Take back to composer" }));
   expect(
     await screen.findByRole("heading", { name: "Couldn't take back the message" }),
   ).toBeTruthy();

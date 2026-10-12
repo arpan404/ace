@@ -201,9 +201,11 @@ export function queuePage(
 ): QueuePage | string {
   if (request.expectedRevision !== undefined && request.expectedRevision !== host.queue.revision)
     return "queue_conflict";
+  if (request.after !== undefined && request.expectedRevision === undefined)
+    return "queue_revision_required";
   const start =
     request.after === undefined ? 0 : host.queued.findIndex((m) => m.key === request.after) + 1;
-  if (request.after !== undefined && start === 0) return "queue_conflict";
+  if (request.after !== undefined && start === 0) return "invalid_queue_cursor";
   const limit = request.limit ?? 32;
   const slice = host.queued.slice(start, start + limit);
   return QueuePage.parse({

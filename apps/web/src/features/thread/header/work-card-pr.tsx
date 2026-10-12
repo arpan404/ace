@@ -1,47 +1,26 @@
 import { useNavigate } from "@tanstack/react-router";
 import { PrUnlinkDialog } from "./pr-unlink-dialog.tsx";
 import { PullRequestGlyph, pullRequestTone as prTone } from "@/components/pull-request-state.tsx";
-import type { ForgeCheck, ForgePrStatus } from "@ace/protocol";
-import {
-  mergeMethods,
-  prOverview,
-  pullRequestUrl,
-  type CheckoutPr,
-  type MergeMethod,
-  type PrTone,
-} from "@ace/ui-core";
+import type { ForgePrStatus } from "@ace/protocol";
+import { prOverview, pullRequestUrl, type CheckoutPr } from "@ace/ui-core";
 import {
   ArrowClockwiseIcon,
   ArrowSquareOutIcon,
-  ChatsCircleIcon,
-  CheckCircleIcon,
-  ClockIcon,
-  GitMergeIcon,
-  MinusCircleIcon,
-  UserPlusIcon,
-  WarningIcon,
-  XCircleIcon,
   DotsThreeIcon,
+  PlusIcon,
 } from "@phosphor-icons/react";
 import { useId, useState } from "react";
-import { openExternal } from "@/boot/open-external.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import {
-  Menu,
-  MenuContent,
-  MenuTrigger,
-  MenuItem,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuSeparator,
-} from "@/components/ui/menu.tsx";
+import { Menu, MenuContent, MenuTrigger, MenuItem } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { SplitButton } from "@/components/ui/split-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failure, type useGitFlow } from "./use-git-flow.tsx";
 import { PrLinkForm } from "./pr-link-form.tsx";
-import { TruncatedText, RowButton, RowNote, rowIcon } from "./work-card-parts.tsx";
+import { PrDetails } from "./work-card-pr-details.tsx";
+import { openPullRequestLink as open } from "./work-card-pr-link.ts";
+import { TruncatedText, RowButton, RowNote } from "./work-card-parts.tsx";
+import { useWorkCardState } from "./work-card-state.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
 
@@ -51,22 +30,6 @@ const prState: Record<CheckoutPr["state"], string> = {
   merged: "merged",
   closed: "closed",
 };
-
-/** A CI or check state as a glyph in its status colour. */
-const tones: Record<PrTone | ForgeCheck["status"], { glyph: typeof ClockIcon; tone: string }> = {
-  success: { glyph: CheckCircleIcon, tone: "text-status-done" },
-  failure: { glyph: XCircleIcon, tone: "text-status-failed" },
-  pending: { glyph: ClockIcon, tone: rowIcon },
-  none: { glyph: MinusCircleIcon, tone: rowIcon },
-  cancelled: { glyph: MinusCircleIcon, tone: rowIcon },
-  unknown: { glyph: MinusCircleIcon, tone: rowIcon },
-};
-function ToneIcon(props: { tone: keyof typeof tones }) {
-  const { glyph: Glyph, tone } = tones[props.tone];
-  return <Glyph aria-hidden size={16} className={`shrink-0 ${tone}`} />;
-}
-
-const open = (url: string, onError: () => void) => void openExternal(url).catch(onError);
 
 /** Compact links; the validated field appears only when requested. */
 export function PullRequestsSection(props: {
@@ -79,10 +42,12 @@ export function PullRequestsSection(props: {
   const checkout = git.checkout;
 
   const [confirm, setConfirm] = useState(false);
+  const { state, update } = useWorkCardState();
+  const expanded = state.sections["pull-requests"] ?? false;
   const links = git.linkedPrs?.length ? git.linkedPrs : checkout?.pr ? [checkout.pr] : [];
   return (
     <section aria-label="Pull requests">
-      {links.map((pr) => (
+      {(expanded ? links : links.slice(0, 1)).map((pr) => (
         <PrDisclosure
           key={`${pr.repo?.host}/${pr.repo?.owner}/${pr.repo?.name}/${pr.number}`}
           git={git}
@@ -92,6 +57,16 @@ export function PullRequestsSection(props: {
           onUnlinkAll={() => setConfirm(true)}
         />
       ))}
+      {links.length > 1 && (
+        <RowButton
+          className="text-muted-foreground"
+          aria-expanded={expanded}
+          onClick={() => update({ sections: { "pull-requests": !expanded } })}
+        >
+          <PlusIcon aria-hidden size={16} />
+          {expanded ? "Show fewer pull requests" : `Show ${links.length - 1} more`}
+        </RowButton>
+      )}
       {props.linking && checkout?.repository?.forge !== "gitlab" && (
         <PrLinkForm
           repository={checkout?.repository}
@@ -127,18 +102,53 @@ function PrDisclosure(props: {
   const [refreshing, setRefreshing] = useState(false);
   const [openNow, setOpen] = useState(false);
   const [error, setError] = useState<unknown>();
+  const [checked, setChecked] = useState<ForgePrStatus>();
   const repository = pr.repo ?? git.checkout?.repository;
   const url = pr.url ?? (repository && pullRequestUrl(repository, pr.number));
   const refresh = () => {
     setRefreshing(true);
     git
-      .refreshPr()
+      .refreshPr(repository ? { repository, number: pr.number } : undefined)
       .then(
-        () => setError(undefined),
+        (status) => {
+          setChecked(status);
+          setError(undefined);
+          return status;
+        },
         (reason: unknown) => setError(reason ?? "failed"),
       )
       .finally(() => setRefreshing(false));
   };
+  const current = checked ?? (primary ? git.status : undefined);
+  const merge = async () => {
+    if (!repository || refreshing || git.pending) return;
+    setRefreshing(true);
+    try {
+      const status = await git.refreshPr({ repository, number: pr.number });
+      if (!status) throw new Error("Couldn't read the pull request");
+      setChecked(status);
+      setError(undefined);
+      const blocked = prOverview(status, props.base).mergeBlocked;
+      if (blocked) {
+        setOpen(true);
+        toast.error({ title: blocked });
+        return;
+      }
+      git.run({
+        kind: "merge",
+        method: "squash",
+        auto: false,
+        headSha: status.headSha,
+        pr: status.ref,
+      });
+    } catch (reason) {
+      setError(reason);
+      setOpen(true);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+  const title = pr.title ?? current?.title ?? `Pull request #${pr.number}`;
   const state = error !== undefined ? "Unavailable" : refreshing ? "Checking…" : prState[pr.state];
   const ci = error === undefined && !refreshing && pr.ci && pr.ci !== "unknown" ? pr.ci : undefined;
   return (
@@ -150,16 +160,13 @@ function PrDisclosure(props: {
           aria-controls={id}
           onClick={() => {
             setOpen(!openNow);
-            if (!openNow && primary) refresh();
+            if (!openNow) refresh();
           }}
-          aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${state}${ci && ci !== "none" ? `, checks ${ci === "success" ? "passed" : ci === "failure" ? "failing" : "running"}` : ""}`}
+          aria-label={`Pull request #${pr.number}${title ? `: ${title}` : ""}, ${state}${ci && ci !== "none" ? `, checks ${ci === "success" ? "passed" : ci === "failure" ? "failing" : "running"}` : ""}`}
         >
           <PullRequestGlyph state={pr.state} size={14} />
-          <Tip label={pr.title ?? `Pull request #${pr.number}`}>
-            <TruncatedText>
-              <span className={prTone(pr.state)}>#{pr.number}</span>{" "}
-              {pr.title ?? git.checkout?.branch}
-            </TruncatedText>
+          <Tip label={title}>
+            <TruncatedText>{title}</TruncatedText>
           </Tip>
         </RowButton>
         {url && (
@@ -211,26 +218,46 @@ function PrDisclosure(props: {
           </Menu>
         </span>
       </div>
+      <div className="flex min-h-(--control-height) items-center justify-between gap-2 pl-8 pr-2 text-xs">
+        <span className={prTone(pr.state)}>
+          #{pr.number} · {state}
+        </span>
+        {(pr.state === "open" || pr.state === "draft") && (
+          <button
+            type="button"
+            className="focus-ring touch-hit rounded-sm text-link hover:underline disabled:text-muted-foreground"
+            disabled={git.pending || refreshing || pr.state === "draft" || !repository}
+            aria-label={`Merge PR #${pr.number}`}
+            title={
+              pr.state === "draft"
+                ? "Mark this PR ready on GitHub before merging"
+                : "Review and confirm merge"
+            }
+            onClick={() => void merge()}
+          >
+            {refreshing ? "Checking…" : "Merge"}
+          </button>
+        )}
+      </div>
       {openNow && (
         <section id={id} aria-label={`Pull request #${pr.number}`}>
           <div className="flex min-h-(--row-height) items-center gap-1 pr-1 pl-2.5">
-            <Tip label={pr.title ?? `Pull request #${pr.number}`}>
+            <Tip label={title}>
               <h3 className="min-w-0 flex-1 truncate text-ui">
                 <span className="text-subtle-foreground">#{pr.number}</span> {pr.title}
               </h3>
             </Tip>
-            {primary &&
-              (refreshing ? (
-                <Spinner label="Reading the pull request" className="mx-1.5" />
-              ) : (
-                <IconButton
-                  icon={ArrowClockwiseIcon}
-                  label="Refresh"
-                  size="sm"
-                  className="size-7"
-                  onClick={refresh}
-                />
-              ))}
+            {refreshing ? (
+              <Spinner label="Reading the pull request" className="mx-1.5" />
+            ) : (
+              <IconButton
+                icon={ArrowClockwiseIcon}
+                label="Refresh"
+                size="sm"
+                className="size-7"
+                onClick={refresh}
+              />
+            )}
           </div>
           {error !== undefined ? (
             <>
@@ -238,15 +265,19 @@ function PrDisclosure(props: {
                 {failure(error)}
               </p>
             </>
-          ) : primary && git.status && git.status.ref.number === pr.number ? (
+          ) : current && current.ref.number === pr.number ? (
             <PrDetails
               git={git}
-              status={git.status}
+              status={current}
               base={props.base}
-              onRequestReview={() => {
-                setOpen(false);
-                git.open("request-review");
-              }}
+              onRequestReview={
+                primary
+                  ? () => {
+                      setOpen(false);
+                      git.open("request-review");
+                    }
+                  : undefined
+              }
             />
           ) : (
             <RowNote>
@@ -256,118 +287,5 @@ function PrDisclosure(props: {
         </section>
       )}
     </div>
-  );
-}
-
-function PrDetails(props: {
-  git: GitFlow;
-  status: ForgePrStatus;
-  base: string;
-  onRequestReview(): void;
-}) {
-  const { git, status } = props;
-  const toast = useToast();
-  const view = prOverview(status, props.base);
-  const [method, setMethod] = useState<MergeMethod>("squash");
-  const label = mergeMethods.find((each) => each.method === method)?.label ?? "Merge";
-  const settled = status.state === "merged" || status.state === "closed";
-  return (
-    <>
-      <RowNote className="text-foreground">
-        <ToneIcon tone={view.ci.tone} />
-        {view.ci.text}
-      </RowNote>
-      {view.checks.length > 0 && (
-        <ul aria-label="Checks">
-          {view.checks.map((check) => (
-            <li
-              key={check.id}
-              className="flex min-h-(--row-height) items-center gap-2.5 pr-1 pl-6 text-sm"
-            >
-              <ToneIcon tone={check.status} />
-              <TruncatedText>{check.name}</TruncatedText>
-              {check.url && (
-                <IconButton
-                  icon={ArrowSquareOutIcon}
-                  label={`Open the ${check.name} logs`}
-                  size="sm"
-                  onClick={() =>
-                    check.url &&
-                    open(check.url, () => toast.error({ title: "Couldn't open the logs" }))
-                  }
-                />
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {!settled && (
-        <RowNote className="text-foreground">
-          {view.merge.tone === "conflict" ? (
-            <WarningIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
-          ) : (
-            <GitMergeIcon aria-hidden size={16} className={rowIcon} />
-          )}
-          {view.merge.text}
-        </RowNote>
-      )}
-      <RowNote className={view.unresolved ? "text-foreground" : undefined}>
-        <ChatsCircleIcon aria-hidden size={16} className={rowIcon} />
-        {view.unresolved
-          ? `${view.unresolved} unresolved review ${view.unresolved === 1 ? "thread" : "threads"}`
-          : "No unresolved review threads"}
-      </RowNote>
-      {!settled && (
-        <div className="flex h-10 items-center gap-2 pr-1 pl-2.5">
-          <SplitButton
-            label={label}
-            actionLabel={view.mergeBlocked ?? `${label} into ${props.base}`}
-            actionDisabled={!!view.mergeBlocked}
-            className={view.mergeBlocked ? "text-muted-foreground" : ""}
-            menuLabel="Merge options"
-            disabled={git.pending}
-            onAction={() =>
-              git.run({ kind: "merge", method, auto: false, headSha: status.headSha })
-            }
-            menu={
-              <>
-                <MenuRadioGroup
-                  value={method}
-                  onValueChange={(value: MergeMethod) => setMethod(value)}
-                >
-                  {mergeMethods.map((each) => (
-                    <MenuRadioItem key={each.method} value={each.method}>
-                      {each.label}
-                    </MenuRadioItem>
-                  ))}
-                </MenuRadioGroup>
-                <MenuSeparator />
-                <MenuItem
-                  icon={<ClockIcon aria-hidden size={16} />}
-                  disabled={!!view.autoMergeBlocked}
-                  reason={view.autoMergeBlocked}
-                  onClick={() =>
-                    git.run({ kind: "merge", method, auto: true, headSha: status.headSha })
-                  }
-                >
-                  Auto-merge when checks pass
-                </MenuItem>
-              </>
-            }
-          />
-          <span className="min-w-0 flex-1 truncate text-sm text-subtle-foreground">
-            {git.pending ? <Spinner label="Working on it" /> : view.mergeBlocked}
-          </span>
-          <IconButton
-            icon={UserPlusIcon}
-            label="Request review…"
-            size="sm"
-            className="size-7"
-            disabled={git.pending}
-            onClick={props.onRequestReview}
-          />
-        </div>
-      )}
-    </>
   );
 }

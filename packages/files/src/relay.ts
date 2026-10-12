@@ -1,4 +1,4 @@
-import type { FilesServerMessage } from "@ace/protocol";
+import type { FilesServerMessage, FileOperation } from "@ace/protocol";
 import { attachFilesChannel } from "./socket.ts";
 import type { FilesService } from "./service.ts";
 
@@ -15,7 +15,7 @@ export function attachFilesRelay(
   service: FilesService,
   channel: FilesRelayChannel,
   device: string,
-  authorize: (capability: "files.read" | "files.write") => boolean,
+  authorize: (capability: "files.read" | "files.write", operation?: FileOperation) => boolean,
 ) {
   let ended = false;
   void channel.closed.then(() => {

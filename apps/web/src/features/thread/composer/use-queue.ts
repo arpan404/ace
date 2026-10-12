@@ -9,7 +9,7 @@ import {
   type QueuePage,
   type QueuedMessage,
 } from "@ace/protocol";
-import { queueMoveAfter, type QueueAction } from "@ace/ui-core";
+import { type QueueAction } from "@ace/ui-core";
 import { useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
@@ -77,17 +77,24 @@ export interface QueueControls {
   page: QueuePage | undefined;
   /** The page with the person's changes on their way applied. */
   messages: readonly QueuedMessage[];
+  /** All saved entries, including those hidden behind Load more. */
+  retained: readonly QueuedMessage[];
+  /** Every retained entry with this device's optimistic edits applied. */
+  allMessages: readonly QueuedMessage[];
   failed: boolean;
   /** A command for this message is on its way: its pill waits for it. */
   busy(messageId: string): boolean;
   /** A queue-wide action (resume, hold, a limit choice) is on its way. */
   acting: boolean;
   refresh(): void;
+  loadingMore?: boolean;
+  loadMore?(): void;
   remove(message: QueuedMessage): void;
   /** Remove on the daemon first, then restore the message alongside the person's draft. */
   takeBack(message: QueuedMessage): void;
   resend(message: QueuedMessage): void;
   move(index: number, step: -1 | 1): void;
+  moveTo(index: number, destination: number): void;
   /** Deliver into the running turn now instead of waiting. */
   sendNow(message: QueuedMessage): void;
   edit(message: QueuedMessage, text: string): Promise<boolean>;
@@ -106,7 +113,7 @@ export function useQueue(threadId: string): QueueControls {
   const canSteer = useThreadMeta(threadId)?.capabilities?.steer === true;
   const toast = useToast();
   const { storage } = useLayout();
-  const { page, failed, refresh } = useServerQueue(threadId);
+  const { page, retained, failed, refresh, loadingMore, loadMore } = useServerQueue(threadId);
   const [edits, setEdits] = useState<ReadonlyMap<string, QueueEdit>>(new Map());
   const [acting, setActing] = useState(false);
   const inFlight = useRef(new Set<string>());
@@ -150,11 +157,36 @@ export function useQueue(threadId: string): QueueControls {
     () => overlayQueue(page?.messages ?? [], edits, revision),
     [page, edits, revision],
   );
+  const allMessages = useMemo(
+    () => overlayQueue(retained, edits, revision),
+    [retained, edits, revision],
+  );
   const ids = messages.map((message) => message.id);
+  const moveTo = (index: number, destination: number) => {
+    const message = messages[index];
+    if (!message || index === destination || destination < 0 || destination >= ids.length) return;
+    const order = [...ids];
+    order.splice(index, 1);
+    order.splice(destination, 0, message.id);
+    const after = order[destination - 1];
+    void change(
+      message.id,
+      { kind: "order", order, revision, settled: false },
+      target && {
+        type: "queue.move",
+        ...target,
+        messageId: message.id,
+        after: after === undefined ? null : CommandId.parse(after),
+      },
+      "move the message",
+    );
+  };
   return {
     canSteer,
     page,
     messages,
+    retained,
+    allMessages,
     failed,
     busy: (id) => {
       const edit = edits.get(id);
@@ -162,6 +194,8 @@ export function useQueue(threadId: string): QueueControls {
     },
     acting,
     refresh,
+    loadingMore,
+    loadMore,
     resend: (message) =>
       void change(
         message.id,
@@ -200,25 +234,8 @@ export function useQueue(threadId: string): QueueControls {
           }),
         );
       }),
-    move: (index, step) => {
-      const message = messages[index];
-      const after = queueMoveAfter(ids, index, step);
-      if (!message || after === undefined) return;
-      const order = [...ids];
-      order.splice(index, 1);
-      order.splice(index + step, 0, message.id);
-      void change(
-        message.id,
-        { kind: "order", order, revision, settled: false },
-        target && {
-          type: "queue.move",
-          ...target,
-          messageId: message.id,
-          after: after === null ? null : CommandId.parse(after),
-        },
-        "move the message",
-      );
-    },
+    move: (index, step) => moveTo(index, index + step),
+    moveTo,
     sendNow: (message) =>
       void change(
         message.id,

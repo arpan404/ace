@@ -778,6 +778,35 @@
           "minLength": 1,
           "type": "string"
         },
+        "target": {
+          "properties": {
+            "branch": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "head": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-f0-9]{40,64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            }
+          },
+          "required": [
+            "repository",
+            "branch",
+            "head"
+          ],
+          "type": "object"
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
@@ -789,6 +818,26 @@
       "required": [
         "type",
         "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "input": {
+          "$ref": "https://ace.local/protocol/v1/RepositoryPublishInput.json"
+        },
+        "type": {
+          "const": "workspace.publish",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId",
+        "input"
       ],
       "type": "object"
     },
@@ -1625,6 +1674,11 @@
       "properties": {
         "agentId": {
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "beforeSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
         },
         "cascade": {
           "default": true,

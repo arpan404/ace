@@ -9,7 +9,7 @@
     "./pinned-directory": "./src/pinned-directory.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "bench": "node bench/workspace.ts",
     "build:native": "node build.ts",
     "bench:search": "node bench/search.ts"

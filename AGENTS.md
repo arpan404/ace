@@ -63,11 +63,12 @@ Reviews reject PRs containing such tests.
 - `bun install`
 - `bun run fmt` / `bun run fmt:check` (oxfmt)
 - `bun run lint` (oxlint)
-- `bun run typecheck`
+- `bun run typecheck` is the bounded incremental local check; it reuses declaration/check caches.
+- `bun run typecheck:full` checks every original source program, root test tooling, and the client runtime guard from scratch. CI runs it separately as the required safety net for declaration inference.
 - `bun run test` (Vitest). Never run `bun test`; that is Bun's own runner.
 - `bun run check:size` fails if any source file exceeds 1,500 lines.
 - `bun run check:deps` checks module boundaries in the web app and client packages (dependency-cruiser).
-- `bun run check` runs all of the above. It must pass before a task is complete.
+- `bun run check` runs the checks listed in the root script. It must pass before a task is complete.
 
 ## Recording fixtures
 

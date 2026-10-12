@@ -91,6 +91,7 @@ export class ThreadActor {
   }
   private cancelTimer: (() => void) | undefined;
   private stopped = false;
+  private onRetire: ((actor: ThreadActor, generation: number) => void) | undefined;
   private draining: () => boolean;
   private repo: EngineRepository;
   private clock: EngineClock;
@@ -112,7 +113,9 @@ export class ThreadActor {
     privateDrain: () => boolean = () => false,
     batchScheduler: Pick<EngineClock, "setTimer"> = systemClock,
     diagnostic?: (thread: ThreadId, raw: import("@ace/protocol").RawPayload[]) => void,
+    onRetire?: (actor: ThreadActor, generation: number) => void,
   ) {
+    this.onRetire = onRetire;
     this.draining = privateDrain;
     this.batchScheduler = batchScheduler;
     this.limits = limits;
@@ -123,6 +126,10 @@ export class ThreadActor {
     this.wake = wake;
     this.report = report;
     this.diagnostic = diagnostic;
+  }
+  retireGeneration(): void {
+    this.onRetire?.(this, this.generation);
+    this.generation++;
   }
   retainInput(id: number, release: () => void, runId: string | undefined): void {
     if (this.inputLeases.size >= 256) {
@@ -173,7 +180,7 @@ export class ThreadActor {
             this.lifetime?.abort();
             this.session = undefined;
             this.translator = undefined;
-            this.generation++;
+            this.retireGeneration();
             this.apply([
               {
                 type: "process.exited",

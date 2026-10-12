@@ -71,6 +71,16 @@
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
+    "rootRunId": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "runningSubagentCount": {
       "maximum": 9007199254740991,
       "minimum": 0,

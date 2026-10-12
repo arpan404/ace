@@ -9,7 +9,7 @@
     "screens": "playwright test --project=screens",
     "walkthrough": "playwright test --project=walkthrough",
     "daemon": "node src/real-daemon.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
     "@ace/accounts": "workspace:*",

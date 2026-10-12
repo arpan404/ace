@@ -34,12 +34,25 @@ export function OpenFolderTab(props: {
     return parent ? `${parent.replace(/\/+$/, "")}/` : "";
   });
   const [highlighted, setHighlighted] = useState<FolderRow>();
+  const [pickedKey, setPickedKey] = useState<string | undefined>(() =>
+    props.attempt ? `${machine.id}\u0000${props.attempt.path}` : undefined,
+  );
   const [problem, setProblem] = useState<
-    { key: string; message: string; denied: boolean; canAllow?: boolean | undefined } | undefined
+    | {
+        key: string;
+        path: string;
+        machine: Machine;
+        message: string;
+        denied: boolean;
+        canAllow?: boolean | undefined;
+      }
+    | undefined
   >(
     () =>
       props.attempt && {
         key: `${machine.id}\u0000${props.attempt.path}`,
+        path: props.attempt.path,
+        machine,
         message: props.attempt.problem,
         denied: true,
         canAllow: props.attempt.canAllow,
@@ -52,6 +65,7 @@ export function OpenFolderTab(props: {
   if (shownFor !== machine.id) {
     setShownFor(machine.id);
     setProblem(undefined);
+    setPickedKey(undefined);
   }
   const search = useFolderSearch({ machine, machines: props.machines, text, mode: "open" });
   const native = useNativePicker(machine.primary);
@@ -74,6 +88,8 @@ export function OpenFolderTab(props: {
       pending.current = false;
       setProblem({
         key: `${where.id}\u0000${path}`,
+        path,
+        machine: where,
         message: failure.message,
         denied: failure.denied ?? false,
         canAllow: failure.canAllow,
@@ -87,7 +103,8 @@ export function OpenFolderTab(props: {
     void add(row.path, newThread ? "thread" : "open", row.machine);
   };
 
-  const shownProblem = problem && target && problem.key === target.key ? problem : undefined;
+  const shownProblem =
+    problem && (problem.key === target?.key || problem.key === pickedKey) ? problem : undefined;
   return (
     <div className="grid gap-3">
       <FolderSearchBox
@@ -97,7 +114,10 @@ export function OpenFolderTab(props: {
         placeholder="Search folders, or type a path: / ~ ./"
         search={search}
         text={text}
-        onText={setText}
+        onText={(value) => {
+          setPickedKey(undefined);
+          setText(value);
+        }}
         mode="open"
         several={props.machines.length > 1}
         onChoose={(row, how) => open(row, how.newThread)}
@@ -113,7 +133,10 @@ export function OpenFolderTab(props: {
               disabled={offline || adding}
               onClick={() =>
                 void native.choose().then((chosen) => {
-                  if (chosen) void add(chosen, "open", machine);
+                  if (chosen) {
+                    setPickedKey(`${machine.id}\u0000${chosen}`);
+                    void add(chosen, "open", machine);
+                  }
                 })
               }
             />
@@ -125,12 +148,13 @@ export function OpenFolderTab(props: {
       )}
       {shownProblem ? (
         <Problem>
+          <p className="break-all font-mono">{shownProblem.path}</p>
           {shownProblem.message}
-          {shownProblem.canAllow && target && (
+          {shownProblem.canAllow && (
             <AllowFolder
-              client={on.client}
-              path={target.path}
-              onAllowed={() => void add(target.path, "open", on)}
+              client={shownProblem.machine.client}
+              path={shownProblem.path}
+              onAllowed={() => void add(shownProblem.path, "open", shownProblem.machine)}
             />
           )}
           {shownProblem.denied && (
@@ -138,7 +162,10 @@ export function OpenFolderTab(props: {
               className="mt-1 justify-start"
               roots={search.home?.roots ?? []}
               home={search.home?.path}
-              onGo={(path) => setText(`${path.replace(/\/+$/, "")}/`)}
+              onGo={(path) => {
+                setPickedKey(undefined);
+                setText(`${path.replace(/\/+$/, "")}/`);
+              }}
             />
           )}
         </Problem>
