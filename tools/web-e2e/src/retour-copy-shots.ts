@@ -13,7 +13,15 @@ try {
         reducedMotion: "reduce",
       });
       await context.addInitScript(
-        (value) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: value })),
+        (value) =>
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              value.includes("-")
+                ? { theme: value.split("-")[0], mode: value.split("-")[1] }
+                : { mode: value },
+            ),
+          ),
         theme,
       );
       await context.addInitScript((patch) => {

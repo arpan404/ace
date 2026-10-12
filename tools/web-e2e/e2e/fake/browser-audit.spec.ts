@@ -11,7 +11,15 @@ for (const theme of ["Light", "Dark"] as const) {
       await mkdir(shots, { recursive: true });
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript(
-        (chosen) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosen })),
+        (chosen) =>
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              chosen.includes("-")
+                ? { theme: chosen.split("-")[0], mode: chosen.split("-")[1] }
+                : { mode: chosen },
+            ),
+          ),
         theme.toLowerCase(),
       );
       await page.goto("/t/thread-cold-start");

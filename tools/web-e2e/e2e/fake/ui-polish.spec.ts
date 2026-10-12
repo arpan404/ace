@@ -1,45 +1,25 @@
 import { expect, test } from "@playwright/test";
 import { askingQuestion, workCardScenario, type FakeDaemon } from "@ace/fake-daemon";
 
-for (const theme of ["light", "dark"])
+for (const mode of ["light", "dark"])
   for (const width of [320, 390, 768, 1440]) {
-    test(`theme previews and density remain usable in ${theme} at ${width}`, async ({ page }) => {
+    test(`theme swatches and density remain usable in ${mode} at ${width}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
-      await page.addInitScript((selectedTheme) => {
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: selectedTheme }));
-        localStorage.setItem(
-          "ace.themes",
-          JSON.stringify([
-            {
-              id: "custom-preview",
-              name: "My preview",
-              scheme: "light",
-              tokens: {
-                "--background": "#f0e0d0",
-                "--foreground": "#201810",
-                "--reading-rgb": "240 224 208",
-              },
-            },
-          ]),
-        );
-      }, theme);
+      await page.addInitScript((chosen) => {
+        localStorage.setItem("ace.appearance", JSON.stringify({ mode: chosen }));
+      }, mode);
       await page.goto("/settings/appearance");
       const themes = page.getByRole("radiogroup", { name: "Theme", exact: true });
-      await expect(
-        themes.getByRole("radio", { name: theme === "light" ? "Light" : "Dark", exact: true }),
-      ).toBeChecked();
-      const custom = themes.getByRole("radio", { name: "My preview" });
-      const preview = custom.locator("[data-theme]");
-      expect(await preview.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
-        "rgb(240, 224, 208)",
+      const graphite = themes.getByRole("radio", { name: "Graphite", exact: true });
+      await expect(graphite).toBeChecked();
+      // Each swatch previews its theme with that theme's own tokens, in both schemes.
+      const paper = themes.getByRole("radio", { name: "Paper", exact: true });
+      const halves = paper.locator('[data-theme="paper"]');
+      await expect(halves).toHaveCount(2);
+      const [lightHalf, darkHalf] = await halves.evaluateAll((nodes) =>
+        nodes.map((node) => getComputedStyle(node).backgroundColor),
       );
-      await custom.click();
-      await expect(custom).toBeChecked();
-      expect(
-        await page.evaluate(() =>
-          getComputedStyle(document.documentElement).getPropertyValue("--background").trim(),
-        ),
-      ).toBe("#f0e0d0");
+      expect(lightHalf).not.toBe(darkHalf);
       const row = page.locator("#appearance\\.density");
       const comfortable = await row.boundingBox();
       await page.getByRole("button", { name: "Compact", exact: true }).click();
@@ -50,14 +30,15 @@ for (const theme of ["light", "dark"])
       await expect
         .poll(async () => (await row.boundingBox())?.height ?? 0)
         .toBe(comfortable?.height ?? 0);
-      await themes.getByRole("radio", { name: "System", exact: true }).focus();
+      await graphite.focus();
       await page.keyboard.press("ArrowRight");
-      await expect(themes.getByRole("radio", { name: "Light", exact: true })).toBeFocused();
-      await expect(themes.getByRole("radio", { name: "Light", exact: true })).toBeChecked();
+      const ace = themes.getByRole("radio", { name: "Ace", exact: true });
+      await expect(ace).toBeFocused();
+      await expect(ace).toBeChecked();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
         width,
       );
-      await page.screenshot({ path: test.info().outputPath(`appearance-${theme}-${width}.png`) });
+      await page.screenshot({ path: test.info().outputPath(`appearance-${mode}-${width}.png`) });
       await page.goto("/settings/remote");
       await page.getByRole("button", { name: "Add machine", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "Add machine", exact: true });
@@ -70,7 +51,7 @@ for (const theme of ["light", "dark"])
       expect(cancelBox.x).toBeLessThan(submitBox.x);
       expect(submitBox.x + submitBox.width).toBeGreaterThan(dialogBox.x + dialogBox.width / 2);
       expect(submitBox.x + submitBox.width).toBeLessThanOrEqual(width);
-      await page.screenshot({ path: test.info().outputPath(`add-machine-${theme}-${width}.png`) });
+      await page.screenshot({ path: test.info().outputPath(`add-machine-${mode}-${width}.png`) });
       await cancel.click();
       await expect(dialog).toHaveCount(0);
     });
@@ -171,33 +152,31 @@ test.describe("touch archive actions", () => {
   });
 });
 
-test("an unavailable saved theme shows Dark and keyboard users can Tab into the chooser", async ({
+test("an unknown saved theme falls back to Graphite and the swatches answer the keyboard", async ({
   page,
 }) => {
   await page.addInitScript(() => {
     if (!localStorage.getItem("ace.appearance"))
       localStorage.setItem("ace.appearance", JSON.stringify({ theme: "custom-missing" }));
   });
-  await page.goto("/settings/general");
-  await page.getByRole("link", { name: "Appearance", exact: true }).click();
+  await page.goto("/settings/appearance");
   const themes = page.getByRole("radiogroup", { name: "Theme", exact: true });
-  const dark = themes.getByRole("radio", { name: "Dark", exact: true });
-  await expect(dark).toBeChecked();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(dark).toBeFocused();
+  const graphite = themes.getByRole("radio", { name: "Graphite", exact: true });
+  await expect(graphite).toBeChecked();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "graphite");
+  await graphite.focus();
   await page.keyboard.press("ArrowLeft");
-  const light = themes.getByRole("radio", { name: "Light", exact: true });
-  await expect(light).toBeChecked();
-  await expect(light).toBeFocused();
+  // Arrows wrap: left of the first theme is the last.
+  const moss = themes.getByRole("radio", { name: "Moss", exact: true });
+  await expect(moss).toBeChecked();
+  await expect(moss).toBeFocused();
   await expect
     .poll(() =>
       page.evaluate(() => JSON.parse(localStorage.getItem("ace.appearance") ?? "{}").theme),
     )
-    .toBe("light");
+    .toBe("moss");
   await page.reload();
-  await expect(light).toBeChecked();
+  await expect(moss).toBeChecked();
 });
 
 test("a waiting thread keeps its visible Answer status during hover and keyboard focus", async ({

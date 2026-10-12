@@ -8,7 +8,14 @@ for (const theme of ["light", "dark"])
       await page.setViewportSize({ width, height: 700 });
       await page.addInitScript(
         ({ theme: appearance, fixture: scenario }) => {
-          localStorage.setItem("ace.appearance", JSON.stringify({ theme: appearance }));
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              appearance.includes("-")
+                ? { theme: appearance.split("-")[0], mode: appearance.split("-")[1] }
+                : { mode: appearance },
+            ),
+          );
           Object.assign(globalThis, {
             aceFakeSetup: (daemon: FakeDaemon) => {
               daemon.createThread(scenario.thread);

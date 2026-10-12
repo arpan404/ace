@@ -4,7 +4,14 @@ import type { Page } from "@playwright/test";
 /** Real-shaped facts, including old local names, remote machines, requests and mixed PR states. */
 export async function stageInformativeSidebar(page: Page, theme: string) {
   await page.addInitScript((preset) => {
-    localStorage.setItem("ace.appearance", JSON.stringify({ theme: preset }));
+    localStorage.setItem(
+      "ace.appearance",
+      JSON.stringify(
+        preset.includes("-")
+          ? { theme: preset.split("-")[0], mode: preset.split("-")[1] }
+          : { mode: preset },
+      ),
+    );
     Object.assign(globalThis, {
       aceFakeWorld: "empty",
       aceFakeSetup: (daemon: FakeDaemon) => {

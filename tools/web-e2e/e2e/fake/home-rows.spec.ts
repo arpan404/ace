@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { stageSidebarTasks } from "./sidebar-tasks.fixture.ts";
+import { screenThemes } from "../../src/appearance.ts";
 
 // Status and context stay visible beside the row's keyboard-accessible actions.
 test("a focused or hovered row keeps saying its status, and its tooltip what the marks mean", async ({
@@ -129,7 +130,7 @@ test("long task titles truncate and the tooltip shows the full title", async ({ 
   await expect(page.getByLabel(`Details for ${fullTitle}`)).toContainText(fullTitle);
 });
 
-for (const theme of ["midnight", "graphite", "paper", "slate", "contrast"])
+for (const theme of screenThemes.slice(2))
   test(`task context fits the ${theme} preset on a phone`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await stageSidebarTasks(page, theme);

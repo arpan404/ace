@@ -7,7 +7,15 @@ for (const theme of ["light", "dark"])
     }) => {
       await page.setViewportSize({ width, height: 800 });
       await page.addInitScript(
-        (chosen) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosen })),
+        (chosen) =>
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              chosen.includes("-")
+                ? { theme: chosen.split("-")[0], mode: chosen.split("-")[1] }
+                : { mode: chosen },
+            ),
+          ),
         theme,
       );
       const errors: string[] = [];

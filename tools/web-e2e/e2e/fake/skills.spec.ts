@@ -1,15 +1,22 @@
 import { mkdirSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { screenThemes } from "../../src/appearance.ts";
 
 const out = process.env.ACE_SHOTS_DIR;
 if (out) mkdirSync(out, { recursive: true });
 
-for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"])
+for (const theme of screenThemes)
   for (const width of [1440, 390])
     test(`skills stay readable and usable in ${theme} at ${width}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript(
-        (id) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: id })),
+        (id) =>
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              id.includes("-") ? { theme: id.split("-")[0], mode: id.split("-")[1] } : { mode: id },
+            ),
+          ),
         theme,
       );
       await page.goto("/skills/engineering~skill~code-review");

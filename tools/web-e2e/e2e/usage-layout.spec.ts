@@ -17,7 +17,14 @@ for (const theme of ["light", "dark"])
     }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript((selected) => {
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: selected }));
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            selected.includes("-")
+              ? { theme: selected.split("-")[0], mode: selected.split("-")[1] }
+              : { mode: selected },
+          ),
+        );
         Object.assign(globalThis, {
           aceFakeWorld: "idle",
           aceFakeSetup: new Function(

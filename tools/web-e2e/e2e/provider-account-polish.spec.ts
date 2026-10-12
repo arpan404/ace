@@ -1,10 +1,11 @@
 import { mkdirSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { expectBrandMark } from "../src/brand-mark-check.ts";
+import { screenThemes } from "../src/appearance.ts";
 
 const screenshots = "/tmp/ace-orch/shots/ui-providers-clean/followup";
 mkdirSync(screenshots, { recursive: true });
-const themes = ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"];
+const themes = screenThemes;
 
 const providers = [
   { name: "Claude Code", id: "claude", brand: "claude" },
@@ -21,7 +22,14 @@ for (const theme of ["light", "dark"])
     page,
   }) => {
     await page.addInitScript((chosen) => {
-      localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosen }));
+      localStorage.setItem(
+        "ace.appearance",
+        JSON.stringify(
+          chosen.includes("-")
+            ? { theme: chosen.split("-")[0], mode: chosen.split("-")[1] }
+            : { mode: chosen },
+        ),
+      );
       Object.assign(globalThis, { aceFakeWorld: "empty" });
     }, theme);
     await page.goto("/settings/providers");
@@ -74,7 +82,14 @@ for (const theme of themes)
     }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript((selectedTheme) => {
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: selectedTheme }));
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            selectedTheme.includes("-")
+              ? { theme: selectedTheme.split("-")[0], mode: selectedTheme.split("-")[1] }
+              : { mode: selectedTheme },
+          ),
+        );
         Object.assign(globalThis, {
           aceFakeWorld: "idle",
           aceFakeSetup: new Function(
@@ -205,7 +220,14 @@ for (const theme of ["light", "dark"])
     }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript((selectedTheme) => {
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: selectedTheme }));
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            selectedTheme.includes("-")
+              ? { theme: selectedTheme.split("-")[0], mode: selectedTheme.split("-")[1] }
+              : { mode: selectedTheme },
+          ),
+        );
         localStorage.setItem(
           "ace.home.newThread",
           JSON.stringify({ project: "ace", account: "claude-cli-default" }),

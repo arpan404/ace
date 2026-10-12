@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
+import { screenThemes } from "../../src/appearance.ts";
 
 const out = process.env.ACE_SHOTS_DIR ?? "/tmp/ace-orch/shots/ui/first-run-projects";
 mkdirSync(out, { recursive: true });
@@ -15,7 +16,14 @@ for (const theme of ["light", "dark"])
     test(`first run leads directly to a project in ${suffix}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript((preset) => {
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: preset }));
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            preset.includes("-")
+              ? { theme: preset.split("-")[0], mode: preset.split("-")[1] }
+              : { mode: preset },
+          ),
+        );
         Object.assign(globalThis, { aceFakeWorld: "empty" });
       }, theme);
       await page.goto("/");
@@ -50,7 +58,14 @@ for (const theme of ["light", "dark"])
     test(`environment and project actions stay usable in ${suffix}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript((preset) => {
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: preset }));
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            preset.includes("-")
+              ? { theme: preset.split("-")[0], mode: preset.split("-")[1] }
+              : { mode: preset },
+          ),
+        );
       }, theme);
       await page.goto("/new");
       await expect(page.getByRole("combobox", { name: "Message" })).toBeVisible();
@@ -90,11 +105,16 @@ for (const theme of ["light", "dark"])
       await expect(page.getByRole("heading", { name: "Archived threads" })).toBeVisible();
     });
   }
-for (const preset of ["midnight", "graphite", "paper", "slate", "contrast"])
+for (const preset of screenThemes.slice(2))
   test(`setup and environment work at 390px in ${preset}`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await page.addInitScript((id) => {
-      localStorage.setItem("ace.appearance", JSON.stringify({ theme: id }));
+      localStorage.setItem(
+        "ace.appearance",
+        JSON.stringify(
+          id.includes("-") ? { theme: id.split("-")[0], mode: id.split("-")[1] } : { mode: id },
+        ),
+      );
     }, preset);
     await page.goto("/setup");
     await page.getByRole("button", { name: "Get started" }).click();

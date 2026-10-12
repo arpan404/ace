@@ -2,11 +2,12 @@ import { chromium } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import { createCapture, expectReady } from "./component-polish-capture.ts";
 import { captureThreadExtras } from "./component-polish-extra-shots.ts";
+import { screenThemes } from "./appearance.ts";
 const out = "/tmp/ace-orch/shots/ui-polish-components";
 const errors: string[] = [];
 const browser = await chromium.launch();
 try {
-  for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"])
+  for (const theme of screenThemes)
     for (const width of [1440, 390]) {
       const context = await browser.newContext({
         viewport: { width, height: width === 390 ? 844 : 900 },
@@ -17,10 +18,9 @@ try {
           localStorage.setItem(
             "ace.appearance",
             JSON.stringify({
-              theme: appearance,
-              accent: "theme",
-              customAccent: "#7AA2F7",
-              glass: 1,
+              ...(appearance.includes("-")
+                ? { theme: appearance.split("-")[0], mode: appearance.split("-")[1] }
+                : { mode: appearance }),
               density: "comfortable",
               transcriptSize: "default",
             }),

@@ -4,7 +4,14 @@ import type { Page } from "@playwright/test";
 /** Synthetic short-title and no-branch cases; no personal transcript is copied. */
 export async function stageSidebarTasks(page: Page, theme = "dark") {
   await page.addInitScript((chosenTheme) => {
-    localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosenTheme }));
+    localStorage.setItem(
+      "ace.appearance",
+      JSON.stringify(
+        chosenTheme.includes("-")
+          ? { theme: chosenTheme.split("-")[0], mode: chosenTheme.split("-")[1] }
+          : { mode: chosenTheme },
+      ),
+    );
     Object.assign(globalThis, {
       aceFakeWorld: "empty",
       aceFakeSetup: (daemon: FakeDaemon) => {

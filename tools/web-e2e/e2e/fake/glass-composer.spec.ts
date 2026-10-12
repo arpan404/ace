@@ -7,7 +7,15 @@ for (const theme of ["light", "dark"])
     }) => {
       await page.setViewportSize({ width, height: 700 });
       await page.addInitScript(
-        (chosen) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosen })),
+        (chosen) =>
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              chosen.includes("-")
+                ? { theme: chosen.split("-")[0], mode: chosen.split("-")[1] }
+                : { mode: chosen },
+            ),
+          ),
         theme,
       );
       await page.goto("/t/thread-refund-tax");
@@ -91,13 +99,21 @@ for (const theme of ["light", "dark"])
 for (const theme of ["light", "dark"])
   test(`the composer and request panel share one glass tint in ${theme}`, async ({ page }) => {
     await page.addInitScript(
-      (chosen) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosen })),
+      (chosen) =>
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            chosen.includes("-")
+              ? { theme: chosen.split("-")[0], mode: chosen.split("-")[1] }
+              : { mode: chosen },
+          ),
+        ),
       theme,
     );
     await page.goto("/t/thread-refund-tax");
     await expect(page.getByRole("combobox", { name: "Message", exact: true })).toBeVisible();
     const dock = page.locator("[data-composer-dock]");
-    const surfaces = dock.locator(".glass");
+    const surfaces = dock.locator(".ace-floating");
     await expect(surfaces).toHaveCount(2);
     await expect(async () => {
       const materials = await surfaces.evaluateAll((elements) =>
@@ -144,7 +160,14 @@ for (const theme of ["light", "dark"])
     }) => {
       await page.setViewportSize({ width, height: 700 });
       await page.addInitScript((chosen) => {
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosen }));
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            chosen.includes("-")
+              ? { theme: chosen.split("-")[0], mode: chosen.split("-")[1] }
+              : { mode: chosen },
+          ),
+        );
       }, theme);
       await page.goto("/t/thread-refund-tax");
       const composer = page.locator('[data-slot="composer"]');

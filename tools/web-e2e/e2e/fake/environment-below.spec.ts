@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { screenThemes } from "../../src/appearance.ts";
 
 const shots = "/tmp/ace-orch/shots/ui-task-rows-env-below";
 
@@ -23,7 +24,14 @@ async function below(page: Page, strip: Locator) {
 }
 async function stage(page: Page, theme: string) {
   await page.addInitScript((chosen) => {
-    localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosen }));
+    localStorage.setItem(
+      "ace.appearance",
+      JSON.stringify(
+        chosen.includes("-")
+          ? { theme: chosen.split("-")[0], mode: chosen.split("-")[1] }
+          : { mode: chosen },
+      ),
+    );
   }, theme);
 }
 async function chooseEnvironment(page: Page, width: number) {
@@ -134,7 +142,7 @@ test("worktree creation keeps a draft available with progress below its box", as
   await expect(message).toHaveText("Also check the interrupted stream");
 });
 
-for (const theme of ["midnight", "graphite", "paper", "slate", "contrast"])
+for (const theme of screenThemes.slice(2))
   test(`the environment fits a phone in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await stage(page, theme);

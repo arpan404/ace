@@ -12,7 +12,15 @@ for (const theme of ["light", "dark"])
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.addInitScript(
-      (appearance) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: appearance })),
+      (appearance) =>
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            appearance.includes("-")
+              ? { theme: appearance.split("-")[0], mode: appearance.split("-")[1] }
+              : { mode: appearance },
+          ),
+        ),
       theme,
     );
     await installSplitAlignmentFixture(page);

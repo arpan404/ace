@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { stageInformativeSidebar } from "./informative-sidebar.fixture.ts";
+import { screenThemes } from "../../src/appearance.ts";
 
 const shots = "/tmp/ace-orch/shots/ui-task-row-polish";
 async function paintedProviders(scope: Locator | Page) {
@@ -25,7 +26,7 @@ async function themeInk(page: Page, token: string) {
     return colour;
   }, token);
 }
-for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"])
+for (const theme of screenThemes)
   for (const width of [1440, 390])
     test(`informative task rows in ${theme} at ${width}`, async ({ page }) => {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });

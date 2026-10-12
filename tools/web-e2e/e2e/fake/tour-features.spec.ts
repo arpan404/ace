@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
+import { screenThemes } from "../../src/appearance.ts";
 
 const out = process.env.ACE_SHOTS_DIR ?? "/tmp/ace-orch/shots/fix/tour-broken-features";
 mkdirSync(out, { recursive: true });
@@ -17,15 +18,20 @@ async function shot(page: Page, name: string, suffix: string) {
 }
 const cases = ["light", "dark"]
   .flatMap((theme) => [1440, 390].map((width) => ({ theme, width })))
-  .concat(
-    ["midnight", "graphite", "paper", "slate", "contrast"].map((theme) => ({ theme, width: 390 })),
-  );
+  .concat(screenThemes.slice(2).map((theme) => ({ theme, width: 390 })));
 for (const { theme, width } of cases) {
   const suffix = `${theme}-${width}`;
   test(`tour features remain usable in ${suffix}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript((preset) => {
-      localStorage.setItem("ace.appearance", JSON.stringify({ theme: preset }));
+      localStorage.setItem(
+        "ace.appearance",
+        JSON.stringify(
+          preset.includes("-")
+            ? { theme: preset.split("-")[0], mode: preset.split("-")[1] }
+            : { mode: preset },
+        ),
+      );
       Object.assign(globalThis, { aceFakeWorld: "computer-use" });
     }, theme);
     await page.goto("/t/thread-install-page");
@@ -115,7 +121,14 @@ for (const { theme, width } of cases) {
   test(`a fresh first thread finishes in ${suffix}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript((preset) => {
-      localStorage.setItem("ace.appearance", JSON.stringify({ theme: preset }));
+      localStorage.setItem(
+        "ace.appearance",
+        JSON.stringify(
+          preset.includes("-")
+            ? { theme: preset.split("-")[0], mode: preset.split("-")[1] }
+            : { mode: preset },
+        ),
+      );
       Object.assign(globalThis, { aceFakeWorld: "empty" });
     }, theme);
     await page.goto("/");

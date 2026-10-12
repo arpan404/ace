@@ -1,9 +1,10 @@
 import { chromium, expect as playwrightExpect } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
+import { screenThemes } from "./appearance.ts";
 
 const out = "/tmp/ace-orch/shots/fix-real-thread-state";
 const base = process.env.ACE_REAL_STATE_URL ?? "http://127.0.0.1:5240";
-const presets = ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"];
+const presets = screenThemes;
 const routes = [
   "legacy-notices",
   "legacy-handoff",
@@ -25,7 +26,15 @@ try {
         reducedMotion: "reduce",
       });
       await context.addInitScript(
-        (value) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: value })),
+        (value) =>
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              value.includes("-")
+                ? { theme: value.split("-")[0], mode: value.split("-")[1] }
+                : { mode: value },
+            ),
+          ),
         theme,
       );
       const page = await context.newPage();

@@ -1,6 +1,7 @@
 import { chromium, expect as playwrightExpect } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import type { FakeDaemon } from "@ace/fake-daemon";
+import { screenThemes } from "./appearance.ts";
 
 const expect = playwrightExpect.configure({ timeout: 60_000 });
 
@@ -9,14 +10,21 @@ const base = process.env.ACE_HYGIENE_URL ?? "http://127.0.0.1:5264";
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch();
 try {
-  for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"])
+  for (const theme of screenThemes)
     for (const width of [1440, 390]) {
       const context = await browser.newContext({
         viewport: { width, height: 1000 },
         reducedMotion: "reduce",
       });
       await context.addInitScript((preset) => {
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: preset }));
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            preset.includes("-")
+              ? { theme: preset.split("-")[0], mode: preset.split("-")[1] }
+              : { mode: preset },
+          ),
+        );
         Object.assign(globalThis, {
           aceFakeWorld: "empty",
           aceFakeSetup: (daemon: FakeDaemon) => {
