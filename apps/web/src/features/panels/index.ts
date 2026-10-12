@@ -24,4 +24,13 @@ export type { AuthTerminalProps } from "./terminal/auth-terminal.tsx";
 
 export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");
 
+/** Shared, bounded diff rendering for hosted and local changes. */
+export {
+  FileDiffBlock,
+  freshView,
+  type FileView,
+  type LineRange,
+  type LineTarget,
+} from "./changes/file-diff.tsx";
+export { FileTree } from "./changes/file-tree.tsx";
 export { bindTerminalEndDelivery } from "./terminal/end-delivery.ts";

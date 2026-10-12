@@ -18,6 +18,7 @@ export { CloseConfirm } from "./close-confirm.tsx";
 import { TabStrip } from "./tab-strip.tsx";
 
 export interface PanelLayout {
+  dock?: "side" | "bottom";
   /** Narrow window: the panel floats over the content, which dims; Escape or a click outside hides it. */
   overlay: boolean;
   /**
@@ -53,6 +54,7 @@ export function WorkspacePanel(props: {
 }) {
   const { workspace, actions, definition, layout } = props;
   const expanded = workspace.expanded;
+  const bottom = layout.dock === "bottom";
   const { setRightPanel } = useLayout();
   const floating = layout.overlay && !layout.sheet;
   // Over the content, it closes like any overlay: Escape or a tap outside it.
@@ -68,7 +70,7 @@ export function WorkspacePanel(props: {
   const size = clampToBounds(layout.size, layout.bounds);
   const shown = shownTab(workspace);
   // The panel's strip is the window's top row (a sheet starts below the top edge).
-  const topRow = !layout.sheet;
+  const topRow = !layout.sheet && (!bottom || expanded);
   const shownKind = shown && definition.kind(shown.kind);
   const label = definition.label;
   const content = (
@@ -76,11 +78,15 @@ export function WorkspacePanel(props: {
       ref={section}
       aria-label={label}
       data-panel
-      data-edge={layout.sheet ? "bottom" : "right"}
-      style={dismissable || expanded ? undefined : { width: size }}
+      data-edge={layout.sheet || bottom ? "bottom" : "right"}
+      style={dismissable || expanded ? undefined : bottom ? { height: size } : { width: size }}
       className={cn(
         "relative flex min-h-0 min-w-0 flex-col bg-panel",
-        dismissable || expanded ? "h-full flex-1" : "shrink-0 border-l",
+        dismissable || expanded
+          ? "h-full flex-1"
+          : bottom
+            ? "w-full shrink-0 border-t"
+            : "shrink-0 border-l",
       )}
     >
       {layout.sheet && (
@@ -96,12 +102,16 @@ export function WorkspacePanel(props: {
       {!dismissable && !expanded && (
         <ResizeHandle
           label={`Resize ${label.toLowerCase()}`}
-          edge="left"
+          edge={bottom ? "top" : "left"}
           size={size}
           min={layout.bounds.min}
           max={layout.bounds.max}
-          onResize={(next) => actions.setSize(next, false)}
-          onResizeEnd={(next) => actions.setSize(next, true)}
+          onResize={(next) =>
+            bottom ? actions.setBottomSize(next, false) : actions.setSize(next, false)
+          }
+          onResizeEnd={(next) =>
+            bottom ? actions.setBottomSize(next, true) : actions.setSize(next, true)
+          }
         />
       )}
       <div

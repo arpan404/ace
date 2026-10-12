@@ -67,9 +67,22 @@ export function PrReviewDiff(props: {
     </div>
   );
 }
-export function PrViewedFile(props: { path: string; headSha: string }) {
+export function usePrViewedFile(props: { path: string; headSha: string }) {
   const review = usePrReview();
   const file = review?.state?.viewed?.find((f) => f.path === props.path);
+  return {
+    file,
+    disabled: !review?.ready || review.pending || review.state?.headSha !== props.headSha,
+    change: () =>
+      review?.run({
+        kind: file?.state === "VIEWED" ? "file.unview" : "file.view",
+        path: props.path,
+        headSha: props.headSha,
+      }),
+  };
+}
+export function PrViewedFile(props: { path: string; headSha: string }) {
+  const { file, disabled, change } = usePrViewedFile(props);
   if (!file)
     return (
       <p className="px-3 text-xs text-muted-foreground">
@@ -77,19 +90,29 @@ export function PrViewedFile(props: { path: string; headSha: string }) {
       </p>
     );
   return (
-    <Button
-      disabled={!review?.ready || review.pending || review.state?.headSha !== props.headSha}
-      onClick={() =>
-        void review?.run({
-          kind: file.state === "VIEWED" ? "file.unview" : "file.view",
-          path: props.path,
-          headSha: props.headSha,
-        })
-      }
-    >
+    <Button disabled={disabled} onClick={() => void change()}>
       {file.state === "VIEWED"
         ? "Viewed on GitHub · Mark unviewed"
         : `${file.state === "DISMISSED" ? "Viewed mark outdated · " : ""}Mark viewed on GitHub`}
     </Button>
+  );
+}
+
+export function PrViewedCheckbox(props: { path: string; headSha: string; disabled: boolean }) {
+  const { file, disabled, change } = usePrViewedFile(props);
+  if (!file)
+    return <p className="px-2 text-xs text-muted-foreground">GitHub viewed state unavailable</p>;
+  return (
+    <label className="flex shrink-0 items-center gap-2 px-2 text-xs text-muted-foreground">
+      <input
+        type="checkbox"
+        className="size-4 rounded-sm focus-ring"
+        aria-label={`Viewed ${props.path}`}
+        checked={file.state === "VIEWED"}
+        disabled={props.disabled || disabled}
+        onChange={() => void change()}
+      />
+      {file.state === "DISMISSED" ? "Viewed mark outdated" : "Viewed"}
+    </label>
   );
 }
