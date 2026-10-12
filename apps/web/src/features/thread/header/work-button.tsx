@@ -1,12 +1,19 @@
 import { useThreadMeta } from "@ace/client-react";
 import { listTreeFacts, treeWorking } from "@ace/ui-core";
 import { BriefcaseIcon } from "@phosphor-icons/react";
-import { Suspense, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  Suspense,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Popover, PopoverContent } from "@/components/ui/popover.tsx";
 import { cn } from "@/lib/cn.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { useWorkCardState, useWorkCardStore } from "./work-card-store.ts";
+import { useWorkCardState, useWorkCardStore, type WorkCardStore } from "./work-card-store.ts";
 
 /** The card's groups load on first open, off the thread route's first paint. */
 export const DeferredWorkCard = deferredComponent(() =>
@@ -28,19 +35,21 @@ const composerGap = 12;
 export function WorkButton(props: { threadId: string }) {
   const store = useWorkCardStore();
   const { open, side } = useWorkCardState(store);
+  const popover = open && !side;
   const meta = useThreadMeta(props.threadId);
   const button = useRef<HTMLButtonElement>(null);
-  const [room, setRoom] = useState<number>();
+  const room = useRoomBelow(popover, button, store);
   const facts = meta && listTreeFacts(meta);
   const dot = facts?.needsYou ? "needs-you" : facts && treeWorking(facts) ? "working" : undefined;
-  const popover = open && !side;
   // Once opened, the card stays mounted while hidden: a form it opened outlives the popover.
   const [opened, setOpened] = useState(false);
   if (popover && !opened) setOpened(true);
-  // Measured as it opens, from the icon or the shortcut: the room down to the composer.
+  // The store keeps the icon, for the side card to hand focus back to.
   useLayoutEffect(() => {
-    if (popover) setRoom(roomBelow(button.current));
-  }, [popover]);
+    if (!store) return;
+    store.attachButton(button.current);
+    return () => store.attachButton(null);
+  }, [store]);
   return (
     <Popover
       open={popover}
@@ -54,7 +63,6 @@ export function WorkButton(props: { threadId: string }) {
       <span className="relative inline-flex">
         <IconButton
           ref={button}
-          data-work-button
           icon={BriefcaseIcon}
           label={
             dot === "needs-you"
@@ -80,6 +88,8 @@ export function WorkButton(props: { threadId: string }) {
       {opened && (
         <PopoverContent
           anchor={button}
+          // Opened from the shortcut too, the card hands focus back to its icon on close.
+          finalFocus={button}
           align="end"
           keepMounted
           aria-label="Work"
@@ -101,10 +111,34 @@ export function WorkButton(props: { threadId: string }) {
   );
 }
 
-/** Height between the icon and the composer, so the popover never covers what is typed. */
-function roomBelow(button: HTMLElement | null): number | undefined {
-  const composer = document.querySelector("[data-composer-area]");
-  if (!button || !composer) return undefined;
-  const top = button.getBoundingClientRect().bottom + 6;
-  return Math.max(160, composer.getBoundingClientRect().top - composerGap - top);
+/**
+ * The height between the icon and the thread area's composer while the popover is open, kept
+ * current as the composer grows (a staged attachment, a request strip): the popover never
+ * covers what is typed, and scrolls inside when the room is short.
+ */
+function useRoomBelow(
+  open: boolean,
+  button: RefObject<HTMLElement | null>,
+  store: WorkCardStore | null,
+): number | undefined {
+  const [room, setRoom] = useState<number>();
+  useLayoutEffect(() => {
+    const composer = store?.area()?.querySelector("[data-composer-area]");
+    const icon = button.current;
+    if (!open || !composer || !icon) return;
+    const measure = () => {
+      const top = icon.getBoundingClientRect().bottom + 6;
+      setRoom(Math.max(0, Math.floor(composer.getBoundingClientRect().top - composerGap - top)));
+    };
+    measure();
+    addEventListener("resize", measure);
+    const observer =
+      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer?.observe(composer);
+    return () => {
+      removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
+  }, [open, button, store]);
+  return open ? room : undefined;
 }

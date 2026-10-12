@@ -12,6 +12,12 @@ export interface WorkCardState {
 }
 
 export interface WorkCardStore {
+  /** The header's Work icon: the popover's anchor, and where focus returns on close. */
+  button(): HTMLButtonElement | null;
+  attachButton(button: HTMLButtonElement | null): void;
+  /** The thread area the card measures and floats in; it holds the composer too. */
+  area(): HTMLElement | null;
+  attachArea(area: HTMLElement | null): void;
   get(): WorkCardState;
   subscribe(listener: () => void): () => void;
   setOpen(open: boolean): void;
@@ -35,12 +41,22 @@ export function workCardFitsSide(areaWidth: number, column: number): boolean {
 export function createWorkCardStore(): WorkCardStore {
   let state: WorkCardState = { open: false, side: false };
   const listeners = new Set<() => void>();
+  let button: HTMLButtonElement | null = null;
+  let area: HTMLElement | null = null;
   const set = (next: WorkCardState) => {
     if (next.open === state.open && next.side === state.side) return;
     state = next;
     for (const listener of listeners) listener();
   };
   return {
+    button: () => button,
+    attachButton: (next) => {
+      button = next;
+    },
+    area: () => area,
+    attachArea: (next) => {
+      area = next;
+    },
     get: () => state,
     subscribe(listener) {
       listeners.add(listener);

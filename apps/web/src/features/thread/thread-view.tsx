@@ -246,6 +246,8 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                 className="relative grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
                 {...drop.handlers}
               >
+                {/* First in the area: Tab reaches an open Work card straight after the header. */}
+                <WorkSide threadId={id} />
                 {drop.overlay}
                 {nav.turnsOpen && (
                   <Suspense fallback={null}>
@@ -255,7 +257,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                 <div className="col-start-1 row-start-1 min-h-0 min-w-0">
                   <Transcript threadId={id} />
                 </div>
-                <WorkSide threadId={id} />
                 <TargetJump target={props.target} pending={requests ?? []} />
                 <Suspense fallback={null}>
                   <ThreadBrowser threadId={id} />
