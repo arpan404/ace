@@ -114,15 +114,20 @@ test("a nonvirtual legacy disclosure controls its actual labeled model region", 
   expect(within(legacy).getByRole("option", { name: /^Opus 5, / })).toBeTruthy();
 });
 
-test("Tab reaches the provider rail, the account switch filters the list, then search crosses it", async () => {
+test("the keyboard reaches the provider rail and the account switch, then returns to search", async () => {
   const { popover, list } = await openCatalog();
   const search = within(popover).getByRole("combobox", { name: "Search models" });
   await userEvent.tab({ shift: true });
   expect(document.activeElement).toBe(
     within(popover).getByRole("tab", { name: "Claude Code", selected: true }),
   );
+  // Tab from the rail goes back to search; Tab from there (past Refresh) reaches the switch.
+  await userEvent.tab();
+  expect(document.activeElement).toBe(search);
   const accounts = within(popover).getByRole("tablist", { name: "Accounts" });
-  within(accounts).getByRole("tab", { name: "Claude Code · Personal" }).focus();
+  for (let step = 0; step < 3 && !accounts.contains(document.activeElement); step++)
+    await userEvent.tab();
+  expect(document.activeElement).toBe(within(accounts).getByRole("tab", { selected: true }));
   await userEvent.keyboard("{ArrowRight}");
   expect(document.activeElement).toBe(
     within(accounts).getByRole("tab", { name: "Claude Code · Work", selected: true }),
@@ -131,7 +136,9 @@ test("Tab reaches the provider rail, the account switch filters the list, then s
     within(list).getByRole("option", { name: /^Sonnet 5\.5, Claude Code · Work/ }),
   ).toBeTruthy();
   expect(within(list).queryByRole("option", { name: /Shortcut model/ })).toBeNull();
-  await userEvent.click(search);
+  for (let step = 0; step < 3 && document.activeElement !== search; step++)
+    await userEvent.tab({ shift: true });
+  expect(document.activeElement).toBe(search);
   // Searching still crosses the selected account/provider boundary.
   await userEvent.type(search, "Shortcut model 009");
   await userEvent.keyboard("{Enter}");
