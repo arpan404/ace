@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "ace",
+    "slug": "ace-android",
+    "version": "0.1.0",
+    "platforms": ["android"],
+    "scheme": "ace",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "dev.ace.android",
+      "predictiveBackGestureEnabled": true
+    },
+    "plugins": ["expo-sqlite", "expo-font", "expo-secure-store", "./plugins/with-ace-host.ts"]
+  }
+}

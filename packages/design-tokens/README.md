@@ -40,3 +40,6 @@ The contrast tests cover every permitted text/surface pair, the accent action, a
 decorative glyphs. Native generators must validate raw JSON with `DesignTokensSchema`
 before emitting Swift or Kotlin. The raw JSON validity test also protects generators
 that read the file directly. There are no generators in this data-only package.
+
+The native light accent is `#3065CC`, slightly darker than web's `#3269D4`, so
+normal accent text also meets 4.5:1 on the mobile deletion surface `#FDECEC`.

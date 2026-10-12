@@ -1,0 +1,5 @@
+.expo/
+/android/
+*.log
+**/build/
+**/.gradle/
