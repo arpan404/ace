@@ -174,7 +174,9 @@ Glass parts:
 Keep glass cheap:
 
 - No per-frame script: the sheen is static and doesn't follow the pointer, and filters are built
-  once per layer geometry.
+  once per layer geometry, after the layer's size has held still for 160ms.
+- A layer that resizes as you work (the composer) takes `.ace-glass-flat`: blur glass with no
+  displacement filter.
 - No filter on large scrolling areas. Sheets and side panels stay solid.
 
 ## Motion
@@ -230,8 +232,13 @@ Dialogs, sheets and the command palette (`components/ui/dialog.tsx`, `sheet.tsx`
 - Pages sit in a column that grows with the window (`--settings-column`, 640–900px).
 - Each group is a `SettingSection`: a title, then its rows on a subtle card (`--card`, a hairline
   border, hairlines between rows). Rows that head a page without a title use `SettingCard`.
-- Every row is one height (`--setting-row-height`, 52px; 44px compact), and every child of a card
-  shares one inset, notes and buttons included.
+- Every row is one height (`--setting-row-height`, 52px; 44px compact).
+- Inside a card, use the slots, which inset themselves to the card's one left edge:
+  `SettingRow` (a setting), `SettingNote` (prose: status lines, what a group does),
+  `SettingFooter` (actions, one row tall, at the row's end), `SettingList` (a list of rows) and
+  `SettingDisclosure` (a caret row in place of the browser's triangle). Anything else gets a
+  margin inset as a fallback; wrap rows in a fragment, never a plain `<div>`, or they inset twice.
+- Explanations of a whole group go in the section's `note`, above the card.
 - Text fields use `--field`, never a control-border colour.
 
 ## First paint
