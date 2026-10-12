@@ -877,6 +877,7 @@
         "@ace/provider-kit": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "@playwright/test": "1.63.0",
+        "zod": "^4.6.5",
       },
     },
     "tools/web-perf": {

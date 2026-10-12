@@ -20,7 +20,7 @@ export const htmlToolCatalog = [
   {
     name: "ace_html_preview",
     description:
-      "Validate a self-contained HTML visualization without publishing or executing it. Returns UTF-8 size and unsupported-feature diagnostics. Fix diagnostics before ace_html_render.",
+      "Validate a self-contained HTML visualization without publishing or executing it. Returns UTF-8 size and unsupported-feature diagnostics. Fix errors before ace_html_render; authored scripts and event handlers render as static content.",
     input: HtmlPreviewInput,
     output: HtmlDiagnostics,
     capability: null,
@@ -31,7 +31,7 @@ export const htmlToolCatalog = [
   {
     name: "ace_html_render",
     description:
-      "Publish a durable HTML visualization in the calling thread above your next reply. Preview first. Inline CSS/scripts/data images only; no external requests. Optional height is 80–2000 CSS pixels. Maximum HTML size is 256 KiB UTF-8.",
+      "Publish a durable HTML visualization in the calling thread above your next reply. Preview first. Use static HTML, inline CSS, SVG and embedded data images; authored scripts and event handlers do not execute. No external requests. Optional height is 80–2000 CSS pixels. Maximum HTML size is 256 KiB UTF-8.",
     input: HtmlRenderInput,
     output: z.object({ itemId: ItemId }),
     capability: null,

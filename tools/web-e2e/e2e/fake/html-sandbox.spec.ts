@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 import { visualizationUrl, visualizationWindow } from "@ace/html";
 
 /** These browser behavior guards are deliberately left for merge-time execution. */
-test("interactive HTML cannot read its parent, navigate out, open a popup or send network requests", async ({
+test("static HTML does not execute authored scripts that access parents, navigate, open popups or send requests", async ({
   page,
 }) => {
   const requests: string[] = [];
@@ -54,7 +54,8 @@ test("interactive HTML cannot read its parent, navigate out, open a popup or sen
       document.body.append(frame);
     }, url);
     const child = page.frameLocator('iframe[title="Published chart"]').frameLocator("iframe");
-    await expect(child.locator("#result")).toHaveText("isolated and interactive");
+    await expect(child.locator("#result")).toHaveText("pending");
+    expect(await page.evaluate(() => localStorage.getItem("daemon-token"))).toBe("private");
     await expect(page).toHaveURL(`${origin}/`);
     expect(requests).toEqual([]);
     expect(page.context().pages()).toHaveLength(1);
@@ -65,9 +66,7 @@ test("interactive HTML cannot read its parent, navigate out, open a popup or sen
   }
 });
 
-test("opening an exported visualization preserves its sandbox and inline interactions", async ({
-  page,
-}) => {
+test("opening an exported visualization keeps authored event handlers inert", async ({ page }) => {
   await page.setContent(
     visualizationWindow(
       '<!doctype html><html><body><button onclick="this.textContent=42">Count</button></body></html>',
@@ -79,5 +78,5 @@ test("opening an exported visualization preserves its sandbox and inline interac
     .frameLocator("iframe")
     .getByRole("button", { name: "Count" });
   await button.click();
-  await expect(button).toHaveText("42");
+  await expect(button).toHaveText("Count");
 });

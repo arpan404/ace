@@ -98,9 +98,7 @@ export function HtmlVisualizationView(props: {
       : undefined;
   const html = current?.html;
   const available =
-    typeof HTMLIFrameElement !== "undefined" &&
-    "sandbox" in HTMLIFrameElement.prototype &&
-    "trustedTypes" in window;
+    typeof HTMLIFrameElement !== "undefined" && "sandbox" in HTMLIFrameElement.prototype;
   const save = () => {
     if (!html) return;
     // Export a sandbox wrapper too; opening the download keeps the same restrictions.
@@ -129,6 +127,7 @@ export function HtmlVisualizationView(props: {
     >
       <div className="mb-2 flex items-center gap-2 text-ui text-muted-foreground">
         <span className="min-w-0 flex-1 truncate">{visualization.title}</span>
+        <span className="shrink-0 text-xs">Static view</span>
         <div className="flex items-center gap-1 opacity-60 transition-opacity group-hover/visualization:opacity-100 group-focus-within/visualization:opacity-100">
           <IconButton
             size="sm"

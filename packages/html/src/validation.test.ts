@@ -1,12 +1,19 @@
 import { expect, test } from "vitest";
 import { validateHtml } from "./index.ts";
 
-test("self-contained interactive documents pass while network and navigation markup receives diagnostics", () => {
-  expect(
-    validateHtml(
-      '<!doctype html><html><body><button onclick="this.textContent=42">Count</button></body></html>',
-    ).valid,
-  ).toBe(true);
+test("preview warns that scripted content is static and rejects network and navigation markup", () => {
+  const scripted = validateHtml(
+    '<!doctype html><html><body><button onclick="this.textContent=42">Count</button></body></html>',
+  );
+  expect(scripted.valid).toBe(true);
+  expect(scripted.diagnostics).toEqual([
+    {
+      code: "static-view",
+      message:
+        "Authored scripts and event handlers will not execute. Use HTML and SVG for visible content.",
+    },
+  ]);
+  expect(validateHtml("<html><body><h1>Static diagram</h1></body></html>").diagnostics).toEqual([]);
   for (const markup of [
     '<script src="https://example.invalid/lib.js"></script>',
     '<iframe srcdoc="hello"></iframe>',

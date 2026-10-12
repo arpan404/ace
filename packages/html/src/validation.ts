@@ -29,6 +29,7 @@ export function validateHtml(html: string): HtmlDiagnostics {
     { node: document, depth: 0 },
   ];
   let visited = 0;
+  let authoredScripts = false;
   while (pending.length) {
     const entry = pending.pop();
     if (!entry) break;
@@ -40,6 +41,8 @@ export function validateHtml(html: string): HtmlDiagnostics {
     if ("childNodes" in node)
       for (const child of node.childNodes) pending.push({ node: child, depth: depth + 1 });
     if (!("tagName" in node)) continue;
+    if (node.tagName === "script" || node.attrs.some((attr) => attr.name.startsWith("on")))
+      authoredScripts = true;
     if ("content" in node) pending.push({ node: node.content, depth: depth + 1 });
     if (forbidden.has(node.tagName))
       report(
@@ -85,5 +88,11 @@ export function validateHtml(html: string): HtmlDiagnostics {
     )
       report("css-resource", "Use inline CSS without imports or URL resources.");
   }
-  return { valid: diagnostics.length === 0, bytes, maxBytes: maxHtmlBytes, diagnostics };
+  const valid = diagnostics.length === 0;
+  if (authoredScripts && diagnostics.length < 32)
+    report(
+      "static-view",
+      "Authored scripts and event handlers will not execute. Use HTML and SVG for visible content.",
+    );
+  return { valid, bytes, maxBytes: maxHtmlBytes, diagnostics };
 }
