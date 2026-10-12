@@ -42,6 +42,8 @@ const prose = (id: string) =>
     createdAt: ++created,
     complete: true,
   });
+const thought = (id: string, text: string, complete = true) =>
+  Item.parse({ id, agentId: "root", type: "reasoning", text, complete, createdAt: ++created });
 const facts = (items: Item[]) => {
   const retried = retriedStepIds(items);
   return items.flatMap((item) => stepFact(item, retried) ?? []);
@@ -157,8 +159,6 @@ it("a step settling regroups from its group on and keeps its summary current", (
 });
 
 it("a thought reads on its own row; a finished thought with no words is no step", () => {
-  const thought = (id: string, text: string, complete = true) =>
-    Item.parse({ id, agentId: "root", type: "reasoning", text, complete, createdAt: ++created });
   const { groups } = groupSteps(
     facts([
       shell("a", "bun install"),
