@@ -28,6 +28,8 @@ export interface GitOptions {
 }
 
 export type GitErrorCode =
+  | "sensitive_publication"
+  | "publication_scan_incomplete"
   | "git_missing"
   | "git_too_old"
   | "git_failed"

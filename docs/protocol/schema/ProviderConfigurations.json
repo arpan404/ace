@@ -11,7 +11,7 @@
       "x-ace-constraint": "Each provider and optional instance pair must be unique."
     },
     {
-      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema1"
+      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema2"
     }
   ],
   "examples": [

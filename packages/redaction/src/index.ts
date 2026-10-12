@@ -1,4 +1,5 @@
 import { redactOriginalText, sensitiveSpans } from "./literal-spans.ts";
+export { sensitiveSpans };
 import { redactRecordEnvironment } from "./record-environment.ts";
 import { createEnvironmentMatcher, type EnvironmentMatcher } from "./environment.ts";
 import { redactEmbeddedText } from "./embedded-text.ts";

@@ -42,13 +42,16 @@ export class SourceControl {
     this.listeners.clear();
   }
   readonly root: string;
+  readonly now: () => number;
   readonly runner: (cwd: string) => CommandRunner;
   constructor(
     settings: SettingsService,
     runner = (cwd: string) => createCommandRunner({ cwd }),
     root = ".",
+    now: () => number = Date.now,
   ) {
     this.settings = settings;
+    this.now = now;
     this.root = root;
     this.runner = runner;
     this.stop = settings.onChange((layer, keys) => {

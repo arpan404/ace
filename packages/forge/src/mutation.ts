@@ -34,6 +34,14 @@ export class ForgeMutationOutcome extends ForgeError {
 export class MutationDispatch {
   #dispatched = false;
   #rejected = false;
+  readonly #beforeDispatch: (() => void) | undefined;
+  constructor(beforeDispatch?: () => void) {
+    this.#beforeDispatch = beforeDispatch;
+  }
+  /** Journal possible dispatch before spawning, closing the crash gap between fork and receipt. */
+  prepare(): void {
+    this.#beforeDispatch?.();
+  }
   get dispatched(): boolean {
     return this.#dispatched;
   }

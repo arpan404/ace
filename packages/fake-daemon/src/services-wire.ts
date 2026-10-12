@@ -244,6 +244,103 @@ export class FakeServicesWire {
             if (picker === controller) picker = undefined;
             return;
           }
+          if (message.type === "repositories.request") {
+            const operation = message.operation;
+            const permitted = this.host.canManageProjects?.(device) ?? true;
+            let cancellationError: string | undefined;
+            if (permitted && operation.op === "publication.cancel") {
+              try {
+                this.workspace.projects.cancelPublication(operation.workspaceId, device);
+              } catch (error) {
+                cancellationError = error instanceof Error ? error.message : "publication_failed";
+              }
+            }
+            const input = operation.op === "list" ? operation.input : null;
+            const all = input
+              ? [
+                  {
+                    id: 1,
+                    repository: { forge: "github", host: input.host, owner: "ada", name: "engine" },
+                    description: "A private coding project",
+                    visibility: "private",
+                    archived: false,
+                    fork: false,
+                    url: `https://${input.host}/ada/engine`,
+                    cloneUrl: `https://${input.host}/ada/engine.git`,
+                  },
+                  {
+                    id: 2,
+                    repository: {
+                      forge: "github",
+                      host: input.host,
+                      owner: "ace-org",
+                      name: "docs",
+                    },
+                    description: "Public organization documentation",
+                    visibility: "public",
+                    archived: false,
+                    fork: false,
+                    url: `https://${input.host}/ace-org/docs`,
+                    cloneUrl: `https://${input.host}/ace-org/docs.git`,
+                  },
+                  {
+                    id: 3,
+                    repository: {
+                      forge: "github",
+                      host: input.host,
+                      owner: "ada",
+                      name: "old-fork",
+                    },
+                    description: "Archived fork",
+                    visibility: "public",
+                    archived: true,
+                    fork: true,
+                    url: `https://${input.host}/ada/old-fork`,
+                    cloneUrl: `https://${input.host}/ada/old-fork.git`,
+                  },
+                ].filter(
+                  (row) =>
+                    (!input.owner || row.repository.owner === input.owner) &&
+                    (input.visibility === "all" || row.visibility === input.visibility) &&
+                    (input.archived === "all" || row.archived === (input.archived === "yes")) &&
+                    (input.fork === "all" || row.fork === (input.fork === "yes")) &&
+                    `${row.repository.owner}/${row.repository.name} ${row.description}`
+                      .toLowerCase()
+                      .includes(input.query.toLowerCase()),
+                )
+              : [];
+            emit(
+              ServerMessage.parse({
+                type: "repositories.result",
+                requestId: message.requestId,
+                result: cancellationError
+                  ? { kind: "error", code: cancellationError }
+                  : !permitted || (input && input.account !== "ada")
+                    ? { kind: "error", code: "forbidden" }
+                    : input
+                      ? {
+                          kind: "repositories",
+                          repositories: all,
+                          account: input.account,
+                          host: input.host,
+                        }
+                      : {
+                          kind: "publication",
+                          ...(operation.op !== "list"
+                            ? this.workspace.projects.publicationActivity(
+                                operation.workspaceId,
+                                device,
+                              )
+                            : { running: false, canStop: false }),
+                          publication:
+                            operation.op !== "list"
+                              ? this.workspace.projects.publication(operation.workspaceId)
+                              : null,
+                        },
+              }),
+            );
+            return;
+          }
           if (message.type === "source-control.request") {
             const preferences = SourceControlPreferences.parse(
               this.settings.get("sourceControl.preferences"),

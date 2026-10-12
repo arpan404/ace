@@ -16,7 +16,9 @@
   "dependencies": {
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "@ace/redaction": "workspace:*",
     "koffi": "3.3.2",
+    "yaml": "^2.8.1",
     "zod": "^4.6.5"
   }
 }

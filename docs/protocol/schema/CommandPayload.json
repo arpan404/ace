@@ -823,6 +823,26 @@
     },
     {
       "properties": {
+        "input": {
+          "$ref": "https://ace.local/protocol/v1/RepositoryPublishInput.json"
+        },
+        "type": {
+          "const": "workspace.publish",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "icon": {
           "anyOf": [
             {

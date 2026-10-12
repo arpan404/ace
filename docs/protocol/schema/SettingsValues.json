@@ -43,10 +43,10 @@
       "type": "string"
     },
     "clients.keybindings": {
-      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema7"
+      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema8"
     },
     "clients.theme": {
-      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema6"
+      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema7"
     },
     "host.displayName": {
       "maxLength": 256,
@@ -58,7 +58,7 @@
           "$ref": "https://ace.local/protocol/v1/MachineIcon.json"
         },
         {
-          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema5"
+          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema6"
         }
       ]
     },
@@ -216,7 +216,7 @@
           "$ref": "https://ace.local/protocol/v1/SourceControlPreferences.json"
         },
         {
-          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema4"
+          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema5"
         }
       ]
     },

@@ -9,7 +9,7 @@ export type CommandRequest = {
   signal: AbortSignal;
   mode: "json" | "tail";
   /** Passed only to the actual write, never to identity probes. */
-  dispatch?: { record(): void };
+  dispatch?: { prepare?(): void; record(): void };
 };
 export type CommandResult = {
   code: number | null;
@@ -48,6 +48,7 @@ export function createCommandRunner(options: {
     };
     delete env.GH_DEBUG;
     delete env.DEBUG;
+    request.dispatch?.prepare?.();
     const child = spawn(request.command, [...request.args], {
       cwd: options.cwd,
       env,
