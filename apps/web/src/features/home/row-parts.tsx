@@ -1,20 +1,11 @@
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
-import { providerDisplayName, type ThreadCard } from "@ace/ui-core";
+import { type ThreadCard } from "@ace/ui-core";
 import { formatSpan } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { StatusLabel } from "@/components/status-label.tsx";
-import {
-  CheckCircleIcon,
-  ChatCircleDotsIcon,
-  HandPalmIcon,
-  HourglassIcon,
-  PauseCircleIcon,
-  WarningDiamondIcon,
-  WifiSlashIcon,
-  MinusIcon,
-} from "@phosphor-icons/react";
-import { LiveWorkMark } from "@/components/live-work-mark.tsx";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
@@ -49,25 +40,6 @@ export function threadDetails(card: ThreadCard): string[] {
 
 export { ProjectMark } from "@/components/project-mark.tsx";
 
-/** Each status pairs a distinct shape with a visible word in the status tone. */
-export function StatusMark(props: { card: ThreadCard }) {
-  const { status } = props.card;
-  const icon = { "aria-hidden": true, size: 14, className: "shrink-0" } as const;
-  if (status.mark === "unresponsive") return <WifiSlashIcon {...icon} />;
-  if (status.mark === "limited") return <PauseCircleIcon {...icon} />;
-  if (status.tone === "failed") return <WarningDiamondIcon {...icon} />;
-  if (status.tone === "needs-you")
-    return status.compact === "Answer" ? (
-      <ChatCircleDotsIcon {...icon} />
-    ) : (
-      <HandPalmIcon {...icon} />
-    );
-  if (status.compact === "Waiting" || status.tone === "waiting") return <HourglassIcon {...icon} />;
-  if (status.tone === "working") return <LiveWorkMark className="text-(--tone-text)" />;
-  if (status.tone === "done") return <CheckCircleIcon {...icon} />;
-  return <MinusIcon {...icon} />;
-}
-
 /** State is also spoken, so the PR's colour is never the only clue. */
 export function PullRequest(props: { card: ThreadCard }) {
   const { pr, prState } = props.card;
@@ -97,12 +69,14 @@ export function PullRequest(props: { card: ThreadCard }) {
 
 /** The first line keeps its status word visible during hover, focus and renaming. */
 export function RowStatus(props: { card: ThreadCard }) {
+  const { card } = props;
+  if (card.status.tone === "done" || card.status.tone === "idle") return <RowTime card={card} />;
   return (
     <StatusLabel
-      tone={props.card.status.tone}
-      label={props.card.status.compact}
-      mark={<StatusMark card={props.card} />}
-      className="min-w-0 gap-1 text-xs"
+      tone={card.status.tone}
+      label={card.status.compact}
+      mark={false}
+      className="gap-0 text-xs font-normal"
     />
   );
 }
@@ -122,31 +96,37 @@ export function RowTime(props: { card: ThreadCard }) {
   );
 }
 
-/** Activity, git context, running children and time use list facts without fetching history. */
+/** Branch and environment share the last line; the provider keeps the trailing slot. */
 export function RowContext(props: { card: ThreadCard }) {
   const { card } = props;
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
-      <span className="min-w-0 flex-1 truncate" title={card.status.label}>
-        {card.status.label === card.status.compact
-          ? `${card.status.label} · ${providerDisplayName(card.provider, card.acpAgentId)}`
-          : card.status.label}
-      </span>
       {card.branch && (
-        <span className="min-w-0 max-w-[35%] truncate" title={card.branch.name}>
-          {card.branch.label}
+        <span className="min-w-0 flex-1 truncate font-mono" title={card.branch.name}>
+          {card.branch.name}
         </span>
       )}
-      <PullRequest card={card} />
-      {card.subagents > 0 && (
-        <span
-          className="shrink-0"
-          aria-label={`${card.subagents} ${card.subagents === 1 ? "subagent" : "subagents"} running`}
-        >
-          ⑂ {card.subagents}
+      {card.pr !== undefined && (
+        <span className="shrink-0">
+          <PullRequest card={card} />
         </span>
       )}
-      <RowTime card={card} />
+      {card.branch && <span aria-hidden>·</span>}
+      <span
+        className="flex min-w-0 max-w-[45%] items-center gap-1 truncate"
+        title={card.machine ?? "This machine"}
+      >
+        <MachineMark icon={card.machineIcon} />
+        <span className="truncate">{card.machine ?? "This machine"}</span>
+      </span>
+      <span
+        role="img"
+        aria-label={card.providerLabel}
+        className="ml-auto flex shrink-0 items-center gap-1 group-focus-within/row:opacity-0 group-hover/row:opacity-0"
+      >
+        {card.subagents > 0 && <span className="tabular-nums">{card.subagents}</span>}
+        <ProviderIcon provider={card.provider} acpAgentId={card.acpAgentId} size={14} decorative />
+      </span>
     </div>
   );
 }
@@ -157,9 +137,6 @@ export function quietCard(card: ThreadCard): boolean {
 }
 
 /** Selection stays readable; ordinary read work uses the quiet ink. */
-export function titleTone(card: ThreadCard, selected: boolean): string {
-  if (selected) return card.flags.unread ? "font-medium text-foreground" : "text-foreground";
-  if (card.flags.unread) return "font-medium text-foreground";
-  if (card.emphasis) return "text-foreground";
-  return quietCard(card) ? "text-subtle-foreground" : "text-sidebar-foreground";
+export function titleTone(card: ThreadCard): string {
+  return card.flags.unread || card.emphasis ? "font-medium text-foreground" : "text-foreground";
 }

@@ -36,11 +36,11 @@ import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 const estimates: Record<HomeRow["kind"], number> = {
   "pinned-header": 33,
-  pinned: 76,
+  pinned: 84,
   "pinned-end": 9,
-  thread: 76,
+  thread: 84,
   "settled-header": 37,
-  settled: 32,
+  settled: 84,
 };
 
 /** Keys that move focus between rows: arrows, and j/k as in other lists. */
@@ -305,7 +305,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
           maskImage:
             "linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent)",
         }}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-4"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4"
       >
         <div
           ref={listRef}

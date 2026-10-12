@@ -18,7 +18,7 @@ export function RowActions(props: {
   const onKeyDown = useRowMenuShortcuts({ ...props, onClose: () => setOpen(false) });
   return (
     <div
-      className="absolute top-1 right-1 hidden group-focus-within/row:block group-hover/row:block has-[[data-popup-open]]:block"
+      className="absolute bottom-2 right-2 hidden group-focus-within/row:block group-hover/row:block has-[[data-popup-open]]:block"
       onPointerEnter={props.onHover}
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}

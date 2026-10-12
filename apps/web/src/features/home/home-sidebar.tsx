@@ -58,10 +58,15 @@ export function HomeSidebar() {
       </div>
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
-          <Suspense fallback={null}>
-            <DeferredDraftRows.Component />
-            <DeferredStartedRows.Component />
-          </Suspense>
+          <div className="hidden max-h-[35%] shrink-0 overflow-y-auto has-[ul]:block">
+            <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+              Unsent <span aria-hidden className="h-px flex-1 bg-sidebar-border" />
+            </div>
+            <Suspense fallback={null}>
+              <DeferredDraftRows.Component />
+              <DeferredStartedRows.Component />
+            </Suspense>
+          </div>
         )}
         {!loaded ? (
           <ListSkeleton label="threads" shape="thread" className="px-2" />

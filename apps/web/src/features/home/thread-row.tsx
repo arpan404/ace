@@ -16,20 +16,18 @@ import {
   ProjectMark,
   RowStatus,
   RowContext,
-  RowTime,
   threadDetails,
   titleTone,
   quietCard,
 } from "./row-parts.tsx";
-import { Dot } from "@/components/ui/dot.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
 const row =
-  "flex w-full items-center rounded-md px-2 text-left text-ui outline-none transition-colors duration-(--dur-1)";
+  "flex w-full items-center border-b border-sidebar-border px-3 text-left text-ui outline-none transition-colors duration-(--dur-1)";
 
-/** Tasks show project and status, title, then context; settled work stays compact. */
+/** Every task shows project and status/time, title, then branch, environment and provider. */
 export function ThreadRow(props: {
   threadId: string;
   settled: boolean;
@@ -62,19 +60,10 @@ export function ThreadRow(props: {
     (entry.switch?.state === "queued" ? entry.switch.selection.instanceId : undefined) ??
     entry.live?.account ??
     entry.execution?.instanceId;
-  // Attention remains visible even while an optimistic settlement is being reconciled.
-  const compact = settled && (card.status.tone === "done" || card.status.tone === "idle");
-  const height = compact ? "h-8 pointer-coarse:h-11" : "h-19 py-2.5";
+  const height = "h-21 py-3";
   const title = (
     <div className="flex min-w-0 items-center gap-1.5">
-      {card.flags.unread && <Dot tone="working" label="Unread activity" />}
-      <div
-        className={cn(
-          "min-w-0 flex-1 truncate leading-5",
-          !compact && "text-base",
-          titleTone(card, highlighted),
-        )}
-      >
+      <div className={cn("min-w-0 flex-1 truncate leading-5", "text-base", titleTone(card))}>
         {renaming ? (
           <RenameField
             entry={entry}
@@ -87,17 +76,11 @@ export function ThreadRow(props: {
       </div>
     </div>
   );
-  const body = compact ? (
-    <div className="flex min-w-0 w-full items-center gap-2 group-focus-within/row:pr-7 group-hover/row:pr-7">
-      <div className="min-w-0 flex-1">{title}</div>
-      <RowTime card={card} />
-    </div>
-  ) : (
+  const body = (
     <div className="flex min-w-0 w-full flex-col gap-0.5">
-      <div className="flex min-w-0 items-center gap-1.5 pr-7 text-xs leading-4 text-muted-foreground">
+      <div className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
         <ProjectMark badge={card.badge} />
-        <span className="min-w-0 truncate">{card.project}</span>
-        <span aria-hidden>·</span>
+        <span className="min-w-0 flex-1 truncate">{card.project}</span>
         <RowStatus card={card} />
       </div>
       {title}
@@ -135,8 +118,8 @@ export function ThreadRow(props: {
                 className={cn(
                   row,
                   height,
-                  "group/link focus-ring focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/5",
-                  selected && "bg-foreground/5",
+                  "group/link focus-ring-inset hover:bg-foreground/3 focus-visible:bg-foreground/3 data-[status=active]:bg-foreground/3",
+                  highlighted && "bg-foreground/3",
                   handle && "pointer-coarse:pr-11",
                 )}
               >

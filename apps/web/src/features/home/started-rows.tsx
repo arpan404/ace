@@ -1,6 +1,6 @@
 import type { PendingSend } from "@ace/client";
-import { useIntent, usePendingSends, useSidebarIds } from "@ace/client-react";
-import { provisionalTitle } from "@ace/ui-core";
+import { useConnectionState, useIntent, usePendingSends, useSidebarIds } from "@ace/client-react";
+import { projectBadge, provisionalTitle } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 import { useSyncExternalStore } from "react";
@@ -9,8 +9,10 @@ import { useLayout } from "@/lib/layout.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { providerNames } from "@ace/ui-core";
 import { useProjectName } from "@/lib/projects.ts";
-import { Dot } from "@/components/ui/dot.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { ProjectMark } from "@/components/project-mark.tsx";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { useHostIdentity } from "@/lib/host-name.ts";
 import { cn } from "@/lib/cn.ts";
 import { startedTitle } from "@/features/thread/index.ts";
 import { publishStartedTitles } from "./started-titles.ts";
@@ -64,7 +66,7 @@ export function StartedRows() {
   });
   if (!waiting.length) return null;
   return (
-    <ul aria-label="Starting threads" className="px-2 pb-1">
+    <ul aria-label="Starting threads" className="pb-1">
       {waiting.map((send) => (
         <StartedRow key={send.commandId} send={send} />
       ))}
@@ -74,11 +76,20 @@ export function StartedRows() {
 
 function StartedRow(props: { send: PendingSend }) {
   const { send } = props;
+  const state = useConnectionState();
+  const host = useHostIdentity();
   const accepted = useIntent(send.commandId)?.state === "acked";
   const name = useProjectName();
   const failed = send.state === "failed";
-  const label = failed ? "Not sent" : accepted ? "Starting" : "Sending";
-  const project = name(send.payload.type === "thread.create" ? send.payload.workspaceId : "");
+  const label = failed
+    ? "Not sent"
+    : state !== "ready"
+      ? "Sends on reconnect"
+      : accepted
+        ? "Starting"
+        : "Sending";
+  const projectId = send.payload.type === "thread.create" ? send.payload.workspaceId : "";
+  const project = name(projectId);
   const provider =
     send.payload.type === "thread.create" ? providerNames[send.payload.provider] : "";
   return (
@@ -89,20 +100,32 @@ function StartedRow(props: { send: PendingSend }) {
         aria-label={`${titleOf(send)}. ${label}, ${provider}, Project ${project}`}
         className={cn(
           // The thread rows' shape, so the row doesn't jump when the daemon's row replaces it.
-          "flex h-8 pointer-coarse:h-11 w-full items-center gap-1.5 rounded-md px-2 text-ui text-sidebar-foreground outline-none transition-[background-color,opacity] duration-(--dur-1) focus-ring-inset hover:bg-sidebar-accent",
-          "data-[status=active]:bg-foreground/8",
-          !accepted && !failed && "opacity-60",
+          "flex h-21 w-full flex-col justify-center gap-0.5 border-b border-sidebar-border px-3 py-3 text-ui text-foreground outline-none transition-[background-color,opacity] duration-(--dur-1) focus-ring-inset hover:bg-foreground/3",
+          "data-[status=active]:bg-foreground/3",
         )}
       >
-        <span aria-hidden className="grid w-3 shrink-0 place-items-center">
-          {failed ? <Dot tone="failed" /> : <Spinner className="text-muted-foreground" />}
+        <span className="flex w-full min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <ProjectMark badge={projectBadge({ id: projectId, name: project })} />
+          <span className="min-w-0 flex-1 truncate">{project}</span>
+          {failed ? (
+            <StatusLabel tone="failed" label={label} mark={false} className="font-normal" />
+          ) : (
+            <span className="shrink-0">{label}</span>
+          )}
         </span>
-        <span className="min-w-0 flex-1 truncate leading-4">{titleOf(send)}</span>
-        {failed ? (
-          <StatusLabel tone="failed" label={label} mark={false} />
-        ) : (
-          <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
-        )}
+        <span className="w-full truncate text-base leading-5">{titleOf(send)}</span>
+        <span className="flex w-full min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <MachineMark icon={host?.icon} />
+          <span className="truncate">{host?.displayName ?? "This machine"}</span>
+          {send.payload.type === "thread.create" && (
+            <ProviderIcon
+              provider={send.payload.provider}
+              size={14}
+              className="ml-auto"
+              decorative
+            />
+          )}
+        </span>
       </Link>
     </li>
   );
