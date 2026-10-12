@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import { DeferredLoadError } from "@/lib/deferred-component.tsx";
 import type { MarkdownLinks } from "./link-options.ts";
 import { loadMarkdown } from "./load.ts";
@@ -9,41 +9,48 @@ type Renderer = Awaited<ReturnType<typeof loadMarkdown>>["Markdown"];
 // The lexer and renderer load as their own chunk, so the route stays inside its bundle budget
 // (ADR 0045). The thread route starts loading it when it matches, and this module once it runs.
 let renderer: Renderer | undefined;
-let loading: Promise<Renderer> | undefined;
+let failure: { cause: unknown } | undefined;
+let loading: Promise<unknown> | undefined;
+const listeners = new Set<() => void>();
+const settle = () => {
+  for (const listener of listeners) listener();
+};
 const load = () =>
   (loading ??= loadMarkdown().then(
-    (module) => (renderer = module.Markdown),
+    (module) => {
+      renderer = module.Markdown;
+      settle();
+    },
     (cause: unknown) => {
       loading = undefined;
-      throw cause;
+      failure = { cause };
+      settle();
     },
   ));
-void load().catch(() => {});
+void load();
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  void load();
+  return () => listeners.delete(listener);
+};
+const status = () => (renderer ? "ready" : failure ? "failed" : "loading");
+/** A boundary's retry after a failed load: loading again, from the next render. */
+const retry = () => {
+  failure = undefined;
+  void load();
+  settle();
+};
 
 /**
  * Whether the renderer's code has loaded. Until then the caller shows a skeleton and re-renders
  * the moment it arrives. It never suspends: a revealed Suspense boundary waits out React's
  * reveal throttle, which held a thread's first messages as skeletons for a third of a second
- * after their code was there.
+ * after their code was there. A failed load goes to the nearest boundary, which can retry.
  */
 function useRendererLoaded(): boolean {
-  // Reads module state that changes once, when the code arrives; nothing to memoise.
-  "use no memo";
-  const [failed, setFailed] = useState<{ cause: unknown }>();
-  const [, setLoaded] = useState(false);
-  useEffect(() => {
-    if (renderer) return;
-    let live = true;
-    load().then(
-      () => live && setLoaded(true),
-      (cause: unknown) => live && setFailed({ cause }),
-    );
-    return () => {
-      live = false;
-    };
-  }, []);
-  if (failed) throw new DeferredLoadError(failed.cause, () => setFailed(undefined));
-  return renderer !== undefined;
+  const state = useSyncExternalStore(subscribe, status, status);
+  if (state === "failed") throw new DeferredLoadError(failure?.cause, retry);
+  return state === "ready";
 }
 
 /**
