@@ -1,7 +1,7 @@
 import type { Item } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { aceStep } from "./tool-labels.ts";
-import { aceToolLog, groupLine } from "./ace-tool-log.ts";
+import { aceToolLog } from "./ace-tool-log.ts";
 
 let ids = 0;
 const base = (agentId = "root") => ({
@@ -116,7 +116,7 @@ test("an audit with no call reads as its own row, and an app's steps group", () 
     items,
   );
   const [group, after] = log.rows;
-  expect(group?.kind === "group" && groupLine(group)).toBe("Used Notes · 3 actions · 1 failed");
+  expect(group).toMatchObject({ kind: "group", label: "Used Notes", actions: 3, failed: 1 });
   expect(after).toEqual({ kind: "step", id: items[3]!.id });
 });
 

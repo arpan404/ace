@@ -272,10 +272,3 @@ export function aceToolLog(ids: readonly string[], items: readonly (Item | undef
   close();
   return { rows, contexts, signature: JSON.stringify([rows, contexts]) };
 }
-
-/** "Used Safari · 8 actions · 3 failed". */
-export function groupLine(group: Extract<AceLogRow, { kind: "group" }>): string {
-  const parts = [group.label, `${group.actions} ${group.actions === 1 ? "action" : "actions"}`];
-  if (group.failed) parts.push(`${group.failed} failed`);
-  return parts.join(" · ");
-}
