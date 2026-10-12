@@ -4,6 +4,8 @@ import { expect, test } from "vitest";
 import { GitService, spawnGitProcess } from "./index.ts";
 import { repository, scalar } from "./test-repo.ts";
 
+const quote = (text: string) => "'" + text.replaceAll("'", "'\"'\"'") + "'";
+
 test("non-executing checkout disables global clean, smudge and LFS process drivers and preserves raw blob contents", async () => {
   const repo = await repository({
     "a-filter.cjs":
@@ -98,7 +100,6 @@ test.each(["lazy-fetch suppression", "inherited transport denial"])(
       ssh,
       `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed'); process.exit(1);\n`,
     );
-    const quote = (text: string) => "'" + text.replaceAll("'", "'\"'\"'") + "'";
     const blob = await scalar(repo, "rev-parse", "HEAD:tracked.txt");
     expect(await scalar(repo, "cat-file", "-t", blob)).toBe("blob");
     await scalar(repo, "config", "core.repositoryformatversion", "1");
