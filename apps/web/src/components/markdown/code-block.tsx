@@ -1,7 +1,7 @@
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
 import { useCopy } from "../use-copy.ts";
 export { useCopy } from "../use-copy.ts";
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CodeToken } from "./highlight.ts";
 
 import { useCodeLines } from "./use-code-lines.ts";
@@ -78,6 +78,12 @@ export function CodeBlock(props: {
     [colored, props.tokens, local, large],
   );
   const { copied, copy } = useCopy();
+  // Copy reads the text when pressed, so the header doesn't re-render with every streamed line.
+  const latest = useRef(props.code);
+  useLayoutEffect(() => {
+    latest.current = props.code;
+  }, [props.code]);
+  const onCopy = useCallback(() => copy(latest.current), [copy]);
   const numbered = lines.length >= numberedFrom;
   return (
     <figure className="group/code my-3 overflow-hidden rounded-card bg-code shadow-[inset_0_0_0_1px_var(--border)]">
@@ -86,7 +92,7 @@ export function CodeBlock(props: {
         lang={info.lang}
         diff={diff}
         copied={copied}
-        onCopy={() => copy(props.code)}
+        onCopy={onCopy}
       >
         {large && !diff && (
           <button
