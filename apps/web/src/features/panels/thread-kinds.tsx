@@ -190,6 +190,15 @@ export const agentsKind = defineTabKind({
   load: () => views().then((m) => ({ default: m.AgentsView })),
 });
 
+/** Work entry point used by the transcript; #578 replaces the legacy Agents surface. */
+export const workKind = defineTabKind({
+  kind: "work",
+  label: "Work",
+  icon: TreeStructureIcon,
+  singleton: true,
+  load: () => import("./work-view.tsx").then((m) => ({ default: m.WorkView })),
+});
+
 /** One agent of the tree, opened from its row: its delegation, transcript and follow-up. */
 export const agentKind = defineTabKind({
   kind: "agent",
@@ -220,6 +229,7 @@ export const threadKinds: readonly TabKind[] = [
   deviceKind,
   computerUseKind,
   agentsKind,
+  workKind,
   logsKind,
   agentKind,
   shellKind,

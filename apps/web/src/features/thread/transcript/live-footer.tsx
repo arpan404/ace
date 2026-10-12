@@ -1,24 +1,27 @@
-import { activityText, type TurnActivity } from "@ace/ui-core";
+import { activityText, livePlanStep, type TurnActivity } from "@ace/ui-core";
 import { HourglassMediumIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { useShownPlans } from "../composer/plan-state.ts";
 import { useTicker } from "../lib/clock.ts";
 
 /** The turn's live status stays at the transcript's end until its whole tree settles. */
 export function LiveFooter(props: { threadId: string; activity: TurnActivity | undefined }) {
   const workspace = useWorkspaceActions(props.threadId);
+  const plans = useShownPlans(props.threadId);
+  const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
   if (!props.activity) return null;
   return (
     <button
       type="button"
       aria-label="Open work and agents"
-      onClick={() => workspace.open({ kind: "agents" })}
+      onClick={() => workspace.open({ kind: "work" })}
       className="block w-full rounded-md py-2 text-left focus-ring"
     >
-      <ActivityLine activity={props.activity} />
+      <ActivityLine activity={props.activity} progress={progress} />
     </button>
   );
 }
@@ -28,7 +31,7 @@ export function LiveFooter(props: { threadId: string; activity: TurnActivity | u
  * waiting on the person shows the needs-you mark and no timer; held lines stay still; a usage
  * limit pause is a divider.
  */
-export function ActivityLine(props: { activity: TurnActivity }) {
+export function ActivityLine(props: { activity: TurnActivity; progress?: string | undefined }) {
   const { activity } = props;
   const now = useTicker(activity.elapsedFrom !== undefined);
   const text = activityText(activity, now);
@@ -50,6 +53,9 @@ export function ActivityLine(props: { activity: TurnActivity }) {
           <span className="shrink-0 shimmer tabular-nums">{text}</span>
           {activity.current && (
             <span className="min-w-0 truncate text-muted-foreground">· {activity.current}</span>
+          )}
+          {props.progress && (
+            <span className="min-w-0 truncate text-muted-foreground">· {props.progress}</span>
           )}
           {!!activity.subagents && (
             <span className="shrink-0 text-muted-foreground">

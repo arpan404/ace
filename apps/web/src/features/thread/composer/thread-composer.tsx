@@ -31,13 +31,8 @@ import {
   DeferredQueueArea,
   DeferredQueuedMessages,
 } from "./deferred-parts.tsx";
-import {
-  DeferredEnvironmentStrip,
-  DeferredPlanTab,
-  DeferredRequestStack,
-} from "./deferred-cards.ts";
+import { DeferredEnvironmentStrip, DeferredRequestStack } from "./deferred-cards.ts";
 import { UsageNotice } from "./usage-notice.tsx";
-import { useShownPlans } from "./plan-state.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
 
@@ -180,9 +175,8 @@ export function ThreadComposer({
   // something: then its first option takes focus (UX audit CMP-2).
   const open = useInteractions(props.thread.id);
   const asking = !!open?.length;
-  const plans = useShownPlans(props.thread.id);
   const answer = useComposerAnswer(props.thread.id);
-  const tab = asking ? "requests" : plans.length ? "plan" : "environment";
+  const tab = asking ? "requests" : "environment";
   const toMessage = () =>
     box.current?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')?.focus();
   const [focusOnOpen] = useState(wideEnoughToFocus);
@@ -261,8 +255,6 @@ export function ThreadComposer({
                 target={props.requestTarget}
                 onLeave={toMessage}
               />
-            ) : tab === "plan" ? (
-              <DeferredPlanTab.Component threadId={props.thread.id} plans={plans} />
             ) : null}
           </Suspense>
         }
