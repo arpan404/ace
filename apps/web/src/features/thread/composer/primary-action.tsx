@@ -92,7 +92,11 @@ export function PrimaryAction(props: {
           type="button"
           aria-label="Stopping…"
           aria-disabled
-          className={cn(iconControl, "cursor-default bg-foreground/10 text-muted-foreground")}
+          className={cn(
+            iconControl,
+            "rounded-full",
+            "cursor-default bg-foreground/10 text-muted-foreground",
+          )}
         >
           <Spinner />
         </button>
@@ -105,6 +109,7 @@ export function PrimaryAction(props: {
           onClick={props.onStop}
           className={cn(
             iconControl,
+            "rounded-full",
             "bg-tint text-tint-foreground hover:bg-tint/85 hover:text-tint-foreground",
           )}
         >
@@ -130,6 +135,7 @@ export function PrimaryAction(props: {
         }}
         className={cn(
           iconControl,
+          "rounded-full",
           blocked
             ? "cursor-default bg-foreground/10 text-subtle-foreground hover:bg-foreground/10 hover:text-subtle-foreground active:scale-100"
             : "bg-tint text-tint-foreground hover:bg-tint/85 hover:text-tint-foreground",

@@ -6,7 +6,7 @@ const themes = ["light", "dark", "midnight", "graphite", "paper", "slate", "cont
 
 for (const theme of themes)
   for (const width of [1440, 390]) {
-    test(`${theme} at ${width}: environment stays below the composer without horizontal overflow`, async ({
+    test(`${theme} at ${width}: new-thread choices stay available and thread context lives in Work without horizontal overflow`, async ({
       page,
     }) => {
       await mkdir(shots, { recursive: true });
@@ -31,12 +31,8 @@ for (const theme of themes)
         await page.goto(route ?? "/new");
         await expect(page.getByRole("combobox", { name: "Message", exact: true })).toBeVisible();
         const strip = page.getByRole("region", { name: "Where this thread runs" });
-        await expect(strip).toBeVisible();
-        const environment = await strip.boundingBox();
-        const input = await page
-          .getByRole("combobox", { name: "Message", exact: true })
-          .boundingBox();
-        expect(environment && input && environment.y > input.y + input.height).toBeTruthy();
+        if (name === "new") await expect(strip).toBeVisible();
+        else await expect(strip).toHaveCount(0);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
           true,
         );

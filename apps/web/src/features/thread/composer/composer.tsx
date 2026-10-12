@@ -75,7 +75,7 @@ const terseWidth = 640;
  * The composer: an input area above a footer, inside one rounded surface, at every width and
  * line count (SPEC "Composer"). Text keeps one inset from empty to many lines and grows upward a
  * line at a time up to seven visible lines. The action row keeps + and approvals on
- * the left and model/effort beside send/stop on the right; branch context stays below.
+ * the left and model/effort beside send/stop on the right.
  * A card the agent or the person opens
  * (`attached`) sits behind its top edge like the next card of a deck. + opens the Add menu, `@` completes files,
  * a leading `/` completes commands, and paste or drop attach files. Enter empties it at once:
@@ -126,7 +126,7 @@ function ComposerContent({
    * `useComposerCompact()` too.
    */
   attached?: ReactNode;
-  /** The queue shares the input's width and sits directly on its top edge. */
+  /** The queue unfolds below the input within the same composer surface. */
   queued?: ReactNode;
   /** Quiet environment controls below the box, sharing its compact-width context. */
   environment?: ReactNode;
@@ -718,7 +718,6 @@ function ComposerBody({
       )}
       <ComposerCompact value={compact}>
         {props.attached}
-        {props.queued}
         <div
           data-slot="composer"
           onDragOver={(event) => {
@@ -819,6 +818,7 @@ function ComposerBody({
               onStop={() => props.onStop?.()}
             />
           </div>
+          {props.queued}
         </div>
         {props.environment}
       </ComposerCompact>

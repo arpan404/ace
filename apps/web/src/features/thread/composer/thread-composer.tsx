@@ -31,12 +31,7 @@ import {
   DeferredQueueArea,
   DeferredQueuedMessages,
 } from "./deferred-parts.tsx";
-import {
-  DeferredEnvironmentStrip,
-  DeferredPlanTab,
-  DeferredRequestStack,
-  DeferredStatusStrip,
-} from "./deferred-cards.ts";
+import { DeferredPlanTab, DeferredRequestStack, DeferredStatusStrip } from "./deferred-cards.ts";
 import { UsageNotice } from "./usage-notice.tsx";
 import { useShownPlans } from "./plan-state.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
@@ -60,10 +55,10 @@ export function isBusy(status: ThreadStatus | undefined): boolean {
  * bubble at once and goes through the client's outbox under its own command id. While the agent
  * works a message follows up the way the daemon's `threads.followUpBehavior` says (queue by
  * default), and ⌘↵ / Ctrl+↵ does the opposite where the provider can steer. Queued messages
- * wait as pills above it, with the reason when the queue is held. Its footer shows how actions
+ * wait in its queue tray, with the reason above when the queue is held. Its footer shows how actions
  * are approved and the model, both changeable from the next turn. One tab is attached to its top
  * edge, the first of: the agent's open requests (a deck of cards answered there, a picked answer
- * sent with the send button), the agents' to-do list, what the agents are doing with Stop. The environment strip sits below the box. Stop is in the send slot only while the tab doesn't carry it, and never
+ * sent with the send button), the agents' to-do list, what the agents are doing with Stop. Stop is in the send slot only while the tab doesn't carry it, and never
  * while a request waits. The unsent draft is kept per thread.
  */
 export function ThreadComposer({
@@ -272,11 +267,6 @@ export function ThreadComposer({
                 onStop={stop}
               />
             ) : null}
-          </Suspense>
-        }
-        environment={
-          <Suspense fallback={null}>
-            <DeferredEnvironmentStrip.Component thread={props.thread} />
           </Suspense>
         }
         answer={tab === "requests" ? answer : undefined}
