@@ -53,7 +53,7 @@ async function creationFixture() {
   ]);
   const service = new GitService();
   cleanup.push(() => service.close());
-  const creations = new WorkspaceCreations(f.store, service, f.home, 15_000);
+  const creations = new WorkspaceCreations(f.store, service, f.home, 15_000, () => 1000);
   const draft = (id: string) =>
     Command.parse({
       id: `create-${id}`,
@@ -88,7 +88,7 @@ test("restart recovery removes setup files and an unrelated cleanup failure does
   const f = await creationFixture();
   const abandoned = await f.creations.prepare(f.draft("abandoned"));
   if (!abandoned) throw new Error("Missing lease");
-  const restarted = new WorkspaceCreations(f.store, f.service, f.home, 15_000);
+  const restarted = new WorkspaceCreations(f.store, f.service, f.home, 15_000, () => 1000);
   await restarted.ready();
   await expect(access(abandoned.workspace.path)).rejects.toMatchObject({ code: "ENOENT" });
   const changed = await restarted.prepare(f.draft("changed"));
@@ -107,7 +107,7 @@ test("restart recovery removes setup files and an unrelated cleanup failure does
     "External owner change",
   ]);
   await expect(changed.release()).rejects.toThrow("identity changed");
-  const recovered = new WorkspaceCreations(f.store, f.service, f.home, 15_000);
+  const recovered = new WorkspaceCreations(f.store, f.service, f.home, 15_000, () => 1000);
   await recovered.ready();
   await expect(recovered.ready(ThreadId.parse("changed"))).rejects.toThrow(
     "workspace_cleanup_required",

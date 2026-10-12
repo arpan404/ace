@@ -782,6 +782,14 @@ export class Engine {
     await this.readyPromise;
     await this.liveness.reconcile(id);
   }
+  /** Even an idle provider may start autonomous work; retention cannot dispose its files. */
+  hasSession(id: ThreadId): boolean {
+    return (
+      Boolean(this.actors.get(id)?.session) ||
+      this.repo.sessionOpening(id) ||
+      this.sessions.isClosing(id)
+    );
+  }
   cleanupThreads(id: ThreadId): ThreadId[] {
     return this.liveness.tree(id);
   }

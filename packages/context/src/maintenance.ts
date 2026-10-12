@@ -23,6 +23,15 @@ export class Maintenance {
     this.now = now;
     this.removeUpload = removeUpload;
   }
+  async expireUploads(limit: number): Promise<number> {
+    const rows = this.metadata.all(
+      "SELECT * FROM uploads WHERE expires<=? ORDER BY expires LIMIT ?",
+      this.now(),
+      limit,
+    );
+    for (const row of rows) await this.removeUpload(UploadRow.parse(row));
+    return rows.length;
+  }
   /** Bounded maintenance tick; retained directory cursor makes orphan reconciliation incremental. */
   async collect(limit: number): Promise<number> {
     requireContext(
@@ -32,12 +41,6 @@ export class Maintenance {
     );
 
     let removed = 0;
-    for (const value of this.metadata.all(
-      "SELECT * FROM uploads WHERE expires<=? ORDER BY expires LIMIT ?",
-      this.now(),
-      limit,
-    ))
-      await this.removeUpload(UploadRow.parse(value));
     for (const row of this.metadata.all(
       "SELECT sha256 FROM blobs WHERE refs=0 AND NOT EXISTS(SELECT 1 FROM leases WHERE leases.sha256=blobs.sha256) AND NOT EXISTS(SELECT 1 FROM uploads WHERE uploads.sha256=blobs.sha256 AND done=0) LIMIT ?",
       limit,

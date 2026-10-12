@@ -5,6 +5,7 @@ import type { Store } from "./store.ts";
 export function initializeThreadCleanup(store: Store): void {
   store.atomic((db) =>
     db.exec(`
+    CREATE TABLE IF NOT EXISTS storage_cleanup_fences(thread_id TEXT PRIMARY KEY, plan_id TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS thread_cleanup (
       thread_id TEXT PRIMARY KEY REFERENCES threads(id), command TEXT NOT NULL
     );
@@ -19,5 +20,11 @@ export function initializeThreadCleanup(store: Store): void {
 }
 
 export function threadCleaning(store: Store, id: ThreadId): boolean {
-  return Boolean(store.statement("SELECT 1 FROM thread_cleanup_members WHERE thread_id=?").get(id));
+  return Boolean(
+    store
+      .statement(
+        "SELECT 1 FROM thread_cleanup_members WHERE thread_id=? UNION ALL SELECT 1 FROM storage_cleanup_fences WHERE thread_id=?",
+      )
+      .get(id, id),
+  );
 }

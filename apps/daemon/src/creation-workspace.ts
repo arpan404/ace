@@ -1,3 +1,4 @@
+import { ManagedWorktrees } from "./managed-worktrees.ts";
 import { creationResourceId } from "./creation-resource-id.ts";
 import type { PreparePrBase } from "./pr-worktree-resolution.ts";
 import type { CreationProgress } from "./creation-progress.ts";
@@ -39,14 +40,17 @@ export class WorkspaceCreations {
   private git: WorkspaceGit;
   private directory: string;
   private fetchTimeoutMs: number;
+  private now: () => number;
   private preparePr: PreparePrBase | undefined;
   constructor(
     store: Store,
     git: WorkspaceGit,
     directory: string,
     fetchTimeoutMs: number,
+    now: () => number,
     preparePr?: PreparePrBase,
   ) {
+    this.now = now;
     this.preparePr = preparePr;
     this.store = store;
     this.git = git;
@@ -223,6 +227,13 @@ export class WorkspaceCreations {
             }
           : {}),
       });
+      await new ManagedWorktrees(this.store, this.directory).created(
+        this.git,
+        project,
+        path,
+        ownerId,
+        this.now(),
+      );
       this.journal.head(id, head);
       resource.cleanup_head = head;
       resource.uncertain = 0;

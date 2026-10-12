@@ -1,3 +1,4 @@
+import { FakeStorageWire } from "./storage-wire.ts";
 import { FakePromptFiles, type PromptSeed } from "./prompt-files.ts";
 import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeHistory } from "./history-wire.ts";
@@ -28,6 +29,7 @@ export type { FakeWireSession } from "./service-context.ts";
 import type { FakeSettings } from "./services/settings.ts";
 /** Service state a daemon accumulates over time, which scenario facts can't reach. */
 export interface ServicesSeed extends AutomationSeed {
+  storageItems?: readonly import("@ace/core").StorageCandidate[];
   promptFiles?: readonly PromptSeed[];
   catalogLoading?: readonly import("@ace/protocol").ProviderKind[];
   extensionCatalogs?: Partial<
@@ -61,6 +63,7 @@ export function replyUnsupported(message: ClientMessage, send: (message: Message
  * `FakeServices`; this reads settings through the same store.
  */
 export class FakeServicesWire {
+  private storage: FakeStorageWire;
   readonly prompts = new FakePromptFiles();
   private readonly catalog = new FakeCatalogWire(this.prompts, (provider) =>
     this.plugins.extensions(provider),
@@ -83,6 +86,7 @@ export class FakeServicesWire {
     settings: FakeSettings,
     providerStatuses: () => readonly import("@ace/protocol").ProviderStatus[],
   ) {
+    this.storage = new FakeStorageWire(context, settings);
     this.host = context;
     this.providerStatuses = providerStatuses;
     this.history = new FakeHistory(context);
@@ -98,6 +102,7 @@ export class FakeServicesWire {
     );
   }
   seed(seed: ServicesSeed): void {
+    if (seed.storageItems) this.storage.seed(seed.storageItems);
     if (seed.promptFiles) this.prompts.seed(seed.promptFiles);
     if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs, seed.catalogLoading);
     if (seed.history) this.history.seed(seed.history, seed.historyTranscripts);
@@ -162,6 +167,10 @@ export class FakeServicesWire {
         terminalStreams.clear();
       },
       handle: async (message, device) => {
+        if (message.type === "storage.request") {
+          emit(this.storage.handle(device, message));
+          return;
+        }
         if (this.history.handle(message, emit)) return;
         try {
           if (message.type === "prompts.request") {
