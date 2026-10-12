@@ -88,14 +88,16 @@ test("a protected checkout keeps hooks and fsmonitor disabled outside the prepar
   }
 });
 
-
 test.each(["lazy-fetch suppression", "inherited transport denial"])(
   "a partial clone with a missing blob fails locally without executing SSH through %s",
   async (guard) => {
     const repo = await repository({ "tracked.txt": "Locally missing blob\n" });
     const marker = join(dirname(repo), "ssh-executed");
     const ssh = join(dirname(repo), "hostile-ssh.cjs");
-    await writeFile(ssh, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed'); process.exit(1);\n`);
+    await writeFile(
+      ssh,
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed'); process.exit(1);\n`,
+    );
     const quote = (text: string) => "'" + text.replaceAll("'", "'\"'\"'") + "'";
     const blob = await scalar(repo, "rev-parse", "HEAD:tracked.txt");
     expect(await scalar(repo, "cat-file", "-t", blob)).toBe("blob");
@@ -106,21 +108,34 @@ test.each(["lazy-fetch suppression", "inherited transport denial"])(
     await scalar(repo, "config", "remote.origin.partialclonefilter", "blob:none");
     await scalar(repo, "config", "core.sshCommand", `${quote(process.execPath)} ${quote(ssh)}`);
     await rm(join(repo, ".git", "objects", blob.slice(0, 2), blob.slice(2)));
-    const service = new GitService({ processRuntime: {
-      spawn: (command, args, options) => {
-        const env = { ...options.env };
-        // Exercise real Git's lazy-fetch fallback independently of environment support.
-        if (guard === "inherited transport denial") delete env.GIT_NO_LAZY_FETCH;
-        return spawnGitProcess(command, args, { ...options, env });
+    const service = new GitService({
+      processRuntime: {
+        spawn: (command, args, options) => {
+          const env = { ...options.env };
+          // Exercise real Git's lazy-fetch fallback independently of environment support.
+          if (guard === "inherited transport denial") delete env.GIT_NO_LAZY_FETCH;
+          return spawnGitProcess(command, args, { ...options, env });
+        },
       },
-    } });
+    });
     try {
-      await expect(service.nonExecuting(() => service.createWorktree({
-        repo, path: join(dirname(repo), "partial-worktree"), branch: "partial-worktree", baseRef: "HEAD",
-        signal: new AbortController().signal,
-      }))).rejects.toThrow(/objects not available locally/i);
+      await expect(
+        service.nonExecuting(() =>
+          service.createWorktree({
+            repo,
+            path: join(dirname(repo), "partial-worktree"),
+            branch: "partial-worktree",
+            baseRef: "HEAD",
+            signal: new AbortController().signal,
+          }),
+        ),
+      ).rejects.toThrow(/objects not available locally/i);
       await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
-      expect((await service.nonExecuting(() => service.listWorktrees(repo))).map(tree => tree.path)).toEqual([repo]);
-    } finally { await service.close(); }
+      expect(
+        (await service.nonExecuting(() => service.listWorktrees(repo))).map((tree) => tree.path),
+      ).toEqual([repo]);
+    } finally {
+      await service.close();
+    }
   },
 );

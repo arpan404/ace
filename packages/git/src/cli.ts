@@ -401,12 +401,21 @@ export class GitCli {
         if (spawnFailure) failure ??= await spawnFailure;
         const stderr = Buffer.concat(errors).toString("utf8");
         if (failure) return reject(failure);
-        if (code !== 0 && !options.allowFailure) {
-          const unavailable = options.env?.GIT_NO_LAZY_FETCH === "1" &&
-            /unable to read (?:sha1 file|tree|object)|could not fetch .* from promisor remote|missing (?:blob|tree|object)|transport '[^']+' not allowed/i.test(stderr);
-          return reject(new GitError(diagnostics.finish(), unavailable
-            ? "Objects not available locally. Fetch the required objects in ace first."
-            : "Git command failed", { code }));
+        if (code !== 0) {
+          const category = diagnostics.finish();
+          if (
+            !options.allowFailure ||
+            (this.executionDisabledAt(cwd) && category === "objects_not_available")
+          )
+            return reject(
+              new GitError(
+                category,
+                category === "objects_not_available"
+                  ? "Objects not available locally"
+                  : "Git command failed",
+                { code },
+              ),
+            );
         }
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
       };

@@ -88,14 +88,16 @@ export async function hostileWorkspace() {
   return { h, markers, caller: h.caller(created.threadId) };
 }
 
-
 /** Real Git object omission with a hostile promisor transport; provider execution stays scripted. */
 export async function partialCloneWorkspace() {
   const h = setup();
   await repository(h.home);
   const marker = join(h.home, "lazy-fetch-executed");
   const script = join(h.home, "hostile-ssh.cjs");
-  await writeFile(script, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed'); process.exit(1);\n`);
+  await writeFile(
+    script,
+    `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed'); process.exit(1);\n`,
+  );
   const { stdout } = await git("git", ["-C", h.home, "rev-parse", "HEAD:file.txt"]);
   const blob = stdout.trim();
   for (const [key, value] of [
@@ -112,8 +114,11 @@ export async function partialCloneWorkspace() {
   await rm(join(h.home, ".git", "objects", blob.slice(0, 2), blob.slice(2)));
   await h.catalog.refresh();
   const result = h.service.command("plan-caller", {
-    type: "thread.create", provider: "claude", permissionMode: "plan",
-    workspaceId: h.store.createWorkspace(h.home, "project"), input: [{ type: "text", text: "Plan only" }],
+    type: "thread.create",
+    provider: "claude",
+    permissionMode: "plan",
+    workspaceId: h.store.createWorkspace(h.home, "project"),
+    input: [{ type: "text", text: "Plan only" }],
   });
   if (!result.ok || !result.threadId) throw new Error("Caller missing");
   await h.engine.flush();
