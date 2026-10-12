@@ -71,7 +71,7 @@ export function AttachmentChipImage(props: {
                 >
                   <span
                     style={{ width: `${percent}%` }}
-                    className="block h-full bg-tint transition-[width] duration-(--dur-1)"
+                    className="block h-full bg-tint transition-[width] duration-(--motion-fast)"
                   />
                 </span>
               )}

@@ -274,7 +274,7 @@ function Choices(props: {
                 aria-label={label}
                 disabled={props.disabled}
                 onClick={() => props.onChoose(choice.id)}
-                className="flex w-full items-center h-9 gap-2 rounded-md px-2 text-left transition-colors duration-(--dur-1) focus-ring-inset hover:bg-accent disabled:opacity-50"
+                className="flex w-full items-center h-9 gap-2 rounded-md px-2 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-accent disabled:opacity-50"
               >
                 <ProviderTile
                   provider={props.provider}

@@ -85,7 +85,7 @@ export function CodeStep(props: { progress: ProviderLoginProgress; footer: React
         <button
           type="button"
           onClick={() => void copyCode(userCode)}
-          className="rounded-md p-1.5 transition-colors duration-(--dur-1) focus-ring hover:bg-accent"
+          className="rounded-md p-1.5 transition-colors duration-(--motion-fast) focus-ring hover:bg-accent"
         >
           <CodeCells code={userCode} />
           <span className="sr-only">Copy code</span>

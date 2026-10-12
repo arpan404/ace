@@ -67,7 +67,7 @@ export function MachinePicker(props: {
               tabIndex={checked || (none && index === 0) ? 0 : -1}
               onClick={() => select(machine.id)}
               className={cn(
-                "inline-flex h-7 max-w-48 items-center gap-1.5 rounded-sm px-2 text-sm font-medium text-muted-foreground outline-none transition-[color,background-color,box-shadow] duration-(--dur-1)",
+                "inline-flex h-7 max-w-48 items-center gap-1.5 rounded-sm px-2 text-sm font-medium text-muted-foreground outline-none transition-[color,background-color,box-shadow] duration-(--motion-fast)",
                 "hover:text-foreground focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_70%,transparent)]",
                 checked && "bg-foreground/8 text-foreground",
               )}

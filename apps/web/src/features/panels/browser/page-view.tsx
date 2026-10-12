@@ -144,7 +144,7 @@ export function PageView(props: {
       width={frame.width}
       height={frame.height}
       className={cn(
-        "block h-auto max-h-full w-auto max-w-full object-contain transition-opacity duration-(--dur-2)",
+        "block h-auto max-h-full w-auto max-w-full object-contain transition-opacity duration-(--motion-base)",
         !props.fit && "rounded-md shadow-glass",
         props.dimmed && "opacity-40",
       )}

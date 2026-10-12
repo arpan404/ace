@@ -34,7 +34,7 @@ import type { FileOperationDialog } from "./file-operation.ts";
 import { useCheckoutSearch } from "./use-checkout.ts";
 
 const rowClass =
-  "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 text-left text-ui text-muted-foreground outline-none select-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-foreground/8 aria-selected:text-foreground";
+  "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 text-left text-ui text-muted-foreground outline-none select-none transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-foreground/8 aria-selected:text-foreground";
 
 /**
  * A bounded checkout tree, with indexed search for paths beyond the listing limit.
@@ -212,7 +212,7 @@ export function FileTree(props: {
       onDrop={(event) => drop(event, currentFolder ? `${currentFolder}/` : "")}
     >
       <div className="flex h-10 shrink-0 items-center gap-1 px-2">
-        <label className="relative flex h-8 min-w-0 flex-1 items-center rounded-md bg-foreground/5 shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-(--dur-1) focus-within:shadow-[inset_0_0_0_1px_var(--ring)]">
+        <label className="relative flex h-8 min-w-0 flex-1 items-center rounded-md bg-foreground/5 shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-(--motion-fast) focus-within:shadow-[inset_0_0_0_1px_var(--ring)]">
           <MagnifyingGlassIcon
             aria-hidden
             size={14}
@@ -328,7 +328,7 @@ export function FileTree(props: {
                         size={10}
                         weight="bold"
                         className={cn(
-                          "text-subtle-foreground transition-transform duration-(--dur-1)",
+                          "text-subtle-foreground transition-transform duration-(--motion-fast)",
                           row.expanded && "rotate-90",
                         )}
                       />

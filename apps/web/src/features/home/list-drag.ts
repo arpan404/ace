@@ -96,7 +96,7 @@ function indicator(list: HTMLElement) {
     background: "var(--ring)",
     pointerEvents: "none",
     zIndex: "3",
-    transition: "transform var(--dur-1) var(--ease-smooth, ease-out)",
+    transition: "transform var(--motion-fast) var(--ease-out)",
   });
   const label = document.createElement("span");
   label.className = "rounded-sm bg-popover px-1.5 text-xs font-medium text-foreground";

@@ -27,7 +27,7 @@ function Numbered(props: { n: number; done?: boolean; children: ReactNode }) {
       <span
         aria-hidden
         className={cn(
-          "grid size-6 shrink-0 place-items-center rounded-full text-sm font-medium transition-colors duration-(--dur-2)",
+          "grid size-6 shrink-0 place-items-center rounded-full text-sm font-medium transition-colors duration-(--motion-base)",
           props.done
             ? "bg-status-done text-background"
             : "bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]",

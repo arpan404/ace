@@ -1,22 +1,31 @@
 import { diffList, motionMs, withLeaving } from "@ace/ui-core";
-import { useEffect, useMemo, useState } from "react";
-import { useMediaQuery } from "./media.ts";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 /*
  * The motion system's runtime half. CSS owns the curves and keyframes (styles/motion.css);
  * this module decides *when* something is entering, leaving or moving, and keeps a leaving
- * thing mounted long enough to play its exit. Everything collapses to instant under
- * `prefers-reduced-motion`.
+ * thing mounted long enough to play its exit. Exits and moves collapse to instant under
+ * `[data-reduce-motion]`, which the theme provider sets on <html> from the Reduce motion setting
+ * and `prefers-reduced-motion`.
  */
 
-const reducedQuery = "(prefers-reduced-motion: reduce)";
+const reducedAttribute = "data-reduce-motion";
+const rootElement = () => globalThis.document?.documentElement;
 
-export function useReducedMotion(): boolean {
-  return useMediaQuery(reducedQuery, false);
+function watchReducedMotion(changed: () => void): () => void {
+  const root = rootElement();
+  if (!root || typeof MutationObserver === "undefined") return () => {};
+  const observer = new MutationObserver(changed);
+  observer.observe(root, { attributes: true, attributeFilter: [reducedAttribute] });
+  return () => observer.disconnect();
 }
 
 export function prefersReducedMotion(): boolean {
-  return globalThis.matchMedia?.(reducedQuery).matches ?? false;
+  return rootElement()?.hasAttribute(reducedAttribute) ?? false;
+}
+
+export function useReducedMotion(): boolean {
+  return useSyncExternalStore(watchReducedMotion, prefersReducedMotion, () => false);
 }
 
 export type Phase = "enter" | "exit";
@@ -214,11 +223,11 @@ function sameKeys(a: readonly string[], b: readonly string[]): boolean {
 
 /**
  * Run a visual state change (a theme switch) as a cross-fade when the browser supports view
- * transitions and the person hasn't asked for less motion; otherwise just run it.
+ * transitions; otherwise just run it. A cross-fade is a fade, so reduced motion keeps it.
  */
 export function withViewTransition(update: () => void): void {
   const start = globalThis.document?.startViewTransition?.bind(globalThis.document);
-  if (!start || prefersReducedMotion()) {
+  if (!start) {
     update();
     return;
   }

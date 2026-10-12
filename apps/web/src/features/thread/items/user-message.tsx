@@ -137,7 +137,7 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
           time
         )}
         {(text || parts.some((part) => part.type === "mention")) && (
-          <div className="flex items-center gap-2 opacity-0 transition-opacity duration-(--dur-1) group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100">
+          <div className="flex items-center gap-2 opacity-0 transition-opacity duration-(--motion-fast) group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100">
             <IconButton
               icon={copied ? CheckIcon : CopyIcon}
               label={copied ? "Copied message" : "Copy message"}

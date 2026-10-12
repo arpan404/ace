@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-/** Longer than the fade (--dur-2), for when no transition runs (reduced motion, hidden tab). */
+/** Longer than the fade (--motion-base), for when no transition runs (reduced motion, hidden tab). */
 const removeAfterMs = 400;
 
 /**

@@ -147,7 +147,7 @@ export function FileDiffBlock(props: {
               aria-hidden
               size={14}
               className={cn(
-                "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
+                "shrink-0 text-subtle-foreground transition-transform duration-(--motion-base) ease-spring",
                 !open && "-rotate-90",
               )}
             />
@@ -384,7 +384,7 @@ function Code(props: {
               if (event.detail === 0)
                 props.onComment?.({ side: target.side, start: target.line, end: target.line });
             }}
-            className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-xs bg-ring text-white opacity-0 transition-opacity duration-(--dur-1) group-hover/line:opacity-100 focus-visible:opacity-100 pointer-coarse:bg-transparent pointer-coarse:text-muted-foreground pointer-coarse:opacity-100"
+            className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-xs bg-ring text-white opacity-0 transition-opacity duration-(--motion-fast) group-hover/line:opacity-100 focus-visible:opacity-100 pointer-coarse:bg-transparent pointer-coarse:text-muted-foreground pointer-coarse:opacity-100"
           >
             <PlusIcon aria-hidden size={10} weight="bold" />
           </button>

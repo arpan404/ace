@@ -116,7 +116,7 @@ export function QuestionRecord(props: { threadId: string; interactionId: string 
             <CaretDownIcon
               aria-hidden
               size={12}
-              className={cn("transition-transform duration-(--dur-1)", open && "rotate-180")}
+              className={cn("transition-transform duration-(--motion-fast)", open && "rotate-180")}
             />
           </button>
         )}

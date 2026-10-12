@@ -34,7 +34,7 @@ export function FoldedTurn(props: {
       aria-expanded={false}
       aria-label={`Turn ${props.ordinal}: ${asSentence(headline)} Show the turn`}
       onClick={props.onOpen}
-      className="group -mx-1.5 flex h-8 w-[calc(100%+12px)] min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground"
+      className="group -mx-1.5 flex h-8 w-[calc(100%+12px)] min-w-0 items-center gap-2 rounded-md px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground"
     >
       <CaretRightIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
       <span className="shrink-0 font-mono text-xs tabular-nums text-subtle-foreground">
@@ -55,7 +55,7 @@ export function OpenTurnHead(props: { ordinal: number; onFold(): void }) {
       aria-expanded
       aria-label={`Turn ${props.ordinal}. Fold the turn`}
       onClick={props.onFold}
-      className="group -mx-1.5 flex h-7 items-center gap-2 rounded-md px-1.5 text-xs text-subtle-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground"
+      className="group -mx-1.5 flex h-7 items-center gap-2 rounded-md px-1.5 text-xs text-subtle-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground"
     >
       <CaretDownIcon aria-hidden size={12} className="shrink-0" />
       <span className="font-mono tabular-nums">Turn {props.ordinal}</span>

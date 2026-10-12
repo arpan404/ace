@@ -46,7 +46,7 @@ export function SettingRow(props: {
       id={props.id}
       ref={row}
       className={cn(
-        "@container group/setting transition-colors duration-(--dur-4)",
+        "@container group/setting transition-colors duration-(--motion-slow)",
         !inCard && "border-t first:border-t-0",
         flashing && "bg-accent",
       )}

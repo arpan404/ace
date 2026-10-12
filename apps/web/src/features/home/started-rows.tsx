@@ -115,7 +115,7 @@ function StartedRow(props: { send: PendingSend }) {
         aria-label={`${titleOf(send)}. ${label}, ${provider}, Project ${project}`}
         className={cn(
           // The thread rows' shape, so the row doesn't jump when the daemon's row replaces it.
-          "flex h-21 w-full flex-col justify-center gap-0.5 border-b border-sidebar-border px-3 py-3 text-ui text-foreground outline-none transition-[background-color,opacity] duration-(--dur-1) focus-ring-inset hover:bg-foreground/3",
+          "flex h-21 w-full flex-col justify-center gap-0.5 border-b border-sidebar-border px-3 py-3 text-ui text-foreground outline-none transition-[background-color,opacity] duration-(--motion-fast) focus-ring-inset hover:bg-foreground/3",
           "data-[status=active]:bg-foreground/3",
         )}
       >

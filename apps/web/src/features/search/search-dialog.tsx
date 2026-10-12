@@ -333,7 +333,7 @@ function SearchBody(props: { initial: string; onClose(): void }) {
               role="listbox"
               aria-label="Results"
               className={cn(
-                "transition-opacity duration-(--dur-1)",
+                "transition-opacity duration-(--motion-fast)",
                 results.updating && "opacity-60",
               )}
             >
@@ -348,7 +348,7 @@ function SearchBody(props: { initial: string; onClose(): void }) {
                   onClick={(event) => onHitClick(event, hit)}
                   onAuxClick={(event) => event.button === 1 && onHitClick(event, hit)}
                   className={cn(
-                    "flex min-h-9 cursor-pointer items-start gap-2 py-2 rounded-md px-2.5 transition-colors duration-(--dur-1)",
+                    "flex min-h-9 cursor-pointer items-start gap-2 py-2 rounded-md px-2.5 transition-colors duration-(--motion-fast)",
                     index === active && "bg-accent",
                   )}
                 >

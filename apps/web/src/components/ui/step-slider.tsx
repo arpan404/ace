@@ -18,7 +18,7 @@ function tickStyle(index: number, count: number) {
 
 /** Moves the thumb and the fill together, quick and without overshoot past a stop. */
 const glide =
-  "transition-[left,width,scale] duration-(--dur-1) ease-smooth motion-reduce:transition-none";
+  "transition-[left,width,scale] duration-(--motion-fast) ease-smooth motion-reduce:transition-none";
 
 /**
  * A slider over a few named steps (Low · Medium · High): a pill track with a dot per
@@ -177,7 +177,7 @@ function StepSlider(props: {
             <span
               key={step}
               className={cn(
-                "absolute top-0 whitespace-nowrap transition-colors duration-(--dur-1)",
+                "absolute top-0 whitespace-nowrap transition-colors duration-(--motion-fast)",
                 selected && index === value && "font-medium text-foreground",
               )}
               style={tickStyle(index, count)}

@@ -39,7 +39,7 @@ function ToastList() {
       className={cn(
         overlaySurface,
         "group/toast pointer-events-auto relative w-max max-w-full rounded-popup text-ui font-medium text-popover-foreground",
-        "transition-[opacity,transform] duration-(--dur-3) ease-spring data-ending-style:-translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:-translate-y-2 data-starting-style:scale-[0.97] data-starting-style:opacity-0",
+        "transition-[opacity,transform] duration-(--motion-slow) ease-spring data-ending-style:-translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:-translate-y-2 data-starting-style:scale-[0.97] data-starting-style:opacity-0",
       )}
     >
       <Toast.Content className="flex items-center gap-2.5 py-[9px] pr-9 pl-3.5">
@@ -60,7 +60,7 @@ function ToastList() {
             aria-label="Dismiss"
             aria-hidden={false}
             className={cn(
-              "absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground transition-colors duration-(--dur-1) focus-ring touch-hit touch-hit-lg",
+              "absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit touch-hit-lg",
               "hover:bg-accent hover:text-foreground",
             )}
           >

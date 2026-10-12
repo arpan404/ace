@@ -55,7 +55,7 @@ export function DeviceLogs(props: { session: DeviceSession; deviceId: string }) 
         <Icon
           icon={CaretRightIcon}
           size={12}
-          className={cn("transition-transform duration-(--dur-1)", open && "rotate-90")}
+          className={cn("transition-transform duration-(--motion-fast)", open && "rotate-90")}
         />
         Logs
       </button>

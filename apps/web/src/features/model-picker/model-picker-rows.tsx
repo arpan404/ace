@@ -142,7 +142,7 @@ export function ModelRow(props: {
           tabIndex={props.highlighted ? 0 : -1}
           onClick={props.onStar}
           className={cn(
-            "absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-subtle-foreground transition-colors duration-(--dur-1) motion-reduce:transition-none hover:text-foreground focus-ring-inset aria-pressed:text-link",
+            "absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-subtle-foreground transition-colors duration-(--motion-fast) motion-reduce:transition-none hover:text-foreground focus-ring-inset aria-pressed:text-link",
           )}
         >
           <StarIcon aria-hidden size={14} weight={props.starred ? "fill" : "regular"} />
@@ -186,7 +186,10 @@ export function LegacyToggle(props: {
         aria-hidden
         size={12}
         weight="bold"
-        className={cn("transition-transform duration-(--dur-1)", props.expanded && "rotate-90")}
+        className={cn(
+          "transition-transform duration-(--motion-fast)",
+          props.expanded && "rotate-90",
+        )}
       />
       <span className="flex-1">Legacy models</span>
       <span className="text-xs text-subtle-foreground tabular-nums">{props.count}</span>

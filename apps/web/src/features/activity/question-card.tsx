@@ -72,7 +72,7 @@ function OptionButton(props: {
       type="button"
       disabled={props.disabled}
       onClick={props.onChoose}
-      className="flex items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left text-ui transition-colors duration-(--dur-1) hover:bg-accent disabled:cursor-default disabled:hover:bg-transparent"
+      className="flex items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left text-ui transition-colors duration-(--motion-fast) hover:bg-accent disabled:cursor-default disabled:hover:bg-transparent"
     >
       <span className="min-w-0">
         {props.label}

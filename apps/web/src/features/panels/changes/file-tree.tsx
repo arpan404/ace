@@ -203,7 +203,7 @@ function TreeRowView(props: {
             aria-hidden
             size={10}
             className={cn(
-              "text-subtle-foreground transition-transform duration-(--dur-1)",
+              "text-subtle-foreground transition-transform duration-(--motion-fast)",
               row.open && "rotate-90",
             )}
           />

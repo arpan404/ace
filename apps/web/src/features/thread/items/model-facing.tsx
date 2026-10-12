@@ -24,7 +24,7 @@ export function ModelFacing(props: { text: string; label?: string; className?: s
         <CaretRightIcon
           aria-hidden
           size={11}
-          className={cn("transition-transform duration-(--dur-2)", open && "rotate-90")}
+          className={cn("transition-transform duration-(--motion-base)", open && "rotate-90")}
         />
       </button>
       {open && (

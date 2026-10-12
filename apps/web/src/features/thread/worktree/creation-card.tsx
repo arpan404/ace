@@ -37,7 +37,7 @@ import type { WorktreeAction, WorktreeCreationState } from "./use-worktree-creat
 
 /** The collapsed "Worked for" line's look, so settled lines in a transcript read alike. */
 const foldedLine =
-  "group -mx-1.5 inline-flex h-[26px] max-w-full items-center gap-1.5 rounded-sm px-1.5 text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground";
+  "group -mx-1.5 inline-flex h-[26px] max-w-full items-center gap-1.5 rounded-sm px-1.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground";
 
 const refusals: Record<NonNullable<WorktreeCreationState["refused"]>, string> = {
   busy: "Another action on this worktree is still running. Try again in a moment.",
@@ -132,7 +132,7 @@ function CreationCard(props: {
               aria-hidden
               size={14}
               className={cn(
-                "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
+                "shrink-0 text-subtle-foreground transition-transform duration-(--motion-base) ease-spring",
                 open && "rotate-90",
               )}
             />
@@ -206,7 +206,7 @@ export function WorktreeReadyLine(props: {
           aria-hidden
           size={14}
           className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
+            "shrink-0 text-subtle-foreground transition-transform duration-(--motion-base) ease-spring",
             open && "rotate-90",
           )}
         />

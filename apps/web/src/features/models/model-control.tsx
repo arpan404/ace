@@ -88,7 +88,7 @@ export function ModelControl(props: {
           align="start"
           sideOffset={8}
           aria-label="Choose model"
-          className="overflow-hidden p-0 duration-(--dur-1) motion-reduce:transition-none"
+          className="overflow-hidden p-0 duration-(--motion-fast) motion-reduce:transition-none"
         >
           <Suspense
             fallback={

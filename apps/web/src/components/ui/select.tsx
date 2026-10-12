@@ -36,7 +36,7 @@ function Select<T extends string>(props: {
       <SelectPrimitive.Trigger
         aria-label={props.label}
         className={cn(
-          "relative inline-flex h-8 items-center justify-between gap-2 rounded-md bg-secondary pr-2 pl-2.5 text-ui text-foreground transition-[background-color,box-shadow] duration-(--dur-1) focus-ring touch-hit",
+          "relative inline-flex h-8 items-center justify-between gap-2 rounded-md bg-secondary pr-2 pl-2.5 text-ui text-foreground transition-[background-color,box-shadow] duration-(--motion-fast) focus-ring touch-hit",
           "hover:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_5%)] data-popup-open:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_5%)] disabled:opacity-50",
           // A minimum only for the default size: a Select given a width follows its column.
           props.className ?? "min-w-36",
@@ -46,7 +46,7 @@ function Select<T extends string>(props: {
           {props.options.find((option) => option.value === props.value)?.icon}
           <SelectPrimitive.Value className="truncate" />
         </span>
-        <SelectPrimitive.Icon className="text-subtle-foreground transition-transform duration-(--dur-2) ease-spring in-data-popup-open:rotate-180">
+        <SelectPrimitive.Icon className="text-subtle-foreground transition-transform duration-(--motion-base) ease-spring in-data-popup-open:rotate-180">
           <CaretDownIcon aria-hidden size={12} />
         </SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>

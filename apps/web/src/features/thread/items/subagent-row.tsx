@@ -102,7 +102,7 @@ export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fre
     </>
   );
   const classes =
-    "flex min-h-(--row-height) pointer-coarse:min-h-11 w-full items-center gap-(--surface-gap) px-(--surface-inset) py-[calc(var(--setting-row-padding)/2)] text-left transition-colors duration-(--dur-1) hover:bg-accent focus-ring-inset";
+    "flex min-h-(--row-height) pointer-coarse:min-h-11 w-full items-center gap-(--surface-gap) px-(--surface-inset) py-[calc(var(--setting-row-padding)/2)] text-left transition-colors duration-(--motion-fast) hover:bg-accent focus-ring-inset";
   return (
     <li>
       {entry.childThreadId ? (

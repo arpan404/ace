@@ -95,7 +95,7 @@ function ResultRow(props: {
         to="/t/$threadId"
         params={{ threadId: result.threadId }}
         aria-label={`Open ${title}'s thread, ${label}`}
-        className="flex min-h-(--row-height) pointer-coarse:min-h-11 items-center gap-(--surface-gap) rounded-md px-(--surface-inset) py-[calc(var(--setting-row-padding)/2)] transition-colors duration-(--dur-1) hover:bg-accent focus-ring"
+        className="flex min-h-(--row-height) pointer-coarse:min-h-11 items-center gap-(--surface-gap) rounded-md px-(--surface-inset) py-[calc(var(--setting-row-padding)/2)] transition-colors duration-(--motion-fast) hover:bg-accent focus-ring"
       >
         <SubagentAvatar
           provider={props.entry?.provider ?? thread?.provider}

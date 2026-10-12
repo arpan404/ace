@@ -1,75 +1,90 @@
 /*
- * Motion policy: animate actual changes briefly; working, waiting and loading stay static.
- * The motion system (DESIGN-fable.md, "Motion"). Every animation in the app uses these tokens
+ * The motion system (docs/design/visual-language.md, "Motion"). Every animation uses these tokens
  * and moves only transform and opacity, so it runs on the compositor and never forces layout.
  * Durations are mirrored for JS timers in @ace/ui-core `motionMs`.
  *
- *   --dur-1  150ms  hover, colour, press
- *   --dur-2  200ms  popovers, menus, tooltips, new rows
- *   --dur-3  240ms  panels, sidebar, list moves
- *   --dur-4  320ms  sheets, theme cross-fade
- *   --dur-exit 140ms anything leaving: exits are quicker than entrances
+ *   --motion-fast  120ms  hover, colour, press
+ *   --motion-base  200ms  popovers, menus, tooltips, new rows
+ *   --motion-slow  320ms  panels, sheets, list moves, theme cross-fade
+ *   --motion-exit  140ms  anything leaving: exits are quicker than entrances
  *
- * Under `prefers-reduced-motion` every duration is zero and the keyframes below are off, so
- * state changes are instant but nothing is skipped.
+ * `[data-reduce-motion]` on <html> (the Reduce motion setting, or `prefers-reduced-motion` under
+ * System) keeps fades and drops movement: distances go to zero, the spring settles without
+ * overshoot, sheens stop and spinners pulse instead of turning.
  */
 :root {
-  --dur-1: 150ms;
-  --dur-2: 200ms;
-  --dur-3: 240ms;
-  --dur-4: 320ms;
-  --dur-exit: 140ms;
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --motion-exit: 140ms;
 
   /* Calm deceleration for colour and layout-ish moves. */
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  /* A light overshoot: popovers, menus, chevrons, the press release. */
-  --spring: cubic-bezier(0.3, 1.25, 0.5, 1);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* A light overshoot that settles: popovers, menus, segmented thumbs, the press release. */
+  --ease-spring: linear(
+    0,
+    0.034 1.4%,
+    0.13 2.9%,
+    0.454 7.5%,
+    0.689 11.6%,
+    0.847 15.7%,
+    0.947 20.2%,
+    1.006 25.3%,
+    1.03 30.6%,
+    1.033 36.5%,
+    1.018 46.4%,
+    1.004 58.8%,
+    0.999 75%,
+    1
+  );
   /* Sheets and panels: fast out of the gate, long settle, no overshoot. */
-  --sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
   /* Leaving: accelerate away. */
-  --leave: cubic-bezier(0.4, 0, 1, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
 
   /* Distances. Small on purpose: things arrive, they don't fly in. */
   --rise: 4px;
   --slide: 12px;
+  /* What a leaving or arriving thing scales from. */
+  --settle-scale: 0.985;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --dur-1: 0ms;
-    --dur-2: 0ms;
-    --dur-3: 0ms;
-    --dur-4: 0ms;
-    --dur-exit: 0ms;
-    --rise: 0px;
-    --slide: 0px;
-  }
+:root[data-reduce-motion] {
+  --ease-spring: var(--ease-out);
+  --rise: 0px;
+  --slide: 0px;
+  --settle-scale: 1;
+}
+
+/* Base UI popups and dialogs scale in from their anchor; under reduced motion they only fade. */
+:root[data-reduce-motion] :is([data-starting-style], [data-ending-style]) {
+  scale: none !important;
 }
 
 @layer components {
   /* A row, block or card arriving: fade and a 4px rise on the spring. */
   .fx-rise-in {
-    animation: fx-rise-in var(--dur-2) var(--spring) both;
+    animation: fx-rise-in var(--motion-base) var(--ease-spring) both;
   }
   .fx-queue-in {
-    animation: fx-queue-in var(--dur-2) var(--sheet) both;
+    animation: fx-queue-in var(--motion-base) var(--ease-sheet) both;
   }
   /* A scrim or overlay appearing: opacity only. */
   .fx-fade-in {
-    animation: fx-fade-in var(--dur-3) var(--sheet) both;
+    animation: fx-fade-in var(--motion-slow) var(--ease-sheet) both;
   }
   /* Something leaving in place before its neighbours close the gap. */
   .fx-fade-out {
     pointer-events: none;
-    animation: fx-fade-out var(--dur-exit) var(--leave) both;
+    animation: fx-fade-out var(--motion-exit) var(--ease-exit) both;
   }
   /* Panels and the sidebar slide a short way from their edge. */
   .fx-panel-in {
-    animation: fx-panel-in var(--dur-3) var(--sheet) both;
+    animation: fx-panel-in var(--motion-slow) var(--ease-sheet) both;
   }
   .fx-panel-out {
     pointer-events: none;
-    animation: fx-panel-out var(--dur-exit) var(--leave) both;
+    animation: fx-panel-out var(--motion-exit) var(--ease-exit) both;
   }
   .fx-panel-in,
   .fx-panel-out {
@@ -90,16 +105,49 @@
   }
   /* Counts and badges that change: a small pop, never a bounce. */
   .fx-pop {
-    animation: fx-pop var(--dur-2) var(--spring) both;
+    animation: fx-pop var(--motion-base) var(--ease-spring) both;
+  }
+  :root[data-reduce-motion] .fx-pop {
+    animation-name: fx-fade-in;
+  }
+  /* A working spinner's arc turns; under reduced motion it pulses in place. */
+  .fx-spin {
+    animation: fx-spin 1s linear infinite;
+  }
+  :root[data-reduce-motion] .fx-spin {
+    animation: fx-pulse 1.6s ease-in-out infinite;
+  }
+  /* Live text (a "Working for…" line): a light passes across it. Static under reduced motion. */
+  .fx-shimmer {
+    background: linear-gradient(
+      90deg,
+      var(--shimmer-base, var(--muted-foreground)) 0 38%,
+      var(--foreground) 50%,
+      var(--shimmer-base, var(--muted-foreground)) 62% 100%
+    );
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: fx-shimmer 2.8s linear infinite;
+  }
+  :root[data-reduce-motion] .fx-shimmer {
+    animation: none;
+    background: none;
+    color: var(--shimmer-base, var(--muted-foreground));
+  }
+  /* Decorative flourishes (sheens, glows, trails) mark themselves and stop under reduced motion. */
+  :root[data-reduce-motion] .fx-flourish {
+    animation: none !important;
   }
   /* Rows of a list that is reordering slide to their new place. Set only while moving, so
      scrolling and re-measuring never animate. */
   .fx-list-moving > * {
-    transition: transform var(--dur-3) var(--spring);
+    transition: transform var(--motion-slow) var(--ease-spring);
   }
   /* A view's content when the route changes. */
   .fx-view-in {
-    animation: fx-fade-in var(--dur-2) var(--ease) both;
+    animation: fx-fade-in var(--motion-base) var(--ease-out) both;
   }
   /* Indeterminate progress is a stationary segment; data updates drive real progress. */
   .fx-indeterminate {
@@ -122,8 +170,8 @@
 /* Theme switches cross-fade the whole window instead of repainting token by token. */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: var(--dur-4);
-  animation-timing-function: var(--ease);
+  animation-duration: var(--motion-slow);
+  animation-timing-function: var(--ease-out);
 }
 
 @keyframes fx-rise-in {
@@ -140,7 +188,7 @@
 @keyframes fx-fade-out {
   to {
     opacity: 0;
-    transform: scale(0.985);
+    transform: scale(var(--settle-scale));
   }
 }
 @keyframes fx-panel-in {
@@ -169,10 +217,29 @@
   animation: none;
 }
 
+@keyframes fx-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes fx-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes fx-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
 @keyframes fx-queue-in {
   from {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateY(calc(var(--rise) * -2));
   }
   to {
     opacity: 1;
