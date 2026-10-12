@@ -18,6 +18,9 @@ export function iconsHttp(
 ) {
   const origins = webOriginAllowlist(options.webOrigins);
   return (request: IncomingMessage, response: ServerResponse) => {
+    void serve(request, response);
+  };
+  async function serve(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const path = request.url?.split("?")[0] ?? "";
     if (!path.startsWith("/v1/icons/")) {
       next(request, response);
@@ -59,7 +62,7 @@ export function iconsHttp(
       return;
     }
     const ref = IconRef.safeParse(path.slice("/v1/icons/".length).replace(/\.png$/, ""));
-    const png = ref.success ? options.icons?.read(ref.data) : undefined;
+    const png = ref.success ? await options.icons?.read(ref.data) : undefined;
     if (!ref.success || !png) {
       response.statusCode = 404;
       response.end();
@@ -76,5 +79,5 @@ export function iconsHttp(
     }
     response.setHeader("Content-Length", png.length);
     response.end(request.method === "HEAD" ? undefined : png);
-  };
+  }
 }
