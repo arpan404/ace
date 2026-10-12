@@ -11,8 +11,14 @@ import type { WorkspaceGit } from "./workspace-roots.ts";
 import type { Store } from "./store.ts";
 import type { CommandContext } from "./commands.ts";
 import { requestedBase, requestedBaseKey, type RequestedBase } from "./worktree-base.ts";
-import { resolveWorktreeBase } from "./worktree-base-resolution.ts";
+import { resolveAgentWorktreeBase, resolveWorktreeBase } from "./worktree-base-resolution.ts";
 
+type Setup = (
+  path: string,
+  signal: AbortSignal | undefined,
+  progress: CreationProgress | undefined,
+  started: () => void,
+) => Promise<void>;
 type Prepared = NonNullable<CommandContext["preparedWorkspace"]>;
 export interface CreationWorkspace {
   workspace: Prepared;
@@ -36,12 +42,29 @@ export class WorkspaceCreations {
     this.directory = directory;
     this.fetchTimeoutMs = fetchTimeoutMs;
     this.journal = new CreationWorkspaceJournal(store);
+    for (const resource of this.journal.list())
+      if (resource.non_executing) this.journal.remember(resource.path);
+    for (const path of this.journal.protectedRoots()) this.git.protectWorktree(path);
     this.recovery = this.recover();
     void this.recovery.catch(() => {});
   }
-  async prepare(
+  prepare(
     command: Command,
     progress?: CreationProgress,
+    signal?: AbortSignal,
+  ): Promise<CreationWorkspace | undefined> {
+    return this.prepareQueued(command, progress, signal, (path, lifetime, feedback, started) =>
+      this.setupScripts(path, lifetime, feedback, started),
+    );
+  }
+  prepareAgent(command: Command, signal: AbortSignal): Promise<CreationWorkspace | undefined> {
+    return this.git.nonExecuting(() => this.prepareQueued(command, undefined, signal));
+  }
+  private async prepareQueued(
+    command: Command,
+    progress?: CreationProgress,
+    signal?: AbortSignal,
+    setup?: Setup,
   ): Promise<CreationWorkspace | undefined> {
     const p = command.payload;
     if ((p.type !== "thread.create" && p.type !== "thread.prepare") || p.mode !== "worktree")
@@ -53,7 +76,7 @@ export class WorkspaceCreations {
     if (this.closing || this.pending.size >= 16) throw new Error("workspace_busy");
     const project = this.store.getWorkspacePath(p.workspaceId);
     if (!project) throw new Error("workspace_not_found");
-    const task = this.create(id, project, requestedBase(p), progress);
+    const task = this.create(id, project, requestedBase(p), progress, signal, setup);
     this.pending.set(id, task);
     try {
       return await task;
@@ -67,7 +90,14 @@ export class WorkspaceCreations {
     root: string,
     requested: RequestedBase,
     progress?: CreationProgress,
+    callerSignal?: AbortSignal,
+    setup?: Setup,
   ): Promise<CreationWorkspace> {
+    const signal =
+      progress && callerSignal
+        ? AbortSignal.any([progress.controller.signal, callerSignal])
+        : (progress?.controller.signal ?? callerSignal);
+    signal?.throwIfAborted();
     const project = await realpath(root);
     const key = createHash("sha256").update(id).digest("hex");
     const parent = join(this.directory, "worktrees");
@@ -83,16 +113,15 @@ export class WorkspaceCreations {
     } catch (error) {
       if (!(error instanceof GitError && error.code === "invalid_ref")) throw error;
     }
-    // A remote base is fetched here, before any physical work; only its remote-tracking ref moves.
-    progress?.controller.signal.throwIfAborted();
-    if (requested.kind === "branch" && requested.remote) progress?.update("fetching");
-    const { head, record } = await resolveWorktreeBase(
-      this.git,
-      project,
-      requested,
-      this.fetchTimeoutMs,
-      progress ? { signal: progress.controller.signal, stderr: progress.stderr } : {},
-    );
+    // Only host-authorized preparation may fetch. Agents resolve existing local refs.
+    signal?.throwIfAborted();
+    if (setup && requested.kind === "branch" && requested.remote) progress?.update("fetching");
+    const { head, record } = setup
+      ? await resolveWorktreeBase(this.git, project, requested, this.fetchTimeoutMs, {
+          ...(signal ? { signal } : {}),
+          ...(progress ? { stderr: progress.stderr } : {}),
+        })
+      : await resolveAgentWorktreeBase(this.git, project, requested);
     const resource: CreationResource = {
       id,
       repo: project,
@@ -102,8 +131,10 @@ export class WorkspaceCreations {
       cleanup_head: null,
       uncertain: 1,
       ran_setup: 0,
+      non_executing: setup ? 0 : 1,
     };
     this.journal.acquire(resource);
+    if (resource.non_executing) this.git.protectWorktree(path);
     let ranSetup = false;
     try {
       await this.git.createWorktree({
@@ -111,9 +142,9 @@ export class WorkspaceCreations {
         path,
         branch,
         baseRef: head,
+        ...(signal ? { signal } : {}),
         ...(progress
           ? {
-              signal: progress.controller.signal,
               stderr: progress.stderr,
               onProgress: (value) => progress.update(value.step, value.percent),
             }
@@ -122,20 +153,12 @@ export class WorkspaceCreations {
       this.journal.head(id, head);
       resource.cleanup_head = head;
       resource.uncertain = 0;
-      const scripts = (await listScripts(path)).filter((script) => script.name === "setup");
-      for (const script of scripts) {
-        progress?.controller.signal.throwIfAborted();
-        progress?.update("setup");
+      await setup?.(path, signal, progress, () => {
         ranSetup = true;
         this.journal.setup(id);
         resource.ran_setup = 1;
-        await this.git.setupWorktree({
-          worktree: path,
-          command: script.command,
-          ...(progress ? { stderr: progress.stderr, signal: progress.controller.signal } : {}),
-        });
-      }
-      progress?.controller.signal.throwIfAborted();
+      });
+      signal?.throwIfAborted();
     } catch (error) {
       if (
         error instanceof GitError &&
@@ -171,13 +194,34 @@ export class WorkspaceCreations {
     progress?.update("done");
     return lease;
   }
+  private async setupScripts(
+    path: string,
+    signal: AbortSignal | undefined,
+    progress: CreationProgress | undefined,
+    started: () => void,
+  ): Promise<void> {
+    const scripts = (await listScripts(path)).filter((script) => script.name === "setup");
+    for (const script of scripts) {
+      signal?.throwIfAborted();
+      progress?.update("setup");
+      started();
+      await this.git.setupWorktree({
+        worktree: path,
+        command: script.command,
+        ...(signal ? { signal } : {}),
+        ...(progress ? { stderr: progress.stderr } : {}),
+      });
+    }
+  }
   private cleanup(resource: CreationResource, options: { force?: boolean } = {}): Promise<void> {
     const existing = this.cleanups.get(resource.id);
     if (existing) return existing;
-    const task = this.cleanupResource(resource, {
-      ...options,
-      ...(resource.ran_setup ? { force: true } : {}),
-    })
+    const cleanup = () =>
+      this.cleanupResource(resource, {
+        ...options,
+        ...(resource.ran_setup ? { force: true } : {}),
+      });
+    const task = (resource.non_executing ? this.git.nonExecuting(cleanup) : cleanup())
       .then(
         () => {
           this.cleanupFailures.delete(resource.id);
@@ -198,7 +242,8 @@ export class WorkspaceCreations {
     resource: CreationResource,
     options: { force?: boolean },
   ): Promise<void> {
-    if (this.store.getThread(resource.id)?.details?.worktree !== resource.path) {
+    const retained = this.store.getThread(resource.id)?.details?.worktree === resource.path;
+    if (!retained) {
       await cleanupOwnedWorktree(
         this.git,
         {
@@ -216,7 +261,11 @@ export class WorkspaceCreations {
         options,
       );
     }
-    this.journal.release(resource.id);
+    this.journal.release(
+      resource.id,
+      !retained && resource.non_executing ? resource.path : undefined,
+    );
+    if (!retained && resource.non_executing) this.git.forgetWorktree(resource.path);
     this.pending.delete(resource.id);
   }
   private async recover(): Promise<void> {

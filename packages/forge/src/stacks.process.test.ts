@@ -521,7 +521,6 @@ test("recorded PR queue facts can be read without native stack membership", asyn
   }
 });
 
-
 test("a native 409 acknowledgement cannot lose its uncertainty when the mutation identity changes", async () => {
   const f = await fakeGh({
     ...stackChecksFixture,

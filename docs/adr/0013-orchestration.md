@@ -132,3 +132,59 @@ retries, budget exhaustion, restart intent replay and command routing. Use
 real temporary Git repositories for comparison and winner application,
 including dirty and advanced targets. Run the repository check and prove at
 least eight production mutations are caught by behavioural tests before PR.
+
+## Amendment: agent-accessible orchestration, 2026-10-11
+
+Extend the daemon's existing agent-control port and protocol operation union.
+The authenticated MCP lease selects the caller; arguments never select a parent.
+Keep `delegate_task`, `ace_spawn_agent`, `ace_list_agents`, `ace_wait`,
+`ace_thread_info` and the existing thread readers compatible.
+
+- `ace_agents_catalog` pages the composer's live model catalog by provider and
+  account. Return model identities, reasoning efforts, service tiers, native
+  permission modes, installation/authentication state and redacted account
+  availability. Never return account homes, environment or credentials.
+- `delegate_task` retains stable request IDs and async default. Optional
+  `waitMs` bounds observation without cancelling accepted work. Optional
+  `workspace` selects the project, an existing registered Git worktree, or a
+  new daemon-owned worktree from an explicit base. Omission retains the caller's
+  workspace. Reserve capacity before filesystem effects.
+- `ace_agent_status`, `ace_agent_result`, `ace_agent_message` and
+  `ace_agent_cancel` address an owned child by thread ID. Status distinguishes
+  working, human wait, child wait, available result, failure and cancellation.
+  Result reads do not consume the durable parent notification. Follow-ups use
+  the same child and existing generation accounting. Cancellation cascades.
+- `ace_threads_list` lists or searches the caller's project with a bounded
+  cursor. `ace_thread_read` remains the paginated state/timeline reader.
+  `ace_thread_start` creates an ordinary conversation with a required workspace
+  strategy, selection, permission mode and initial text. It has durable caller
+  ownership and request deduplication, but no child attachment or result wakeup.
+  `ace_thread_message` adds restart delivery to queue and steer;
+  `ace_thread_interrupt` and `ace_thread_configure` operate on owned threads.
+
+Schemas remain in `@ace/protocol`. Pages are bounded by encoded bytes as well
+as row count and use the MCP registry's JSON budget. Discovery reports retained
+catalog freshness rather than launching a provider session to inspect models.
+The existing daemon workspace creation owner handles Git and compensating
+cleanup. No second Git-worktree lifecycle or provider launcher is introduced.
+
+Permission ancestry is independent of conversation ancestry. Both children and
+ordinary launched conversations retain their caller's native permission ceiling
+across restarts, settings changes and provider/model switches. The engine checks
+explicit policies using a conservative known-policy comparison; a display risk
+label is not evidence of containment. Unknown policies may only retain an exact
+same-provider policy. A cross-provider default is pinned to a known native mode
+only when containment is proven; otherwise reject it before launch. Native sandbox
+and approval choices are the runtime modes in ace;
+there is no additional provider-independent runtime-mode flag.
+
+Child completion continues through `DelegationService`: aggregate canonical
+status must settle first, including all descendants and human waits. Persist
+outcome and delivery ownership atomically, coalesce notifications, and enqueue
+an ace-origin `subagent_result` input on the parent. Restart replays that durable
+delivery. Bounded observers cannot lose a background wakeup. Keep remote capacity,
+budget admission, depth/child limits and cancellation fences in the same owner.
+
+Development verification for this amendment uses formatting, lint and sequential
+package typechecks. Behaviour tests are written but run only by the merge gate,
+under the owner's machine-load restriction.

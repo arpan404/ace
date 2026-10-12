@@ -1,3 +1,5 @@
+import { ForgeResourceOwner } from "./forge-resource-owner.ts";
+import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
 import {
@@ -27,9 +29,11 @@ import { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
 import type { PrOwnerOperation } from "./agent-control/tools.ts";
 
 export class WorkspaceForge {
+  private owner = new ForgeResourceOwner();
   private store: Store;
   private replyReceipts: ForgeReplyReceipts;
   private git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>;
+  private reviews: WorkspaceForgeReviews;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
   private projection: WorkspacePrLinks;
@@ -49,6 +53,7 @@ export class WorkspaceForge {
   ) {
     this.store = store;
     this.stacks = new WorkspaceForgeStacks(store, now);
+    this.reviews = new WorkspaceForgeReviews(store, this.owner);
     this.replyReceipts = new ForgeReplyReceipts(store);
     this.git = git;
     this.now = now;
@@ -57,7 +62,7 @@ export class WorkspaceForge {
     this.stopPreferences = sourceControl?.listen(() => this.backends.clear());
     this.projection = new WorkspacePrLinks(store, now);
     this.links = this.projection.links;
-    this.actions = new WorkspaceForgeActions(store);
+    this.actions = new WorkspaceForgeActions(store, this.owner);
   }
   async repository(cwd: string): Promise<ForgeRepository> {
     const info = await this.git.repositoryInfo(cwd);
@@ -108,6 +113,11 @@ export class WorkspaceForge {
       return {
         resource: "prStackMemberships",
         value: await backend.stackMemberships(operation.numbers, signal),
+      };
+    if (operation.op === "forge.pr.review-state")
+      return {
+        resource: "prReviewState",
+        value: await this.reviews.state({ repository, number: operation.number }, backend, signal),
       };
     if (operation.op === "forge.pr.activity")
       return {
@@ -504,6 +514,23 @@ export class WorkspaceForge {
     const status = value.status;
     this.projection.update(id, status, generation);
     return { ok: true, pr: status.ref, prStatus: status };
+  }
+  async hostedReview(
+    input: import("@ace/protocol").Command & {
+      payload: import("zod").z.infer<typeof import("@ace/protocol").ForgeHostedReviewCommand>;
+    },
+    cwd: string,
+    allowed: () => boolean,
+  ) {
+    const p = input.payload;
+    await this.reviews.execute(
+      p,
+      input.id,
+      await this.backend(cwd, p.pr.repository),
+      this.lifetime.signal,
+      allowed,
+    );
+    return { ok: true };
   }
 
   close(): void {

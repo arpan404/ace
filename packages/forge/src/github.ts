@@ -3,6 +3,7 @@ import { sameStack } from "./stack-plan.ts";
 import { GitHubStacks } from "./github-stacks.ts";
 import { LocalStacks } from "./local-stacks.ts";
 import { ForgeStackExpected } from "@ace/protocol/forge-stacks";
+import { GitHubReviews } from "./github-reviews.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import type { ForgePrSearch } from "@ace/protocol/forge-browser";
 import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
@@ -28,6 +29,7 @@ const shaSchema = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
 const mergeSchema = z.enum(["merge", "squash", "rebase"]);
 export class GitHubForge implements Forge, ForgeBrowser {
   readonly repository: ForgeRepository;
+  readonly reviews: GitHubReviews;
   readonly #api: GhApi;
   readonly revisions = new StatusRevisions();
   readonly #status = new GitHubStatusReader(this.revisions);
@@ -52,6 +54,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     this.#stacks = new GitHubStacks(this.#api, this.repository);
     this.#localStacks = new LocalStacks(options.runner, options.command);
     this.#browser = new GitHubBrowser(this.#api, this.repository);
+    this.reviews = new GitHubReviews(this.#api, (number) => this.#ref(number));
   }
   #ref(number: number): ForgePrRef {
     return ForgePrRef.parse({ repository: this.repository, number });

@@ -152,3 +152,46 @@ test("legacy Cursor delegation account references select the SDK catalog and rem
     db.close();
   }
 });
+
+test("a signed-out default CLI does not block automatic selection of a logged-in managed account", async () => {
+  const db = new DatabaseSync(":memory:"),
+    accounts = new AccountRegistry(db);
+  const h = setup({}, undefined, false, undefined, false, accounts);
+  try {
+    await accounts.register(
+      createInstance({
+        id: "managed",
+        provider: "claude",
+        label: "Managed",
+        homeDir: join(h.home, "managed"),
+      }),
+    );
+    accounts.ingest("managed", {
+      provider: "claude",
+      payload: new ProviderPayload('{"auth":"logged_in"}'),
+      observedAt: 1000,
+      timeZone: "UTC",
+    });
+    h.catalog.registerInstance(scriptedModelInstance("claude", h.home, "managed"));
+    h.registry.register(h.registry.get("claude").source, {
+      installed: true,
+      auth: "logged_out",
+      loginHint: "synthetic",
+    });
+    const parent = await h.parent();
+    const child = h.delegate(parent, "automatic-account");
+    await h.engine.flush();
+    expect(h.contexts.get(child.childId)?.instanceId).toBe("managed");
+    accounts.ingest("managed", {
+      provider: "claude",
+      payload: new ProviderPayload('{"auth":"logged_out"}'),
+      observedAt: 1001,
+      timeZone: "UTC",
+    });
+    expect(() => h.delegate(parent, "signed-out-account")).toThrow(/Account unavailable/);
+    expect(h.store.listThreads()).toHaveLength(2);
+  } finally {
+    await h.close();
+    db.close();
+  }
+});

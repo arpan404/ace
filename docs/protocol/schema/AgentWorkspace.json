@@ -1,0 +1,55 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentWorkspace.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "project",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "$ref": "https://ace.local/protocol/v1/WorktreeBase.json"
+        },
+        "kind": {
+          "const": "new_worktree",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "base"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "existing_worktree",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "type": "object"
+    }
+  ]
+}

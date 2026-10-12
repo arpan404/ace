@@ -1,0 +1,46 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeReviewAnchor.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "commit": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
+    "line": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "side": {
+      "enum": [
+        "LEFT",
+        "RIGHT"
+      ],
+      "type": "string"
+    },
+    "startLine": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "startSide": {
+      "enum": [
+        "LEFT",
+        "RIGHT"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "commit",
+    "path",
+    "line",
+    "side"
+  ],
+  "type": "object"
+}
