@@ -38,7 +38,8 @@ test("forge failures produce durable error receipts and a later command can use 
       if (!recovered) return { code: 1, stdout: "offline", truncated: false };
       const path = request.args[1] ?? "";
       let body: unknown = [];
-      if (path.endsWith("/replies")) body = { id: 31 };
+      if (path === "user") body = { login: "test" };
+      else if (path.endsWith("/replies")) body = { id: 31 };
       else if (path === "repos/test/project/pulls/7")
         body = {
           number: 7,

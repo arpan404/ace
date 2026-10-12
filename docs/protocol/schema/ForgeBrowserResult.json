@@ -1,0 +1,112 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeBrowserResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "events": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeActivity.json"
+          },
+          "maxItems": 25,
+          "type": "array"
+        },
+        "nextPage": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "resource": {
+          "const": "prActivity",
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "resource",
+        "events",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "prList",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgePrList.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "prDetail",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgePrDetail.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "commits": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeCommit.json"
+          },
+          "maxItems": 25,
+          "type": "array"
+        },
+        "nextPage": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "resource": {
+          "const": "prCommits",
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "resource",
+        "commits",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "prFiles",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgePrFiles.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    }
+  ]
+}

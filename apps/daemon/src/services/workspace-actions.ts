@@ -62,9 +62,11 @@ export async function startWorkspaceActions({
 export function createWorkspaceActionsSession(context: SocketContext): SocketService {
   const { options, authorize, send, canReadThread, connected, tasks } = context;
   let reads = 0;
+  const lifetime = new AbortController();
   const generations = new Map<string, { threadId: string; controller: AbortController }>();
   return {
     close() {
+      lifetime.abort();
       for (const entry of generations.values()) entry.controller.abort();
       generations.clear();
     },
@@ -143,7 +145,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
       if (op.op === "git.draft.generate")
         generations.set(op.input.generationId, { threadId: op.threadId, controller });
       const task = options.workspaceActions
-        .read(message, controller.signal)
+        .read(message, AbortSignal.any([lifetime.signal, controller.signal]))
         .then((result) => {
           if (
             connected() &&

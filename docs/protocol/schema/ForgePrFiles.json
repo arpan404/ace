@@ -1,0 +1,44 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgePrFiles.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "baseSha": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
+    "commit": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeFile.json"
+      },
+      "maxItems": 25,
+      "type": "array"
+    },
+    "headSha": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
+    "nextPage": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "ref": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ref",
+    "baseSha",
+    "headSha",
+    "files",
+    "truncated"
+  ],
+  "type": "object"
+}

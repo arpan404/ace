@@ -1,4 +1,5 @@
 import recorded from "./__fixtures__/github.json" with { type: "json" };
+import { watch } from "node:fs";
 import { mkdtemp, writeFile, readFile, rm, copyFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -94,6 +95,7 @@ export type Response = {
   text?: string;
   suffix?: string;
   wait?: boolean;
+  barrier?: string;
 };
 export type Fixtures = Record<string, Response[]>;
 /** Synthetic JSON records follow primary GitHub response contracts. */
@@ -101,7 +103,10 @@ export function standard(): Fixtures {
   return structuredClone(recorded);
 }
 
-export async function fakeGh(fixtures: Fixtures, options: { maxBytes?: number } = {}) {
+export async function fakeGh(
+  fixtures: Fixtures,
+  options: { maxBytes?: number; timeoutMs?: number } = {},
+) {
   const dir = await mkdtemp(join(tmpdir(), "ace-forge-"));
   const executable = join(dir, "gh");
   const config = join(dir, "fixtures.json");
@@ -120,6 +125,33 @@ export async function fakeGh(fixtures: Fixtures, options: { maxBytes?: number } 
     runner,
     forge,
     executable,
+    async release(barrier: string) {
+      await writeFile(join(dir, barrier), "released");
+    },
+    async waitForRequest(path: string) {
+      const ready = Promise.withResolvers<void>();
+      const present = async () => {
+        try {
+          const value = z
+            .object({ requests: z.array(z.object({ path: z.string() })) })
+            .parse(JSON.parse(await readFile(state, "utf8")));
+          return value.requests.some((request) => request.path === path);
+        } catch {
+          return false;
+        }
+      };
+      const inspect = async () => {
+        if (await present()) ready.resolve();
+      };
+      const observer = watch(dir, () => void inspect());
+      observer.on("error", ready.reject);
+      try {
+        await inspect();
+        await ready.promise;
+      } finally {
+        observer.close();
+      }
+    },
     async requests() {
       return z
         .object({

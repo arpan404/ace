@@ -58,6 +58,7 @@ export const ForgeComment = z.object({
   file: text.nullable(),
   line: z.number().int().nullable(),
   updatedAt: z.string(),
+  createdAt: z.string().optional(),
   replyTo: z.number().int().nullable(),
   reviewState: z.string().max(256).optional(),
 });

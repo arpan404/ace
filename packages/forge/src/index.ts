@@ -12,6 +12,8 @@ export * from "./pr-reference.ts";
 export * from "./tail.ts";
 export { StatusRevisions } from "./revisions.ts";
 
+export * from "./write-dispatch.ts";
+export { GhApi } from "./http.ts";
 export * from "./readiness.ts";
 
 export { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";

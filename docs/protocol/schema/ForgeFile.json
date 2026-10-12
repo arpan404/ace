@@ -1,0 +1,52 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeFile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "additions": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "deletions": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "patch": {
+      "anyOf": [
+        {
+          "maxLength": 262144,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "path": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "previousPath": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "raw": {},
+    "status": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "path",
+    "status",
+    "additions",
+    "deletions",
+    "patch",
+    "truncated"
+  ],
+  "type": "object"
+}

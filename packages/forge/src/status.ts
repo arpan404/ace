@@ -85,6 +85,7 @@ export function mapComment(input: unknown) {
     file: value.path ?? null,
     line: value.line ?? value.original_line ?? null,
     updatedAt: value.updated_at,
+    ...(value.created_at ? { createdAt: value.created_at } : {}),
     replyTo: value.in_reply_to_id ?? null,
   };
 }

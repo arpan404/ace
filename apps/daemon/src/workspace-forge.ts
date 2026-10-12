@@ -2,16 +2,12 @@ import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
 import {
   GitHubForge,
-  ForgeIntents,
   ForgeError,
-  ForgeMutationOutcome,
-  replyIntent,
   repositoryKey,
   prFromUrl,
   prUrl,
   prRepository,
   type CommandRunner,
-  type Forge,
 } from "@ace/forge";
 import {
   ForgeCommand,
@@ -26,18 +22,19 @@ import {
 import type { GitService } from "@ace/git";
 import type { Store } from "./store.ts";
 import { WorkspacePrLinks } from "./workspace-pr-links.ts";
+import { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
 import type { PrOwnerOperation } from "./agent-control/tools.ts";
 
 export class WorkspaceForge {
   private store: Store;
   private replyReceipts: ForgeReplyReceipts;
-  private intents = new ForgeIntents();
   private git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
   private projection: WorkspacePrLinks;
   private links: WorkspacePrLinks["links"];
-  private backends = new Map<string, Forge>();
+  private actions: WorkspaceForgeActions;
+  private backends = new Map<string, GitHubForge>();
   private lifetime = new AbortController();
   private stopPreferences: (() => void) | undefined;
   private sourceControl: import("./source-control.ts").SourceControl | undefined;
@@ -57,6 +54,7 @@ export class WorkspaceForge {
     this.stopPreferences = sourceControl?.listen(() => this.backends.clear());
     this.projection = new WorkspacePrLinks(store, now);
     this.links = this.projection.links;
+    this.actions = new WorkspaceForgeActions(store);
   }
   async repository(cwd: string): Promise<ForgeRepository> {
     const info = await this.git.repositoryInfo(cwd);
@@ -66,7 +64,7 @@ export class WorkspaceForge {
     return repository;
   }
 
-  private async backend(cwd: string, repository: ForgeRepository): Promise<Forge> {
+  private async backend(cwd: string, repository: ForgeRepository): Promise<GitHubForge> {
     const identity = await this.sourceControl?.identity(cwd, repository.host, this.lifetime.signal);
     const key = JSON.stringify({
       repository: repositoryKey(repository),
@@ -89,6 +87,58 @@ export class WorkspaceForge {
       if (first !== undefined) this.backends.delete(first);
     }
     return backend;
+  }
+  async browse(
+    cwd: string,
+    operation: import("@ace/protocol").ForgeBrowserOperation,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol").ForgeBrowserResult> {
+    const repository = operation.repository ?? (await this.repository(cwd));
+    signal.throwIfAborted();
+    const backend = await this.backend(cwd, repository);
+    if (operation.op === "forge.pr.activity")
+      return {
+        resource: "prActivity",
+        ...(await backend.prActivity(operation.number, operation.page, signal)),
+      };
+    if (operation.op === "forge.pr.list")
+      return { resource: "prList", value: await backend.listPrs(operation.query, signal) };
+    if (operation.op === "forge.pr.commits")
+      return {
+        resource: "prCommits",
+        ...(await backend.prCommits(operation.number, operation.page, operation.headSha, signal)),
+      };
+    if (operation.op === "forge.pr.files")
+      return { resource: "prFiles", value: await backend.prFiles(operation, signal) };
+    const { value, writeState } = await this.actions.readDetail(
+      { repository, number: operation.number },
+      () => backend.prDetail(operation.number, signal),
+    );
+    const threads = this.store
+      .atomic((db) =>
+        db
+          .prepare(
+            "SELECT threads.id FROM forge_links JOIN threads ON threads.id=forge_links.thread_id WHERE repo=? AND number=? AND json_extract(client,'$.deletedAt') IS NULL ORDER BY threads.updated_at DESC LIMIT 101",
+          )
+          .all(repositoryKey(value.status.ref.repository), value.status.ref.number),
+      )
+      .flatMap((row) => {
+        const thread = this.store.getThread(ThreadId.parse(row.id));
+        return thread ? [thread] : [];
+      });
+    return {
+      resource: "prDetail",
+      value: {
+        ...value,
+        writeState,
+        relatedThreads: threads.slice(0, 100).map((thread) => ({
+          id: thread.id,
+          title: thread.title,
+          archived: thread.archivedAt !== undefined,
+        })),
+        relatedThreadsTruncated: threads.length > 100,
+      },
+    };
   }
   async link(
     id: ThreadId,
@@ -403,42 +453,20 @@ export class WorkspaceForge {
       const status = await this.link(id, cwd, p.link.pr, allowed);
       return { ok: true, pr: p.link.pr, prStatus: status };
     }
-    const executeIntent = async (): Promise<Omit<CommandResult, "commandId">> => {
-      this.lifetime.signal.throwIfAborted();
-      if (!allowed()) throw new Error("forbidden");
-      const generation = this.links.getLinkState(id, p.link.pr)?.generation;
-      const backend = await this.backend(cwd, p.link.pr.repository);
-      if (!allowed()) throw new Error("forbidden");
-      if (p.type === "forge.comment.reply")
-        await backend.replyComment(p.link.pr.number, p.commentId, p.body, this.lifetime.signal);
-      if (p.type === "forge.review.request")
-        await backend.requestReviews(p.link.pr.number, p.reviewers, this.lifetime.signal);
-      if (p.type === "forge.pr.merge")
-        await backend.merge(p.link.pr.number, p.headSha, p.method, this.lifetime.signal);
-      if (p.type === "forge.pr.auto-merge")
-        await backend.enableAutoMerge(p.link.pr.number, p.headSha, p.method, this.lifetime.signal);
-      let status: ForgePrStatus;
-      try {
-        status = await backend.status(p.link.pr.number, this.lifetime.signal);
-        if (!allowed()) throw new Error("forbidden");
-        this.projection.update(id, status, generation);
-      } catch (error) {
-        if (p.type === "forge.pr.status") throw error;
-        throw new ForgeMutationOutcome({ dispatched: true });
-      }
-      if (p.type === "forge.comment.reply")
-        this.replyReceipts
-          .scope(cwd, p.link.pr.repository, "")
-          .remove(replyIntent(p.link.pr.repository, p.link.pr.number, p.commentId, p.body));
-      return { ok: true, pr: status.ref, prStatus: status };
-    };
-    if (p.type !== "forge.comment.reply") return executeIntent();
-    const key = JSON.stringify([
-      cwd,
-      repositoryKey(p.link.pr.repository),
-      replyIntent(p.link.pr.repository, p.link.pr.number, p.commentId, p.body),
-    ]);
-    return this.intents.run(key, executeIntent);
+    this.lifetime.signal.throwIfAborted();
+    if (!allowed()) throw new Error("forbidden");
+    const generation = this.links.getLinkState(id, p.link.pr)?.generation;
+    const backend = await this.backend(cwd, p.link.pr.repository);
+    if (p.type !== "forge.pr.status")
+      return this.actions.execute(p, backend, this.lifetime.signal, allowed, (status) =>
+        this.projection.update(id, status, generation),
+      );
+    const { value } = await this.actions.readDetail(p.link.pr, async () => ({
+      status: await backend.status(p.link.pr.number, this.lifetime.signal),
+    }));
+    const status = value.status;
+    this.projection.update(id, status, generation);
+    return { ok: true, pr: status.ref, prStatus: status };
   }
 
   close(): void {

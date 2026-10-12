@@ -113,6 +113,7 @@ export function WorkCard(props: {
             <BranchRow thread={props.thread} git={git} move={checkout.move} />
             <PullRequestsSection
               git={menuGit}
+              workspaceId={props.thread.workspaceId}
               linking={linking}
               onLinkClose={() => setLinking(false)}
             />

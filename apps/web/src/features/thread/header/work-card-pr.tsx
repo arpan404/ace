@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { PrUnlinkDialog } from "./pr-unlink-dialog.tsx";
 import { PullRequestGlyph, pullRequestTone as prTone } from "@/components/pull-request-state.tsx";
 import type { ForgePrStatus } from "@ace/protocol";
@@ -33,6 +34,7 @@ const prState: Record<CheckoutPr["state"], string> = {
 /** Compact links; the validated field appears only when requested. */
 export function PullRequestsSection(props: {
   git: GitFlow;
+  workspaceId: string;
   linking: boolean;
   onLinkClose(): void;
 }) {
@@ -49,6 +51,7 @@ export function PullRequestsSection(props: {
         <PrDisclosure
           key={`${pr.repo?.host}/${pr.repo?.owner}/${pr.repo?.name}/${pr.number}`}
           git={git}
+          workspaceId={props.workspaceId}
           pr={pr}
           base={checkout?.baseBranch ?? "main"}
           onUnlinkAll={() => setConfirm(true)}
@@ -84,8 +87,15 @@ export function PullRequestsSection(props: {
   );
 }
 
-function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string; onUnlinkAll(): void }) {
+function PrDisclosure(props: {
+  workspaceId: string;
+  git: GitFlow;
+  pr: CheckoutPr;
+  base: string;
+  onUnlinkAll(): void;
+}) {
   const { git, pr } = props;
+  const navigate = useNavigate();
   const id = useId();
   const primary = !git.linkedPrs?.length || git.linkedPrs[0] === pr;
   const toast = useToast();
@@ -175,6 +185,22 @@ function PrDisclosure(props: { git: GitFlow; pr: CheckoutPr; base: string; onUnl
               }
             />
             <MenuContent align="end">
+              {repository && (
+                <MenuItem
+                  onClick={() =>
+                    void navigate({
+                      to: "/pull-requests",
+                      search: {
+                        project: props.workspaceId,
+                        repo: `${repository.host}/${repository.owner}/${repository.name}`,
+                        number: pr.number,
+                      },
+                    })
+                  }
+                >
+                  Open full PR workspace
+                </MenuItem>
+              )}
               <MenuItem
                 disabled={git.pending}
                 onClick={() =>

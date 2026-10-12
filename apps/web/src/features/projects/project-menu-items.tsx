@@ -6,6 +6,7 @@ import {
   ShieldIcon,
 } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
+import { useNavigate } from "@tanstack/react-router";
 import { Suspense } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import {
@@ -42,9 +43,17 @@ export function AddProjectItem() {
 
 /** Editor handoff, Edit and Remove for one project, in its menu. */
 export function ManageProjectItems(props: { projectId: string; name: string }) {
+  const navigate = useNavigate();
   const projects = useProjectDialogs();
   return (
     <>
+      <MenuItem
+        onClick={() =>
+          void navigate({ to: "/pull-requests", search: { project: props.projectId } })
+        }
+      >
+        Pull requests
+      </MenuItem>
       <MenuSub>
         <MenuSubTrigger icon={<Icon icon={ArrowSquareOutIcon} />}>Open in…</MenuSubTrigger>
         <MenuContent>

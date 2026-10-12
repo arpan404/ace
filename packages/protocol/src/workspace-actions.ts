@@ -7,6 +7,7 @@ import {
 import { Project } from "./projects.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
+import { ForgeBrowserOperations, ForgeBrowserResult } from "./forge-browser.ts";
 import { ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { Run } from "./thread.ts";
 import { ThreadDetails } from "./thread-client.ts";
@@ -50,6 +51,7 @@ export const WorkspaceActionRequest = z.object({
   type: z.literal("workspace.request"),
   requestId: id,
   operation: z.discriminatedUnion("op", [
+    ...ForgeBrowserOperations,
     z.object({
       op: z.literal("workspaces.list"),
       after: id.optional(),
@@ -92,6 +94,7 @@ export const WorkspaceActionResult = z.object({
   type: z.literal("workspace.result"),
   requestId: id,
   result: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("forge"), data: ForgeBrowserResult }),
     z.object({ kind: z.literal("scripts"), scripts: z.array(WorkspaceScript).max(256) }),
     z.object({ kind: z.literal("editors"), editors: z.array(InstalledEditor).max(32) }),
     z.object({

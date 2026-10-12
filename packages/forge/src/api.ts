@@ -30,3 +30,35 @@ export interface Forge {
   ): Promise<void>;
   logTail(jobId: number, signal: AbortSignal): Promise<{ text: string; truncated: boolean }>;
 }
+
+/** Hosted repository resources, separate from a thread's primary association. */
+export interface ForgeBrowser {
+  listPrs(
+    query: import("@ace/protocol/forge-browser").ForgePrSearch,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol/forge-browser").ForgePrList>;
+  prDetail(
+    number: number,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol/forge-browser").ForgePrDetail>;
+  prCommits(
+    number: number,
+    page: number,
+    headSha: string,
+    signal: AbortSignal,
+  ): Promise<{
+    commits: import("@ace/protocol/forge-browser").ForgeCommit[];
+    nextPage?: number | undefined;
+    truncated: boolean;
+  }>;
+  prFiles(
+    input: {
+      number: number;
+      page: number;
+      headSha: string;
+      baseSha: string;
+      commit?: string | undefined;
+    },
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol/forge-browser").ForgePrFiles>;
+}

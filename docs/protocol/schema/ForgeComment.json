@@ -10,6 +10,9 @@
       "maxLength": 65536,
       "type": "string"
     },
+    "createdAt": {
+      "type": "string"
+    },
     "file": {
       "anyOf": [
         {

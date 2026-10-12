@@ -1,0 +1,72 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgePrList.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "counts": {
+      "properties": {
+        "closed": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "draft": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "merged": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "open": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "open",
+        "draft",
+        "closed",
+        "merged"
+      ],
+      "type": "object"
+    },
+    "incomplete": {
+      "type": "boolean"
+    },
+    "items": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgePrRow.json"
+      },
+      "maxItems": 25,
+      "type": "array"
+    },
+    "nextPage": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "repository": {
+      "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+    },
+    "total": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "repository",
+    "items",
+    "total",
+    "counts",
+    "incomplete",
+    "truncated"
+  ],
+  "type": "object"
+}

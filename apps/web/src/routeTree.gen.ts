@@ -18,6 +18,7 @@ import { Route as MoreRouteImport } from "./routes/more"
 import { Route as OffsetsRouteImport } from "./routes/offsets"
 import { Route as OffshiftsRouteImport } from "./routes/offshifts"
 import { Route as PairRouteImport } from "./routes/pair"
+import { Route as PullRequestsRouteImport } from "./routes/pull-requests"
 import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SetupRouteImport } from "./routes/setup"
 import { Route as SkillsRouteImport } from "./routes/skills"
@@ -92,6 +93,11 @@ const OffshiftsRoute = OffshiftsRouteImport.update({
 const PairRoute = PairRouteImport.update({
   id: "/pair",
   path: "/pair",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PullRequestsRoute = PullRequestsRouteImport.update({
+  id: "/pull-requests",
+  path: "/pull-requests",
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -263,6 +269,7 @@ export interface FileRoutesByFullPath {
   "/offsets": typeof OffsetsRouteWithChildren
   "/offshifts": typeof OffshiftsRouteWithChildren
   "/pair": typeof PairRoute
+  "/pull-requests": typeof PullRequestsRoute
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
@@ -301,6 +308,7 @@ export interface FileRoutesByTo {
   "/offsets": typeof OffsetsRouteWithChildren
   "/offshifts": typeof OffshiftsRouteWithChildren
   "/pair": typeof PairRoute
+  "/pull-requests": typeof PullRequestsRoute
   "/setup": typeof SetupRoute
   "/archived": typeof HomeArchivedRoute
   "/new": typeof HomeNewRoute
@@ -342,6 +350,7 @@ export interface FileRoutesById {
   "/offsets": typeof OffsetsRouteWithChildren
   "/offshifts": typeof OffshiftsRouteWithChildren
   "/pair": typeof PairRoute
+  "/pull-requests": typeof PullRequestsRoute
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
@@ -386,6 +395,7 @@ export interface FileRouteTypes {
     | "/offsets"
     | "/offshifts"
     | "/pair"
+    | "/pull-requests"
     | "/settings"
     | "/setup"
     | "/skills"
@@ -424,6 +434,7 @@ export interface FileRouteTypes {
     | "/offsets"
     | "/offshifts"
     | "/pair"
+    | "/pull-requests"
     | "/setup"
     | "/archived"
     | "/new"
@@ -464,6 +475,7 @@ export interface FileRouteTypes {
     | "/offsets"
     | "/offshifts"
     | "/pair"
+    | "/pull-requests"
     | "/settings"
     | "/setup"
     | "/skills"
@@ -507,6 +519,7 @@ export interface RootRouteChildren {
   OffsetsRoute: typeof OffsetsRouteWithChildren
   OffshiftsRoute: typeof OffshiftsRouteWithChildren
   PairRoute: typeof PairRoute
+  PullRequestsRoute: typeof PullRequestsRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   SetupRoute: typeof SetupRoute
   SkillsRoute: typeof SkillsRouteWithChildren
@@ -575,6 +588,13 @@ declare module "@tanstack/react-router" {
       path: "/pair"
       fullPath: "/pair"
       preLoaderRoute: typeof PairRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/pull-requests": {
+      id: "/pull-requests"
+      path: "/pull-requests"
+      fullPath: "/pull-requests"
+      preLoaderRoute: typeof PullRequestsRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/settings": {
@@ -945,6 +965,7 @@ const rootRouteChildren: RootRouteChildren = {
   OffsetsRoute: OffsetsRouteWithChildren,
   OffshiftsRoute: OffshiftsRouteWithChildren,
   PairRoute: PairRoute,
+  PullRequestsRoute: PullRequestsRoute,
   SettingsRoute: SettingsRouteWithChildren,
   SetupRoute: SetupRoute,
   SkillsRoute: SkillsRouteWithChildren,

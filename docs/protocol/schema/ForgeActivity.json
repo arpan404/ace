@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeActivity.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "actor": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "at": {
+      "anyOf": [
+        {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "event": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "raw": {}
+  },
+  "required": [
+    "id",
+    "event",
+    "actor",
+    "at",
+    "raw"
+  ],
+  "type": "object"
+}

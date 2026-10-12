@@ -1,4 +1,4 @@
-import { ForgeMutationOutcome, MutationDispatch, isForgeMutation } from "./mutation.ts";
+import { MutationDispatch, isForgeMutation } from "./mutation.ts";
 import { createHash } from "node:crypto";
 import { immutable } from "./immutable.ts";
 import { z } from "zod";
@@ -33,13 +33,15 @@ function assertGraphqlResult(body: unknown, dispatch: MutationDispatch, retryAt:
   const codes = errors.map((error) => error.type ?? error.extensions?.code);
   let error: ForgeError | undefined;
   if (refused && codes.every((code) => code === "RATE_LIMITED"))
-    error = new ForgeError("rate_limit", retryAt);
+    error = new ForgeError("rate_limit", retryAt, false);
   else if (refused && codes.every((code) => code === "FORBIDDEN" || code === "UNAUTHORIZED"))
-    error = new ForgeError("forbidden");
+    error = new ForgeError("forbidden", undefined, false);
   else if (refused && codes.every((code) => code === "NOT_FOUND"))
-    error = new ForgeError("not_found");
+    error = new ForgeError("not_found", undefined, false);
+  else if (refused && codes.every((code) => code === "UNPROCESSABLE"))
+    error = new ForgeError("conflict", undefined, false);
   else if (refused && codes.every((code) => code === "GRAPHQL_VALIDATION_FAILED"))
-    error = new ForgeError("invalid_data");
+    error = new ForgeError("invalid_data", undefined, false);
   if (!error) throw new ForgeError("invalid_data");
   dispatch.reject();
   throw error;
@@ -125,6 +127,10 @@ export class GhApi {
       signal,
       mode: "json",
     });
+    if (!reusable) {
+      this.#cache.clear();
+      this.#cacheBytes = 0;
+    }
     const cacheKey =
       method === "GET"
         ? path
@@ -177,12 +183,12 @@ export class GhApi {
           /secondary rate limit|rate limit exceeded|abuse detection/i.test(rateMessage)))
     ) {
       dispatch.reject();
-      throw new ForgeError("rate_limit", rateLimitRetryAt(headers, this.#now()));
+      throw new ForgeError("rate_limit", rateLimitRetryAt(headers, this.#now()), false);
     }
     if ([401, 403, 404, 409, 422].includes(code)) dispatch.reject();
-    if (code === 404) throw new ForgeError("not_found");
-    if (code === 401 || code === 403) throw new ForgeError("forbidden");
-    if (code === 409 || code === 422) throw new ForgeError("conflict");
+    if (code === 404) throw new ForgeError("not_found", undefined, false);
+    if (code === 401 || code === 403) throw new ForgeError("forbidden", undefined, false);
+    if (code === 409 || code === 422) throw new ForgeError("conflict", undefined, false);
     if (code < 200 || code >= 300) throw new ForgeError("cli");
     // gh exits 1 for GraphQL errors even with HTTP 200. Classify complete bodies
     // before the CLI fallback, including before any cached representation is reused.
@@ -257,6 +263,9 @@ export class GhApi {
     if (endpoint) throw new ForgeError("limit");
     return result;
   }
+  next(page: Page, path: string): string | undefined {
+    return this.#next(page.headers.link, path);
+  }
   #next(link: string | undefined, path: string): string | undefined {
     const match = link
       ?.split(",")
@@ -290,39 +299,5 @@ export class GhApi {
     });
     if (result.code !== 0) throw new ForgeError("cli");
     return { text: result.stdout, truncated: result.truncated };
-  }
-  async autoMerge(
-    repo: string,
-    number: number,
-    sha: string,
-    method: "merge" | "squash" | "rebase",
-    signal: AbortSignal,
-  ): Promise<void> {
-    const dispatch = new MutationDispatch();
-    try {
-      const result = await this.#runner({
-        command: this.#command,
-        args: [
-          "pr",
-          "merge",
-          String(number),
-          "--repo",
-          repo,
-          "--auto",
-          `--${method}`,
-          "--match-head-commit",
-          sha,
-        ],
-        signal,
-        mode: "json",
-        dispatch,
-      });
-      if (result.code !== 0) throw new ForgeError("cli");
-      if (result.identityChanged) throw new ForgeMutationOutcome({ number });
-    } catch (error) {
-      throw dispatch.failure(error);
-    }
-    this.#cache.clear();
-    this.#cacheBytes = 0;
   }
 }

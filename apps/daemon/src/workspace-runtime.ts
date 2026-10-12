@@ -197,7 +197,7 @@ export class WorkspaceRuntime {
   }
   async read(
     request: WorkspaceActionRequest,
-    signal?: AbortSignal,
+    signal: AbortSignal = new AbortController().signal,
   ): Promise<WorkspaceActionResult> {
     const op = request.operation;
     const wrap = (result: WorkspaceActionResult["result"]): WorkspaceActionResult => ({
@@ -205,6 +205,17 @@ export class WorkspaceRuntime {
       requestId: request.requestId,
       result,
     });
+    if (
+      op.op === "forge.pr.activity" ||
+      op.op === "forge.pr.list" ||
+      op.op === "forge.pr.detail" ||
+      op.op === "forge.pr.commits" ||
+      op.op === "forge.pr.files"
+    ) {
+      const root = this.store.getWorkspacePath(op.workspaceId);
+      if (!root) throw new Error("workspace_not_found");
+      return wrap({ kind: "forge", data: await this.forge.browse(root, op, signal) });
+    }
     if (op.op === "git.draft.cancel") return wrap({ kind: "draftCancelled" });
     if (op.op === "git.draft.context")
       return wrap({

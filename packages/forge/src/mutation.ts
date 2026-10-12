@@ -48,8 +48,16 @@ export class MutationDispatch {
   record(): void {
     this.#dispatched = true;
   }
-  reject(): void {
-    this.#rejected = true;
+  get definitelyFailed(): boolean {
+    return !this.#dispatched || this.#rejected;
+  }
+  /** Compatibility with the original observer API; admission is still recorded by the runner. */
+  begin(): void {
+    this.prepare();
+  }
+  reject(error?: unknown): void {
+    if (error === undefined || (error instanceof ForgeError && error.dispatched === false))
+      this.#rejected = true;
   }
   failure(error: unknown): unknown {
     return !this.#dispatched || this.#rejected || error instanceof ForgeMutationOutcome
