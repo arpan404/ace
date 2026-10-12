@@ -36,9 +36,10 @@
   }
 
   /* `.ace-glass-flat` keeps blur glass without displacement: a layer that resizes as you work
-     (the composer grows with each line) would otherwise need a new filter at every size. */
+     (the composer grows with each line) would otherwise need a new filter at every size. Modal
+     panels are excluded too: their dense tint (below) must never lose to this thinner one. */
   :root[data-surface="translucent"][data-glass-engine="liquid"]
-    :is(.ace-floating, .glass):not(.ace-glass-flat) {
+    :is(.ace-floating, .glass):not(.ace-glass-flat, .ace-modal) {
     background:
       radial-gradient(120% 60% at 22% 0%, var(--glass-sheen), transparent 60%),
       var(--glass-tint-liquid);
@@ -62,7 +63,8 @@
    * Modal layers (dialogs, sheets, the command palette): `.ace-modal` on the panel. Under
    * Translucent the backdrop behind it is the blur (`.ace-backdrop`), so the panel adds no blur of
    * its own and no displacement: it is a dense tint over an already blurred page, so text and
-   * fields read as on a solid surface. Declared after the liquid rule so it wins.
+   * fields read as on a solid surface. The liquid rule excludes `.ace-modal`, so this applies on
+   * every engine.
    */
   :root[data-surface="translucent"] :is(.ace-floating, .glass).ace-modal {
     background:
