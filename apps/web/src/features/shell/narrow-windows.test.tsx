@@ -112,7 +112,7 @@ test("on a phone Work is reached through the header menu", async () => {
   await openThread();
   const header = screen.getByRole("banner");
   expect(within(header).getByRole("button", { name: "Back to threads" })).toBeTruthy();
-  expect(within(header).getByRole("button", { name: /^Work/ })).toBeTruthy();
+  expect(within(header).getByRole("button", { name: /^Thread details/ })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Right panel" })).toBeNull();
   const more = await moreActions(header);
   await userEvent.click(more);
@@ -134,11 +134,11 @@ test("on a phone Work opens in the panel sheet and Escape closes it", async () =
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
-test("in a wide window the header shows only its menu, the Work icon and the panel toggle", async () => {
+test("in a wide window the header shows only its menu, the thread details icon and the panel toggle", async () => {
   windowWidth(1440);
   await openThread();
   const header = screen.getByRole("banner");
-  for (const name of ["More actions", "Right panel", /^Work/])
+  for (const name of ["More actions", "Right panel", /^Thread details/])
     expect(within(header).getByRole("button", { name })).toBeTruthy();
   for (const name of ["Search this thread", "Turns", "Commit", "Open", "Bottom panel"])
     expect(within(header).queryByRole("button", { name })).toBeNull();
@@ -149,7 +149,7 @@ test("a header narrowed by a side panel still shows one menu and the Work icon",
   headerWidth(400);
   await openThread();
   const header = screen.getByRole("banner");
-  expect(within(header).getAllByRole("button", { name: /^Work/ })).toHaveLength(1);
+  expect(within(header).getAllByRole("button", { name: /^Thread details/ })).toHaveLength(1);
   expect(within(header).getAllByRole("button", { name: "More actions" })).toHaveLength(1);
   await userEvent.click(within(header).getByRole("button", { name: "More actions" }));
   expect(await screen.findByRole("menuitem", { name: /Rename/ })).toBeTruthy();

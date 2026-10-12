@@ -131,11 +131,11 @@ test("search lives in the palette and the turns shortcut still works", async () 
 test("the Work shortcut opens the Work card and toggles it closed", async () => {
   await openThread();
   await userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}");
-  const card = await screen.findByRole("dialog", { name: "Work" });
+  const card = await screen.findByRole("dialog", { name: "Thread details" });
   expect(await within(card).findByRole("button", { name: machineRow })).toBeTruthy();
   expect((await workButton()).getAttribute("aria-expanded")).toBe("true");
   await userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull());
 });
 
 test("a menu opened from the card closes before the card does", async () => {
@@ -145,7 +145,7 @@ test("a menu opened from the card closes before the card does", async () => {
   expect(await screen.findByRole("menuitem", { name: /^Copy path/ })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("menuitem", { name: /^Copy path/ })).toBeNull());
-  expect(screen.getByRole("dialog", { name: "Work" })).toBe(card);
+  expect(screen.getByRole("dialog", { name: "Thread details" })).toBe(card);
 });
 
 test("an action from the card runs the project's script in a terminal tab of the side panel", async () => {
@@ -318,7 +318,7 @@ test("another thread opens with the card closed", async () => {
   const threads = screen.getByRole("navigation", { name: "Threads" });
   await userEvent.click(within(threads).getByRole("link", { name: /Fix flaky checkout test/ }));
   await screen.findByRole("heading", { level: 1, name: "Fix flaky checkout test" });
-  expect(screen.queryByRole("dialog", { name: "Work" })).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull();
   expect((await workButton()).getAttribute("aria-expanded")).toBe("false");
 });
 

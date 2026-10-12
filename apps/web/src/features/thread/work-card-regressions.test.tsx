@@ -44,7 +44,7 @@ test("a script reuses an agent shell whose command arrives after the task", asyn
       }),
     ]),
   );
-  const card = screen.getByRole("dialog", { name: "Work" });
+  const card = screen.getByRole("dialog", { name: "Thread details" });
   await within(card).findByRole("button", { name: "Show bun run dev:relay output" });
   await userEvent.click(script);
   const panel = await screen.findByRole("region", { name: "Thread panel" });

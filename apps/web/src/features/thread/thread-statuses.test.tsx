@@ -72,7 +72,7 @@ test("a thread that asked a question keeps the waiting state in the thread, row 
   expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
   expect(within(header).queryByRole("status")).toBeNull();
   expect(
-    await within(header).findByRole("button", { name: "Work, something needs you" }),
+    await within(header).findByRole("button", { name: "Thread details, something needs you" }),
   ).toBeTruthy();
 });
 

@@ -110,7 +110,7 @@ test("Escape from the machine menu restores focus to its row and keeps the card 
   await screen.findByRole("menu");
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(document.activeElement).toBe(trigger));
-  expect(screen.getByRole("dialog", { name: "Work" })).toBe(card);
+  expect(screen.getByRole("dialog", { name: "Thread details" })).toBe(card);
 });
 
 test("a retrying child remains active while it waits on its provider", async () => {
@@ -256,7 +256,7 @@ test("the script menu offers only configurations in the checkout", async () => {
   expect(
     await within(panel).findByRole("tab", { name: /package.json/, selected: true }),
   ).toBeTruthy();
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull());
 });
 
 test("a new script file is created, edited and saved through the Work card", async () => {

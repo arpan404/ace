@@ -52,10 +52,10 @@ test("the Work shortcut opens the card with focus inside, and Escape hands focus
   await openThread();
   const icon = await workButton();
   await userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}");
-  const card = await screen.findByRole("dialog", { name: "Work" });
+  const card = await screen.findByRole("dialog", { name: "Thread details" });
   await waitFor(() => expect(card.contains(document.activeElement)).toBe(true));
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull());
   expect(document.activeElement).toBe(icon);
 });
 
@@ -65,7 +65,7 @@ test("beside a wide thread area the side card takes focus, and Escape from outsi
   resized();
   const icon = await workButton();
   await userEvent.click(icon);
-  const card = await screen.findByRole("dialog", { name: "Work" });
+  const card = await screen.findByRole("dialog", { name: "Thread details" });
   await waitFor(() => expect(card.contains(document.activeElement)).toBe(true));
   await within(card).findByRole("region", { name: "Environment" });
 
@@ -84,7 +84,7 @@ test("Escape inside a menu opened from the side card closes the menu and keeps t
   await openThread();
   resized();
   await userEvent.click(await workButton());
-  const card = await screen.findByRole("dialog", { name: "Work" });
+  const card = await screen.findByRole("dialog", { name: "Thread details" });
   await userEvent.click(await within(card).findByRole("button", { name: "More git actions" }));
   await screen.findByRole("menu");
   await userEvent.keyboard("{Escape}");

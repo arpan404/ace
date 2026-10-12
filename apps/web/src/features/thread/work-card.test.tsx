@@ -113,7 +113,7 @@ test("Changes opens the Changes tab and the card gets out of the way", async () 
   );
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(await within(panel).findByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull());
 });
 
 test("Stop on a background command stops it, and its row leaves the card", async () => {
@@ -202,6 +202,6 @@ test("opening and closing the card keeps the composer draft", async () => {
   expect(input.textContent).toBe("Continue this draft");
   await openWorkCard();
   await userEvent.click(await workButton());
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull());
   expect(input.textContent).toBe("Continue this draft");
 });

@@ -27,7 +27,7 @@ import type { ThreadRef } from "../sources/index.ts";
 import type { Move } from "./checkout-move.tsx";
 import type { useGitFlow } from "./use-git-flow.tsx";
 import { BranchItems } from "./work-card-branches.tsx";
-import { Group, RowButton, RowCaret, RowLabel, RowStatic, rowIcon } from "./work-card-parts.tsx";
+import { Section, RowButton, RowCaret, RowLabel, RowStatic, rowIcon } from "./work-card-parts.tsx";
 import { useMergeMethod } from "./merge-method.ts";
 import { PrLine, useMergePr } from "./work-card-pr.tsx";
 
@@ -35,7 +35,7 @@ type GitFlow = ReturnType<typeof useGitFlow>;
 
 const glyph = (Glyph: typeof GitCommitIcon) => <Glyph aria-hidden size={16} />;
 
-/** The branch, its changes, the next git step, its pull request and how it stands. */
+/** The branch, the next git step, its changes, its pull request and how it stands. */
 export function GitGroup(props: {
   thread: ThreadRef;
   git: GitFlow;
@@ -47,10 +47,11 @@ export function GitGroup(props: {
   const checkout = git.checkout;
   const note = checkout && checkoutNote(checkout);
   return (
-    <Group id="git" title="Git">
+    <Section label="Git">
       <BranchRow thread={props.thread} git={git} move={props.move} />
       {checkout && (
         <>
+          <GitAction git={git} checkout={checkout} />
           <RowButton
             aria-label={`Changes, ${checkout.changed} files: ${checkout.additions} added, ${checkout.deletions} removed`}
             onClick={() => {
@@ -71,7 +72,6 @@ export function GitGroup(props: {
             )}
             <RowCaret to="elsewhere" />
           </RowButton>
-          <GitAction git={git} checkout={checkout} />
           <PrLine git={git} workspaceId={props.thread.workspaceId} onClose={props.onClose} />
           {note && (
             <output className="mx-1 my-0.5 flex h-[26px] items-center gap-2 rounded-sm bg-accent/60 px-2 text-xs text-muted-foreground">
@@ -81,7 +81,7 @@ export function GitGroup(props: {
           )}
         </>
       )}
-    </Group>
+    </Section>
   );
 }
 

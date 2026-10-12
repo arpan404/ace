@@ -15,7 +15,7 @@ const ownEscape = '[role="menu"], [role="listbox"], [role="dialog"], [role="aler
  * It measures the area, telling the store whether the card fits beside the centred reading
  * column; when it does, an open card floats at the area's top right over the gutter, so the
  * transcript never reflows. Its height stops short of the composer. Opening it moves focus in;
- * Escape anywhere closes it and focus goes back to the Work icon.
+ * Escape anywhere closes it and focus goes back to the details icon.
  */
 export function WorkSide(props: { threadId: string }) {
   const store = useWorkCardStore();
@@ -78,7 +78,7 @@ export function WorkSide(props: { threadId: string }) {
         <div
           ref={card}
           role="dialog"
-          aria-label="Work"
+          aria-label="Thread details"
           tabIndex={-1}
           data-edge="right"
           hidden={!presence.mounted}

@@ -7,12 +7,14 @@ import { useCheckoutMove } from "./checkout-move.tsx";
 import { useGitFlow } from "./use-git-flow.tsx";
 import { EnvironmentGroup } from "./work-card-environment.tsx";
 import { GitGroup } from "./work-card-git.tsx";
+import { LineageSection } from "./work-card-lineage.tsx";
 import { RunningGroup } from "./work-card-running.tsx";
 
 const CreateFile = lazy(() => loadCreateFile().then((module) => ({ default: module.CreateFile })));
 
 /**
- * The Work card's groups: Environment, Git and Running. Its forms (commit, PR, a guarded
+ * The thread details card's sections: Environment, Git, Lineage (a child thread's parent) and
+ * Running, a hairline between each. Its forms (commit, PR, a guarded
  * checkout move, a new script file) outlive the card, which closes when one opens.
  */
 export function WorkCard(props: { threadId: string; onClose(): void }) {
@@ -55,6 +57,7 @@ function WorkGroups(props: {
         onAddScript={() => setAddingScript(true)}
       />
       <GitGroup thread={props.thread} git={git} move={checkout.move} onClose={props.onClose} />
+      <LineageSection threadId={props.thread.id} onClose={props.onClose} />
       <RunningGroup
         threadId={props.thread.id}
         workspaceId={props.thread.workspaceId}

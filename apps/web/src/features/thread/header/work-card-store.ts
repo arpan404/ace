@@ -1,7 +1,7 @@
 import { createContext, use, useSyncExternalStore } from "react";
 
 /*
- * Whether the thread's Work card is open, and where it fits. The header's Work icon and the
+ * Whether the thread's Work card is open, and where it fits. The header's details icon and the
  * thread area's side slot share it, so toggling the card never re-renders the transcript.
  */
 
@@ -12,7 +12,7 @@ export interface WorkCardState {
 }
 
 export interface WorkCardStore {
-  /** The header's Work icon: the popover's anchor, and where focus returns on close. */
+  /** The header's details icon: the popover's anchor, and where focus returns on close. */
   button(): HTMLButtonElement | null;
   attachButton(button: HTMLButtonElement | null): void;
   /** The thread area the card measures and floats in; it holds the composer too. */

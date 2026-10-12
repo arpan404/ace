@@ -28,7 +28,8 @@ export function ThreadOpenIn(props: { thread: ThreadRef }) {
   ));
 }
 
-function useThreadEditorLaunch(thread: ThreadRef) {
+/** Hand the thread's checkout to an installed editor, remembering it as the default. */
+export function useThreadEditorLaunch(thread: ThreadRef) {
   const sources = useThreadSources();
   return useEditorLaunch(async (editorId) => {
     const launch = await sources.workspace.openIn(thread, editorId);

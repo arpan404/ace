@@ -10,9 +10,11 @@ export async function openWorkPanel() {
   return work;
 }
 
-/** The header's Work icon; its name gains ", working" or ", something needs you" with a dot. */
+/** The header's thread details icon; its name gains ", working" or ", something needs you" with a dot. */
 export async function workButton() {
-  return within(await screen.findByRole("banner")).findByRole("button", { name: /^Work/ });
+  return within(await screen.findByRole("banner")).findByRole("button", {
+    name: /^Thread details/,
+  });
 }
 
 /**
@@ -20,10 +22,10 @@ export async function workButton() {
  * popover), keeping it as it is when already open. Resolves once its groups have drawn.
  */
 export async function openWorkCard() {
-  let card = screen.queryByRole("dialog", { name: "Work" });
+  let card = screen.queryByRole("dialog", { name: "Thread details" });
   if (!card) {
     await userEvent.click(await workButton());
-    card = await screen.findByRole("dialog", { name: "Work" });
+    card = await screen.findByRole("dialog", { name: "Thread details" });
   }
   await within(card).findByRole("region", { name: "Environment" });
   return card;

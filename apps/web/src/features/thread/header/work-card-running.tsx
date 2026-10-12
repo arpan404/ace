@@ -8,13 +8,13 @@ import { useAutomations } from "@/features/automations/index.ts";
 import { useBackgroundShells } from "@/features/panels/index.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import {
-  Group,
   RowAction,
   RowButton,
   RowCaret,
   RowLabel,
   RowStatic,
   RowSub,
+  Section,
   rowIcon,
 } from "./work-card-parts.tsx";
 
@@ -44,7 +44,7 @@ export function RunningGroup(props: {
   const subagents = meta ? (meta.live?.runningSubagentCount ?? runningSubagents(meta.status)) : 0;
   if (!subagents && !shells.length && !automations) return null;
   return (
-    <Group id="running" title="Running">
+    <Section label="Running">
       {subagents > 0 && (
         <RowButton
           aria-label={`${pluralCount(subagents, "subagent", "subagents")} working, open the agent tree`}
@@ -75,7 +75,7 @@ export function RunningGroup(props: {
           <RowCaret to="elsewhere" />
         </RowButton>
       )}
-    </Group>
+    </Section>
   );
 }
 

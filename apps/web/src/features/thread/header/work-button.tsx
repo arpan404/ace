@@ -1,6 +1,6 @@
 import { useThreadMeta } from "@ace/client-react";
 import { listTreeFacts, treeWorking } from "@ace/ui-core";
-import { BriefcaseIcon } from "@phosphor-icons/react";
+import { ArticleIcon } from "@phosphor-icons/react";
 import {
   Suspense,
   useLayoutEffect,
@@ -28,7 +28,7 @@ export const workSurface =
 const composerGap = 12;
 
 /**
- * The header's Work icon: a live dot while the thread's tree works, an amber one while
+ * The header's thread details icon (a page with lines, as T3 draws it): a live dot while the thread's tree works, an amber one while
  * something waits on the person. Beside a roomy thread area it toggles the side card; in a
  * narrow one it opens the card as a popover from the icon, never reaching the composer.
  */
@@ -63,15 +63,15 @@ export function WorkButton(props: { threadId: string }) {
       <span className="relative inline-flex">
         <IconButton
           ref={button}
-          icon={BriefcaseIcon}
+          icon={ArticleIcon}
           label={
             dot === "needs-you"
-              ? "Work, something needs you"
+              ? "Thread details, something needs you"
               : dot === "working"
-                ? "Work, working"
-                : "Work"
+                ? "Thread details, working"
+                : "Thread details"
           }
-          tip="Work"
+          tip="Thread details"
           shortcut="workCard"
           aria-haspopup="dialog"
           aria-expanded={open}
@@ -92,7 +92,7 @@ export function WorkButton(props: { threadId: string }) {
           finalFocus={button}
           align="end"
           keepMounted
-          aria-label="Work"
+          aria-label="Thread details"
           style={room === undefined ? undefined : ({ "--work-max": `${room}px` } as CSSProperties)}
           className={cn(
             workSurface,

@@ -1,11 +1,10 @@
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
-import { useGroupOpen, type WorkGroup } from "./work-card-folds.ts";
 
 /*
  * The Work card's pieces at T3's toolbar scale: 32px rows, a 16px muted glyph, 13px words,
- * transparent until hovered. No rules between groups: a quiet fold title starts each one.
+ * transparent until hovered. One hairline between sections, no heading rows.
  */
 
 /** A row's leading glyph colour: muted, so the words lead. */
@@ -78,44 +77,19 @@ export function RowAction({ className, ...props }: ComponentProps<"button">) {
 }
 
 /**
- * A folding group: its title folds it, the fold is remembered on this device, and `action`
- * (Environment's settings gear) sits at the title's end.
+ * One of the card's sections (Environment, Git, Running, Lineage). No heading row: a hairline
+ * between sections is all that divides them, as T3's details card does. `label` names it for
+ * assistive tech; `title` shows a quiet caption where the rows alone don't say what they are.
  */
-export function Group(props: {
-  id: WorkGroup;
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  const [open, toggle] = useGroupOpen(props.id);
-  const body = `work-${props.id}`;
+export function Section(props: { label: string; title?: string; children: ReactNode }) {
   return (
-    <section aria-label={props.title} className="px-1.5 py-1 first:pt-1.5 last:pb-1.5">
-      <div className="flex h-[26px] items-center pr-1 pl-1.5">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={body}
-          onClick={toggle}
-          className="focus-ring -ml-1 inline-flex h-[22px] items-center gap-1 rounded-sm px-1 text-xs text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground"
-        >
-          <CaretDownIcon
-            aria-hidden
-            size={12}
-            className={cn(
-              "transition-transform duration-(--motion-base) ease-spring",
-              !open && "-rotate-90",
-            )}
-          />
+    <section aria-label={props.label} className="px-1.5 py-1.5 [&+&]:border-t [&+&]:border-border">
+      {props.title && (
+        <h3 className="flex h-6 items-center px-2.5 text-xs text-muted-foreground">
           {props.title}
-        </button>
-        {props.action && <span className="ml-auto flex">{props.action}</span>}
-      </div>
-      {open && (
-        <div id={body} className="fx-fade-in">
-          {props.children}
-        </div>
+        </h3>
       )}
+      {props.children}
     </section>
   );
 }
