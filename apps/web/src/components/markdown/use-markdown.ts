@@ -17,7 +17,11 @@ export function useMarkdown(text: string, stream?: string, final = true): Markdo
     (changed: () => void) => markdownService.watch(key, changed),
     [key],
   );
-  const read = useCallback(() => markdownService.read(key), [key]);
+  // A finished message reads at once even while the worker starts (`readOrBuild`).
+  const read = useCallback(
+    () => (final ? markdownService.readOrBuild(key, text) : markdownService.read(key)),
+    [key, text, final],
+  );
   const doc = useSyncExternalStore(subscribe, read, read);
   useEffect(() => {
     markdownService.want(key, text, final);

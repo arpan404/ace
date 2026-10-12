@@ -7,13 +7,14 @@ import { StreamRegistry, type StreamJob, type StreamReply } from "./stream-regis
  * A store against a real worker registry, with a hand-driven clock and timers, and replies
  * held until the test lets them through, as a busy worker would.
  */
-function harness(interval = 80, parkedWeight?: number) {
+function harness(interval = 80, parkedWeight?: number, cold?: { total: number; each: number }) {
   let now = 0;
   let registry = new StreamRegistry(() => now);
   const timers: { at: number; run: () => void; live: boolean }[] = [];
   const jobs: StreamJob[] = [];
   const released: string[] = [];
   const held: (() => Promise<StreamReply>)[] = [];
+  let warmed = 0;
   const store = new MarkdownStore({
     backend: {
       parallel: true,
@@ -31,6 +32,7 @@ function harness(interval = 80, parkedWeight?: number) {
         released.push(stream);
         registry.release(stream);
       },
+      warm: () => void warmed++,
     },
     now: () => now,
     schedule(delayMs, run) {
@@ -42,6 +44,7 @@ function harness(interval = 80, parkedWeight?: number) {
     },
     interval: () => interval,
     ...(parkedWeight === undefined ? {} : { parkedWeight }),
+    ...(cold ? { cold } : {}),
   });
   let notified = 0;
   const unwatch = store.watch("m", () => notified++);
@@ -51,6 +54,7 @@ function harness(interval = 80, parkedWeight?: number) {
     released,
     unwatch,
     notified: () => notified,
+    warmed: () => warmed,
     /** The worker answers the oldest job; the store has handled the answer when this resolves. */
     async reply() {
       // The store's own handler was attached first, so it has run once this await resumes.
@@ -246,4 +250,53 @@ test("updates come 10 to 20 times a second: slower when they cost more, and when
   expect(updateInterval(20, false)).toBe(80);
   expect(updateInterval(200, false)).toBe(100);
   expect(updateInterval(2, true)).toBe(100);
+});
+
+const cold = { total: 100, each: 60 };
+
+test("while the worker starts, a finished message is shown at once and the worker is started", () => {
+  const { store, jobs, warmed } = harness(80, undefined, cold);
+  const doc = store.readOrBuild("x", "# Title\n\nBody");
+  expect(doc?.blocks.map((block) => block.token.type)).toEqual(["heading", "paragraph"]);
+  expect(doc?.settled).toBe(2);
+  // Reading again during the same render returns the same document.
+  expect(store.readOrBuild("x", "# Title\n\nBody")).toBe(doc);
+  expect(warmed()).toBe(1);
+  // Asking for it once mounted sends the worker nothing: it is already built.
+  store.watch("x", () => {});
+  store.want("x", "# Title\n\nBody", true);
+  expect(jobs).toHaveLength(0);
+  expect(store.read("x")).toBe(doc);
+});
+
+test("finished messages build in place only within the cold budget, each and in all", () => {
+  const { store } = harness(80, undefined, cold);
+  expect(store.readOrBuild("long", "x".repeat(61))).toBeUndefined();
+  expect(store.readOrBuild("a", "a".repeat(60))).toBeDefined();
+  expect(store.readOrBuild("b", "b".repeat(40))).toBeDefined();
+  expect(store.readOrBuild("c", "c")).toBeUndefined();
+});
+
+test("once the worker has answered, new messages are built there, not in place", async () => {
+  const { store, reply, jobs } = harness(80, undefined, cold);
+  store.want("m", "Streaming", false);
+  await reply();
+  expect(store.readOrBuild("later", "Done.")).toBeUndefined();
+  store.watch("later", () => {});
+  store.want("later", "Done.", true);
+  expect(jobs.at(-1)).toEqual({ stream: "later", at: 0, append: "Done.", final: true });
+});
+
+test("the same finished text read through two mounts renders the same document from the cache", async () => {
+  const { store, reply, jobs } = harness();
+  const first = store.watch("#same", () => {});
+  store.want("#same", "Para.\n\n```ts\nconst a = 1;\n```", true);
+  await reply();
+  const shown = store.read("#same");
+  first();
+  const second = store.watch("#same", () => {});
+  store.want("#same", "Para.\n\n```ts\nconst a = 1;\n```", true);
+  expect(store.read("#same")).toBe(shown);
+  expect(jobs).toHaveLength(1);
+  second();
 });

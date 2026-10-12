@@ -25,7 +25,11 @@ export const markdownService = new MarkdownStore({
       if (markdownWorker.parallel) void markdownWorker.run({ release: stream }).catch(() => {});
       else localStreams.release(stream);
     },
+    // Releasing a stream the worker never held starts it and costs nothing more.
+    warm: () => void markdownWorker.run({ release: "" }).catch(() => {}),
   },
+  // Enough for the messages a thread opens on; a long answer waits for the worker as before.
+  cold: { total: 64 * 1024, each: 16 * 1024 },
   now: () => performance.now(),
   schedule(delayMs, run) {
     const timer = setTimeout(run, delayMs);
