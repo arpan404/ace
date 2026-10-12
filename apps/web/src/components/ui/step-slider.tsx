@@ -47,7 +47,7 @@ function StepSlider(props: {
   deepReasoning?: boolean;
   /** Use the existing accent gradient at every supported level. */
   gradient?: boolean;
-  /** The step that is the default, marked with a ring on its dot. */
+  /** The step that is the default: a ring on its dot and "default" under its label. */
   defaultIndex?: number | undefined;
 }) {
   // The pointer dragging the thumb, if any: a second finger can neither move nor end its drag.
@@ -149,7 +149,6 @@ function StepSlider(props: {
             key={step}
             aria-hidden
             data-default={index === props.defaultIndex ? "" : undefined}
-            title={index === props.defaultIndex ? "Default" : undefined}
             className={cn(
               "absolute top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full",
               selected && index < value ? "bg-white/70" : "bg-current opacity-30",
@@ -183,18 +182,29 @@ function StepSlider(props: {
           {props.steps.map((step, index) => (
             <span
               key={step}
-              title={index === props.defaultIndex ? "Default" : undefined}
               className={cn(
                 "absolute top-0 whitespace-nowrap transition-colors duration-(--motion-fast)",
                 selected && index === value && "font-medium text-foreground",
-                // The default stop reads as one under its ring: a dotted underline.
-                index === props.defaultIndex && "underline decoration-dotted underline-offset-4",
               )}
               style={tickStyle(index, count)}
             >
               {props.stepLabel(step)}
             </span>
           ))}
+        </div>
+      )}
+      {/* The default stop, said in words under its ring; the slider's description says it too. */}
+      {props.showLabels !== false && props.defaultIndex !== undefined && (
+        <div
+          aria-hidden
+          className="relative -mt-1.5 h-3.5 text-2xs leading-3.5 text-subtle-foreground"
+        >
+          <span
+            className="absolute top-0 whitespace-nowrap"
+            style={tickStyle(props.defaultIndex, count)}
+          >
+            default
+          </span>
         </div>
       )}
     </div>
