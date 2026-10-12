@@ -288,9 +288,12 @@ function PreparationPage(props: {
       choices: { ...snapshot(selection ?? previous?.choices ?? choices, resolved), project },
       settingsResolved: completed || !!resolved.model,
       provider: selection ? provider : previous?.provider ?? provider,
-      permission: permissionChoice?.provider === provider
-        ? permission
-        : previous?.provider === provider ? previous.permission : undefined,
+      permission:
+        permissionChoice?.provider === provider
+          ? permission
+          : previous?.provider === provider
+            ? previous.permission
+            : undefined,
       base: baseChoice ?? base,
       scopeEpoch: previous?.scopeEpoch,
       attachmentsUnavailable: previous?.attachmentsUnavailable && !!content?.attachments.length,
@@ -359,25 +362,32 @@ function PreparationPage(props: {
       if (!retirePreparationScope(storage, props.host, draftKey, id)) setSaveFailed(true);
     },
   });
-  const { create, error, recovering } = useCreateThread((payload) => {
-    const matched =
-      !metadataSaveRefused.current && !contentSaveRefused.current &&
-      payload.workspaceId === project && composer.current?.discardIfSubmitted(payload);
-    if (payload.context?.draftId) {
-      scope.retire(payload.context.draftId);
-      if (payload.workspaceId === project) {
-        if (matched && !discardPreparation(storage, props.host, draftKey)) {
-          if (!retainPromotedPreparation(storage, props.host, draftKey, payload.context.draftId))
+  const { create, error, recovering } = useCreateThread(
+    (payload) => {
+      const matched =
+        !metadataSaveRefused.current &&
+        !contentSaveRefused.current &&
+        payload.workspaceId === project &&
+        composer.current?.discardIfSubmitted(payload);
+      if (payload.context?.draftId) {
+        scope.retire(payload.context.draftId);
+        if (payload.workspaceId === project) {
+          if (matched && !discardPreparation(storage, props.host, draftKey)) {
+            if (!retainPromotedPreparation(storage, props.host, draftKey, payload.context.draftId))
+              setSaveFailed(true);
+          } else if (
+            !matched &&
+            !retirePreparationScope(storage, props.host, draftKey, payload.context.draftId)
+          )
             setSaveFailed(true);
-        } else if (
-          !matched &&
-          !retirePreparationScope(storage, props.host, draftKey, payload.context.draftId)
-        )
-          setSaveFailed(true);
+        }
       }
-    }
-  }, () => !contentSaveRefused.current && !metadataSaveRefused.current &&
-    !preparationSaveFailed(storage, draftKey));
+    },
+    () =>
+      !contentSaveRefused.current &&
+      !metadataSaveRefused.current &&
+      !preparationSaveFailed(storage, draftKey),
+  );
   const settlePreparation = useEffectEvent(() => {
     const saved = preparation(storage, props.host, draftKey);
     if (!saved || !resolved.model) return;
@@ -536,7 +546,8 @@ function PreparationPage(props: {
       // The handoff consumed this scope. Retained content now owns a new preparation.
       scope.retire(draftId);
       const retired = retirePreparationScope(storage, props.host, draftKey, draftId);
-      if (mounted.current) setSaveFailed(!retired || contentSaveRefused.current || metadataSaveRefused.current);
+      if (mounted.current)
+        setSaveFailed(!retired || contentSaveRefused.current || metadataSaveRefused.current);
       if (mounted.current) scopeId.current = undefined;
     } else if (sent) {
       scope.retire(draftId);

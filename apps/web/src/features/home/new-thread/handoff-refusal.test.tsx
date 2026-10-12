@@ -39,9 +39,12 @@ test.each(["content", "rows", "row deletion", "rotation", "new content"])(
       setItem(key: string, value: string) {
         if (
           full &&
-          (((refusal === "content" || refusal === "new content") && key === "ace.composer.drafts") ||
+          (((refusal === "content" || refusal === "new content") &&
+            key === "ace.composer.drafts") ||
             (key.startsWith("ace.preparations:") &&
-              (refusal === "rows" || refusal === "rotation" || (refusal === "row deletion" && value === "[]"))))
+              (refusal === "rows" ||
+                refusal === "rotation" ||
+                (refusal === "row deletion" && value === "[]"))))
         )
           throw new Error("quota");
         backing.setItem(key, value);
@@ -105,8 +108,8 @@ test.each(["content", "rows", "row deletion", "rotation", "new content"])(
     if (refusal !== "new content") {
       cleanup();
       await made.client.close();
-    // A new client and storage wrapper discard the page's retirement cache. The daemon must
-    // reject the durable adopted ID, while retaining the already delivered thread's file.
+      // A new client and storage wrapper discard the page's retirement cache. The daemon must
+      // reject the durable adopted ID, while retaining the already delivered thread's file.
       again = harness({ daemon: made.daemon, storage: { ...storage }, outbox });
       await again.open("/new?project=relay");
     }
