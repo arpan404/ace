@@ -42,6 +42,8 @@ The [source-control draft workflow](docs/daemon/source-control-drafts.md) docume
 editable commit and PR text generated through the user's own CLI, source revisions
 and cancellation.
 
+The [headless CLI](docs/daemon/cli.md) exposes thread and delegated-task control.
+
 The generated [protocol reference](docs/protocol/README.md) covers WebSocket messages, canonical events and built-in MCP tools. Regenerate it with `bun run docs:protocol`.
 
 ## Development

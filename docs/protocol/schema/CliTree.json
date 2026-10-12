@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliTree.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "pending": {
+        "type": "boolean"
+      },
+      "status": {
+        "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+      },
+      "threadId": {
+        "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+      }
+    },
+    "required": [
+      "threadId",
+      "status",
+      "pending"
+    ],
+    "type": "object"
+  },
+  "maxItems": 65,
+  "type": "array"
+}

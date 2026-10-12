@@ -14,21 +14,21 @@ type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T
 
 // #72 adds queue schemas to the canonical union. Keep only correlation here;
 // queue storage, removal, context leases and recovery remain with that owner.
-export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends
-  | `delegation.broker.${string}`
-  | `delegation.remote.${string}`
-  ? Replies<"delegation.broker.result">
-  : Q["type"] extends `provider.accounts.${string}`
-    ? Replies<"provider.accounts.result">
-    : Q["type"] extends `provider.install.${string}`
-      ? Replies<"provider.install.result">
-      : Q["type"] extends `provider.login.${string}` | "provider.logout"
-        ? Replies<"provider.login.result">
-        : Q["type"] extends `onboarding.${string}`
-          ? Replies<"onboarding.result">
-          : Q["type"] extends "worktree.creation.request"
-            ? Replies<"worktree.creation.result">
-            : LegacyServiceResponse<Q>;
+export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "cli.request"
+  ? Replies<"cli.result">
+  : Q["type"] extends `delegation.broker.${string}` | `delegation.remote.${string}`
+    ? Replies<"delegation.broker.result">
+    : Q["type"] extends `provider.accounts.${string}`
+      ? Replies<"provider.accounts.result">
+      : Q["type"] extends `provider.install.${string}`
+        ? Replies<"provider.install.result">
+        : Q["type"] extends `provider.login.${string}` | "provider.logout"
+          ? Replies<"provider.login.result">
+          : Q["type"] extends `onboarding.${string}`
+            ? Replies<"onboarding.result">
+            : Q["type"] extends "worktree.creation.request"
+              ? Replies<"worktree.creation.result">
+              : LegacyServiceResponse<Q>;
 
 type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "prompts.request"
   ? Replies<"prompts.result">
@@ -141,6 +141,7 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
                                                               : Reply;
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
+  "cli.request": ["cli.result"],
   "delegation.remote.output": ["delegation.broker.result"],
   "delegation.broker.return": ["delegation.broker.result"],
   "delegation.remote.transport": ["delegation.broker.result"],

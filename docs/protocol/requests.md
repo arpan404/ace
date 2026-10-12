@@ -10,6 +10,27 @@ Authenticate with `hello` and the negotiated protocolVersion before subscribing 
 
 [JSON Schema](schema/ClientMessage.json), input validation.
 
+### cli.request
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"cli.request"` |  |
+| requestId | yes | string | {"minLength":1} |
+| operation | yes | [CliOperation.json](schema/CliOperation.json) |  |
+
+Example:
+
+```json
+{
+  "operation": {
+    "op": "task.status",
+    "threadId": "example"
+  },
+  "requestId": "example",
+  "type": "cli.request"
+}
+```
+
 ### delegation.remote.transport
 
 | Field | Required | Type | Constraints |
@@ -40,12 +61,12 @@ Example:
 ```json
 {
   "operation": {
-    "offset": 9,
+    "offset": 3,
     "op": "read",
-    "sha256": "3b3f0e5f1c76710f64549d66b19702bca7d0cf6ebcbcbcb2e0dea3d9a542d4b3"
+    "sha256": "b3f0e5f1c76710f64549d66b19702bca7d0cf6ebcbcbcb2e0dea3d9a542d4b39"
   },
   "requestId": "example",
-  "taskId": "095564dc1df29329cf2f71b85ef012b37afcc7d4b955242ad2406152cfa8b24f",
+  "taskId": "95564dc1df29329cf2f71b85ef012b37afcc7d4b955242ad2406152cfa8b24fc",
   "type": "delegation.remote.output"
 }
 ```
@@ -69,15 +90,12 @@ Example:
     "hostId": "example",
     "parentThreadId": "example",
     "sourceHostId": "example",
-    "taskId": "e13780788af9744b74ca27003104ca1fa691c47aff5fb587594d560754eb9cb9",
+    "taskId": "13780788af9744b74ca27003104ca1fa691c47aff5fb587594d560754eb9cb94",
     "threadId": "example"
   },
   "lease": "example",
   "operation": {
-    "data": "example",
-    "offset": 0,
-    "op": "chunk",
-    "uploadId": "example"
+    "op": "prepare"
   },
   "requestId": "example",
   "type": "delegation.broker.return"
@@ -963,7 +981,7 @@ Example:
 }
 ```
 
-### Variant 43
+### Variant 44
 
 Type: union. See JSON Schema for constraints.
 
@@ -1403,7 +1421,7 @@ Example:
 }
 ```
 
-### Variant 64
+### Variant 65
 
 Type: union. See JSON Schema for constraints.
 

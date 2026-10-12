@@ -1,3 +1,4 @@
+import { cliControl } from "./services/cli-control.ts";
 import { shutdownDeadline } from "./shutdown.ts";
 import { connectedDoctorReport } from "./diagnostics-report.ts";
 import { detectToolchains } from "@ace/diagnostics";
@@ -359,6 +360,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       engine: services.engine,
       agentControl: services.agentControl,
+      cliControl: cliControl(serviceContext),
       accounts: services.accounts,
       accountManagement: services.accountManagement,
       cursorAuth: services.cursorAuth,
