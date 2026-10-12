@@ -806,7 +806,12 @@ function ComposerBody({
                 unavailable={props.unavailable}
               />
             </div>
-            <div data-slot="composer-controls" className="flex flex-1 items-center gap-0.5">
+            {/* The pill keeps only +, the model and send: these wait until it opens. */}
+            <div
+              data-slot="composer-controls"
+              hidden={pill}
+              className="flex flex-1 items-center gap-0.5"
+            >
               {props.controls}
             </div>
             <div data-slot="composer-trailing" className="flex min-w-0 shrink items-center">

@@ -232,3 +232,22 @@ test("approvals and predefined effort keep their readable modes on a phone", asy
   expect(model.querySelector("[data-slot=model-effort]")?.textContent).toBe("Medium");
   expect(model.getAttribute("aria-label")).toContain("Medium effort (default)");
 });
+
+test("an empty composer on a phone is one pill row that opens while typing", async () => {
+  layoutWidth(358);
+  const { message } = await open("busy");
+  // The pill keeps +, the message, the model and send; approvals wait until it opens.
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^Approvals: / })).toBeNull());
+  expect(screen.getByRole("button", { name: /^Model: / })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /^Add / })).toBeTruthy();
+  await userEvent.type(message, "Cap");
+  expect(await screen.findByRole("button", { name: /^Approvals: / })).toBeTruthy();
+  await userEvent.clear(message);
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^Approvals: / })).toBeNull());
+});
+
+test("a wide composer never collapses into the pill", async () => {
+  layoutWidth(900);
+  await open("busy");
+  expect(await screen.findByRole("button", { name: /^Approvals: / })).toBeTruthy();
+});

@@ -15,20 +15,19 @@
 [data-slot="composer"][data-pill] > [data-slot="composer-footer"] {
   display: contents;
 }
-[data-slot="composer"][data-pill] [data-slot="composer-controls"] {
-  display: none;
-}
 [data-slot="composer"][data-pill] [data-slot="composer-add"] {
   order: 1;
 }
+/* The message keeps room for its placeholder; the model chip gives way first, its name truncating. */
 [data-slot="composer"][data-pill] > [data-slot="composer-input"] {
   order: 2;
-  min-width: 0;
-  flex: 1 1 auto;
+  min-width: 5.5rem;
+  flex: 1 1 5.5rem;
   padding: 0 0.25rem;
 }
 [data-slot="composer"][data-pill] [data-slot="composer-trailing"] {
   order: 3;
+  max-width: 45%;
 }
 [data-slot="composer"][data-pill] [data-slot="composer-primary"] {
   order: 4;
