@@ -143,7 +143,15 @@ Optional compaction checks that execution and history publication are idle and
 that at least three database sizes of free disk remain. It uses a separate
 child process, no surrounding transaction, and zero busy timeout. A scoped
 maintenance lease closes new work admission and pauses parent writes while SQLite
-readers and socket heartbeats remain available. The helper has a 30-second
+readers and socket heartbeats remain available. Browser and terminal mutations
+share maintenance admission with commands. Compaction defers while admitted browser
+operations, terminal launches or owned terminal processes are still active.
+Browser artifact publication uses `Store.write()` to wait for maintenance and
+commit its event synchronously after rechecking thread liveness. Its registry
+entry stays reserved while publication waits for compaction to finish.
+PR-created worktrees use the same durable creation registry, including worktrees
+selected for an existing thread; their real thread owner supplies tree protections.
+The helper has a 30-second
 deadline and is killed on timeout or shutdown. Admission is restored only after
 confirmed process termination; uncertain termination keeps its fence. Existing
 incremental auto-vacuum databases reclaim 256 pages; other databases use VACUUM.
@@ -176,6 +184,9 @@ verification should include these production mutations:
 - Admit a new root owner during final cleanup inspection.
 - Retain admission fences after a confirmed pre-deletion refusal.
 - Block socket reads and heartbeats on compaction.
+- Admit browser/recording or terminal mutations during compaction.
+- Discard a browser registration when its publication encounters compaction.
+- Corrupt committed data after killing VACUUM during WAL page publication.
 - Enable repository fsmonitor/filter execution during cleanup.
 - Remove a changed branch instead of compare-and-deleting it.
 - Omit either running journal or its startup replay.
