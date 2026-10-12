@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import rawTokens from "../tokens.json" with { type: "json" };
-import { sharedStatus } from "../../../apps/web/src/theme/palettes.ts";
+import { themeDeclarations } from "../../../apps/web/src/theme/css.ts";
+import { defaultThemeId } from "../../../apps/web/src/theme/palettes.ts";
 import { DesignTokensSchema, designTokens } from "./index.ts";
 
 const schemes = ["light", "dark"] as const;
@@ -36,10 +37,16 @@ describe("native theme data", () => {
   });
 
   for (const scheme of schemes) {
-    // Web themes tune working, needs-you, done and failed per theme; waiting and not-responding
-    // are shared by every web theme of a scheme, and native must render the same hues.
-    it(`${scheme} waiting and not-responding markers match the colours the web renders`, () => {
-      expect(designTokens.schemes[scheme].status).toMatchObject(sharedStatus[scheme]);
+    it(`${scheme} status markers stay identical to the colours the web renders in Ace`, () => {
+      const web = themeDeclarations(defaultThemeId, scheme);
+      expect(designTokens.schemes[scheme].status).toEqual({
+        needsYou: web["--status-needs-you"],
+        working: web["--status-working"],
+        waiting: web["--status-waiting"],
+        unresponsive: web["--status-unresponsive"],
+        done: web["--status-done"],
+        failed: web["--status-failed"],
+      });
     });
 
     const theme = designTokens.schemes[scheme];
