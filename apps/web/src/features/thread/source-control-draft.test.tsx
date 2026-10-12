@@ -236,3 +236,30 @@ test("reconnect discards a pending result and never requests another generation"
   );
   expect(requests).toBe(1);
 });
+
+test("a moved PR draft preserves its recovery guidance and never publishes stale text", async () => {
+  const { app, form } = await open("pr");
+  await userEvent.click(form.getByRole("button", { name: "Generate draft" }));
+  await form.findByLabelText("Generated draft");
+  await userEvent.click(form.getByRole("button", { name: "Use draft" }));
+  app.daemon.workspace.setGitDiff("draft-thread", "+different changes after generation\n");
+  await userEvent.click(form.getByRole("button", { name: /^Create PR/ }));
+  expect((await form.findByRole("alert")).textContent).toBe(
+    "The selected changes moved. Generate again, or discard the draft to use your own text.",
+  );
+  const snapshot = app.daemon.snapshot({
+    kind: "thread",
+    threadId: ThreadId.parse("draft-thread"),
+  });
+  if (!snapshot || snapshot.kind !== "thread") throw new Error("Missing thread snapshot");
+  expect(snapshot.thread.details?.linkedPr).toBeUndefined();
+  expect(snapshot.thread.details?.linkedPrs ?? []).toEqual([]);
+  expect(form.getByRole("button", { name: "Generate draft" })).toHaveProperty("disabled", false);
+  await userEvent.click(form.getByRole("button", { name: "Generate draft" }));
+  await form.findByLabelText("Generated draft");
+  await userEvent.click(form.getByRole("button", { name: "Use draft" }));
+  await userEvent.click(form.getByRole("button", { name: /^Create PR/ }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Open a pull request" })).toBeNull(),
+  );
+});
