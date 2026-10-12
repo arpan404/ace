@@ -44,6 +44,7 @@ export function ComposerStrip(props: {
   const offline = connection === "offline";
   const facts: StripFacts = {
     requests,
+    target: props.requestTarget,
     connection: offline || connection === "reconnecting",
     queue: queued > 0 || queue.failed || !!held,
     plan: !!plan,

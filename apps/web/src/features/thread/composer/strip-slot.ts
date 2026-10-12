@@ -2,7 +2,8 @@
  * The composer's one strip slot. Several things want the room above the composer; it shows one,
  * the rest as small indicators inside it. By default the most urgent shows: a request needing the
  * person, then trouble with the connection, then the queue, then plan progress. The person can
- * switch the slot to any present item; a request that arrives after that takes it back. Pure.
+ * switch the slot to any present item; a request that arrives after that, or one a notification
+ * opens, takes it back. Pure.
  */
 export const stripPriority = ["request", "connection", "queue", "plan"] as const;
 export type StripKind = (typeof stripPriority)[number];
@@ -11,6 +12,8 @@ export type StripKind = (typeof stripPriority)[number];
 export interface StripFacts {
   /** The open requests' ids, oldest first. */
   requests: readonly string[];
+  /** The request a notification opened the thread on, if any. */
+  target?: string | undefined;
   connection: boolean;
   queue: boolean;
   plan: boolean;
@@ -20,6 +23,8 @@ export interface StripFacts {
 export interface StripPick {
   kind: StripKind;
   seen: readonly string[];
+  /** The notification target at the time. */
+  target: string | undefined;
 }
 
 export interface StripSlot {
@@ -33,7 +38,12 @@ const present = (facts: StripFacts, kind: StripKind) =>
 
 export function stripSlot(facts: StripFacts, pick: StripPick | undefined): StripSlot {
   const items = stripPriority.filter((kind) => present(facts, kind));
-  const arrived = pick ? facts.requests.some((id) => !pick.seen.includes(id)) : false;
+  const targeted =
+    facts.target !== undefined && facts.requests.includes(facts.target) ? facts.target : undefined;
+  const arrived = pick
+    ? facts.requests.some((id) => !pick.seen.includes(id)) ||
+      (targeted !== undefined && targeted !== pick.target)
+    : false;
   const shown =
     pick && !arrived && items.includes(pick.kind) ? pick.kind : (items[0] as StripKind | undefined);
   return { shown, others: items.filter((kind) => kind !== shown) };
@@ -41,5 +51,5 @@ export function stripSlot(facts: StripFacts, pick: StripPick | undefined): Strip
 
 /** The person chose `kind` from an indicator; choosing a request goes back to the default. */
 export function pickStrip(kind: StripKind, facts: StripFacts): StripPick | undefined {
-  return kind === "request" ? undefined : { kind, seen: facts.requests };
+  return kind === "request" ? undefined : { kind, seen: facts.requests, target: facts.target };
 }

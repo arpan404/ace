@@ -59,3 +59,15 @@ test("choosing the request indicator goes back to the default order", () => {
   const now = facts({ requests: ["a"], queue: true });
   expect(stripSlot(now, pickStrip("request", now)).shown).toBe("request");
 });
+
+test("a notification opening a request the person already saw takes the slot back", () => {
+  const before = facts({ requests: ["approval-1"], queue: true });
+  const pick = pickStrip("queue", before);
+  expect(stripSlot(before, pick).shown).toBe("queue");
+  expect(stripSlot({ ...before, target: "approval-1" }, pick).shown).toBe("request");
+});
+
+test("switching away after a notification opened the thread sticks", () => {
+  const now = facts({ requests: ["approval-1"], target: "approval-1", queue: true });
+  expect(stripSlot(now, pickStrip("queue", now)).shown).toBe("queue");
+});
