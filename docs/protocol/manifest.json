@@ -2593,8 +2593,8 @@
       "sha256": "6b5d0b629c3b11adc123370961fbb5d6e758854edf8635d975b1cf1cb9fa6826"
     },
     "schema/StorageApply.json": {
-      "bytes": 1312,
-      "sha256": "22d34bb9ab305c9f98aba70d6b11b703fd718a928c1480ec99e2473541a2c11d"
+      "bytes": 1395,
+      "sha256": "b28d4ba63243fc0a5bb6e77165f4977afc4e448601ebb3fee52e1f623218af95"
     },
     "schema/StorageItem.json": {
       "bytes": 1804,
@@ -3365,10 +3365,10 @@
       "sha256": "8483e2fd08a5b7f6d6ca7be1172e25765a4dbcc863fa1983e8bcea54b8dd5593"
     },
     "types.md": {
-      "bytes": 707693,
-      "sha256": "5d9077748341d3465d1080b6bb76b3e2dce074f38e9bcd2c0f35036f8c2a8b9c"
+      "bytes": 707726,
+      "sha256": "d271ee9c8e06c0c6ca7edefe52da9f25510e66ffecc7e4ad7e3c7533a9ce1f8d"
     }
   },
-  "input": "9f4eb0f7a725f070355388c2e343dc389390158e30d0eaabf868f5f91a2f288f",
+  "input": "594519ba5bfc3e438a2bf7c7d1ec6b7639542bd14955b75ec05d9af23126c1fe",
   "version": 1
 }

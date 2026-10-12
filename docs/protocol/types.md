@@ -23059,6 +23059,7 @@ Example:
 | state | yes | ["complete","pending","stale"] |  |
 | items | yes | array | {"maxItems":256,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"state":{"type":"string","enum":["removed","pending","protected"]},"reason":{"$ref":"https://ace.local/protocol/v1/StorageReason.json"},"error":{"type":"string","maxLength":128}},"required":["id","state"]}} |
 | compaction | yes | ["not_requested","complete","deferred"] |  |
+| compactionReason | no | `"disabled"` |  |
 
 Example:
 
@@ -23094,16 +23095,15 @@ Example:
 
 ```json
 {
-  "branch": null,
-  "bytes": 2,
+  "bytes": 6,
   "disposition": "protect",
   "forced": true,
   "id": "example",
-  "kind": "worktrees",
+  "kind": "attachments",
   "label": "example",
-  "modifiedAt": 6,
+  "modifiedAt": 8,
   "reasons": [
-    "unsafe_path"
+    "within_retention"
   ],
   "removeBranch": false,
   "threadIds": []

@@ -139,31 +139,30 @@ batch. Preview again after applying a batch to discover additional data. Very
 large worktrees fail closed with `unknown_git_state` rather than a partial
 cleanliness proof.
 
-Optional compaction checks that execution and history publication are idle and
-that at least three database sizes of free disk remain. It uses a separate
-child process, no surrounding transaction, and zero busy timeout. A scoped
-maintenance lease closes new work admission and pauses parent writes while SQLite
-readers and socket heartbeats remain available. Browser and terminal mutations
-share maintenance admission with commands. Compaction defers while admitted browser
-operations, terminal launches or owned terminal processes are still active.
-Browser artifact publication uses `Store.write()` to wait for maintenance and
-commit its event synchronously after rechecking thread liveness. Its registry
-entry stays reserved while publication waits for compaction to finish.
-PR-created worktrees use the same durable creation registry, including worktrees
-selected for an existing thread; their real thread owner supplies tree protections.
-The helper has a 30-second
-deadline and is killed on timeout or shutdown. Admission is restored only after
-confirmed process termination; uncertain termination keeps its fence. Existing
-incremental auto-vacuum databases reclaim 256 pages; other databases use VACUUM.
-A busy database or insufficient disk returns `deferred`. See SQLite's
-[VACUUM contract](https://www.sqlite.org/lang_vacuum.html) and Git's
-[worktree contract](https://git-scm.com/docs/git-worktree).
+Database compaction is disabled in this PR and will be a separate delivery.
+Retention cleanup never starts VACUUM or incremental vacuum, changes the Store
+handle to query-only, or acquires a compaction maintenance fence. Deleted SQLite
+pages stay reusable by ordinary writes; cleanup does not promise to shrink the
+database file on disk.
+
+The API keeps `compact` for compatibility with older clients and accepted plans.
+A completed cleanup requested with `compact: true` reports `compaction: "deferred"`
+and `compactionReason: "disabled"`. Reviewed removals still run, and accepted plans
+resume after restart without performing database maintenance. `compact: false`
+reports `not_requested`. Historical completed plans keep their saved results.
+Settings does not offer a compaction checkbox.
+
+The compaction follow-up must first enforce an awaitable Store write boundary for
+all mutation paths, including refresh, asynchronous action receipts, automation
+admission, Forge projections and device bookkeeping. That migration must preserve
+synchronous ownership checks inside commits, bound waits and handle background
+promise rejections before database maintenance can be enabled.
 
 ## Scheduling and verification
 
 `StorageService.scheduledCleanup()` is the host automation hook. It resumes old
 accepted work, creates a plan from saved policy and applies it with no forces or
-compaction. `storage.scheduledCleanup` defaults to false. Enabling it installs
+database maintenance. `storage.scheduledCleanup` defaults to false. Enabling it installs
 one injected timer with a durable daily deadline. Disabling it also withdraws
 permission from an in-flight scheduled apply. No provider CLI is started.
 
@@ -183,10 +182,7 @@ verification should include these production mutations:
 - Infer cleanup ownership from a linked worktree or directory name.
 - Admit a new root owner during final cleanup inspection.
 - Retain admission fences after a confirmed pre-deletion refusal.
-- Block socket reads and heartbeats on compaction.
-- Admit browser/recording or terminal mutations during compaction.
-- Discard a browser registration when its publication encounters compaction.
-- Corrupt committed data after killing VACUUM during WAL page publication.
+- Enable disabled database compaction for a new or recovered cleanup request.
 - Enable repository fsmonitor/filter execution during cleanup.
 - Remove a changed branch instead of compare-and-deleting it.
 - Omit either running journal or its startup replay.

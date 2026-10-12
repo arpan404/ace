@@ -10,6 +10,10 @@
       ],
       "type": "string"
     },
+    "compactionReason": {
+      "const": "disabled",
+      "type": "string"
+    },
     "items": {
       "items": {
         "properties": {
