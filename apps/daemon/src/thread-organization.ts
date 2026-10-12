@@ -1,3 +1,4 @@
+import { threadCleaning } from "./thread-cleanup-journal.ts";
 import { organizationDecision } from "@ace/projection";
 export { organizationCommands } from "@ace/projection";
 import { ThreadId, type Command, type CommandResult } from "@ace/protocol";
@@ -14,6 +15,8 @@ export function organizeThread(
   const thread = store.getThread(ThreadId.parse(p.threadId));
   if (!thread || thread.deletedAt !== undefined)
     return { commandId: command.id, ok: false, error: "thread_not_found" };
+  if (threadCleaning(store, thread.id))
+    return { commandId: command.id, ok: false, error: "thread_deleting" };
   if (p.type === "thread.delete") {
     if (threadHasPendingWork(store, thread.id, ownsWork))
       return { commandId: command.id, ok: false, error: "thread_busy" };

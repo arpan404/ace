@@ -1,8 +1,14 @@
+import {
+  inspectAttachmentCleanup,
+  removeAttachmentCleanup,
+  resumeAttachmentCleanup,
+  type AttachmentCleanupEntry,
+} from "./retention.ts";
 import { hasThumbnail } from "./attachment-bytes.ts";
 import { beginUpload } from "./upload-admission.ts";
 import { BlobLeases, type BlobLease } from "./blob-leases.ts";
 import { constants } from "node:fs";
-import { chmod, mkdir, open, rename, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, open, rename, rm, stat, opendir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import {
@@ -31,6 +37,7 @@ export class UploadStore {
   private maintenance: Maintenance;
   private leases: BlobLeases;
   private collectionThread = "";
+  private initialReady: Promise<void>;
   private constructor(options: UploadOptions) {
     this.options = options;
     this.limits = { ...defaultUploadLimits, ...options.limits };
@@ -46,14 +53,23 @@ export class UploadStore {
       "Thread reference cap cannot exceed wire limit",
     );
     this.metadata = new Metadata(join(options.root, "context.sqlite"), options.signal);
-    this.tail = this.metadata.ready;
+    this.metadata.run(
+      "CREATE TABLE IF NOT EXISTS blob_retention(hash TEXT PRIMARY KEY,changed INTEGER NOT NULL)",
+    );
+    this.metadata.run(
+      "CREATE TABLE IF NOT EXISTS attachment_cleanup(hash TEXT PRIMARY KEY,record TEXT NOT NULL)",
+    );
+    this.initialReady = this.metadata.ready.then(() =>
+      resumeAttachmentCleanup(this.metadata, options.root),
+    );
+    this.tail = this.initialReady;
     this.leases = new BlobLeases(this.metadata);
     this.maintenance = new Maintenance(this.metadata, options.root, options.now, (row) =>
       this.removeUpload(row),
     );
   }
   get ready(): Promise<void> {
-    return this.metadata.ready;
+    return this.initialReady;
   }
   static async open(options: UploadOptions): Promise<UploadStore> {
     await mkdir(join(options.root, "uploads"), { recursive: true, mode: 0o700 });
@@ -364,9 +380,19 @@ export class UploadStore {
     if (!existing || !blob) return;
     this.metadata.run("DELETE FROM refs WHERE thread=? AND sha256=?", thread, hash);
     this.metadata.run("UPDATE blobs SET refs=refs-1 WHERE sha256=?", hash);
+    this.metadata.run(
+      "INSERT OR REPLACE INTO blob_retention VALUES (?,?)",
+      hash,
+      this.options.now(),
+    );
     this.metadata.adjust(thread, -blob.bytes, -1);
   }
   private async commit(row: UploadRow): Promise<Attachment> {
+    requireContext(
+      !this.metadata.get("SELECT 1 FROM attachment_cleanup WHERE hash=?", row.sha256),
+      "busy",
+      "Attachment cleanup is still pending",
+    );
     if (row.done) {
       const blob = this.metadata.blob(row.sha256);
       const reference = this.metadata.get(
@@ -508,6 +534,11 @@ export class UploadStore {
     return this.serialize(async () => {
       await this.authorized(device, thread);
       const blobs = parsed.map((hash) => {
+        requireContext(
+          !this.metadata.get("SELECT 1 FROM attachment_cleanup WHERE hash=?", hash),
+          "busy",
+          "Attachment cleanup is still pending",
+        );
         const name = this.metadata.get(
           "SELECT name FROM refs WHERE thread=? AND sha256=?",
           thread,
@@ -557,48 +588,97 @@ export class UploadStore {
   }
   /** Bounded GC and expiry batch, serialized with commits. */
   async collect(limit = 128): Promise<number> {
-    return this.serialize(async () => {
-      requireContext(
-        Number.isInteger(limit) && limit > 0 && limit <= 1024,
-        "invalid_request",
-        "Invalid GC batch limit",
-      );
-      if (this.options.threadExists) {
-        const owners = this.metadata.all(
-          "SELECT DISTINCT thread FROM refs WHERE thread>? ORDER BY thread LIMIT ?",
-          this.collectionThread,
-          limit,
-        );
-        for (const owner of owners) {
-          const thread = z.string().parse(owner.thread);
-          this.collectionThread = thread;
-          if (
-            !this.metadata.get("SELECT 1 FROM drafts WHERE id=?", thread) &&
-            !this.options.threadExists(thread)
-          ) {
-            for (const attachment of this.list(thread))
-              this.removeReference(thread, attachment.sha256);
-            for (const row of this.metadata.all("SELECT * FROM uploads WHERE thread=?", thread))
-              await this.removeUpload(UploadRow.parse(row));
-          }
-        }
-        if (owners.length < limit) this.collectionThread = "";
-      }
-      const expired = this.metadata.all(
-        "SELECT id FROM drafts WHERE expires<=? ORDER BY expires LIMIT ?",
-        this.options.now(),
+    return this.serialize(
+      async () => (await this.expireOwned(limit)) + (await this.maintenance.collect(limit)),
+    );
+  }
+  async expire(limit = 128): Promise<number> {
+    return this.serialize(() => this.expireOwned(limit));
+  }
+  private async expireOwned(limit: number): Promise<number> {
+    requireContext(
+      Number.isInteger(limit) && limit > 0 && limit <= 1024,
+      "invalid_request",
+      "Invalid GC batch limit",
+    );
+    if (this.options.threadExists) {
+      const owners = this.metadata.all(
+        "SELECT DISTINCT thread FROM refs WHERE thread>? ORDER BY thread LIMIT ?",
+        this.collectionThread,
         limit,
       );
-      for (const row of expired) {
-        const id = z.string().parse(row.id);
-        for (const attachment of this.list(id)) this.release(id, attachment.sha256);
-        for (const upload of this.metadata.all("SELECT * FROM uploads WHERE thread=?", id))
-          await this.removeUpload(UploadRow.parse(upload));
-        this.metadata.run("DELETE FROM drafts WHERE id=?", id);
+      for (const owner of owners) {
+        const thread = z.string().parse(owner.thread);
+        this.collectionThread = thread;
+        if (
+          !this.metadata.get("SELECT 1 FROM drafts WHERE id=?", thread) &&
+          !this.options.threadExists(thread)
+        ) {
+          for (const attachment of this.list(thread))
+            this.removeReference(thread, attachment.sha256);
+          for (const row of this.metadata.all("SELECT * FROM uploads WHERE thread=?", thread))
+            await this.removeUpload(UploadRow.parse(row));
+        }
       }
-      return expired.length + (await this.maintenance.collect(limit));
+      if (owners.length < limit) this.collectionThread = "";
+    }
+    const expired = this.metadata.all(
+      "SELECT id FROM drafts WHERE expires<=? ORDER BY expires LIMIT ?",
+      this.options.now(),
+      limit,
+    );
+    for (const row of expired) {
+      const id = z.string().parse(row.id);
+      for (const attachment of this.list(id)) this.release(id, attachment.sha256);
+      for (const upload of this.metadata.all("SELECT * FROM uploads WHERE thread=?", id))
+        await this.removeUpload(UploadRow.parse(upload));
+      this.metadata.run("DELETE FROM drafts WHERE id=?", id);
+    }
+    return expired.length + (await this.maintenance.expireUploads(limit));
+  }
+  async cleanupInventory(
+    limit = 256,
+  ): Promise<{ entries: AttachmentCleanupEntry[]; complete: boolean }> {
+    return this.serialize(async () => {
+      z.number().int().min(1).max(256).parse(limit);
+      const hashes = new Set(
+        this.metadata
+          .all("SELECT sha256 FROM blobs WHERE refs=0 ORDER BY sha256 LIMIT ?", limit)
+          .map((row) => BlobHash.parse(row.sha256)),
+      );
+      const referenced: string[] = [];
+      let complete = true,
+        visited = 0;
+      for await (const file of await opendir(join(this.options.root, "blobs"))) {
+        if (++visited > 10000) {
+          complete = false;
+          break;
+        }
+        if (!file.isFile() || !BlobHash.safeParse(file.name).success || hashes.has(file.name))
+          continue;
+        if (this.metadata.blob(file.name)) referenced.push(file.name);
+        else if (hashes.size < limit) hashes.add(file.name);
+        else complete = false;
+      }
+      for (const hash of referenced) {
+        if (hashes.size < limit) hashes.add(hash);
+        else complete = false;
+      }
+      const entries: AttachmentCleanupEntry[] = [];
+      for (const hash of hashes)
+        entries.push(await inspectAttachmentCleanup(this.metadata, this.options.root, hash));
+      return { entries, complete };
     });
   }
+  inspectCleanup(hash: string): Promise<AttachmentCleanupEntry> {
+    return this.serialize(() => inspectAttachmentCleanup(this.metadata, this.options.root, hash));
+  }
+  removeCleanup(hash: string, fingerprint: string): Promise<void> {
+    return this.serialize(() =>
+      removeAttachmentCleanup(this.metadata, this.options.root, hash, fingerprint),
+    );
+  }
+
   async close(): Promise<void> {
     this.closing = true;
     try {

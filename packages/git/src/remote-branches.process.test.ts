@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
@@ -168,4 +168,35 @@ test("branch heads resolve only literal branch names, locally or on a remote", a
   await expect(service.branchHead({ repo: clone, branch: "main~1" })).rejects.toMatchObject({
     code: "invalid_ref",
   });
+});
+
+test("fetching a PR head keeps staged and dirty work, ordinary refs and FETCH_HEAD unchanged", async () => {
+  const { clone, publisher } = await remoteSetup();
+  await git(publisher, "commit", "--allow-empty", "-m", "Fork PR commit");
+  const head = await scalar(publisher, "rev-parse", "HEAD");
+  await git(publisher, "push", "origin", "HEAD:refs/pull/7/head");
+  await put(clone, "tracked.txt", "Personal dirty work\n");
+  await put(clone, "staged.txt", "Staged work\n");
+  await git(clone, "add", "staged.txt");
+  await writeFile(join(clone, ".git", "FETCH_HEAD"), "person's prior fetch\n");
+  const before = await checkoutState(clone);
+  const refs = await scalar(clone, "for-each-ref", "refs/remotes", "refs/tags");
+  expect(
+    await service.fetchPrHead({ repo: clone, remote: "origin", number: 7, timeoutMs: 60_000 }),
+  ).toBe(head);
+  expect(await checkoutState(clone)).toEqual(before);
+  expect(await scalar(clone, "for-each-ref", "refs/remotes", "refs/tags")).toBe(refs);
+  expect(await readFile(join(clone, ".git", "FETCH_HEAD"), "utf8")).toBe("person's prior fetch\n");
+});
+
+test("a missing PR ref fails even when an older private PR head is cached", async () => {
+  const { clone, publisher, origin } = await remoteSetup();
+  await git(publisher, "push", "origin", "HEAD:refs/pull/7/head");
+  await service.fetchPrHead({ repo: clone, remote: "origin", number: 7, timeoutMs: 60_000 });
+  const before = await checkoutState(clone);
+  await git(origin, "update-ref", "-d", "refs/pull/7/head");
+  await expect(
+    service.fetchPrHead({ repo: clone, remote: "origin", number: 7, timeoutMs: 60_000 }),
+  ).rejects.toMatchObject({ code: "remote_ref_not_found" });
+  expect(await checkoutState(clone)).toEqual(before);
 });

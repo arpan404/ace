@@ -1,3 +1,7 @@
+import { projectBadge } from "@ace/ui-core";
+import { ProjectMark } from "@/components/project-mark.tsx";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useClient } from "@ace/client-react";
@@ -10,7 +14,8 @@ import { discardPreparation } from "./discard-preparation.ts";
 
 /** Unsent preparations belong to this daemon and device, outside the running thread list. */
 export function DraftRows() {
-  const host = useHostIdentity()?.hostId;
+  const identity = useHostIdentity();
+  const host = identity?.hostId;
   const { storage } = useLayout();
   const { project } = useOrganizerState();
   const directory = useProjectDirectory();
@@ -24,25 +29,44 @@ export function DraftRows() {
   if (!host || !rows.length) return null;
   return (
     <>
-      <ul aria-label="Draft threads" className="px-2 pb-1">
+      <ul aria-label="Draft threads" className="pb-1">
         {rows.map(([key, row]) => (
-          <li key={key} className="flex items-center rounded-md hover:bg-sidebar-accent">
+          <li
+            key={key}
+            className="group/draft relative border-b border-sidebar-border hover:bg-foreground/3"
+          >
             <Link
+              data-row-focus=""
               to="/new"
-              search={{ project: row.project, skill: row.skill, issue: row.issue }}
+              search={{
+                project: row.project,
+                skill: row.skill,
+                issue: row.issue,
+                pullRequest: row.pullRequest,
+              }}
               aria-label={`${row.title}. Draft, Project ${directory.name(row.project)}`}
-              className="flex min-w-0 flex-1 flex-col gap-1 rounded-md px-2 py-3 text-ui focus-ring-inset"
+              className="flex h-21 min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-3 text-ui focus-ring-inset"
             >
-              <span className="flex justify-between text-xs text-muted-foreground">
-                <span>{directory.name(row.project)}</span>
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <ProjectMark
+                  badge={projectBadge({ id: row.project, name: directory.name(row.project) })}
+                />
+                <span className="min-w-0 flex-1 truncate">{directory.name(row.project)}</span>
                 <span>Draft</span>
               </span>
-              <span className="truncate">{row.title}</span>
+              <span className="truncate text-base leading-5 text-foreground">{row.title}</span>
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <MachineMark icon={identity?.icon} />
+                <span className="min-w-0 truncate">{identity?.displayName ?? "This machine"}</span>
+                {row.provider && (
+                  <ProviderIcon provider={row.provider} size={14} className="ml-auto" decorative />
+                )}
+              </span>
             </Link>
             <button
               type="button"
               aria-label={`Discard draft in ${directory.name(row.project)}`}
-              className="mr-2 px-2 py-1 text-xs text-muted-foreground focus-ring hover:text-foreground"
+              className="absolute right-2 bottom-2 bg-sidebar px-2 py-1 text-xs text-muted-foreground opacity-0 focus-ring group-hover/draft:opacity-100 group-focus-within/draft:opacity-100 hover:text-foreground pointer-coarse:opacity-100"
               onClick={() => {
                 setError(undefined);
                 if (!discardPreparation(storage, host, key)) {
@@ -58,6 +82,7 @@ export function DraftRows() {
                     project: row.project,
                     skill: row.skill,
                     issue: row.issue,
+                    pullRequest: row.pullRequest,
                     discard: (previous.discard ?? 0) + 1,
                   }),
                 });

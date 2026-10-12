@@ -25,6 +25,8 @@ export type CommandContext = Pick<
     requestedBase: string;
     /** The branch base it started from, when the payload named one. */
     base?: WorktreeBaseRecord;
+    pullRequestWorkspace?: import("@ace/protocol").ForgePrWorkspace;
+    prStatus?: import("@ace/protocol").ForgePrStatus;
   };
 };
 export function commandContext(store: Store): CommandContext {

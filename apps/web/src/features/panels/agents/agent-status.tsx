@@ -5,8 +5,19 @@ import { Dot } from "@/components/ui/dot.tsx";
 import { LiveWorkMark } from "@/components/live-work-mark.tsx";
 
 /** An agent's status as one mark: spinner while it works, a dot when it needs you or failed. */
-export function AgentStatusMark(props: { status: AgentStatus }) {
-  switch (glyphOf(props.status)) {
+export function AgentStatusMark(props: {
+  status: AgentStatus;
+  pending?: boolean;
+  needsYou?: boolean;
+}) {
+  const glyph = glyphOf(props.status);
+  switch (
+    props.needsYou
+      ? "needs-you"
+      : props.pending && (glyph === "done" || glyph === "stopped")
+        ? "waiting"
+        : glyph
+  ) {
     case "spinner":
       return <LiveWorkMark className="text-status-working" />;
     case "waiting":

@@ -1,7 +1,7 @@
 /*
  * The Home list as the sidebar draws it: the Pinned group under its heading, in the person's
  * own order, then the work in hand in Home order (what needs you, work in motion, trouble, most
- * recent first within each), then threads at rest, then the collapsible Settled
+ * recent first within each), then threads at rest, then the collapsible Snoozed and Settled
  * section. Pure: the caller passes the arrangement.
  */
 
@@ -10,6 +10,9 @@ export type HomeRow =
   | { kind: "pinned"; id: string }
   | { kind: "pinned-end" }
   | { kind: "thread"; id: string }
+  | { kind: "unsent" }
+  | { kind: "snoozed-header"; count: number }
+  | { kind: "snoozed"; id: string }
   | { kind: "settled-header"; count: number }
   | { kind: "settled"; id: string };
 
@@ -17,6 +20,7 @@ export interface HomeGroups {
   pinned: readonly string[];
   active: readonly string[];
   recent: readonly string[];
+  snoozed: readonly string[];
   settled: readonly string[];
 }
 
@@ -27,7 +31,12 @@ export interface HomeGroups {
  */
 export function homeRows(
   groups: HomeGroups,
-  options: { settledOpen: boolean; pinZone?: boolean },
+  options: {
+    snoozedOpen?: boolean;
+    settledOpen: boolean;
+    pinZone?: boolean;
+    includeUnsent?: boolean;
+  },
 ): HomeRow[] {
   const rows: HomeRow[] = [];
   const pinnedGroup = groups.pinned.length > 0 || options.pinZone === true;
@@ -36,6 +45,9 @@ export function homeRows(
   if (pinnedGroup) rows.push({ kind: "pinned-end" });
   for (const id of groups.active) rows.push({ kind: "thread", id });
   for (const id of groups.recent) rows.push({ kind: "thread", id });
+  if (options.includeUnsent) rows.push({ kind: "unsent" });
+  if (groups.snoozed.length) rows.push({ kind: "snoozed-header", count: groups.snoozed.length });
+  if (options.snoozedOpen) for (const id of groups.snoozed) rows.push({ kind: "snoozed", id });
   if (groups.settled.length) rows.push({ kind: "settled-header", count: groups.settled.length });
   if (options.settledOpen) for (const id of groups.settled) rows.push({ kind: "settled", id });
   return rows;

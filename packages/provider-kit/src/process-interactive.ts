@@ -10,11 +10,12 @@ export function spawnInteractive(options: {
   command: string;
   args: readonly string[];
   env: NodeJS.ProcessEnv;
+  stdout?: "stdout" | "stderr";
 }): InteractiveProcess {
   if (process.platform === "win32") throw new Error("Interactive process ownership requires POSIX");
   const child = spawn(options.command, [...options.args], {
     env: options.env,
-    stdio: "inherit",
+    stdio: ["inherit", options.stdout === "stderr" ? 2 : "inherit", "inherit"],
     detached: true,
   });
   const pid = child.pid;

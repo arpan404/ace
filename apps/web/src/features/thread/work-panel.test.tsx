@@ -1,3 +1,4 @@
+import { openWorkPanel } from "@/test/open-work.ts";
 import { facts, workCardScenario } from "@ace/fake-daemon";
 import { Automation, ThreadId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
@@ -9,8 +10,8 @@ beforeEach(() => localStorage.clear());
 
 async function openWork(app: ReturnType<typeof harness>, threadId: string) {
   await app.open(`/t/${threadId}`);
-  await userEvent.click(await screen.findByRole("button", { name: /^Work card/ }));
-  return screen.findByRole("complementary", { name: "Work card" });
+  await openWorkPanel();
+  return screen.findByRole("tabpanel", { name: "Work" });
 }
 
 test("a child keeps working through a non-blocking question and requests attention after its turn ends", async () => {
@@ -48,44 +49,35 @@ test("a child keeps working through a non-blocking question and requests attenti
   );
   lease.release();
   await waitFor(() =>
-    expect(within(card).queryByRole("button", { name: /Open .*: Needs you/ })).toBeNull(),
+    expect(within(card).queryByRole("treeitem", { name: /.*: Needs you/ })).toBeNull(),
   );
-  expect(within(card).getByText("Lineage · 2 running")).toBeTruthy();
+  expect(within(card).getByText("2 active · 1 done")).toBeTruthy();
   expect(screen.queryByRole("img", { name: "Work needs you" })).toBeNull();
   act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-1")]));
   expect(
-    await within(card).findByRole("button", { name: "Open Check supervisor logs: Needs you" }),
+    await within(card).findByRole("treeitem", { name: "Check supervisor logs: Needs you" }),
   ).toBeTruthy();
-  expect(
-    within(card).getByRole("button", { name: "Open Write retry tests: Needs you" }),
-  ).toBeTruthy();
-  expect(await screen.findByRole("img", { name: "Work needs you" })).toBeTruthy();
+  expect(within(card).getByRole("treeitem", { name: "Write retry tests: Needs you" })).toBeTruthy();
+  expect(within(card).getByRole("treeitem", { name: "Main agent: Needs you" })).toBeTruthy();
 });
 
 test.each(["completed", "interrupted"] as const)(
-  "a parent with an %s turn describes its active subtree on hover and focus",
+  "a parent with a %s turn describes its active subtree",
   async (outcome) => {
     const app = harness();
     const fixture = workCardScenario("changes");
     app.play(fixture).runUntilBlocked();
-    const card = await openWork(app, fixture.thread.id);
+    const work = await openWork(app, fixture.thread.id);
     act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-0", outcome)]));
-    const parent = await within(card).findByRole("button", {
-      name: "Open Write retry tests: Waiting on work",
+    const parent = await within(work).findByRole("treeitem", {
+      name: /^Write retry tests: Waiting on (work|subagents|background task)$/,
     });
+    expect(parent.getAttribute("aria-label")).toMatch(
+      /Waiting on (work|subagents|background task)/,
+    );
     expect(
-      within(parent).getByText("Waiting on work").closest("[data-tone]")?.getAttribute("data-tone"),
-    ).toBe("waiting");
-    await userEvent.hover(parent);
-    expect((await screen.findByRole("tooltip")).textContent).toBe(
-      "Write retry tests · Waiting on work",
-    );
-    await userEvent.unhover(parent);
-    await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
-    act(() => parent.focus());
-    expect((await screen.findByRole("tooltip")).textContent).toBe(
-      "Write retry tests · Waiting on work",
-    );
+      within(work).queryByRole("treeitem", { name: /Write retry tests: (Idle|Interrupted)/ }),
+    ).toBeNull();
   },
 );
 
@@ -100,28 +92,24 @@ test("Escape from Project actions restores focus to its trigger and keeps Work o
   await screen.findByRole("menu");
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(document.activeElement).toBe(trigger));
-  expect(screen.getByRole("complementary", { name: "Work card" })).toBe(card);
+  expect(screen.getByRole("tabpanel", { name: "Work" })).toBe(card);
 });
 
-test("an ended parent stays in running lineage until its nested child settles", async () => {
+test("an ended parent remains active until its nested child settles", async () => {
   const app = harness();
   const fixture = workCardScenario("changes");
   app.play(fixture).runUntilBlocked();
-  const card = await openWork(app, fixture.thread.id);
+  const work = await openWork(app, fixture.thread.id);
   act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-0")]));
-  await waitFor(() =>
-    expect(
-      within(card)
-        .getByRole("button", { name: /Open Write retry tests:/ })
-        .getAttribute("aria-label"),
-    ).not.toContain("done"),
-  );
-  expect(within(card).getByText("Lineage · 2 running")).toBeTruthy();
+  await within(work).findByRole("treeitem", {
+    name: /^Write retry tests: Waiting on (work|subagents|background task)$/,
+  });
   act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-1")]));
-  await within(card).findByText("Lineage · 0 running");
-  expect(within(card).queryByRole("button", { name: /Open Write retry tests:/ })).toBeNull();
-  await userEvent.click(within(card).getByRole("button", { name: "Previous agents (3)" }));
-  expect(within(card).getByRole("button", { name: "Open Write retry tests: done" })).toBeTruthy();
+  await within(work).findByRole("treeitem", { name: "Write retry tests: Idle" });
+  expect(within(work).getByText("No active subagents · 3 done")).toBeTruthy();
+  expect(
+    within(work).getByRole("treeitem", { name: /^Main agent: Waiting on (work|background task)$/ }),
+  ).toBeTruthy();
 });
 
 test("project schedules show their cadence and persist toggles and run-now results", async () => {
@@ -226,7 +214,7 @@ test("the script menu offers only configurations in the checkout", async () => {
   expect(
     await within(panel).findByRole("tab", { name: /package.json/, selected: true }),
   ).toBeTruthy();
-  expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull();
+  expect(screen.queryByRole("tabpanel", { name: "Work" })).toBeNull();
 });
 
 test("a new script file is created, edited and saved through Work", async () => {
@@ -260,9 +248,9 @@ test("a new script file is created, edited and saved through Work", async () => 
   }))
     chunks.push(new Uint8Array(chunk));
   expect(new TextDecoder().decode(await new Blob(chunks).arrayBuffer())).toBe(script);
-  await user.click(screen.getByRole("button", { name: /^Work card/ }));
+  await openWorkPanel();
   await user.click(
-    within(await screen.findByRole("complementary", { name: "Work card" })).getByRole("button", {
+    within(await screen.findByRole("tabpanel", { name: "Work" })).getByRole("button", {
       name: "Add project script",
     }),
   );

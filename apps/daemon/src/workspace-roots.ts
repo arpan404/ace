@@ -1,3 +1,5 @@
+import { ManagedWorktrees } from "./managed-worktrees.ts";
+import type { PreparePrBase } from "./pr-worktree-resolution.ts";
 import type { CreationProgress } from "./creation-progress.ts";
 import { WorkspaceCreations } from "./creation-workspace.ts";
 import { createHash } from "node:crypto";
@@ -28,13 +30,19 @@ export class WorkspaceRoots {
     directory: string,
     now: () => number,
     machine: { host: string; name: string },
-    options: { baseFetchTimeoutMs?: number; sourceControl?: SourceControl } = {},
+    options: {
+      baseFetchTimeoutMs?: number;
+      preparePr?: PreparePrBase;
+      sourceControl?: SourceControl;
+    } = {},
   ) {
     this.creations = new WorkspaceCreations(
       store,
       git,
       directory,
       options.baseFetchTimeoutMs ?? defaultBaseFetchTimeoutMs,
+      now,
+      options.preparePr,
     );
     this.store = store;
     this.git = git;
@@ -42,6 +50,15 @@ export class WorkspaceRoots {
     this.now = now;
     this.machine = machine;
     this.sourceControl = options.sourceControl;
+  }
+  creationReady(): Promise<void> {
+    return this.creations.ready();
+  }
+  creationCleanupComplete(command: Command): boolean {
+    return this.creations.cleanupComplete(command);
+  }
+  prepareExistingPr(command: Command, progress?: CreationProgress) {
+    return this.creations.prepareExisting(command, progress);
   }
   root(id: ThreadId): string {
     const binding = this.store.executionWorkspace(id);
@@ -128,6 +145,13 @@ export class WorkspaceRoots {
         baseRef,
         branch,
       });
+      await new ManagedWorktrees(this.store, this.directory).created(
+        this.git,
+        project,
+        path,
+        id,
+        this.now(),
+      );
     }
     if (this.closing) throw new Error("workspace_closed");
     return { path, branch };
@@ -182,7 +206,7 @@ export class WorkspaceRoots {
       await mkdir(join(this.directory, "worktrees"), { recursive: true, mode: 0o700 });
       path = join(await realpath(join(this.directory, "worktrees")), key);
       const existing = (await this.git.listWorktrees(project)).find((tree) => tree.path === path);
-      if (!existing)
+      if (!existing) {
         await this.git.createWorktree({
           repo: project,
           path,
@@ -190,7 +214,14 @@ export class WorkspaceRoots {
           baseRef: selection.branch ?? recordedBaseRef(thread.details),
           reuseBranch: true,
         });
-      else if (selection.branch)
+        await new ManagedWorktrees(this.store, this.directory).created(
+          this.git,
+          project,
+          path,
+          id,
+          this.now(),
+        );
+      } else if (selection.branch)
         await this.git.switchBranch({
           worktree: path,
           branch: selection.branch,
@@ -204,7 +235,7 @@ export class WorkspaceRoots {
       });
     const info = await this.git.repositoryInfo(path);
     // Switching to a named branch replaces the base the worktree was first made from.
-    const { base, ...kept } = thread.details ?? {};
+    const { base, pullRequestWorkspace: _pullRequestWorkspace, ...kept } = thread.details ?? {};
     return {
       ...kept,
       ...(base && !selection.branch ? { base } : {}),

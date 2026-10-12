@@ -68,11 +68,12 @@ export async function openCodexSession(
   const injection = ctx.aceMcp ? codexInjection(ctx.aceMcp) : undefined;
   const proc = io.spawn({
     command: cli.path,
-    args: ["app-server"],
+    args: [...(ctx.builtinSkills?.args ?? []), "app-server"],
     cwd: ctx.cwd,
     ...(ctx.outputFlow ? { outputFlow: ctx.outputFlow } : {}),
     env: { ...(ctx.env ?? options.discovery?.env), ACE_MCP_BEARER_TOKEN: undefined },
     name: "ace-codex",
+    ...(ctx.builtinSkills?.lease ? { lease: ctx.builtinSkills.lease } : {}),
   });
   const started = io.now();
   let sequence = 0;

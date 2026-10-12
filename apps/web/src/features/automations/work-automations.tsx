@@ -81,9 +81,9 @@ function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
     try {
       await write();
       toast.add({ title: done });
-    } catch (error) {
+    } catch {
       toast.error({
-        title: error instanceof Error ? error.message : "Couldn't update this automation",
+        title: "Couldn't update this automation. Try again",
       });
     } finally {
       setBusy(false);

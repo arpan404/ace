@@ -24,6 +24,7 @@ export function validateCreation(
 ) {
   const p = command.payload;
   if (p.type !== "thread.create" && p.type !== "thread.prepare") return fail("invalid_command");
+  if (p.pullRequest && p.mode !== "worktree") return fail("pr_requires_worktree");
   if (p.threadId && repo.store.getThread(p.threadId)) return fail("thread_exists");
   try {
     if (p.type === "thread.create" && p.input.length > 64) return fail("message_too_large");

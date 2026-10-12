@@ -14,57 +14,59 @@ type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T
 
 // #72 adds queue schemas to the canonical union. Keep only correlation here;
 // queue storage, removal, context leases and recovery remain with that owner.
-export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends
-  | `delegation.broker.${string}`
-  | `delegation.remote.${string}`
-  ? Replies<"delegation.broker.result">
-  : Q["type"] extends `provider.accounts.${string}`
-    ? Replies<"provider.accounts.result">
-    : Q["type"] extends `provider.install.${string}`
-      ? Replies<"provider.install.result">
-      : Q["type"] extends `provider.login.${string}` | "provider.logout"
-        ? Replies<"provider.login.result">
-        : Q["type"] extends `onboarding.${string}`
-          ? Replies<"onboarding.result">
-          : Q["type"] extends "worktree.creation.request"
-            ? Replies<"worktree.creation.result">
-            : LegacyServiceResponse<Q>;
+export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "cli.request"
+  ? Replies<"cli.result">
+  : Q["type"] extends `delegation.broker.${string}` | `delegation.remote.${string}`
+    ? Replies<"delegation.broker.result">
+    : Q["type"] extends `provider.accounts.${string}`
+      ? Replies<"provider.accounts.result">
+      : Q["type"] extends `provider.install.${string}`
+        ? Replies<"provider.install.result">
+        : Q["type"] extends `provider.login.${string}` | "provider.logout"
+          ? Replies<"provider.login.result">
+          : Q["type"] extends `onboarding.${string}`
+            ? Replies<"onboarding.result">
+            : Q["type"] extends "worktree.creation.request"
+              ? Replies<"worktree.creation.result">
+              : LegacyServiceResponse<Q>;
 
-type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "prompts.request"
-  ? Replies<"prompts.result">
-  : Q["type"] extends "diagnostics.request"
-    ? Replies<"diagnostics.result">
-    : Q["type"] extends "notification.config"
-      ? Replies<"notification.config.result">
-      : Q["type"] extends "notification.register"
-        ? Replies<"notification.register.result">
-        : Q["type"] extends "host.identity"
-          ? Replies<"host.identity.result">
-          : Q["type"] extends "activity.reads" | "activity.markRead"
-            ? Replies<"activity.reads.result">
-            : Q["type"] extends "entities.page"
-              ? Replies<"entities.page">
-              : Q["type"] extends "queue.get"
-                ? Extract<Reply, { type: "queue.result" }>
-                : Q["type"] extends "permissions.capabilities"
-                  ? Replies<"permissions.capabilities.result">
-                  : Q["type"] extends "providers.request"
-                    ? Replies<"providers.result">
-                    : Q["type"] extends "repositories.request"
-                      ? Replies<"repositories.result">
-                      : Q["type"] extends "source-control.request"
-                        ? Replies<"source-control.result">
-                        : Q["type"] extends "projects.request"
-                          ? Replies<"projects.result">
-                          : Q["type"] extends "accounts.login" | "accounts.logout"
-                            ? Replies<"accounts.auth">
-                            : Q["type"] extends
-                                  | "accounts.add"
-                                  | "accounts.rename"
-                                  | "accounts.remove"
-                                  | "accounts.setDefault"
-                              ? Replies<"accounts.changed">
-                              : ExistingServiceResponse<Q>;
+type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "storage.request"
+  ? Replies<"storage.result">
+  : Q["type"] extends "prompts.request"
+    ? Replies<"prompts.result">
+    : Q["type"] extends "diagnostics.request"
+      ? Replies<"diagnostics.result">
+      : Q["type"] extends "notification.config"
+        ? Replies<"notification.config.result">
+        : Q["type"] extends "notification.register"
+          ? Replies<"notification.register.result">
+          : Q["type"] extends "host.identity"
+            ? Replies<"host.identity.result">
+            : Q["type"] extends "activity.reads" | "activity.markRead"
+              ? Replies<"activity.reads.result">
+              : Q["type"] extends "entities.page"
+                ? Replies<"entities.page">
+                : Q["type"] extends "queue.get"
+                  ? Extract<Reply, { type: "queue.result" }>
+                  : Q["type"] extends "permissions.capabilities"
+                    ? Replies<"permissions.capabilities.result">
+                    : Q["type"] extends "providers.request"
+                      ? Replies<"providers.result">
+                      : Q["type"] extends "repositories.request"
+                        ? Replies<"repositories.result">
+                        : Q["type"] extends "source-control.request"
+                          ? Replies<"source-control.result">
+                          : Q["type"] extends "projects.request"
+                            ? Replies<"projects.result">
+                            : Q["type"] extends "accounts.login" | "accounts.logout"
+                              ? Replies<"accounts.auth">
+                              : Q["type"] extends
+                                    | "accounts.add"
+                                    | "accounts.rename"
+                                    | "accounts.remove"
+                                    | "accounts.setDefault"
+                                ? Replies<"accounts.changed">
+                                : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"
@@ -141,6 +143,7 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
                                                               : Reply;
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
+  "cli.request": ["cli.result"],
   "delegation.remote.output": ["delegation.broker.result"],
   "delegation.broker.return": ["delegation.broker.result"],
   "delegation.remote.transport": ["delegation.broker.result"],
@@ -171,6 +174,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "history.continue": ["history.continue"],
   "devices.request": ["devices.result"],
   "preview.request": ["preview.result"],
+  "storage.request": ["storage.result"],
   "terminal.request": ["terminal.result"],
   "workspace.request": ["workspace.result"],
   "projects.request": ["projects.result"],

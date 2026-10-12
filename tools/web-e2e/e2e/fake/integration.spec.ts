@@ -79,15 +79,15 @@ test("a thread's tabs, their order and the showing tab survive a reload, and sta
   await page.getByRole("button", { name: "Right panel" }).click();
   await launch(page, "Preview");
   await launch(page, "Devices");
-  await sidePanel(page).getByRole("tab", { name: "Agents" }).click();
-  await expect(sideTabs(page)).toHaveText([/^Changes/, "Agents", "Preview", "Devices"]);
+  await sidePanel(page).getByRole("tab", { name: "Work" }).click();
+  await expect(sideTabs(page)).toHaveText(["Work", /^Changes/, "Preview", "Devices"]);
 
   await page.reload();
   await expect(
     page.getByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" }),
   ).toBeVisible();
-  await expect(sideTabs(page)).toHaveText([/^Changes/, "Agents", "Preview", "Devices"]);
-  await expect(sidePanel(page).getByRole("tab", { name: "Agents", selected: true })).toBeVisible();
+  await expect(sideTabs(page)).toHaveText(["Work", /^Changes/, "Preview", "Devices"]);
+  await expect(sidePanel(page).getByRole("tab", { name: "Work", selected: true })).toBeVisible();
 
   // Another thread has its own workspace, untouched by this one's.
   await open(page, "/t/thread-replay-cursor", "Replay cursor resets on every resume");
@@ -96,8 +96,8 @@ test("a thread's tabs, their order and the showing tab survive a reload, and sta
   await expect(sideTabs(page)).toHaveText([/^Changes/, "Agents"]);
 
   await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
-  await expect(sideTabs(page)).toHaveText([/^Changes/, "Agents", "Preview", "Devices"]);
-  await expect(sidePanel(page).getByRole("tab", { name: "Agents", selected: true })).toBeVisible();
+  await expect(sideTabs(page)).toHaveText(["Work", /^Changes/, "Preview", "Devices"]);
+  await expect(sidePanel(page).getByRole("tab", { name: "Work", selected: true })).toBeVisible();
 });
 
 test("a two-line message with a file attached starts a thread under the chosen approvals, and a follow-up queues", async ({

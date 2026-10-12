@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliTaskStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "generation": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "outcome": {
+      "$ref": "https://ace.local/protocol/v1/DelegationOutcome.json"
+    },
+    "state": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/AgentTaskState.json"
+        },
+        {
+          "const": "unresponsive",
+          "type": "string"
+        }
+      ]
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "state",
+    "generation",
+    "status"
+  ],
+  "type": "object"
+}

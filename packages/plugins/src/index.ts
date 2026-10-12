@@ -31,3 +31,5 @@ export {
   type AcpSessionTransport,
   type AcpExecutableResolver,
 } from "./acp-session.ts";
+
+export { builtinSkills, prepareBuiltinSkills } from "./builtins.ts";

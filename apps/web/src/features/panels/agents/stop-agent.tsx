@@ -1,6 +1,6 @@
 import type { Agent } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
-import { useIntentSender } from "@ace/client-react";
+import { useStopIntent } from "./use-stop-intent.ts";
 import { agentName, isRunning } from "@ace/ui-core";
 import { StopIcon } from "@phosphor-icons/react";
 import { useState, type KeyboardEvent } from "react";
@@ -26,28 +26,26 @@ export function StopAgent(props: {
   agent: Agent;
   /** Agents under it, at any depth. */
   subagents: number;
+  /** Its own turn may have ended while descendants or background work remain live. */
+  pending?: boolean;
   className?: string;
   /** In the tree: reached with Delete or S rather than Tab. */
   inTree?: boolean;
   onKeyDown?(event: KeyboardEvent<HTMLButtonElement>): void;
-  /** Says why a stop failed, beside the button. */
-  showFailure?: boolean;
 }) {
-  const stop = useIntentSender();
+  const stop = useStopIntent();
   const [asking, setAsking] = useState(false);
-  if (props.agent.origin === "root" || !isRunning(props.agent)) return null;
+  if (props.agent.origin === "root" || (!props.pending && !isRunning(props.agent))) return null;
   const label = stopLabel(agentName(props.agent), props.subagents);
-  const stopping = stop.intent?.state === "pending";
+  const stopping = stop.busy;
   const send = () => {
     setAsking(false);
-    void stop
-      .send({
-        type: "thread.interrupt",
-        threadId: ThreadId.parse(props.threadId),
-        agentId: props.agent.id,
-        cascade: true,
-      })
-      .catch(() => undefined);
+    void stop.send({
+      type: "thread.interrupt",
+      threadId: ThreadId.parse(props.threadId),
+      agentId: props.agent.id,
+      cascade: true,
+    });
   };
   const button = (
     <Button
@@ -66,9 +64,16 @@ export function StopAgent(props: {
   );
   return (
     <>
-      {props.showFailure && stop.intent?.state === "failed" && (
-        <span role="alert" className="truncate text-xs text-status-failed">
-          Couldn't stop: {stop.intent.error ?? "refused"}
+      {stop.failed && (
+        <span
+          role="alert"
+          className={
+            props.inTree
+              ? "order-last w-full px-2 pb-1 text-xs text-status-failed"
+              : "text-xs text-status-failed"
+          }
+        >
+          Couldn't stop this agent. Try again.
         </span>
       )}
       {props.subagents ? (
@@ -83,7 +88,7 @@ export function StopAgent(props: {
             </PopoverDescription>
             <div className="mt-3 flex justify-end gap-2">
               <PopoverClose render={<Button size="sm" variant="ghost" />}>Cancel</PopoverClose>
-              <Button size="sm" variant="danger" onClick={send}>
+              <Button size="sm" variant="danger" disabled={stopping} onClick={send}>
                 Stop all
               </Button>
             </div>

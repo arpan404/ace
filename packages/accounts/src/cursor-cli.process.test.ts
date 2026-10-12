@@ -90,8 +90,10 @@ it("a fresh SDK account added through the CLI obtains its browser challenge from
           version: "1.0.35",
           module: "/synthetic-sdk",
         }),
-        write: (text) => {
-          output.push(text);
+        write: (text) => output.push(text),
+        progress: (text) => {
+          expect(loggedIn).toBe(false);
+          expect(output).toEqual([]);
           if (text.includes("synthetic-cli")) finish.resolve();
         },
         cursorAuth: async () => ({
@@ -108,8 +110,16 @@ it("a fresh SDK account added through the CLI obtains its browser challenge from
       },
     );
     expect(loggedIn).toBe(true);
-    expect(output).toEqual([
-      "Cursor SDK sign-in: https://cursor.com/login?challenge=synthetic-cli\n",
+    expect(output.map((text): unknown => JSON.parse(text))).toEqual([
+      {
+        ok: true,
+        status: {
+          installed: true,
+          auth: "logged_in",
+          version: "1.0.35",
+          loginHint: "Sign in to Cursor",
+        },
+      },
     ]);
     expect(closed).toBe(true);
     expect(registry.get("fresh")?.instance.homeDir).toBe(join(canonicalRoot, "private-account"));

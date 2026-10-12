@@ -1,3 +1,4 @@
+import { builtinSkillRecovery } from "../builtin-skill-roots.ts";
 import { historyEnginePort, historySessionContext } from "./history-engine.ts";
 import { configuredAdapter } from "../provider-admission.ts";
 import { configuredDiscovery } from "../provider-discovery.ts";
@@ -27,6 +28,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     services.handler = options.handler;
     return;
   }
+  const recoverSkillRoots = await builtinSkillRecovery(config.dataDir);
   const engineOptions = options.engine ?? {};
   const defaultInstance = await daemonCursorInstance(context);
   const cursorOptions = {
@@ -327,7 +329,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       engineOptions.onError ?? ((error) => log.log("error", "Engine failure", logError(error))),
   });
   resources.own(() => engine.close());
-  await engine.ready();
+  // DB recovery orders startup; each projection's kernel process lease separately gates deletion.
+  await recoverSkillRoots(engine.ready(), (error) =>
+    log.log("warn", "Abandoned skill projection cleanup failed", logError(error)),
+  );
   engine.bindHostInteractions(
     (command) =>
       services.screenApprovals?.resolve(command) ??

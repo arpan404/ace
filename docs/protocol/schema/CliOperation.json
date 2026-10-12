@@ -1,0 +1,81 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "op": {
+          "const": "thread.tree",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "task.spawn",
+          "type": "string"
+        },
+        "parentId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "request": {
+          "$ref": "https://ace.local/protocol/v1/DelegationRequest.json"
+        }
+      },
+      "required": [
+        "op",
+        "parentId",
+        "request"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "task.status",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "key": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "op": {
+          "const": "task.cancel",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId",
+        "key"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { gitFailureText } from "../lib/git-failure.ts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConnectionState } from "@ace/client-react";
 import type {
@@ -117,8 +118,7 @@ export function DraftWriter(props: {
       if (active.current !== generation) return;
       setProposal({ ...result, selection: selectionKey, textRevision: props.textRevision });
     } catch (failure) {
-      if (active.current === generation)
-        setError(failure instanceof Error ? failure.message : "Couldn't generate a draft.");
+      if (active.current === generation) setError(gitFailureText(failure));
     } finally {
       if (active.current === generation) {
         active.current = undefined;

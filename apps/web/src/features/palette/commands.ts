@@ -151,7 +151,7 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
                   label: "Open agent tree",
                   keys: keymap.agents.keys,
                   icon: "action",
-                  run: run(() => panel.toggleKind("agents")),
+                  run: run(() => panel.toggleKind("work")),
                 } satisfies PaletteCommand,
                 {
                   id: "open-terminal",

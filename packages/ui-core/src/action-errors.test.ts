@@ -7,6 +7,7 @@ const git = [
   "missing",
   "too_old",
   "failed",
+  "objects_not_available",
   "head_moved",
   "conflicts",
   "hook_failed",

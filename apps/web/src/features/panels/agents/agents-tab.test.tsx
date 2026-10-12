@@ -20,7 +20,7 @@ test("the agent tree shows subagents as they spawn and marks the one that fails"
 
   await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  expect(within(panel).getByRole("tab", { name: "Agents", selected: true })).toBeTruthy();
+  expect(within(panel).getByRole("tab", { name: "Work", selected: true })).toBeTruthy();
   await within(panel).findByRole("treeitem", { name: "Main agent: Working" });
   expect(within(panel).queryByRole("treeitem", { name: /migration-tester/ })).toBeNull();
 
@@ -30,8 +30,13 @@ test("the agent tree shows subagents as they spawn and marks the one that fails"
 
   await act(async () => script.runThrough("tester-failed"));
   const failed = await within(panel).findByRole("treeitem", { name: "migration-tester: Failed" });
-  expect(within(failed).getByText(/Context window exceeded/)).toBeTruthy();
+  expect(within(failed).getByText("Couldn't finish. Open the agent for details.")).toBeTruthy();
+  expect(within(failed).queryByText(/Context window exceeded/)).toBeNull();
   expect(within(panel).getByRole("treeitem", { name: "schema-writer: Working" })).toBeTruthy();
+  await userEvent.click(failed);
+  const detail = await within(panel).findByRole("tabpanel", { name: "migration-tester" });
+  expect(await within(detail).findByText(/Context window exceeded/)).toBeTruthy();
+  expect(within(detail).getByRole("heading", { name: "migration-tester" })).toBeTruthy();
 });
 
 test("the Agents tab shows what each agent is doing, the background shell, and why the thread isn't done", async () => {
@@ -56,9 +61,7 @@ test("the Agents tab shows what each agent is doing, the background shell, and w
   expect(
     within(panel).getByRole("listitem", { name: "bun run relay:soak --clients 2: running" }),
   ).toBeTruthy();
-  expect(within(panel).getByRole("region", { name: "Why isn't this done?" }).textContent).toContain(
-    "Two subagents are still running and one background shell is open.",
-  );
+  expect(within(panel).queryByRole("region", { name: "Why isn't this done?" })).toBeNull();
 });
 
 test("Stop ends a background shell, and the thread settles once nothing else is running", async () => {
@@ -69,20 +72,15 @@ test("Stop ends a background shell, and the thread settles once nothing else is 
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
   await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  const why = await within(panel).findByRole("region", { name: "Why isn't this done?" });
-  expect(why.textContent).toContain(
-    "One background shell is open. The thread settles when the shell is stopped or finishes.",
-  );
-
   const shell = within(panel).getByRole("listitem", {
     name: "bun run relay:soak --clients 2: running",
   });
   await userEvent.click(within(shell).getByRole("button", { name: "Stop" }));
   // Once stopped it leaves the panel, which lists only what is still running.
-  const done = await within(panel).findByRole("region", { name: "Done" });
+  await within(panel).findByRole("treeitem", { name: "Main agent: Idle" });
   expect(within(panel).queryByRole("listitem", { name: /^bun run relay:soak/ })).toBeNull();
   expect(within(panel).queryByRole("button", { name: "Stop" })).toBeNull();
-  expect(done.textContent).toContain("Every agent has finished");
+  expect(within(panel).queryByText(/The thread settles when/)).toBeNull();
 });
 
 test("Stop on a subagent interrupts only that subagent", async () => {
@@ -97,12 +95,10 @@ test("Stop on a subagent interrupts only that subagent", async () => {
   await userEvent.click(within(panel).getByRole("button", { name: "Stop resume-sweep" }));
   await within(panel).findByRole("treeitem", { name: "resume-sweep: Interrupted" });
   expect(within(panel).getByRole("treeitem", { name: "ack-buffer-test: Working" })).toBeTruthy();
-  expect(within(panel).getByRole("region", { name: "Why isn't this done?" }).textContent).toContain(
-    "One subagent is still running",
-  );
+  expect(within(panel).queryByRole("region", { name: "Why isn't this done?" })).toBeNull();
 });
 
-test("a message queued in the composer shows in the Agents tab and in why the thread isn't done", async () => {
+test("a message queued in the composer shows in the Agents tab without extra explanatory prose", async () => {
   const app = harness();
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
@@ -125,9 +121,7 @@ test("a message queued in the composer shows in the Agents tab and in why the th
   expect(
     await within(panel).findByRole("listitem", { name: "1 queued message: waiting for the agent" }),
   ).toBeTruthy();
-  expect(within(panel).getByRole("region", { name: "Why isn't this done?" }).textContent).toContain(
-    "a queued message has not been sent yet",
-  );
+  expect(within(panel).queryByRole("region", { name: "Why isn't this done?" })).toBeNull();
 });
 
 async function openAgents(app: ReturnType<typeof harness>, path: string) {
@@ -160,7 +154,7 @@ test("a subagent opens as its own tab: who started it, what it was asked, and on
   expect(within(panel).getByText(/Ask the main agent in the thread's composer/)).toBeTruthy();
 
   await userEvent.click(within(panel).getByRole("button", { name: /Back to agents/ }));
-  expect(within(panel).getByRole("tab", { name: "Agents", selected: true })).toBeTruthy();
+  expect(within(panel).getByRole("tab", { name: "Work", selected: true })).toBeTruthy();
   // The agent's tab stays open beside the tree.
   expect(within(panel).getByRole("tab", { name: "resume-sweep" })).toBeTruthy();
 });

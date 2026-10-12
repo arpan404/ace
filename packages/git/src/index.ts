@@ -1,3 +1,11 @@
+export { WorktreeRemovalRefused } from "./worktree-cleanup.ts";
+import {
+  inspectWorktreeCleanup,
+  worktreeMetadata,
+  cleanupWorktree,
+  type WorktreeCleanupInput,
+} from "./worktree-cleanup.ts";
+export type { WorktreeCleanupInput, WorktreeCleanupState } from "./worktree-cleanup.ts";
 import { writingContext } from "./writing-context.ts";
 import { SourceControlContext, type SourceControlSelection } from "@ace/protocol";
 import {
@@ -33,6 +41,8 @@ import {
   branchHead,
   branchRefs,
   fetchBranch,
+  fetchPrHead,
+  type FetchPrHeadOptions,
   type BranchRefs,
   type FetchBranchOptions,
 } from "./remote-branches.ts";
@@ -48,8 +58,8 @@ export { repositoryScope } from "./mutation-leases.ts";
 export type * from "./types.ts";
 export type { MutationState } from "./mutation-state.ts";
 export type { CreateWorktreeOptions, WorktreeProgress } from "./worktrees.ts";
-export type { BranchRefs, FetchBranchOptions } from "./remote-branches.ts";
 export type { RevisionLineOptions } from "./revision-lines.ts";
+export type { BranchRefs, FetchBranchOptions, FetchPrHeadOptions } from "./remote-branches.ts";
 
 export class GitService {
   private readonly repository: Repository;
@@ -226,6 +236,9 @@ export class GitService {
       fetchBranch(this.repository, options),
     );
   }
+  fetchPrHead(options: FetchPrHeadOptions): Promise<string> {
+    return fetchPrHead(this.repository, options);
+  }
   async repositoryInfo(repo: string) {
     const root = await this.repository.root(repo);
     return this.repository.serial(root, () => this.repository.info(root));
@@ -267,6 +280,16 @@ export class GitService {
   async listWorktrees(repo: string) {
     const root = await this.repository.root(repo);
     return this.repository.serial(root, () => this.repository.worktrees(root));
+  }
+
+  worktreeMetadata(repo: string, path: string) {
+    return worktreeMetadata(this.repository, repo, path);
+  }
+  inspectWorktreeCleanup(repo: string, path: string) {
+    return inspectWorktreeCleanup(this.repository, repo, path);
+  }
+  cleanupWorktree(input: WorktreeCleanupInput, beforeRemove?: () => void) {
+    return cleanupWorktree(this.repository, input, beforeRemove);
   }
 
   removeWorktree(options: { repo: string; path: string; force?: boolean }) {
