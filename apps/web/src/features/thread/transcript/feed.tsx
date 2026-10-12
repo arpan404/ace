@@ -339,7 +339,9 @@ export function Feed(props: FeedProps) {
     const items = virtualizer.getVirtualItems();
     const first = items.find((item) => item.end > top);
     if (!first) return;
-    const pinLive = liveRow >= 0 && first.index > liveRow;
+    const liveItem = items.find((item) => item.index === liveRow);
+    const pinLive =
+      liveRow >= 0 && (liveItem ? liveItem.end <= el.scrollTop : first.index > liveRow);
     if (pinLive !== livePinned) setLivePinned(pinLive);
     const row = rows[first.index];
     // While code is placing the view (a jump landing, a restored place), the place it set is
@@ -624,7 +626,7 @@ export function Feed(props: FeedProps) {
           </div>
         </div>
         {livePinned && working && (
-          <div className="ace-floating-solid absolute inset-x-0 top-0 z-[5] bg-background/95 pb-1">
+          <div className="ace-floating-solid absolute inset-x-0 top-0 z-[5] bg-background pb-1">
             <div className={readingColumn}>
               <LiveHead threadId={threadId} />
             </div>
