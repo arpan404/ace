@@ -11,7 +11,7 @@ import {
 } from "./live-status.ts";
 import { providerNames } from "./providers.ts";
 import { limitHoldShown } from "./queue.ts";
-import { formatClock, formatElapsed } from "./time.ts";
+import { formatClock } from "./time.ts";
 import { ledgerOf } from "./thread-ledger.ts";
 import type { StepLabels } from "./tool-labels.ts";
 import { describeStep } from "./work-log.ts";
@@ -73,13 +73,6 @@ export interface ActivityOptions {
   threadStatus?: ThreadStatus | undefined;
   /** A Stop is on its way to the daemon. */
   stopping?: boolean | undefined;
-}
-
-/** "Working for 1m 14s", or the label (and the command it names) when the line has no timer. */
-export function activityText(activity: TurnActivity, now: number): string {
-  if (activity.elapsedFrom === undefined)
-    return activity.code ? `${activity.label} ${activity.code}` : activity.label;
-  return `${timedWords(activity.label)} ${formatElapsed(Math.max(0, now - activity.elapsedFrom))}`;
 }
 
 /**
@@ -204,7 +197,7 @@ export function readTurnActivity(
               ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from),
         // A root held while its tree works names the hold as its step: "Rate limited · …".
         current:
-          (root === "held" && activity ? activityText(activity, 0) : undefined) ??
+          (root === "held" && activity ? heldText(activity) : undefined) ??
           activity?.current ??
           currentAction(stretch.current, options.labels) ??
           tree.currentCommand(),
@@ -230,6 +223,11 @@ function reached(
     0,
     waitStart - from - idle - ledgerOf(reader).waitedWithin(from, waitStart, from),
   );
+}
+
+/** A held root's line as its tree's step: the hold and the command it names. */
+function heldText(activity: TurnActivity): string {
+  return activity.code ? `${activity.label} ${activity.code}` : activity.label;
 }
 
 /** Where the root stands under its live line, for the shared `treeWorking` rule. */

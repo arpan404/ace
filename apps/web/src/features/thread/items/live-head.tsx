@@ -35,7 +35,7 @@ export function LiveHead(props: { threadId: string }) {
       <ActivityLine activity={activity} progress={progress} />
       <button
         type="button"
-        aria-label="Open summary"
+        aria-label="Open the summary"
         onClick={() => workspace.open({ kind: "work" })}
         className="absolute inset-0 rounded-sm focus-ring"
       />
@@ -44,9 +44,9 @@ export function LiveHead(props: { threadId: string }) {
 }
 
 /**
- * The live line, muted: `[grid] Working for 1m 14s` moving; `Working for 1m 15s · Waiting for
- * your approval` standing still while the person is asked; a held line as it is; a usage-limit pause
- * as a divider.
+ * The live line, muted: `[grid] Working for 1m 14s` moving; `Working for 1m 15s` standing still
+ * while the person is asked (the request itself is in the composer's strip); a held line as it
+ * is; a usage-limit pause as a divider.
  */
 export function ActivityLine(props: { activity: TurnActivity; progress?: string | undefined }) {
   const { activity } = props;
