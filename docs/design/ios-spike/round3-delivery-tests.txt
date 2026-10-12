@@ -1,0 +1,82 @@
+Round-3 delivery verification. iOS 26.5; virtual-clock pump tests and real local SDK/socket contracts.
+
+Initial baseline command: same xcodebuild flags, -only-testing:AceTests/PatchPumpTests
+Selected baseline failures (the 8,191-character text expectation is omitted):
+✘ Test aSurrogateBoundaryTitleAndLaterCanonicalStatusBothArrive() recorded an issue at PatchPumpTests.swift:14:9: Expectation failed: (harness.model.inbox["status"]?.state → nil) == "working"
+✘ Test aSurrogateBoundaryTitleAndLaterCanonicalStatusBothArrive() recorded an issue at PatchPumpTests.swift:15:9: Expectation failed: (harness.rejected → 5) == 0
+✘ Test continuousLargeContentCannotStarveAPendingApprovalOrWorkingStatus() recorded an issue at PatchPumpTests.swift:27:28: Expectation failed: (harness.model.thread?.approvals → []).first → nil → nil
+✘ Test permanentDisplayRejectionBacksOffAndDegradesWithoutLosingActions() recorded an issue at PatchPumpTests.swift:41:9: Expectation failed: (harness.model.inbox["status"]?.state → nil) == "working"
+✘ Test permanentDisplayRejectionBacksOffAndDegradesWithoutLosingActions() recorded an issue at PatchPumpTests.swift:43:28: Expectation failed: (harness.model.thread?.approvals → []).first → nil → nil
+
+Final command:
+xcodebuild test -project apps/ios/Ace.xcodeproj -scheme Ace -destination 'platform=iOS Simulator,id=0FE0D56F-958E-4360-A716-ACDC22D583EF' -derivedDataPath apps/ios/.build/DerivedData -jobs 4 -parallel-testing-enabled NO -only-testing:AceTests
+A fresh loopback spike daemon was started before the real-edge suite.
+Native head/tail previews include explicit UTF-16 repair.
+
+◇ Test run started.
+◇ Suite BridgeContractTests started.
+◇ Test approvalControlsRecoverFromSQLiteFailureAndDaemonRefusalWithoutClosingTheInteraction() started.
+✔ Test approvalControlsRecoverFromSQLiteFailureAndDaemonRefusalWithoutClosingTheInteraction() passed after 0.323 seconds.
+◇ Test sdkLimitAndSQLiteFailurePreserveTheDraftAndACommittedRetryClearsIt() started.
+✔ Test sdkLimitAndSQLiteFailurePreserveTheDraftAndACommittedRetryClearsIt() passed after 0.284 seconds.
+◇ Test oversizedDetailsKeepCanonicalWorkingStateAndExactApprovalActions() started.
+✔ Test oversizedDetailsKeepCanonicalWorkingStateAndExactApprovalActions() passed after 0.384 seconds.
+◇ Test theSharedClientStreamsTwoThousandItemsAndKeepsALiveChildWorking() started.
+✔ Test theSharedClientStreamsTwoThousandItemsAndKeepsALiveChildWorking() passed after 2.042 seconds.
+◇ Test offlineInputSurvivesRuntimeDestructionAndIsAdmittedOnce() started.
+✔ Test offlineInputSurvivesRuntimeDestructionAndIsAdmittedOnce() passed after 4.186 seconds.
+◇ Test approvalClosesOnlyAfterTheCanonicalDaemonUpdate() started.
+✔ Test approvalClosesOnlyAfterTheCanonicalDaemonUpdate() passed after 0.183 seconds.
+◇ Test threeHundredLargeActionsArriveThroughSDKSnapshotFragmentsAndResolveExactly() started.
+✔ Test threeHundredLargeActionsArriveThroughSDKSnapshotFragmentsAndResolveExactly() passed after 11.908 seconds.
+◇ Test rejectingTheFinalLargeFrameRedeliversTheApprovalAndItsActions() started.
+✔ Test rejectingTheFinalLargeFrameRedeliversTheApprovalAndItsActions() passed after 17.904 seconds.
+✔ Suite BridgeContractTests passed after 37.219 seconds.
+◇ Suite BridgeDeliveryTests started.
+◇ Test anApprovalWithThreeHundredLargeActionIDsRemainsVisibleAndExact() started.
+✔ Test anApprovalWithThreeHundredLargeActionIDsRemainsVisibleAndExact() passed after 0.161 seconds.
+✔ Suite BridgeDeliveryTests passed after 0.161 seconds.
+◇ Suite ClientModelTests started.
+◇ Test aDeltaUpdatesOnlyItsVisibleRowAndKeepsHistory() started.
+✔ Test aDeltaUpdatesOnlyItsVisibleRowAndKeepsHistory() passed after 0.001 seconds.
+◇ Test anOldThreadPatchCannotReplaceTheNewConversation() started.
+✔ Test anOldThreadPatchCannotReplaceTheNewConversation() passed after 0.001 seconds.
+◇ Test corruptUpdatesLeaveTheLastVisibleFactsIntact() started.
+✔ Test corruptUpdatesLeaveTheLastVisibleFactsIntact() passed after 0.001 seconds.
+◇ Test reopeningTheSameThreadRejectsUpdatesFromItsPreviousVisit() started.
+✔ Test reopeningTheSameThreadRejectsUpdatesFromItsPreviousVisit() passed after 0.001 seconds.
+✔ Suite ClientModelTests passed after 0.001 seconds.
+◇ Suite ComposerDraftTests started.
+◇ Test aDraftStaysVisibleUntilPersistenceConfirmsItAndSurvivesRejection() started.
+✔ Test aDraftStaysVisibleUntilPersistenceConfirmsItAndSurvivesRejection() passed after 0.001 seconds.
+◇ Test persistenceDoesNotEraseEditsMadeWhileSaving() started.
+✔ Test persistenceDoesNotEraseEditsMadeWhileSaving() passed after 0.001 seconds.
+✔ Suite ComposerDraftTests passed after 0.001 seconds.
+◇ Suite DisplayTextTests started.
+◇ Test displayBudgetsNeverSplitEmojiCombiningMarksOrJoinedEmoji() started.
+✔ Test displayBudgetsNeverSplitEmojiCombiningMarksOrJoinedEmoji() passed after 0.001 seconds.
+✔ Suite DisplayTextTests passed after 0.001 seconds.
+◇ Suite DurableStoreTests started.
+◇ Test committedRecordsSurviveReopeningAndReceiptsDeleteOnlyTheirOwnInput() started.
+✔ Test committedRecordsSurviveReopeningAndReceiptsDeleteOnlyTheirOwnInput() passed after 0.028 seconds.
+◇ Test aDifferentDaemonCannotOverwriteThePersistedIdentity() started.
+✔ Test aDifferentDaemonCannotOverwriteThePersistedIdentity() passed after 0.013 seconds.
+✔ Suite DurableStoreTests passed after 0.042 seconds.
+◇ Suite PatchPumpTests started.
+◇ Test aSurrogateBoundaryTitleAndLaterCanonicalStatusBothArrive() started.
+✔ Test aSurrogateBoundaryTitleAndLaterCanonicalStatusBothArrive() passed after 0.034 seconds.
+◇ Test continuousLargeContentCannotStarveAPendingApprovalOrWorkingStatus() started.
+✔ Test continuousLargeContentCannotStarveAPendingApprovalOrWorkingStatus() passed after 0.036 seconds.
+◇ Test permanentDisplayRejectionBacksOffAndDegradesWithoutLosingActions() started.
+✔ Test permanentDisplayRejectionBacksOffAndDegradesWithoutLosingActions() passed after 0.029 seconds.
+◇ Test aRejectedBatchIsIsolatedAndNewerBadReadersDoNotResetTheRetryBudget() started.
+✔ Test aRejectedBatchIsIsolatedAndNewerBadReadersDoNotResetTheRetryBudget() passed after 0.028 seconds.
+◇ Test anUndecodableIdentityIsRetainedWithoutBlockingOtherWorkAndCanRecover() started.
+✔ Test anUndecodableIdentityIsRetainedWithoutBlockingOtherWorkAndCanRecover() passed after 0.028 seconds.
+◇ Test aRejectedResetCannotEraseRowsConfirmedWhileItWasDelayed() started.
+✔ Test aRejectedResetCannotEraseRowsConfirmedWhileItWasDelayed() passed after 0.030 seconds.
+✔ Suite PatchPumpTests passed after 0.189 seconds.
+✔ Test run with 24 tests in 7 suites passed after 37.616 seconds.
+
+Scoped fmt, lint, @ace/ios typecheck and theme:check passed. No root test/check/typecheck or Vitest was run.
+These are behavior checks, not new FPS, input latency or memory measurements. The performance gate remains held.
