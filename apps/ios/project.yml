@@ -1,0 +1,67 @@
+name: Ace
+options:
+  bundleIdPrefix: app.ace
+  deploymentTarget:
+    iOS: '18.0'
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    SWIFT_STRICT_CONCURRENCY: complete
+    OTHER_SWIFT_FLAGS: -j4
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+    CODE_SIGNING_ALLOWED: NO
+    DEVELOPMENT_TEAM: ''
+    TARGETED_DEVICE_FAMILY: '1,2'
+targets:
+  Ace:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources
+        buildPhase: resources
+    info:
+      path: .build/Info.plist
+      properties:
+        CFBundleDisplayName: ace
+        UILaunchScreen: {}
+        CADisableMinimumFrameDurationOnPhone: true
+        NSLocalNetworkUsageDescription: Connect to your own ace daemon.
+        NSFaceIDUsageDescription: Unlock your paired machines.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.ace.ios
+    dependencies:
+      - sdk: JavaScriptCore.framework
+      - sdk: libsqlite3.tbd
+  AceTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: Ace
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+  AceUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: Ace
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Ace:
+    build:
+      targets:
+        Ace: all
+        AceTests: [test]
+        AceUITests: [test]
+    test:
+      targets: [AceTests, AceUITests]
+      gatherCoverageData: false

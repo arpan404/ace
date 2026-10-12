@@ -1,0 +1,22 @@
+{
+  "name": "@ace/ios",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "bundle": "bun build bridge/main.ts --target browser --format iife --outfile Resources/client.js",
+    "generate": "bun run bundle && /opt/homebrew/bin/xcodegen generate",
+    "spike:daemon": "bun scripts/spike-daemon.ts",
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
+  },
+  "dependencies": {
+    "@ace/client": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "@ace/projection": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@ace/fake-daemon": "workspace:*",
+    "@types/bun": "^1.3.10"
+  }
+}
