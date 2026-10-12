@@ -32,9 +32,9 @@ export function WorkAutomations(props: {
       (automation.workspace === props.workspaceId || automation.workspace === props.workspacePath),
   );
   return (
-    <section aria-label="Automations" className="py-3">
-      <div className="flex items-center justify-between px-2 pb-1">
-        <h3 className="text-xs text-subtle-foreground">Automations</h3>
+    <section aria-label="Automations" className="py-1.5">
+      <div className="flex h-7 items-center justify-between pr-1 pl-2.5">
+        <h3 className="text-xs text-muted-foreground">Automations</h3>
         <IconButton
           icon={SlidersHorizontalIcon}
           label="Automation settings"
@@ -48,15 +48,19 @@ export function WorkAutomations(props: {
       {query.isError ? (
         <button
           type="button"
-          className="focus-ring-inset w-full rounded-md px-2 py-2 text-left text-sm text-status-failed"
+          className="focus-ring-inset flex h-8 w-full items-center rounded-md px-2.5 text-left text-ui text-status-failed"
           onClick={() => void query.refetch()}
         >
           Couldn't read automations. Try again
         </button>
       ) : query.isPending ? (
-        <p className="px-2 py-2 text-sm text-muted-foreground">Reading automations…</p>
+        <p className="flex h-8 items-center px-2.5 text-ui text-muted-foreground">
+          Reading automations…
+        </p>
       ) : !entries?.length ? (
-        <p className="px-2 py-2 text-sm text-muted-foreground">No scheduled tasks</p>
+        <p className="flex h-8 items-center px-2.5 text-ui text-muted-foreground">
+          No scheduled tasks
+        </p>
       ) : (
         entries.map((entry) => (
           <AutomationLine key={entry.automation.id} entry={entry} onClose={props.onClose} />
@@ -97,26 +101,31 @@ function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
         ? "Automations are off on this machine"
         : undefined;
   const cadence = describeWhen(automation.trigger, localTimeZone());
+  // One 32px row: the title and when it next runs, its toggle, and Edit and Run on hover or
+  // focus (always on touch, where there is no hover).
   return (
-    <div className="py-1">
-      <div className="flex min-w-0 items-center gap-1 px-2">
-        <CalendarDotsIcon aria-hidden size={16} className="shrink-0 text-muted-foreground" />
-        <Tip label={cadence}>
-          <button
-            type="button"
-            className="focus-ring-inset flex min-w-0 flex-1 flex-col rounded-md p-1 text-left"
-            aria-label={`Open automation ${automation.title}`}
-            onClick={() => {
-              props.onClose();
-              void navigate({
-                to: "/automations/$automationId",
-                params: { automationId: automation.id },
-              });
-            }}
-          >
-            <span className="w-full truncate text-sm">{automation.title}</span>
-          </button>
-        </Tip>
+    <div className="group/automation flex h-8 min-w-0 items-center gap-1 rounded-md pr-1 pl-2.5 transition-colors duration-(--motion-fast) hover:bg-accent">
+      <CalendarDotsIcon aria-hidden size={16} className="shrink-0 text-muted-foreground" />
+      <Tip label={cadence}>
+        <button
+          type="button"
+          className="focus-ring-inset flex h-8 min-w-0 flex-1 items-center gap-2 rounded-sm px-1.5 text-left text-ui"
+          aria-label={`Open automation ${automation.title}`}
+          onClick={() => {
+            props.onClose();
+            void navigate({
+              to: "/automations/$automationId",
+              params: { automationId: automation.id },
+            });
+          }}
+        >
+          <span className="min-w-0 shrink truncate">{automation.title}</span>
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+            <NextRun automation={automation} nextRunAt={nextRunAt} now={now} running={running} />
+          </span>
+        </button>
+      </Tip>
+      <span className="hidden shrink-0 items-center group-focus-within/automation:flex group-hover/automation:flex pointer-coarse:flex">
         <IconButton
           icon={PencilSimpleIcon}
           label={`Edit ${automation.title}`}
@@ -138,23 +147,19 @@ function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
             void perform(() => actions.runNow(automation.id), `Started · ${automation.title}`)
           }
         />
-        <Switch
-          aria-label={`Enable ${automation.title}`}
-          checked={automation.enabled}
-          disabled={busy || !ready}
-          onCheckedChange={(enabled) =>
-            void perform(
-              () => actions.setEnabled(automation, enabled),
-              `${enabled ? "Resumed" : "Paused"} · ${automation.title}`,
-            )
-          }
-        />
-      </div>
-      <p className="ml-8 mr-2 truncate text-xs text-subtle-foreground">
-        {cadence}
-        {" · "}
-        <NextRun automation={automation} nextRunAt={nextRunAt} now={now} running={running} />
-      </p>
+      </span>
+      <Switch
+        aria-label={`Enable ${automation.title}`}
+        checked={automation.enabled}
+        disabled={busy || !ready}
+        className="ml-1"
+        onCheckedChange={(enabled) =>
+          void perform(
+            () => actions.setEnabled(automation, enabled),
+            `${enabled ? "Resumed" : "Paused"} · ${automation.title}`,
+          )
+        }
+      />
     </div>
   );
 }

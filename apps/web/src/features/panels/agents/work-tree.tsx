@@ -26,7 +26,7 @@ import { StopAgent } from "./stop-agent.tsx";
 import { subagentCounts } from "./subagents.ts";
 import { AgentCounts } from "./tree-extras.tsx";
 
-const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-muted-foreground";
+const heading = "flex h-7 items-center px-2.5 pt-1 text-xs text-muted-foreground";
 
 /** The tree's roving focus and folded branches, shared by its rows. */
 interface TreeState {
@@ -115,7 +115,7 @@ export function WorkTree(props: { threadId: string }) {
   return (
     <TreeWorkContext value={facts.work}>
       <ArrivalScope>
-        <div className="px-2.5 pt-2 pb-5">
+        <div className="pb-1">
           <AgentCounts agents={facts.agents} work={facts.work} />
           {tree.length ? (
             <AgentTree threadId={props.threadId} nodes={tree} />

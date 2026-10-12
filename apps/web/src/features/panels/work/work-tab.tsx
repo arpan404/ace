@@ -11,7 +11,7 @@ import { WorkPlans } from "./work-plans.tsx";
 
 /**
  * The thread's plans, whole agent tree and project schedules. Its checkout and git actions live
- * in the header's Work card.
+ * in the header's thread details card.
  */
 export default function WorkTab(props: TabViewProps) {
   const thread = useThreadMeta(props.scope);
@@ -39,11 +39,11 @@ export default function WorkTab(props: TabViewProps) {
       className="h-full min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain"
     >
       <WorkPlans threadId={props.scope} />
-      <section aria-label="Agents" className="min-w-0 py-3">
-        <h2 className="px-5 text-xs font-medium text-muted-foreground">Agents</h2>
+      <section aria-label="Agents" className="min-w-0 px-1.5 py-1.5">
+        <h2 className="flex h-7 items-center px-2.5 text-xs text-muted-foreground">Agents</h2>
         <WorkTree threadId={props.scope} />
       </section>
-      <div className="px-3">
+      <div className="px-1.5">
         <WorkAutomations
           workspaceId={thread.workspaceId}
           workspacePath={thread.details?.workspace?.path}
