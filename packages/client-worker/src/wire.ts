@@ -41,12 +41,16 @@ export type CallMethod = z.infer<typeof CallMethod>;
 export const IterateMethod = z.enum(["text", "output", "attachment"]);
 export type IterateMethod = z.infer<typeof IterateMethod>;
 
+export const CommandAdmissionId = z.string().check(z.minLength(1), z.maxLength(128));
+
 export const TabMessage = z.discriminatedUnion("t", [
   /** Attach to the client for this daemon target, creating it if no other tab has. */
   z.object({ t: z.literal("connect"), config: z.unknown() }),
   z.object({ t: z.literal("lease"), lease: id, scope: Scope }),
   z.object({ t: z.literal("release"), lease: id }),
   z.object({ t: z.literal("call"), call: id, method: CallMethod, args: z.array(z.unknown()) }),
+  /** A refused command was never posted; ask only whether an earlier attempt already exists. */
+  z.object({ t: z.literal("command.admission"), check: id, commandId: CommandAdmissionId }),
   z.object({
     t: z.literal("iterate"),
     call: id,
@@ -91,6 +95,11 @@ export type LeaseChanges = z.infer<typeof LeaseChanges>;
 
 export const WorkerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("pong") }),
+  z.object({
+    t: z.literal("command.admission"),
+    check: id,
+    outcome: z.enum(["unsent", "admitted", "unknown"]),
+  }),
   z.object({
     t: z.literal("attached"),
     error: z.optional(ErrorShape),

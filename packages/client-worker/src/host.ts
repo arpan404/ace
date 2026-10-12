@@ -13,7 +13,13 @@ import { sidebarPatches, threadPatches, type Patch } from "./patches.ts";
 import { callArgs, iterateArgs, objectInput, requestArgs, sendArgs } from "./calls.ts";
 import { admitArguments } from "./argument-graph.ts";
 import { TabChannels } from "./tab-channels.ts";
-import { TabMessage, type LeaseChanges, type PortLike, type Scope } from "./wire.ts";
+import {
+  CommandAdmissionId,
+  TabMessage,
+  type LeaseChanges,
+  type PortLike,
+  type Scope,
+} from "./wire.ts";
 
 /*
  * The worker side (ADR 0056). One `Client` per daemon target is shared by every tab attached
@@ -214,6 +220,7 @@ class Tab {
   #entry: Entry | undefined;
   #leases = new Map<number, Held>();
   #calls = new Map<number, AbortController>();
+  #commandIds = new Map<number, string>();
   #collection: ReturnType<Client["threadsCollection"]> | undefined;
   #sidebar(client: Client) {
     return (this.#collection ??= client.threadsCollection());
@@ -286,6 +293,28 @@ class Tab {
     if (message.t === "visible") {
       this.#visible = message.visible;
       if (message.visible) this.#schedule();
+      return;
+    }
+    if (message.t === "command.admission") {
+      const entry = this.#entry;
+      if (!entry)
+        return this.#post({ t: "command.admission", check: message.check, outcome: "unknown" });
+      void entry.started.then(
+        () => {
+          if (this.#entry !== entry || this.#dropped) return;
+          const active = [...entry.tabs].some((tab) =>
+            [...tab.#commandIds.values()].includes(message.commandId),
+          );
+          const admitted =
+            active || entry.client.intent(message.commandId).getSnapshot() !== undefined;
+          this.#post({
+            t: "command.admission",
+            check: message.check,
+            outcome: admitted ? "admitted" : "unsent",
+          });
+        },
+        () => this.#post({ t: "command.admission", check: message.check, outcome: "unknown" }),
+      );
       return;
     }
     const client = this.#entry?.client;
@@ -511,6 +540,9 @@ class Tab {
     this.#calls.set(call, controller);
     try {
       admitArguments(args);
+      const rawId = method === "command" ? args[2] : method === "enqueue" ? args[1] : undefined;
+      const commandId = CommandAdmissionId.safeParse(rawId);
+      if (commandId.success) this.#commandIds.set(call, commandId.data);
       const value =
         method === "request" && isChannelRequest(args[0])
           ? await this.#channelRequest(client, call, controller, args)
@@ -528,6 +560,7 @@ class Tab {
       this.#post({ t: "failed", call, error: errorShape(error) });
     } finally {
       this.#calls.delete(call);
+      this.#commandIds.delete(call);
     }
   }
   async #channelRequest(

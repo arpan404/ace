@@ -51,6 +51,7 @@ import type {
   TextSource,
 } from "@ace/protocol";
 import { WorkerLiveness, replyTimeout } from "./worker-liveness.ts";
+import { CommandAdmission } from "./command-admission.ts";
 import { IntentCache } from "./intent-cache.ts";
 import { SendCache } from "./send-cache.ts";
 import { MirrorSidebar, MirrorThread } from "./mirror.ts";
@@ -146,6 +147,7 @@ export class RemoteClient implements ClientApi {
   private attached: Promise<void>;
   private settle: Pending | undefined;
   private monitor: WorkerLiveness;
+  private admission: CommandAdmission;
   private stopFailure: (() => void) | undefined;
   private workerLost = false;
   private started = false;
@@ -157,6 +159,12 @@ export class RemoteClient implements ClientApi {
     this.port = port;
     this.config = config;
     this.options = options;
+    this.admission = new CommandAdmission(
+      (message) => this.post(message),
+      () => ++this.sequence,
+      options.scheduler,
+      options.workerTimeoutMs ?? 15_000,
+    );
     this.intents = new IntentCache(options.unwatchedIntents ?? 64, defaultLimits.outboxBytes);
     this.sends = new SendCache(
       defaultLimits.intents,
@@ -296,6 +304,7 @@ export class RemoteClient implements ClientApi {
     if (this.closed) return;
     this.closed = true;
     this.monitor.close();
+    this.admission.close();
     this.stopFailure?.();
     this.unwatch?.();
     this.post({ t: "bye" });
@@ -348,7 +357,10 @@ export class RemoteClient implements ClientApi {
       result = await this.call("enqueue", [payload, id]);
     } catch (error) {
       const previous = this.sends.get(id);
-      if (previous && !(error instanceof ClientError && error.code === "offline"))
+      if (
+        previous &&
+        !(error instanceof ClientError && (error.code === "offline" || error.code === "limit"))
+      )
         this.sends.set(id, {
           ...previous,
           state: "failed",
@@ -408,7 +420,8 @@ export class RemoteClient implements ClientApi {
           previous &&
           error instanceof ClientError &&
           error.code !== "aborted" &&
-          error.code !== "offline"
+          error.code !== "offline" &&
+          error.code !== "limit"
         ) {
           this.sends.set(id, { ...previous, state: "failed", error: error.message });
           this.notifications.emit(["pendingSends"]);
@@ -587,8 +600,12 @@ export class RemoteClient implements ClientApi {
     if (signal?.aborted) return Promise.reject(new ClientError("aborted"));
     const wait = replyTimeout(args, defaultLimits.requestMs);
     if (!Number.isSafeInteger(wait) || wait <= 0) return Promise.reject(new ClientError("limit"));
-    if (this.pending.size >= defaultLimits.requests)
-      return Promise.reject(new ClientError("limit"));
+    if (this.pending.size >= defaultLimits.requests) {
+      const id = method === "command" ? args[2] : method === "enqueue" ? args[1] : undefined;
+      return typeof id === "string"
+        ? this.admission.refuse(id)
+        : Promise.reject(new ClientError("limit"));
+    }
     const call = ++this.sequence;
     return new Promise((resolve, reject) => {
       let cancel = noop;
@@ -682,6 +699,7 @@ export class RemoteClient implements ClientApi {
     if (this.closed || this.workerLost) return;
     this.workerLost = true;
     this.monitor.close();
+    this.admission.close();
     this.current = "fatal";
     const error = new ClientError(
       "offline",
@@ -700,6 +718,8 @@ export class RemoteClient implements ClientApi {
     const message = parsed.data;
     this.monitor.received();
     switch (message.t) {
+      case "command.admission":
+        return this.admission.settle(message.check, message.outcome);
       case "pong":
         return;
       case "attached":
