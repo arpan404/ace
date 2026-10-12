@@ -337,7 +337,9 @@ test("⌘ and a number pick that row and close the model picker", async () => {
   await openPicker();
   await userEvent.keyboard("{Meta>}2{/Meta}");
   expect(await screen.findByRole("button", { name: /^Model: Sonnet 5\.5, Personal/ })).toBeTruthy();
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose model" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull(),
+  );
 });
 
 test("the provider column moves with the arrow keys", async () => {
@@ -365,7 +367,9 @@ test("Escape closes a searched picker immediately and restores focus to the mode
   const { popover } = await openPicker();
   await userEvent.type(within(popover).getByRole("combobox", { name: "Search models" }), "gpt");
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose model" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull(),
+  );
   expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Model: Opus 5\.5/ }));
 });
 
@@ -381,7 +385,9 @@ test("Escape also closes the picker with focus on a favorite star", async () => 
     within(list).getAllByRole("button", { name: "Add Sonnet 5.5 to favorites" })[0],
   );
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose model" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull(),
+  );
 });
 
 /**

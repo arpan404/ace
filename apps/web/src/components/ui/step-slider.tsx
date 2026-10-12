@@ -47,6 +47,8 @@ function StepSlider(props: {
   deepReasoning?: boolean;
   /** Use the existing accent gradient at every supported level. */
   gradient?: boolean;
+  /** The step that is the default, marked with a ring on its dot. */
+  defaultIndex?: number | undefined;
 }) {
   // The pointer dragging the thumb, if any: a second finger can neither move nor end its drag.
   const [pointer, setPointer] = useState<number>();
@@ -146,9 +148,12 @@ function StepSlider(props: {
           <span
             key={step}
             aria-hidden
+            data-default={index === props.defaultIndex ? "" : undefined}
             className={cn(
               "absolute top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full",
               selected && index < value ? "bg-white/70" : "bg-current opacity-30",
+              // The default stop: a ring around its dot, so a person can find their way back.
+              "data-default:size-2 data-default:bg-transparent data-default:opacity-60 data-default:ring-[1.5px] data-default:ring-current",
             )}
             style={{ left: at(index, count) }}
           />
@@ -161,6 +166,7 @@ function StepSlider(props: {
               props.quietFocus
                 ? "group-focus-visible:scale-110"
                 : "group-focus-visible:shadow-[0_0_0_2px_var(--popover),0_0_0_4px_var(--ring)]",
+              props.deepReasoning && "step-slider-glow",
               glide,
             )}
             style={{ left: at(value, count) }}

@@ -47,7 +47,9 @@ test.each([1, 2, 3, 4, 5, 6, 7, 8, 9])(
         name: new RegExp(`^Model: Shortcut model ${String(number).padStart(3, "0")}, Personal`),
       }),
     ).toBeTruthy();
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose model" })).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull(),
+    );
   },
 );
 
@@ -68,7 +70,7 @@ test("⌘1–9 leave the selected model alone after the searched picker closes",
         .getByRole("button", { name: /^Model: Opus 5\.5, Personal/ })
         .getAttribute("aria-label"),
     ).toBe(modelName);
-    expect(screen.queryByRole("dialog", { name: "Choose model" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull();
   }
 });
 
@@ -146,7 +148,7 @@ test("an unavailable search result explains its limit and refuses quick selectio
   const row = within(list).getByRole("option", { name: /GPT-6\.2 Sol.*Team.*Limit reached/ });
   expect(row.getAttribute("aria-disabled")).toBe("true");
   await userEvent.keyboard("{Meta>}1{/Meta}{Enter}");
-  expect(screen.getByRole("dialog", { name: "Choose model" })).toBe(popover);
+  expect(screen.getByRole("dialog", { name: "Model and effort" })).toBe(popover);
   expect(screen.getByRole("button", { name: /^Model: Opus 5\.5, Personal/ })).toBeTruthy();
 });
 

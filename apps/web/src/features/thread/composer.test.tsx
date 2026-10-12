@@ -228,9 +228,6 @@ test("approvals and predefined effort keep their readable modes on a phone", asy
   expect(model.textContent).toContain("Opus 5.5");
   expect(within(model).getByRole("img", { name: "Claude Code · Personal" })).toBeTruthy();
   expect(model.getAttribute("aria-label")).toContain("Personal");
-  expect(
-    within(screen.getByRole("button", { name: "Reasoning: Medium" })).getByRole("img", {
-      name: "Medium reasoning · default",
-    }),
-  ).toBeTruthy();
+  expect(model.querySelector("[data-slot=model-effort]")?.textContent).toBe("Medium");
+  expect(model.getAttribute("aria-label")).toContain("Medium effort (default)");
 });

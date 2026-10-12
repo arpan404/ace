@@ -20,6 +20,7 @@ import {
   recordedChoice,
   resolveEffort,
   speedControl,
+  speedOption,
   threadEffortControl,
   unavailablePickerModel,
   unavailableModelNotice,
@@ -167,8 +168,8 @@ export function ThreadModelControl(props: {
     model: shown && {
       label: shown.model,
       provider: shown.provider,
-      fastTier: shown.fastTier,
-      fastDefault: shown.fastDefault,
+      speeds: shown.speeds,
+      defaultSpeed: shown.defaultSpeed,
     },
     current: options["serviceTier"],
     capabilities: meta?.capabilities,
@@ -190,7 +191,7 @@ export function ThreadModelControl(props: {
       pending: stale.options,
       efforts: shown.efforts,
       effortAllowed: effort.reason === undefined,
-      fastTier: shown.fastTier,
+      speeds: shown.speeds,
       speedAllowed: speed.reason === undefined,
     });
     props.next.onChange(kept && { identity: selectionKey, options: kept });
@@ -228,7 +229,7 @@ export function ThreadModelControl(props: {
     effort: effort.current,
     effortDefault: !effort.reported,
     hasEfforts: effort.efforts.length > 0,
-    fast: speed.on,
+    speed: speed.speed,
   };
   const name = target && modelControlName(details);
   const waiting = pending
@@ -273,13 +274,13 @@ export function ThreadModelControl(props: {
     instance: target?.accountId || undefined,
     efforts: effort.efforts,
     effort: effort.current,
+    defaultEffort: preset,
     effortDefault: !effort.reported,
     effortReason: effort.reason,
-    fast: speed.on,
-    fastReason: speed.reason,
-    canReset:
-      (optionEffort(options) !== undefined && optionEffort(options) !== preset) ||
-      options["serviceTier"] !== undefined,
+    speeds: speed.tiers,
+    speed: speed.speed,
+    speedReason: speed.reason,
+    canReset: optionEffort(options) !== undefined && optionEffort(options) !== preset,
     accounts: shown?.account
       ? choices
           .filter((choice) => choice.key === shown.key && choice.account)
@@ -304,12 +305,7 @@ export function ThreadModelControl(props: {
         compact={compact}
         actions={{
           onEffort: (next) => change({ effort: next }),
-          onFast: (on) => change({ serviceTier: on ? speed.tier : speed.off }),
-          onReset: () =>
-            change({
-              effort: optionEffort(base) === undefined ? undefined : preset,
-              serviceTier: undefined,
-            }),
+          onSpeed: (next) => change({ serviceTier: speedOption(speed.tiers, next) }),
           onModel: (key, instance) => {
             const from = moving.chosen ?? current;
             const choice = choiceForModel(choices, key, instance ?? from?.accountId);

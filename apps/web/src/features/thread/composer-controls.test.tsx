@@ -126,7 +126,7 @@ test("a mode chosen mid-turn takes over at the agent's next turn", async () => {
   });
 });
 
-test("the effort chip opens a slider independently of the model picker", async () => {
+test("the model chip opens on Tune, its slider at the effort the thread runs at", async () => {
   await open("busy");
   // The daemon hasn't reported this thread's effort: it runs at the provider's default.
   const popover = await openEffortControl();
@@ -134,9 +134,7 @@ test("the effort chip opens a slider independently of the model picker", async (
   expect(
     within(popover).getByRole("slider", { name: "Effort" }).getAttribute("aria-valuetext"),
   ).toBe("Medium");
-  expect(
-    within(popover).getByRole("button", { name: "Fast mode" }).getAttribute("aria-disabled"),
-  ).toBe("true");
+  expect(within(popover).queryByRole("radiogroup", { name: "Speed" })).toBeNull();
   expect(
     within(popover).getByRole("button", { name: "Reset effort" }).getAttribute("aria-disabled"),
   ).toBe("true");

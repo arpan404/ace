@@ -1,10 +1,10 @@
-/** Explicit provider capabilities, never inferred from being the last choice. */
+/**
+ * Ultra and Max: the deepest reasoning a provider names, which gets the accent sheen and the
+ * animated thumb. Explicit provider capabilities, never inferred from being the last choice
+ * (Extra high stays an ordinary level).
+ */
 export function isDeepReasoning(effort: string | undefined, supported: readonly string[]): boolean {
-  return (
-    effort !== undefined &&
-    supported.includes(effort) &&
-    /^(ultra|xhigh|extra_high|max)$/i.test(effort)
-  );
+  return effort !== undefined && supported.includes(effort) && /^(ultra|max)$/i.test(effort);
 }
 
 export function reasoningDescription(effort: string | undefined): string {
@@ -28,21 +28,4 @@ export function reasoningDescription(effort: string | undefined): string {
     default:
       return "Use the selected reasoning setting reported by this model.";
   }
-}
-
-/** Compact names, without relabelling an ordinary High capability as Max. */
-export function reasoningShortLabel(effort: string): string {
-  const labels: Record<string, string> = {
-    minimal: "Min",
-    low: "Low",
-    light: "Light",
-    medium: "Med",
-    high: "High",
-    xhigh: "Max",
-    extra_high: "Max",
-    max: "Max",
-    ultra: "Ultra",
-    none: "Off",
-  };
-  return labels[effort.toLowerCase()] ?? effort;
 }

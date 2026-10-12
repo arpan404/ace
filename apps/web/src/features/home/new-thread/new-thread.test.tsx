@@ -1,4 +1,4 @@
-import { openEffortControl, chooseEffort } from "@/test/model-control.ts";
+import { openEffortControl, chooseEffort, chooseSpeed } from "@/test/model-control.ts";
 import { openProfileView } from "@/test/navigation.ts";
 import { workbench } from "@ace/fake-daemon";
 import { CatalogModel } from "@ace/protocol";
@@ -440,17 +440,17 @@ test("an unsent New thread draft waits for the next visit, and goes once the thr
   expect(((await prompt()) as HTMLDivElement).textContent).toBe("");
 });
 
-test("the speed toggle starts the thread on the model's faster tier", async () => {
+test("the speed segment starts the thread on the model's faster tier", async () => {
   const made = app();
   await made.open("/new?project=relay");
   const claude = await openModelControl(/^Model: Opus 5.5/);
-  expect(within(claude).queryByRole("button", { name: "Fast mode" })).toBeNull();
+  expect(within(claude).queryByRole("radiogroup", { name: "Speed" })).toBeNull();
   await closeModelControl();
 
   await chooseModel("GPT-5 Codex", "Codex");
   const popover = await openEffortControl();
-  await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
-  expect(within(popover).getByRole("button", { name: "Fast mode" }).ariaPressed).toBe("true");
+  await chooseSpeed(popover, "Fast");
+  expect(within(popover).getByRole("radio", { name: "Fast" }).ariaChecked).toBe("true");
   await closeModelControl();
   expect(await screen.findByRole("button", { name: /^Model: GPT-5 Codex, .*fast$/ })).toBeTruthy();
 
@@ -469,7 +469,7 @@ test("effort reset keeps Fast selected until it is explicitly switched off", asy
     within(popover).getByRole("button", { name: "Reset effort" }).getAttribute("aria-disabled"),
   ).toBe("true");
   await chooseEffort(popover, "{End}");
-  await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
+  await chooseSpeed(popover, "Fast");
   expect(
     within(popover)
       .getAllByRole("button", { name: /^Reset/ })
@@ -479,9 +479,9 @@ test("effort reset keeps Fast selected until it is explicitly switched off", asy
   expect(
     within(popover).getByRole("slider", { name: "Effort" }).getAttribute("aria-valuetext"),
   ).toBe("Medium");
-  expect(within(popover).getByRole("button", { name: "Fast mode" }).ariaPressed).toBe("true");
-  await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
-  expect(within(popover).getByRole("button", { name: "Fast mode" }).ariaPressed).toBe("false");
+  expect(within(popover).getByRole("radio", { name: "Fast" }).ariaChecked).toBe("true");
+  await chooseSpeed(popover, "Standard");
+  expect(within(popover).getByRole("radio", { name: "Fast" }).ariaChecked).toBe("false");
   await closeModelControl();
 
   await userEvent.type(await prompt(), "Profile the relay startup{Enter}");

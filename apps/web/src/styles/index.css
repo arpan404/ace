@@ -4,6 +4,8 @@
 @import "./motion.css";
 @import "./glass.css";
 @import "./legacy-aliases.css";
+@import "./model-control.css";
+@import "./composer-strip.css";
 
 /*
  * Scan only web runtime source. Tailwind turns class-like strings into CSS; generated
@@ -340,23 +342,5 @@ body
 }
 .sidebar-scroll::-webkit-scrollbar,
 .sidebar-scroll *::-webkit-scrollbar {
-  display: none;
-}
-
-/* Fine streams gather at the chosen stop; all motion stays inside the 22px fill. */
-.model-deep-reasoning,
-.reasoning-deep-heading {
-  color: var(--ring-text);
-}
-.step-slider-deep {
-  background: linear-gradient(
-    90deg,
-    color-mix(in oklab, var(--ring) 78%, var(--ring-foreground)),
-    var(--ring) 55%,
-    color-mix(in oklab, var(--ring) 88%, var(--ring-foreground))
-  );
-}
-/* Deep reasoning is identified by its accent and label, without ambient streams or glow. */
-.step-slider-convergence {
   display: none;
 }

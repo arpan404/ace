@@ -1,0 +1,175 @@
+/*
+ * The model control's deep reasoning (Ultra, Max): an accent-gradient label with a slow sheen
+ * on the chip and in the Tune pane, and on the slider fine streams that gather into ace's mark
+ * on the thumb, with a soft glow. Everything moves only transform, opacity and a background
+ * position, inside its own box. Under reduced motion (the system's, or `[data-reduce-motion]`
+ * on <html> from Settings) the sheen and streams hold still and the glow stays lit.
+ */
+.model-effort-deep {
+  background-image: linear-gradient(
+    100deg,
+    var(--ring-text) 0%,
+    color-mix(in oklab, var(--ring-text) 70%, var(--status-waiting)) 40%,
+    color-mix(in oklab, var(--ring-text) 35%, var(--foreground)) 50%,
+    color-mix(in oklab, var(--ring-text) 70%, var(--status-waiting)) 60%,
+    var(--ring-text) 100%
+  );
+  background-size: 250% 100%;
+  background-position: 100% 0;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: effort-sheen 3.6s var(--ease, ease) infinite;
+}
+@keyframes effort-sheen {
+  0%,
+  35% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0% 0;
+  }
+}
+
+.step-slider-deep {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--ring) 78%, var(--ring-foreground)),
+    var(--ring) 55%,
+    color-mix(in oklab, var(--ring) 88%, var(--ring-foreground))
+  );
+}
+
+/* Streams gather at the chosen stop; all of their motion stays inside the 22px fill. */
+.step-slider-convergence {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.step-slider-convergence::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: 8px;
+  width: 40px;
+  height: 28px;
+  background: radial-gradient(
+    ellipse at 70% 50%,
+    color-mix(in oklab, var(--ring-foreground) 55%, transparent),
+    color-mix(in oklab, var(--ring-foreground) 15%, transparent) 40%,
+    transparent 70%
+  );
+  transform-origin: right center;
+  animation: reasoning-gather 3.2s ease-in-out infinite alternate;
+}
+.step-slider-convergence > span {
+  --stream-y: 5px;
+  position: absolute;
+  top: 6px;
+  left: -38%;
+  width: 38%;
+  height: 1px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--ring-foreground) 15%, transparent) 35%,
+    color-mix(in oklab, var(--ring-foreground) 45%, transparent) 85%,
+    color-mix(in oklab, var(--ring-foreground) 75%, transparent)
+  );
+  box-shadow: 0 0 3px color-mix(in oklab, var(--ring-foreground) 30%, transparent);
+  animation: reasoning-stream 5.2s cubic-bezier(0.2, 0.4, 0.7, 1) infinite;
+}
+.step-slider-convergence > span:nth-child(2) {
+  --stream-y: 0px;
+  top: 11px;
+  animation-delay: -1.7s;
+}
+.step-slider-convergence > span:nth-child(3) {
+  --stream-y: -5px;
+  top: 16px;
+  animation-delay: -3.5s;
+}
+@keyframes reasoning-gather {
+  from {
+    transform: scale(0.7);
+    opacity: 0.35;
+  }
+  to {
+    transform: scale(1.15);
+    opacity: 0.8;
+  }
+}
+@keyframes reasoning-stream {
+  0% {
+    transform: translate(0, 0);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.6;
+  }
+  75% {
+    opacity: 0.8;
+  }
+  90%,
+  100% {
+    transform: translate(350%, var(--stream-y));
+    opacity: 0;
+  }
+}
+
+/* The thumb carries ace's mark, breathing with the streams; a glow rings it without moving it. */
+.step-slider-ace {
+  animation: reasoning-mark-gather 2.6s ease-in-out infinite alternate;
+}
+.step-slider-glow {
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.3),
+    0 0 0 0.5px rgb(0 0 0 / 0.12),
+    0 0 10px 1px color-mix(in oklab, var(--ring) 55%, transparent);
+}
+@keyframes reasoning-mark-gather {
+  from {
+    opacity: 0.68;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-effort-deep,
+  .step-slider-convergence::before,
+  .step-slider-convergence > span,
+  .step-slider-ace {
+    animation: none;
+  }
+  .model-effort-deep {
+    background-position: 50% 0;
+  }
+  .step-slider-convergence::before {
+    transform: none;
+    opacity: 0.45;
+  }
+  .step-slider-convergence > span {
+    opacity: 0;
+  }
+}
+[data-reduce-motion] .model-effort-deep,
+[data-reduce-motion] .step-slider-convergence::before,
+[data-reduce-motion] .step-slider-convergence > span,
+[data-reduce-motion] .step-slider-ace {
+  animation: none;
+}
+[data-reduce-motion] .model-effort-deep {
+  background-position: 50% 0;
+}
+[data-reduce-motion] .step-slider-convergence::before {
+  transform: none;
+  opacity: 0.45;
+}
+[data-reduce-motion] .step-slider-convergence > span {
+  opacity: 0;
+}

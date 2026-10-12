@@ -32,7 +32,7 @@ import {
   permissionOption,
   permissionOptions,
   providerNames,
-  speedOffTier,
+  speedOption,
 } from "@ace/ui-core";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import {
@@ -340,7 +340,7 @@ function PreparationPage(props: {
       account: resolved.account?.id ?? choices.account,
       mode: resolved.mode,
       effort: resolved.effort,
-      fast: resolved.fast,
+      speed: resolved.speed,
       ...patch,
     };
     setChoices(next);
@@ -433,7 +433,7 @@ function PreparationPage(props: {
         resolved.model.key,
         resolved.account?.id,
         resolved.effort,
-        resolved.fast,
+        resolved.speed,
         resolved.mode,
       ])
     : undefined;
@@ -467,7 +467,9 @@ function PreparationPage(props: {
       (choices.effort !== undefined &&
         resolved.model &&
         !resolved.model.efforts?.includes(choices.effort)) ||
-      (choices.fast === true && !resolved.model?.fastTier));
+      (choices.speed !== undefined &&
+        choices.speed !== "standard" &&
+        !resolved.model?.speeds.some((tier) => tier.speed === choices.speed)));
   const missingPermission =
     permission &&
     permissions.capabilities &&
@@ -538,7 +540,7 @@ function PreparationPage(props: {
       mode: resolved.mode,
       base,
       effort: resolved.effort,
-      serviceTier: resolved.fast ? resolved.model.fastTier : speedOffTier(resolved.model),
+      serviceTier: speedOption(resolved.model.speeds, resolved.speed),
       permission: chosen,
       input: draft.input,
       text: draft.text,
@@ -752,13 +754,12 @@ function PreparationPage(props: {
                       model,
                       account: under ? listed : stays ? choices.account : undefined,
                       effort: undefined,
-                      fast: undefined,
+                      speed: undefined,
                     });
                   }}
                   onAccount={(account) => choose({ account })}
                   onEffort={(effort) => choose({ effort })}
-                  onFast={(fast) => choose({ fast })}
-                  onReset={() => choose({ effort: undefined, fast: undefined })}
+                  onSpeed={(speed) => choose({ speed })}
                 />
               }
               controls={

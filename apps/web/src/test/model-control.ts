@@ -5,7 +5,7 @@ import { expect } from "vitest";
 /** Open the composer's model chip and return its popover. */
 export async function openModelControl(chip: RegExp | string = /^Model: /): Promise<HTMLElement> {
   await userEvent.click(await screen.findByRole("button", { name: chip }));
-  return screen.findByRole("dialog", { name: "Choose model" });
+  return screen.findByRole("dialog", { name: "Model and effort" });
 }
 
 /** From the open popover, go to the model picker (it opens there when no model is chosen). */
@@ -35,10 +35,10 @@ export async function chooseModel(label: string, provider: string, chip?: RegExp
 
 /** Close the popover and wait for it to leave, so the next control can open. */
 export async function closeModelControl() {
-  if (!screen.queryByRole("dialog", { name: /^(Choose model|Effort and speed)$/ })) return;
+  if (!screen.queryByRole("dialog", { name: "Model and effort" })) return;
   await userEvent.keyboard("{Escape}");
   await waitFor(() =>
-    expect(screen.queryByRole("dialog", { name: /^(Choose model|Effort and speed)$/ })).toBeNull(),
+    expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull(),
   );
 }
 
@@ -70,12 +70,17 @@ export async function selectAccount(popover: HTMLElement, name: string) {
   await userEvent.click(within(rail).getByRole("tab", { name: `${provider} · ${name}` }));
 }
 
-/** Open the separate effort and speed popover from the composer's chip. */
-export async function openEffortControl(): Promise<HTMLElement> {
-  await userEvent.click(await screen.findByRole("button", { name: /^Reasoning: / }));
-  const popover = await screen.findByRole("dialog", { name: "Effort and speed" });
+/** Open the model chip on its Tune pane, where effort and speed are. */
+export async function openEffortControl(chip: RegExp | string = /^Model: /): Promise<HTMLElement> {
+  const popover = await openModelControl(chip);
   await within(popover).findByRole("slider", { name: "Effort" });
   return popover;
+}
+
+/** Choose a speed in the open Tune pane's segment. */
+export async function chooseSpeed(popover: HTMLElement, speed: "Standard" | "Fast" | "Ultrafast") {
+  const segment = within(popover).getByRole("radiogroup", { name: "Speed" });
+  await userEvent.click(within(segment).getByRole("radio", { name: speed }));
 }
 
 /** Choose a catalog level through the slider's keyboard interface. */

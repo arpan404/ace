@@ -1,8 +1,8 @@
-import { openEffortControl, chooseEffort } from "@/test/model-control.ts";
+import { openEffortControl, chooseEffort, chooseSpeed } from "@/test/model-control.ts";
 import { chooseAccount } from "@/test/model-control.ts";
 import { replayCursor } from "@ace/fake-daemon";
 import { CommandId, DeviceId, ThreadId, type Command, type CommandPayload } from "@ace/protocol";
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { memoryStorage } from "@/boot/client.ts";
@@ -130,7 +130,7 @@ test("a move to another provider from another device resets what its model can't
   // Minimal effort and the fast tier: both Codex's own.
   const popover = await openEffortControl();
   await chooseEffort(popover, "{Home}");
-  await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
+  await chooseSpeed(popover, "Fast");
   await closeModelControl();
   expect(
     screen.getByRole("button", { name: "Model: GPT-5 Codex, Personal, Minimal effort, fast" }),

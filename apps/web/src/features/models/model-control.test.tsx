@@ -4,6 +4,12 @@ import { expect, test, vi } from "vitest";
 import { ModelControl } from "./model-control.tsx";
 import type { ModelControlView } from "./control-view.ts";
 
+const speeds = [
+  { speed: "standard", name: "Standard", value: undefined },
+  { speed: "fast", name: "Fast", value: "priority" },
+  { speed: "ultrafast", name: "Ultrafast", value: "ultrafast" },
+] as const;
+
 const view: ModelControlView = {
   provider: undefined,
   label: "A very long model display name that yields to its capability indicators",
@@ -11,12 +17,14 @@ const view: ModelControlView = {
   ariaLabel: "Model: long display name, High effort, fast",
   tip: "Full model identity · High effort · Fast",
   modelKey: "long",
-  efforts: ["minimal", "low", "medium", "high", "xhigh"],
+  efforts: ["minimal", "low", "medium", "high", "ultra"],
   effort: "high",
+  defaultEffort: "medium",
   effortDefault: false,
   effortReason: undefined,
-  fast: true,
-  fastReason: undefined,
+  speeds,
+  speed: "fast",
+  speedReason: undefined,
   canReset: true,
   accounts: [],
   account: undefined,
@@ -24,73 +32,93 @@ const view: ModelControlView = {
   providers: [],
   catalog: "ready",
 };
-const actions = {
-  onEffort: vi.fn(),
-  onFast: vi.fn(),
-  onReset: vi.fn(),
-  onModel: vi.fn(() => true),
-  onAccount: vi.fn(),
-};
 
 function draw(overrides: Partial<ModelControlView> = {}) {
+  const actions = {
+    onEffort: vi.fn(),
+    onSpeed: vi.fn(),
+    onModel: vi.fn(() => true),
+    onAccount: vi.fn(),
+  };
   render(
     <ModelControl view={{ ...view, ...overrides }} actions={actions} compact className="flex" />,
   );
-  return screen.getByRole("button", { name: view.ariaLabel });
+  return { chip: screen.getByRole("button", { name: view.ariaLabel }), actions };
 }
 
-test("compact controls keep effort in its own chip while the model name yields space", () => {
-  const control = draw();
-  const signal = within(screen.getByRole("button", { name: "Reasoning: High" })).getByRole("img", {
-    name: "High reasoning",
-  });
-  expect(signal.textContent).toBe("High");
-  expect(control.getAttribute("aria-label")).toContain("fast");
-});
-
-test("an unknown provider default omits effort without inventing a level", () => {
-  const control = draw({ effort: undefined });
-  expect(within(control).queryByRole("img", { name: /reasoning/ })).toBeNull();
-  expect(control.textContent).not.toContain("Default");
-  expect(screen.getByRole("button", { name: "Reasoning: Select effort" })).toBeTruthy();
-});
-
-test("a reported default keeps its full tooltip and short label", () => {
-  draw({
-    efforts: ["low", "medium", "high"],
-    effort: "medium",
-    effortDefault: true,
-  });
-  expect(
-    within(screen.getByRole("button", { name: "Reasoning: Medium" })).getByRole("img", {
-      name: "Medium reasoning · default",
-    }).textContent,
-  ).toBe("Med");
-});
-
-test.each([{ efforts: [] }])("zero reported efforts omits the effort chip (%j)", ({ efforts }) => {
-  draw({ efforts });
+test("one chip shows the model, its effort and its speed, and the model name gives way first", () => {
+  const { chip } = draw();
+  expect(chip.textContent).toContain(view.label);
+  expect(chip.querySelector("[data-slot=model-effort]")?.textContent).toBe("High");
+  expect(within(chip).getByRole("img", { name: "Fast" })).toBeTruthy();
+  expect(chip.querySelector("[data-slot=model-name]")?.className).toContain("truncate");
+  expect(chip.querySelector("[data-slot=model-effort]")?.parentElement?.className).toContain(
+    "shrink-0",
+  );
   expect(screen.queryByRole("button", { name: /^Reasoning: / })).toBeNull();
 });
 
+test("standard speed shows no speed icon on the chip", () => {
+  const { chip } = draw({ speed: "standard" });
+  expect(within(chip).queryByRole("img", { name: /fast/i })).toBeNull();
+});
+
+test("ultrafast shows its own icon on the chip", () => {
+  const { chip } = draw({ speed: "ultrafast" });
+  expect(within(chip).getByRole("img", { name: "Ultrafast" })).toBeTruthy();
+});
+
+test("an unknown provider default omits effort without inventing a level", () => {
+  const { chip } = draw({ effort: undefined });
+  expect(chip.querySelector("[data-slot=model-effort]")).toBeNull();
+  expect(chip.textContent).not.toContain("Default");
+});
+
+test("the chip opens Tune first: speed, effort and the model's levels with its default marked", async () => {
+  const { chip, actions } = draw();
+  await userEvent.click(chip);
+  const popover = await screen.findByRole("dialog", { name: "Model and effort" });
+  const slider = await within(popover).findByRole("slider", { name: "Effort" });
+  expect(slider.getAttribute("aria-valuetext")).toBe("High");
+  expect(slider.getAttribute("aria-valuemax")).toBe("4");
+  expect(slider.querySelectorAll("[data-default]")).toHaveLength(1);
+  const speed = within(popover).getByRole("radiogroup", { name: "Speed" });
+  expect(
+    within(speed)
+      .getAllByRole("radio")
+      .map((radio) => radio.ariaLabel),
+  ).toEqual(["Standard", "Fast", "Ultrafast"]);
+  expect(within(speed).getByRole("radio", { name: "Fast" }).ariaChecked).toBe("true");
+  await userEvent.click(within(speed).getByRole("radio", { name: "Ultrafast" }));
+  expect(actions.onSpeed).toHaveBeenCalledWith("ultrafast");
+});
+
+test("a model with a single speed has no speed segment", async () => {
+  const { chip } = draw({ speeds: [], speed: "standard" });
+  await userEvent.click(chip);
+  const popover = await screen.findByRole("dialog", { name: "Model and effort" });
+  await within(popover).findByRole("slider", { name: "Effort" });
+  expect(within(popover).queryByRole("radiogroup", { name: "Speed" })).toBeNull();
+});
+
 test("a pending switch prioritizes the target and keeps the former model in its description", () => {
-  const control = draw({
+  const { chip } = draw({
     switching: {
       from: "Another enormous former model name",
       description: "From former model on the next turn",
     },
   });
-  expect(control.textContent).toContain(view.label);
-  expect(control.textContent).not.toContain("Another enormous former model name");
-  expect(control.getAttribute("aria-description")).toBe("From former model on the next turn");
+  expect(chip.textContent).toContain(view.label);
+  expect(chip.textContent).not.toContain("Another enormous former model name");
+  expect(chip.getAttribute("aria-description")).toBe("From former model on the next turn");
 });
 
 test("the full identity survives offline and pending-switch tooltip context", async () => {
-  const control = draw({
+  const { chip } = draw({
     offline: "Offline",
     switching: { from: "Former full model", description: "On the next turn" },
   });
-  await userEvent.hover(control);
+  await userEvent.hover(chip);
   const tooltip = await screen.findByRole("tooltip");
   expect(tooltip.textContent).toContain(view.tip);
   expect(tooltip.textContent).toContain("Offline");

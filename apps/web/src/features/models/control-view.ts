@@ -1,5 +1,5 @@
 import type { ProviderKind } from "@ace/protocol";
-import type { PickerModel, PickerProvider } from "@ace/ui-core";
+import type { PickerModel, PickerProvider, Speed, SpeedTier } from "@ace/ui-core";
 
 /** One account the chosen model can run on, for the popover's account row. */
 export interface AccountRow {
@@ -48,20 +48,24 @@ export interface ModelControlView {
   efforts: readonly string[];
   /** The effort in effect, or the model's default. */
   effort: string | undefined;
+  /** The model's own default effort, marked on the slider. */
+  defaultEffort: string | undefined;
   /** `effort` is the default rather than a choice the provider reported. */
   effortDefault: boolean;
   /** Why effort can't change here. */
   effortReason: string | undefined;
-  fast: boolean;
+  /** The model's speeds, slowest first; the control shows them only when there are two or more. */
+  speeds: readonly SpeedTier[];
+  /** The speed in effect. */
+  speed: Speed;
   /** Why speed can't change here (no faster tier, or not on a running thread). */
-  fastReason: string | undefined;
-  /** Effort or speed differ from the model's defaults. */
+  speedReason: string | undefined;
+  /** The effort differs from the model's default; Reset goes back to it (speed stays). */
   canReset: boolean;
   /** Shown only when more than one can run the model. */
   accounts: readonly AccountRow[];
   account: string | undefined;
   accountLabel?: string | undefined;
-  side?: "top" | "bottom" | undefined;
   models: readonly PickerModel[];
   providers: readonly PickerProvider[];
   catalog: CatalogState;
@@ -70,8 +74,7 @@ export interface ModelControlView {
 export interface ModelControlActions {
   /** An effort level, or undefined for the provider's default. */
   onEffort(effort: string | undefined): void;
-  onFast(on: boolean): void;
-  onReset(): void;
+  onSpeed(speed: Speed): void;
   /**
    * A picked model, on the account its row was listed under (undefined: keep the account);
    * false when the popover should close (a dialog asks first).
