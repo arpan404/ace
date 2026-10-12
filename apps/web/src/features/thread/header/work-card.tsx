@@ -1,6 +1,7 @@
 import { useThreadMeta } from "@ace/client-react";
 import { lazy, Suspense, useState } from "react";
 import { fileTab, loadCreateFile } from "@/features/panels/index.ts";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { useCheckoutMove } from "./checkout-move.tsx";
@@ -21,9 +22,8 @@ export function WorkCard(props: { threadId: string; onClose(): void }) {
   const meta = useThreadMeta(props.threadId);
   if (!meta)
     return (
-      <p role="status" className="px-3 py-2 text-ui text-muted-foreground">
-        Reading work…
-      </p>
+      // Rows shaped like the card's, while the thread's facts arrive.
+      <ListSkeleton label="thread details" shape="row" rows={3} className="px-1.5 py-1.5" />
     );
   return (
     <WorkGroups

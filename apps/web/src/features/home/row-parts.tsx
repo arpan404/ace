@@ -160,11 +160,14 @@ export function RowContext(props: { card: ThreadCard }) {
         )}
         <span role="img" aria-label={card.providerLabel} className="flex items-center gap-1">
           {card.subagents > 0 && <span className="tabular-nums">{card.subagents}</span>}
+          {/* A black-and-white mark (OpenAI, OpenCode) takes the row's muted ink beside the
+              machine glyph; coloured marks keep their own colours. */}
           <ProviderIcon
             provider={card.provider}
             acpAgentId={card.acpAgentId}
             size={14}
             decorative
+            className="text-muted-foreground"
           />
         </span>
       </span>

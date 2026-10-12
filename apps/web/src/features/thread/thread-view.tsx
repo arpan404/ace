@@ -117,7 +117,7 @@ export interface ThreadTarget {
 
 /**
  * A thread: the transcript and composer in the main column; in the header its title, the ⋯
- * menu, the Work icon and the side panel toggle; its panel tabs include Work, Changes,
+ * menu, the thread details icon and the side panel toggle; its panel tabs include Summary, Changes,
  * terminals, Files and Browser. A long
  * thread adds its turns and search.
  */
@@ -239,7 +239,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                 className="relative grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
                 {...drop.handlers}
               >
-                {/* First in the area: Tab reaches an open Work card straight after the header. */}
+                {/* First in the area: Tab reaches an open details card straight after the header. */}
                 <WorkSide threadId={id} />
                 {drop.overlay}
                 {nav.turnsOpen && (

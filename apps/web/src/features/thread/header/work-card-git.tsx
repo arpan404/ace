@@ -205,7 +205,7 @@ function GitAction(props: { git: GitFlow; checkout: Checkout }) {
             <button
               type="button"
               aria-label="More git actions"
-              title="Commit, push, pull, create PR"
+              title="Commit, push, create PR"
               disabled={git.pending}
               className="focus-ring-inset grid size-8 shrink-0 place-items-center rounded-r-md text-muted-foreground hover:text-foreground"
             >

@@ -315,19 +315,18 @@ function AgentRow(props: {
         aria-description={root ? undefined : `Opens ${name}`}
         tabIndex={tree.active === agent.id ? 0 : -1}
         onFocus={() => tree.setActive(agent.id)}
-        onClick={open}
+        // The main agent has no tab of its own: a click folds its subagents instead.
+        onClick={
+          root ? () => props.expanded !== undefined && tree.fold(agent.id, !props.expanded) : open
+        }
         className={cn(
           "focus-ring-inset relative flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[10px] pr-1 pl-2.5 text-left text-ui",
           !root && "cursor-pointer",
         )}
       >
         {body}
+        <CapsuleChevron expanded={props.expanded} opens={!root} />
       </div>
-      <CapsuleChevron
-        expanded={props.expanded}
-        onFold={() => tree.fold(agent.id, !props.expanded)}
-        onOpen={root ? undefined : open}
-      />
       {running && !root && thread && (
         <StopAgent
           threadId={props.threadId}
@@ -404,23 +403,16 @@ function TaskRow(props: { threadId: string; taskId: string }) {
 }
 
 /**
- * A capsule's chevron: folds a branch's subagents, or opens a leaf agent as its own tab. Pointer
- * only; the tree item itself folds with ← → and opens with Enter.
+ * A capsule's chevron, drawn inside its tree item and doing nothing itself: ⌄ on an agent with
+ * subagents (folded with ← →, or a click on the main agent), › on one that opens as its own tab.
  */
-function CapsuleChevron(props: {
-  expanded: boolean | undefined;
-  onFold(): void;
-  onOpen: (() => void) | undefined;
-}) {
-  if (props.expanded === undefined && !props.onOpen) return null;
+function CapsuleChevron(props: { expanded: boolean | undefined; opens: boolean }) {
+  if (props.expanded === undefined && !props.opens) return null;
   const Glyph = props.expanded === undefined ? CaretRightIcon : CaretDownIcon;
   return (
-    <button
-      type="button"
-      tabIndex={-1}
+    <span
       aria-hidden
-      onClick={props.expanded === undefined ? props.onOpen : props.onFold}
-      className="mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:text-foreground"
+      className="mr-1 grid size-7 shrink-0 place-items-center text-muted-foreground"
     >
       <Glyph
         size={14}
@@ -429,6 +421,6 @@ function CapsuleChevron(props: {
           props.expanded === false && "-rotate-90",
         )}
       />
-    </button>
+    </span>
   );
 }
