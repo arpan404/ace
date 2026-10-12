@@ -1,8 +1,9 @@
 /*
- * Liquid glass for floating layers (docs/design/visual-language.md, "Glass"). Chromium, Electron
- * included, renders an SVG filter through `backdrop-filter: url()`, so floating layers there bend
- * what's behind them at the rim. Safari and Firefox drop that silently while `CSS.supports` still
- * says yes, so the engine is read from the user agent and they get blur and saturate instead.
+ * Liquid glass for floating layers (docs/design/visual-language.md, "Glass"): the pure half.
+ * Chromium, Electron included, renders an SVG filter through `backdrop-filter: url()`, so floating
+ * layers there bend what's behind them at the rim. Safari and Firefox drop that silently while
+ * `CSS.supports` still says yes, so the engine is read from the user agent and they get blur and
+ * saturate instead. The DOM shell that measures layers and keeps their filters is liquid-glass.ts.
  */
 
 export type GlassEngine = "liquid" | "blur";
@@ -19,119 +20,94 @@ export function glassEngine(userAgent: string, brands: readonly Brand[] = []): G
   return /Chrome\/\d+/.test(userAgent) && !/Firefox\//.test(userAgent) ? "liquid" : "blur";
 }
 
-/** The id `styles/glass.css` reads through `backdrop-filter: url(#…)`. */
-export const liquidFilterId = "ace-liquid-glass";
+/** The rim that bends: at most 24px deep, less on a layer too small to hold it. */
+const maxBand = 24;
+/** How far the backdrop moves at the very edge, in px. */
+const maxBend = 24;
+/** Sizes round to this step, so layers that differ by a pixel or two share one filter. */
+const sizeStep = 2;
+
+export interface GlassGeometry {
+  /** Rounded size, the filter's identity together with the radius. */
+  width: number;
+  height: number;
+  radius: number;
+  /** Depth of the bending rim. */
+  band: number;
+  /** `feDisplacementMap` scale: the bend at the edge. */
+  scale: number;
+  /** A stable id for this geometry's filter. */
+  key: string;
+}
 
 /**
- * The displacement map as RGBA pixels: red and green push each pixel inward near a rounded
+ * The filter a layer of this size and corner radius needs. The rim and bend are fixed in pixels,
+ * so a tooltip and a 600px palette bend alike instead of scaling with their box.
+ */
+export function glassGeometry(width: number, height: number, radius: number): GlassGeometry {
+  const w = Math.max(sizeStep, Math.round(width / sizeStep) * sizeStep);
+  const h = Math.max(sizeStep, Math.round(height / sizeStep) * sizeStep);
+  const r = Math.max(0, Math.min(Math.round(radius), Math.floor(Math.min(w, h) / 2)));
+  const band = Math.max(1, Math.min(maxBand, Math.floor(Math.min(w, h) / 2.4)));
+  const scale = Math.min(maxBend, band);
+  return { width: w, height: h, radius: r, band, scale, key: `${w}x${h}r${r}` };
+}
+
+/**
+ * The displacement map as RGBA pixels: red and green push each pixel inward near the rounded
  * rect's rim (strongest at the edge, flat in the middle), so the backdrop bends at the edge like
- * thick glass. 128 is no displacement. The filter stretches it over each layer's box.
+ * thick glass. 128 is no displacement. Only the rim is computed; the middle is a flat fill.
  */
-export function edgeMap(size: number, radius: number, band: number): Uint8ClampedArray {
-  const pixels = new Uint8ClampedArray(size * size * 4);
-  const half = size / 2;
-  const r = Math.min(radius, half);
-  for (let y = 0; y < size; y++)
-    for (let x = 0; x < size; x++) {
-      const px = x + 0.5 - half;
-      const py = y + 0.5 - half;
-      const qx = Math.abs(px) - (half - r);
-      const qy = Math.abs(py) - (half - r);
-      let distance: number;
-      let nx: number;
-      let ny: number;
-      if (qx > 0 && qy > 0) {
-        const length = Math.hypot(qx, qy);
-        distance = length - r;
-        nx = qx / length;
-        ny = qy / length;
-      } else if (qx > qy) {
-        distance = qx - r;
-        nx = 1;
-        ny = 0;
-      } else {
-        distance = qy - r;
-        nx = 0;
-        ny = 1;
-      }
-      nx *= px < 0 ? -1 : 1;
-      ny *= py < 0 ? -1 : 1;
-      const depth = Math.max(0, -distance);
-      const t = distance > 0 || depth >= band ? 0 : 1 - depth / band;
-      const strength = t * t;
-      const i = (y * size + x) * 4;
-      pixels[i] = 128 - nx * strength * 127;
-      pixels[i + 1] = 128 - ny * strength * 127;
-      pixels[i + 2] = 128;
-      pixels[i + 3] = 255;
+export function edgeMap(geometry: GlassGeometry): Uint8ClampedArray {
+  const { width, height, radius, band } = geometry;
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < pixels.length; i += 4) {
+    pixels[i] = 128;
+    pixels[i + 1] = 128;
+    pixels[i + 2] = 128;
+    pixels[i + 3] = 255;
+  }
+  const hx = width / 2;
+  const hy = height / 2;
+  const reach = Math.max(band, radius) + 1;
+  const write = (x: number, y: number) => {
+    const px = x + 0.5 - hx;
+    const py = y + 0.5 - hy;
+    const qx = Math.abs(px) - (hx - radius);
+    const qy = Math.abs(py) - (hy - radius);
+    let distance: number;
+    let nx: number;
+    let ny: number;
+    if (qx > 0 && qy > 0) {
+      const length = Math.hypot(qx, qy);
+      distance = length - radius;
+      nx = qx / length;
+      ny = qy / length;
+    } else if (qx > qy) {
+      distance = qx - radius;
+      nx = 1;
+      ny = 0;
+    } else {
+      distance = qy - radius;
+      nx = 0;
+      ny = 1;
     }
+    const depth = -distance;
+    if (distance > 0 || depth >= band) return;
+    const t = 1 - depth / band;
+    const strength = t * t;
+    const i = (y * width + x) * 4;
+    pixels[i] = 128 - Math.sign(px) * nx * strength * 127;
+    pixels[i + 1] = 128 - Math.sign(py) * ny * strength * 127;
+  };
+  for (let y = 0; y < height; y++) {
+    const edgeRow = y < reach || y >= height - reach;
+    if (edgeRow) for (let x = 0; x < width; x++) write(x, y);
+    else
+      for (let x = 0; x < Math.min(reach, width); x++) {
+        write(x, y);
+        write(width - 1 - x, y);
+      }
+  }
   return pixels;
-}
-
-const svgNs = "http://www.w3.org/2000/svg";
-
-function setAttributes(element: Element, attributes: Record<string, string>) {
-  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
-}
-const mapSize = 160;
-
-/** The map as a PNG data URL, or undefined where there's no 2D canvas. */
-function edgeMapUrl(document: Document): string | undefined {
-  const canvas = document.createElement("canvas");
-  canvas.width = mapSize;
-  canvas.height = mapSize;
-  const context = canvas.getContext("2d");
-  if (!context) return undefined;
-  const image = context.createImageData(mapSize, mapSize);
-  image.data.set(edgeMap(mapSize, 22, 18));
-  context.putImageData(image, 0, 0);
-  return canvas.toDataURL();
-}
-
-/**
- * Adds the one shared filter to the page, once. Units are the layer's own box, so a single
- * filter fits every popover, menu and dialog without per-element work. False when it can't.
- */
-export function installLiquidGlass(document: Document): boolean {
-  if (document.getElementById(liquidFilterId)) return true;
-  const map = edgeMapUrl(document);
-  if (!map) return false;
-  const svg = document.createElementNS(svgNs, "svg");
-  svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("width", "0");
-  svg.setAttribute("height", "0");
-  svg.setAttribute("style", "position:absolute;width:0;height:0;pointer-events:none");
-  const filter = document.createElementNS(svgNs, "filter");
-  setAttributes(filter, {
-    id: liquidFilterId,
-    x: "0",
-    y: "0",
-    width: "1",
-    height: "1",
-    filterUnits: "objectBoundingBox",
-    primitiveUnits: "objectBoundingBox",
-    "color-interpolation-filters": "sRGB",
-  });
-  const image = document.createElementNS(svgNs, "feImage");
-  setAttributes(image, {
-    href: map,
-    x: "0",
-    y: "0",
-    width: "1",
-    height: "1",
-    preserveAspectRatio: "none",
-    result: "edge",
-  });
-  const displace = document.createElementNS(svgNs, "feDisplacementMap");
-  setAttributes(displace, {
-    in: "SourceGraphic",
-    in2: "edge",
-    scale: "0.08",
-    xChannelSelector: "R",
-    yChannelSelector: "G",
-  });
-  filter.append(image, displace);
-  svg.append(filter);
-  document.body.append(svg);
-  return true;
 }

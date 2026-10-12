@@ -5,7 +5,7 @@ import { defaultAppearance, loadAppearance, resolveAppearance } from "./appearan
 import { worstContrast } from "./colour.ts";
 import { contrastWarnings, parseOpaqueColor } from "./contrast.ts";
 import { themeDeclarations, themeRule } from "./css.ts";
-import { glassEngine } from "./glass.ts";
+import { edgeMap, glassEngine, glassGeometry } from "./glass.ts";
 import { themeIds, themes } from "./palettes.ts";
 import { paletteSurfaces } from "./surfaces.ts";
 
@@ -122,6 +122,34 @@ test("liquid glass is used only where SVG backdrop filters render", () => {
   expect(glassEngine(userAgents.chromeOnIphone)).toBe("blur");
   // A Chromium browser that reduces its user agent still reports its brand.
   expect(glassEngine("Mozilla/5.0", [{ brand: "Chromium" }])).toBe("liquid");
+});
+
+test("liquid glass bends a fixed rim in pixels, whatever the layer's size", () => {
+  const palette = glassGeometry(620, 540, 14);
+  const menu = glassGeometry(240, 180, 14);
+  expect([palette.band, palette.scale]).toEqual([24, 24]);
+  expect([menu.band, menu.scale]).toEqual([24, 24]);
+  // A tooltip too small for the full rim gets a shallower one rather than a bend through its text.
+  const tooltip = glassGeometry(90, 24, 10);
+  expect(tooltip.band).toBeLessThan(24);
+  expect(tooltip.scale).toBeLessThanOrEqual(tooltip.band);
+  // Layers a pixel apart share one filter.
+  expect(glassGeometry(241, 181, 14).key).toBe(menu.key);
+});
+
+test("the displacement map moves only the rim and leaves the middle still", () => {
+  const geometry = glassGeometry(200, 120, 14);
+  const map = edgeMap(geometry);
+  const at = (x: number, y: number) => {
+    const i = (y * geometry.width + x) * 4;
+    return [map[i], map[i + 1]];
+  };
+  expect(at(100, 60)).toEqual([128, 128]);
+  expect(at(100, 60 - 30)).toEqual([128, 128]);
+  // The left edge pulls from inside (rightwards), the top edge from below.
+  expect(at(0, 60)[0]).toBeGreaterThan(200);
+  expect(at(100, 0)[1]).toBeGreaterThan(200);
+  expect(at(geometry.width - 1, 60)[0]).toBeLessThan(56);
 });
 
 test("shortcuts read as platform glyphs", () => {

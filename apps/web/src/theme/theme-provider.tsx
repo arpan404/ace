@@ -22,7 +22,8 @@ import {
   type SystemPreferences,
 } from "./appearance.ts";
 import { allThemesStylesheet, themeStylesheet } from "./css.ts";
-import { installLiquidGlass, type GlassEngine } from "./glass.ts";
+import type { GlassEngine } from "./glass.ts";
+import { startLiquidGlass } from "./liquid-glass.ts";
 import { themes } from "./palettes.ts";
 import { withViewTransition } from "@/lib/motion.ts";
 
@@ -94,15 +95,13 @@ export function ThemeProvider(props: { environment: Environment; children: React
   // Layout effect, so a theme switch inside a view transition lands before the new snapshot.
   useLayoutEffect(() => {
     if (!root) return;
-    const engine =
-      glassEngine === "liquid" && installLiquidGlass(root.ownerDocument) ? "liquid" : "blur";
     applyTheme(root, {
       "data-theme": resolved.theme,
       "data-scheme": resolved.scheme,
       "data-surface": resolved.surface,
       "data-reduce-motion": resolved.reduceMotion ? "" : undefined,
       "data-density": appearance.density,
-      "data-glass-engine": engine,
+      "data-glass-engine": glassEngine,
     });
     root.style.setProperty(
       "--transcript-size",
@@ -110,6 +109,13 @@ export function ThemeProvider(props: { environment: Environment; children: React
     );
     setThemeColour(root.ownerDocument, themes[resolved.theme][resolved.scheme].s0);
   }, [root, resolved, appearance.density, appearance.transcriptSize, glassEngine]);
+
+  // Per-layer liquid glass filters, only while they can show.
+  const liquid = glassEngine === "liquid" && resolved.surface === "translucent";
+  useEffect(() => {
+    if (!root || !liquid) return;
+    return startLiquidGlass(root.ownerDocument);
+  }, [root, liquid]);
 
   useEffect(() => {
     const boot: BootAppearance = {

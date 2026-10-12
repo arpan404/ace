@@ -7,10 +7,11 @@
  *
  * <html> carries the resolved choice: `data-surface` is "solid" under the Solid setting or while
  * the OS reduces transparency, and `data-glass-engine` is "liquid" only where SVG backdrop
- * filters render (Chromium and Electron; src/theme/glass.ts). Liquid bends the backdrop at the
- * rim through one shared filter; elsewhere glass is blur and saturate. Everything here is static
- * CSS: no per-frame script, and the filter only ever sits on small floating layers, never on a
- * large scrolling area.
+ * filters render (Chromium and Electron; src/theme/glass.ts). Liquid bends the backdrop at a
+ * fixed rim of at most 24px through a filter sized to each layer (theme/liquid-glass.ts, which
+ * measures a layer when it appears and again only when it resizes); elsewhere glass is blur and
+ * saturate. No per-frame script, and filters only sit on floating layers, never on a large
+ * scrolling area.
  */
 @layer components {
   .ace-floating,
@@ -38,6 +39,24 @@
     background:
       radial-gradient(120% 60% at 22% 0%, var(--glass-sheen), transparent 60%),
       var(--glass-tint-liquid);
-    backdrop-filter: url(#ace-liquid-glass) blur(var(--glass-liquid-blur, 7px)) saturate(170%);
+    /* --liquid-filter is this layer's own filter (theme/liquid-glass.ts); blur alone until set. */
+    backdrop-filter: var(--liquid-filter,) blur(var(--glass-liquid-blur, 8px)) saturate(170%);
+  }
+
+  /* A layer announces itself to liquid-glass.ts when it appears: a 1ms marker animation on a
+     zero-size ::before, whose animationstart bubbles to the document. */
+  :root[data-surface="translucent"][data-glass-engine="liquid"] :is(.ace-floating, .glass)::before {
+    content: "";
+    position: absolute;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    animation: ace-glass-mount 1ms;
+  }
+}
+
+@keyframes ace-glass-mount {
+  from {
+    opacity: 1;
   }
 }

@@ -24,8 +24,8 @@ export function over(top: Rgb, alpha: number, under: Rgb): Rgb {
 
 /** The tint alphas in tokens.ts: blur glass, then the thinner liquid glass. */
 const glassAlpha: Record<Scheme, { blur: number; liquid: number }> = {
-  light: { blur: 0.6, liquid: 0.46 },
-  dark: { blur: 0.58, liquid: 0.44 },
+  light: { blur: 0.64, liquid: 0.56 },
+  dark: { blur: 0.68, liquid: 0.62 },
 };
 /** The strongest ink wash under text: a selected row (`--fill-strong`). */
 const selectedInk: Record<Scheme, number> = { light: 0.07, dark: 0.08 };

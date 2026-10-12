@@ -124,8 +124,8 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     // Floating layers: solid edge and shadow, and the glass material (styles/glass.css).
     "--float-edge": light ? `color-mix(in srgb, ${p.border}, ${p.t1} 4%)` : p.border,
     "--float-shadow": floatShadow,
-    "--glass-tint": `color-mix(in srgb, ${p.s2} ${light ? 60 : 58}%, transparent)`,
-    "--glass-tint-liquid": `color-mix(in srgb, ${p.s2} ${light ? 46 : 44}%, transparent)`,
+    "--glass-tint": `color-mix(in srgb, ${p.s2} ${light ? 64 : 68}%, transparent)`,
+    "--glass-tint-liquid": `color-mix(in srgb, ${p.s2} ${light ? 56 : 62}%, transparent)`,
     "--glass-edge": light ? `rgb(${p.shadow} / 0.1)` : "rgb(255 255 255 / 0.09)",
     "--glass-inner": glassInner,
     "--glass-sheen": light ? "rgb(255 255 255 / 0.35)" : "rgb(255 255 255 / 0.045)",
