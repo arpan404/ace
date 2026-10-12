@@ -10,6 +10,28 @@ Authenticate with `hello` and the negotiated protocolVersion before subscribing 
 
 [JSON Schema](schema/ClientMessage.json), input validation.
 
+### storage.request
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"storage.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"storage.usage"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"cleanup.plan"},"kinds":{"minItems":1,"maxItems":6,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/StorageKind.json"}},"retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"forceItems":{"default":[],"maxItems":256,"type":"array","items":{"type":"string","minLength":1,"maxLength":256}}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"cleanup.apply"},"planId":{"type":"string","minLength":1,"maxLength":256},"revision":{"type":"string","pattern":"^[a-f0-9]{64}$"},"compact":{"default":false,"type":"boolean"}},"required":["op","planId","revision"]},{"type":"object","properties":{"op":{"type":"string","const":"cleanup.status"},"planId":{"type":"string","minLength":1,"maxLength":256}},"required":["op","planId"]}]} |
+
+Example:
+
+```json
+{
+  "operation": {
+    "op": "cleanup.apply",
+    "planId": "example",
+    "revision": "95564dc1df29329cf2f71b85ef012b37afcc7d4b955242ad2406152cfa8b24fc"
+  },
+  "requestId": "example",
+  "type": "storage.request"
+}
+```
+
 ### delegation.remote.transport
 
 | Field | Required | Type | Constraints |
@@ -40,12 +62,12 @@ Example:
 ```json
 {
   "operation": {
-    "offset": 9,
+    "offset": 0,
     "op": "read",
-    "sha256": "3b3f0e5f1c76710f64549d66b19702bca7d0cf6ebcbcbcb2e0dea3d9a542d4b3"
+    "sha256": "13780788af9744b74ca27003104ca1fa691c47aff5fb587594d560754eb9cb94"
   },
   "requestId": "example",
-  "taskId": "095564dc1df29329cf2f71b85ef012b37afcc7d4b955242ad2406152cfa8b24f",
+  "taskId": "3f0e5f1c76710f64549d66b19702bca7d0cf6ebcbcbcb2e0dea3d9a542d4b39e",
   "type": "delegation.remote.output"
 }
 ```
@@ -69,15 +91,13 @@ Example:
     "hostId": "example",
     "parentThreadId": "example",
     "sourceHostId": "example",
-    "taskId": "e13780788af9744b74ca27003104ca1fa691c47aff5fb587594d560754eb9cb9",
+    "taskId": "e8276b611d13855ebc4b75a1d835b2ab4785cb5aed5029149e825486ec528831",
     "threadId": "example"
   },
   "lease": "example",
   "operation": {
-    "data": "example",
-    "offset": 0,
-    "op": "chunk",
-    "uploadId": "example"
+    "op": "begin",
+    "sha256": "ac1ae959d3c1a70ad22c49e4cd3b95ce546ac8f856ef0500876e9cacd70f3d31"
   },
   "requestId": "example",
   "type": "delegation.broker.return"
@@ -98,52 +118,35 @@ Example:
 ```json
 {
   "operation": {
-    "offset": 8,
-    "op": "read",
-    "sha256": "d0e093d65a766ad589648400640f4c56f906c13e4649122bc2e002a039fcaa28"
+    "op": "commit",
+    "uploadId": "example"
   },
   "requestId": "example",
   "task": {
-    "artifacts": {
-      "attachments": [],
-      "hostId": "example",
-      "parentThreadId": "example",
-      "sourceHostId": "example",
-      "taskId": "1ae959d3c1a70ad22c49e4cd3b95ce546ac8f856ef0500876e9cacd70f3d31d5",
-      "threadId": "example"
-    },
-    "context": {
-      "attachments": [],
-      "before": null,
-      "sourceHostId": "example",
-      "sourceThreadId": "example",
-      "summary": "example"
-    },
-    "createdAt": 3,
-    "delivered": true,
-    "dispatched": false,
-    "id": "e8276b611d13855ebc4b75a1d835b2ab4785cb5aed5029149e825486ec528831",
+    "createdAt": 0,
+    "delivered": false,
+    "dispatched": true,
+    "error": "example",
+    "id": "5469652781393c65c4630dbf74b99fcc3ee71c7d0e093d65a766ad5896484006",
     "parentAgentId": "example",
     "parentPermissionMode": null,
-    "parentProvider": "antigravity",
+    "parentPermissionOverride": null,
+    "parentProvider": "opencode",
     "parentThreadId": "example",
     "permissionMode": "example",
     "phase": "queued",
     "request": {
-      "accountId": "example",
       "hostId": "example",
-      "options": {},
       "permissionMode": "example",
       "provider": "antigravity",
-      "requestId": "H16DN9Mi",
+      "requestId": ".AZl",
       "role": "example",
       "task": "example",
       "workspaceId": "example"
     },
     "rootThreadId": "example",
     "sourceHostId": "example",
-    "threadId": "example",
-    "truncated": true
+    "threadId": "example"
   },
   "type": "delegation.remote.context"
 }
@@ -175,21 +178,25 @@ Example:
     "delivered": false,
     "dispatched": false,
     "error": "example",
-    "id": "59f220177110b8fb45419442bee2e6c3aa36225f9abfa5545aabcb1e9b0c403b",
+    "id": "caa287859f220177110b8fb45419442bee2e6c3aa36225f9abfa5545aabcb1e9",
     "parentAgentId": "example",
-    "parentPermissionMode": "example",
-    "parentProvider": "antigravity",
+    "parentPermissionMode": null,
+    "parentPermissionOverride": "example",
+    "parentProvider": "opencode",
     "parentThreadId": "example",
     "permissionMode": "example",
     "phase": "cancelled",
     "request": {
+      "context": {
+        "attachments": []
+      },
       "hostId": "example",
       "installationId": "example",
+      "mode": "worktree",
       "model": "example",
-      "options": {},
       "permissionMode": "example",
-      "provider": "opencode",
-      "requestId": "9",
+      "provider": "pi",
+      "requestId": "CEd9F",
       "role": "example",
       "task": "example",
       "workspaceId": "example"
@@ -963,7 +970,7 @@ Example:
 }
 ```
 
-### Variant 43
+### Variant 44
 
 Type: union. See JSON Schema for constraints.
 
@@ -1287,7 +1294,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.planner.provider"
+    "providers.reviewer.reasoningEffort"
   ],
   "requestId": "example",
   "scope": {
@@ -1403,7 +1410,7 @@ Example:
 }
 ```
 
-### Variant 64
+### Variant 65
 
 Type: union. See JSON Schema for constraints.
 

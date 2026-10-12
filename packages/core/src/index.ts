@@ -41,3 +41,5 @@ export {
   redactAceArguments,
   redactAceApproval,
 } from "./ace-tools.ts";
+
+export { planStorageItem, type StorageCandidate } from "./storage-retention.ts";
