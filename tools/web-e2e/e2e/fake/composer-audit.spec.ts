@@ -116,7 +116,7 @@ test("cold sidebar placeholders occupy the same space as active rows", async ({ 
     await expect(page.getByRole("status", { name: "Loading threads" })).toBeVisible();
     await expect(page.getByLabel("Loading thread controls")).toBeVisible();
     const placeholders = await page.getByRole("status", { name: "Loading threads" }).boundingBox();
-    expect(placeholders?.height).toBe(8 * 80);
+    expect(placeholders?.height).toBe(8 * 84);
     await page.screenshot({ path: `${shots}/cold-sidebar-1440.png` });
   } finally {
     release?.();
