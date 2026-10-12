@@ -161,16 +161,6 @@ test("a resize still moving is written once it ends", () => {
   expect(storage.data.get("ace.workspace")).toContain("720");
 });
 
-test("the panel width an older build kept carries over once", () => {
-  const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.layout",
-    JSON.stringify({ sidebarOpen: true, right: { open: true, tab: "agents", size: 640 } }),
-  );
-  const { store } = open(storage);
-  expect(store.preferred).toBe(640);
-});
-
 test("only the most recently changed threads are kept", () => {
   const storage = memoryKeyValue();
   const store = new WorkspaceStore({ storage, capacity: 2 });
@@ -233,5 +223,19 @@ test("a tool asked for before the kinds have loaded opens once they have", async
   arrive({ default: kinds });
   await late.load();
   expect(store.get("a").tabs.map((tab) => tab.key)).toEqual(["terminal"]);
+  expect(store.get("a").open).toBe(true);
+});
+
+test.each([
+  "invalid JSON",
+  JSON.stringify({ preferred: { right: 900 }, scopes: [["a", { tabs: "invalid", open: true }]] }),
+])("an unparseable stored workspace opens the default layout (%s)", (saved) => {
+  const storage = memoryKeyValue();
+  storage.setItem("ace.workspace", saved);
+  const { store, scope } = open(storage);
+  scope("a").setOpen(true);
+  expect(store.preferred).toBe(520);
+  expect(store.get("a").tabs.map((tab) => tab.key)).toEqual(["changes"]);
+  expect(shownTab(store.get("a"))?.key).toBe("changes");
   expect(store.get("a").open).toBe(true);
 });

@@ -252,51 +252,6 @@ test("⌘J shows the thread's terminal as a side panel tab, and the panel's widt
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
-const storedTab = (key: string, kind: string, id = kind, pinned = false) => ({
-  key,
-  kind,
-  id,
-  pinned,
-});
-
-test("a thread laid out with the old bottom panel opens with its terminal and logs as side panel tabs", async () => {
-  const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.workspace",
-    JSON.stringify({
-      preferred: { right: 520, bottom: 260 },
-      scopes: [
-        [
-          "thread-cold-start",
-          {
-            right: {
-              tabs: [
-                storedTab("changes", "changes", "changes", true),
-                storedTab("agents", "agents", "agents", true),
-              ],
-              active: "changes",
-              open: false,
-            },
-            bottom: {
-              tabs: [storedTab("terminal", "terminal"), storedTab("logs", "logs")],
-              active: "logs",
-              open: true,
-            },
-            expanded: false,
-            bottomMaximized: false,
-            summaryPinned: true,
-          },
-        ],
-      ],
-    }),
-  );
-  await openColdStart(storage);
-  const panel = await sidePanel();
-  // A saved layout keeps its tabs; the Files tab is for threads that start fresh.
-  expect(tabNames(panel)).toEqual(["Work", changes, expect.any(String), "Logs"]);
-  expect(selected(panel).textContent).toBe("Logs");
-});
-
 test("New tab contains only tools and opens Files without a Suggested section", async () => {
   await openColdStart();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));

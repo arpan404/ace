@@ -32,15 +32,10 @@ export interface ClosedTab {
 const closedCapacity = 10;
 
 const storageKey = "ace.workspace";
-/** The shell layout's old single panel state (before per-thread workspaces); sizes carry over. */
-const legacyKey = "ace.layout";
-
-// `preferred` keeps its object shape (once `{ right, bottom }`, the bottom panel's now ignored).
 const Persisted = z.object({
   preferred: z.object({ right: z.number() }),
   scopes: z.array(z.tuple([z.string(), ScopeWorkspaceSchema])),
 });
-const Legacy = z.object({ right: z.optional(z.object({ size: z.number() })) });
 
 export class WorkspaceStore {
   private readonly storage: KeyValueStorage | undefined;
@@ -71,8 +66,7 @@ export class WorkspaceStore {
       for (const [scope, workspace] of stored.scopes.slice(-this.capacity))
         this.scopes.set(scope, sanitize(workspace));
     } else {
-      const legacy = readJson(this.storage, legacyKey, Legacy, {});
-      this.preferredSize = legacy.right?.size ?? defaultSize;
+      this.preferredSize = defaultSize;
     }
   }
 
