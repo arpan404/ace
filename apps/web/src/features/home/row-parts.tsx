@@ -122,7 +122,7 @@ export function RowContext(props: { card: ThreadCard }) {
       <span
         role="img"
         aria-label={card.providerLabel}
-        className="ml-auto flex shrink-0 items-center gap-1 group-focus-within/row:opacity-0 group-hover/row:opacity-0"
+        className="ml-auto flex shrink-0 items-center gap-1"
       >
         {card.subagents > 0 && <span className="tabular-nums">{card.subagents}</span>}
         <ProviderIcon provider={card.provider} acpAgentId={card.acpAgentId} size={14} decorative />

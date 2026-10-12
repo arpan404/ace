@@ -61,7 +61,13 @@ export function ThreadRow(props: {
   const height = "h-21 py-3";
   const title = (
     <div className="flex min-w-0 items-center gap-1.5">
-      <div className={cn("min-w-0 flex-1 truncate leading-5", "text-base", titleTone(card))}>
+      <div
+        className={cn(
+          "min-w-0 flex-1 truncate leading-5 group-hover/row:pr-7 group-focus-within/row:pr-7",
+          "text-base",
+          titleTone(card),
+        )}
+      >
         {renaming ? (
           <RenameField
             entry={entry}

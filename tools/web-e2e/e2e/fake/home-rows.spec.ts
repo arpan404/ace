@@ -59,13 +59,17 @@ test("tasks show project and status above the title, with branch and provider be
     }
     await expect(task).toHaveAccessibleName(title === "greeting" ? /Claude Code/ : /Codex/);
   }
-  await nav.getByRole("button", { name: "Settled 1" }).click();
+  await nav.getByRole("button", { name: "Settled (1)" }).click();
   const settled = nav.getByRole("link", { name: /^Build Agent State Engine/ });
   await expect(settled.getByText("OpenForge", { exact: true })).toBeVisible();
   await expect(settled.getByText("feat/agent-state", { exact: true })).toBeVisible();
   expect((await settled.boundingBox())?.height).toBeGreaterThanOrEqual(80);
   await row.hover();
   await expect(row.getByText("Working", { exact: true })).toBeVisible();
+  const provider = row.getByRole("img", { name: "Claude Code", exact: true });
+  await expect(provider).toHaveCSS("opacity", "1");
+  await row.focus();
+  await expect(provider).toHaveCSS("opacity", "1");
   await expect(row.getByText("+3", { exact: true })).toHaveCount(0);
   const actions = nav.getByRole("button", { name: "Actions for Audit Console Feature Gaps" });
   await expect(actions).toBeVisible();
@@ -97,7 +101,7 @@ for (const theme of ["light", "dark"])
       if (width === 390) await page.getByRole("button", { name: "Back to threads" }).click();
       const nav = page.getByRole("navigation", { name: "Threads" });
       await expect(nav.getByRole("link", { name: /^Audit Console/ })).toBeVisible();
-      await nav.getByRole("button", { name: "Settled 1" }).click();
+      await nav.getByRole("button", { name: "Settled (1)" }).click();
       await expect(nav.getByRole("link", { name: /^Build Agent/ })).toBeVisible();
       await page.mouse.move(width - 2, 898);
       await page.screenshot({
@@ -178,7 +182,7 @@ test.describe("coarse pointer task rows", () => {
     const task = nav.getByRole("link", { name: /^Audit Console/ });
     await expect(task.getByText("Working", { exact: true })).toBeVisible();
     expect((await task.boundingBox())?.height).toBeGreaterThanOrEqual(72);
-    await nav.getByRole("button", { name: "Settled 1" }).click();
+    await nav.getByRole("button", { name: "Settled (1)" }).click();
     const settled = nav.getByRole("link", { name: /^Build Agent State Engine/ });
     await expect(settled).toBeVisible();
     expect((await settled.boundingBox())?.height).toBeGreaterThanOrEqual(44);

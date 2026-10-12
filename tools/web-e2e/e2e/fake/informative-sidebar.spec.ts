@@ -224,3 +224,43 @@ test("unread work brightens only the title, while statuses fit without clipping"
     }
   }
 });
+
+for (const theme of ["light", "dark"])
+  test(`read, unread and settled titles retain foreground ink in ${theme}`, async ({ page }) => {
+    await stageInformativeSidebar(page, theme);
+    await page.goto("/new");
+    const nav = page.getByRole("navigation", { name: "Threads" });
+    const done = nav.getByRole("link", { name: /^Tidy the README/ });
+    await done.click({ button: "right" });
+    const markRead = page.getByRole("menuitem", { name: /^Mark read/ });
+    if (await markRead.count()) await markRead.click();
+    else await page.keyboard.press("Escape");
+    await expect(done).not.toHaveAccessibleName(/unread/);
+    const title = done.getByText("Tidy the README", { exact: true });
+    const foreground = await themeInk(page, "foreground");
+    expect(await ink(title)).toBe(foreground);
+    await expect(title).toHaveCSS("font-weight", "400");
+    await done.click({ button: "right" });
+    await page.getByRole("menuitem", { name: /^Mark unread/ }).click();
+    await expect(done).toHaveAccessibleName(/unread/);
+    expect(await ink(title)).toBe(foreground);
+    await expect(title).toHaveCSS("font-weight", "500");
+    await done.click({ button: "right" });
+    await page.getByRole("menuitem", { name: /^Mark read/ }).click();
+    await done.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Settle", exact: true }).click();
+    await nav.getByRole("button", { name: /^Settled/ }).click();
+    await expect(title).toBeVisible();
+    expect(await ink(title)).toBe(foreground);
+    await expect(title).toHaveCSS("font-weight", "400");
+    await expect(done).not.toHaveAccessibleName(/unread/);
+    const attention = nav.getByRole("link", { name: /^Review the release plan/ });
+    await attention.scrollIntoViewIfNeeded();
+    expect(await ink(attention.getByText("Review the release plan", { exact: true }))).toBe(
+      foreground,
+    );
+    await expect(attention.getByText("Review the release plan", { exact: true })).toHaveCSS(
+      "font-weight",
+      "500",
+    );
+  });

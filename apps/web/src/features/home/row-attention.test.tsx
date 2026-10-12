@@ -5,20 +5,18 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-test("read and completed titles stay legible while unread results retain emphasis", async () => {
+test("completed rows announce unread results and retain full status after marking read", async () => {
   const app = harness();
   const scenarios = workbench();
   for (const scenario of scenarios) app.play(scenario).runUntilBlocked();
   await app.open("/new");
   const list = within(await screen.findByRole("navigation", { name: "Threads" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
   await userEvent.click(
     screen.getByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: "Unsettle" }));
   const card = (title: string) => list.getByRole("link", { name: new RegExp(`^${title}`) });
-  const attention = (title: string) =>
-    card(title).closest("[data-attention]")?.getAttribute("data-attention");
   const read = async (title: string, unread: boolean) => {
     const scenario = scenarios.find((entry) => entry.thread.title === title);
     if (!scenario) throw new Error(`Missing ${title}`);
@@ -33,13 +31,13 @@ test("read and completed titles stay legible while unread results retain emphasi
   await read(working, false);
   await read(done, false);
   await waitFor(() => {
-    expect(attention(working)).toBe("quiet");
-    expect(attention(done)).toBe("quiet");
+    expect(card(working).getAttribute("aria-label")).not.toContain(", unread");
+    expect(card(done).getAttribute("aria-label")).not.toContain(", unread");
   });
   expect(card(done).getAttribute("aria-label")).not.toContain(", unread");
   expect(within(card(done)).queryByText("Done", { exact: true })).toBeNull();
   await read(done, true);
-  await waitFor(() => expect(attention(done)).toBe("attention"));
+  await waitFor(() => expect(card(done).getAttribute("aria-label")).toContain(", unread"));
   expect(card(done).getAttribute("aria-label")).toContain(", unread");
   for (const title of [
     "Partial refunds double-count tax",
@@ -47,17 +45,19 @@ test("read and completed titles stay legible while unread results retain emphasi
     "Invoice PDF locale fallback",
   ]) {
     await read(title, false);
-    await waitFor(() => expect(attention(title)).toBe("attention"));
+    await waitFor(() => expect(card(title).getAttribute("aria-label")).not.toContain(", unread"));
+    expect(card(title).getAttribute("aria-label")).toMatch(
+      /Waiting for your approval|Waiting for your answer|Failed/,
+    );
   }
   await read(done, false);
   await userEvent.click(card(done));
   await waitFor(() => expect(card(done).getAttribute("aria-current")).toBe("page"));
   expect(card(done).getAttribute("aria-label")).not.toContain(", unread");
-  expect(attention(done)).toBe("quiet");
   await userEvent.click(
     screen.getByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: "Settle" }));
-  await screen.findByRole("button", { name: "Settled 1" });
-  await waitFor(() => expect(attention("Bump Codex app-server to 0.48")).toBe("quiet"));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
+  await waitFor(() => expect(card(done).getAttribute("aria-label")).not.toContain(", unread"));
 });
