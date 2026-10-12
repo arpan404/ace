@@ -123,3 +123,10 @@ export interface RequestOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
 }
+export interface CommandOptions extends RequestOptions {
+  /**
+   * Positive proof that the explicit ID was newly allocated and has never been submitted.
+   * Omit for restored or replayed IDs, even when no intent is available. Generated IDs are fresh.
+   */
+  admission?: "fresh";
+}

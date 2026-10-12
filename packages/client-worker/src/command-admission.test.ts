@@ -1,5 +1,9 @@
 import { ThreadId } from "@ace/protocol";
-import { defaultLimits } from "@ace/client";
+import { defaultLimits, type Storage } from "@ace/client";
+import { mkdtemp, readFile, writeFile, rename, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { z } from "zod";
 import { flakyCheckout, ScenarioPlayer } from "@ace/fake-daemon";
 import { afterEach, expect, test } from "vitest";
 import { cleanups, world } from "./worker-test-support.ts";
@@ -25,7 +29,9 @@ test("a full tab RPC queue refuses a fresh command as unsent and the same ID can
   );
   const input = { type: "thread.archive", threadId: ThreadId.parse(scenario.threadId) } as const;
   try {
-    await expect(client.command(input, {}, "fresh-capacity")).rejects.toMatchObject({
+    await expect(
+      client.command(input, { admission: "fresh" }, "fresh-capacity"),
+    ).rejects.toMatchObject({
       code: "not_dispatched",
     });
     expect(client.intent("fresh-capacity").getSnapshot()).toBeUndefined();
@@ -85,6 +91,112 @@ test("a newly attached tab at capacity cannot declare another tab's admitted com
   } finally {
     controller.abort();
     deliverReceipt?.();
+    await Promise.all(reads);
+  }
+});
+
+test("a lost tab reply followed by worker restart keeps replay uncertain after the acknowledged intent was deleted", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ace-worker-receipt-"));
+  const path = join(directory, "outbox.json");
+  await writeFile(path, "[]");
+  const deleted = Promise.withResolvers<void>();
+  const outbox: Storage = {
+    load: () => readFile(path, "utf8"),
+    async save(value) {
+      const temporary = join(directory, "outbox.tmp");
+      await writeFile(temporary, value);
+      await rename(temporary, path);
+      if (value === "[]") deleted.resolve();
+    },
+  };
+  cleanups.push(() => rm(directory, { recursive: true, force: true }));
+  const environment = world(undefined, {}, undefined, outbox);
+  const { daemon, tab, faults, advance } = environment;
+  const scenario = new ScenarioPlayer(daemon, flakyCheckout());
+  scenario.runUntilBlocked();
+  const lost = Promise.withResolvers<void>();
+  const receipt = z.object({
+    t: z.literal("reply"),
+    value: z.object({
+      result: z.object({ commandId: z.literal("lost-tab-reply"), ok: z.literal(true) }),
+    }),
+  });
+  faults.worker = (message, deliver) => {
+    if (receipt.safeParse(message).success) lost.resolve();
+    else deliver(message);
+  };
+  const original = tab();
+  await original.start();
+  const input = { type: "thread.archive", threadId: ThreadId.parse(scenario.threadId) } as const;
+  const waiting = original
+    .command(input, { admission: "fresh" }, "lost-tab-reply")
+    .catch((error: unknown) => error);
+  await lost.promise;
+  await deleted.promise;
+  expect(JSON.parse(await readFile(path, "utf8"))).toEqual([]);
+  const accepted = daemon.snapshot({ kind: "threads" });
+  expect(
+    accepted?.kind === "threads" ? accepted.threads[scenario.threadId]?.archivedAt : undefined,
+  ).toBeDefined();
+  await original.close();
+  await original.left;
+  await waiting;
+  advance(1000);
+  environment.restartWorker();
+  faults.worker = (message, deliver) => deliver(message);
+  const replay = tab();
+  await replay.start();
+  expect(replay.intent("lost-tab-reply").getSnapshot()).toBeUndefined();
+  faults.incoming = (message, text, deliver) => {
+    if (message.type !== "items.page") deliver(text);
+  };
+  const controller = new AbortController();
+  const reads = Array.from({ length: defaultLimits.requests }, () =>
+    replay
+      .itemsPage({ threadId: scenario.threadId, limit: 1 }, { signal: controller.signal })
+      .catch((error: unknown) => error),
+  );
+  try {
+    await expect(replay.command(input, {}, "lost-tab-reply")).rejects.toMatchObject({
+      code: "limit",
+    });
+    expect(replay.intent("lost-tab-reply").getSnapshot()?.localFailure).toBeUndefined();
+  } finally {
+    controller.abort();
+    await Promise.all(reads);
+  }
+});
+
+test("a legacy worker's missing-intent unsent inference cannot release a replayed ID", async () => {
+  const { daemon, tab, faults } = world();
+  const scenario = new ScenarioPlayer(daemon, flakyCheckout());
+  scenario.runUntilBlocked();
+  const client = tab();
+  await client.start();
+  const evidence = z.object({ t: z.literal("command.admission"), check: z.number() });
+  faults.worker = (message, deliver) => {
+    const parsed = evidence.safeParse(message);
+    deliver(parsed.success ? { ...parsed.data, outcome: "unsent" } : message);
+  };
+  faults.incoming = (message, text, deliver) => {
+    if (message.type !== "items.page") deliver(text);
+  };
+  const controller = new AbortController();
+  const reads = Array.from({ length: defaultLimits.requests }, () =>
+    client
+      .itemsPage({ threadId: scenario.threadId, limit: 1 }, { signal: controller.signal })
+      .catch((error: unknown) => error),
+  );
+  try {
+    await expect(
+      client.command(
+        { type: "thread.archive", threadId: ThreadId.parse(scenario.threadId) },
+        {},
+        "restored-without-history",
+      ),
+    ).rejects.toMatchObject({ code: "limit" });
+  } finally {
+    controller.abort();
     await Promise.all(reads);
   }
 });

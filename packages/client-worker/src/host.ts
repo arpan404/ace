@@ -310,7 +310,8 @@ class Tab {
           this.#post({
             t: "command.admission",
             check: message.check,
-            outcome: admitted ? "admitted" : "unsent",
+            // Acknowledgements and eviction erase intents. Missing history proves nothing.
+            outcome: admitted ? "admitted" : (message.freshness ?? "unknown"),
           });
         },
         () => this.#post({ t: "command.admission", check: message.check, outcome: "unknown" }),

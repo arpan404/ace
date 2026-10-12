@@ -24,12 +24,14 @@ import { z } from "zod";
  * worker starts without (ADR 0056).
  */
 
-const Options = z
-  .object({
-    requestId: z.string().min(1).max(256).optional(),
-    timeoutMs: z.number().positive().optional(),
-  })
-  .optional();
+const RequestOptions = z.object({
+  requestId: z.string().min(1).max(256).optional(),
+  timeoutMs: z.number().positive().optional(),
+});
+const Options = RequestOptions.optional();
+const CommandOptions = RequestOptions.extend({
+  admission: z.literal("fresh").optional(),
+}).optional();
 const Read = z.object({
   streamId: z.string(),
   offset: z.number().int().nonnegative(),
@@ -79,7 +81,7 @@ const longThreadArgs = async () => (longThread ??= longThreadSchemas(await loadS
 const schemas = {
   markThreadRead: z.tuple([ThreadMarkReadCommand.omit({ type: true }), Options]),
   enqueue: z.tuple([CommandPayload, z.string().optional()]),
-  command: z.tuple([CommandPayload, Options, z.string().optional()]),
+  command: z.tuple([CommandPayload, CommandOptions, z.string().optional()]),
   registry: z.tuple([RegistryInput, Options]),
   itemsPage: z.tuple([Page, Options]),
   loadOlder: z.tuple([z.string(), z.number().int().positive(), Options]),
@@ -141,7 +143,14 @@ export async function callArgs(
     }
     case "command": {
       const [payload, parsed, id] = decode(schemas.command, args);
-      const result = await client.command(payload, options(parsed, signal), id);
+      const result = await client.command(
+        payload,
+        {
+          ...options(parsed, signal),
+          ...(parsed?.admission ? { admission: parsed.admission } : {}),
+        },
+        id,
+      );
       const current = client.intent(result.commandId).getSnapshot();
       return {
         result,

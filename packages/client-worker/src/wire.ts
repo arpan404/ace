@@ -49,8 +49,13 @@ export const TabMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("lease"), lease: id, scope: Scope }),
   z.object({ t: z.literal("release"), lease: id }),
   z.object({ t: z.literal("call"), call: id, method: CallMethod, args: z.array(z.unknown()) }),
-  /** A refused command was never posted; ask only whether an earlier attempt already exists. */
-  z.object({ t: z.literal("command.admission"), check: id, commandId: CommandAdmissionId }),
+  /** A refused attempt was never posted. Freshness must be supplied positively by its allocator. */
+  z.object({
+    t: z.literal("command.admission"),
+    check: id,
+    commandId: CommandAdmissionId,
+    freshness: z.optional(z.literal("fresh")),
+  }),
   z.object({
     t: z.literal("iterate"),
     call: id,
@@ -98,7 +103,8 @@ export const WorkerMessage = z.discriminatedUnion("t", [
   z.object({
     t: z.literal("command.admission"),
     check: id,
-    outcome: z.enum(["unsent", "admitted", "unknown"]),
+    // Old workers inferred "unsent" from missing intents. New tabs treat that as unknown.
+    outcome: z.enum(["fresh", "unsent", "admitted", "unknown"]),
   }),
   z.object({
     t: z.literal("attached"),

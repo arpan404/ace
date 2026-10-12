@@ -138,7 +138,7 @@ export function IssueEditor(props: {
           repository: props.repository,
           input,
         },
-        {},
+        { admission: "fresh" },
         id,
       );
       if (result.ok && result.issue) {

@@ -28,6 +28,8 @@ import {
   type OutputData,
   type RegistryQuery,
   type RequestOptions,
+  type CommandOptions,
+  type CommandAdmissionEvidence,
   type Scheduler,
   type Selection,
   type SidebarExport,
@@ -350,11 +352,17 @@ export class RemoteClient implements ClientApi {
   threads(): Lease<SidebarSource> {
     return this.hold("threads", { kind: "threads" }, () => new MirrorSidebar(this.listeners));
   }
-  async enqueue(payload: CommandPayload, id = this.nextCommandId()): Promise<string> {
+  async enqueue(payload: CommandPayload, suppliedId?: string): Promise<string> {
+    const id = suppliedId ?? this.nextCommandId();
     this.saving(payload, id);
     let result: unknown;
     try {
-      result = await this.call("enqueue", [payload, id]);
+      result = await this.call(
+        "enqueue",
+        [payload, id],
+        undefined,
+        suppliedId === undefined ? "fresh" : "unknown",
+      );
     } catch (error) {
       const previous = this.sends.get(id);
       if (
@@ -385,9 +393,12 @@ export class RemoteClient implements ClientApi {
   }
   command(
     payload: CommandPayload,
-    options: RequestOptions = {},
-    id = this.nextCommandId(),
+    options: CommandOptions = {},
+    suppliedId?: string,
   ): Promise<CommandResult> {
+    const id = suppliedId ?? this.nextCommandId();
+    const freshness =
+      suppliedId === undefined || options.admission === "fresh" ? "fresh" : "unknown";
     if (options.signal?.aborted) return Promise.reject(new ClientError("aborted"));
     try {
       this.saving(payload, id);
@@ -396,8 +407,13 @@ export class RemoteClient implements ClientApi {
     }
     return this.invoke<{ result: CommandResult; intent: Intent | undefined }>(
       "command",
-      [payload, timeout(options), id],
+      [
+        payload,
+        { ...timeout(options), ...(freshness === "fresh" ? { admission: "fresh" } : {}) },
+        id,
+      ],
       options.signal,
+      freshness,
     )
       .then(({ result, intent }) => {
         this.intents.put(id, intent);
@@ -592,10 +608,20 @@ export class RemoteClient implements ClientApi {
       },
     };
   }
-  private async invoke<T>(method: CallMethod, args: unknown[], signal?: AbortSignal): Promise<T> {
-    return trusted<T>(await this.call(method, args, signal));
+  private async invoke<T>(
+    method: CallMethod,
+    args: unknown[],
+    signal?: AbortSignal,
+    evidence: CommandAdmissionEvidence = "unknown",
+  ): Promise<T> {
+    return trusted<T>(await this.call(method, args, signal, evidence));
   }
-  private call(method: CallMethod, args: unknown[], signal?: AbortSignal): Promise<unknown> {
+  private call(
+    method: CallMethod,
+    args: unknown[],
+    signal?: AbortSignal,
+    evidence: CommandAdmissionEvidence = "unknown",
+  ): Promise<unknown> {
     if (this.closed || this.workerLost) return Promise.reject(new ClientError("offline"));
     if (signal?.aborted) return Promise.reject(new ClientError("aborted"));
     const wait = replyTimeout(args, defaultLimits.requestMs);
@@ -603,7 +629,7 @@ export class RemoteClient implements ClientApi {
     if (this.pending.size >= defaultLimits.requests) {
       const id = method === "command" ? args[2] : method === "enqueue" ? args[1] : undefined;
       return typeof id === "string"
-        ? this.admission.refuse(id)
+        ? this.admission.refuse(id, evidence)
         : Promise.reject(new ClientError("limit"));
     }
     const call = ++this.sequence;

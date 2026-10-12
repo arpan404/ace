@@ -30,7 +30,13 @@ import type { OneWayMessage } from "./one-way.ts";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import type { ChangeTap, Selection } from "./observable.ts";
 import type { SidebarKey, SidebarReader, ThreadKey, ThreadReader } from "./readers.ts";
-import type { ClientError, ConnectionInfo, ConnectionState, RequestOptions } from "./types.ts";
+import type {
+  ClientError,
+  CommandOptions,
+  ConnectionInfo,
+  ConnectionState,
+  RequestOptions,
+} from "./types.ts";
 
 /*
  * The surface UI code depends on. `Client` implements it in-process; a client running in a
@@ -101,7 +107,7 @@ export interface ClientApi {
   }): Promise<void>;
   threadsMore(options?: RequestOptions): Promise<void>;
   enqueue(payload: CommandPayload, id?: string): Promise<string>;
-  command(payload: CommandPayload, options?: RequestOptions, id?: string): Promise<CommandResult>;
+  command(payload: CommandPayload, options?: CommandOptions, id?: string): Promise<CommandResult>;
   registry(input: RegistryQuery, options?: RequestOptions): Promise<RegistryResult>;
   /** One-off service operation (ADR 0052). Never persisted or replayed after a disconnect. */
   request<Q extends ServiceRequest>(

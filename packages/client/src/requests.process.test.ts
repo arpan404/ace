@@ -240,7 +240,9 @@ test("durable command capacity supplies unsent evidence without reserving an int
   const aborted = expect(read).rejects.toMatchObject({ code: "aborted" });
   await faults.wait((event) => event.type === "items.page");
   const payload = { type: "thread.archive", threadId: h.thread.id } as const;
-  await expect(client.command(payload, {}, "capacity-refused")).rejects.toMatchObject({
+  await expect(
+    client.command(payload, { admission: "fresh" }, "capacity-refused"),
+  ).rejects.toMatchObject({
     code: "not_dispatched",
   });
   expect(client.intent("capacity-refused").getSnapshot()).toBeUndefined();
@@ -273,4 +275,62 @@ test("a duplicate durable waiter at capacity keeps the admitted command uncertai
   expect(client.intent("already-admitted").getSnapshot()?.state).toBe("pending");
   release?.();
   expect(await original).toMatchObject({ ok: true });
+});
+
+test("an acknowledged command replay at capacity stays uncertain after restart removes its persisted intent", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const original = h.make({ storage: h.storage }).client;
+  await ready(original);
+  const payload = { type: "thread.archive", threadId: h.thread.id } as const;
+  expect(await original.command(payload, { admission: "fresh" }, "trimmed-receipt")).toMatchObject({
+    ok: true,
+  });
+  await original.close();
+  expect(JSON.parse((await h.storage.load()) ?? "null")).toEqual([]);
+  const { client, faults } = h.make({ storage: h.storage, limits: { requests: 1 } });
+  await ready(client);
+  expect(client.intent("trimmed-receipt").getSnapshot()).toBeUndefined();
+  faults.incoming = (event, frame, deliver) => {
+    if (event.type !== "items.page") deliver(frame);
+  };
+  const controller = new AbortController();
+  const read = client.itemsPage({ threadId: h.thread.id, limit: 1 }, { signal: controller.signal });
+  const cancelled = expect(read).rejects.toMatchObject({ code: "aborted" });
+  await faults.wait((event) => event.type === "items.page");
+  try {
+    await expect(client.command(payload, {}, "trimmed-receipt")).rejects.toMatchObject({
+      code: "limit",
+    });
+    expect(client.intent("trimmed-receipt").getSnapshot()?.localFailure).toBeUndefined();
+  } finally {
+    controller.abort();
+    await cancelled;
+  }
+});
+
+test("settled intent eviction does not turn a known-ID capacity refusal into unsent evidence", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const { client, faults } = h.make({ limits: { requests: 1, intents: 1 } });
+  await ready(client);
+  const payload = { type: "thread.archive", threadId: h.thread.id } as const;
+  expect(await client.command(payload, {}, "evicted-receipt")).toMatchObject({ ok: true });
+  await client.command(payload, {}, "later-receipt");
+  expect(client.intent("evicted-receipt").getSnapshot()).toBeUndefined();
+  faults.incoming = (event, frame, deliver) => {
+    if (event.type !== "items.page") deliver(frame);
+  };
+  const controller = new AbortController();
+  const read = client.itemsPage({ threadId: h.thread.id, limit: 1 }, { signal: controller.signal });
+  const cancelled = expect(read).rejects.toMatchObject({ code: "aborted" });
+  await faults.wait((event) => event.type === "items.page");
+  try {
+    await expect(client.command(payload, {}, "evicted-receipt")).rejects.toMatchObject({
+      code: "limit",
+    });
+  } finally {
+    controller.abort();
+    await cancelled;
+  }
 });
