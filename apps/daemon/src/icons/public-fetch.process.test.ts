@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import { afterEach, expect, test } from "vitest";
 import { isPublicAddress, publicGet } from "./public-fetch.ts";
 import { localSite } from "./local-site.ts";
@@ -65,4 +66,33 @@ test("redirects within the public web are followed up to a cap", async () => {
   expect(await publicGet(`${s.origin}/loop`, { allowed: s.allowed, timeoutMs: 500 })).toEqual({
     kind: "missing",
   });
+});
+
+// Mutation: checking the deadline only between hops, so a dripping site holds a slot for good.
+test("a site that drips its bytes slowly is cut off at the fetch's deadline", async () => {
+  const server = createServer((_request, response) => {
+    response.setHeader("content-type", "image/png");
+    const drip = setInterval(() => response.write("x"), 50);
+    response.on("close", () => clearInterval(drip));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  closers.push(
+    () =>
+      new Promise((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  );
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const started = performance.now();
+  const reply = await publicGet(`http://127.0.0.1:${port}/favicon.ico`, {
+    allowed: (host, candidate) => host === "127.0.0.1" && candidate === port,
+    timeoutMs: 200,
+    maxRedirects: 0,
+    maxBytes: 1024 * 1024,
+  });
+  expect(reply).toEqual({ kind: "failed" });
+  // The 200ms idle timeout never fires on a dripping socket; the deadline still ends it.
+  expect(performance.now() - started).toBeLessThan(2000);
 });

@@ -59,7 +59,7 @@ export function isPublicAddress(address: string): boolean {
 
 /** Where a request may connect. The default: public addresses on the standard web ports. */
 export type AddressPolicy = (address: string, port: number) => boolean;
-export const publicWeb: AddressPolicy = (address, port) =>
+const publicWeb: AddressPolicy = (address, port) =>
   isPublicAddress(address) && (port === 80 || port === 443);
 
 export interface PublicFetchOptions {
@@ -110,7 +110,11 @@ function pinnedLookup(
   };
 }
 
-function once(url: URL, options: Required<PublicFetchOptions>): Promise<IncomingMessage> {
+function once(
+  url: URL,
+  options: Required<PublicFetchOptions>,
+  deadline: AbortSignal,
+): Promise<IncomingMessage> {
   const port = portOf(url);
   const literal = isIP(url.hostname.replace(/^\[|\]$/g, ""));
   if (literal && !options.allowed(url.hostname.replace(/^\[|\]$/g, ""), port))
@@ -124,6 +128,8 @@ function once(url: URL, options: Required<PublicFetchOptions>): Promise<Incoming
         agent: false,
         lookup: pinnedLookup(options.resolve, options.allowed, port),
         timeout: options.timeoutMs,
+        // The whole fetch ends at its deadline, however slowly a site drips its bytes.
+        signal: deadline,
         headers: { accept: options.accept, "user-agent": "ace", "accept-encoding": "identity" },
       },
       resolve,
@@ -184,7 +190,7 @@ export async function publicGet(
     if (current.username || current.password) return { kind: "refused" };
     let response: IncomingMessage;
     try {
-      response = await once(current, options);
+      response = await once(current, options, deadline);
     } catch (error) {
       return error instanceof Refused ? { kind: "refused" } : { kind: "failed" };
     }
