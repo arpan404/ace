@@ -51,6 +51,7 @@ export function SettingRow(props: {
       {...slot}
       id={props.id}
       ref={row}
+      data-flash={flashing || undefined}
       className={cn(
         "@container group/setting transition-colors duration-(--motion-slow)",
         inCard ? "px-4" : "border-t first:border-t-0",
@@ -230,11 +231,17 @@ export function SettingList({ className, ...props }: ComponentProps<"ul">) {
 }
 
 /** One row of a `SettingList`: the row's height and inset, whatever it holds. */
-export function SettingListItem({ className, ...props }: ComponentProps<"li">) {
+export function SettingListItem({ className, id, ...props }: ComponentProps<"li">) {
+  const ref = useRef<HTMLLIElement>(null);
+  const flashing = useHashFlash(id, ref);
   return (
     <li
+      ref={ref}
+      id={id}
+      data-flash={flashing || undefined}
       className={cn(
-        "flex min-h-(--setting-row-height) items-center gap-2 px-4 py-(--setting-row-y)",
+        "flex min-h-(--setting-row-height) items-center gap-2 px-4 py-(--setting-row-y) transition-colors duration-(--motion-slow)",
+        flashing && "bg-accent",
         className,
       )}
       {...props}
@@ -244,15 +251,27 @@ export function SettingListItem({ className, ...props }: ComponentProps<"li">) {
 
 /**
  * A row that is itself the action ("+ Add account", "+ Pair a device"): a full-width button whose
- * label starts on the row text's edge. Works as a card child or inside a `SettingList`.
+ * label starts on the row text's edge. Works as a card child or inside a `SettingList`. Like a
+ * row, a link naming its `id` scrolls to it and flashes it.
  */
-export function SettingAction({ className, type = "button", ...props }: ComponentProps<"button">) {
+export function SettingAction({
+  className,
+  id,
+  type = "button",
+  ...props
+}: ComponentProps<"button">) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const flashing = useHashFlash(id, ref);
   return (
     <button
       {...slot}
+      ref={ref}
+      id={id}
       type={type}
+      data-flash={flashing || undefined}
       className={cn(
         "flex min-h-(--setting-row-height) w-full items-center gap-2 px-4 text-left text-ui font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-fill hover:text-foreground disabled:opacity-50",
+        flashing && "bg-accent",
         className,
       )}
       {...props}
