@@ -13,6 +13,7 @@ import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
 import {
+  ProjectMark,
   RowStatus,
   RowContext,
   RowTime,
@@ -33,7 +34,6 @@ export function ThreadRow(props: {
   threadId: string;
   settled: boolean;
   leaving?: boolean | undefined;
-  showProject?: boolean | undefined;
 }) {
   const { settled } = props;
   const online = useConnectionState() === "ready";
@@ -95,6 +95,7 @@ export function ThreadRow(props: {
   ) : (
     <div className="flex min-w-0 w-full flex-col gap-0.5">
       <div className="flex min-w-0 items-center gap-1.5 pr-7 text-xs leading-4 text-muted-foreground">
+        <ProjectMark badge={card.badge} />
         <span className="min-w-0 truncate">{card.project}</span>
         <span aria-hidden>·</span>
         <RowStatus card={card} />
@@ -105,11 +106,6 @@ export function ThreadRow(props: {
   );
   return (
     <>
-      {props.showProject && (
-        <h3 className="flex h-7 items-center truncate px-2 text-xs font-normal text-muted-foreground">
-          {card.project}
-        </h3>
-      )}
       <HoverCard open={hover.open && !renaming} onOpenChange={hover.change}>
         <ThreadMenu
           entry={entry}

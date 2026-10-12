@@ -21,7 +21,6 @@ import { matchesChord } from "@/lib/hotkeys.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
 import { ThreadRow } from "./thread-row.tsx";
-import { groupProjectRows, startsProject } from "./project-rows.ts";
 import type { HomeList } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
 import {
@@ -83,20 +82,19 @@ function HeadingText(props: { label: string; count?: number | undefined }) {
  * group, being theirs to order, never holds.
  */
 export function ThreadList(props: { list: HomeList; settledTotal?: number | undefined }) {
-  const { pinned, active, recent, settled, projects } = props.list;
-  const { settledOpen, project } = useOrganizerState();
+  const { pinned, active, recent, settled } = props.list;
+  const { settledOpen } = useOrganizerState();
   const organizer = useOrganizer();
   const [moving, setMoving] = useState<readonly string[]>();
   const rows = useMemo(() => {
-    const sections = homeRows(
+    return homeRows(
       { pinned, active, recent, settled },
       {
         settledOpen,
         pinZone: moving !== undefined,
       },
     );
-    return project === null ? groupProjectRows(sections, projects) : sections;
-  }, [pinned, active, recent, settled, settledOpen, moving, project, projects]);
+  }, [pinned, active, recent, settled, settledOpen, moving]);
   const hold = useListHold();
   const held = useHeldRows(rows, hold.state, props.list.needsYou);
   const { rows: drawn, moving: sliding } = useListMotion(held, homeRowKey);
@@ -114,13 +112,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
   const virtualizer = useVirtualizer({
     count: drawn.length,
     getScrollElement: () => viewport.current,
-    estimateSize: (index) => {
-      const kind = drawn[index]?.item.kind ?? "thread";
-      const row = drawn[index]?.item;
-      const heading =
-        project === null && row && startsProject(row, drawn[index - 1]?.item, projects);
-      return estimates[kind] + (heading ? 28 : 0);
-    },
+    estimateSize: (index) => estimates[drawn[index]?.item.kind ?? "thread"],
     paddingStart: 8,
     paddingEnd: 8,
     scrollPaddingStart: 8,
@@ -340,8 +332,6 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
             const row = entry.item;
             const leaving = entry.phase === "exit";
             const thread = homeRowThread(row);
-            const showProject =
-              project === null && startsProject(row, drawn[item.index - 1]?.item, projects);
             return (
               <div
                 key={item.key}
@@ -365,20 +355,10 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
               >
                 <div className={rowMotion(entry.phase)}>
                   {(row.kind === "thread" || row.kind === "pinned") && (
-                    <ThreadRow
-                      threadId={row.id}
-                      settled={false}
-                      leaving={leaving}
-                      showProject={showProject}
-                    />
+                    <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
                   )}
                   {row.kind === "settled" && (
-                    <ThreadRow
-                      threadId={row.id}
-                      settled
-                      leaving={leaving}
-                      showProject={showProject}
-                    />
+                    <ThreadRow threadId={row.id} settled leaving={leaving} />
                   )}
                   {row.kind === "pinned-end" && (
                     <div className="mx-2 my-1 h-px bg-sidebar-border" />

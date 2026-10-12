@@ -44,24 +44,25 @@ function workbenchApp(options: Parameters<typeof harness>[0] = {}) {
   return app;
 }
 
-test("Home groups project threads and keeps requests first within each project", async () => {
+test("Home keeps attention and active tasks ahead across projects, with settled work at the end", async () => {
   await openHome(workbenchApp());
-  // Project order follows its first thread in Home priority; requests lead within each project.
+  // Home priority crosses project boundaries rather than collecting each project together.
   expect(order()).toEqual([
     "Partial refunds double-count tax",
-    "Invoice PDF locale fallback",
     "Approval sheet loses its state on rotate",
     "Retry budget for app-server restarts",
-    "Backpressure on broadcast fan-out",
     "Dedupe thread events after reconnect",
     "Rewrite the install page for the daemon",
+    "Backpressure on broadcast fan-out",
+    "Invoice PDF locale fallback",
   ]);
   expect(within(threads()).queryByRole("button", { name: /^Show more/ })).toBeNull();
   // The finished thread's PR merged, so the daemon has settled it out of the way.
   const settled = screen.getByRole("button", { name: "Settled 1" });
   expect(settled.getAttribute("aria-expanded")).toBe("false");
   await userEvent.click(settled);
-  expect(card(/Bump Codex app-server to 0.48/)).toBeTruthy();
+  expect(order().at(-1)).toBe("Bump Codex app-server to 0.48");
+  expect(within(threads()).queryAllByRole("heading")).toHaveLength(0);
 });
 
 test("a pinned thread leads the list, ahead of threads that need you", async () => {
@@ -89,7 +90,7 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   expect(refund.getAttribute("aria-label")).toContain("fix/refund-tax");
   expect(refund.getAttribute("aria-label")).toContain("billing-api");
   expect(within(refund).getByText("billing-api")).toBeTruthy();
-  expect(within(threads()).getByRole("heading", { name: "billing-api" })).toBeTruthy();
+  expect(within(threads()).queryAllByRole("heading")).toHaveLength(0);
 
   // Working rows expose their worktree and subagents too.
   const dedupe = card(/^Dedupe thread events after reconnect/);

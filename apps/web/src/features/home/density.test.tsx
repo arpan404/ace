@@ -17,29 +17,33 @@ function seed(app: ReturnType<typeof harness>) {
   }
 }
 
-test("all-project rows group under project headings and keyboard arrows follow the drawn order", async () => {
+test("all projects share one Home order and keyboard navigation crosses project boundaries", async () => {
   const app = harness();
   seed(app);
   await app.open("/new");
   const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
-  expect(await nav.findByRole("heading", { name: "ace" })).toBeTruthy();
-  expect(nav.getByRole("heading", { name: "relay" })).toBeTruthy();
+  await nav.findByRole("link", { name: /^Last task/ });
+  expect(nav.queryAllByRole("heading")).toHaveLength(0);
   const links = nav.getAllByRole("link");
   expect(links.map((link) => link.getAttribute("aria-label")?.split(".")[0])).toEqual([
     "Last task",
-    "First task",
     "Other project",
+    "First task",
   ]);
   const first = links[0];
   if (!first) throw new Error("Missing first row");
   first.focus();
   await userEvent.keyboard("{ArrowDown}");
   expect(document.activeElement).toBe(links[1]);
+  await userEvent.keyboard("j");
+  expect(document.activeElement).toBe(links[2]);
+  await userEvent.keyboard("k{ArrowUp}");
+  expect(document.activeElement).toBe(first);
   expect(within(first).getByText("ace")).toBeTruthy();
   expect(within(first).getByText("Working", { exact: true })).toBeTruthy();
 });
 
-test("a selected project keeps project and status on each task without repeating its group heading", async () => {
+test("the project filter narrows the flat list while keeping project identity on each task", async () => {
   const storage = memoryKeyValue();
   storage.setItem(
     "ace.home.organizer",
