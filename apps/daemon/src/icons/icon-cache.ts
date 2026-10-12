@@ -43,6 +43,8 @@ export class IconCache {
   private readonly images = new Map<string, number>();
   private bytes = 0;
   private writing: Promise<void> = Promise.resolve();
+  /** PNG writes in flight, by ref: the same icon stored twice at once is written once. */
+  private readonly pending = new Map<string, Promise<void>>();
   constructor(
     root: string,
     limits: IconCacheLimits = { maxIcons: 512, maxBytes: 16 * 1024 * 1024 },
@@ -54,9 +56,13 @@ export class IconCache {
     for (const name of readdirSync(root)) {
       const ref = name.endsWith(".png") ? name.slice(0, -4) : "";
       if (!IconRef.safeParse(ref).success) continue;
-      const size = statSync(join(root, name)).size;
-      this.images.set(ref, size);
-      this.bytes += size;
+      try {
+        const size = statSync(join(root, name)).size;
+        this.images.set(ref, size);
+        this.bytes += size;
+      } catch {
+        /* Gone since it was listed: it is simply not cached. */
+      }
     }
     try {
       const index = Index.parse(JSON.parse(readFileSync(join(root, "index.json"), "utf8")));
@@ -82,9 +88,17 @@ export class IconCache {
   async store(icon: ToolIcon, png: Buffer | null, now: number): Promise<string | null> {
     const ref = png ? createHash("sha256").update(png).digest("hex") : null;
     if (png && ref && !this.images.has(ref)) {
-      await write(join(this.root, `${ref}.png`), png);
-      this.images.set(ref, png.length);
-      this.bytes += png.length;
+      let writing = this.pending.get(ref);
+      if (!writing) {
+        writing = write(join(this.root, `${ref}.png`), png).finally(() => this.pending.delete(ref));
+        this.pending.set(ref, writing);
+      }
+      await writing;
+      // Counted once, however many stores waited on the one write.
+      if (!this.images.has(ref)) {
+        this.images.set(ref, png.length);
+        this.bytes += png.length;
+      }
     }
     const key = iconKey(icon);
     this.keys.delete(key);
@@ -152,9 +166,10 @@ export class IconCache {
   }
 }
 
-/** Write through a temporary file, so a reader never sees half a file. */
+let writes = 0;
+/** Write through a temporary file of its own, so a reader never sees half a file. */
 async function write(path: string, data: string | Buffer): Promise<void> {
-  const temporary = `${path}.${process.pid}.tmp`;
+  const temporary = `${path}.${process.pid}.${++writes}.tmp`;
   await writeFile(temporary, data);
   await rename(temporary, path);
 }

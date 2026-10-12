@@ -8,7 +8,7 @@ let decoder: Promise<typeof import("sharp")> | undefined;
 let decoding = Promise.resolve();
 let queued = 0;
 
-export function safeSvg(bytes: Buffer): boolean {
+function safeSvg(bytes: Buffer): boolean {
   let text: string;
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -39,12 +39,18 @@ export async function rasterPng(input: Input, svg = false): Promise<Buffer | nul
   decoding = finished.promise;
   try {
     await previous;
-    const sharp = await (decoder ??= import("sharp")
-      .then((module) => module.default)
-      .catch((error) => {
-        decoder = undefined;
-        throw error;
-      }));
+    let sharp: typeof import("sharp");
+    try {
+      sharp = await (decoder ??= import("sharp")
+        .then((module) => module.default)
+        .catch((error) => {
+          decoder = undefined;
+          throw error;
+        }));
+    } catch {
+      // No decoder now: that may pass.
+      return undefined;
+    }
     const source = Buffer.isBuffer(input)
       ? sharp(input, { limitInputPixels: 1_048_576, animated: false, failOn: "warning" })
       : sharp(input.raw, { raw: { width: input.width, height: input.height, channels: 4 } });
@@ -53,9 +59,9 @@ export async function rasterPng(input: Input, svg = false): Promise<Buffer | nul
       .timeout({ seconds: 1 })
       .png()
       .toBuffer();
-  } catch {
-    // Decoder availability and timeouts are transient, unlike an absent file.
-    return undefined;
+  } catch (error) {
+    // A decode that ran out of time may pass; bytes the decoder refuses are no image for good.
+    return error instanceof Error && /timeout|time out/i.test(error.message) ? undefined : null;
   } finally {
     queued--;
     finished.resolve();

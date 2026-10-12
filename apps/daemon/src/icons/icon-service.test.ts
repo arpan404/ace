@@ -150,3 +150,15 @@ test("the disk cache keeps at most its limit, dropping the least recently used i
   await big.store(site("big"), Buffer.alloc(8, 1), 1);
   expect(big.size.bytes).toBeLessThanOrEqual(4);
 });
+
+// Mutation: writing (and counting) one icon twice when two sites share it at once.
+test("the same icon stored for two sites at once is written and counted once", async () => {
+  const cache = new IconCache(home(), { maxIcons: 10, maxBytes: 1024 });
+  const png = Buffer.from("shared");
+  const [a, b] = await Promise.all([
+    cache.store(site("a"), png, 1),
+    cache.store(site("b"), png, 1),
+  ]);
+  expect(a).toBe(b);
+  expect(cache.size).toEqual({ icons: 1, bytes: png.length });
+});

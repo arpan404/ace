@@ -8,7 +8,7 @@ import { publicGet, type PublicFetchOptions } from "./public-fetch.ts";
  */
 
 /** The icons a page declares, best first: plain icons, then touch icons. */
-export function declaredIcons(html: string, base: string): string[] {
+function declaredIcons(html: string, base: string): string[] {
   const plain: string[] = [];
   const touch: string[] = [];
   for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
