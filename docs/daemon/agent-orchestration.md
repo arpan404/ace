@@ -77,6 +77,8 @@ Queue, steer, restart, resume and model switches must pass admission again.
 A budget breach cancels the participating conversations and child trees. Stopping
 the caller alone does not stop ordinary conversations or disable their deadlines.
 Budget membership grants no write authority and creates no completion wake.
+Accounting counters and replay positions commit together. Startup replays missed
+local run/usage events before admission, including usage committed just before a crash.
 
 Workspace strategies are explicit for conversation launch, optional for children:
 
@@ -92,6 +94,8 @@ Workspace strategies are explicit for conversation launch, optional for children
   filters, including LFS. It also disables lazy object fetching and denies Git
   transports, including child promisor fetches. Missing objects fail locally; fetch
   them in ace before retrying. Retained checkouts keep this policy across owner restart.
+  User-requested push and fetch use separate transfer entry points that keep hooks,
+  fsmonitor and filters disabled while allowing only HTTP, HTTPS and SSH.
 - `{ "kind": "existing_worktree", "path": "/absolute/registered/path" }` reuses
   a worktree registered to that Git project. Arbitrary directories are rejected.
 
