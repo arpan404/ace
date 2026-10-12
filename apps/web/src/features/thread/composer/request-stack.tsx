@@ -1,7 +1,8 @@
 import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
-import { Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { InteractionCard } from "../interactions/interaction-card.tsx";
+import { usePendingAnswer } from "../interactions/pending-answers.ts";
 import { AttachedCard } from "./attached-card.tsx";
 
 /** Typing in these never cycles the stack. */
@@ -24,6 +25,18 @@ export function RequestStack(props: {
 }) {
   const [picked, setPicked] = useState<string>();
   const frame = useRef<HTMLDivElement>(null);
+  const ownsFocus = useRef(false);
+  const leave = useRef(props.onLeave);
+  useLayoutEffect(() => {
+    leave.current = props.onLeave;
+  }, [props.onLeave]);
+  // The final request unmounts the stack. Restore the composer only if this deck owned focus.
+  useLayoutEffect(
+    () => () => {
+      if (ownsFocus.current) leave.current();
+    },
+    [],
+  );
   const targeted =
     props.target !== undefined && props.ids.includes(props.target) ? props.target : undefined;
   const [seenTarget, setSeenTarget] = useState<string>();
@@ -38,6 +51,14 @@ export function RequestStack(props: {
   // Stay on the request the person moved to while it is open; else the oldest.
   const at = Math.max(0, picked === undefined ? 0 : props.ids.indexOf(picked));
   const id = props.ids[at];
+  const pending = usePendingAnswer(id);
+  useLayoutEffect(() => {
+    if (!id || !ownsFocus.current) return;
+    if (pending || !frame.current?.contains(document.activeElement))
+      (frame.current?.querySelector<HTMLElement>("article") ?? frame.current)?.focus({
+        preventScroll: true,
+      });
+  }, [id, pending]);
   if (!id) return null;
   const go = (step: number) => {
     setPicked(props.ids[(at + step + count) % count]);
@@ -88,6 +109,12 @@ export function RequestStack(props: {
         interactionId={id}
         frame="attached"
         aside={pager}
+        onSubmit={() => {
+          if (frame.current?.contains(document.activeElement))
+            (frame.current.querySelector<HTMLElement>("article") ?? frame.current).focus({
+              preventScroll: true,
+            });
+        }}
       />
     </Suspense>
   );
@@ -97,7 +124,20 @@ export function RequestStack(props: {
     </AttachedCard>
   );
   return (
-    <div ref={frame} tabIndex={-1} onKeyDownCapture={onKeyDown} className="focus-ring">
+    <div
+      ref={frame}
+      tabIndex={-1}
+      onFocusCapture={() => {
+        ownsFocus.current = true;
+      }}
+      onBlurCapture={(event) => {
+        // Removed decision controls have no related target; submission moves to this frame.
+        if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget))
+          ownsFocus.current = false;
+      }}
+      onKeyDownCapture={onKeyDown}
+      className="focus-ring"
+    >
       {card}
     </div>
   );

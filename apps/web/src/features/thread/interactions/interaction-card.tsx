@@ -84,6 +84,7 @@ function useAnswerSender(interactionId: string, identity: string | undefined) {
   const { send, intent, error } = useIntentSender();
   const state = intent?.state;
   const answer: Answer = (resolution) => {
+    if (pendingAnswers.get(interactionId)) return;
     pendingAnswers.set(interactionId, resolution);
     void send({
       type: "interaction.resolve",
@@ -123,6 +124,8 @@ export function InteractionCard(props: {
   interactionId: string;
   frame?: InteractionFrame | undefined;
   aside?: ReactNode;
+  /** Keep a stable focus target while the decision controls are replaced. */
+  onSubmit?(): void;
 }) {
   const frame = frames[props.frame ?? "card"];
   const interaction = useInteraction(props.threadId, props.interactionId);
@@ -134,6 +137,7 @@ export function InteractionCard(props: {
   const sender = useAnswerSender(props.interactionId, identity);
   const { failed } = sender;
   const answer: Answer = (resolution) => {
+    props.onSubmit?.();
     setReopened(false);
     sender.answer(resolution);
   };
@@ -278,7 +282,7 @@ function OpenRequest(props: {
     answer({ kind: "approval", optionId: decision.option.id });
   };
   return (
-    <article aria-label={title} onKeyDown={onKeyDown} className={props.className}>
+    <article tabIndex={-1} aria-label={title} onKeyDown={onKeyDown} className={props.className}>
       {request.kind !== "approval" && (
         <p className="flex min-h-6 items-center gap-[7px] text-xs text-subtle-foreground">
           <Dot tone="needs-you" />

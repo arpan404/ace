@@ -1,9 +1,10 @@
 import { facts, flakyCheckout, workbench, type Scenario } from "@ace/fake-daemon";
-import { act, configure, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { answerStore } from "@/features/thread/interactions/answers.ts";
+import { memoryStorage } from "@/boot/client.ts";
 import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -363,4 +364,134 @@ test("an approved command keeps its execution output in the finished work log", 
   await userEvent.click(await within(feed).findByRole("button", { name: /^Ran rm -rf/ }));
   expect((await within(feed).findByLabelText("Output")).textContent).toContain("Cache cleared.");
   expect(within(feed).getByRole("note").textContent).toContain("Allowed once:");
+});
+
+test("keyboard focus survives submitting a decision, advances to the next request, and returns to the composer after the last", async () => {
+  const storage = memoryStorage();
+  const saved = Promise.withResolvers<void>();
+  let hold = false;
+  const app = harness({
+    outbox: {
+      load: storage.load,
+      save: async (value) => {
+        if (hold) await saved.promise;
+        await storage.save(value);
+      },
+    },
+  });
+  app
+    .play(
+      asking("thread-focus", [
+        { id: "first", title: "First decision?" },
+        { id: "second", title: "Second decision?" },
+      ]),
+    )
+    .runUntilBlocked();
+  await app.open("/t/thread-focus");
+  const region = await stack();
+  const deny = within(region).getByRole("button", { name: "Deny" });
+  deny.focus();
+  hold = true;
+  try {
+    await userEvent.keyboard("{Enter}");
+    await within(region).findByText(/sending/);
+    expect(region.parentElement?.contains(document.activeElement)).toBe(true);
+    hold = false;
+    saved.resolve();
+    await screen.findByRole("article", { name: "Second decision?" });
+    expect((await stack()).parentElement?.contains(document.activeElement)).toBe(true);
+    await userEvent.tab();
+    // Every decision remains reachable using only the keyboard after the card advances.
+    for (
+      let index = 0;
+      index < 10 && document.activeElement !== screen.getByRole("button", { name: "Deny" });
+      index++
+    )
+      await userEvent.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Deny" }));
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull(),
+    );
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" }));
+    expect(app.daemon.resolution("thread-focus", "first")).toEqual({
+      kind: "approval",
+      optionId: "deny",
+    });
+    expect(app.daemon.resolution("thread-focus", "second")).toEqual({
+      kind: "approval",
+      optionId: "deny",
+    });
+  } finally {
+    saved.resolve();
+  }
+});
+
+test("two decision clicks before rendering send one durable answer", async () => {
+  const storage = memoryStorage();
+  const saved = Promise.withResolvers<void>();
+  let hold = false;
+  const app = harness({
+    outbox: {
+      load: storage.load,
+      save: async (value) => {
+        if (hold) await saved.promise;
+        await storage.save(value);
+      },
+    },
+  });
+  app.play(asking("thread-double", [{ id: "once", title: "One decision?" }])).runUntilBlocked();
+  await app.open("/t/thread-double");
+  const deny = within(await stack()).getByRole("button", { name: "Deny" });
+  const commands = new Set<string>();
+  const command = app.daemon.command.bind(app.daemon);
+  app.daemon.command = (input) => {
+    if (input.payload.type === "interaction.resolve") commands.add(input.id);
+    return command(input);
+  };
+  hold = true;
+  try {
+    act(() => {
+      fireEvent.click(deny);
+      fireEvent.click(deny);
+    });
+    await screen.findByText(/sending/);
+    hold = false;
+    saved.resolve();
+    await waitFor(() =>
+      expect(app.daemon.resolution("thread-double", "once")).toEqual({
+        kind: "approval",
+        optionId: "deny",
+      }),
+    );
+    expect(commands.size).toBe(1);
+  } finally {
+    saved.resolve();
+  }
+});
+
+test("a refused decision keeps the request and keyboard focus and can be retried", async () => {
+  const app = harness();
+  app
+    .play(asking("thread-retry", [{ id: "retry", title: "Retry this decision?" }]))
+    .runUntilBlocked();
+  app.daemon.refuseCommands("unavailable", "interaction.resolve");
+  await app.open("/t/thread-retry");
+  const region = await stack();
+  within(region).getByRole("button", { name: "Deny" }).focus();
+  await userEvent.keyboard("{Enter}");
+  await within(region).findByRole("alert");
+  expect(app.daemon.isPending("thread-retry", "retry")).toBe(true);
+  expect(region.parentElement?.contains(document.activeElement)).toBe(true);
+  app.daemon.restoreRequests();
+  await userEvent.keyboard("2");
+  await waitFor(() =>
+    expect(app.daemon.resolution("thread-retry", "retry")).toEqual({
+      kind: "approval",
+      optionId: "deny",
+    }),
+  );
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" })),
+  );
 });
