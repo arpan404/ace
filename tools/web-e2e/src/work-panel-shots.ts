@@ -1,3 +1,9 @@
+import {
+  installSplitAlignmentFixture,
+  openSplitAlignment,
+  expandSplitComment,
+  scrollSplitAwayAndBack,
+} from "./split-alignment-checks.ts";
 import { chromium, expect } from "@playwright/test";
 import { facts, workCardScenario, type FakeDaemon } from "@ace/fake-daemon";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -57,6 +63,10 @@ try {
     await expect(work.getByRole("button", { name: /^Pull request #214/ })).toHaveCount(1);
     await expect(work.getByText(/#214/)).toHaveCount(1);
     await expect(work.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Right panel", exact: true }).click();
+    await page.getByRole("button", { name: "More actions", exact: true }).click();
+    await page.getByRole("menuitem", { name: /^Open agent tree/ }).click();
+    await expect(work.getByRole("tree", { name: "Agent tree" })).toBeVisible();
     await expectActiveTabVisible(page);
     await shot("01-work");
     await page.getByRole("tab", { name: "Changes", exact: true }).click();
@@ -78,6 +88,8 @@ try {
     await tools.getByRole("button", { name: /^Browser(?: |$)/ }).click();
     await page.getByRole("combobox", { name: "Address", exact: true }).waitFor();
     await expect(page.getByRole("list", { name: "Tools", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Open a page", exact: true })).toHaveCount(0);
+    await expect(page.getByText(/Type an address above|watch them or take over/)).toHaveCount(0);
     await shot("04-browser");
     for (const tool of ["Preview", "Devices", "Logs"]) await launchTool(page, tool);
     await expectActiveTabVisible(page);
@@ -157,7 +169,12 @@ try {
             for (const step of scenario.steps)
               if (step.kind === "facts") daemon.apply(scenario.thread.id, step.facts);
             daemon.apply(scenario.thread.id, [end]);
-            daemon.refuseCommands("private_server_detail_571", "forge.pr.status");
+            daemon.refuseCommands(
+              "private_server_detail_571",
+              "forge.pr.status",
+              "thread.interrupt",
+              "background_task.stop",
+            );
           },
         });
       },
@@ -180,6 +197,18 @@ try {
     const nestedPath = `${out}/${theme}-09-parent-waiting.png`;
     await nestedPage.screenshot({ path: nestedPath, animations: "disabled" });
     files.push(nestedPath);
+    await nestedWork.getByRole("treeitem", { name: /^Check supervisor logs:/ }).hover();
+    await nestedWork
+      .getByRole("button", { name: "Stop Check supervisor logs", exact: true })
+      .click();
+    await expect(nestedWork.getByRole("alert")).toHaveText("Couldn't stop this agent. Try again.");
+    await nestedWork.getByRole("button", { name: "Stop", exact: true }).click();
+    await expect(nestedWork.getByText("Couldn't stop this command. Try again.")).toBeVisible();
+    await expect(nestedWork.getByText("Couldn't stop this agent. Try again.")).toBeVisible();
+    await expect(nestedWork.getByText(/private_server_detail_571/)).toHaveCount(0);
+    const stopPath = `${out}/${theme}-13-stop-feedback.png`;
+    await nestedPage.screenshot({ path: stopPath, animations: "disabled" });
+    files.push(stopPath);
     await nestedPage.setViewportSize({ width: 390, height: 844 });
     await nestedPage.getByRole("button", { name: "Done", exact: true }).click();
     await nestedPage.getByRole("button", { name: "More actions", exact: true }).click();
@@ -195,9 +224,9 @@ try {
     await nestedPage.screenshot({ path: mobilePath, animations: "disabled" });
     files.push(mobilePath);
     await nestedWork.getByRole("button", { name: /^Pull request #188/ }).click();
-    await expect(nestedWork.getByRole("alert")).toHaveText(
-      "Couldn't read this pull request. Check the connection, then refresh.",
-    );
+    await expect(
+      nestedWork.getByText("Couldn't read this pull request. Check the connection, then refresh."),
+    ).toBeVisible();
     await expect(
       nestedWork.getByText(/private_server_detail_571|Stack membership unavailable/),
     ).toHaveCount(0);
@@ -205,6 +234,30 @@ try {
     await nestedPage.screenshot({ path: errorPath, animations: "disabled" });
     files.push(errorPath);
     await nested.close();
+    const alignment = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      reducedMotion: "reduce",
+    });
+    const alignedPage = await alignment.newPage();
+    alignedPage.on("pageerror", (error) => errors.push(error.message));
+    await alignedPage.addInitScript(
+      (appearance) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: appearance })),
+      theme,
+    );
+    await installSplitAlignmentFixture(alignedPage);
+    await openSplitAlignment(alignedPage, base);
+    const wrapPath = `${out}/${theme}-14-virtual-split-wrap.png`;
+    await alignedPage.screenshot({ path: wrapPath, animations: "disabled" });
+    files.push(wrapPath);
+    await expandSplitComment(alignedPage);
+    const commentPath = `${out}/${theme}-15-split-comment-aligned.png`;
+    await alignedPage.screenshot({ path: commentPath, animations: "disabled" });
+    files.push(commentPath);
+    await scrollSplitAwayAndBack(alignedPage);
+    console.log(
+      `${theme}: split wrapping, comment growth and virtualized remount alignment verified`,
+    );
+    await alignment.close();
   }
   expect(errors).toEqual([]);
   await writeFile(

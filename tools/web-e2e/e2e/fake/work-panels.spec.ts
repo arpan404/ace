@@ -47,6 +47,8 @@ for (const theme of ["light", "dark"])
     await expect(page.getByRole("combobox", { name: "Address", exact: true })).toHaveCount(0);
     await tools.getByRole("button", { name: /^Browser(?: |$)/ }).click();
     await expect(page.getByRole("combobox", { name: "Address", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Open a page", exact: true })).toHaveCount(0);
+    await expect(page.getByText(/Type an address above|watch them or take over/)).toHaveCount(0);
     for (const tool of ["Preview", "Devices", "Logs"]) await launchTool(page, tool);
     await expectActiveTabVisible(page);
     await page.getByRole("button", { name: "All tabs", exact: true }).click();

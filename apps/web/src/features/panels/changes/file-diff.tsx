@@ -297,7 +297,7 @@ function Split(props: RowsProps) {
             <Rows
               items={pairs}
               render={(pair, key) => (
-                <div data-diff-row>
+                <div data-diff-row data-diff-pair={key}>
                   <div ref={(node) => heights.attach(key, node)}>
                     <SplitSideRow pair={pair} side={side} {...props} />
                   </div>
