@@ -212,3 +212,27 @@ Chromium/ffmpeg prerequisites. Automation runs use the existing durable owner.
 
 See [cloud CLI evaluation](../research/cli-cloud.md) for the other vendor wrappers
 considered for this phase.
+
+## Storage and cleanup
+
+```
+ace storage --json
+ace clean --kinds logs,artifacts --json
+ace clean apply PLAN_ID --revision REVISION --json
+ace clean status PLAN_ID --json
+```
+
+`storage` measures bounded daemon-owned usage. `clean` only previews a reviewed
+batch; it never applies implicitly. Inspect the plan's removal and protection
+reasons, then pass its exact ID and revision to `apply`. This ID is the durable
+retry key. Read `status` after an uncertain reply or apply the identical plan
+again. Pending effects return uncertain; stale previews return refused and need
+a new plan. Force requires individual IDs from a preview via `--force-items`
+JSON, which creates another preview. `--retention` accepts the daemon's six-key
+retention JSON object without changing saved settings.
+
+The CLI calls #554's [retention API](storage-cleanup.md); it has no filesystem
+inventory or deletion implementation. Whole-tree protection, reviewed file
+identities and recovery remain with that owner. Plans and application require
+host administration; paired read authority can see usage. Compaction is disabled
+by the API and is not exposed as a CLI option.

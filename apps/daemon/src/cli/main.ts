@@ -18,6 +18,7 @@ import { listThreads, threadCommand, waitThread } from "./threads.ts";
 import { taskCommand } from "./tasks.ts";
 import { projectCommand } from "./projects.ts";
 import { openCommand } from "./open.ts";
+import { retentionCommand } from "./retention.ts";
 const help = `ace run [PROMPT|-] [--provider codex|claude] [--project ID|PATH] [--worktree] [--model MODEL]
 ace threads list [--project ID]
 ace thread read|send|steer|wait|approve|deny|cancel|interrupt ID [TEXT]
@@ -42,6 +43,8 @@ ace automation list|run ID
 ace add [PATH]|project add|list|rename|remove|open
 ace open [PATH] [--web]
 ace chat [--project ID|PATH] [--provider PROVIDER] [--thread ID] [--model MODEL]
+ace storage [usage]|clean [plan] [--kinds logs,artifacts]
+ace clean apply PLAN_ID --revision REVISION|clean status PLAN_ID
 
 All commands: --json, --jq EXPR, --timeout DURATION
 Mutations: --idempotency-key KEY. Waits: --tree. Run: --stream jsonl.
@@ -130,12 +133,16 @@ export async function main(input: string[]): Promise<void> {
         "automation",
         "add",
         "project",
+        "storage",
+        "clean",
       ].includes(command)
     )
       throw new CliFailure("refused", "Unknown command. See ace --help.");
     const session = await connectCli(config.dataDir, args);
     try {
-      if (command === "add" || command === "project")
+      if (command === "storage" || command === "clean")
+        await retentionCommand(args, session.client, session.signal);
+      else if (command === "add" || command === "project")
         await projectCommand(args, session.client, session.signal, session.remote);
       else if (command === "browser") await browserCommand(args, session.client, session.signal);
       else if (command === "automation")
