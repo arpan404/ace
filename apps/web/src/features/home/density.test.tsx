@@ -1,4 +1,5 @@
 import { facts } from "@ace/fake-daemon";
+import { WorkspaceId } from "@ace/protocol";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -88,7 +89,7 @@ test("the project filter also narrows unsent starts without hiding matching work
   for (const project of ["ace", "relay"])
     await app.client.enqueue({
       type: "thread.create",
-      workspaceId: project,
+      workspaceId: WorkspaceId.parse(project),
       provider: "codex",
       title: `${project} pending task`,
       input: [{ type: "text", text: `${project} pending task` }],
