@@ -36,13 +36,14 @@ export interface InlineQuestion {
   id: string;
   toolCallId: string | undefined;
   createdAt: number;
+  kind?: Interaction["request"]["kind"] | undefined;
 }
 
 const inFlightStatus = new Set(["pending", "running", "awaiting_approval"]);
 const runningStatus = new Set(["pending", "running"]);
 
 /** Interactions shown as their own transcript block where they were asked. */
-const inlineKinds = new Set<Interaction["request"]["kind"]>(["question"]);
+const inlineKinds = new Set<Interaction["request"]["kind"]>(["question", "approval"]);
 
 export function isInlineInteraction(interaction: Pick<Interaction, "request">): boolean {
   return inlineKinds.has(interaction.request.kind);
@@ -186,6 +187,7 @@ export class ThreadLedger {
         id: interaction.id,
         toolCallId: interaction.toolCallId,
         createdAt: interaction.createdAt,
+        kind: interaction.request.kind,
       });
     if (interaction.state === "pending") this.openRequests.set(interaction.id, interaction);
     if (waitsOnPerson(interaction)) {

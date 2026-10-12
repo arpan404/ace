@@ -151,9 +151,14 @@ export function readTurnActivity(
   const activity = tree.needsYou.has(rootId)
     ? waitingOnYou(pending)
     : readActivity(reader, rootId, options, watch);
-  const subagents = agents.filter(
-    (agent) => agent.id !== rootId && tree.running.has(agent.id),
-  ).length;
+  const status = reader.agent(rootId)?.status;
+  const waitingCount =
+    status?.state === "blocked" && status.on === "subagents" ? status.refs.length : 0;
+  const subagents = Math.max(
+    agents.filter((agent) => agent.id !== rootId && tree.running.has(agent.id)).length,
+    reader.thread?.live?.runningSubagentCount ?? 0,
+    waitingCount,
+  );
   const backgroundCommands = tasks.filter(
     (task) => task.kind === "shell" && (task.status === "running" || task.status === "unknown"),
   ).length;

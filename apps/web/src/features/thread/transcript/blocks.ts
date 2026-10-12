@@ -62,6 +62,7 @@ export type Block =
       kind: "question";
       key: string;
       interactionId: string;
+      requestKind?: string | undefined;
       itemId?: string | undefined;
       anchorId?: string | undefined;
     }
@@ -273,6 +274,12 @@ export function buildBlocks(source: BlockSource): Block[] {
   const blocks: Block[] = [];
   const workAt = new Map<WorkBlock, number>();
   const anchors = anchorQuestions(source);
+  const requests = new Map((source.questions ?? []).map((request) => [request.id, request]));
+  const approvalCalls = new Set(
+    (source.questions ?? [])
+      .filter((request) => request.kind === "approval")
+      .map((request) => request.toolCallId),
+  );
   const order = visibleHistoryOrder(executionOrder(source), source.item);
   const { stretchAt, lastWork } = lastWorkOf(order, source, anchors);
   const turns = new Map<string, TurnMark>();
@@ -419,8 +426,11 @@ export function buildBlocks(source: BlockSource): Block[] {
     }
     const asked = anchors.get(id);
     // A question's own step: the question block stands in for it.
+    const approval = approvalCalls.has(id);
     const replaced =
-      !!asked && item.type === "tool_call" && item.call.detail.kind === "ask_user" ? id : undefined;
+      !!asked && item.type === "tool_call" && (item.call.detail.kind === "ask_user" || approval)
+        ? id
+        : undefined;
     if (!replaced)
       switch (item.type) {
         case "message":
@@ -508,6 +518,7 @@ export function buildBlocks(source: BlockSource): Block[] {
           kind: "question",
           key: `question:${interactionId}`,
           interactionId,
+          requestKind: requests.get(interactionId)?.kind,
           itemId: interactionId === asked?.[0] ? replaced : undefined,
           anchorId: id,
         },
@@ -546,7 +557,8 @@ export function buildBlocks(source: BlockSource): Block[] {
       }
       continue;
     }
-    if (facts?.endedAt !== undefined && !turn.paused) {
+    if (turn.openWork && facts?.endedAt !== undefined) turn.openWork.until = facts.endedAt;
+    if (facts?.endedAt !== undefined && facts.startedAt !== undefined && !turn.paused) {
       const ends = [...turn.runs].flatMap((id) => source.run?.(id)?.endedAt ?? []);
       const taskEnds = [...turn.tasks].flatMap((id) => source.task?.(id)?.endedAt ?? []);
       const until = Math.max(facts.endedAt, ...ends, ...taskEnds);
@@ -634,7 +646,7 @@ function endBlock(
  * has finished. What is still open is added to `watch`, so its settling rebuilds the blocks.
  */
 function settled(source: BlockSource, turn: TurnMark, newest: boolean): boolean {
-  let done = !(newest && source.pending);
+  let done = !(newest && (source.pending || (source.unsettledTail && !source.heldTurn)));
   for (const taskId of turn.tasks) {
     const task = source.task?.(taskId);
     if (task?.status === "running" || task?.status === "unknown") done = false;

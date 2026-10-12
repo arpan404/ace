@@ -588,7 +588,15 @@ export function Feed(props: FeedProps) {
             ) : (
               <LiveFooter
                 threadId={threadId}
-                activity={activity?.tone === "paused" ? undefined : activity}
+                activity={
+                  activity?.tone === "paused" ||
+                  (activity?.label === "Waiting for your approval" &&
+                    blocks.some(
+                      (block) => block.kind === "question" && block.requestKind === "approval",
+                    ))
+                    ? undefined
+                    : activity
+                }
               />
             )}
             <div ref={dock} className="mt-4 empty:hidden" />

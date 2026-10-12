@@ -36,7 +36,7 @@ export function WorkLog(props: {
   const [toggled, setOpen] = useState<boolean>();
   const jumped = use(JumpedItem);
   const landed = jumped !== undefined && props.itemIds.includes(jumped);
-  const open = toggled ?? (landed || (headline?.awaiting ?? false));
+  const open = toggled ?? landed;
   const panel = useId();
   // Rows load after first paint, ready before the log is opened.
   useEffect(() => void DeferredWorkLogSteps.preload(), []);

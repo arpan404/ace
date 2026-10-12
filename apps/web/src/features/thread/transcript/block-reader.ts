@@ -62,7 +62,11 @@ export function createBlockReader(
     const state = reader.thread?.status.state;
     const unsettledTail =
       agentId === undefined
-        ? state !== undefined && state !== "done" && state !== "failed" && state !== "new"
+        ? state !== undefined &&
+          state !== "done" &&
+          state !== "failed" &&
+          state !== "new" &&
+          !(reader.thread?.status.state === "waiting" && reader.thread.status.on === "queue")
         : !agentSettled(owner);
     const limited =
       agentId === undefined &&
