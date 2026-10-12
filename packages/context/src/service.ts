@@ -117,7 +117,9 @@ export class ContextService {
         result = {
           kind: "completion",
           paths: (
-            await this.workspaces.get(await this.uploads.draftWorkspace(device, op.draftId))
+            await this.workspaces.get(
+              await this.uploads.resumableDraftWorkspace(device, op.draftId),
+            )
           ).index.complete(op.query, op.limit),
         };
       else if (op.op === "mention.resolve")

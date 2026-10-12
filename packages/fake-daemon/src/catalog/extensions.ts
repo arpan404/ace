@@ -89,11 +89,7 @@ export function extensionCatalog(
       ["goal", "Goal", "Set a goal for this thread"],
     ]
       .filter(([id]) =>
-        id === "plan"
-          ? ["claude", "codex"].includes(provider)
-          : id === "goal"
-            ? provider === "codex"
-            : true,
+        id === "plan" ? provider === "claude" : id === "goal" ? provider === "codex" : true,
       )
       .map(([id = "", name = "", description = ""]): CatalogEntry => ({
         id: `ace:add:${id}`,

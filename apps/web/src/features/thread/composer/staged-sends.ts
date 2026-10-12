@@ -9,7 +9,10 @@ import {
 import type { KeyValueStorage } from "@ace/ui-core";
 import {
   heldSendStore,
-  saveHeldSends,
+  saveHeldSend,
+  retainHeldSend,
+  deleteHeldSend,
+  refreshHeldSends,
   holdPageLock,
   reloadHeldStore,
   pageId as currentPageId,
@@ -79,16 +82,13 @@ const all = {
     return parsed;
   },
 };
-function save(next: readonly StagedSend[]): void {
-  saveHeldSends(
-    next,
-    next.map((send) => ({
-      ...send,
-      attachments: send.attachments.map(({ name, mimeType, bytes, sha256 }) =>
-        sha256 ? { name, mimeType, bytes, sha256 } : { name, mimeType, bytes },
-      ),
-    })),
-  );
+function save(send: StagedSend): boolean {
+  return saveHeldSend(send, {
+    ...send,
+    attachments: send.attachments.map(({ name, mimeType, bytes, sha256 }) =>
+      sha256 ? { name, mimeType, bytes, sha256 } : { name, mimeType, bytes },
+    ),
+  });
 }
 /** Every held message, validated for rendering and retry by its existing owner. */
 export function stagedSends(store: KeyValueStorage | undefined): typeof all {
@@ -97,33 +97,42 @@ export function stagedSends(store: KeyValueStorage | undefined): typeof all {
 }
 
 /** Hold a message while its files upload; `files` and `previews` stay in this page. */
-export function stage(send: Omit<StagedSend, "owner">, local: Held): void {
+export function stage(send: Omit<StagedSend, "owner">, local: Held): boolean {
+  if (!save({ ...send, owner: currentPageId })) return false;
   held.set(send.commandId, local);
   holdPageLock();
-  save([
-    ...all.get().filter((s) => s.commandId !== send.commandId),
-    { ...send, owner: currentPageId },
-  ]);
+  return true;
 }
 
-function patch(commandId: string, change: Partial<StagedSend>): void {
-  save(
-    all
-      .get()
-      .map((send) => (send.commandId === commandId ? Object.assign({}, send, change) : send)),
-  );
+function patch(commandId: string, change: Partial<StagedSend>): boolean {
+  refreshHeldSends();
+  const send = all.get().find((entry) => entry.commandId === commandId);
+  if (!send) return false;
+  const next = { ...send, ...change };
+  if (save(next)) return true;
+  const failed = {
+    ...next,
+    failed: [
+      change.failed,
+      "This device couldn't save the upload results. Free space, then Retry or Edit.",
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  };
+  retainHeldSend(failed, failed);
+  return false;
 }
 
 /**
  * Let a held message go: it was enqueued, or taken back to edit. Its previews are freed unless
  * the transcript now shows them (`keepPreviews`).
  */
-export function unstage(commandId: string, keepPreviews = false): void {
+export function unstage(commandId: string, keepPreviews = false): boolean {
+  if (!deleteHeldSend(commandId)) return false;
   const local = held.get(commandId);
   held.delete(commandId);
   if (local && !keepPreviews) for (const url of local.previews) if (url) URL.revokeObjectURL(url);
-  if (all.get().some((send) => send.commandId === commandId))
-    save(all.get().filter((send) => send.commandId !== commandId));
+  return true;
 }
 
 /** Whether this page can still finish (or retry) the held message's uploads. */
@@ -158,6 +167,7 @@ function settle(
   commandId: string,
   outcomes: readonly ({ sha256: string } | { error: string })[],
 ): boolean {
+  refreshHeldSends();
   const send = all.get().find((entry) => entry.commandId === commandId);
   if (!send) return false;
   const attachments = send.attachments.map((file, index) => {
@@ -171,8 +181,11 @@ function settle(
       ? [`${attachments[index]?.name ?? "A file"} didn't upload: ${outcome.error}`]
       : [],
   );
-  patch(commandId, { attachments, failed: failed.length ? failed.join(" · ") : undefined });
-  return !failed.length;
+  const saved = patch(commandId, {
+    attachments,
+    failed: failed.length ? failed.join(" · ") : undefined,
+  });
+  return saved && !failed.length;
 }
 
 /**
@@ -191,6 +204,7 @@ export async function sendWhenUploaded(
 
 /** Enqueue a held message whose files the daemon all holds. */
 export async function enqueueStaged(client: ClientApi, commandId: string): Promise<boolean> {
+  refreshHeldSends();
   const send = all.get().find((entry) => entry.commandId === commandId);
   if (!send || send.attachments.some((file) => !file.sha256)) return false;
   const payload: CommandPayload = {
@@ -233,6 +247,7 @@ export async function retryStaged(
   commandId: string,
   upload: (file: File) => Promise<{ sha256: string }>,
 ): Promise<boolean> {
+  refreshHeldSends();
   const send = all.get().find((entry) => entry.commandId === commandId);
   const local = held.get(commandId);
   if (!send) return false;

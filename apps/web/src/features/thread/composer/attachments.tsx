@@ -313,7 +313,14 @@ export function useAttachments(
     outcomes: Promise<Outcome[]>;
     files: (File | undefined)[];
     release(): void;
+    restore(): void;
   } => {
+    const retained = items.map((item) => ({
+      item,
+      outcome: outcomes.current.get(item.key),
+      file: files.current.get(item.key),
+      known: known.current.get(item.key),
+    }));
     const ready = settled();
     const each = Promise.all(
       items.map((item) => outcomes.current.get(item.key) ?? Promise.resolve(lost)),
@@ -336,6 +343,30 @@ export function useAttachments(
       files: held,
       release: () => {
         for (const url of urls) URL.revokeObjectURL(url);
+      },
+      restore: () => {
+        for (const url of urls) previews.current.add(url);
+        setItems((list) => [...list, ...items]);
+        for (const saved of retained) {
+          const key = saved.item.key;
+          if (saved.file) files.current.set(key, saved.file);
+          if (saved.known) known.current.set(key, saved.known);
+          if (saved.outcome) {
+            outcomes.current.set(key, saved.outcome);
+            // An upload can settle during the refused handoff while its chip is absent.
+            void saved.outcome.then((result) =>
+              setItems((list) =>
+                list.map((item) =>
+                  item.key !== key
+                    ? item
+                    : "sha256" in result
+                      ? { ...item, state: "ready", progress: 1, sha256: result.sha256 }
+                      : { ...item, state: "failed", error: result.error, retryable: !!saved.file },
+                ),
+              ),
+            );
+          }
+        }
       },
     };
   };
