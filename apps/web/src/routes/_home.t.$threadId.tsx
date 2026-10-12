@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 // Route search schemas load with the route tree on first paint: zod/mini keeps classic Zod out.
 import * as z from "zod/mini";
 import { ThreadView } from "@/features/thread/index.ts";
+import { loadMarkdown } from "@/components/markdown/load.ts";
 
 /**
  * `/t/<id>?item=<id>` opens a canonical item or pending interaction.
@@ -16,6 +17,9 @@ const ThreadSearch = z.object({
 
 export const Route = createFileRoute("/_home/t/$threadId")({
   validateSearch: ThreadSearch,
+  // The transcript renders markdown on its first paint: start its code with the route's, not
+  // once the first message mounts. Not awaited, so the thread never waits on it.
+  loader: () => void loadMarkdown().catch(() => {}),
   component: ThreadRoute,
 });
 
