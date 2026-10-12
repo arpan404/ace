@@ -75,7 +75,7 @@ function ramp(scheme: Scheme, neutral: Neutral): Ramp {
   ) as Ramp;
 }
 
-/** What a theme chooses for itself in one scheme: its accent, and statuses it retunes. */
+/** What a theme chooses for itself in one scheme: its accent. Statuses are the same in every theme. */
 interface Accent {
   accent: string;
   accentHover: string;

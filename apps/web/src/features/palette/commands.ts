@@ -12,6 +12,11 @@ import {
   SidebarSimpleIcon,
   TerminalWindowIcon,
   TreeStructureIcon,
+  ArrowCounterClockwiseIcon,
+  PushPinIcon,
+  PushPinSlashIcon,
+  TerminalIcon,
+  XSquareIcon,
 } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -53,6 +58,14 @@ const orderOf = (group: PaletteGroup) => {
   const index = groupOrder.indexOf(group.value as (typeof groupOrder)[number]);
   return index === -1 ? groupOrder.length : index;
 };
+
+/** The side panel's own tab commands, each with a glyph that says what it does. */
+function tabCommandIcon(id: string, label: string): PaletteCommand["icon"] {
+  if (id === "tab-pin") return label.startsWith("Unpin") ? PushPinSlashIcon : PushPinIcon;
+  if (id === "tab-close-others") return XSquareIcon;
+  if (id === "tab-reopen") return ArrowCounterClockwiseIcon;
+  return "action";
+}
 
 /**
  * Every ⌘K group, in the order an empty query shows them. Commands are plain data, so features
@@ -186,7 +199,7 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
                 id: "new-terminal",
                 label: "New terminal",
                 keys: keymap.newTerminal.keys,
-                icon: TerminalWindowIcon,
+                icon: TerminalIcon,
                 run: run(() => openNewTerminal(panel, workspace)),
               } satisfies PaletteCommand,
               {
@@ -220,7 +233,7 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
               ...tabCommands.map((command): PaletteCommand => ({
                 ...command,
                 id: `workspace-${command.id}`,
-                icon: "action",
+                icon: tabCommandIcon(command.id, command.label),
                 run: run(command.run),
               })),
             ]

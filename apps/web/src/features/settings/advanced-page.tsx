@@ -50,7 +50,7 @@ export function AdvancedSettings() {
         </SettingRow>
       </SettingSection>
       {/* The in-page development daemon: a developer detail, so not on General. */}
-      <SettingDisclosure title="Advanced" className="mt-7">
+      <SettingDisclosure title="Development connection" className="mt-7">
         <DaemonSettings />
       </SettingDisclosure>
     </>

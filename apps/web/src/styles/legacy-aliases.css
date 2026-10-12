@@ -1,8 +1,11 @@
 /*
- * Names from before the visual-language foundation, kept as aliases so branches written against
- * them (perf, composer, work card) keep their timing and materials when they merge. New code uses
- * the names in docs/design/visual-language.md. Remove this file once those streams have landed
- * and nothing references the old names.
+ * Names from before the visual-language foundation, kept as aliases so the parallel branches
+ * written against them keep their timing and materials when they merge:
+ *   #582 ui/composer-strip-model-control (composer strip and model control)
+ *   #585 ui/work-log (work log)
+ *   #586 perf/transcript-markdown (transcript performance)
+ * New code uses the names in docs/design/visual-language.md. Delete this file, and the old names
+ * at the end of themeTokens() and in motionMs/motionCurves, once #582, #585 and #586 have merged.
  */
 :root {
   /* Motion: --dur-* and the old curve names. */

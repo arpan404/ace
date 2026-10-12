@@ -54,13 +54,16 @@ These are replaced by the theme set and Surfaces:
 ### Glass
 
 - Floating layers use `.ace-floating`: popovers, menus, dialogs, tooltips, toasts, the command
-  palette, the Work card and the composer strip.
+  palette, the Work card and the composer strip. The composer is flat glass (`.ace-glass-flat`):
+  blur without displacement, since it grows a line at a time.
 - **Chromium and Electron** bend the backdrop at the rim with an SVG `feDisplacementMap` through
   `backdrop-filter: url()`.
   - Each layer gets a filter sized to its own box, with a rim of at most 24px and a 24px bend.
   - Layers of the same geometry share a filter, and filters are cached.
   - A layer registers when it appears, through a marker animation's `animationstart`. A single
-    ResizeObserver re-measures it only when it resizes.
+    ResizeObserver re-measures it only when it resizes. A layer gets its filter at once when it
+    opens; after a resize its old rim comes off and a new filter applies once the size has held
+    for 160ms.
 - Modal layers (dialogs, sheets, the palette) don't use liquid glass. Their backdrop blurs the page
   once with a faint tint (a light neutral scrim when solid), and the panel is a dense tint with no
   blur of its own.
@@ -85,13 +88,14 @@ The theme provider stores `ace.boot-appearance`: the settings plus the chosen th
 
 ### Native status hues
 
-Native status markers (`packages/design-tokens`) use the status colours every theme shares; status never changes with the theme. A parity test keeps all six
-statuses equal to what the web renders in every theme.
+Native status markers (`packages/design-tokens`) use the status colours every theme shares;
+status never changes with the theme. A parity test keeps all six statuses equal to what the web
+renders in every theme.
 
 ### Old names
 
 The pre-redesign token and class names stay as aliases (`styles/legacy-aliases.css`) until the
-parallel UI streams have merged, and are then removed.
+parallel UI branches written against them (#582, #585, #586) have merged, and are then removed.
 
 ## Consequences
 
