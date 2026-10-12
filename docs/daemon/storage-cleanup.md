@@ -154,17 +154,54 @@ batch. Preview again after applying a batch to discover additional data. Very
 large worktrees fail closed with `unknown_git_state` rather than a partial
 cleanliness proof.
 
-Database compaction is outside this PR and will be a separate delivery.
-Retention cleanup never starts VACUUM or incremental vacuum, changes the Store
-handle to query-only, or acquires a compaction maintenance fence. Deleted SQLite
-pages stay reusable by ordinary writes; cleanup does not promise to shrink the
-database file on disk.
+Retention cleanup never starts VACUUM or incremental vacuum. Deleted SQLite pages
+stay reusable by ordinary writes; a cleanup plan does not promise to shrink the
+database file. Compaction is a separate, admin-only operation.
 
-The compaction follow-up must first enforce an awaitable Store write boundary for
-all mutation paths, including refresh, asynchronous action receipts, automation
-admission, Forge projections and device bookkeeping. That migration must preserve
-synchronous ownership checks inside commits, bound waits and handle background
-promise rejections before database maintenance can be enabled.
+## Compaction
+
+`cleanup.compact` compacts `events.sqlite`. It runs under the Store maintenance
+fence, never inside a retention plan.
+
+The Store has one write boundary, `Store.write(run)`. A caller awaits admission
+there, then `run` commits synchronously, so ownership checks inside a commit still
+see the state they commit against. `writable()` is the same admission for callers
+that already sequence their own commit. History publication and other writers whose
+commits span awaits register through `Store.writer()`. `Store.maintenance(work)`
+holds new admissions, waits up to 10s for registered writers to drain, then runs
+the work alone. A held writer waits up to 60s, then fails as `Store is busy`, the
+same transient error SQLite contention already raises. Refresh sweeps, async action
+receipt completion, automation admission, the async Forge projections (status,
+refresh and PR creation), device artifact publication and preview authentication
+all go through `write`.
+
+A few writers stay synchronous by contract: event-listener bookkeeping, the
+`WriteDispatch` journal callbacks in `@ace/forge`, reservation of async command
+receipts, and bearer authentication on sockets. They share the Store's single
+connection and event loop, and a maintenance step never holds a transaction across
+an await, so such a write commits whole between two steps and is never lost or torn.
+Moving them behind `write` needs interface changes in those packages and is tracked
+separately.
+
+New databases are created with `auto_vacuum=INCREMENTAL`. The incremental mode
+releases free pages with `incremental_vacuum(256)`. Each chunk is its own
+transaction, journaled in `storage_compactions`, and the step yields between
+chunks. A run is limited to 4,096 chunks and is left `pending` beyond that. It
+ends with `wal_checkpoint(TRUNCATE)`; `checkpointed: false` means a reader kept
+the WAL from being truncated. A file created before incremental vacuum reports
+`fullRequired`. Only a full rebuild can shrink it: `mode: "full"` with
+`confirm: true`, which sets incremental mode and runs `VACUUM`. Full VACUUM keeps
+the rowids of tables without an explicit INTEGER PRIMARY KEY through SQLite's
+transfer optimisation, and some engine tables depend on that ordering.
+
+Every step leaves an intact file if the process is killed. A chunk and a VACUUM
+are both atomic, so the only trace is a `running` journal entry. On startup, an
+incremental entry resumes. A full rebuild is never repeated without a fresh
+confirmation: it becomes `interrupted`, waiting for `cleanup.compact` with
+`mode: "full", confirm: true` or for `cleanup.compactAbandon`. Settings → Storage
+offers Compact database, and offers Rebuild database (behind a confirmation)
+when it is needed. The CLI equivalent is
+`ace clean --compact [--full --confirm] [--abandon ID]`.
 
 ## Scheduling and verification
 

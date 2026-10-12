@@ -46,3 +46,11 @@ test("storage shows protected data and waits for confirmation before removing re
   expect(await within(list).findByText("Removed")).toBeTruthy();
   expect(screen.getByText("Cleanup finished. Items that became protected were kept.")).toBeTruthy();
 });
+
+test("compacting the database reports the result and refreshes usage", async () => {
+  const app = harness({ clock: () => 200 * 86400000 });
+  await app.open("/settings/storage");
+  await userEvent.click(await screen.findByRole("button", { name: "Compact database" }));
+  expect(await screen.findByText("Compacted from 0 B to 0 B.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Rebuild database" })).toBeNull();
+});

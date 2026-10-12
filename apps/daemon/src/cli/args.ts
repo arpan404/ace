@@ -23,6 +23,7 @@ const switches = new Set([
   "logs",
   "worktrees",
   "caches",
+  "compact",
 ]);
 /** Pure parsing. `--` preserves prompt text, including strings beginning with a dash. */
 export function parseArgs(input: readonly string[]): Args {

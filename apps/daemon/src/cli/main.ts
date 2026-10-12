@@ -46,6 +46,7 @@ ace chat [--project ID|PATH] [--provider PROVIDER] [--thread ID] [--model MODEL]
 ace storage [usage]|storage plan [--kinds logs,artifacts] [--older-than 30d]
 ace clean [--dry-run] [--threads] [--worktrees] [--artifacts] [--logs] [--attachments] [--caches] [--older-than 30d] [--yes]
 ace clean apply PLAN_ID --revision REVISION|clean status PLAN_ID
+ace clean --compact [--full --confirm] [--abandon COMPACTION_ID]
 
 All commands: --json, --jq EXPR, --timeout DURATION
 Mutations: --idempotency-key KEY. Waits: --tree. Run: --stream jsonl.
