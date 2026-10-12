@@ -17,6 +17,9 @@ export class CommandRefused extends Error {
 }
 
 const refusals: Record<string, string> = {
+  git_repository_agent_running: "An agent is running in this repository; stop it or wait.",
+  repository_transfer_in_progress:
+    "A Git transfer is running in this repository; wait for it to finish.",
   thread_not_found: "The thread is gone.",
   thread_not_done: "Only a finished thread can settle.",
   thread_busy: "Stop its agents and close its terminals first.",

@@ -1,3 +1,4 @@
+import { ForgePrWorkspace } from "./forge-worktree.ts";
 import { ForgeIssueRef } from "./forge-issues.ts";
 import { ProjectIcon } from "./projects.ts";
 import { MachineIcon } from "./host-identity.ts";
@@ -33,6 +34,7 @@ export const ThreadOrganization = z.object({
 });
 export type ThreadOrganization = z.infer<typeof ThreadOrganization>;
 export const ThreadDetails = z.object({
+  pullRequestWorkspace: ForgePrWorkspace.optional(),
   linkedIssues: z.array(ForgeIssueRef).max(100).optional(),
   /** Completed creation timings and redacted log survive reloads on the admitted thread. */
   worktreeCreation: WorktreeCreationProgress.optional(),

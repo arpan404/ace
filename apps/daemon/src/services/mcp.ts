@@ -1,3 +1,5 @@
+import { createTextRedactor } from "@ace/redaction";
+import { htmlPublication } from "../html-publication.ts";
 import { logError } from "@ace/diagnostics";
 import { toolResultObserver } from "../tool-result-mcp.ts";
 import { requestDeviceAccess } from "../device-access.ts";
@@ -58,6 +60,13 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   const mcp = await startDaemonMcp(
     store,
     [
+      htmlPublication({
+        store,
+        context: () => services.context,
+        now: context.now,
+        id: context.id,
+        redactTitle: createTextRedactor({ env: process.env }),
+      }),
       handoffToolkit(store),
       agentControlToolkit({
         async execute(caller, operation, signal) {

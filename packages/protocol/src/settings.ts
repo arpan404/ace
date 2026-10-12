@@ -1,3 +1,4 @@
+import { StorageRetention } from "./storage.ts";
 import { SourceControlPreferences } from "./source-control.ts";
 import { MachineIcon } from "./host-identity.ts";
 import { ProviderConfigurations } from "./provider-configuration.ts";
@@ -11,6 +12,8 @@ const name = z.string().min(1).max(256);
 const tier = z.enum(["default", "standard", "fast", "flex", "priority"]);
 const effort = z.enum(["default", "none", "minimal", "low", "medium", "high", "xhigh", "max"]);
 export const SettingsValues = z.object({
+  "storage.retention": StorageRetention,
+  "storage.scheduledCleanup": z.boolean(),
   "sourceControl.preferences": SourceControlPreferences.and(z.json()),
   "providers.configuration": ProviderConfigurations,
   "host.displayName": z.string().max(256),

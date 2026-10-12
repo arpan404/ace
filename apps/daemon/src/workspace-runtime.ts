@@ -5,6 +5,9 @@ import {
   SourceControlDraftInput,
   type SourceControlSelection,
 } from "@ace/protocol";
+import { prBasePreparation, prReviewContext, type PrRemotes } from "./pr-worktree-resolution.ts";
+import type { ForgePrStatus, ForgeRepository } from "@ace/protocol";
+import type { CreationWorkspace } from "./creation-workspace.ts";
 import { decodeProjectRow } from "./project-storage.ts";
 import { CreationDrafts, type CreationProgress } from "./creation-progress.ts";
 import { threadCleaning, initializeThreadCleanup } from "./thread-cleanup-journal.ts";
@@ -48,6 +51,8 @@ export interface WorkspaceRuntimeOptions {
     commit?: () => void,
   ): Promise<void>;
   forgeRunner?: (cwd: string) => CommandRunner;
+  /** Injected endpoint selection for isolated Git fixtures; production matches repository identity. */
+  prRemote?: (remotes: PrRemotes, repository: ForgeRepository) => string;
   gitService?: WorkspaceGit;
   /** How long a remote worktree base's fetch may take; 15 s by default. */
   baseFetchTimeoutMs?: number;
@@ -70,6 +75,7 @@ export class WorkspaceRuntime {
   private roots: WorkspaceRoots;
   private now: () => number;
   private options: WorkspaceRuntimeOptions;
+  private prLifetime = new AbortController();
   private manager: TerminalManager;
   private terminals = new Map<string, { threadId: ThreadId; terminal: Terminal }>();
   private pendingOpens = 0;
@@ -82,17 +88,12 @@ export class WorkspaceRuntime {
     options: WorkspaceRuntimeOptions = {},
   ) {
     this.store = store;
-    this.creationDrafts = new CreationDrafts(store, now);
     initializeThreadCleanup(store);
     this.now = now;
     this.options = options;
     this.terminalId = options.terminalId ?? systemCredentials.id;
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
     this.git = options.gitService ?? new GitService(options.git);
-    this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine, {
-      ...(options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {}),
-      ...(options.sourceControl ? { sourceControl: options.sourceControl } : {}),
-    });
     this.forge = new WorkspaceForge(
       store,
       this.git,
@@ -100,6 +101,23 @@ export class WorkspaceRuntime {
       options.forgeRunner ?? ((cwd) => createCommandRunner({ cwd })),
       options.sourceControl,
     );
+    this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine, {
+      ...(options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {}),
+      ...(options.sourceControl ? { sourceControl: options.sourceControl } : {}),
+      preparePr: prBasePreparation({
+        git: this.git,
+        signal: this.prLifetime.signal,
+        timeoutMs: options.baseFetchTimeoutMs ?? 15000,
+        detail: (project, selection, signal) =>
+          this.forge.checkoutDetail(project, selection, signal),
+        checkout: (project, selection, signal) => this.forge.checkout(project, selection, signal),
+        ...(options.prRemote ? { remote: options.prRemote } : {}),
+      }),
+    });
+    this.creationDrafts = new CreationDrafts(store, now, {
+      ready: () => this.roots.creationReady(),
+      cleanupComplete: (command) => this.roots.creationCleanupComplete(command),
+    });
     this.commands = new AsyncCommands(store);
     this.checkpoints = new RunCheckpoints(store, this.git, (id) => this.root(id), now);
     this.manager = new TerminalManager({ scrollbackBytes: 262144, ...options.terminal });
@@ -360,7 +378,11 @@ export class WorkspaceRuntime {
     if (this.root(id) !== root) throw new Error("workspace_root_changed");
     return context;
   }
-  execute(command: Command, allowed: () => boolean = allowLocalAction): Promise<CommandResult> {
+  execute(
+    command: Command,
+    allowed: () => boolean = allowLocalAction,
+    progress?: CreationProgress,
+  ): Promise<CommandResult> {
     return this.commands.run(command, async () => {
       if (!allowed()) return commandNotDispatched(command, "forbidden");
       const p = command.payload;
@@ -383,6 +405,8 @@ export class WorkspaceRuntime {
       if (!id) throw new Error("invalid_command");
       const threadId = ThreadId.parse(id);
       if (threadCleaning(this.store, threadId)) return { ok: false, error: "thread_deleting" };
+      if (p.type === "forge.pr.worktree")
+        return this.git.nonExecuting(() => this.workOnPr(command, threadId, allowed, progress));
       if (p.type === "thread.move") {
         await this.reconcileTerminals(threadId);
         await this.options.reconcileThread?.(threadId);
@@ -457,8 +481,92 @@ export class WorkspaceRuntime {
       return this.forge.execute(p, cwd, allowed);
     });
   }
+  private async workOnPr(
+    command: Command,
+    id: ThreadId,
+    allowed: () => boolean,
+    progress?: CreationProgress,
+  ): Promise<Omit<CommandResult, "commandId">> {
+    const p = command.payload;
+    if (p.type !== "forge.pr.worktree") throw new Error("invalid_command");
+    if (!this.options.changeWorkspace) throw new Error("engine_unavailable");
+    await this.reconcileTerminals(id);
+    await this.options.reconcileThread?.(id);
+    if (this.hasOwnedWork(id)) throw new Error("terminal_owned");
+    const thread = this.store.getThread(id);
+    if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
+    const project = this.store.getWorkspacePath(thread.workspaceId);
+    if (!project) throw new Error("workspace_not_found");
+    const current = thread.details?.worktree ?? project;
+    const selection = p.pullRequest;
+    const previous = thread.details?.pullRequestWorkspace;
+    let prepared: CreationWorkspace | undefined;
+    let prStatus: ForgePrStatus | undefined;
+    try {
+      await this.options.changeWorkspace(
+        id,
+        command.id,
+        async () => {
+          if (!allowed()) throw new Error("forbidden");
+          if (
+            previous &&
+            JSON.stringify(previous.ref) === JSON.stringify(selection.ref) &&
+            previous.headSha === selection.headSha &&
+            thread.details?.workspaceChange?.state !== "preparing" &&
+            !thread.details?.workspaceChange?.uncertain
+          ) {
+            const signal = progress?.controller.signal ?? this.prLifetime.signal;
+            const detail = await this.forge.checkoutDetail(project, selection, signal);
+            const latest = await this.forge.checkout(project, selection, signal);
+            if (
+              latest.baseSha === detail.baseSha &&
+              latest.baseBranch === detail.baseBranch &&
+              latest.headBranch === detail.headBranch &&
+              (await this.git.resolveCommit({ worktree: current, ref: "HEAD" })) ===
+                selection.headSha
+            ) {
+              signal.throwIfAborted();
+              if (!allowed()) throw new Error("forbidden");
+              prStatus = detail.status;
+              return {
+                ...this.store.getThread(id)?.details,
+                mode: "worktree",
+                worktree: current,
+                head: selection.headSha,
+                pullRequestWorkspace: { ...latest, ...prReviewContext(detail) },
+                machine: this.machine,
+              };
+            }
+          }
+          prepared = await this.roots.prepareExistingPr(command, progress);
+          await prepared.verify?.();
+          if (!allowed()) throw new Error("forbidden");
+          const value = prepared.workspace;
+          prStatus = value.prStatus;
+          return {
+            ...this.store.getThread(id)?.details,
+            mode: "worktree",
+            worktree: value.path,
+            branch: value.branch,
+            head: selection.headSha,
+            pullRequestWorkspace: value.pullRequestWorkspace,
+            machine: this.machine,
+          };
+        },
+        { roots: [current, project], hasOwnedWork: (owner) => this.hasOwnedWork(owner) },
+        () => {
+          if (!prStatus) throw new Error("forge_recovery_unavailable");
+          this.forge.admitCheckout(id, prStatus);
+        },
+      );
+      return { ok: true, threadId: id, pr: selection.ref };
+    } finally {
+      await prepared?.release();
+    }
+  }
   async close(): Promise<void> {
     for (const lifetime of this.writing) lifetime.abort();
+    this.prLifetime.abort();
     this.forge.close();
     await this.roots.close();
     await this.commands.drained();

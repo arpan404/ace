@@ -33,7 +33,10 @@ export async function openFileSink(options: FileSinkOptions) {
     files.sort((a, b) => Number(a.name.split(".")[1]) - Number(b.name.split(".")[1]));
     if (files.length > 1024) {
       const oldest = files.shift();
-      if (oldest) await unlink(join(options.directory, oldest.name));
+      if (oldest)
+        await unlink(join(options.directory, oldest.name)).catch((error: unknown) => {
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+        });
     }
   }
   let currentBytes = await lstat(current).then(
@@ -51,7 +54,9 @@ export async function openFileSink(options: FileSinkOptions) {
     while (total > options.totalBytes && files.length) {
       const oldest = files.shift();
       if (oldest) {
-        await unlink(join(options.directory, oldest.name));
+        await unlink(join(options.directory, oldest.name)).catch((error: unknown) => {
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+        });
         total -= oldest.bytes;
       }
     }

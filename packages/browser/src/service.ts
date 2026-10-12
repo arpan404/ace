@@ -47,6 +47,14 @@ export class BrowserService {
   private recoveries = new Map<string, Promise<void>>();
   /** Sessions paused by desktop loss, with a single-flight recovery on the available backend. */
   private resumable = new Map<string, () => Promise<void>>();
+  get hasActiveSessions(): boolean {
+    return this.sessions.size > 0 || this.opening.size > 0 || this.recoveries.size > 0;
+  }
+  hasActiveSession(threadId: string): boolean {
+    return (
+      this.sessions.has(threadId) || this.opening.has(threadId) || this.recoveries.has(threadId)
+    );
+  }
   downloadProgress(listener: (progress: BrowserDownloadProgress) => void): () => void {
     return this.acquisition.subscribe(listener);
   }

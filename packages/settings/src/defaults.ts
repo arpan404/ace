@@ -1,5 +1,14 @@
 import type { SettingsValues } from "@ace/protocol";
 export const defaults: SettingsValues = {
+  "storage.retention": {
+    threads: 90,
+    attachments: 30,
+    artifacts: 30,
+    logs: 14,
+    worktrees: 30,
+    caches: 7,
+  },
+  "storage.scheduledCleanup": false,
   "sourceControl.preferences": {
     hosts: [{ host: "github.com" }],
     host: "github.com",

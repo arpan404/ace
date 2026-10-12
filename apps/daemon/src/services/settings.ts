@@ -30,7 +30,8 @@ export function createSettingsSession(context: SocketContext): SocketService {
           key !== "clients.theme" &&
           (!(key.startsWith("host.") || key.startsWith("remote.")) ||
             (context.local === true && authorize("admin"))) &&
-          (key !== "providers.configuration" || authorize("admin")),
+          (key !== "providers.configuration" || authorize("admin")) &&
+          (!key.startsWith("storage.") || authorize("admin")),
       ),
     set: async (key, value, commit) => {
       if (options.applyRemoteSetting) await options.applyRemoteSetting(key, value, commit);
@@ -41,6 +42,7 @@ export function createSettingsSession(context: SocketContext): SocketService {
       (request.key === "sourceControl.preferences" ||
         request.key === "projects.roots" ||
         request.key === "providers.configuration" ||
+        request.key.startsWith("storage.") ||
         request.key.startsWith("host.") ||
         request.key.startsWith("remote."))
         ? request.layer.kind === "global" &&

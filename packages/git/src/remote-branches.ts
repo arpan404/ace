@@ -135,8 +135,9 @@ export interface FetchBranchOptions {
  *
  * Deliberately outside the repository's mutation lease: a fetch killed by its deadline (an
  * unreachable host, a hung transport) only ever had that one ref's update in flight, which Git
- * guards with its own lock, so it must not quarantine the repository the way a killed writer of
- * the working tree does. Concurrent callers are serialized by Git's ref locking.
+ * guards with its own lock. It holds no working-tree mutation lease, but its cleanup receipt
+ * still fences provider admission until the transfer process is contained. Concurrent callers
+ * are serialized by Git's ref locking.
  *
  * Failures: `remote_ref_not_found` (the remote has no such branch), `auth_failed`,
  * `remote_unreachable`, `git_timeout`, `git_cancelled`; `invalid_ref` / `invalid_argument` for a
@@ -146,12 +147,58 @@ export async function fetchBranch(
   repository: Repository,
   options: FetchBranchOptions,
 ): Promise<void> {
+  const root = await repository.root(options.repo);
+  await assertBranchName(repository, root, options.branch);
+  await fetchOneRef(
+    repository,
+    root,
+    options,
+    `refs/heads/${options.branch}`,
+    `refs/remotes/${options.remote}/${options.branch}`,
+  );
+}
+
+export type FetchPrHeadOptions = Omit<FetchBranchOptions, "branch"> & { number: number };
+/** Fetch the base repository's advertised PR ref, including fork PRs, into a private ref. */
+export async function fetchPrHead(
+  repository: Repository,
+  options: FetchPrHeadOptions,
+): Promise<string> {
+  z.number().int().positive().max(Number.MAX_SAFE_INTEGER).parse(options.number);
+  const root = await repository.root(options.repo);
+  const ref = `refs/ace/pr/${options.remote}/${options.number}/head`;
+  await fetchOneRef(repository, root, options, `refs/pull/${options.number}/head`, ref, [
+    "--no-filter",
+    "--refetch",
+  ]);
+  return hash(
+    textOutput(
+      await repository.cli.call(root, [
+        "rev-parse",
+        "--verify",
+        "--end-of-options",
+        `${ref}^{commit}`,
+      ]),
+    ),
+  );
+}
+
+async function fetchOneRef(
+  repository: Repository,
+  root: string,
+  options: Omit<FetchBranchOptions, "branch">,
+  source: string,
+  target: string,
+  transfer: readonly string[] = [],
+) {
   const deadline = timeout.safeParse(options.timeoutMs);
   if (!deadline.success)
     throw new GitError("invalid_argument", "timeoutMs must be an integer between 1 and 2147483647");
-  const root = await repository.root(options.repo);
-  await assertBranchName(repository, root, options.branch);
   await assertRemote(repository, root, options.remote);
+  const checked = await repository.cli.call(root, ["check-ref-format", target], {
+    allowFailure: true,
+  });
+  if (checked.exitCode !== 0) throw new GitError("invalid_ref", "Invalid fetch destination");
   // Only replace ssh's command when the person hasn't configured their own.
   const configured = await repository.cli.call(root, ["config", "--get", "core.sshCommand"], {
     allowFailure: true,
@@ -160,38 +207,32 @@ export async function fetchBranch(
     GCM_INTERACTIVE: "never",
     ...(configured.exitCode === 1 ? { GIT_SSH_COMMAND: "ssh -o BatchMode=yes" } : {}),
   };
-  let result;
-  try {
-    result = await repository.cli.fetch(
-      root,
-      [
-        "fetch",
-        "--progress",
-        "--no-tags",
-        "--no-recurse-submodules",
-        "--no-write-fetch-head",
-        "--no-auto-maintenance",
-        "--end-of-options",
-        options.remote,
-        `+refs/heads/${options.branch}:refs/remotes/${options.remote}/${options.branch}`,
-      ],
-      {
-        write: true,
-        allowFailure: true,
-        captureBytes: 65_536,
-        timeoutMs: deadline.data,
-        signal: options.signal,
-        ...(options.stderr ? { stderr: options.stderr } : {}),
-        env,
-      },
-    );
-  } catch (error) {
-    // No mutation lease is held, so a killed fetch quarantines nothing; don't hand callers a
-    // cleanup receipt that would read as "repository unavailable".
-    if (error instanceof GitError && error.cleanup)
-      throw new GitError(error.code, error.message, { ...error.details });
-    throw error;
-  }
+  // Preserve the CLI's cleanup receipt: a failed transfer can return before its child is
+  // contained. The outer transfer admission owner must keep agents fenced until confirmation.
+  const result = await repository.cli.fetch(
+    root,
+    [
+      "fetch",
+      ...transfer,
+      "--progress",
+      "--no-tags",
+      "--no-recurse-submodules",
+      "--no-write-fetch-head",
+      "--no-auto-maintenance",
+      "--end-of-options",
+      options.remote,
+      `+${source}:${target}`,
+    ],
+    {
+      write: true,
+      allowFailure: true,
+      captureBytes: 65_536,
+      timeoutMs: deadline.data,
+      signal: options.signal,
+      ...(options.stderr ? { stderr: options.stderr } : {}),
+      env,
+    },
+  );
   if (result.exitCode !== 0) throw fetchFailure(result.stderr);
 }
 

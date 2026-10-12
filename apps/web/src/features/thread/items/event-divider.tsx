@@ -28,7 +28,7 @@ import {
   WarningIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { useCallback, useId, useState } from "react";
+import { lazy, Suspense, useCallback, useId, useState } from "react";
 import { ArtifactLine } from "@/components/attachment-artifact.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
@@ -40,6 +40,10 @@ import { ReviewNote } from "./review-note.tsx";
 import { TaskCard } from "./task-card.tsx";
 import { MergedForkNotice } from "../transitions/merged-fork-notice.tsx";
 import { UserMessage } from "./user-message.tsx";
+
+const HtmlView = lazy(() =>
+  import("./html-visualization.tsx").then((module) => ({ default: module.HtmlVisualizationView })),
+);
 
 const icons: Record<EventIcon, PhosphorIcon> = {
   restart: ArrowClockwiseIcon,
@@ -218,6 +222,12 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
         <Marker variant="separator" className="text-xs">
           <MarkerContent>Context compacted</MarkerContent>
         </Marker>
+      );
+    case "html":
+      return (
+        <Suspense fallback={<p role="status">Loading visualization…</p>}>
+          <HtmlView threadId={props.threadId} visualization={item.visualization} />
+        </Suspense>
       );
     case "artifact":
       return (

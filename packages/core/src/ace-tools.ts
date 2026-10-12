@@ -118,6 +118,8 @@ export function privateAceInput(name: string, input?: unknown): boolean {
   if (name.endsWith("measure_interaction") && action && ("text" in action || "value" in action))
     return true;
   return [
+    "ace_html_preview",
+    "ace_html_render",
     "screen_type",
     "screen_paste",
     "screen_ui_act",
@@ -135,7 +137,7 @@ export function redactAceArguments(name: string, value: unknown): unknown {
   const redacted = Object.fromEntries(
     Object.entries(parsed.data).map(([key, child]) => [
       key,
-      ["text", "value"].includes(key) ? "[redacted]" : child,
+      ["text", "value", "html", "title"].includes(key) ? "[redacted]" : child,
     ]),
   );
   for (const field of ["action", "interaction"]) {
@@ -144,7 +146,7 @@ export function redactAceArguments(name: string, value: unknown): unknown {
       redacted[field] = Object.fromEntries(
         Object.entries(action.data).map(([key, child]) => [
           key,
-          ["text", "value"].includes(key) ? "[redacted]" : child,
+          ["text", "value", "html", "title"].includes(key) ? "[redacted]" : child,
         ]),
       );
   }

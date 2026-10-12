@@ -97,6 +97,20 @@ async function journal(root: string): Promise<string | undefined> {
   return join(await realpath(metadata), "ace-mutation-leases");
 }
 
+/** Nearest repository's shared ownership key, including linked worktrees, without Git I/O.
+ * Non-repository working directories retain their own standalone ownership key. */
+export async function repositoryScope(path: string): Promise<string> {
+  const original = await realpath(path);
+  let root = original;
+  for (;;) {
+    const key = await journal(root);
+    if (key) return key;
+    const parent = dirname(root);
+    if (parent === root) return standaloneJournal(original);
+    root = parent;
+  }
+}
+
 async function scopeJournal(root: string): Promise<string> {
   // A new repository owns its destination, even when created inside another repository.
   return (await journal(root)) ?? standaloneJournal(root);

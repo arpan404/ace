@@ -28,6 +28,8 @@ export interface ToolDefinition<I extends z.ZodObject, O extends z.ZodObject> {
   output: O;
   capability: McpCapability | null;
   timeoutMs: number;
+  /** Trusted definition override; ordinary tools remain capped at 64 KiB. */
+  maxInputBytes?: number;
   run(input: z.output<I>, context: ToolContext): Promise<z.input<O>>;
 }
 export interface Scheduler {
@@ -102,7 +104,8 @@ export class ToolRegistry {
           : undefined;
       },
       async execute(value, context) {
-        if (!withinJsonBudget(value, 64 * 1024)) throw new Error("Input budget exceeded");
+        if (!withinJsonBudget(value, definition.maxInputBytes ?? 64 * 1024))
+          throw new Error("Input budget exceeded");
         const args = parseToolArguments(input, value);
         context.signal.throwIfAborted();
         const result = await definition.run(args, context);

@@ -1,3 +1,4 @@
+import { purgeTranscript } from "./storage/transcript.ts";
 import { SearchReplay } from "./search-replay.ts";
 import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
 import { sidebarPageStorage } from "./sidebar-page-storage.ts";
@@ -1210,18 +1211,29 @@ export class Store {
     if (!this.getThread(threadId)) throw new Error("Unknown thread");
     return readHistoryBlob(this.db, threadId, id, offset, limit);
   }
+  private recordDataDeletion(id: ThreadId): void {
+    const seq = this.headSeq() + 1;
+    if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
+    this.statement("INSERT INTO usage_deletions VALUES (?, ?, ?)").run(seq, id, this.now());
+    this.statement("UPDATE host_sequence SET seq=? WHERE id=1").run(seq);
+    this.search.deleteThread(id);
+    this.search.acknowledgeDeletion(seq);
+    if (this.longThreads.data.indexedSeq() === seq - 1)
+      this.longThreads.data.run("UPDATE long_meta SET seq=? WHERE id=1", seq);
+    this.mcp.deleteThread(id);
+  }
+  /** Remove payloads after a durable tombstone; preserve replay/foreign-key identities. */
+  purgeThreadData(id: ThreadId): void {
+    this.transaction(() => {
+      this.recordDataDeletion(id);
+      purgeTranscript(this.db, id);
+    });
+    this.caches.delete(id);
+  }
   deleteThread(id: ThreadId): void {
     this.transaction(() => {
       if (!this.getThread(id)) return;
-      const seq = this.headSeq() + 1;
-      if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
-      this.statement("INSERT INTO usage_deletions VALUES (?, ?, ?)").run(seq, id, this.now());
-      this.statement("UPDATE host_sequence SET seq=? WHERE id=1").run(seq);
-      this.search.deleteThread(id);
-      this.search.acknowledgeDeletion(seq);
-      if (this.longThreads.data.indexedSeq() === seq - 1)
-        this.longThreads.data.run("UPDATE long_meta SET seq=? WHERE id=1", seq);
-      this.mcp.deleteThread(id);
+      this.recordDataDeletion(id);
       this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
       this.statement("DELETE FROM threads WHERE id = ?").run(id);
     });

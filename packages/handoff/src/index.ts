@@ -14,6 +14,8 @@ export function handoffBytes(value: PortableHandoff): number {
 }
 function excerpt(item: Item): string {
   switch (item.type) {
+    case "html":
+      return `Visualization: ${item.visualization.title}. View on desktop/web.`;
     case "message": {
       let text = `${item.role}: `;
       let first = true;

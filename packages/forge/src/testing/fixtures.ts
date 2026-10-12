@@ -89,6 +89,7 @@ export type Response = {
   suffix?: string;
   wait?: boolean;
   barrier?: string;
+  waitMarker?: string;
 };
 export type Fixtures = Record<string, Response[]>;
 /** Synthetic JSON records follow primary GitHub response contracts. */
