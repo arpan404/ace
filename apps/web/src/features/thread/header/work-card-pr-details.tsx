@@ -1,4 +1,4 @@
-import { useStackMemberships } from "@/features/forge/index.ts";
+import { PrMergeControls, useStackMemberships } from "@/features/forge/index.ts";
 import type { ForgeCheck, ForgePrStatus } from "@ace/protocol";
 import { mergeMethods, prOverview, type MergeMethod, type PrTone } from "@ace/ui-core";
 import {
@@ -14,7 +14,7 @@ import {
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "@/components/ui/menu.tsx";
+import { MenuRadioGroup, MenuRadioItem } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -41,6 +41,7 @@ function ToneIcon(props: { tone: keyof typeof tones }) {
 export function PrDetails(props: {
   git: GitFlow;
   workspaceId: string;
+  onRefresh(): void;
   status: ForgePrStatus;
   base: string;
   onRequestReview?: (() => void) | undefined;
@@ -50,11 +51,8 @@ export function PrDetails(props: {
   const membership = useStackMemberships(props.workspaceId, status.ref.repository, [
     status.ref.number,
   ]);
-  const nativeStackOrUnknown =
-    !membership.data || membership.isError || !!membership.data[0]?.stack;
-  const stackReason = nativeStackOrUnknown
-    ? "Open the full PR workspace to inspect native stack merge rules."
-    : undefined;
+  const stackReason = membership.mergeBlocker;
+  const nativeStackOrUnknown = stackReason !== undefined;
   const view = prOverview(status, props.base);
   const [method, setMethod] = useState<MergeMethod>("squash");
   const label = mergeMethods.find((each) => each.method === method)?.label ?? "Merge";
@@ -135,23 +133,6 @@ export function PrDetails(props: {
                     </MenuRadioItem>
                   ))}
                 </MenuRadioGroup>
-                <MenuSeparator />
-                <MenuItem
-                  icon={<ClockIcon aria-hidden size={16} />}
-                  disabled={nativeStackOrUnknown || !!view.autoMergeBlocked}
-                  reason={stackReason ?? view.autoMergeBlocked}
-                  onClick={() =>
-                    git.run({
-                      kind: "merge",
-                      method,
-                      auto: true,
-                      headSha: status.headSha,
-                      pr: status.ref,
-                    })
-                  }
-                >
-                  Auto-merge when checks pass
-                </MenuItem>
               </>
             }
           />
@@ -170,6 +151,12 @@ export function PrDetails(props: {
           )}
         </div>
       )}
+      <PrMergeControls
+        workspaceId={props.workspaceId}
+        pr={status.ref}
+        relatedThreads={[{ id: git.threadId, title: "This task" }]}
+        onRefresh={props.onRefresh}
+      />
     </>
   );
 }

@@ -1,6 +1,7 @@
 import type { WriteDispatch } from "./write-dispatch.ts";
 import { GitHubIssues } from "./github-issues.ts";
 import type { ForgeIssueSearch, ForgeIssueWrite } from "@ace/protocol/forge-issues";
+import { GitHubMergeState } from "./github-merge-state.ts";
 import { sameStack } from "./stack-plan.ts";
 import { GitHubStacks } from "./github-stacks.ts";
 import { LocalStacks } from "./local-stacks.ts";
@@ -38,6 +39,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
   readonly #root: string;
   readonly #browser: GitHubBrowser;
   readonly #issues: GitHubIssues;
+  readonly #mergeState: GitHubMergeState;
   readonly #stacks: GitHubStacks;
   readonly #localStacks: LocalStacks;
   readonly #replyReceipts: ReplyReceipts | undefined;
@@ -54,6 +56,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
       throw new ForgeError("unsupported");
     this.#root = `repos/${this.repository.owner}/${this.repository.name}`;
     this.#api = new GhApi({ ...options, host: this.repository.host });
+    this.#mergeState = new GitHubMergeState(this.#api, this.repository);
     this.#stacks = new GitHubStacks(this.#api, this.repository);
     this.#localStacks = new LocalStacks(options.runner, options.command);
     this.#browser = new GitHubBrowser(this.#api, this.repository);
@@ -91,6 +94,20 @@ export class GitHubForge implements Forge, ForgeBrowser {
     const parsed = z.object({ login: z.string().min(1).max(100) }).safeParse(response.body);
     if (!parsed.success) throw new ForgeError("invalid_data");
     return parsed.data.login;
+  }
+  prMergeState(number: number, signal: AbortSignal) {
+    return this.#mergeState.read(number, signal);
+  }
+  changeMergeState(
+    number: number,
+    headSha: string,
+    action: "enable" | "disable" | "dequeue",
+    method: MergeMethod,
+    signal: AbortSignal,
+    allowed: () => boolean = () => true,
+    dispatch?: WriteDispatch,
+  ) {
+    return this.#mergeState.change(number, headSha, action, method, signal, allowed, dispatch);
   }
   prStack(number: number, signal: AbortSignal) {
     return this.#stacks.read(number, signal);
@@ -324,44 +341,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     signal: AbortSignal,
     dispatch = new MutationDispatch(),
   ): Promise<void> {
-    this.#ref(number);
-    shaSchema.parse(headSha);
-    mergeSchema.parse(method);
-    const metadata = z
-      .object({ node_id: z.string().min(1), head: z.object({ sha: shaSchema }) })
-      .safeParse((await this.#api.request(`${this.#root}/pulls/${number}`, signal)).body);
-    if (!metadata.success) throw new ForgeError("invalid_data");
-    if (metadata.data.head.sha !== headSha) throw new ForgeError("conflict", undefined, false);
-    const response = await this.#api.request(
-      "graphql",
-      signal,
-      {
-        query:
-          "mutation($input:EnablePullRequestAutoMergeInput!) { enablePullRequestAutoMerge(input:$input) { pullRequest { id } } }",
-        variables: {
-          input: {
-            pullRequestId: metadata.data.node_id,
-            expectedHeadOid: headSha,
-            mergeMethod: method.toUpperCase(),
-          },
-        },
-      },
-      "POST",
-      dispatch,
-    );
-    const acknowledgement = z
-      .object({
-        data: z.object({
-          enablePullRequestAutoMerge: z.object({ pullRequest: z.object({ id: z.string() }) }),
-        }),
-      })
-      .safeParse(response.body);
-    if (
-      !acknowledgement.success ||
-      acknowledgement.data.data.enablePullRequestAutoMerge.pullRequest.id !== metadata.data.node_id
-    )
-      throw new ForgeMutationOutcome({ dispatched: true });
-    if (response.identityChanged) throw new ForgeMutationOutcome({ number, headSha });
+    await this.#mergeState.change(number, headSha, "enable", method, signal, () => true, dispatch);
   }
 
   async logTail(jobId: number, signal: AbortSignal) {

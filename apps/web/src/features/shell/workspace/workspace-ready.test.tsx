@@ -20,3 +20,35 @@ test("failed tool loading is visible and retries the requested content without a
   expect(await screen.findByText("Requested tool")).toBeTruthy();
   expect(kinds).toHaveBeenCalledTimes(2);
 });
+
+test("switching workspaces waits for the new workspace's own tools", async () => {
+  const first = defineWorkspace({
+    label: "Threads",
+    launcher: "new",
+    initial: [],
+    kinds: async () => ({ default: [] }),
+  });
+  await first.load();
+  const pending = Promise.withResolvers<{ default: [] }>();
+  const second = defineWorkspace({
+    label: "Pull requests",
+    launcher: "pr-new",
+    initial: [],
+    kinds: () => pending.promise,
+  });
+  const view = render(
+    <WhenKindsReady definition={first} visible>
+      <p>Thread tools</p>
+    </WhenKindsReady>,
+  );
+  await screen.findByText("Thread tools");
+  view.rerender(
+    <WhenKindsReady definition={second} visible>
+      <p>Pull request tools</p>
+    </WhenKindsReady>,
+  );
+  expect(screen.queryByText("Pull request tools")).toBeNull();
+  expect(screen.getByRole("status").textContent).toContain("Loading tools");
+  pending.resolve({ default: [] });
+  await screen.findByText("Pull request tools");
+});

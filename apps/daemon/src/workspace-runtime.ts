@@ -211,6 +211,7 @@ export class WorkspaceRuntime {
       op.op === "forge.issue.detail" ||
       op.op === "forge.issue.timeline" ||
       op.op === "forge.issue.actions" ||
+      op.op === "forge.pr.merge-state" ||
       op.op === "forge.pr.stack" ||
       op.op === "forge.pr.stack-memberships" ||
       op.op === "forge.pr.review-state" ||

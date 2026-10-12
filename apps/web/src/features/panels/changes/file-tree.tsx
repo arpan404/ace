@@ -26,6 +26,8 @@ const rowHeight = 28;
  */
 export function FileTree(props: {
   threadId: string;
+  /** A hosted PR keeps tree preferences on its own panel tab. */
+  tabKey?: string | undefined;
   files: readonly TreeFile[];
   /** The file last jumped to. */
   current: string | undefined;
@@ -36,9 +38,10 @@ export function FileTree(props: {
 }) {
   const workspace = useScopeWorkspace(props.threadId);
   const actions = useWorkspaceActions(props.threadId);
-  const ui = workspace.tabs.find((tab) => tab.key === "changes")?.ui;
+  const tabKey = props.tabKey ?? "changes";
+  const ui = workspace.tabs.find((tab) => tab.key === tabKey)?.ui;
   const filter = ui?.query ?? "";
-  const setFilter = (query: string) => actions.updateUi("changes", { query });
+  const setFilter = (query: string) => actions.updateUi(tabKey, { query });
   const collapsed = useMemo(() => new Set(ui?.collapsed), [ui?.collapsed]);
   const rows = useMemo(
     () => changeTreeRows(props.files, { collapsed, filter }),
@@ -51,7 +54,7 @@ export function FileTree(props: {
     const next = new Set(collapsed);
     if (open) next.delete(key);
     else next.add(key);
-    actions.updateUi("changes", { collapsed: [...next] });
+    actions.updateUi(tabKey, { collapsed: [...next] });
   };
   const focus = (index: number) => {
     const next = Math.max(0, Math.min(rows.length - 1, index));

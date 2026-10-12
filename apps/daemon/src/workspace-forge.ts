@@ -132,6 +132,13 @@ export class WorkspaceForge {
         value: { ...value, ...this.issueLinks.related(value.ref) },
       };
     }
+    if (operation.op === "forge.pr.merge-state") {
+      const { value, writeState } = await this.actions.readMergeState(
+        { repository, number: operation.number },
+        () => backend.prMergeState(operation.number, signal),
+      );
+      return { resource: "prMergeState", value: { ...value, writeState } };
+    }
     if (operation.op === "forge.pr.stack")
       return {
         resource: "prStack",
@@ -529,6 +536,11 @@ export class WorkspaceForge {
     if (!allowed()) throw new Error("forbidden");
     const generation = this.links.getLinkState(id, p.link.pr)?.generation;
     const backend = await this.backend(cwd, p.link.pr.repository);
+    if (
+      (p.type === "forge.pr.merge-state.change" || p.type === "forge.pr.auto-merge") &&
+      generation === undefined
+    )
+      return { ok: false, error: "forge_not_found" };
     if (p.type === "forge.pr.stack.change") {
       if (generation === undefined) return { ok: false, error: "forge_not_found" };
       if (
@@ -554,8 +566,12 @@ export class WorkspaceForge {
       };
     }
     if (p.type !== "forge.pr.status")
-      return this.actions.execute(p, backend, this.lifetime.signal, allowed, (status) =>
-        this.projection.update(id, status, generation),
+      return this.actions.execute(
+        p,
+        backend,
+        this.lifetime.signal,
+        () => allowed() && this.links.getLinkState(id, p.link.pr)?.generation === generation,
+        (status) => this.projection.update(id, status, generation),
       );
     const { value } = await this.actions.readDetail(p.link.pr, async () => ({
       status: await backend.status(p.link.pr.number, this.lifetime.signal),

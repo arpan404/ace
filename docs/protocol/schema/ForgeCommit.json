@@ -2,7 +2,16 @@
   "$id": "https://ace.local/protocol/v1/ForgeCommit.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "additions": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "author": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "authorAvatarUrl": {
       "maxLength": 65536,
       "type": "string"
     },
@@ -16,6 +25,11 @@
           "type": "null"
         }
       ]
+    },
+    "deletions": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
     },
     "message": {
       "maxLength": 65536,

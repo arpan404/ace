@@ -151,6 +151,16 @@ export class FakeWorkspaceWire {
         },
       });
     }
+    if (op.op === "forge.pr.merge-state" && !this.forgeReads.has(JSON.stringify(op))) {
+      const value = this.forge.mergeState(op.workspaceId, op.repository, op.number);
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: value
+          ? { kind: "forge", data: { resource: "prMergeState", value } }
+          : { kind: "error", code: "forge_not_found" },
+      });
+    }
     if (op.op.startsWith("forge.")) {
       const data = this.issues.read(op) ?? this.forgeReads.get(JSON.stringify(op));
       return ServerMessage.parse({

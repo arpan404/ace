@@ -32,18 +32,24 @@ function useReadyDiffs(groups: readonly Keyed[]): readonly (FileDiff | undefined
 const keyed = (files: readonly FileChanges[]): Keyed[] =>
   files.map((file) => ({ file, key: diffKey(file) }));
 
-/** Diffs of the files `edits` touched, computed in the diff worker and cached by content. */
-export function useFileDiffs(edits: Turn["edits"]): FileDiffs {
-  const groups = useMemo(() => keyed(groupFileChanges(edits)), [edits]);
+/** Hosted or local changes use the same worker and bounded cache. */
+export function useFileChanges(files: readonly FileChanges[]): FileDiffs {
+  const groups = useMemo(() => keyed(files), [files]);
   const diffs = useReadyDiffs(groups);
   const versions = useMemo(
     () => new Map(groups.map(({ file, key }) => [file.path, key])),
     [groups],
   );
   return useMemo(() => {
-    const files = diffs.filter((diff): diff is FileDiff => diff !== undefined);
-    return { files, pending: diffs.length - files.length, versions };
+    const ready = diffs.filter((diff): diff is FileDiff => diff !== undefined);
+    return { files: ready, pending: diffs.length - ready.length, versions };
   }, [diffs, versions]);
+}
+
+/** Diffs of the files `edits` touched, computed in the diff worker and cached by content. */
+export function useFileDiffs(edits: Turn["edits"]): FileDiffs {
+  const files = useMemo(() => groupFileChanges(edits), [edits]);
+  return useFileChanges(files);
 }
 
 /** Lines added and removed across `edits`, from their (cached) diffs. */

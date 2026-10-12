@@ -16,6 +16,7 @@ export const sameStatus = (a: z.infer<typeof GitHubStatus>, b: z.infer<typeof Gi
 export const sameComment = (a: z.infer<typeof GitHubComment>, b: z.infer<typeof GitHubComment>) =>
   a.body === b.body &&
   a.user?.login === b.user?.login &&
+  a.user?.avatar_url === b.user?.avatar_url &&
   a.path === b.path &&
   a.line === b.line &&
   a.original_line === b.original_line &&
@@ -26,4 +27,5 @@ export const sameReview = (a: z.infer<typeof GitHubReview>, b: z.infer<typeof Gi
   a.body === b.body &&
   a.state === b.state &&
   a.user?.login === b.user?.login &&
+  a.user?.avatar_url === b.user?.avatar_url &&
   a.submitted_at === b.submitted_at;

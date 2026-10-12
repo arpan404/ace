@@ -164,6 +164,34 @@ export async function fakeGh(
 }
 export { issueRecord, issuePermissions } from "./issue-fixtures.ts";
 
+/** Authoritative merge-state facts shared by process fixtures. */
+export function mergeStateResponse(overrides: Record<string, unknown> = {}): Response {
+  return {
+    body: {
+      data: {
+        repository: {
+          viewerPermission: "WRITE",
+          pullRequest: {
+            id: "PR_7",
+            number: 7,
+            headRefOid: sha,
+            state: "OPEN",
+            isDraft: false,
+            mergeStateStatus: "BLOCKED",
+            reviewDecision: "REVIEW_REQUIRED",
+            statusCheckRollup: { state: "SUCCESS" },
+            autoMergeRequest: null,
+            mergeQueueEntry: null,
+            viewerCanEnableAutoMerge: true,
+            viewerCanDisableAutoMerge: true,
+            ...overrides,
+          },
+        },
+      },
+    },
+  };
+}
+
 export {
   stackChecksFixture,
   stackUuid,

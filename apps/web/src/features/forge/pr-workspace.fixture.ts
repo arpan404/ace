@@ -1,0 +1,43 @@
+import { ForgePrDetail } from "@ace/protocol";
+const repository = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
+export const detail = ForgePrDetail.parse({
+  status: {
+    ref: { repository, number: 7 },
+    title: "Fix reconnect",
+    url: "https://github.com/acme/ace/pull/7",
+    headSha: "a".repeat(40),
+    state: "open",
+    mergeability: "unknown",
+    ci: "none",
+    checks: [],
+    reviewThreads: [],
+    raw: {},
+    comments: [
+      {
+        kind: "issue",
+        id: 4,
+        body: "Keep the cursor",
+        author: "reviewer",
+        file: null,
+        line: null,
+        replyTo: null,
+        createdAt: "2026-10-11T12:02:00Z",
+        updatedAt: "2026-10-11T12:04:00Z",
+      },
+    ],
+  },
+  author: "octo",
+  body: "",
+  createdAt: "2026-10-11T12:00:00Z",
+  headBranch: "fix",
+  baseBranch: "main",
+  baseSha: "b".repeat(40),
+  headRepository: repository,
+  labels: [],
+  reviewers: [],
+  reviewDecision: null,
+  commits: 1,
+  changedFiles: 1,
+  relatedThreads: [],
+  relatedThreadsTruncated: false,
+});
