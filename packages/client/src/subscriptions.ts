@@ -96,6 +96,8 @@ export class Subscriptions {
     const id = this.#id();
     entry.snapshotAllowed = true;
     entry.subscriptionId = id;
+    // Data already shown is behind until this subscription's replay or snapshot lands.
+    if (entry.store.cursor !== undefined) entry.store.setSyncing(true);
     this.#wires.set(id, entry);
     this.#starting.add(id);
     this.#send({
@@ -115,6 +117,8 @@ export class Subscriptions {
     for (const entry of this.#cache.values()) {
       entry.subscriptionId = undefined;
       entry.rejected = false;
+      // What a view shows now waits for the next connection to catch it up.
+      if (entry.refs && entry.store.cursor !== undefined) entry.store.setSyncing(true);
     }
   }
   reject(id: string, error: ClientError): void {
@@ -124,6 +128,7 @@ export class Subscriptions {
     this.#starting.delete(id);
     entry.subscriptionId = undefined;
     entry.rejected = true;
+    entry.store.setSyncing(false);
     entry.store.fail(error);
     this.#pump();
   }
@@ -132,6 +137,7 @@ export class Subscriptions {
       const entry = this.#wires.get(message.subscriptionId);
       if (!entry) return;
       if (entry.store.cursor === message.seq) entry.store.recover();
+      entry.store.setSyncing(false);
       this.#starting.delete(message.subscriptionId);
       this.#pump();
       return;
@@ -152,6 +158,7 @@ export class Subscriptions {
       if (message.view.thread.id !== entry.threadId) throw new ClientError("protocol");
       try {
         entry.store.snapshot(message.view);
+        entry.store.setSyncing(false);
       } catch (error) {
         if (!(error instanceof ClientError) || error.code !== "limit") throw error;
         this.#send({ type: "unsubscribe", subscriptionId: message.subscriptionId });

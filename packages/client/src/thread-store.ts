@@ -31,6 +31,16 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     this.#failure = undefined;
     this.#notifications.emit(["error"]);
   }
+  #syncing = false;
+  get syncing(): boolean {
+    return this.#syncing;
+  }
+  /** Whether the subscription is catching up on what changed while it was away. */
+  setSyncing(syncing: boolean): void {
+    if (this.#syncing === syncing) return;
+    this.#syncing = syncing;
+    this.#notifications.emit(["sync"]);
+  }
   #view: ThreadView | undefined;
   #notifications: Notifications;
   #limits: Limits;
@@ -132,6 +142,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     const failure = this.#failure;
     const view = this.#view;
     return {
+      ...(this.#syncing ? { syncing: true } : {}),
       error: failure && { code: failure.code, message: failure.message },
       view: view && {
         seq: view.seq,

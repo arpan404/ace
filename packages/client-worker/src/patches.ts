@@ -56,6 +56,8 @@ export function threadValue(reader: ThreadReader, key: string): unknown {
   switch (kind) {
     case "error":
       return errorOf(reader);
+    case "sync":
+      return reader.syncing ?? false;
     case "thread":
       return reader.thread;
     case "queue":

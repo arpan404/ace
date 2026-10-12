@@ -12,6 +12,7 @@ export type ThreadKey =
   | "agents"
   | "interactions"
   | "tasks"
+  | "sync"
   | `item:${string}`
   | `agent:${string}`
   | `run:${string}`
@@ -22,6 +23,11 @@ export type ThreadKey =
   | `usageSnapshot:${string}`;
 export interface ThreadReader {
   readonly error: ClientError | undefined;
+  /**
+   * Catching up after a reconnect: what the store holds may be behind the daemon until the
+   * subscription's replay (or fresh snapshot) lands. Select with `sync`.
+   */
+  readonly syncing?: boolean;
   readonly thread: ThreadView["thread"] | undefined;
   readonly queue: ThreadView["queue"] | undefined;
   /** The root agent's context meter; select with `context:<rootAgentId>`. */

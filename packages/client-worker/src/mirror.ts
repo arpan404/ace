@@ -32,6 +32,7 @@ type View = NonNullable<ThreadExport["view"]>;
 export class MirrorThread implements ThreadSource {
   private notifications: Notifications;
   private failure: ClientError | undefined;
+  private catchingUp = false;
   private meta: ThreadView["thread"] | undefined;
   private queued: ThreadView["queue"] | undefined;
   private ids: readonly string[] = none;
@@ -58,6 +59,9 @@ export class MirrorThread implements ThreadSource {
   }
   get error() {
     return this.failure;
+  }
+  get syncing() {
+    return this.catchingUp;
   }
   get thread() {
     return this.meta;
@@ -133,6 +137,7 @@ export class MirrorThread implements ThreadSource {
   reset(copy: ThreadExport): void {
     const view = copy.view;
     this.failure = errorOf(copy.error);
+    this.catchingUp = copy.syncing ?? false;
     this.meta = view?.thread;
     this.queued = view?.queue;
     this.ids = view?.itemOrder ?? none;
@@ -168,6 +173,9 @@ export class MirrorThread implements ThreadSource {
     switch (kind) {
       case "error":
         this.failure = errorOf(trusted<ErrorShape | undefined>(v));
+        return;
+      case "sync":
+        this.catchingUp = v === true;
         return;
       case "thread":
         this.meta = trusted<ThreadView["thread"] | undefined>(v);

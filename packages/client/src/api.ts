@@ -170,6 +170,7 @@ export interface ConnectionControl {
 
 /** Everything a thread store holds, for copying it to another realm in one message. */
 export interface ThreadExport {
+  syncing?: boolean;
   error: { code: ClientError["code"]; message: string } | undefined;
   view: Omit<ThreadView, "itemSeqs" | "kind"> | undefined;
   truncated: string[];
