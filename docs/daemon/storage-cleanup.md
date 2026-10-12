@@ -40,8 +40,7 @@ filesystem paths or submit replacement plan contents.
   "operation": {
     "op": "cleanup.apply",
     "planId": "the-returned-id",
-    "revision": "the-returned-64-character-revision",
-    "compact": false
+    "revision": "the-returned-64-character-revision"
   }
 }
 ```
@@ -139,18 +138,11 @@ batch. Preview again after applying a batch to discover additional data. Very
 large worktrees fail closed with `unknown_git_state` rather than a partial
 cleanliness proof.
 
-Database compaction is disabled in this PR and will be a separate delivery.
+Database compaction is outside this PR and will be a separate delivery.
 Retention cleanup never starts VACUUM or incremental vacuum, changes the Store
 handle to query-only, or acquires a compaction maintenance fence. Deleted SQLite
 pages stay reusable by ordinary writes; cleanup does not promise to shrink the
 database file on disk.
-
-The API keeps `compact` for compatibility with older clients and accepted plans.
-A completed cleanup requested with `compact: true` reports `compaction: "deferred"`
-and `compactionReason: "disabled"`. Reviewed removals still run, and accepted plans
-resume after restart without performing database maintenance. `compact: false`
-reports `not_requested`. Historical completed plans keep their saved results.
-Settings does not offer a compaction checkbox.
 
 The compaction follow-up must first enforce an awaitable Store write boundary for
 all mutation paths, including refresh, asynchronous action receipts, automation
@@ -182,7 +174,6 @@ verification should include these production mutations:
 - Infer cleanup ownership from a linked worktree or directory name.
 - Admit a new root owner during final cleanup inspection.
 - Retain admission fences after a confirmed pre-deletion refusal.
-- Enable disabled database compaction for a new or recovered cleanup request.
 - Enable repository fsmonitor/filter execution during cleanup.
 - Remove a changed branch instead of compare-and-deleting it.
 - Omit either running journal or its startup replay.

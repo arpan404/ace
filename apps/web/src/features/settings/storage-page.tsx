@@ -54,7 +54,6 @@ export function StorageSettings() {
         op: "cleanup.apply",
         planId: plan.id,
         revision: plan.revision,
-        compact: false,
       });
       if (response.kind !== "apply") throw new Error("Unexpected cleanup response.");
       setResult(response.apply);
@@ -83,7 +82,7 @@ export function StorageSettings() {
             ))}
             <SettingRow
               title="Transcript database"
-              description={`${storageBytes(usage.data.reclaimableDatabaseBytes)} of unused pages SQLite can reuse. Database compaction is unavailable in this release.`}
+              description={`${storageBytes(usage.data.reclaimableDatabaseBytes)} of unused pages SQLite can reuse.`}
               inline
             >
               <span className="text-sm tabular-nums text-muted-foreground">

@@ -51,10 +51,6 @@
         },
         {
           "properties": {
-            "compact": {
-              "default": false,
-              "type": "boolean"
-            },
             "op": {
               "const": "cleanup.apply",
               "type": "string"

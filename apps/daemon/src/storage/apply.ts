@@ -109,11 +109,6 @@ export async function applyStorageItems(
       )
     )
       return journal.result(state);
-    // Compatibility for reviewed/recovered plans. No SQLite maintenance is performed.
-    if (state.compact) {
-      state.compaction = "deferred";
-      state.compactionReason = "disabled";
-    }
     state.state = "complete";
     journal.save(state);
     return journal.result(state);

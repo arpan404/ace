@@ -35,17 +35,26 @@ export async function killAll(
           (!operation.project || thread.workspaceId === operation.project),
       );
     const stopped = new Set<import("@ace/protocol").ThreadId>();
+    const cancelled = new Set<import("@ace/protocol").ThreadId>();
     for (const thread of selected) {
+      if (!engine.hasUnfinishedWork(thread.id)) {
+        await engine.cleanupSession(thread.id);
+        stopped.add(thread.id);
+        continue;
+      }
       const receipt = owner.delegations.command(
         `kill:${createHash("sha256").update(operation.key).update(thread.id).digest("hex")}`,
         {
           type: "thread.interrupt",
           threadId: thread.id,
-          cascade: !operation.provider && !operation.project,
+          // The selected set already includes --thread descendants. Completed members
+          // must never receive a cascade interruption from an unfinished ancestor.
+          cascade: false,
         },
       );
       if (!receipt.ok) return { ok: false, code: "unavailable", data: receipt };
       stopped.add(thread.id);
+      cancelled.add(thread.id);
       await engine.stopForCancellation(thread.id);
     }
     await engine.flush();
@@ -55,7 +64,14 @@ export async function killAll(
       ok: true,
       detail: `Stopped ${stopped.size} threads`,
     });
-    return { ok: true, data: { stopped: [...stopped], outcome: "cancelled" } };
+    return {
+      ok: true,
+      data: {
+        stopped: [...stopped],
+        cancelled: [...cancelled],
+        outcome: cancelled.size ? "cancelled" : "cleaned",
+      },
+    };
   } finally {
     if (!before.draining) context.maintenance.leave();
   }

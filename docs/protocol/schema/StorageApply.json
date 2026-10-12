@@ -2,18 +2,6 @@
   "$id": "https://ace.local/protocol/v1/StorageApply.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "compaction": {
-      "enum": [
-        "not_requested",
-        "complete",
-        "deferred"
-      ],
-      "type": "string"
-    },
-    "compactionReason": {
-      "const": "disabled",
-      "type": "string"
-    },
     "items": {
       "items": {
         "properties": {
@@ -64,8 +52,7 @@
   "required": [
     "planId",
     "state",
-    "items",
-    "compaction"
+    "items"
   ],
   "type": "object"
 }
