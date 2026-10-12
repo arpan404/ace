@@ -1,8 +1,8 @@
 import { useLayoutEffect, type RefObject } from "react";
-import { inputLine } from "./composer-styles.ts";
+import { inputLine, inputMinLines } from "./composer-styles.ts";
 
 /**
- * Fit the input to its text in whole lines, before paint: one 20px line at rest, growing a line
+ * Fit the input to its text in whole lines, before paint: two 20px lines at rest, growing a line
  * at a time up to seven visual lines or 40% of the window, then scrolling. Heights are always whole pixels, and the
  * text always stays above the +/approvals/send action row, including when empty. Input grows
  * upward and leaves room for attached panels; the full draft stays editable through scrolling.
@@ -19,8 +19,10 @@ export function useAutosize(
     if (!el || width <= 0) return;
     const measure = () => {
       el.style.height = "auto";
-      // An empty input is one line, however long its placeholder.
-      const lines = text.trim() ? Math.max(1, Math.ceil(el.scrollHeight / inputLine)) : 1;
+      // Reserve the same minimum for empty and short drafts.
+      const lines = text.trim()
+        ? Math.max(inputMinLines, Math.ceil(el.scrollHeight / inputLine))
+        : inputMinLines;
       const column = el.closest<HTMLElement>("[data-thread-column]");
       const dock = el.closest<HTMLElement>("[data-composer-dock]");
       const available =

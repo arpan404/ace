@@ -9,6 +9,7 @@
  * The plus glyph (16px in a 32px box, 8px from the edge) starts where the text starts, 16px in.
  */
 export const inputLine = 20;
+export const inputMinLines = 2;
 
 /** One size for every footer control; labels are 13/16 so nothing lands on a half pixel. */
 const control =
