@@ -22,13 +22,13 @@ test("every theme passes WCAG AA in light and dark, highlighted rows and glass i
       expect([id, scheme, contrastWarnings(themes[id][scheme], scheme)]).toEqual([id, scheme, []]);
 });
 
+/** Every status declaration a theme sets in one scheme. */
+const statusOf = (id: (typeof themeIds)[number], scheme: "light" | "dark") =>
+  Object.fromEntries(
+    Object.entries(themeDeclarations(id, scheme)).filter(([name]) => name.startsWith("--status-")),
+  );
+
 test("a status looks the same in every theme; only the accent changes", () => {
-  const statusOf = (id: (typeof themeIds)[number], scheme: "light" | "dark") => {
-    const declarations = themeDeclarations(id, scheme);
-    return Object.fromEntries(
-      Object.entries(declarations).filter(([name]) => name.startsWith("--status-")),
-    );
-  };
   for (const scheme of schemes) {
     const reference = statusOf("graphite", scheme);
     for (const id of themeIds) expect([id, statusOf(id, scheme)]).toEqual([id, reference]);

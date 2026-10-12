@@ -1,3 +1,16 @@
+import {
+  ArchiveIcon,
+  FolderOpenIcon,
+  GitForkIcon,
+  GitMergeIcon,
+  ListNumbersIcon,
+  MagnifyingGlassIcon,
+  PaperclipIcon,
+  PushPinIcon,
+  PushPinSlashIcon,
+  TrashIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import type { SidebarReader } from "@ace/client";
 import { arrayEqual, useSidebarAll } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
@@ -125,7 +138,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
           {
             id: "selected-pin",
             label: `${unpin ? "Unpin" : "Pin"} ${n}`,
-            icon: "action",
+            icon: unpin ? PushPinSlashIcon : PushPinIcon,
             run: run(() => {
               actions.setPinnedMany(chosen, !unpin);
               selection.clear();
@@ -134,26 +147,26 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
           {
             id: "selected-move",
             label: `Move ${n} to another project…`,
-            icon: "action",
+            icon: FolderOpenIcon,
             run: run(() => mover.open({ entries: chosen, onMoved: () => selection.clear() })),
           },
           {
             id: "selected-archive",
             label: `Archive ${n}…`,
-            icon: "action",
+            icon: ArchiveIcon,
             run: run(() => selection.ask("archive")),
           },
           {
             id: "selected-delete",
             label: `Delete ${n}…`,
-            icon: "action",
+            icon: TrashIcon,
             danger: true,
             run: run(() => selection.ask("delete")),
           },
           {
             id: "selected-clear",
             label: "Clear the selection",
-            icon: "action",
+            icon: XIcon,
             run: run(() => selection.clear()),
           },
         ],
@@ -196,7 +209,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
                       {
                         id: "thread-fork",
                         label: "Fork from the last turn…",
-                        icon: "action" as const,
+                        icon: GitForkIcon,
                         run: run(screen.fork),
                       },
                     ]
@@ -206,7 +219,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
                       {
                         id: "thread-merge",
                         label: "Bring back to parent…",
-                        icon: "action" as const,
+                        icon: GitMergeIcon,
                         run: run(screen.merge),
                       },
                     ]
@@ -214,21 +227,21 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
                 {
                   id: "thread-attachments",
                   label: "Attachments",
-                  icon: "action" as const,
+                  icon: PaperclipIcon,
                   run: run(screen.attachments),
                 },
                 {
                   id: "thread-find",
                   label: "Search this thread",
                   keys: keymap.findInThread.keys,
-                  icon: "action" as const,
+                  icon: MagnifyingGlassIcon,
                   run: run(screen.find),
                 },
                 {
                   id: "thread-turns",
                   label: "Turns",
                   keys: keymap.turns.keys,
-                  icon: "action" as const,
+                  icon: ListNumbersIcon,
                   run: run(screen.turns),
                 },
               ]
