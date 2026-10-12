@@ -1,0 +1,55 @@
+{
+  "$id": "https://ace.local/protocol/v1/StorageCompaction.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "checkpointed": {
+      "type": "boolean"
+    },
+    "databaseBytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "databaseBytesBefore": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "fullRequired": {
+      "type": "boolean"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/StorageCompactionMode.json"
+    },
+    "reclaimableDatabaseBytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "complete",
+        "pending",
+        "interrupted",
+        "abandoned"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "mode",
+    "state",
+    "fullRequired",
+    "databaseBytesBefore",
+    "databaseBytes",
+    "reclaimableDatabaseBytes",
+    "checkpointed"
+  ],
+  "type": "object"
+}

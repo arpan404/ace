@@ -86,6 +86,21 @@ export class FakeStorageWire {
       }
       this.plans.set(plan.id, { plan, owner: device });
       result = { kind: "plan", plan };
+    } else if (op.op === "cleanup.compact" || op.op === "cleanup.compactAbandon") {
+      // The fake keeps no SQLite file, so compaction is an immediate no-op result.
+      result = {
+        kind: "compaction",
+        compaction: {
+          id: op.op === "cleanup.compactAbandon" ? op.compactionId : `compact-${++this.sequence}`,
+          mode: op.op === "cleanup.compact" ? op.mode : "incremental",
+          state: op.op === "cleanup.compact" ? "complete" : "abandoned",
+          fullRequired: false,
+          databaseBytesBefore: 0,
+          databaseBytes: 0,
+          reclaimableDatabaseBytes: 0,
+          checkpointed: true,
+        },
+      };
     } else {
       const saved = this.plans.get(op.planId);
       if (!saved || saved.owner !== device)

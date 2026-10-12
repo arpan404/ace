@@ -113,6 +113,23 @@ export const StorageApply = z.object({
     .max(256),
 });
 export type StorageApply = z.infer<typeof StorageApply>;
+/** Incremental reuses SQLite's free pages; full rebuilds the file and needs confirmation. */
+export const StorageCompactionMode = z.enum(["incremental", "full"]);
+export type StorageCompactionMode = z.infer<typeof StorageCompactionMode>;
+export const StorageCompaction = z.object({
+  id,
+  mode: StorageCompactionMode,
+  /** Interrupted full rebuilds wait for a new confirmation or an explicit abandon. */
+  state: z.enum(["complete", "pending", "interrupted", "abandoned"]),
+  /** The file predates incremental vacuum; only a confirmed full rebuild can shrink it. */
+  fullRequired: z.boolean(),
+  databaseBytesBefore: bytes,
+  databaseBytes: bytes,
+  reclaimableDatabaseBytes: bytes,
+  /** False when a reader kept the WAL from being truncated. */
+  checkpointed: z.boolean(),
+});
+export type StorageCompaction = z.infer<typeof StorageCompaction>;
 export const StorageRequest = z.object({
   type: z.literal("storage.request"),
   requestId: z.string().min(1).max(128),
@@ -130,6 +147,12 @@ export const StorageRequest = z.object({
       revision: StoragePlan.shape.revision,
     }),
     z.object({ op: z.literal("cleanup.status"), planId: id }),
+    z.object({
+      op: z.literal("cleanup.compact"),
+      mode: StorageCompactionMode.default("incremental"),
+      confirm: z.boolean().default(false),
+    }),
+    z.object({ op: z.literal("cleanup.compactAbandon"), compactionId: id }),
   ]),
 });
 export type StorageRequest = z.infer<typeof StorageRequest>;
@@ -140,6 +163,7 @@ export const StorageResult = z.object({
     z.object({ kind: z.literal("usage"), usage: StorageUsage }),
     z.object({ kind: z.literal("plan"), plan: StoragePlan }),
     z.object({ kind: z.literal("apply"), apply: StorageApply }),
+    z.object({ kind: z.literal("compaction"), compaction: StorageCompaction }),
     z.object({
       kind: z.literal("error"),
       code: z.enum(["forbidden", "busy", "not_found", "invalid_request", "unavailable"]),

@@ -59,6 +59,22 @@
         },
         {
           "properties": {
+            "compaction": {
+              "$ref": "https://ace.local/protocol/v1/StorageCompaction.json"
+            },
+            "kind": {
+              "const": "compaction",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "compaction"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "code": {
               "enum": [
                 "forbidden",
