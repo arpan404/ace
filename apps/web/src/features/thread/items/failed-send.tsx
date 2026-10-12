@@ -1,4 +1,6 @@
-import { useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
+import { TimeContext } from "@/lib/time.ts";
+import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
 import { tokensFromInput } from "@ace/ui-core";
 import type { PendingSend } from "@ace/client";
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
@@ -12,7 +14,15 @@ import { useLayout } from "@/lib/layout.tsx";
 import { dismissSend } from "../composer/dismissed-sends.ts";
 import { draftOf, restoreReturnedDraft, type SendPayload } from "../composer/returned-draft.ts";
 import { returnDraft, saveOpenDraft, leasable } from "../composer/send-store.ts";
-import { canRetry, retryStaged, unstage, type StagedSend } from "../composer/staged-sends.ts";
+import {
+  canRetry,
+  hasLocalStaged,
+  isInterrupted,
+  removeStagedUpload,
+  retryStaged,
+  unstage,
+  type StagedSend,
+} from "../composer/staged-sends.ts";
 import { useThreadSources } from "../sources/index.ts";
 import { commandOf } from "./pending-sends.ts";
 
@@ -167,9 +177,9 @@ export function useSendActions(threadId: string) {
 
 /**
  * A message held for its uploads that can't go as it is (a file didn't upload, or the page
- * closed mid-upload): "Not sent" with why, Retry where this page still has the files (it
- * uploads them again, then sends under the same id), and Edit, which gives the text, the
- * files the daemon holds and the picks back to the composer.
+ * closed mid-upload). Interrupted uploads offer only Remove. Ordinary failures offer Retry
+ * and Edit only while this page still holds their files; a ready failed save can retry its
+ * durable payload after reload.
  */
 export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
   const { staged } = props;
@@ -178,14 +188,19 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
   const sources = useThreadSources();
   const meta = useThreadMeta(leasable(props.threadId));
   const { storage } = useLayout();
+  const time = useContext(TimeContext);
   const inFlight = useRef(false);
   const [editing, setEditing] = useState(false);
   const retry = () => {
-    if (!meta || inFlight.current) return;
+    if (!meta || inFlight.current || isInterrupted(staged, time.read())) return;
     inFlight.current = true;
     const thread = { id: props.threadId, workspaceId: meta.workspaceId, title: meta.title };
-    void retryStaged(client, staged.commandId, (file) =>
-      sources.context.upload(thread, file, () => {}),
+    void retryStaged(
+      client,
+      staged.commandId,
+      (file) => sources.context.upload(thread, file, () => {}),
+      uploadClock(time.read),
+      storage,
     )
       .then((sent) => {
         if (!sent) toast.error({ title: "It still didn't go", description: "It is still here." });
@@ -195,6 +210,7 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
       });
   };
   const edit = () => {
+    if (!hasLocalStaged(staged.commandId) || isInterrupted(staged, time.read())) return;
     const draft = {
       text: staged.text,
       tokens: staged.input ? tokensFromInput(staged.input).tokens : [],
@@ -221,19 +237,36 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
     }
     dismissSend(storage, staged.commandId);
   };
+  const remove = () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    void removeStagedUpload(client, staged.commandId, storage, uploadClock(time.read))
+      .then((removed) => {
+        if (!removed)
+          toast.error({ title: "Couldn't remove the message", description: "It is still here." });
+      })
+      .finally(() => {
+        inFlight.current = false;
+      });
+  };
   return (
     <div role="alert" className="mt-[5px] flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-      <NotSent reason={staged.failed} />
+      <NotSent reason={staged.uploadInterrupted ? "Upload interrupted" : staged.failed} />
       <span className="flex gap-1">
-        {!editing && canRetry(staged) && (
+        {!staged.uploadInterrupted && !editing && canRetry(staged) && (
           <Button size="sm" variant="ghost" onClick={retry}>
             <Icon icon={ArrowClockwiseIcon} size={12} />
             Retry
           </Button>
         )}
-        <Button size="sm" variant="ghost" onClick={edit}>
-          <Icon icon={PencilSimpleIcon} size={12} />
-          {editing ? "Save edit" : "Edit"}
+        {!staged.uploadInterrupted && hasLocalStaged(staged.commandId) && (
+          <Button size="sm" variant="ghost" onClick={edit}>
+            <Icon icon={PencilSimpleIcon} size={12} />
+            {editing ? "Save edit" : "Edit"}
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" onClick={remove}>
+          Remove
         </Button>
       </span>
     </div>
@@ -245,7 +278,7 @@ export function NotSent(props: { reason: string | undefined }) {
   return (
     <p className="flex min-w-0 items-center gap-1 text-xs text-status-failed">
       <Icon icon={WarningIcon} size={12} />
-      <span className="font-medium">Not sent</span>
+      <span className="shrink-0 whitespace-nowrap font-medium">Not sent</span>
       {props.reason && <span className="text-muted-foreground">· {props.reason}</span>}
     </p>
   );

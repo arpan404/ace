@@ -1,19 +1,20 @@
 import type { PendingSend, ThreadKey, ThreadReader } from "@ace/client";
-import { arrayEqual, useThread, usePendingSends } from "@ace/client-react";
+import { arrayEqual, useThread, usePendingSends, useClient } from "@ace/client-react";
 import type { QueuePage } from "@ace/protocol";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { useLayout } from "@/lib/layout.tsx";
+import { useSeconds } from "@/lib/time.ts";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { dismissedSends, loadDismissed } from "../composer/dismissed-sends.ts";
 import {
-  interrupted,
-  liveOwners,
-  pageId,
+  drainStaged,
+  isInterrupted,
   stagedSends,
   unstage,
   withPreviews,
   type StagedSend,
 } from "../composer/staged-sends.ts";
+import { uploadPending } from "../composer/upload-interruption.ts";
 import type { Block } from "../transcript/blocks.ts";
 
 /*
@@ -99,6 +100,7 @@ export function useQueuedCommands(threadId: string): ReadonlySet<string> {
  * page that has since closed (its uploads died with it) reads as failed, with why.
  */
 export function useStaged(threadId: string): readonly StagedSend[] {
+  const client = useClient();
   const { storage } = useLayout();
   const store = stagedSends(storage);
   const all = useSyncExternalStore(store.subscribe, store.get, store.get);
@@ -129,19 +131,12 @@ export function useStaged(threadId: string): readonly StagedSend[] {
         unstage(send.commandId, true);
     }
   }, [here, outbox, owned]);
-  // Other pages' holds: alive while their pages hold their locks.
-  const others = here.some((send) => send.owner !== pageId && !send.failed);
-  const [live, setLive] = useState<ReadonlySet<string>>();
   useEffect(() => {
-    if (!others) return;
-    let current = true;
-    void liveOwners().then((owners) => {
-      if (current) setLive(owners ?? new Set(here.map((send) => send.owner)));
-    });
-    return () => {
-      current = false;
-    };
-  }, [others, here]);
+    if (!here.some((send) => !owned.has(send.commandId) && outbox.get(send.commandId) !== "saving"))
+      return;
+    void drainStaged(client, threadId);
+  }, [client, threadId, here, outbox, owned]);
+  const now = useSeconds(here.some(uploadPending));
   return useMemo(
     () =>
       here
@@ -150,12 +145,11 @@ export function useStaged(threadId: string): readonly StagedSend[] {
             !owned.has(send.commandId) &&
             (!outbox.has(send.commandId) || outbox.get(send.commandId) === "failed"),
         )
-        .map((send) => {
-          const shown = withPreviews(send);
-          const gone = send.owner !== pageId && !send.failed && live && !live.has(send.owner);
-          return gone ? Object.assign({}, shown, { failed: interrupted(send) }) : shown;
+        .map((send, index) => {
+          const shown = Object.assign({}, withPreviews(send), { waitingForEarlier: index > 0 });
+          return Object.assign({}, shown, { uploadInterrupted: isInterrupted(send, now) });
         }),
-    [here, live, outbox, owned],
+    [here, outbox, owned, now],
   );
 }
 

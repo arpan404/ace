@@ -6,12 +6,15 @@ import { Observable } from "./observable.ts";
 const Metadata = z.object({
   commandId: z.string(),
   threadId: z.string(),
-  owner: z.string(),
+  preparing: z.optional(z.boolean()),
+  uploadStartedAt: z.optional(z.number().check(z.int(), z.gte(0), z.lte(Number.MAX_SAFE_INTEGER))),
+  uploadInterrupted: z.optional(z.boolean()),
   failed: z.optional(z.string()),
+  submissionOrder: z.optional(z.number().check(z.int(), z.gte(0), z.lte(Number.MAX_SAFE_INTEGER))),
 });
 type Metadata = z.infer<typeof Metadata>;
 interface HeldRecord extends Metadata {
-  /** Kept raw until the staged-send owner validates the full message for rendering or retry. */
+  /** Kept raw until the composer validates the full message for rendering or retry. */
   value: unknown;
 }
 const limit = 32;
@@ -20,17 +23,15 @@ const all = new Observable<readonly HeldRecord[]>([]);
 let storage: KeyValueStorage | undefined;
 let loaded = false;
 // Settled uploads that storage refused still belong to this live page. The durable original
-// remains untouched; refreshes retain this overlay only while its original owner still holds it.
-const retained = new Map<string, { owner: string; record: HeldRecord }>();
-
-export let pageId: string = crypto.randomUUID();
-const ownerLock = (owner: string) => `ace-staged-${owner}`;
-let holdingLock = false;
+// remains untouched; an external durable change invalidates the local overlay.
+const retained = new Map<string, { original: string; record: HeldRecord }>();
 
 function entries(values: readonly unknown[]): readonly HeldRecord[] {
-  return values.flatMap((value) => {
+  return values.flatMap((value, index) => {
     const metadata = Metadata.safeParse(value);
-    return metadata.success ? [{ ...metadata.data, value }] : [];
+    return metadata.success
+      ? [{ ...metadata.data, submissionOrder: metadata.data.submissionOrder ?? index, value }]
+      : [];
   });
 }
 function read(): readonly HeldRecord[] {
@@ -43,12 +44,14 @@ function read(): readonly HeldRecord[] {
       if (record !== undefined) values.push(record);
     }
   }
-  return entries(values);
+  return entries(values).toSorted((a, b) => (a.submissionOrder ?? 0) - (b.submissionOrder ?? 0));
 }
 function view(): readonly HeldRecord[] {
   const durable = read();
-  const owners = new Map(durable.map((record) => [record.commandId, record.owner]));
-  for (const [id, local] of retained) if (owners.get(id) !== local.owner) retained.delete(id);
+  const originals = new Map(
+    durable.map((record) => [record.commandId, JSON.stringify(record.value)]),
+  );
+  for (const [id, local] of retained) if (originals.get(id) !== local.original) retained.delete(id);
   return durable.map((record) => retained.get(record.commandId)?.record ?? record);
 }
 
@@ -57,7 +60,7 @@ export function retainHeldSend(value: Metadata, settled: unknown): void {
   const original = read().find((record) => record.commandId === value.commandId);
   if (!original) return;
   retained.set(value.commandId, {
-    owner: original.owner,
+    original: JSON.stringify(original.value),
     record: { ...value, value: settled },
   });
   all.set(view());
@@ -78,7 +81,7 @@ export function heldSendStore(store: KeyValueStorage | undefined): typeof all {
   return all;
 }
 
-/** Read durable ownership before a mutation, without relying on asynchronous storage events. */
+/** Read durable records before a mutation, without relying on asynchronous storage events. */
 export function refreshHeldSends(): void {
   all.set(view());
 }
@@ -90,7 +93,13 @@ export function saveHeldSend(value: Metadata, persisted: unknown): boolean {
     const current = read();
     if (current.length >= limit && !current.some((entry) => entry.commandId === value.commandId))
       return false;
-    storage.setItem(prefix + value.commandId, JSON.stringify(persisted));
+    if (typeof persisted !== "object" || persisted === null || Array.isArray(persisted))
+      return false;
+    const submissionOrder =
+      current.find((entry) => entry.commandId === value.commandId)?.submissionOrder ??
+      Math.max(-1, ...current.map((entry) => entry.submissionOrder ?? 0)) + 1;
+    if (!Metadata.safeParse({ ...value, submissionOrder }).success) return false;
+    storage.setItem(prefix + value.commandId, JSON.stringify({ ...persisted, submissionOrder }));
     retained.delete(value.commandId);
     all.set(view());
     return true;
@@ -111,30 +120,11 @@ export function deleteHeldSend(commandId: string): boolean {
   }
 }
 
-export function holdPageLock(): void {
-  if (!holdingLock && typeof navigator === "object" && "locks" in navigator) {
-    holdingLock = true;
-    void navigator.locks.request(ownerLock(pageId), () => new Promise<void>(() => {}));
-  }
-}
-
-export async function liveOwners(): Promise<ReadonlySet<string> | undefined> {
-  if (typeof navigator !== "object" || !("locks" in navigator)) return undefined;
-  const state = await navigator.locks.query();
-  return new Set(
-    (state.held ?? []).flatMap((lock) =>
-      lock.name?.startsWith("ace-staged-") ? [lock.name.slice("ace-staged-".length)] : [],
-    ),
-  );
-}
-
-/** Reload releases the page's views and lock; persisted holds remain owned by this store. */
+/** Reload releases the page's views; persisted holds remain owned by this store. */
 export function reloadHeldStore(): void {
   if (typeof removeEventListener === "function") removeEventListener("storage", changed);
   storage = undefined;
   loaded = false;
   retained.clear();
   all.seed([]);
-  holdingLock = false;
-  pageId = crypto.randomUUID();
 }

@@ -1,6 +1,6 @@
 import { useIssueSource, usePrSource } from "@/features/forge/index.ts";
 import { useNavigate } from "@tanstack/react-router";
-import { PastSessions } from "@/features/history/index.ts";
+import { ProjectPastSessions } from "@/features/history/index.ts";
 import { ProjectPicker } from "./project-picker.tsx";
 import type { BranchRef, PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
 import { Suspense, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
@@ -541,7 +541,7 @@ function PreparationPage(props: {
       serviceTier: resolved.fast ? resolved.model.fastTier : speedOffTier(resolved.model),
       permission: chosen,
       input: draft.input,
-      text: draft.text.trim() || "See the attached files.",
+      text: draft.text,
       context: {
         ...(draftId ? { draftId } : {}),
         items: draft.threadRefs,
@@ -717,15 +717,6 @@ function PreparationPage(props: {
               environment={
                 <Suspense fallback={null}>
                   <DeferredEnvironment.Component
-                    projectControl={
-                      <ProjectPicker
-                        labelPrefix="Setup project"
-                        projects={projects}
-                        projectName={name}
-                        project={project}
-                        onProject={chooseProject}
-                      />
-                    }
                     pullRequest={
                       props.pullRequest
                         ? {
@@ -801,7 +792,7 @@ function PreparationPage(props: {
               </p>
             )}
             <SignInNotice provider={provider} />
-            <PastSessions />
+            <ProjectPastSessions projectId={project} />
             {(saveFailed || preparationSaveFailed(storage, draftKey)) && (
               <div role="alert" className="mt-3 px-2 text-ui text-status-failed">
                 <p>

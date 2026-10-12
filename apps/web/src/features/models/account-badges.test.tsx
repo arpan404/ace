@@ -48,16 +48,25 @@ test("a single account omits an unnecessary picker badge and keeps its composer 
     selected: true,
   });
   expect(within(personal).queryByRole("img", { name: "Personal account" })).toBeNull();
-  expect(
-    within(screen.getByRole("button", { name: /^Model: Opus 5.5, Personal/ })).queryByRole("img", {
-      name: "Personal account",
-    }),
-  ).toBeNull();
+  const selector = screen.getByRole("button", { name: /^Model: Opus 5.5, Personal/ });
+  expect(within(selector).getByRole("img", { name: "Claude Code · Personal" }).textContent).toBe(
+    "",
+  );
   expect(
     within(await screen.findByRole("link", { name: /Replay cursor resets/ })).queryByTitle(
       "Personal account",
     ),
   ).toBeNull();
+  await closeModelControl();
+});
+
+test("the composer shows a separate account marker only when the provider has multiple accounts", async () => {
+  const app = harness();
+  await open(app);
+  const selector = screen.getByRole("button", { name: /^Model: Opus 5.5, Personal/ });
+  expect(within(selector).getByRole("img", { name: "Claude Code · Personal" }).textContent).toBe(
+    "P",
+  );
   await closeModelControl();
 });
 

@@ -49,3 +49,12 @@ test("recent values move to the front without repeats", () => {
   expect(touchRecent(["a", "b", "c"], "c", 3)).toEqual(["c", "a", "b"]);
   expect(touchRecent(["a", "b", "c"], "d", 3)).toEqual(["d", "a", "b"]);
 });
+
+test("all 64 admitted attachments survive saving and reopening an attachment-only draft", () => {
+  const attachments = Array.from({ length: 64 }, (_, index) => ({
+    sha256: String(index),
+    name: `file-${index}.txt`,
+  }));
+  const entries = putDraft([], "thread-files", draft("", { attachments }));
+  expect(findDraft(entries, "thread-files")?.attachments).toEqual(attachments);
+});

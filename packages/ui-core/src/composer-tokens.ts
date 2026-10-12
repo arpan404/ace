@@ -47,7 +47,7 @@ export function composerInput(text: string, tokens: readonly ComposerToken[]): C
     at = token.end;
   }
   if (at < text.length) parts.push({ type: "text", text: text.slice(at) });
-  return parts.length ? parts : [{ type: "text", text: text || "See the attached files." }];
+  return parts.length ? parts : [{ type: "text", text }];
 }
 
 /** Recover references when editing a failed send. */

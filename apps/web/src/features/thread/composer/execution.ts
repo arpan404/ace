@@ -1,4 +1,4 @@
-import type { ExecutionOptions, Thread } from "@ace/protocol";
+import type { ExecutionOptions, Thread, TurnOptions } from "@ace/protocol";
 
 /** What a thread runs on: a switch waiting for its next turn, else what it runs on now. */
 export function runsOn(meta: Thread | undefined) {
@@ -35,4 +35,17 @@ export function selectionIdentity(selection: ReturnType<typeof runsOn>): string 
 export interface PendingTurn {
   identity: string;
   options: ExecutionOptions;
+}
+
+/** Unchanged options inherit the running selection without becoming a next-turn request. */
+export function changedTurnOptions(
+  picked: TurnOptions | undefined,
+  current: ExecutionOptions,
+): TurnOptions | undefined {
+  return picked &&
+    [...new Set([...Object.keys(picked), ...Object.keys(current)])].some(
+      (key) => picked[key] !== current[key],
+    )
+    ? picked
+    : undefined;
 }

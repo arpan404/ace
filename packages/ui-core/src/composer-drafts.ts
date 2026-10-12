@@ -13,7 +13,7 @@ export interface ComposerDraft {
 export type DraftEntries = readonly (readonly [key: string, draft: ComposerDraft])[];
 
 /** How many unsent drafts a device keeps, and how long one may be. */
-export const draftLimits = { drafts: 50, chars: 100_000, attachments: 32 } as const;
+export const draftLimits = { drafts: 50, chars: 100_000, attachments: 64 } as const;
 
 export function isEmptyDraft(draft: ComposerDraft | undefined): boolean {
   return !draft || (!draft.text.trim() && !draft.attachments.length);

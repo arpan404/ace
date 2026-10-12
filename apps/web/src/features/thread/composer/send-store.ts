@@ -21,6 +21,12 @@ import type { ContentPart, MessageContext, TurnOptions } from "@ace/protocol";
 export interface StagedSend {
   commandId: string;
   threadId: string;
+  /** Durable order within this device's held-send store. */
+  submissionOrder?: number | undefined;
+  /** Outcomes are still being prepared, including an in-flight Retry. */
+  preparing?: boolean | undefined;
+  uploadStartedAt?: number | undefined;
+  uploadInterrupted?: boolean | undefined;
   text: string;
   mentions: string[];
   input?: ContentPart[] | undefined;
@@ -29,9 +35,10 @@ export interface StagedSend {
   options?: TurnOptions | undefined;
   delivery?: "steer" | "queue" | undefined;
   /** The page uploading its files; another page can't finish them. */
-  owner: string;
   /** Why it can't go as it is, in words; undefined while its files upload. */
   failed?: string | undefined;
+  /** View-only: a predecessor still owns this submission's place. */
+  waitingForEarlier?: boolean | undefined;
 }
 
 /*

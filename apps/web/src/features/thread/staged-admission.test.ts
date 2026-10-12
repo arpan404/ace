@@ -1,7 +1,7 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import { Client } from "@ace/client";
-import { DeviceId } from "@ace/protocol";
-import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
+import { DeviceId, ThreadId } from "@ace/protocol";
+import { FakeDaemon, fakeTransport, facts } from "@ace/fake-daemon";
 import { memoryStorage } from "@/boot/client.ts";
 
 function harness() {
@@ -31,7 +31,7 @@ function harness() {
     random: () => 0.5,
     id: () => `send-${++id}`,
   });
-  return { client, storage };
+  return { client, storage, daemon };
 }
 import { sendMessage } from "./composer/send-message.ts";
 import {
@@ -42,9 +42,11 @@ import {
   stage,
   canRetry,
   retryStaged,
-  interrupted,
+  isInterrupted,
+  removeStagedUpload,
 } from "./composer/staged-sends.ts";
 import type { Draft } from "./composer/draft.ts";
+import { daemonContextSource } from "./sources/context-source.ts";
 
 beforeEach(() => resetStaged());
 
@@ -85,12 +87,13 @@ test("a full device refuses another upload-held message without losing accepted 
   const retained = stagedSends(app.storage).get();
   expect(retained).toHaveLength(32);
   expect(retained.find((entry) => entry.commandId === "held-0")?.text).toBe("Message 0");
-  await sendWhenUploaded(app.client, "held-0", Promise.resolve([{ error: "offline" }]));
+  const original = retained.find((entry) => entry.commandId === "held-0");
+  if (!original) throw new Error("Missing accepted message");
+  expect(isInterrupted(original, 1000)).toBe(true);
   expect(
-    stagedSends(app.storage)
-      .get()
-      .find((entry) => entry.commandId === "held-0")?.failed,
-  ).toContain("offline");
+    await sendWhenUploaded(app.client, "held-0", Promise.resolve([{ error: "offline" }])),
+  ).toBe(false);
+  expect(app.client.pendingSends().getSnapshot()).toEqual([]);
   await app.client.close();
 });
 
@@ -144,56 +147,59 @@ const makeStaged = (commandId: string, text: string) => ({
   attachments: [{ name: "notes.txt", mimeType: "text/plain", bytes: 4 }],
 });
 
-test("two initialized tabs retain both uploads and one tab's removal cannot erase the other's draft", async () => {
+test("two tabs removing the same interrupted submission release its successor only once", async () => {
   localStorage.clear();
   const app = harness();
+  app.daemon.createThread({
+    id: "thread-a",
+    workspaceId: "ace",
+    title: "Remove interrupted upload",
+    provider: "codex",
+  });
+  app.daemon.apply("thread-a", [facts.rootAgent("codex"), facts.turn("root")]);
   await app.client.start();
   vi.resetModules();
   const first = await import("./composer/staged-sends.ts");
   first.stagedSends(localStorage);
+  expect(
+    first.stage(makeStaged("alpha", "Alpha"), { files: [], previews: [] }, { now: () => 1000 }),
+  ).toBe(true);
+  expect(
+    first.stage({ ...makeStaged("beta", "Beta"), attachments: [] }, { files: [], previews: [] }),
+  ).toBe(true);
+  first.reloadPage();
+  first.stagedSends(localStorage);
   vi.resetModules();
   const second = await import("./composer/staged-sends.ts");
   second.stagedSends(localStorage);
-  expect(first.stage(makeStaged("alpha", "Alpha"), { files: [], previews: [] })).toBe(true);
-  expect(second.stage(makeStaged("beta", "Beta"), { files: [], previews: [] })).toBe(true);
-  // Neither page has received a storage event. A reload reads only durable records.
-  first.reloadPage();
   expect(
-    first
-      .stagedSends(localStorage)
-      .get()
-      .map((send) => send.text)
-      .toSorted(),
-  ).toEqual(["Alpha", "Beta"]);
+    await Promise.all([
+      first.removeStagedUpload(app.client, "alpha", localStorage, { now: () => 1000 }),
+      second.removeStagedUpload(app.client, "alpha", localStorage, { now: () => 1000 }),
+    ]),
+  ).toEqual([true, true]);
+  expect(await second.removeStagedUpload(app.client, "alpha", localStorage)).toBe(true);
+  expect(
+    app.client
+      .pendingSends()
+      .getSnapshot()
+      .map((send) => send.payload.input),
+  ).toEqual([[{ type: "text", text: "Beta" }]]);
   expect(
     await first.sendWhenUploaded(
       app.client,
       "alpha",
       Promise.resolve([{ sha256: "a".repeat(64) }]),
     ),
-  ).toBe(true);
-  expect(second.stage(makeStaged("gamma", "Gamma"), { files: [], previews: [] })).toBe(true);
-  expect(
-    await second.sendWhenUploaded(
-      app.client,
-      "beta",
-      Promise.resolve([{ sha256: "b".repeat(64) }]),
-    ),
-  ).toBe(true);
-  expect(
-    app.client
-      .pendingSends()
-      .getSnapshot()
-      .map((send) => send.payload.input),
-  ).toEqual([[{ type: "text", text: "Alpha" }], [{ type: "text", text: "Beta" }]]);
+  ).toBe(false);
+  expect(app.client.pendingSends().getSnapshot()).toHaveLength(1);
+  const { queue } = await app.client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse("thread-a"),
+  });
+  expect(queue.messages.map((send) => send.input)).toEqual([[{ type: "text", text: "Beta" }]]);
   first.reloadPage();
-  expect(
-    first
-      .stagedSends(localStorage)
-      .get()
-      .map((send) => send.text),
-  ).toEqual(["Gamma"]);
-  first.reloadPage();
+  expect(first.stagedSends(localStorage).get()).toEqual([]);
   second.reloadPage();
   localStorage.clear();
   await app.client.close();
@@ -252,7 +258,7 @@ test("completion write failures preserve the durable original and completed hash
   await app.client.close();
 });
 
-test("closing after a completion write refusal leaves the original message available to edit", async () => {
+test("closing after a completion write refusal keeps the original message interrupted", async () => {
   const app = harness();
   let full = false;
   const storage = {
@@ -279,6 +285,49 @@ test("closing after a completion write refusal leaves the original message avail
   expect(retained?.text).toBe("Keep this original");
   if (!retained) throw new Error("accepted message disappeared");
   expect(canRetry(retained)).toBe(false);
-  expect(interrupted(retained)).toContain("The page closed before notes.txt finished uploading");
+  expect(isInterrupted(retained, 1000)).toBe(true);
+  await app.client.close();
+});
+
+test("removing an unfinished upload cleans its late attachment while keeping its successor's file", async () => {
+  const app = harness();
+  const thread = { id: "thread-a", workspaceId: "ace", title: "Remove interrupted upload" };
+  app.daemon.createThread({ ...thread, provider: "codex" });
+  app.daemon.apply(thread.id, [facts.rootAgent("codex"), facts.turn("root")]);
+  await app.client.start();
+  const context = daemonContextSource(app.client);
+  const alpha = await context.upload(
+    thread,
+    new File(["alpha"], "alpha.txt", { type: "text/plain" }),
+    () => {},
+  );
+  const beta = await context.upload(
+    thread,
+    new File(["beta"], "beta.txt", { type: "text/plain" }),
+    () => {},
+  );
+  stagedSends(app.storage);
+  expect(
+    stage(
+      { ...makeStaged("alpha", "Alpha"), uploadInterrupted: true },
+      { files: [], previews: [] },
+    ),
+  ).toBe(true);
+  const outcomes = Promise.withResolvers<readonly { sha256: string }[]>();
+  const sending = sendWhenUploaded(app.client, "alpha", outcomes.promise, app.storage);
+  expect(
+    stage({ ...makeStaged("beta", "Beta"), attachments: [beta] }, { files: [], previews: [] }),
+  ).toBe(true);
+  expect(await removeStagedUpload(app.client, "alpha", app.storage)).toBe(true);
+  outcomes.resolve([{ sha256: alpha.sha256 }]);
+  expect(await sending).toBe(false);
+  expect(await removeStagedUpload(app.client, "alpha", app.storage)).toBe(true);
+  const { queue } = await app.client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse(thread.id),
+  });
+  expect(queue.messages.map((send) => send.input)).toEqual([[{ type: "text", text: "Beta" }]]);
+  expect(queue.messages[0]?.context?.attachments).toEqual([{ sha256: beta.sha256 }]);
+  expect((await context.list(thread)).map((file) => file.sha256)).toEqual([beta.sha256]);
   await app.client.close();
 });

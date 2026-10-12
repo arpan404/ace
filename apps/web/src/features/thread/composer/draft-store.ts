@@ -39,7 +39,40 @@ const recentPerProject = 6;
 const recentProjects = 16;
 const isPreparation = (id: string) => id.startsWith("new:[");
 
+// Quota refusals keep the latest copy for this page, including across composer unmounts.
+// Keys stay isolated by storage boundary so one host or test cannot recover another's draft.
+const retained = new WeakMap<KeyValueStorage, Map<string, ComposerDraft | undefined>>();
+const withoutStorage = new Map<string, ComposerDraft | undefined>();
+function recovery(storage: KeyValueStorage | undefined) {
+  return storage ? retained.get(storage) : withoutStorage;
+}
+function retain(
+  storage: KeyValueStorage | undefined,
+  key: string,
+  draft: ComposerDraft | undefined,
+) {
+  let drafts = recovery(storage);
+  if (!drafts) {
+    drafts = new Map();
+    if (storage) retained.set(storage, drafts);
+  }
+  drafts.set(key, findDraft(putDraft([], key, draft), key));
+}
+export function draftSaveFailed(storage: KeyValueStorage | undefined, key: string): boolean {
+  return recovery(storage)?.has(key) ?? false;
+}
+
 export function readDraft(
+  storage: KeyValueStorage | undefined,
+  key: string,
+): ComposerDraft | undefined {
+  const held = recovery(storage);
+  if (held?.has(key)) return held.get(key);
+  return readDurableDraft(storage, key);
+}
+
+/** External change detection must see the other tab's saved version, not this page's recovery. */
+export function readDurableDraft(
   storage: KeyValueStorage | undefined,
   key: string,
 ): ComposerDraft | undefined {
@@ -61,11 +94,16 @@ export function writeDraft(
   const next = isPreparation(key)
     ? [...transient, ...putDraft(protectedDrafts, key, draft)]
     : [...putDraft(transient, key, draft), ...protectedDrafts];
-  if (!storage || storage.durable === false) return false;
+  if (!storage || storage.durable === false) {
+    retain(storage, key, draft);
+    return false;
+  }
   try {
     storage.setItem(draftsKey, JSON.stringify(next));
+    recovery(storage)?.delete(key);
     return true;
   } catch {
+    retain(storage, key, draft);
     return false;
   }
 }
@@ -92,15 +130,15 @@ export function writeDraftJson(
   storage: KeyValueStorage | undefined,
   key: string,
   json: string,
-): void {
+): boolean {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
   } catch {
-    return;
+    return false;
   }
   const draft = ComposerDraftSchema.safeParse(parsed);
-  if (draft.success) writeDraft(storage, key, draft.data);
+  return draft.success && writeDraft(storage, key, draft.data);
 }
 
 /** Files mentioned lately in a project, most recent first. */

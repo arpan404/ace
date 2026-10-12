@@ -100,6 +100,7 @@ test("a dropped folder attaches its first 50 files, skipping hidden ones, and sa
     ),
   ).toBeTruthy();
   const chips = await screen.findByRole("list", { name: "Attachments" });
+  fireEvent.click(await screen.findByRole("button", { name: "Show 42 more attachments" }));
   await waitFor(() =>
     expect(within(chips).getAllByRole("button", { name: /^Preview / })).toHaveLength(50),
   );

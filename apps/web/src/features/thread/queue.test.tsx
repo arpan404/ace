@@ -4,6 +4,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { openEffortControl, chooseEffort, closeModelControl } from "@/test/model-control.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -662,3 +663,30 @@ test.each([17, 33, 257])(
     }
   },
 );
+
+test("an explicit effort change disables promotion while an ordinary queued follow-up stays steerable", async () => {
+  const { app, message } = await openBusy();
+  await userEvent.type(message, "Ordinary follow-up{Enter}");
+  const ordinary = await screen.findByRole("list", { name: "Queued messages" });
+  await waitFor(() =>
+    expect(
+      within(ordinary).getByRole("button", { name: "Steer" }).getAttribute("aria-disabled"),
+    ).toBe("false"),
+  );
+  const effort = await openEffortControl();
+  await chooseEffort(effort, "{End}");
+  await closeModelControl();
+  await userEvent.type(message, "High effort next turn{Enter}");
+  await within(ordinary).findByText("High effort next turn");
+  const row = within(ordinary)
+    .getAllByRole("listitem")
+    .find((entry) => entry.textContent?.includes("High effort next turn"));
+  if (!row) throw new Error("Missing selected follow-up");
+  await waitFor(() =>
+    expect(
+      within(row).getByRole("button", { name: "Steer" }).getAttribute("aria-description"),
+    ).toBe("This message changes model or turn options and must wait for the next turn."),
+  );
+  await userEvent.click(within(row).getByRole("button", { name: "Steer" }));
+  expect(await daemonQueue(app)).toEqual(["Ordinary follow-up", "High effort next turn"]);
+});

@@ -46,7 +46,7 @@ export function AgentComposer(props: {
     const payload: Send = {
       type: "thread.send",
       threadId: ThreadId.parse(props.target),
-      input: draft.input ?? [{ type: "text", text: draft.text || "See the attached files." }],
+      input: draft.input ?? [{ type: "text", text: draft.text }],
       context: {
         items: draft.threadRefs,
         mentions: draft.mentions,

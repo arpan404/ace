@@ -105,7 +105,10 @@ export function queueCommand(
         ...message,
         input: [...payload.input],
         context: payload.context,
-        delivery: payload.delivery ?? message.delivery,
+        delivery:
+          message.model !== undefined || message.options !== undefined
+            ? "queue"
+            : (payload.delivery ?? message.delivery),
         text: inputText(payload.input, payload.context),
       };
       // Steering a waiting message delivers it into the running turn now.
@@ -215,8 +218,21 @@ export function queuePage(
     next: start + limit < host.queued.length ? (slice.at(-1)?.key ?? null) : null,
     messages: slice.map((m) =>
       m.context
-        ? { id: m.key, input: m.input, context: m.context, delivery: m.delivery, state: m.state }
-        : { id: m.key, input: m.input, delivery: m.delivery, state: m.state },
+        ? {
+            id: m.key,
+            input: m.input,
+            context: m.context,
+            delivery: m.delivery,
+            state: m.state,
+            requiresNextTurn: m.model !== undefined || m.options !== undefined || undefined,
+          }
+        : {
+            id: m.key,
+            input: m.input,
+            delivery: m.delivery,
+            state: m.state,
+            requiresNextTurn: m.model !== undefined || m.options !== undefined || undefined,
+          },
     ),
   });
 }

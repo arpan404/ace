@@ -50,3 +50,7 @@ test("deleting one reference leaves the other invocable and editing its name tur
     composerInput("Use then recheck.", editComposerTokens(text, "Use then recheck.", tokens)),
   ).toEqual([{ type: "text", text: "Use then recheck." }]);
 });
+
+test("an attachment-only draft preserves empty text instead of inventing a prompt", () => {
+  expect(composerInput("", [])).toEqual([{ type: "text", text: "" }]);
+});

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { hasNextTurnSelection } from "./input-delivery.ts";
 import type { StatementSync } from "node:sqlite";
 import {
   Command,
@@ -185,6 +186,7 @@ export class QueueStore {
     return QueuedMessage.parse({
       id: command.id,
       input: p.input,
+      requiresNextTurn: hasNextTurnSelection(p) || undefined,
       context: p.context,
       delivery: p.type === "thread.send" ? (p.delivery ?? "queue") : "queue",
       state: uncertain === 1 ? "uncertain" : "queued",
