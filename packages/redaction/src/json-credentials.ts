@@ -103,7 +103,13 @@ export function* jsonCredentialSpans(text: string): Generator<CredentialSpan, un
         : undefined;
     const key =
       proseKey !== undefined && isSecretKey(proseKey) ? proseKey : (canonicalKey ?? proseKey);
-    if (!oversized && key !== undefined && !isSecretKey(key)) continue;
+    // A decoded ordinary suffix cannot vouch for a longer damaged candidate.
+    // Missing openers are not candidates; every present candidate must decode.
+    const damaged =
+      oversized ||
+      (opener >= 0 && canonicalKey === undefined) ||
+      (proseOpener >= 0 && proseKey === undefined);
+    if (!damaged && key !== undefined && !isSecretKey(key)) continue;
     value++;
     while (whitespace(text[value])) value++;
     if (text[value] === '"') {
@@ -121,7 +127,7 @@ export function* jsonCredentialSpans(text: string): Generator<CredentialSpan, un
         while (scalarEnd < text.length && !delimiter(text[scalarEnd] ?? "")) scalarEnd++;
       }
       if (value >= scalarEnd) continue;
-      if (!oversized && key !== undefined && scalarEnd - value <= KEY_UNITS) {
+      if (!damaged && key !== undefined && scalarEnd - value <= KEY_UNITS) {
         try {
           const scalar: unknown = JSON.parse(text.slice(value, scalarEnd));
           if (accountingCounter(key, scalar)) continue;
