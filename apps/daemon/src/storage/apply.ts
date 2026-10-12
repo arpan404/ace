@@ -2,7 +2,7 @@ import { WorktreeRemovalRefused } from "@ace/git";
 import type { StorageApply } from "@ace/protocol";
 import type { StorageOwner } from "./types.ts";
 import type { StorageInventory } from "./inventory.ts";
-import type { StorageJournal, CleanupJournal } from "./journal.ts";
+import type { StorageJournal, CleanupJournal, CompactionJournal } from "./journal.ts";
 import { planStorageItem } from "./planner.ts";
 import { executeStorageItem, fenceStorageItem } from "./executor.ts";
 import { StorageRefusal } from "./refusal.ts";
@@ -118,4 +118,62 @@ export async function applyStorageItems(
   } finally {
     delete owner.cleanupPlanId;
   }
+}
+
+export interface CompactionLimits {
+  /** Free pages released per incremental_vacuum transaction. */
+  chunkPages: number;
+  /** Chunks per run; a larger backlog stays pending for the next resume. */
+  maxChunks: number;
+  /** Yields between chunks so held writers' waits and socket traffic stay bounded. */
+  pause(): Promise<void>;
+}
+
+/**
+ * Journaled compaction under the Store maintenance fence. Each chunk is its own SQLite
+ * transaction and a full VACUUM is atomic, so a kill at any point leaves an intact file
+ * and a running journal entry. Incremental work resumes; a full rebuild never restarts
+ * without a new confirmation.
+ */
+export async function compactStorage(
+  owner: StorageOwner,
+  journal: StorageJournal,
+  state: CompactionJournal,
+  limits: CompactionLimits,
+  allowed: () => boolean,
+): Promise<void> {
+  const save = () => journal.saveCompaction(state);
+  await owner.store.maintenance(async (db) => {
+    const pragma = (sql: string) => Number(Object.values(db.prepare(sql).get() ?? {})[0]);
+    if (state.phase === "vacuum") {
+      if (state.mode === "full") {
+        if (!allowed()) return;
+        // Converts files created before incremental vacuum; takes effect through VACUUM.
+        db.exec("PRAGMA auto_vacuum=INCREMENTAL");
+        await owner.afterCompactionStep?.();
+        db.exec("VACUUM");
+        state.fullRequired = false;
+      } else {
+        state.fullRequired = pragma("PRAGMA auto_vacuum") === 0;
+        for (let chunk = 0; !state.fullRequired && chunk < limits.maxChunks; chunk++) {
+          if (pragma("PRAGMA freelist_count") === 0) break;
+          if (!allowed()) return;
+          db.exec(`PRAGMA incremental_vacuum(${limits.chunkPages})`);
+          state.chunks++;
+          save();
+          await owner.afterCompactionStep?.();
+          await limits.pause();
+        }
+        if (!state.fullRequired && pragma("PRAGMA freelist_count") > 0) return;
+      }
+      state.phase = "checkpoint";
+      save();
+    }
+    const checkpoint = db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get();
+    state.checkpointed = Number(checkpoint?.busy) === 0;
+    state.state = "complete";
+    save();
+    // The journal write above left a frame; truncate again so the WAL ends empty.
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  });
 }

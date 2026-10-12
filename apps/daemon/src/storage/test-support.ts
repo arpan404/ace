@@ -7,11 +7,17 @@ import { Thread, WorkspaceId, type ThreadId } from "@ace/protocol";
 import type { Services } from "../services/types.ts";
 import { Store } from "../store.ts";
 import { StorageService } from "./service.ts";
+import type { CompactionLimits } from "./apply.ts";
+import { message } from "../payload-test-support.ts";
 
 export const storageNow = 200 * 86400000;
 export async function storageFixture(
   directory?: string,
   afterRemove?: (id: string) => Promise<void>,
+  options: {
+    limits?: Partial<CompactionLimits>;
+    afterCompactionStep?: () => Promise<void>;
+  } = {},
 ) {
   const root = directory ?? (await realpath(await mkdtemp(join(tmpdir(), "ace-storage-"))));
   let clock = storageNow,
@@ -33,14 +39,18 @@ export async function storageFixture(
     workspace: () => root,
   });
   const services: Partial<Services> = { context };
-  const storage = new StorageService({
-    root,
-    now,
-    id: () => `plan-${++sequence}`,
-    store,
-    services,
-    ...(afterRemove ? { afterRemove } : {}),
-  });
+  const storage = new StorageService(
+    {
+      root,
+      now,
+      id: () => `plan-${++sequence}`,
+      store,
+      services,
+      ...(afterRemove ? { afterRemove } : {}),
+      ...(options.afterCompactionStep ? { afterCompactionStep: options.afterCompactionStep } : {}),
+    },
+    options.limits,
+  );
   const thread = (id: string, status: Thread["status"] = { state: "done" }) => {
     const t = Thread.parse({
       id,
@@ -74,6 +84,18 @@ export async function storageFixture(
     await context.uploads.handle("owner", { op: "upload.commit", uploadId: begin.uploadId });
     return hash;
   };
+  /** Archived, expired threads with large transcripts, so purging them frees many pages. */
+  const transcripts = (count: number, bytes = 256 * 1024) => {
+    for (let i = 0; i < count; i++) {
+      const t = thread(`bulk-${i}`);
+      for (let part = 0; part < 4; part++)
+        store.appendEvents(
+          t.id,
+          [{ type: "item.created", item: message(`bulk-${i}-${part}`, "x".repeat(bytes / 4)) }],
+          1,
+        );
+    }
+  };
   const file = async (path: string, contents = "old data") => {
     await mkdir(join(root, path, ".."), { recursive: true });
     await writeFile(join(root, path), contents);
@@ -87,6 +109,7 @@ export async function storageFixture(
     services,
     now,
     thread,
+    transcripts,
     upload,
     file,
     advance: (ms: number) => {

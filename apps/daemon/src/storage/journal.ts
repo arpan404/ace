@@ -1,4 +1,4 @@
-import { StoragePlan, type StorageApply } from "@ace/protocol";
+import { StorageCompactionMode, StoragePlan, type StorageApply } from "@ace/protocol";
 import { z } from "zod";
 import type { Store } from "../store.ts";
 import { ReviewedStorageItem } from "./types.ts";
@@ -10,6 +10,18 @@ export const CleanupJournal = z.object({
   state: z.enum(["review", "applying", "complete", "stale"]),
 });
 export type CleanupJournal = z.infer<typeof CleanupJournal>;
+export const CompactionJournal = z.object({
+  id: z.string(),
+  owner: z.string(),
+  mode: StorageCompactionMode,
+  state: z.enum(["running", "interrupted", "complete", "abandoned"]),
+  phase: z.enum(["vacuum", "checkpoint"]),
+  chunks: z.number().int().nonnegative(),
+  databaseBytesBefore: z.number().int().nonnegative(),
+  fullRequired: z.boolean(),
+  checkpointed: z.boolean(),
+});
+export type CompactionJournal = z.infer<typeof CompactionJournal>;
 
 export class StorageJournal {
   private store: Store;
@@ -21,6 +33,8 @@ export class StorageJournal {
         state TEXT NOT NULL, expires INTEGER NOT NULL, document TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS storage_plan_recovery ON storage_plans(state,id);
       CREATE TABLE IF NOT EXISTS storage_purged(thread_id TEXT PRIMARY KEY,at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS storage_compactions(id TEXT PRIMARY KEY, state TEXT NOT NULL,
+        document TEXT NOT NULL);
     `),
     );
   }
@@ -53,6 +67,33 @@ export class StorageJournal {
       );
       if (count >= 64) throw new Error("storage_plan_capacity");
       this.save(journal);
+    });
+  }
+  /** At most one compaction is unfinished; settled ones keep only the latest few. */
+  unfinishedCompaction(): CompactionJournal | undefined {
+    const row = this.store
+      .statement(
+        "SELECT document FROM storage_compactions WHERE state IN ('running','interrupted') LIMIT 1",
+      )
+      .get();
+    return row ? CompactionJournal.parse(JSON.parse(z.string().parse(row.document))) : undefined;
+  }
+  compaction(id: string): CompactionJournal | undefined {
+    const row = this.store.statement("SELECT document FROM storage_compactions WHERE id=?").get(id);
+    return row ? CompactionJournal.parse(JSON.parse(z.string().parse(row.document))) : undefined;
+  }
+  saveCompaction(journal: CompactionJournal): void {
+    CompactionJournal.parse(journal);
+    this.store.atomic(() => {
+      this.store
+        .statement(`INSERT INTO storage_compactions VALUES(?,?,?) ON CONFLICT(id)
+        DO UPDATE SET state=excluded.state,document=excluded.document`)
+        .run(journal.id, journal.state, JSON.stringify(journal));
+      this.store
+        .statement(
+          "DELETE FROM storage_compactions WHERE state IN ('complete','abandoned') AND id NOT IN (SELECT id FROM storage_compactions WHERE state IN ('complete','abandoned') ORDER BY rowid DESC LIMIT 8)",
+        )
+        .run();
     });
   }
   pending(): string[] {
