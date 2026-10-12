@@ -1,3 +1,4 @@
+import { ManagedWorktrees } from "./managed-worktrees.ts";
 import type { CreationProgress } from "./creation-progress.ts";
 import { listScripts } from "./workspace-scripts.ts";
 import { GitError } from "@ace/git";
@@ -36,7 +37,9 @@ export class WorkspaceCreations {
   private git: WorkspaceGit;
   private directory: string;
   private fetchTimeoutMs: number;
-  constructor(store: Store, git: WorkspaceGit, directory: string, fetchTimeoutMs: number) {
+  private now: () => number;
+  constructor(store: Store, git: WorkspaceGit, directory: string, fetchTimeoutMs: number, now: () => number) {
+    this.now = now;
     this.store = store;
     this.git = git;
     this.directory = directory;
@@ -150,6 +153,7 @@ export class WorkspaceCreations {
             }
           : {}),
       });
+      await new ManagedWorktrees(this.store, this.directory).created(this.git, project, path, id, this.now());
       this.journal.head(id, head);
       resource.cleanup_head = head;
       resource.uncertain = 0;

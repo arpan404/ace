@@ -10,6 +10,9 @@ import { statusWithoutHidingFlags } from "./temporary-index.ts";
 import type { Repository } from "./repository.ts";
 import { GitError } from "./types.ts";
 
+/** Emitted only by assertions before worktree remove is dispatched. */
+export class WorktreeRemovalRefused extends GitError {}
+
 export interface WorktreeCleanupState {
   path: string;
   head: string | null;
@@ -101,6 +104,18 @@ async function inspect(
   };
 }
 
+export function worktreeMetadata(repository: Repository, repo: string, path: string) {
+  return repository.cli.nonExecuting(async () => {
+    const root = await repository.root(repo);
+    return repository.serial(root, async () => {
+      if (!(await repository.worktrees(root)).some((tree) => tree.path === path)) throw new GitError("worktree_not_found", "Worktree is not registered");
+      const metadata = await realpath(textOutput(await repository.cli.call(path, ["rev-parse", "--absolute-git-dir"])));
+      const info = await lstat(metadata);
+      return { path: metadata, dev: info.dev, ino: info.ino };
+    });
+  });
+}
+
 export function inspectWorktreeCleanup(repository: Repository, repo: string, path: string) {
   return repository.cli.nonExecuting(async () => {
     const root = await repository.root(repo);
@@ -112,6 +127,7 @@ export function inspectWorktreeCleanup(repository: Repository, repo: string, pat
 export function cleanupWorktree(
   repository: Repository,
   input: WorktreeCleanupInput,
+  beforeRemove: () => void = () => {},
 ): Promise<void> {
   const value = Input.parse(input);
   return repository.cli.nonExecuting(async () => {
@@ -120,15 +136,15 @@ export function cleanupWorktree(
       const remove = async () => {
         const state = await inspect(repository, root, value.path);
         if (state.fingerprint !== value.fingerprint)
-          throw new GitError("head_moved", "Cleanup plan changed");
-        if (state.main) throw new GitError("main_worktree", "Main worktree is protected");
-        if (state.locked) throw new GitError("dirty_worktree", "Locked worktree is protected");
+          throw new WorktreeRemovalRefused("head_moved", "Cleanup plan changed");
+        if (state.main) throw new WorktreeRemovalRefused("main_worktree", "Main worktree is protected");
+        if (state.locked) throw new WorktreeRemovalRefused("dirty_worktree", "Locked worktree is protected");
         if (!value.force && (state.dirty || state.unpushed))
-          throw new GitError("dirty_worktree", "Worktree contains uncommitted or unpublished work");
+          throw new WorktreeRemovalRefused("dirty_worktree", "Worktree contains uncommitted or unpublished work");
         await repository.cli.call(
           root,
           ["worktree", "remove", ...(value.force ? ["--force"] : []), "--", state.path],
-          { write: true },
+          { write: true, beforeSpawn: beforeRemove },
         );
         if (value.removeBranch && state.branch && state.head)
           await deleteUnchangedBranch(repository, root, {
@@ -140,7 +156,7 @@ export function cleanupWorktree(
       };
       // Missing entries have no checkout to lock; common metadata still owns the mutation.
       const state = await inspect(repository, root, value.path);
-      if (state.main) throw new GitError("main_worktree", "Main worktree is protected");
+      if (state.main) throw new WorktreeRemovalRefused("main_worktree", "Main worktree is protected");
       if (state.missing) await remove();
       else await repository.serial(state.path, remove);
     });
