@@ -4,25 +4,22 @@ import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useTicker } from "../lib/clock.ts";
 
-/**
- * Below the last block: waiting and held context. Transient working status stays on the
- * composer. The agent's open requests are answered there as attached cards.
- */
-export function LiveFooter(props: { activity: TurnActivity | undefined }) {
-  const { activity } = props;
-  if (
-    !activity ||
-    activity.tone === "working" ||
-    (activity.tone === "needs-you" && activity.label === "Waiting for your approval") ||
-    activity.label.startsWith("Watching")
-  )
-    return null;
+/** The turn's live status stays at the transcript's end until its whole tree settles. */
+export function LiveFooter(props: { threadId: string; activity: TurnActivity | undefined }) {
+  const workspace = useWorkspaceActions(props.threadId);
+  if (!props.activity) return null;
   return (
-    <div className="flex flex-col gap-3 pb-2">
-      <ActivityLine activity={activity} />
-    </div>
+    <button
+      type="button"
+      aria-label="Open work and agents"
+      onClick={() => workspace.open({ kind: "agents" })}
+      className="block w-full rounded-md py-2 text-left focus-ring"
+    >
+      <ActivityLine activity={props.activity} />
+    </button>
   );
 }
 
@@ -45,7 +42,7 @@ export function ActivityLine(props: { activity: TurnActivity }) {
     <p
       role="status"
       aria-label={activity.code ? `${activity.label} ${activity.code}` : activity.label}
-      className="fx-view-in flex min-w-0 items-center gap-[9px] text-[13.5px]"
+      className="fx-view-in flex min-w-0 items-center flex-wrap gap-x-2 gap-y-1 text-[13.5px]"
     >
       {activity.tone === "working" ? (
         <>
@@ -53,6 +50,17 @@ export function ActivityLine(props: { activity: TurnActivity }) {
           <span className="shrink-0 shimmer tabular-nums">{text}</span>
           {activity.current && (
             <span className="min-w-0 truncate text-muted-foreground">· {activity.current}</span>
+          )}
+          {!!activity.subagents && (
+            <span className="shrink-0 text-muted-foreground">
+              · {activity.subagents} {activity.subagents === 1 ? "subagent" : "subagents"}
+            </span>
+          )}
+          {!!activity.backgroundCommands && (
+            <span className="shrink-0 text-muted-foreground">
+              · {activity.backgroundCommands}{" "}
+              {activity.backgroundCommands === 1 ? "background command" : "background commands"}
+            </span>
           )}
         </>
       ) : activity.tone === "needs-you" ? (

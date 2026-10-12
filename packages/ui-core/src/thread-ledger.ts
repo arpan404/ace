@@ -339,7 +339,7 @@ export class ThreadLedger {
     const item = id === undefined ? undefined : reader.item(id);
     if (!item) return;
     this.track(reader, id);
-    if (closesStretch(item)) {
+    if (closesStretch(item) && rootRunOf(reader, item.runId)?.id !== this.stretch.run) {
       this.stretch = newStretch(undefined);
       return;
     }
@@ -391,6 +391,7 @@ export class ThreadLedger {
    */
   currentStretch(reader: LedgerReader): {
     start: number | undefined;
+    runId: string | undefined;
     /** Time the agent sat idle between runs that carried the stretch on. */
     idle: number;
     current: Item | undefined;
@@ -418,7 +419,7 @@ export class ThreadLedger {
       const item = reader.item(id);
       if (item?.type === "tool_call" && runningStatus.has(item.call.status)) current = item;
     }
-    return { start: stretch.start, idle: stretch.idle, current, watch };
+    return { start: stretch.start, runId: stretch.run, idle: stretch.idle, current, watch };
   }
 }
 

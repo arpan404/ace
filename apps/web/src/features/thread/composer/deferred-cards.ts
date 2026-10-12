@@ -15,10 +15,6 @@ export const DeferredRequestStack = deferredComponent(() =>
 export const DeferredPlanTab = deferredComponent(() =>
   import("./plan-tab.tsx").then((module) => module.PlanTab),
 );
-/** "2 agents working · 1m 12s · Stop". */
-export const DeferredStatusStrip = deferredComponent(() =>
-  import("./status-strip.tsx").then((module) => module.StatusStrip),
-);
 export const DeferredEnvironmentStrip = deferredComponent(() =>
   import("./environment-strip.tsx").then((module) => module.EnvironmentStrip),
 );
@@ -26,7 +22,6 @@ export function preloadComposerCards(): Promise<unknown> {
   return Promise.all([
     DeferredRequestStack.preload(),
     DeferredPlanTab.preload(),
-    DeferredStatusStrip.preload(),
     DeferredEnvironmentStrip.preload(),
   ]);
 }

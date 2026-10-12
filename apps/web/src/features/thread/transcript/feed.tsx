@@ -83,7 +83,7 @@ const nearEdge = 64;
 /** Room above a row brought into view, for the bars that float over the transcript's top. */
 const topRoom = 56;
 const gap: Record<Block["kind"], string> = {
-  user: "pb-7",
+  user: "pb-4",
   message: "pb-4",
   work: "pb-2.5",
   files: "pb-4",
@@ -222,14 +222,7 @@ export function Feed(props: FeedProps) {
     () => new Set(motionRows.flatMap((row) => (row.phase === "enter" ? [row.key] : []))),
     [motionRows],
   );
-  // The turn's one live line: the bottom work log's header while the agent works on it, else
-  // the footer under the last block. Never both.
   const activity = useTurnActivity(threadId);
-  const openWork = blocks.findLast((block) => block.kind === "work" && block.until === undefined);
-  const liveBlock =
-    !detached && activity && (activity.tone === "held" || activity.elapsedFrom !== undefined)
-      ? openWork?.key
-      : undefined;
 
   const viewport = useRef<HTMLDivElement>(null);
   const feed = useRef<HTMLDivElement>(null);
@@ -564,7 +557,7 @@ export function Feed(props: FeedProps) {
                         <RowView
                           threadId={threadId}
                           row={row}
-                          live={row.key === liveBlock}
+                          live={false}
                           onOpen={(ordinal) =>
                             setOpened((previous) => new Set(previous).add(ordinal))
                           }
@@ -594,8 +587,8 @@ export function Feed(props: FeedProps) {
               </Suspense>
             ) : (
               <LiveFooter
-                // A usage-limit pause is a transcript block, not a live line.
-                activity={liveBlock || activity?.tone === "paused" ? undefined : activity}
+                threadId={threadId}
+                activity={activity?.tone === "paused" ? undefined : activity}
               />
             )}
             <div ref={dock} className="mt-4 empty:hidden" />

@@ -35,7 +35,6 @@ import {
   DeferredEnvironmentStrip,
   DeferredPlanTab,
   DeferredRequestStack,
-  DeferredStatusStrip,
 } from "./deferred-cards.ts";
 import { UsageNotice } from "./usage-notice.tsx";
 import { useShownPlans } from "./plan-state.ts";
@@ -63,7 +62,7 @@ export function isBusy(status: ThreadStatus | undefined): boolean {
  * wait as pills above it, with the reason when the queue is held. Its footer shows how actions
  * are approved and the model, both changeable from the next turn. One tab is attached to its top
  * edge, the first of: the agent's open requests (a deck of cards answered there, a picked answer
- * sent with the send button), the agents' to-do list, what the agents are doing with Stop. The environment strip sits below the box. Stop is in the send slot only while the tab doesn't carry it, and never
+ * sent with the send button), or the agents' to-do list. The environment strip sits below the box. Stop is in the send slot while the composer is empty, and never
  * while a request waits. The unsent draft is kept per thread.
  */
 export function ThreadComposer({
@@ -183,7 +182,7 @@ export function ThreadComposer({
   const asking = !!open?.length;
   const plans = useShownPlans(props.thread.id);
   const answer = useComposerAnswer(props.thread.id);
-  const tab = asking ? "requests" : plans.length ? "plan" : busy ? "status" : "environment";
+  const tab = asking ? "requests" : plans.length ? "plan" : "environment";
   const toMessage = () =>
     box.current?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')?.focus();
   const [focusOnOpen] = useState(wideEnoughToFocus);
@@ -237,7 +236,7 @@ export function ThreadComposer({
         followUp={followUp}
         canSteer={canSteer}
         onSubmit={submit}
-        onStop={tab === "plan" && activityState.canStop ? stop : undefined}
+        onStop={activityState.canStop ? stop : undefined}
         stopping={stopping}
         onReturnedOptions={(options) => {
           const identity = selectionIdentity(runsOn(meta));
@@ -264,13 +263,6 @@ export function ThreadComposer({
               />
             ) : tab === "plan" ? (
               <DeferredPlanTab.Component threadId={props.thread.id} plans={plans} />
-            ) : tab === "status" ? (
-              <DeferredStatusStrip.Component
-                threadId={props.thread.id}
-                status={props.status}
-                stopping={stopping}
-                onStop={stop}
-              />
             ) : null}
           </Suspense>
         }

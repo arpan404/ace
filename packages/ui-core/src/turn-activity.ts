@@ -1,6 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { isTestCommand } from "@ace/projection";
 import type { Interaction, ThreadStatus } from "@ace/protocol";
+import { agentTreeWork } from "./agents.ts";
 import { askingLabel, describeLive, type LiveFact } from "./live-status.ts";
 import { providerNames } from "./providers.ts";
 import { limitHoldShown } from "./queue.ts";
@@ -35,6 +36,8 @@ export interface TurnActivity {
   elapsedFrom: number | undefined;
   /** The step in flight: "Running bun install". */
   current: string | undefined;
+  subagents?: number | undefined;
+  backgroundCommands?: number | undefined;
 }
 
 export type ActivityReader = Pick<
@@ -43,6 +46,7 @@ export type ActivityReader = Pick<
   | "item"
   | "run"
   | "agent"
+  | "agentIds"
   | "thread"
   | "interactionIds"
   | "interaction"
@@ -132,8 +136,66 @@ export function readTurnActivity(
   options: ActivityOptions = {},
 ): ActivityReading {
   const watch: string[] = [];
-  const activity = readActivity(reader, rootId, options, watch);
-  return { activity, watch };
+  const agents = reader.agentIds().flatMap((id) => {
+    watch.push(`agent:${id}`);
+    const agent = reader.agent(id);
+    return agent ? [agent] : [];
+  });
+  const tasks = reader.taskIds().flatMap((id) => {
+    watch.push(`task:${id}`);
+    const task = reader.task(id);
+    return task ? [task] : [];
+  });
+  const pending = [...ledgerOf(reader).pending()];
+  const tree = agentTreeWork(agents, tasks, pending);
+  const activity = tree.needsYou.has(rootId)
+    ? waitingOnYou(pending)
+    : readActivity(reader, rootId, options, watch);
+  const subagents = agents.filter(
+    (agent) => agent.id !== rootId && tree.running.has(agent.id),
+  ).length;
+  const backgroundCommands = tasks.filter(
+    (task) => task.kind === "shell" && (task.status === "running" || task.status === "unknown"),
+  ).length;
+  const workingTree = subagents > 0 || backgroundCommands > 0;
+  const stretch = ledgerOf(reader).currentStretch(reader);
+  const run = stretch.runId ? reader.run(stretch.runId) : undefined;
+  if (stretch.runId) watch.push(`run:${stretch.runId}`);
+  // The server's turn start survives snapshots, partial messages and child work outliving it.
+  const from = run?.startedAt ?? stretch.start;
+  const active = activity?.tone === "working" || workingTree;
+  const shown =
+    active &&
+    activity?.tone !== "needs-you" &&
+    activity?.tone !== "paused" &&
+    (!activity ||
+      activity.tone === "working" ||
+      activity.label.startsWith("Watching") ||
+      activity.label.startsWith("Waiting on"))
+      ? {
+          ...activity,
+          label: options.stopping ? "Stopping…" : "Working",
+          tone: "working" as const,
+          elapsedFrom:
+            from === undefined
+              ? undefined
+              : from +
+                stretch.idle +
+                ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from),
+          current:
+            activity?.current ??
+            (backgroundCommands
+              ? tasks.find(
+                  (task) =>
+                    task.kind === "shell" &&
+                    (task.status === "running" || task.status === "unknown"),
+                )?.title
+              : undefined),
+          subagents,
+          backgroundCommands,
+        }
+      : activity;
+  return { activity: shown, watch };
 }
 
 function readActivity(
@@ -248,6 +310,8 @@ export function sameActivity(a: TurnActivity | undefined, b: TurnActivity | unde
       a.code === b.code &&
       a.tone === b.tone &&
       a.elapsedFrom === b.elapsedFrom &&
-      a.current === b.current)
+      a.current === b.current &&
+      a.subagents === b.subagents &&
+      a.backgroundCommands === b.backgroundCommands)
   );
 }

@@ -126,6 +126,7 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
     item: (id) => byId.get(id),
     run: (id) => runs.get(id),
     agent: (id) => agents.get(id),
+    agentIds: () => [...agents.keys()],
     thread: undefined,
     interactionIds: () => [...asked.keys()],
     interaction: (id) => asked.get(id),
