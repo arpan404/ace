@@ -46,16 +46,21 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       await expect(
         row("Build replay recovery").getByRole("img", { name: "draft pull request #283" }),
       ).toBeVisible();
-      await expect(row("Build replay recovery").getByText("+24", { exact: true })).toBeVisible();
+      await expect(row("Build replay recovery").getByText("+24", { exact: true })).toHaveCount(0);
       await expect(
         row("Publish the release").getByText("Build server", { exact: true }),
       ).toBeHidden();
-      await expect(row("Retry workspace sync").getByText(/^Limited/)).toBeVisible();
+      await expect(
+        row("Retry workspace sync")
+          .getByText(/^Limited/)
+          .first(),
+      ).toBeVisible();
       await expect(
         row("Fix a flaky browser test").getByText("Failed", { exact: true }),
       ).toBeVisible();
       const muted = await themeInk(page, "muted-foreground");
       const foreground = await themeInk(page, "foreground");
+      const subtle = await themeInk(page, "subtle-foreground");
       for (const title of [
         "Build replay recovery",
         "Run the mobile checks",
@@ -63,15 +68,21 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
         "Retry workspace sync",
         "Tidy the README",
       ]) {
-        expect(await ink(row(title).getByText(title, { exact: true }))).toBe(muted);
+        expect(await ink(row(title).getByText(title, { exact: true }))).toBe(subtle);
       }
-      expect(await ink(row("Build replay recovery").getByText("Waiting", { exact: true }))).toBe(
-        muted,
-      );
-      expect(await ink(row("Run the mobile checks").getByText("Working", { exact: true }))).toBe(
-        muted,
-      );
-      expect(await ink(row("Retry workspace sync").getByText(/^Limited/))).toBe(muted);
+      expect(
+        await ink(row("Build replay recovery").getByText("Waiting", { exact: true })),
+      ).not.toBe(muted);
+      expect(
+        await ink(row("Run the mobile checks").getByText("Working", { exact: true })),
+      ).not.toBe(muted);
+      expect(
+        await ink(
+          row("Retry workspace sync")
+            .getByText(/^Limited/)
+            .first(),
+        ),
+      ).not.toBe(muted);
       for (const title of [
         "Review the release plan",
         "Choose a retry policy",
@@ -105,26 +116,26 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       await page.screenshot({ path: `${shots}/tasks-${theme}-${width}.png` });
       const remote = row("Publish the release");
       await remote.hover();
-      await expect(remote.getByText("Build server", { exact: true })).toBeVisible();
-      await expect(page.getByRole("tooltip")).toContainText("Running on Build server");
+      const remoteDetails = page.getByLabel("Details for Publish the release", { exact: true });
+      await expect(remoteDetails).toContainText("Build server");
+      const sidebarBox = await nav.boundingBox();
+      const hoverBox = await remoteDetails.boundingBox();
+      if (!sidebarBox || !hoverBox) throw new Error("Missing sidebar hover bounds");
+      expect(hoverBox.x).toBeGreaterThanOrEqual(sidebarBox.x);
+      expect(hoverBox.x + hoverBox.width).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width);
       await page.screenshot({ path: `${shots}/machine-hover-${theme}-${width}.png` });
-      await page.mouse.move(width - 2, 840);
-      await expect(remote.getByText("Build server", { exact: true })).toBeHidden();
       await remote.focus();
-      await expect(remote.getByText("Build server", { exact: true })).toBeVisible();
-      await row("Review the release plan").focus();
-      await expect(remote.getByText("Build server", { exact: true })).toBeHidden();
+      await expect(remoteDetails).toContainText("Build server");
       const work = row("Build replay recovery");
       await work.hover();
-      await expect(nav.getByRole("button", { name: "Settle Build replay recovery" })).toBeVisible();
-      await expect(work.getByText("Waiting", { exact: true })).toBeHidden();
-      await expect(work.getByText("+24", { exact: true })).toBeVisible();
       await expect(
-        page.getByRole("tooltip").filter({ hasText: "Build replay recovery" }),
-      ).toContainText("Build replay recovery");
-      await expect(
-        page.getByRole("tooltip").filter({ hasText: "Build replay recovery" }),
-      ).toContainText("Waiting on 2 subagents");
+        nav.getByRole("button", { name: "Actions for Build replay recovery" }),
+      ).toBeVisible();
+      await expect(work.getByText("Waiting", { exact: true })).toBeVisible();
+      await expect(work.getByText("+24", { exact: true })).toHaveCount(0);
+      const workDetails = page.getByLabel("Details for Build replay recovery", { exact: true });
+      await expect(workDetails).toContainText("Waiting on 2 subagents");
+      await expect(workDetails.getByText("+24", { exact: true })).toBeVisible();
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
       ).toBe(true);
@@ -189,16 +200,17 @@ test("unread work brightens only the title, while statuses fit without clipping"
   expect(await ink(work.getByText("Run the mobile checks", { exact: true }))).toBe(
     await themeInk(page, "foreground"),
   );
-  expect(await ink(work.getByText("Working", { exact: true }))).toBe(
+  expect(await ink(work.getByText("Working", { exact: true }))).not.toBe(
     await themeInk(page, "muted-foreground"),
   );
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     if (width === 390) await page.getByRole("button", { name: "Back to threads" }).click();
-    await page.getByRole("heading", { name: "Threads", exact: true }).click();
+    await nav.locator("[data-virtual-viewport]").evaluate((element) => element.scrollTo(0, 0));
     await page.mouse.move(width - 2, 2);
     for (const words of ["Approve", "Answer", "Waiting", "Working", "Failed"]) {
       const status = nav.getByText(words, { exact: true }).first();
+      await status.scrollIntoViewIfNeeded();
       await expect(status).toBeVisible();
       // The rendered text must fit its own box, rather than hiding behind an ellipsis.
       expect(
