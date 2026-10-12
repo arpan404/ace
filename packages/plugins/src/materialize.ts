@@ -125,3 +125,8 @@ export async function removeProjection(directory: string): Promise<void> {
     await rm(join(root, "generated"), { recursive: true, force: true });
   });
 }
+/** Serializes another owner's removal of an existing root with projection writers. */
+export async function withProjectionLock<T>(root: string, run: () => Promise<T>): Promise<T> {
+  await assertNoSymlinks(root);
+  return withDirectoryLock(root, run);
+}
