@@ -59,6 +59,10 @@ pending, including calls from another tab sharing that worker. The reservation s
 host binding and persistence. Once admission is offered, its evidence cannot become fresh again;
 recording failures are classified by the owner, not by the worker recording helper. A failed
 unsent recording releases its reservation so a later explicit retry can proceed.
+Abort and client close settle a pending recording as `not_dispatched` and release that unsent
+reservation, even if the recording promise never settles. A late recording completion cannot
+dispatch the cancelled submission. Once admission starts, cancellation only removes the waiter;
+ownership remains protected until admission I/O settles.
 
 `itemsPage({threadId,before?,limit}, options?)` returns older items with an exclusive numeric creation-sequence cursor and consistency sequence. Use `thread.store.itemsBefore` as the older-page cursor. Creation-sequence metadata keeps this cursor accurate when the SDK trims a daemon window. Apply it with `thread.store.page(page)`. The store reconciles later item changes and rejects expired coverage with ClientError("stale"); obtain a fresh page in that case. Live creation advances the bounded window; updates to unloaded history do not reinsert it. `outputRead({streamId,offset,limit})` reads a bounded Uint8Array at byte offsets. `output` is an async generator that requests another chunk only when its consumer advances. Shell items expose bounded output summaries containing streamId, byte count and a tail; complete output lives in the daemon stream store.
 

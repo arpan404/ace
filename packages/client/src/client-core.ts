@@ -41,6 +41,7 @@ import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
 import { Notifications, type Selection } from "./observable.ts";
 import { Requests } from "./requests.ts";
+import { CommandRecordings } from "./command-recordings.ts";
 import {
   commandAdmissionError,
   CommandAdmissions,
@@ -123,6 +124,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #collections = new Set<Sidebar>();
   #intents: Intents;
   #admissions: CommandAdmissions;
+  readonly #recordings = new CommandRecordings();
   protected notifications: Notifications;
   protected historyState: HistoryScanStatus | undefined;
   protected closed = false;
@@ -434,6 +436,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   close(): Promise<void> {
     this.closed = true;
+    this.#recordings.close();
     this.requests.clear(new ClientError("offline"));
     this.#readMarkers.close();
     for (const cancel of this.#waitingHints.values()) cancel();
@@ -566,27 +569,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     } catch (error) {
       return Promise.reject(error);
     }
-    const refuse = () => {
-      const error = allocation.refusal();
-      allocation.releaseUnsent();
-      return Promise.reject(error);
-    };
-    const dispatch = () => {
-      if (this.closed || options.signal?.aborted) return refuse();
-      try {
-        return this.#command(payload, options, id, allocation);
-      } catch {
-        return refuse();
-      }
-    };
-    let recorded: void | Promise<void>;
-    try {
-      if (this.closed || options.signal?.aborted) return refuse();
-      recorded = record(id);
-    } catch {
-      return refuse();
-    }
-    return recorded === undefined ? dispatch() : Promise.resolve(recorded).then(dispatch, refuse);
+    return this.#recordings.submit(
+      allocation,
+      options.signal,
+      () => record(id),
+      () => this.#command(payload, options, id, allocation),
+    );
   }
   #command(
     payload: CommandPayload,
