@@ -186,7 +186,7 @@ function GitAction(props: { git: GitFlow; checkout: Checkout }) {
   const Icon = primary.icon;
   const blocked = "blocked" in primary ? primary.blocked : undefined;
   return (
-    <div className="group/split flex h-8 items-center rounded-md transition-colors duration-(--dur-1) hover:bg-accent">
+    <div className="group/split flex h-8 items-center rounded-md transition-colors duration-(--motion-fast) hover:bg-accent">
       <button
         type="button"
         className="focus-ring-inset flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-l-md px-2.5 text-left text-ui text-foreground disabled:text-muted-foreground"

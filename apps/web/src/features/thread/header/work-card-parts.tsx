@@ -21,7 +21,7 @@ export function RowButton({ className, ...props }: ComponentProps<"button">) {
       type="button"
       className={cn(
         row,
-        "focus-ring-inset transition-colors duration-(--dur-1) hover:bg-accent aria-expanded:bg-accent disabled:text-muted-foreground disabled:hover:bg-transparent",
+        "focus-ring-inset transition-colors duration-(--motion-fast) hover:bg-accent aria-expanded:bg-accent disabled:text-muted-foreground disabled:hover:bg-transparent",
         className,
       )}
       {...props}
@@ -69,7 +69,7 @@ export function RowAction({ className, ...props }: ComponentProps<"button">) {
     <button
       type="button"
       className={cn(
-        "focus-ring touch-hit -mr-1 ml-auto h-6 shrink-0 rounded-sm px-2 text-xs font-medium text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+        "focus-ring touch-hit -mr-1 ml-auto h-6 shrink-0 rounded-sm px-2 text-xs font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
         className,
       )}
       {...props}
@@ -97,13 +97,13 @@ export function Group(props: {
           aria-expanded={open}
           aria-controls={body}
           onClick={toggle}
-          className="focus-ring -ml-1 inline-flex h-[22px] items-center gap-1 rounded-sm px-1 text-xs text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground"
+          className="focus-ring -ml-1 inline-flex h-[22px] items-center gap-1 rounded-sm px-1 text-xs text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground"
         >
           <CaretDownIcon
             aria-hidden
             size={12}
             className={cn(
-              "transition-transform duration-(--dur-2) ease-spring",
+              "transition-transform duration-(--motion-base) ease-spring",
               !open && "-rotate-90",
             )}
           />
