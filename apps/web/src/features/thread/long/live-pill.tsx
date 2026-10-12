@@ -1,6 +1,6 @@
 import { CaretDownIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { floatingControl, floatingMotion } from "./floating.ts";
+import { floatingControl, floatingHover, floatingMotion } from "./floating.ts";
 
 /**
  * Back to the live end: a pill centred over the composer, clear of it and of the strip on its
@@ -30,9 +30,10 @@ export function LivePill(props: {
       className={cn(
         floatingControl,
         floatingMotion(props.phase ?? "enter"),
+        floatingHover,
         // Centred on the composer, which a pinned summary insets on the right.
         "absolute bottom-[min(calc(var(--composer-clearance,0px)+0.75rem),calc(100%-2.75rem))] left-[calc(50%-var(--summary-inset,0px)/2)] z-20 -translate-x-1/2 pr-3.5 pl-3 font-medium whitespace-nowrap text-foreground",
-        "transition-[background-color,border-color] duration-(--motion-fast) hover:border-ring/50 hover:bg-[color-mix(in_oklab,var(--popover),var(--foreground)_6%)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+        "transition-[background-color,box-shadow] duration-(--motion-fast) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         "touch-hit pointer-coarse:h-9",
       )}
     >

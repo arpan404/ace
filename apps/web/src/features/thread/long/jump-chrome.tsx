@@ -1,4 +1,5 @@
 import { formatCount } from "@ace/ui-core";
+import { useState } from "react";
 import { ClockCounterClockwiseIcon, XIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -25,14 +26,22 @@ export function JumpBar(props: {
   phase?: "enter" | "exit";
   onLive(): void;
 }) {
-  const count = useTurnHead(props.threadId)?.count;
+  const headCount = useTurnHead(props.threadId)?.count;
   const leaving = props.phase === "exit";
+  // Leaving, it keeps saying what it said: the window it described is already gone.
+  const live = { turn: props.turn, reading: props.reading, count: headCount, failed: props.failed };
+  const [shown, setShown] = useState(live);
+  const changed =
+    shown.turn !== live.turn ||
+    shown.reading !== live.reading ||
+    shown.count !== live.count ||
+    shown.failed !== live.failed;
+  if (!leaving && changed) setShown(live);
+  const { turn, reading, count, failed } = leaving ? shown : live;
   const where =
-    props.turn === undefined
-      ? "Viewing earlier history"
-      : `Jumped to turn ${formatCount(props.turn)}`;
-  const at = props.reading ?? props.turn;
-  const moved = at !== undefined && at !== props.turn;
+    turn === undefined ? "Viewing earlier history" : `Jumped to turn ${formatCount(turn)}`;
+  const at = reading ?? turn;
+  const moved = at !== undefined && at !== turn;
   return (
     <div
       role={leaving ? undefined : "status"}
@@ -54,7 +63,7 @@ export function JumpBar(props: {
           {count !== undefined && count >= at ? ` of ${formatCount(count)}` : ""}
         </span>
       )}
-      {props.failed && <span className="text-status-failed">{props.failed}</span>}
+      {failed && <span className="text-status-failed">{failed}</span>}
       <IconButton icon={XIcon} label="Back to live" size="sm" onClick={props.onLive} />
     </div>
   );

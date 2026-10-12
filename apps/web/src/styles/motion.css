@@ -110,20 +110,14 @@
   }
   /*
    * Controls floating over the transcript (Jump to live, the jump bar): fade and rise in, fade
-   * and sink out. Under reduced motion the rise is 0px, so only the fade is left.
+   * and sink out quicker. Under reduced motion --rise is 0px, so only the fades are left.
    */
   .fx-float-in {
-    animation: fx-rise-in var(--motion-base, var(--dur-2)) var(--ease-spring, var(--spring)) both;
+    animation: fx-rise-in var(--motion-base) var(--ease-spring) both;
   }
   .fx-float-out {
     pointer-events: none;
-    animation: fx-sink-out var(--motion-fast, var(--dur-exit)) var(--ease-out, var(--leave)) both;
-  }
-  :root[data-reduce-motion] .fx-float-in {
-    animation-name: fx-fade-in;
-  }
-  :root[data-reduce-motion] .fx-float-out {
-    animation-name: fx-fade-out;
+    animation: fx-sink-out var(--motion-exit) var(--ease-exit) both;
   }
   /* Counts and badges that change: a small pop, never a bounce. */
   .fx-pop {
