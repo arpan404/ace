@@ -1,5 +1,13 @@
+import { selectedProfile } from "./profiles.ts";
+import { accessRequest, ticketSocket } from "../client-access.ts";
 import { z } from "zod";
-import { Client, ClientError, webSocketTransport, type Selection } from "@ace/client";
+import {
+  Client,
+  ClientError,
+  ticketCredential,
+  webSocketTransport,
+  type Selection,
+} from "@ace/client";
 import { DeviceId } from "@ace/protocol";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -7,7 +15,7 @@ import { join } from "node:path";
 import { WebSocket } from "ws";
 import { cliStorage } from "./storage.ts";
 import { CliFailure } from "./output.ts";
-import { timeoutMs, type Args } from "./args.ts";
+import { timeoutMs, option, type Args } from "./args.ts";
 
 const HostConnection = z.object({
   origin: z.url().refine((value) => {
@@ -79,18 +87,33 @@ export async function waitSelectionOrRefresh<T>(
   }
 }
 export async function connectCli(home: string, args: Args) {
-  const connection = hostConnection(home);
-  const persistence = cliStorage(home);
+  const profile = selectedProfile(home, option(args, "remote"));
+  const connection = profile ? undefined : hostConnection(home);
+  const persistence = cliStorage(profile ? join(home, "cli-remotes", profile.id) : home);
   const lifetime = new AbortController();
   const interrupt = () => lifetime.abort();
   process.once("SIGINT", interrupt);
   process.once("SIGTERM", interrupt);
   const timer = setTimeout(() => lifetime.abort(), timeoutMs(args));
   const client = new Client({
-    deviceId: DeviceId.parse("ace-cli"),
+    deviceId: profile?.deviceId ?? DeviceId.parse("ace-cli"),
     transport: () =>
-      webSocketTransport(() => new WebSocket(connection.origin.replace("http:", "ws:"))),
-    credential: async () => connection.token,
+      webSocketTransport(() =>
+        profile
+          ? ticketSocket(profile.origin.replace("https:", "wss:"), profile.fingerprint)
+          : new WebSocket(connection?.origin.replace("http:", "ws:") ?? ""),
+      ),
+    credential: profile
+      ? ticketCredential(
+          async () => profile.token,
+          (token) =>
+            accessRequest(profile.origin, "/v1/tickets", {
+              method: "POST",
+              token,
+              fingerprint: profile.fingerprint,
+            }),
+        )
+      : async () => connection?.token ?? "",
     storage: persistence.storage,
     scheduler: {
       set(ms, callback) {
@@ -118,7 +141,7 @@ export async function connectCli(home: string, args: Args) {
       lifetime.signal,
     );
     if (state === "fatal") throw client.error ?? new ClientError("auth");
-    return { client, signal: lifetime.signal, close };
+    return { client, signal: lifetime.signal, close, remote: profile !== undefined };
   } catch (error) {
     await close();
     throw error;

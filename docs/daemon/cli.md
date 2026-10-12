@@ -93,3 +93,70 @@ SSH-compatible reviewed flow return needs-human with native terminal instruction
 ace cancels and drains an active supervised session before printing fallback
 instructions, so a new login can start immediately.
 The CLI never accepts provider API keys or performs a token exchange.
+
+## Server and remote profiles
+
+```
+ace serve --json
+ace service install --linger --json
+ace pair redeem - --name "SSH client" --profile workstation --json
+ace remote add workstation https://host:4243/ --fingerprint SPKI_SHA256 --device DEVICE_ID --token-file /private/device-token
+ace remote list --json
+ace remote use workstation
+ace threads list --json
+ace thread read THREAD --remote workstation --json
+ace remote use local
+ace remote remove workstation
+```
+
+`serve` runs the daemon without a desktop and selects the headless browser backend.
+`service install --linger` uses Linux `loginctl enable-linger` for the invoking user
+so the user service survives logout. It refuses other operating systems.
+
+Pipe the one-time pairing URL into `pair redeem`; the host chooses device scopes.
+Redemption consumes it once, validates its SPKI pin and saves only ace device access.
+`remote add` requires an explicit HTTPS origin, SPKI pin, device id and private token
+file, and confirms pinned ticket exchange before storing the profile. `remote list`
+hides tokens. Profile names have separate SDK outboxes and host bindings. Removal
+clears selection, not the daemon's device registration; `devices revoke` owns that.
+
+The active profile selects WebSocket work commands. `--remote NAME` overrides it;
+`--remote local` selects the local host token. Runtime, service, enrollment, pairing,
+cloud wrappers and local log files are local operations. Use a registered workspace
+id when starting work on a remote profile. Each connection exchanges its device
+token for a fresh ticket before pinned WSS hello. No provider credentials enter a
+profile or the SDK outbox.
+
+## Cloud, logs, browser and automations
+
+```
+ace cloud codex exec "Review the repository" --env ENV_ID --idempotency-key review-cloud --json
+ace cloud codex list --json
+ace cloud codex status TASK_ID --json
+ace cloud codex diff TASK_ID --json
+ace cloud codex apply TASK_ID --json
+ace logs -f --json
+ace browser shot THREAD --url https://example.com --output shot.png --json
+ace browser record THREAD --duration 10s --output recording.mp4 --json
+ace automation list --json
+ace automation run ID --variables '{"branch":"main"}' --json
+```
+
+Cloud commands invoke the installed, logged-in `codex cloud` in the current
+checkout. JSON envelopes retain bounded native stdout, operation and exit status;
+cloud execution success means submission succeeded. Status/diff/apply depend on
+the installed Codex version. No provider HTTP API or credential store is added.
+Exec/apply receipts prevent repeat submission after retries. A crash/timeout before
+a receipt is uncertain and is never automatically resubmitted. Inspect the native
+cloud task list before choosing a new key.
+
+Logs read the local daemon's redacted JSONL with native tail rotation handling.
+`-f --json` emits one typed log record per line until interrupted. Browser commands
+reuse the thread's browser, origin approvals and ownership. Recording subscribes
+and acknowledges frames, then finalizes through the browser owner. Artifacts are
+downloaded through `@ace/client` even for remote profiles. Output files are created
+exclusively; existing files are never replaced. Recording requires the daemon's
+Chromium/ffmpeg prerequisites. Automation runs use the existing durable owner.
+
+See [cloud CLI evaluation](../research/cli-cloud.md) for the other vendor wrappers
+considered for this phase.

@@ -49,7 +49,7 @@ export function option(args: Args, name: string): string | undefined {
 }
 export function validateArgs(args: Args, names: readonly string[], min: number, max = min): void {
   for (const name of Object.keys(args.flags))
-    if (!["json", "jq", "help", "timeout", ...names].includes(name))
+    if (!["json", "jq", "help", "timeout", "remote", ...names].includes(name))
       throw new Error(`Unknown option --${name}`);
   if (args.words.length < min || args.words.length > max)
     throw new Error("Invalid arguments. See ace --help.");

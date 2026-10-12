@@ -1,8 +1,13 @@
+import { remoteCommand, redeemCommand } from "./remote.ts";
+import { logsCommand } from "./logs.ts";
+import { cloudCommand } from "./cloud.ts";
+import { browserCommand } from "./browser.ts";
+import { automationCommand } from "./automations.ts";
 import { controlCommand, stopCommand } from "./control.ts";
 import { providersCommand, loginCommand } from "./providers.ts";
 import { ClientError } from "@ace/client";
 import { readConfig } from "../config.ts";
-import { parseArgs, type Args } from "./args.ts";
+import { option, parseArgs, type Args } from "./args.ts";
 import { CliFailure, exitCodes } from "./output.ts";
 import { print, validateOutput } from "./io.ts";
 import { runtimeCommand } from "./runtime.ts";
@@ -24,6 +29,14 @@ ace stop|kill-all [--thread ID|--provider PROVIDER|--project ID]
 ace mcp enroll --scope read|operate --ttl DURATION [--project ID]
 ace mcp list|revoke ID
 ace capabilities|providers status|login codex|claude
+ace serve|service install --linger
+ace remote add NAME HTTPS_ORIGIN --fingerprint PIN --device ID --token-file PATH
+ace remote list|use|remove NAME
+ace pair redeem [URL|-] --profile NAME
+ace cloud codex exec|list|status|diff|apply [PROMPT|TASK_ID]
+ace logs [-f]
+ace browser shot|record THREAD [--url URL] [--output PATH]
+ace automation list|run ID
 
 All commands: --json, --jq EXPR, --timeout DURATION
 Mutations: --idempotency-key KEY. Waits: --tree. Run: --stream jsonl.
@@ -82,8 +95,13 @@ export async function main(input: string[]): Promise<void> {
       else process.stdout.write(output.join(""));
       return;
     }
+    if (command === "remote") return await remoteCommand(args, config.dataDir);
+    if (command === "pair" && args.words[1] === "redeem")
+      return await redeemCommand(args, config.dataDir);
+    if (command === "logs") return await logsCommand(args, config.dataDir);
+    if (command === "cloud") return await cloudCommand(args, config.dataDir);
     if (command === "stop") return await stopCommand(args, config.dataDir);
-    if (["start", "service"].includes(command)) return await runtimeCommand(args, config);
+    if (["start", "serve", "service"].includes(command)) return await runtimeCommand(args, config);
     if (["status", "token", "pair", "devices"].includes(command))
       return await accessCommand(args, config.dataDir);
     if (
@@ -97,17 +115,24 @@ export async function main(input: string[]): Promise<void> {
         "capabilities",
         "providers",
         "login",
+        "browser",
+        "automation",
       ].includes(command)
     )
       throw new CliFailure("refused", "Unknown command. See ace --help.");
     const session = await connectCli(config.dataDir, args);
     try {
-      if (command === "kill-all" || command === "mcp")
+      if (command === "browser") await browserCommand(args, session.client, session.signal);
+      else if (command === "automation")
+        await automationCommand(args, session.client, session.signal);
+      else if (command === "kill-all" || command === "mcp")
         await controlCommand(args, session.client, session.signal);
       else if (command === "capabilities" || command === "providers")
         await providersCommand(args, session.client, session.signal);
       else if (command === "login") await loginCommand(args, session.client, session.signal);
       else if (command === "run") {
+        if (session.remote && !option(args, "project"))
+          throw new CliFailure("refused", "Remote runs require --project WORKSPACE_ID");
         const id = await runCommand(args, session.client, session.signal);
         if (args.flags.stream === "jsonl")
           await waitThread(
