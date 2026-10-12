@@ -40,7 +40,10 @@ targets:
   AceTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [Tests]
+    sources:
+      - path: Tests
+      - path: .build/bridge-tests.js
+        buildPhase: resources
     dependencies:
       - target: Ace
     settings:
