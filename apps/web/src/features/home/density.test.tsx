@@ -72,3 +72,27 @@ test("failed and working tasks both keep visible status words", async () => {
   expect(within(working).getByText("Working", { exact: true })).toBeTruthy();
   expect(working.getAttribute("aria-label")).toContain("Working");
 });
+
+test("the project filter also narrows unsent starts without hiding matching work", async () => {
+  const storage = memoryKeyValue();
+  storage.setItem(
+    "ace.home.organizer",
+    JSON.stringify({ project: "ace", baseline: 0, settledOpen: false }),
+  );
+  const app = harness({ storage });
+  seed(app);
+  await app.open("/new?project=ace");
+  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  await nav.findByRole("link", { name: /^Last task/ });
+  app.client.networkOnline(false);
+  for (const project of ["ace", "relay"])
+    await app.client.enqueue({
+      type: "thread.create",
+      workspaceId: project,
+      provider: "codex",
+      title: `${project} pending task`,
+      input: [{ type: "text", text: `${project} pending task` }],
+    });
+  expect(await nav.findByRole("link", { name: /^ace pending task/ })).toBeTruthy();
+  expect(nav.queryByRole("link", { name: /^relay pending task/ })).toBeNull();
+});
