@@ -114,7 +114,15 @@ const child = () => [
 ];
 
 test("a parent answer stays working until its subagent finishes and its line opens Agents", async () => {
-  const { app } = await running([...initial(), ...child()]);
+  const { app } = await running([
+    ...initial(),
+    ...child(),
+    facts.tool("audit", "audit-check", {
+      kind: "shell",
+      title: "bun run audit",
+      detail: { kind: "shell", command: "bun run audit" },
+    }),
+  ]);
   act(() =>
     app.daemon.apply(id, [
       facts.toolDone("root", "build"),
@@ -123,10 +131,21 @@ test("a parent answer stays working until its subagent finishes and its line ope
     ]),
   );
   await waitFor(() => expect(live().textContent).toContain("1 subagent"));
+  expect(live().textContent).toContain("Running bun run audit");
+  act(() =>
+    app.daemon.apply(id, [
+      facts.tool("audit", "audit-check", {
+        kind: "shell",
+        title: "bun run audit mobile",
+        detail: { kind: "shell", command: "bun run audit mobile" },
+      }),
+    ]),
+  );
+  await waitFor(() => expect(live().textContent).toContain("Running bun run audit mobile"));
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
   await userEvent.click(live());
   expect(await screen.findByRole("region", { name: "Thread panel" })).toBeTruthy();
-  act(() => app.daemon.apply(id, [facts.endTurn("audit")]));
+  act(() => app.daemon.apply(id, [facts.toolDone("audit", "audit-check"), facts.endTurn("audit")]));
   expect(await screen.findByRole("button", { name: /^Worked for 1m 14s/ })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Open work and agents" })).toBeNull();
 });
