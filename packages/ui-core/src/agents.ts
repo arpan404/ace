@@ -1,5 +1,13 @@
-import type { Agent, AgentStatus, BackgroundTask, Interaction, Item } from "@ace/protocol";
+import type {
+  Agent,
+  AgentStatus,
+  BackgroundTask,
+  Interaction,
+  Item,
+  ThreadStatus,
+} from "@ace/protocol";
 import { isActionableInteraction } from "@ace/core/human";
+import { agentStatusLabel } from "./status.ts";
 import { providerNames } from "./providers.ts";
 
 /** How an agent is named in trees and status lines: the provider for the root, else its name. */
@@ -72,6 +80,7 @@ export function agentTreeWork(
   agents: readonly Agent[],
   tasks: readonly BackgroundTask[],
   interactions: readonly Interaction[],
+  threadStatus?: ThreadStatus,
 ): { running: ReadonlySet<string>; needsYou: ReadonlySet<string> } {
   const byId = new Map<string, Agent>(agents.map((agent) => [agent.id, agent]));
   const running = new Set<string>();
@@ -98,7 +107,39 @@ export function agentTreeWork(
     if (isActionableInteraction(interaction, byId.get(interaction.agentId)?.status))
       includeAncestors(interaction.agentId, needsYou);
   }
+  // Metadata can arrive before the entity facts that explain the root's pending work.
+  const root = agents.find((agent) => agent.origin === "root");
+  if (root && threadStatus && !["done", "new", "failed"].includes(threadStatus.state)) {
+    running.add(root.id);
+    if (threadStatus.state === "needs_you") needsYou.add(root.id);
+  }
   return { running, needsYou };
+}
+
+/** Effective tree state and copy share the same descendant and metadata policy. */
+export function agentWorkState(
+  agent: Agent,
+  work: ReturnType<typeof agentTreeWork>,
+  evidence: { fresh: boolean; toolTitle?: string | undefined },
+): { running: boolean; needsYou: boolean; label: string; activity: string } {
+  const running = work.running.has(agent.id);
+  const needsYou = work.needsYou.has(agent.id);
+  const waiting = running && !isRunning(agent);
+  const label =
+    !evidence.fresh && running
+      ? "Last seen"
+      : needsYou
+        ? "Needs you"
+        : waiting
+          ? "Waiting on work"
+          : agentStatusLabel(agent.status).label;
+  const activity =
+    agent.status.state === "failed"
+      ? "Couldn't finish. Open the agent for details."
+      : (!evidence.fresh && running) || needsYou || waiting
+        ? label
+        : describeActivity(agent.status, evidence.toolTitle);
+  return { running, needsYou, label, activity };
 }
 
 const taskStates: Record<BackgroundTask["status"], string> = {

@@ -74,7 +74,6 @@ function AgentStop(props: { threadId: string; agent: Agent }) {
       threadId={props.threadId}
       agent={props.agent}
       subagents={node ? countSubagents(node) : 0}
-      showFailure
     />
   );
 }

@@ -1,6 +1,12 @@
 import { agentTreeWork } from "@ace/ui-core";
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { arrayEqual, useInteractions, useThread, useTaskIds } from "@ace/client-react";
+import {
+  arrayEqual,
+  useInteractions,
+  useThread,
+  useTaskIds,
+  useThreadMeta,
+} from "@ace/client-react";
 import type { Agent, BackgroundTask, Interaction } from "@ace/protocol";
 import { useMemo } from "react";
 
@@ -26,6 +32,7 @@ const noInteractions: readonly Interaction[] = [];
 
 /** Subscribe to each entity's updates as well as additions to the projection. */
 export function useTreeWork(threadId: string) {
+  const status = useThreadMeta(threadId)?.status;
   const ids = useThread(threadId, ["agents"], agentIds, arrayEqual);
   const keys = useMemo<ThreadKey[]>(
     () => ["agents", ...(ids ?? []).map((id): ThreadKey => `agent:${id}`)],
@@ -49,8 +56,8 @@ export function useTreeWork(threadId: string) {
       agents: allAgents,
       tasks: allTasks,
       interactions: pending,
-      work: agentTreeWork(allAgents, allTasks, pending),
+      work: agentTreeWork(allAgents, allTasks, pending, status),
     }),
-    [allAgents, allTasks, pending],
+    [allAgents, allTasks, pending, status],
   );
 }

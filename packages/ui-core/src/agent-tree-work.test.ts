@@ -1,6 +1,6 @@
 import { Agent, BackgroundTask, Interaction, type AgentStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { agentTreeWork } from "./index.ts";
+import { agentTreeWork, agentWorkState } from "./index.ts";
 
 const agent = (id: string, parentId: string | null, status: AgentStatus) =>
   Agent.parse({
@@ -93,4 +93,46 @@ test("a working child with a non-blocking question stays active without requesti
   ).toEqual(["child", "root"]);
   const idle = agents.map((entry) => agent(entry.id, entry.parentId, { state: "idle" }));
   expect([...agentTreeWork(idle, [], [question]).needsYou].toSorted()).toEqual(["child", "root"]);
+});
+
+test("pending metadata keeps the main agent waiting until the explaining facts arrive", () => {
+  const root = agent("root", null, { state: "idle" });
+  expect(
+    agentWorkState(root, agentTreeWork([root], [], [], { state: "working", agents: 1 }), {
+      fresh: true,
+    }),
+  ).toMatchObject({ running: true, label: "Waiting on work" });
+  expect(
+    agentWorkState(root, agentTreeWork([root], [], [], { state: "needs_you", interactions: 1 }), {
+      fresh: true,
+    }),
+  ).toMatchObject({ running: true, needsYou: true, label: "Needs you" });
+  expect(
+    agentWorkState(root, agentTreeWork([root], [], [], { state: "done" }), { fresh: true }),
+  ).toMatchObject({ running: false, needsYou: false, label: "Idle" });
+});
+
+test("settled metadata cannot hide a child still working, and cached work stays last seen", () => {
+  const root = agent("root", null, { state: "idle" });
+  const child = agent("child", "root", { state: "working", activity: "responding" });
+  const work = agentTreeWork([root, child], [], [], { state: "done" });
+  expect(agentWorkState(root, work, { fresh: true })).toMatchObject({
+    running: true,
+    label: "Waiting on work",
+  });
+  expect(agentWorkState(root, work, { fresh: false })).toMatchObject({
+    running: true,
+    label: "Last seen",
+    activity: "Last seen",
+  });
+});
+
+test("a failed tree row hides provider diagnostics behind a useful detail action", () => {
+  const failed = agent("child", "root", {
+    state: "failed",
+    error: { kind: "provider", message: "private diagnostic" },
+  });
+  const state = agentWorkState(failed, agentTreeWork([failed], [], []), { fresh: true });
+  expect(state.label).toBe("Failed");
+  expect(state.activity).toBe("Couldn't finish. Open the agent for details.");
 });

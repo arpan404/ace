@@ -1,16 +1,8 @@
-import {
-  agentName,
-  backgroundCommand,
-  agentStatusLabel,
-  describeActivity,
-  formatSpan,
-  isRunning,
-  taskState,
-} from "@ace/ui-core";
+import { useStopIntent } from "./use-stop-intent.ts";
+import { agentName, backgroundCommand, agentWorkState, formatSpan, taskState } from "@ace/ui-core";
 import {
   useAgent,
   useAgentTree,
-  useIntentSender,
   useItem,
   useTask,
   useThreadMeta,
@@ -270,30 +262,10 @@ function AgentRow(props: {
   if (!agent || !status) return null;
   const root = agent.origin === "root";
   const name = agentName(agent);
-  // Thread metadata can arrive before the entity facts that explain its pending work.
-  const rootPending =
-    root &&
-    thread !== undefined &&
-    thread.status.state !== "done" &&
-    thread.status.state !== "new" &&
-    thread.status.state !== "failed";
-  const running = work.running.has(agent.id) || rootPending;
-  const needsYou = work.needsYou.has(agent.id) || (root && thread?.status.state === "needs_you");
-  const waiting = running && !isRunning(agent);
-  const label =
-    !live.fresh && running
-      ? "Last seen"
-      : needsYou
-        ? "Needs you"
-        : waiting
-          ? "Waiting on work"
-          : agentStatusLabel(status).label;
-  const activity =
-    status.state === "failed"
-      ? "Couldn't finish. Open the agent for details."
-      : (!live.fresh && running) || needsYou || waiting
-        ? label
-        : describeActivity(status, tool?.type === "tool_call" ? tool.call.title : undefined);
+  const { running, needsYou, label, activity } = agentWorkState(agent, work, {
+    fresh: live.fresh,
+    toolTitle: tool?.type === "tool_call" ? tool.call.title : undefined,
+  });
   const end = agent.endedAt ?? (running ? Math.max(now, agent.createdAt) : agent.createdAt);
   const body = (
     <>
@@ -328,7 +300,7 @@ function AgentRow(props: {
     if (!root) workspace.open({ kind: "agent", id: agent.id, title: name });
   };
   return (
-    <div className="group/agent flex items-center gap-1 rounded-lg hover:bg-accent">
+    <div className="group/agent flex flex-wrap items-center gap-1 rounded-lg hover:bg-accent">
       {/* The row is the tree item: Enter or a click opens the agent as its own tab. */}
       <div
         role="treeitem"
@@ -377,16 +349,19 @@ function TaskRow(props: { threadId: string; taskId: string }) {
   const task = useTask(props.threadId, props.taskId);
   const arrival = useArrival();
   const now = useNow();
-  const stop = useIntentSender();
+  const stop = useStopIntent();
   const workspace = useWorkspaceActions(props.threadId);
   const item = useItem(props.threadId, task?.toolCallId ?? "");
   if (!task || (task.status !== "running" && task.status !== "unknown")) return null;
-  const stopping = stop.intent?.state === "pending";
+  const stopping = stop.busy;
   const end = Math.max(now, task.startedAt);
   return (
     <li
       aria-label={`${task.title}: ${taskState(task)}`}
-      className={cn("flex h-8 items-center gap-2 rounded-lg px-2 text-ui hover:bg-accent", arrival)}
+      className={cn(
+        "flex min-h-8 flex-wrap items-center gap-2 rounded-lg px-2 text-ui hover:bg-accent",
+        arrival,
+      )}
     >
       <TerminalIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
       <button
@@ -411,8 +386,8 @@ function TaskRow(props: { threadId: string; taskId: string }) {
           {stopping ? "Stopping…" : "Stop"}
         </Button>
       )}
-      {stop.intent?.state === "failed" && (
-        <span role="alert" className="text-xs text-status-failed">
+      {stop.failed && (
+        <span role="alert" className="w-full text-xs text-status-failed">
           Couldn't stop this command. Try again.
         </span>
       )}

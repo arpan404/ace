@@ -1,6 +1,6 @@
 import type { Agent } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
-import { useIntentSender } from "@ace/client-react";
+import { useStopIntent } from "./use-stop-intent.ts";
 import { agentName, isRunning } from "@ace/ui-core";
 import { StopIcon } from "@phosphor-icons/react";
 import { useState, type KeyboardEvent } from "react";
@@ -32,24 +32,20 @@ export function StopAgent(props: {
   /** In the tree: reached with Delete or S rather than Tab. */
   inTree?: boolean;
   onKeyDown?(event: KeyboardEvent<HTMLButtonElement>): void;
-  /** Says why a stop failed, beside the button. */
-  showFailure?: boolean;
 }) {
-  const stop = useIntentSender();
+  const stop = useStopIntent();
   const [asking, setAsking] = useState(false);
   if (props.agent.origin === "root" || (!props.pending && !isRunning(props.agent))) return null;
   const label = stopLabel(agentName(props.agent), props.subagents);
-  const stopping = stop.intent?.state === "pending";
+  const stopping = stop.busy;
   const send = () => {
     setAsking(false);
-    void stop
-      .send({
-        type: "thread.interrupt",
-        threadId: ThreadId.parse(props.threadId),
-        agentId: props.agent.id,
-        cascade: true,
-      })
-      .catch(() => undefined);
+    void stop.send({
+      type: "thread.interrupt",
+      threadId: ThreadId.parse(props.threadId),
+      agentId: props.agent.id,
+      cascade: true,
+    });
   };
   const button = (
     <Button
@@ -68,8 +64,15 @@ export function StopAgent(props: {
   );
   return (
     <>
-      {props.showFailure && stop.intent?.state === "failed" && (
-        <span role="alert" className="truncate text-xs text-status-failed">
+      {stop.failed && (
+        <span
+          role="alert"
+          className={
+            props.inTree
+              ? "order-last w-full px-2 pb-1 text-xs text-status-failed"
+              : "text-xs text-status-failed"
+          }
+        >
           Couldn't stop this agent. Try again.
         </span>
       )}
@@ -85,7 +88,7 @@ export function StopAgent(props: {
             </PopoverDescription>
             <div className="mt-3 flex justify-end gap-2">
               <PopoverClose render={<Button size="sm" variant="ghost" />}>Cancel</PopoverClose>
-              <Button size="sm" variant="danger" onClick={send}>
+              <Button size="sm" variant="danger" disabled={stopping} onClick={send}>
                 Stop all
               </Button>
             </div>
