@@ -263,7 +263,7 @@ drawn over it, and the last screencast frame shows meanwhile. A tab whose page i
 a restart) offers to open its address again. Back and Forward re-open the tab's earlier
 addresses: the relay has no history or stop commands. Preview is only a thread's dev servers through the preview gateway.
 
-Shortcuts (`lib/keymap.ts`): ⇧⌘B side panel, ⌥⌘O the thread's work card, ⇧⌘F full view, ⌥⌘T new tab,
+Shortcuts (`lib/keymap.ts`): ⇧⌘B side panel, ⌥⌘O Work, ⇧⌘F full view, ⌥⌘T new tab,
 ⌥⌘W close tab, ⇧⌘] and ⇧⌘[ next and previous tab, and each tool's own (⇧⌘D Changes, ⌃⇧A Agents,
 ⌃` or ⌘J Terminal, ⌃⇧B Browser, ⌃⇧P Preview, ⌃⇧M Devices, ⌃⇧L Logs, ⌘P quick open, ⌥⌘S Side chat).
 In a browser tab: ⌘L the address, ⌘R reload, ⌘[ and ⌘] back and forward; in a file, ⌘F find. While a
@@ -289,17 +289,23 @@ rows. In a strip: arrows
 move between tabs and show them, Home and End jump, Delete closes, Alt+Shift+arrows reorder;
 right-click (or the context-menu key) for full view, pin, move and close.
 
-### The thread header and its work card
+### The thread header and Work tab
 
-The thread header holds only navigation, the title, its ⋯ menu (the thread's actions, then
-Search this thread and Turns), the work card's button and the side panel's toggle. The work card
-(`features/thread/header/work-card*.tsx`, loaded after first paint) floats under the header's
-right end, a sheet on a phone: the project and where the thread runs (the environment menu:
-folder, branch, commit, machine; switch branch, move to a worktree), Changes, the branch with its
-next git step (Commit & push, Push, Create PR) and every git action, the branch's pull request,
-the project's scripts as Actions (searchable, each running in a terminal tab), Open in (each
-editor with its own app icon from the OS in the desktop app, `shell.editorIcon`) and the tools
-the thread's agents have as Sources. Escape or a click outside closes it.
+The header holds navigation, the title, its menu and the panel toggle. Work is the panel's
+first and default tab. It contains the machine and checkout, branch and PR actions, commit
+and push, Changes, the whole agents tree with background commands and Stop, and project
+automations. The former Agents tab is this tab's Agents section. Saved Agents tabs and an
+open floating Work card migrate to Work, keeping tree folds and the scroll position.
+
+The thread slice owns environment and git actions and supplies them through `ThreadParts`;
+the panels slice owns placement, the tree and schedules. Other thread UI can open Work with
+`useWorkspaceActions(threadId).open({ kind: "work" })`. This is the entry point for the
+transcript live line in #568. Both the Work shortcut and the former Agents shortcut open Work.
+
+New tab is a tool launcher. Browser owns its address bar. The tab
+strip offers All tabs on overflow, fades clipped edges, and reveals the selected tab after
+activation, reordering and resize. Diffs default to unwrapped lines with horizontal scroll;
+soft wrap breaks at word boundaries, and split panes scroll horizontally independently.
 
 ## Long threads
 

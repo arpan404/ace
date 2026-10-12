@@ -382,7 +382,7 @@ test.each(["new comment", "edited saved comment"])(
     expect(await readFile(app)).toBe(updated);
 
     // Annotation and tab unmounts must not own the only copy of the unfinished edit.
-    await userEvent.click(within(panel).getByRole("tab", { name: "Agents" }));
+    await userEvent.click(within(panel).getByRole("tab", { name: "Work" }));
     await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
     const older = await pickScope(panel, "Turn 4");
     expect(within(older).queryByRole("textbox", { name: "Comment on line 2" })).toBeNull();

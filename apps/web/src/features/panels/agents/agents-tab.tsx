@@ -270,8 +270,15 @@ function AgentRow(props: {
   if (!agent || !status) return null;
   const root = agent.origin === "root";
   const name = agentName(agent);
-  const running = work.running.has(agent.id);
-  const needsYou = work.needsYou.has(agent.id);
+  // Thread metadata can arrive before the entity facts that explain its pending work.
+  const rootPending =
+    root &&
+    thread !== undefined &&
+    thread.status.state !== "done" &&
+    thread.status.state !== "new" &&
+    thread.status.state !== "failed";
+  const running = work.running.has(agent.id) || rootPending;
+  const needsYou = work.needsYou.has(agent.id) || (root && thread?.status.state === "needs_you");
   const waiting = running && !isRunning(agent);
   const label =
     !live.fresh && running

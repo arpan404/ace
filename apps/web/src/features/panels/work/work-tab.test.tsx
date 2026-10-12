@@ -37,12 +37,14 @@ test.each(["completed", "interrupted"] as const)(
   async (outcome) => {
     const { app, scenario, work } = await open();
     act(() => app.daemon.apply(scenario.thread.id, [facts.endTurn("worker-0", outcome)]));
-    await within(work).findByRole("treeitem", { name: "Write retry tests: Waiting on work" });
-    expect(within(work).queryByRole("treeitem", { name: "Write retry tests: Done" })).toBeNull();
+    await within(work).findByRole("treeitem", {
+      name: /^Write retry tests: Waiting on (work|subagents|background task)$/,
+    });
+    expect(within(work).queryByRole("treeitem", { name: "Write retry tests: Idle" })).toBeNull();
     expect(within(work).getByRole("status").textContent).toContain("2 active · 1 done");
     act(() => app.daemon.apply(scenario.thread.id, [facts.endTurn("worker-1")]));
     await within(work).findByRole("treeitem", {
-      name: `Write retry tests: ${outcome === "completed" ? "Done" : "Stopped"}`,
+      name: `Write retry tests: ${outcome === "completed" ? "Idle" : "Interrupted"}`,
     });
   },
 );
@@ -52,7 +54,9 @@ test("an idle main agent keeps waiting while an ambient command is running, then
   act(() =>
     app.daemon.apply(scenario.thread.id, [facts.endTurn("worker-0"), facts.endTurn("worker-1")]),
   );
-  await within(work).findByRole("treeitem", { name: "Main agent: Waiting on work" });
+  await within(work).findByRole("treeitem", {
+    name: /^Main agent: Waiting on (work|background task)$/,
+  });
   expect(
     within(work).queryByText("Every agent has finished and nothing is running in the background."),
   ).toBeNull();
@@ -60,7 +64,7 @@ test("an idle main agent keeps waiting while an ambient command is running, then
   await waitFor(() =>
     expect(within(work).queryByRole("region", { name: "Background" })).toBeNull(),
   );
-  await within(work).findByRole("treeitem", { name: "Main agent: Done" });
+  await within(work).findByRole("treeitem", { name: "Main agent: Idle" });
 });
 
 test("PR state shares one row and unavailable stack metadata stays quiet", async () => {
@@ -71,4 +75,18 @@ test("PR state shares one row and unavailable stack metadata stays quiet", async
   expect(
     within(work).queryByText(/Stack membership unavailable|missing or inaccessible/),
   ).toBeNull();
+});
+
+test("a failed PR read offers a friendly refresh state and keeps raw error text out of Work", async () => {
+  const { app, work } = await open();
+  app.daemon.refuseCommands("private_server_detail_571", "forge.pr.status");
+  await userEvent.click(within(work).getByRole("button", { name: /^Pull request #188/ }));
+  const details = await within(work).findByRole("region", { name: "Pull request #188" });
+  expect((await within(details).findByRole("alert")).textContent).toBe(
+    "Couldn't read this pull request. Check the connection, then refresh.",
+  );
+  expect(
+    within(work).queryByText(/private_server_detail_571|Stack membership unavailable/),
+  ).toBeNull();
+  expect(within(details).getByRole("button", { name: "Refresh" })).toBeTruthy();
 });

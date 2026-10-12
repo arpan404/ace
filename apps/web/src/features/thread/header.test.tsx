@@ -1,3 +1,4 @@
+import { openWorkPanel } from "@/test/open-work.ts";
 import { facts, flakyCheckout, replayCursor, teamAtLimit, type Scenario } from "@ace/fake-daemon";
 import { configure, act, screen, waitFor, within } from "@testing-library/react";
 
@@ -47,7 +48,7 @@ const header = () => {
   return found;
 };
 async function openEditorsMenu() {
-  const card = screen.queryByRole("complementary", { name: "Work card" }) ?? (await openCard());
+  const card = screen.queryByRole("tabpanel", { name: "Work" }) ?? (await openCard());
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Open in…" }));
 }
@@ -56,8 +57,8 @@ const sidePanel = () => screen.findByRole("region", { name: "Thread panel" });
 
 /** Open the work card from the header's list button. */
 async function openCard() {
-  await userEvent.click(within(header()).getByRole("button", { name: /^Work card/ }));
-  return screen.findByRole("complementary", { name: /^Work card/ });
+  await openWorkPanel();
+  return screen.findByRole("tabpanel", { name: "Work" });
 }
 
 /** The git step the card's branch row offers once the checkout has been read. */
@@ -94,9 +95,9 @@ const sketch = {
 // ---------------------------------------------------------------------------------------------
 // The header
 
-test("the header keeps only navigation, the title, its ⋯, the work card and the side panel's toggle", async () => {
+test("the header keeps navigation, the title, its menu and the panel toggle", async () => {
   await openThread();
-  expect(within(header()).getByRole("button", { name: /^Work card/ })).toBeTruthy();
+  expect(within(header()).queryByRole("button", { name: /^Work card/ })).toBeNull();
   expect(within(header()).getByRole("button", { name: "Right panel" })).toBeTruthy();
   expect(within(header()).getByRole("heading", { level: 1 }).textContent).toBe(
     "Replay cursor resets on every resume",
@@ -136,34 +137,13 @@ test("search lives in the palette and the turns shortcut still works", async () 
 // ---------------------------------------------------------------------------------------------
 // The work card
 
-test("the work card opens under its button and closes on Escape, giving focus back, or on a click outside", async () => {
+test("the Work shortcut opens the panel and toggles it closed without a header button", async () => {
   await openThread();
-  const button = within(header()).getByRole("button", { name: /^Work card/ });
-  const card = await openCard();
-  expect(button.getAttribute("aria-expanded")).toBe("true");
-  expect(await within(card).findByRole("heading", { level: 2, name: "Fake machine" })).toBeTruthy();
-
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() =>
-    expect(screen.queryByRole("complementary", { name: /^Work card/ })).toBeNull(),
-  );
-  expect(document.activeElement).toBe(button);
-  expect(button.getAttribute("aria-expanded")).toBe("false");
-
-  await openCard();
-  await userEvent.click(screen.getByRole("feed", { name: "Transcript" }));
-  await waitFor(() =>
-    expect(screen.queryByRole("complementary", { name: /^Work card/ })).toBeNull(),
-  );
-  expect(button.getAttribute("aria-expanded")).toBe("false");
-
-  // ⌥⌘O toggles it from anywhere on the thread.
-  await act(() => userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}"));
-  expect(await screen.findByRole("complementary", { name: /^Work card/ })).toBeTruthy();
-  await act(() => userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}"));
-  await waitFor(() =>
-    expect(screen.queryByRole("complementary", { name: /^Work card/ })).toBeNull(),
-  );
+  await userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}");
+  const work = await screen.findByRole("tabpanel", { name: "Work" });
+  expect(await within(work).findByRole("heading", { level: 2, name: "Fake machine" })).toBeTruthy();
+  await userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}");
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
 test("a menu opened from the card closes before the card does", async () => {
@@ -173,7 +153,7 @@ test("a menu opened from the card closes before the card does", async () => {
   expect(await screen.findByRole("menuitem", { name: /^Copy path/ })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("menuitem", { name: /^Copy path/ })).toBeNull());
-  expect(screen.getByRole("complementary", { name: /^Work card/ })).toBeTruthy();
+  expect(screen.getByRole("tabpanel", { name: "Work" })).toBeTruthy();
 });
 
 test("Changes in the card opens the Changes tab and gets out of the way", async () => {
@@ -182,9 +162,7 @@ test("Changes in the card opens the Changes tab and gets out of the way", async 
   await userEvent.click(within(card).getByRole("button", { name: /^Changes,/ }));
   const panel = await sidePanel();
   expect(within(panel).getByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
-  await waitFor(() =>
-    expect(screen.queryByRole("complementary", { name: /^Work card/ })).toBeNull(),
-  );
+  await waitFor(() => expect(screen.queryByRole("tabpanel", { name: "Work" })).toBeNull());
 });
 
 test("an action from the card runs the project's script in a terminal tab of the side panel", async () => {
@@ -372,7 +350,7 @@ test("another thread opens with the card closed", async () => {
   const threads = screen.getByRole("navigation", { name: "Threads" });
   await userEvent.click(within(threads).getByRole("link", { name: /Fix flaky checkout test/ }));
   await screen.findByRole("heading", { level: 1, name: "Fix flaky checkout test" });
-  expect(screen.queryByRole("complementary", { name: /^Work card/ })).toBeNull();
+  expect(screen.queryByRole("tabpanel", { name: "Work" })).toBeNull();
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -543,12 +521,9 @@ test("with an open linked PR, the card opens it and omits new PR actions", async
   expect(within(actions).queryByRole("menuitem", { name: /^Create.*PR/ })).toBeNull();
   await userEvent.keyboard("{Escape}");
 
-  const prs = within(screen.getByRole("complementary", { name: /^Work card/ })).getByRole(
-    "region",
-    {
-      name: "Pull requests",
-    },
-  );
+  const prs = within(screen.getByRole("tabpanel", { name: "Work" })).getByRole("region", {
+    name: "Pull requests",
+  });
   await userEvent.click(within(prs).getByRole("button", { name: /^Pull request #188/ }));
   await screen.findByRole("region", { name: "Pull request #188" });
   await userEvent.click(within(prs).getByRole("button", { name: /^Open PR #/ }));

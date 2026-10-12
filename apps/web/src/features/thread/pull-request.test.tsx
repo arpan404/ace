@@ -1,3 +1,4 @@
+import { openWorkPanel } from "@/test/open-work.ts";
 import { facts, workbench, type Scenario } from "@ace/fake-daemon";
 import {
   ForgePrStatus,
@@ -120,10 +121,8 @@ async function withPr(status: ForgePrStatus | undefined, details: Partial<Detail
 }
 
 async function openCard() {
-  const header = document.querySelector("header");
-  if (!header) throw new Error("No header");
-  await userEvent.click(within(header).getByRole("button", { name: /^Work card/ }));
-  return screen.findByRole("complementary", { name: /^Work card/ });
+  await openWorkPanel();
+  return screen.findByRole("tabpanel", { name: "Work" });
 }
 
 /** The work card's PR row, opened into its popover. */
@@ -168,7 +167,7 @@ test("a PR with failing checks lists them with their logs, and Merge says to fix
   );
   const popover = await openPr();
   expect(await within(popover).findByText("1 of 2 checks failed")).toBeTruthy();
-  expect(await screen.findByRole("img", { name: "Work needs you" })).toBeTruthy();
+  expect(within(popover).getByText("1 of 2 checks failed")).toBeTruthy();
   const checks = within(popover).getByRole("list", { name: "Checks" });
   expect(within(checks).getAllByRole("listitem")[0]?.textContent).toContain("test (pdf)");
   expect(within(checks).getByRole("button", { name: "Open the test (pdf) logs" })).toBeTruthy();
@@ -362,7 +361,12 @@ test("a thread in its own worktree moves back to the local checkout", async () =
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to local checkout/ }));
   expect(await screen.findByText("Moved to the local checkout")).toBeTruthy();
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("Local");
+  expect(
+    within(card).getByRole("heading", {
+      level: 2,
+      name: /Fake machine|Build server|This Mac|Local/,
+    }).textContent,
+  ).toContain("Local");
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
   expect(view && "thread" in view && view.thread.details?.mode).toBe("local");
 });
@@ -371,10 +375,10 @@ test("a missing PR shows one explanation and can be unlinked without GitHub", as
   const app = await withPr(undefined, { linkedPr: { number: 214, state: "open" } });
   const popover = await openPr(214);
   expect((await within(popover).findByRole("alert")).textContent).toContain(
-    "GitHub couldn't find the pull request",
+    "Couldn't read this pull request. Check the connection, then refresh.",
   );
   expect(within(popover).queryByText("No status from GitHub yet")).toBeNull();
-  const work = screen.getByRole("complementary", { name: /^Work card/ });
+  const work = screen.getByRole("tabpanel", { name: "Work" });
   expect(within(work).queryByText("open", { exact: true })).toBeNull();
   expect(within(work).getByRole("button", { name: /Pull request #214.*Unavailable/ })).toBeTruthy();
   expect(within(popover).queryByRole("button", { name: "Squash and merge" })).toBeNull();
