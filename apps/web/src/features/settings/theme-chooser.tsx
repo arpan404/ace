@@ -14,14 +14,14 @@ function ThemeHalf(props: { id: ThemeId; scheme: Scheme }) {
       className="grid grid-cols-[30%_1fr] bg-background"
     >
       <span className="flex flex-col gap-[5px] border-r border-border bg-sidebar px-[5px] py-2">
-        <i className="h-[3px] rounded-[2px] bg-subtle-foreground/55" />
-        <i className="h-[3px] rounded-[2px] bg-subtle-foreground/55" />
-        <i className="h-[3px] rounded-[2px] bg-subtle-foreground/55" />
+        <i className="h-[3px] rounded-xs bg-subtle-foreground/55" />
+        <i className="h-[3px] rounded-xs bg-subtle-foreground/55" />
+        <i className="h-[3px] rounded-xs bg-subtle-foreground/55" />
       </span>
       <span className="flex flex-col gap-[5px] px-2 py-2.5">
-        <i className="h-[3px] w-4/5 rounded-[2px] bg-foreground/85" />
-        <i className="h-[3px] w-3/5 rounded-[2px] bg-subtle-foreground/55" />
-        <i className="h-[3px] w-[30px] rounded-[2px] bg-status-working" />
+        <i className="h-[3px] w-4/5 rounded-xs bg-foreground/85" />
+        <i className="h-[3px] w-3/5 rounded-xs bg-subtle-foreground/55" />
+        <i className="h-[3px] w-[30px] rounded-xs bg-status-working" />
         <i className="mt-auto h-2.5 w-[22px] self-end rounded-full bg-tint" />
       </span>
     </span>

@@ -10,7 +10,8 @@
  *
  * `[data-reduce-motion]` on <html> (the Reduce motion setting, or `prefers-reduced-motion` under
  * System) keeps fades and drops movement: distances go to zero, the spring settles without
- * overshoot, sheens stop and spinners pulse instead of turning.
+ * overshoot and anything marked `.fx-flourish` (sheens, glows, trails) stops. Perpetual
+ * animations are refused by `bun run check:ui` (the static motion policy).
  */
 :root {
   --motion-fast: 120ms;
@@ -114,32 +115,6 @@
   :root[data-reduce-motion] .fx-pop {
     animation-name: fx-fade-in;
   }
-  /* A working spinner's arc turns; under reduced motion it pulses in place. */
-  .fx-spin {
-    animation: fx-spin 1s linear infinite;
-  }
-  :root[data-reduce-motion] .fx-spin {
-    animation: fx-pulse 1.6s ease-in-out infinite;
-  }
-  /* Live text (a "Working for…" line): a light passes across it. Static under reduced motion. */
-  .fx-shimmer {
-    background: linear-gradient(
-      90deg,
-      var(--shimmer-base, var(--muted-foreground)) 0 38%,
-      var(--foreground) 50%,
-      var(--shimmer-base, var(--muted-foreground)) 62% 100%
-    );
-    background-size: 300% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    animation: fx-shimmer 2.8s linear infinite;
-  }
-  :root[data-reduce-motion] .fx-shimmer {
-    animation: none;
-    background: none;
-    color: var(--shimmer-base, var(--muted-foreground));
-  }
   /* Decorative flourishes (sheens, glows, trails) mark themselves and stop under reduced motion. */
   :root[data-reduce-motion] .fx-flourish {
     animation: none !important;
@@ -219,25 +194,6 @@
 .animate-spin,
 .animate-ping {
   animation: none;
-}
-
-@keyframes fx-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes fx-pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-@keyframes fx-shimmer {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: 0 0;
-  }
 }
 
 @keyframes fx-queue-in {

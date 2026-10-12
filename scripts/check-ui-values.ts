@@ -118,7 +118,7 @@ function countClasses(source: string): Counts {
     const list = match[1] ?? match[2] ?? "";
     if (!/(^|\s)outline-none(\s|$)/.test(list)) continue;
     // Floating surfaces (popups, dialogs, positioners) hold focus for their items, not for show.
-    if (/\b(glass|isolate|fixed)\b/.test(list)) continue;
+    if (/\b(glass|ace-floating|isolate|fixed)\b/.test(list)) continue;
     // The focus style may sit in the next string of the same class list (`cn(a, b)`).
     const near = source.slice(match.index, match.index + match[0].length + 400);
     if (/focus-ring|focus-visible:|focus:|focus-within:|data-highlighted:/.test(near)) continue;
