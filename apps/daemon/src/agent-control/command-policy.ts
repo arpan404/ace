@@ -79,6 +79,7 @@ export function delegationCommandPolicy(deps: {
       return fail("concurrency_limit");
     const accepted = accept();
     if (!accepted.ok) return accepted;
+    if (explicit) deps.journal.resumeMember(p.threadId);
     if (edge.phase === "settled") deps.journal.reopen(edge);
     else if (edge.phase === "created") {
       edge.phase = "running";

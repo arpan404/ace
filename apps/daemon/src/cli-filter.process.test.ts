@@ -6,6 +6,89 @@ import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { invoke } from "./cli-test-support.ts";
 const identity = z.object({ threadId: ThreadId });
 
+test("explicit work restores a filtered intermediate member while its unmatched child is active", async () => {
+  const f = await daemonFixture();
+  const home = join(f.h.home, "daemon");
+  try {
+    const spawn = async (parent: string, provider: string, prompt: string) => {
+      const result = await invoke(home, [
+        "task",
+        "spawn",
+        prompt,
+        "--parent",
+        parent,
+        "--provider",
+        provider,
+        "--json",
+      ]);
+      expect(result.code, result.stderr).toBe(0);
+      return z.object({ data: identity }).parse(JSON.parse(result.stdout)).data.threadId;
+    };
+    const member = await spawn(f.caller.threadId, "claude", "Intermediate work");
+    const child = await spawn(member, "codex", "Unmatched background child");
+    await f.daemon.engine?.flush();
+    await f.h.emit(child, {
+      type: "turn.started",
+      agent: "root",
+      trigger: "background_completion",
+      nativeTurnId: "active-unmatched-grandchild",
+    });
+    const killed = await invoke(home, ["kill-all", "--provider", "claude", "--json"]);
+    expect(killed.code, killed.stderr).toBe(0);
+    expect(JSON.parse(killed.stdout)).toMatchObject({ data: { cancelled: [member] } });
+    const active = await invoke(home, ["task", "status", member, "--json"]);
+    expect(JSON.parse(active.stdout)).toMatchObject({ state: "working" });
+
+    const sent = await invoke(home, ["thread", "send", member, "Explicit new work", "--json"]);
+    expect(sent.code, sent.stderr).toBe(0);
+    // Admission must reopen before settlement or a later queue resume, not merely accept held input.
+    await spawn(member, "codex", "Newly authorized task");
+    const engine = f.daemon.engine;
+    if (!engine) throw new Error("Engine unavailable");
+    expect(
+      f.controls.delegations.command("resume-intermediate-queue", {
+        type: "queue.resume",
+        threadId: member,
+        expectedRevision: engine.queue(member).revision,
+      }).ok,
+    ).toBe(true);
+    await engine.flush();
+    expect(f.h.inputs.get(member)).toContain("Explicit new work");
+    await f.h.complete(child, "Unmatched child result");
+    f.h.clock.advance(f.h.clock.now() + f.controls.delegations.policy.coalesceMs + 1000);
+    await engine.flush();
+    const received = await invoke(home, ["thread", "read", member, "--json"]);
+    expect(JSON.parse(received.stdout).items).toContainEqual(
+      expect.objectContaining({
+        type: "delegation.settled",
+        results: expect.arrayContaining([
+          expect.objectContaining({ threadId: child, result: "Unmatched child result" }),
+        ]),
+      }),
+    );
+    // Finish the explicit turn and the result wake turn; the member's own result must reach R too.
+    await f.h.complete(member, "Explicit turn finished");
+    await f.h.complete(member, "Resumed intermediate result");
+    f.h.clock.advance(f.h.clock.now() + f.controls.delegations.policy.coalesceMs + 1000);
+    await engine.flush();
+    const root = await invoke(home, ["thread", "read", f.caller.threadId, "--json"]);
+    expect(JSON.parse(root.stdout).items).toContainEqual(
+      expect.objectContaining({
+        type: "delegation.settled",
+        results: expect.arrayContaining([
+          expect.objectContaining({
+            threadId: member,
+            result: "Resumed intermediate result",
+            outcome: "completed",
+          }),
+        ]),
+      }),
+    );
+  } finally {
+    await f.daemon.close();
+  }
+});
+
 test.each(["subtree", "provider"] as const)(
   "%s kill suppresses asynchronous child result wakes after the coalescing deadline",
   async (scope) => {

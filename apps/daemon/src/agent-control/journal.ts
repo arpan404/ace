@@ -454,6 +454,13 @@ export class DelegationJournal {
   stopMember(thread: ThreadId) {
     this.sql("INSERT OR IGNORE INTO delegation_member_stops VALUES (?)").run(thread);
   }
+  /** Explicit accepted work restores only this member's authority and result delivery. */
+  resumeMember(thread: ThreadId) {
+    if (!this.memberStopped(thread)) return;
+    this.sql("DELETE FROM delegation_member_stops WHERE thread_id=?").run(thread);
+    if (!this.subtreeStopped(thread))
+      this.sql("UPDATE delegated_threads SET wake_suppressed=0 WHERE child_id=?").run(thread);
+  }
   stop(thread: ThreadId) {
     this.sql("INSERT OR IGNORE INTO delegation_subtree_stops VALUES (?)").run(thread);
   }
