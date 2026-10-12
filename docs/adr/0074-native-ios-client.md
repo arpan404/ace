@@ -1,7 +1,22 @@
 # 0074: Native iOS client on the shared SDK through JavaScriptCore
 
-Date: 2026-10-12. Status: Phase 0 implemented; smoothness gate not passed. Phase 1 held.
+Date: 2026-10-12. Status: Phase 0 evidence accepted; smoothness gate not passed. Phase 1 held.
 Amends [ADR 0003](0003-runtime-and-tooling.md). Refs #560.
+
+## Phase 0 outcome
+
+The owner accepts this spike as Phase 0 evidence. Simulator and contract results
+prove the SwiftUI/shared `@ace/client` JavaScriptCore bridge architecture, durable
+local admission, approval recovery after persistence failure or daemon refusal,
+and delivery fairness under oversized updates, rejection and continuous streaming.
+
+Stable 60/120 fps on a real device remains unproven. Relaunch after daemon admission
+with a lost receipt, and safe runtime replacement, remain unverified.
+
+The rejection-versus-newer-update race was fixed in `8aae02b70` after round 4.
+Its regressions pass, but the fix has not been re-reviewed. PR #567 remains draft
+and unmerged, with `Refs #560` and the performance gate held. Phase 1 waits for the
+owner's go-ahead and real-device measurements.
 
 ## Decision and ownership
 
