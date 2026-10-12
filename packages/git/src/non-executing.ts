@@ -59,7 +59,10 @@ export function nonExecutingTransportEnv(
   keys: string,
   protocols: readonly string[] = ["http", "https", "ssh"],
 ): Record<string, string> {
-  const allowed = z.array(z.enum(["http", "https", "ssh", "file"])).max(4).parse(protocols);
+  const allowed = z
+    .array(z.enum(["http", "https", "ssh", "file"]))
+    .max(4)
+    .parse(protocols);
   return {
     ...nonExecutingEnv(keys),
     GIT_ALLOW_PROTOCOL: allowed.join(":"),

@@ -143,15 +143,20 @@ test.each(["lazy-fetch suppression", "inherited transport denial"])(
   },
 );
 
-
 test("authorized push and fetch from a protected checkout preserve hooks, fsmonitor and filter suppression", async () => {
-  const repo = await repository({ "tracked.txt": "Raw filtered bytes\n", ".gitattributes": "tracked.txt filter=hostile\n" });
+  const repo = await repository({
+    "tracked.txt": "Raw filtered bytes\n",
+    ".gitattributes": "tracked.txt filter=hostile\n",
+  });
   const remote = join(dirname(repo), "remote.git");
   await scalar(repo, "init", "--bare", remote);
   await scalar(repo, "remote", "add", "origin", `file://${remote}`);
   const marker = join(dirname(repo), "push-executed");
   const script = join(dirname(repo), "hostile.cjs");
-  await writeFile(script, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed'); process.stdin.pipe(process.stdout);\n`);
+  await writeFile(
+    script,
+    `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed'); process.stdin.pipe(process.stdout);\n`,
+  );
   const command = `${quote(process.execPath)} ${quote(script)}`;
   const hooks = join(dirname(repo), "hooks");
   await mkdir(hooks);
@@ -172,7 +177,11 @@ test("authorized push and fetch from a protected checkout preserve hooks, fsmoni
     await service.fetchBranch({ repo, remote: "origin", branch, timeoutMs: 10000 });
     expect(await service.branchHead({ repo, remote: "origin", branch })).toBe(head);
     await writeFile(join(repo, "tracked.txt"), "Changed after push\n");
-    expect((await service.status(repo)).unstaged).toEqual(expect.arrayContaining([expect.objectContaining({ path: "tracked.txt" })]));
+    expect((await service.status(repo)).unstaged).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "tracked.txt" })]),
+    );
     await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
-  } finally { await service.close(); }
+  } finally {
+    await service.close();
+  }
 });

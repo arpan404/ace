@@ -126,7 +126,6 @@ export async function partialCloneWorkspace() {
   return { h, caller: h.caller(result.threadId), marker };
 }
 
-
 export async function addLocalRemote(project: string) {
   const remote = join(project, "remote.git");
   await git("git", ["init", "--bare", remote]);
