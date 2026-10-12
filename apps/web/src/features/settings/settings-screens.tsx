@@ -199,3 +199,16 @@ export function SourceControlSettingsScreen() {
     </SettingsBody>
   );
 }
+
+const StorageSettings = lazy(() =>
+  import("./storage-page.tsx").then((module) => ({ default: module.StorageSettings })),
+);
+export function StorageSettingsScreen() {
+  return (
+    <SettingsBody page="Storage" lede="Review old data and recover space on this computer.">
+      <Suspense fallback={<ListSkeleton label="storage" shape="row" rows={6} />}>
+        <StorageSettings />
+      </Suspense>
+    </SettingsBody>
+  );
+}

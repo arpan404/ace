@@ -1,4 +1,4 @@
-import { useIssueSource } from "@/features/forge/index.ts";
+import { useIssueSource, usePrSource } from "@/features/forge/index.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { PastSessions } from "@/features/history/index.ts";
 import { ProjectPicker } from "./project-picker.tsx";
@@ -112,6 +112,7 @@ export function NewThreadPage(props: {
   project?: string | undefined;
   base?: string | undefined;
   skill?: string | undefined;
+  pullRequest?: string | undefined;
   issue?: string | undefined;
 }) {
   const { storage } = useLayout();
@@ -135,6 +136,7 @@ export function NewThreadPage(props: {
         host={host}
         project={props.project}
         skill={props.skill}
+        pullRequest={props.pullRequest}
         issue={props.issue}
       />
     );
@@ -146,7 +148,7 @@ export function NewThreadPage(props: {
     );
   return (
     <PreparationPage
-      key={preparationKey(host, project, props.skill, props.issue)}
+      key={preparationKey(host, project, props.skill, props.issue ?? props.pullRequest)}
       {...props}
       host={host}
       project={project}
@@ -154,7 +156,12 @@ export function NewThreadPage(props: {
         saveChoices(storage, { ...loadChoices(storage), project: next });
         void navigate({
           to: "/new",
-          search: { project: next, skill: props.skill, issue: props.issue },
+          search: {
+            project: next,
+            skill: props.skill,
+            pullRequest: props.pullRequest,
+            issue: props.issue,
+          },
         });
       }}
     />
@@ -166,6 +173,7 @@ function PreparationPage(props: {
   project: string;
   base?: string | undefined;
   skill?: string | undefined;
+  pullRequest?: string | undefined;
   issue?: string | undefined;
   onProject(project: string): void;
 }) {
@@ -174,8 +182,14 @@ function PreparationPage(props: {
   const { ids: projects, name, loaded } = useRegisteredProjects();
   usePreparationsChanged();
   const project = props.project;
+  const prSource = usePrSource(project, props.pullRequest);
   const issueSource = useIssueSource(project, props.issue);
-  const draftKey = preparationKey(props.host, project, props.skill, props.issue);
+  const draftKey = preparationKey(
+    props.host,
+    project,
+    props.skill,
+    props.issue ?? props.pullRequest,
+  );
   const [restored] = useState<Preparation | undefined>(() => {
     const previous = preparation(storage, props.host, draftKey);
     if (previous?.discardRecovery) {
@@ -185,6 +199,11 @@ function PreparationPage(props: {
     return previous;
   });
   const [initialChoices] = useState<Choices>(() => restored?.choices ?? loadChoices(storage));
+  const [preserveSourceDraft, setPreserveSourceDraft] = useState(
+    () => readDraft(storage, draftKey) !== undefined,
+  );
+  const awaitingSource =
+    !!(props.pullRequest || props.issue) && !prSource.selection && !issueSource.ref;
   const [selection, setChoices] = useState<Choices | undefined>(undefined);
   const choices =
     selection ?? preparation(storage, props.host, draftKey)?.choices ?? initialChoices;
@@ -217,12 +236,13 @@ function PreparationPage(props: {
   const options = start.loaded ? catalog : undefined;
   const [picked, setPicked] = useState<ProviderKind | undefined>(restored?.provider);
   const [useWorktree] = useDaemonSetting("threads.useWorktree");
-  const resolved = resolve(
+  const selected = resolve(
     options,
     choices,
     picked ?? start.provider,
     useWorktree === false ? "local" : "worktree",
   );
+  const resolved = props.pullRequest ? { ...selected, mode: "worktree" as const } : selected;
   const branches = useBaseRefs(project);
   // The base picked here, else the one asked for by name (a local branch until the branches
   // say otherwise), else the default branch at its freshest; undefined while the branches load
@@ -283,6 +303,7 @@ function PreparationPage(props: {
       project,
       owner: editorOwner,
       skill: props.skill,
+      pullRequest: props.pullRequest,
       issue: props.issue,
       choices: { ...snapshot(selection ?? previous?.choices ?? choices, resolved), project },
       settingsResolved: completed || !!resolved.model,
@@ -452,6 +473,7 @@ function PreparationPage(props: {
     permissions.capabilities &&
     !permissions.modes.some((mode) => mode.id === permission);
   const missingBase =
+    !props.pullRequest &&
     resolved.mode === "worktree" &&
     savedBase &&
     branches.state === "ready" &&
@@ -489,7 +511,14 @@ function PreparationPage(props: {
                     ? "No model selected. Open the model menu to refresh or sign in."
                     : admitted.fallback;
   const send = async (draft: Draft) => {
-    if (!project || !resolved.model || admissionProblem || issueSource.problem || !scope.draftId)
+    if (
+      !project ||
+      !resolved.model ||
+      admissionProblem ||
+      issueSource.problem ||
+      prSource.problem ||
+      !scope.draftId
+    )
       return false;
     submitting.current = true;
     const submittedRevision = preparation(storage, props.host, draftKey)?.revision;
@@ -502,6 +531,7 @@ function PreparationPage(props: {
     const sent = await create({
       project,
       draftKey,
+      pullRequest: prSource.selection,
       issue: issueSource.ref,
       scope: resolved.model.scope,
       model: resolved.model.id,
@@ -630,7 +660,7 @@ function PreparationPage(props: {
           <div className="shrink-0">
             <Composer
               ref={composer}
-              key={`${project}:${issueSource.ref ? JSON.stringify(issueSource.ref) : ""}`}
+              key={`${project}:${JSON.stringify(preserveSourceDraft ? null : (prSource.selection?.ref ?? issueSource.ref ?? null))}`}
               onPlan={() => {
                 if (provider === "claude") setPermission("plan");
               }}
@@ -641,9 +671,15 @@ function PreparationPage(props: {
                 const current = preparation(storage, props.host, draftKey);
                 return !current || current.owner === editorOwner;
               }}
-              onFilesAdded={() => remember({ title: "Attached files" })}
+              onFilesAdded={() => {
+                if (awaitingSource) setPreserveSourceDraft(true);
+                remember({ title: "Attached files" });
+              }}
               onDraftChange={(content) => {
                 latestContent.current = content;
+                // Preserve edits made while metadata loads, including unsaved storage refusals.
+                if (awaitingSource && (content.text.length || content.attachments.length))
+                  setPreserveSourceDraft(true);
                 if (
                   (!submitting.current || content.text.trim() || content.attachments.length) &&
                   !writeDraft(storage, draftKey, content)
@@ -662,12 +698,14 @@ function PreparationPage(props: {
                   title: content.text.trim().split("\n")[0]?.slice(0, 100) || "Attached files",
                 });
               }}
-              initialText={issueSource.text ?? (props.skill ? `/${props.skill} ` : undefined)}
+              initialText={
+                prSource.text ?? issueSource.text ?? (props.skill ? `/${props.skill} ` : undefined)
+              }
               busy={false}
               sendBlocked={
-                admissionProblem || issueSource.problem
+                admissionProblem || issueSource.problem || prSource.problem
                   ? {
-                      reason: admissionProblem || issueSource.problem || "",
+                      reason: admissionProblem || issueSource.problem || prSource.problem || "",
                       describedBy: readinessId,
                     }
                   : undefined
@@ -687,6 +725,14 @@ function PreparationPage(props: {
                         project={project}
                         onProject={chooseProject}
                       />
+                    }
+                    pullRequest={
+                      props.pullRequest
+                        ? {
+                            number: prSource.selection?.ref.number,
+                            headSha: prSource.selection?.headSha,
+                          }
+                        : undefined
                     }
                     mode={resolved.mode}
                     onMode={(mode) => choose({ mode })}
@@ -749,9 +795,9 @@ function PreparationPage(props: {
                 />
               }
             />
-            {(admissionProblem || issueSource.problem) && (
+            {(admissionProblem || issueSource.problem || prSource.problem) && (
               <p id={readinessId} role="status" className="mt-2 px-4 text-xs text-muted-foreground">
-                {admissionProblem || issueSource.problem}
+                {admissionProblem || issueSource.problem || prSource.problem}
               </p>
             )}
             <SignInNotice provider={provider} />

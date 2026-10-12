@@ -1,3 +1,4 @@
+import { CommandRecords } from "./command-records.ts";
 import {
   ClientError,
   defaultLimits,
@@ -10,7 +11,14 @@ import {
 } from "@ace/client";
 import type { Item, ServerMessage } from "@ace/protocol";
 import { sidebarPatches, threadPatches, type Patch } from "./patches.ts";
-import { callArgs, iterateArgs, objectInput, requestArgs, sendArgs } from "./calls.ts";
+import {
+  callArgs,
+  iterateArgs,
+  objectInput,
+  requestArgs,
+  sendArgs,
+  submitNewArgs,
+} from "./calls.ts";
 import { admitArguments } from "./argument-graph.ts";
 import { TabChannels } from "./tab-channels.ts";
 import { TabMessage, type LeaseChanges, type PortLike, type Scope } from "./wire.ts";
@@ -214,6 +222,7 @@ class Tab {
   #entry: Entry | undefined;
   #leases = new Map<number, Held>();
   #calls = new Map<number, AbortController>();
+  #commandRecords = new CommandRecords((message) => this.#post(message));
   #collection: ReturnType<Client["threadsCollection"]> | undefined;
   #sidebar(client: Client) {
     return (this.#collection ??= client.threadsCollection());
@@ -288,6 +297,10 @@ class Tab {
       if (message.visible) this.#schedule();
       return;
     }
+    if (message.t === "command.admission")
+      return this.#post({ t: "command.admission", check: message.check, outcome: "unknown" });
+    if (message.t === "command.recorded")
+      return this.#commandRecords.settle(message.call, message.ok);
     const client = this.#entry?.client;
     if (!client) {
       if (message.t === "call" || message.t === "iterate" || message.t === "next")
@@ -512,17 +525,21 @@ class Tab {
     try {
       admitArguments(args);
       const value =
-        method === "request" && isChannelRequest(args[0])
-          ? await this.#channelRequest(client, call, controller, args)
-          : await callArgs(
-              client,
-              method,
-              args,
-              controller.signal,
-              method === "threadsWindow" || method === "threadsMore"
-                ? this.#sidebar(client)
-                : client,
-            );
+        method === "submitNew"
+          ? await submitNewArgs(client, args, controller.signal, (id) =>
+              this.#commandRecords.record(call, id, controller.signal),
+            )
+          : method === "request" && isChannelRequest(args[0])
+            ? await this.#channelRequest(client, call, controller, args)
+            : await callArgs(
+                client,
+                method,
+                args,
+                controller.signal,
+                method === "threadsWindow" || method === "threadsMore"
+                  ? this.#sidebar(client)
+                  : client,
+              );
       this.#post(value === undefined ? { t: "reply", call } : { t: "reply", call, value });
     } catch (error) {
       this.#post({ t: "failed", call, error: errorShape(error) });

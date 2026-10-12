@@ -1,6 +1,8 @@
 /** Repository browsing is independent of any thread's primary forge association. */
 export { PrScreen } from "./pr-screen.tsx";
 export type { PrLocation } from "./pr-screen.tsx";
+
+export { usePrSource } from "./pr-source.ts";
 export { PrMergeControls } from "./pr-merge-state.tsx";
 
 export { IssueScreen, type IssueLocation } from "./issue-screen.tsx";

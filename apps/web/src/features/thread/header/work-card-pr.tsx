@@ -220,6 +220,18 @@ function PrDisclosure(props: {
                   Open full PR workspace
                 </MenuItem>
               )}
+              {url && repository?.forge === "github" && (
+                <MenuItem
+                  onClick={() =>
+                    void navigate({
+                      to: "/new",
+                      search: { project: props.workspaceId, pullRequest: url },
+                    })
+                  }
+                >
+                  Work on PR in a new task
+                </MenuItem>
+              )}
               <MenuItem
                 disabled={git.pending}
                 onClick={() =>

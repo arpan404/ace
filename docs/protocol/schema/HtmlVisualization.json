@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/HtmlVisualization.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "document": {
+      "$ref": "https://ace.local/protocol/v1/Attachment.json"
+    },
+    "height": {
+      "$ref": "https://ace.local/protocol/v1/HtmlHeight.json"
+    },
+    "title": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "document"
+  ],
+  "type": "object"
+}

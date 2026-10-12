@@ -1,0 +1,96 @@
+{
+  "$id": "https://ace.local/protocol/v1/StorageItem.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "branch": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "bytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "disposition": {
+      "enum": [
+        "remove",
+        "protect"
+      ],
+      "type": "string"
+    },
+    "effects": {
+      "default": [],
+      "items": {
+        "enum": [
+          "transcript_payloads",
+          "attachment_references",
+          "browser_data",
+          "worktree",
+          "local_branch",
+          "file"
+        ],
+        "type": "string"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
+    "forced": {
+      "type": "boolean"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "https://ace.local/protocol/v1/StorageKind.json"
+    },
+    "label": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "modifiedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "reasons": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/StorageReason.json"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "type": "array"
+    },
+    "removeBranch": {
+      "type": "boolean"
+    },
+    "threadIds": {
+      "items": {
+        "maxLength": 128,
+        "type": "string"
+      },
+      "maxItems": 256,
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "label",
+    "bytes",
+    "modifiedAt",
+    "threadIds",
+    "disposition",
+    "reasons",
+    "forced"
+  ],
+  "type": "object"
+}

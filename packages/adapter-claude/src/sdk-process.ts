@@ -15,6 +15,7 @@ export function spawnSdkProcess(
     spawn?: typeof spawnSupervised;
     maxOutputBytes?: number;
     outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
+    lease?: import("@ace/provider-kit/process").ProcessLease;
   },
 ): SpawnedProcess {
   const args = [...options.args];
@@ -30,6 +31,7 @@ export function spawnSdkProcess(
       ...(options.cwd ? { cwd: options.cwd } : {}),
       env: options.env,
       name: "claude",
+      ...(hooks.lease ? { lease: hooks.lease } : {}),
       ...(hooks.outputFlow ? { outputFlow: hooks.outputFlow } : {}),
       maxLineBytes: 16 * 1024 * 1024,
       ...(hooks.maxOutputBytes === undefined ? {} : { maxOutputBytes: hooks.maxOutputBytes }),

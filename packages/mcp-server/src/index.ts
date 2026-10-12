@@ -71,3 +71,5 @@ export { privateMcpConfig, readPrivateMcpConfig } from "./private-config.ts";
 
 export { mcpStatusGroups, type StatusReader } from "./status.ts";
 export { withinJsonBudget } from "./json-budget.ts";
+
+export { htmlToolkit, htmlToolCatalog, type HtmlPublicationPort } from "./html-tools.ts";

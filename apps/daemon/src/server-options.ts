@@ -33,6 +33,7 @@ export interface ServerOptions {
   externalMcp?: import("./external-mcp/server.ts").ExternalMcp;
   shutdown?: import("./shutdown-receipt.ts").ShutdownControl;
   cliControl?: ReturnType<typeof import("./services/cli-control.ts").cliControl>;
+  storage?: import("./storage/service.ts").StorageService;
   sourceControl?: import("./source-control.ts").SourceControl;
   remoteContextTransfers?: import("./agent-control/remote-context-transfer.ts").RemoteContextTransfers;
   agentControl?: import("./services/types.ts").Services["agentControl"];

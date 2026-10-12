@@ -81,6 +81,7 @@ export async function changeEngineWorkspace(
     repo.store.workspaceReservations.reserve(id, commandId, roots);
     for (const owner of owners) repo.transitions.guard(owner, commandId);
     status("preparing", thread.details ?? {});
+    repo.apply(id, [{ type: "queue.changed", count: repo.queuedCount(id) }], now());
   });
   let safeToRelease = false;
   try {
@@ -101,7 +102,7 @@ export async function changeEngineWorkspace(
       repo.transitions.set(id, {
         ...(selection ? { selection } : {}),
         handoff: context,
-        context: [],
+        context: details.pullRequestWorkspace ? [details.pullRequestWorkspace.context] : [],
       });
       status("applied", details);
       commit();
@@ -122,6 +123,7 @@ export async function changeEngineWorkspace(
   } finally {
     if (safeToRelease) repo.store.workspaceReservations.release(commandId);
     repo.transitions.releaseGuards(commandId);
+    repo.apply(id, [{ type: "queue.changed", count: repo.queuedCount(id) }], now());
     for (const owner of new Set([id, ...rootOwners])) wake(owner);
   }
 }

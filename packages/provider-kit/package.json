@@ -26,7 +26,8 @@
     "./shell-command": "./src/shell-command.ts",
     "./discovery-failure": "./src/discovery-failure.ts",
     "./cleanup": "./src/cleanup.ts",
-    "./cursor-selection": "./src/cursor-selection.ts"
+    "./cursor-selection": "./src/cursor-selection.ts",
+    "./process-identity": "./src/process-identity.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

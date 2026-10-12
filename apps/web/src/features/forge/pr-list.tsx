@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import type { ForgePrList, ForgePrSearch } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -9,6 +10,7 @@ import type { PrListExtensions } from "./pr-extensions.ts";
 import { useState } from "react";
 
 export function PrList(props: {
+  workspaceId: string;
   value?: ForgePrList | undefined;
   query: ForgePrSearch;
   selected?: number | undefined;
@@ -156,6 +158,13 @@ export function PrList(props: {
                         </span>
                       </span>
                     </button>
+                    <Link
+                      className="ml-2 text-xs text-link hover:underline focus-ring"
+                      to="/new"
+                      search={{ project: props.workspaceId, pullRequest: pr.url }}
+                    >
+                      Work on PR
+                    </Link>
                     {props.extensions?.actions?.(pr)}
                   </li>
                 ))}

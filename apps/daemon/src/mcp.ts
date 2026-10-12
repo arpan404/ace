@@ -79,6 +79,7 @@ export async function startDaemonMcp(
   );
   for (const toolkit of toolkits) toolkit.register(registry);
   const server = await startMcpServer({
+    maxBodyBytes: 2 * 1024 * 1024,
     registry,
     status:
       status ??

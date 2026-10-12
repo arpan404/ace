@@ -1,3 +1,4 @@
+import { PrTaskActions } from "./pr-task-actions.tsx";
 import { useClient, useConnectionState, useSidebarAll } from "@ace/client-react";
 import type { ForgePrDetail, CommandPayload } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
@@ -77,7 +78,13 @@ export function PrActions(props: {
       aria-label="Linked tasks and pull request actions"
       className="space-y-3 border-t border-border py-4"
     >
-      <h3 className="text-sm font-medium">Linked tasks</h3>
+      <h3 className="text-sm font-medium">Agent tasks</h3>
+      <PrTaskActions
+        key={JSON.stringify([props.workspaceId, ref])}
+        workspaceId={props.workspaceId}
+        detail={props.detail}
+        onRefresh={props.onRefresh}
+      />
       {props.detail.relatedThreads.length ? (
         <ul>
           {props.detail.relatedThreads.map((thread) => (

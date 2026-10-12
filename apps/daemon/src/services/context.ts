@@ -1,3 +1,4 @@
+import { retainsHtml } from "../html-publication.ts";
 import { observeNativeImages, imageReference } from "../native-images.ts";
 import { logError } from "@ace/diagnostics";
 import { warmup } from "./warmup.ts";
@@ -25,7 +26,8 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
       return (
         owner !== undefined &&
         owner.deletedAt === undefined &&
-        (store.nativeImages.retains(thread, hash) ||
+        (retainsHtml(store, thread, hash) ||
+          store.nativeImages.retains(thread, hash) ||
           services.agentControl?.remote.retains(thread, hash) ||
           services.agentControl?.publications.retains(thread, hash) ||
           services.agentControl?.returns.retains(thread, hash) ||
@@ -96,7 +98,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
           continue;
         const cleanup = context.uploads
           .releaseThread(event.threadId)
-          .then(() => context.uploads.collect())
+          .then(() => context.uploads.expire())
           .then(() => {})
           .catch((error: unknown) =>
             log.log("error", "Deleted thread attachment cleanup failed", logError(error)),
@@ -112,7 +114,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
   const maintain = () => {
     if (pending) return;
     pending = context.uploads
-      .collect()
+      .expire()
       .then(() => {})
       .catch((error: unknown) => log.log("error", "Attachment maintenance failed", logError(error)))
       .finally(() => {

@@ -84,7 +84,7 @@ export class GitDiagnostics {
   }
   private plain(text: string): void {
     this.objectsUnavailable ||=
-      /unable to read sha(?:1|256) file|unable to read tree|missing (?:blob|tree|object)|could not fetch [a-f0-9]+ from promisor remote|could not read [a-f0-9]{40,64}/i.test(
+      /unable to read (?:sha(?:1|256) file|tree|object)|failed to unpack tree object|missing (?:blob|tree|object)|could not fetch .* from promisor remote|could not read [a-f0-9]{40,64}|bad object [a-f0-9]{40,64}/i.test(
         text,
       );
     this.authFailed ||=

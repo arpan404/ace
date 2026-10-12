@@ -41,6 +41,8 @@ export type SupervisedProcess = {
   stop(options?: { graceMs?: number }): Promise<ProcessExit>;
 };
 export type SpawnOptions = {
+  /** Durable resource ownership brackets the native spawn, including the crash gap. */
+  lease?: ProcessLease;
   outputFlow?: OutputFlow;
   command: string;
   args?: readonly string[];
@@ -56,6 +58,11 @@ export type SpawnOptions = {
   maxOutputBytes?: number;
 };
 
+export interface ProcessLease {
+  preparing(): void;
+  spawned(pid: number): void;
+}
+
 /** Own a POSIX process group, including grandchildren that keep its pipes open. */
 function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): RawSupervisedProcess {
   if (process.platform === "win32") {
@@ -65,6 +72,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     options.maxOutputBytes === undefined
       ? undefined
       : byteLimit(options.maxOutputBytes, "maxOutputBytes");
+  options.lease?.preparing();
   const child = spawn(options.command, [...(options.args ?? [])], {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     env: { ...process.env, ...options.env },
@@ -174,6 +182,13 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
       name: options.name,
       ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     });
+  try {
+    if (pid !== undefined) options.lease?.spawned(pid);
+  } catch (error) {
+    // A journal failure cannot leave an unowned process running.
+    if (pid !== undefined) killGroup(pid, "SIGKILL");
+    throw error;
+  }
   return handle;
 }
 
