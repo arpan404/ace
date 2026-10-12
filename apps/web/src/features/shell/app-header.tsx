@@ -23,6 +23,8 @@ export interface HeaderProps {
   actions?: ReactNode;
   /** A status mark after the title (a thread's dot), shown on a phone, where no list shows it. */
   status?: ReactNode;
+  /** Work in progress on what the screen shows ("Syncing…"), after the title at every width. */
+  progress?: ReactNode;
   notice?: ReactNode;
 }
 
@@ -110,6 +112,7 @@ export function AppHeader(
           </h1>
         </div>
         {phone && props.status}
+        {props.progress}
         {props.subtitle && (
           // The title keeps the room: a long subtitle (a worktree's branch) truncates first.
           <span className="hidden min-w-0 shrink-[3] truncate text-xs font-normal text-muted-foreground md:inline @max-[45rem]/header:hidden">
