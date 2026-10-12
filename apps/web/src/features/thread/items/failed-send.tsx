@@ -255,7 +255,7 @@ export function NotSent(props: { reason: string | undefined }) {
   return (
     <p className="flex min-w-0 items-center gap-1 text-xs text-status-failed">
       <Icon icon={WarningIcon} size={12} />
-      <span className="font-medium">Not sent</span>
+      <span className="shrink-0 whitespace-nowrap font-medium">Not sent</span>
       {props.reason && <span className="text-muted-foreground">· {props.reason}</span>}
     </p>
   );

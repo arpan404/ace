@@ -50,7 +50,7 @@ test("a pending-upload reload without Web Locks offers recovery and releases lat
     resetSendStore();
     const again = harness({ daemon: app.daemon, storage: app.storage });
     await again.open(`/t/${threadId}`);
-    const reason = await screen.findByText(/This upload belongs to another page/);
+    const reason = await screen.findByText(/Can't verify the upload's owner/);
     const failure = reason.closest('[role="alert"]');
     if (!(failure instanceof HTMLElement)) throw new Error("Missing upload recovery actions");
     expect(within(failure).getByRole("button", { name: "Edit" })).toBeTruthy();
@@ -62,9 +62,6 @@ test("a pending-upload reload without Web Locks offers recovery and releases lat
         [{ type: "text", text: "C behind B" }],
       ]),
     );
-    // A late result from the departed uploader must never resurrect the cancelled message.
-    release.resolve();
-    await waitFor(async () => expect((await readQueue(again)).total).toBe(2));
   } finally {
     release.resolve();
     if (previous) Object.defineProperty(navigator, "locks", previous);

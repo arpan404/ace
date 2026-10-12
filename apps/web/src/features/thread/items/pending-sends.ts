@@ -137,19 +137,26 @@ export function useStaged(threadId: string): readonly StagedSend[] {
     void drainStaged(client, threadId);
   }, [client, threadId, here, outbox, owned]);
   // Other pages' holds: alive while their pages hold their locks.
-  const others = here.some((send) => send.owner !== pageId && !send.failed);
+  const otherOwners = useMemo(
+    () =>
+      new Set(
+        here.filter((send) => send.owner !== pageId && !send.failed).map((send) => send.owner),
+      ),
+    [here],
+  );
   // null means ownership cannot be checked: keep the message, but offer explicit recovery.
   const [live, setLive] = useState<ReadonlySet<string> | null>();
   useEffect(() => {
-    if (!others) return;
+    if (!otherOwners.size) return;
     let current = true;
     void liveOwners().then((owners) => {
-      if (current) setLive(owners ?? null);
+      if (current)
+        setLive(owners ? new Set([...otherOwners].filter((owner) => owners.has(owner))) : null);
     });
     return () => {
       current = false;
     };
-  }, [others, here]);
+  }, [otherOwners]);
   return useMemo(
     () =>
       here
@@ -161,12 +168,16 @@ export function useStaged(threadId: string): readonly StagedSend[] {
         .map((send, index) => {
           const shown = Object.assign({}, withPreviews(send), { waitingForEarlier: index > 0 });
           const gone =
-            send.owner !== pageId && !send.failed && live !== undefined && !live?.has(send.owner);
+            send.owner !== pageId &&
+            !send.failed &&
+            (send.preparing || send.attachments.some((file) => !file.sha256)) &&
+            live !== undefined &&
+            !live?.has(send.owner);
           return gone
             ? Object.assign({}, shown, {
                 failed:
                   live === null
-                    ? "This upload belongs to another page and can't be resumed here. Edit or remove this message to unblock later messages."
+                    ? "Can't verify the upload's owner. Edit or remove to unblock the queue."
                     : interrupted(send),
               })
             : shown;
