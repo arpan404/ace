@@ -63,7 +63,7 @@ export function ActivityLine(props: { activity: TurnActivity; progress?: string 
       {activity.tone === "working" ? (
         <span className="flex min-w-0 items-center gap-1.5">
           <WorkingIndicator
-            label={`${activity.label} for`}
+            label={timedLabel(activity)}
             from={activity.elapsedFrom}
             className="shrink-0"
           />
@@ -102,6 +102,15 @@ export function TailThinking(props: { threadId: string }) {
       <ThinkingRow />
     </ul>
   );
+}
+
+/**
+ * The words before the time: "Working for" when there is a time, as `activityText` reads it; the
+ * bare label without one; never "for" on a stop ("Stopping… 3s").
+ */
+function timedLabel(activity: TurnActivity): string {
+  if (activity.elapsedFrom === undefined || activity.label.endsWith("…")) return activity.label;
+  return `${activity.label} for`;
 }
 
 /** What else the whole tree is doing, quietly after the time: the plan's step, subagents, commands. */

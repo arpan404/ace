@@ -14,6 +14,7 @@ import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import {
   BrainIcon,
   FileTextIcon,
+  FolderSimpleIcon,
   GlobeIcon,
   HammerIcon,
   ListChecksIcon,
@@ -177,7 +178,7 @@ const groupIcons: Record<GroupIcon, PhosphorIcon> = {
   websearch: GlobeIcon,
   read: FileTextIcon,
   search: MagnifyingGlassIcon,
-  list: MagnifyingGlassIcon,
+  list: FolderSimpleIcon,
   plan: ListChecksIcon,
   spawn: RobotIcon,
   agent: RobotIcon,

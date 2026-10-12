@@ -11,6 +11,8 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
  */
 
 const caches = new WeakMap<ClientApi, ToolIconCache>();
+/** How long an icon that may come later waits before it is asked for again. */
+const retryMs = 30_000;
 
 function cacheOf(client: ClientApi): ToolIconCache {
   let cache = caches.get(client);
@@ -20,6 +22,7 @@ function cacheOf(client: ClientApi): ToolIconCache {
       read: (ref) => client.request({ type: "icons.read", ref }),
       // The page's wall clock, at the browser boundary.
       now: () => Date.now(),
+      retryMs,
     });
     caches.set(client, cache);
   }
@@ -36,7 +39,13 @@ export function useToolIcon(threadId: string, itemId: string, ref?: IconRef): Ic
     read,
   );
   useEffect(() => {
-    if (image === undefined) cache.load(ThreadId.parse(threadId), itemId, ref);
+    if (image !== undefined) return;
+    const load = () => cache.load(ThreadId.parse(threadId), itemId, ref);
+    load();
+    // An icon the daemon said may come later is asked for again once its wait is over (the
+    // cache ignores an ask inside the wait, or while one is on its way).
+    const timer = setInterval(load, retryMs);
+    return () => clearInterval(timer);
   }, [cache, threadId, itemId, ref, image]);
   return image;
 }

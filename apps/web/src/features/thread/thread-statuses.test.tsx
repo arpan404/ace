@@ -84,7 +84,7 @@ test("a thread that asked a question keeps the waiting state in the thread, row 
   ).toBeTruthy();
 });
 
-test("a thread running tests names its current action in the transcript live line", async () => {
+test("a thread running tests keeps its live head working and names the action in its row", async () => {
   const { header, row } = await open(runningTests());
   // The step in flight closes the transcript's flow; the head says the turn works.
   expect(screen.getByRole("group", { name: "Turn in progress" }).textContent).toContain(

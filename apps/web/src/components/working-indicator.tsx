@@ -8,7 +8,7 @@ import { TimeContext } from "@/lib/time.ts";
  * Something is working: a tiny 3x3 pixel grid whose lit cells walk round it, words, and how long
  * it has run in monospace ("Working for 3m 6s"). The grid steps on the page's shared one-second clock
  * and writes through refs, so it costs no React render and no perpetual CSS animation; under
- * reduced motion it holds one still pattern. Sidebar rows reuse the glyph alone.
+ * reduced motion it holds one still pattern. `WorkingGlyph` is exported for other rows to reuse.
  */
 
 /** The order the lit cell walks: round the edge, clockwise. */
@@ -71,10 +71,7 @@ export function ElapsedTime(props: { from: number; className?: string }) {
   return <span ref={element} className={cn("font-mono text-xs tabular-nums", props.className)} />;
 }
 
-/**
- * `[grid] Working for 3m 6s`: the glyph, the words, and the time it has run. A sidebar row passes
- * the compact `label="Working"` ("Working 4m").
- */
+/** `[grid] Working for 3m 6s`: the glyph, the words, and the time it has run. */
 export function WorkingIndicator(props: {
   /** Words before the time; "Working for" by default. */
   label?: string;

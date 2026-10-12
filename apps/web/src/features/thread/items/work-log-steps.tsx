@@ -172,7 +172,12 @@ function TargetChip(props: { target: string }) {
   const chip = "flex min-w-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground";
   const slash = props.target.lastIndexOf("/");
   const path = slash > 0 && slash < props.target.length - 1 && !/\s/.test(props.target);
-  if (!path) return <code className={cn(chip, "truncate")}>{props.target}</code>;
+  if (!path)
+    return (
+      <code className={chip}>
+        <span className="min-w-0 truncate">{props.target}</span>
+      </code>
+    );
   return (
     <code className={chip} title={props.target}>
       <span className="min-w-0 truncate">{props.target.slice(0, slash + 1)}</span>

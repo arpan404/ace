@@ -181,7 +181,7 @@ test("only a background shell keeps the live timer until the shell ends", async 
 });
 
 test("approval inside a subagent holds the parent in a needs-you state, its timer stopped", async () => {
-  const { app } = await running([...initial(), ...child()]);
+  const { app, setTime } = await running([...initial(), ...child()]);
   act(() =>
     app.daemon.apply(id, [
       facts.toolDone("root", "build"),
@@ -205,6 +205,15 @@ test("approval inside a subagent holds the parent in a needs-you state, its time
   expect(await screen.findByRole("link", { name: "Waiting for your approval" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
   expect(screen.queryByRole("status", { name: "Working" })).toBeNull();
+  // The time the turn reached stands still while it waits, however long that is.
+  const head = screen.getByRole("group", { name: "Turn in progress" });
+  const waiting = head.textContent;
+  expect(waiting).toMatch(/^Working for \d.* · Waiting for your approval$/);
+  act(() => setTime(10 * 60_000));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+  });
+  expect(head.textContent).toBe(waiting);
 });
 
 for (const [outcome, label, at] of [
