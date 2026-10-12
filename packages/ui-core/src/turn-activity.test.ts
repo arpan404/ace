@@ -408,7 +408,7 @@ test("saved history has no live activity until a new turn starts", () => {
   expect(turnActivity(thread.reader, "root")?.label).toBe("Working");
 });
 
-test("continuations preserve the first server start and exclude the idle gap, including after replay", () => {
+test("continuations keep the entire tree’s server start without resetting its timer, including after replay", () => {
   const thread = world(working, [said("ask", "user", 0), shell("early", "ls", "succeeded", 0)]);
   expect(activityText(turnActivity(thread.reader, "root")!, 10_000)).toBe("Working for 10s");
   thread.runs.set("run-1", { ...run("run-1", "root"), state: "completed", endedAt: 10_000 });
@@ -420,14 +420,14 @@ test("continuations preserve the first server start and exclude the idle gap, in
   thread.liveRun("run-2");
   expect(turnTreeOf(thread.reader).settled("run-1")).toBe(false);
   // The server can start the continuation before its first output arrives.
-  expect(activityText(turnActivity(thread.reader, "root")!, 40_000)).toBe("Working for 10s");
+  expect(activityText(turnActivity(thread.reader, "root")!, 40_000)).toBe("Working for 40s");
   thread.add({
     ...shell("continue", "bun run build", "running", 40_000),
     runId: "run-2" as Run["id"],
   });
-  expect(activityText(turnActivity(thread.reader, "root")!, 45_000)).toBe("Working for 15s");
+  expect(activityText(turnActivity(thread.reader, "root")!, 45_000)).toBe("Working for 45s");
   // A new reader replays the same server facts instead of inheriting client-side timer state.
-  expect(activityText(turnActivity({ ...thread.reader }, "root")!, 45_000)).toBe("Working for 15s");
+  expect(activityText(turnActivity({ ...thread.reader }, "root")!, 45_000)).toBe("Working for 45s");
   expect(turnTreeOf({ ...thread.reader }).settled("run-1")).toBe(false);
   thread.runs.set("run-2", {
     ...run("run-2", "root"),
@@ -542,6 +542,6 @@ test("a continuation recovered with only its new output still uses the original 
     ...shell("new-step", "bun run build", "running", 40_000),
     runId: "run-2" as Run["id"],
   });
-  expect(activityText(turnActivity(thread.reader, "root")!, 45_000)).toBe("Working for 15s");
+  expect(activityText(turnActivity(thread.reader, "root")!, 45_000)).toBe("Working for 45s");
   expect(turnTreeOf(thread.reader).settled("run-1")).toBe(false);
 });

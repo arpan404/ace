@@ -434,24 +434,38 @@ for (const outcome of ["completed", "interrupted", "failed"] as const) {
     const { app, setTime } = await running();
     act(() =>
       app.daemon.apply(id, [
+        {
+          type: "background.started",
+          agent: "root",
+          task: "continued-shell",
+          kind: "shell",
+          title: "Build watcher",
+          item: "build",
+          stoppable: true,
+        },
+      ]),
+    );
+    act(() =>
+      app.daemon.apply(id, [
         facts.toolDone("root", "build"),
         facts.message("root", "first-answer", "assistant", "The first pass is complete."),
         facts.endTurn("root"),
       ]),
     );
-    await screen.findByRole("button", { name: /^Worked for 1m 14s/ });
+    expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
     setTime(100_000);
     act(() =>
       app.daemon.apply(id, [
+        { type: "background.ended", task: "continued-shell", status: "completed" },
         {
           type: "turn.started",
           agent: "root",
           nativeTurnId: "continue",
-          trigger: "subagent_result",
+          trigger: "background_completion",
         },
       ]),
     );
-    await waitFor(() => expect(live().textContent).toContain("Working for 1m 14s"));
+    await waitFor(() => expect(live().textContent).toContain("Working for 1m 39s"));
     expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
     setTime(105_000);
     act(() =>
@@ -463,7 +477,7 @@ for (const outcome of ["completed", "interrupted", "failed"] as const) {
         }),
       ]),
     );
-    await waitFor(() => expect(live().textContent).toContain("Working for 1m 19s"));
+    await waitFor(() => expect(live().textContent).toContain("Working for 1m 44s"));
     expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
     setTime(107_000);
     act(() =>
@@ -487,7 +501,7 @@ for (const outcome of ["completed", "interrupted", "failed"] as const) {
           ? "Stopped after"
           : "Failed after";
     expect(
-      await screen.findByRole("button", { name: new RegExp(`^${label} 1m 21s`) }),
+      await screen.findByRole("button", { name: new RegExp(`^${label} 1m 46s`) }),
     ).toBeTruthy();
     expect(
       screen.getAllByRole("button", { name: /^(Worked for|Stopped after|Failed after)/ }),
