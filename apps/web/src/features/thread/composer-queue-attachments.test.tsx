@@ -53,7 +53,7 @@ test("a pending-upload reload without Web Locks offers recovery and releases lat
     wall += 180_000;
     const again = harness({ daemon: app.daemon, storage: app.storage, uiClock: () => wall });
     await again.open(`/t/${threadId}`);
-    const reason = await screen.findByText(/The upload owner's lease expired/);
+    const reason = await screen.findByText(/The uploading page stopped responding/);
     const failure = reason.closest('[role="alert"]');
     if (!(failure instanceof HTMLElement)) throw new Error("Missing upload recovery actions");
     expect(within(failure).getByRole("button", { name: "Edit" })).toBeTruthy();
@@ -76,7 +76,17 @@ test("a foreign uploading owner stays live while heartbeats renew and recovers o
   const previous = Object.getOwnPropertyDescriptor(navigator, "locks");
   Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
   let wall = 1000;
-  let beat: (() => void) | undefined;
+  const timers = new Set<{ at: number; callback(): void }>();
+  const advance = (to: number) => {
+    while (true) {
+      const next = [...timers].filter((timer) => timer.at <= to).toSorted((a, b) => a.at - b.at)[0];
+      if (!next) break;
+      timers.delete(next);
+      wall = next.at;
+      next.callback();
+    }
+    wall = to;
+  };
   const { app, message } = await openBusy({ uiClock: () => wall });
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -106,10 +116,11 @@ test("a foreign uploading owner stays live while heartbeats renew and recovers o
     // An independent tab's heartbeat uses its own injected clock and timer boundary.
     lease = maintainUploadLease(app.storage, owner, {
       now: () => wall,
-      setTimer(callback) {
-        beat = callback;
+      setTimer(callback, delay) {
+        const timer = { at: wall + delay, callback };
+        timers.add(timer);
         return () => {
-          beat = undefined;
+          timers.delete(timer);
         };
       },
     });
@@ -119,16 +130,15 @@ test("a foreign uploading owner stays live while heartbeats renew and recovers o
     await screen.findByText("Uploading an image…");
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
-    wall = 110_000;
-    act(() => beat?.());
+    act(() => advance(110_000));
     lease.abandon();
-    wall = 200_000; // Past the original lease, still within the renewed lease.
+    advance(200_000); // Past the original lease, still within the renewed lease.
     fireEvent(document, new Event("visibilitychange"));
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
-    wall = 240_000;
+    advance(240_000);
     fireEvent(document, new Event("visibilitychange"));
-    await screen.findByText(/The upload owner's lease expired/);
+    await screen.findByText(/The uploading page stopped responding/);
     expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy();
   } finally {

@@ -181,7 +181,7 @@ export function useStaged(threadId: string): readonly StagedSend[] {
             ? Object.assign({}, shown, {
                 failed:
                   live === null
-                    ? "The upload owner's lease expired. Edit or remove to unblock the queue."
+                    ? "The uploading page stopped responding. Edit or remove to unblock the queue."
                     : interrupted(send),
               })
             : shown;
