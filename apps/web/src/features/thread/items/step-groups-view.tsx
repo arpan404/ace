@@ -116,11 +116,16 @@ const sameReading = (a: LogReading, b: LogReading) =>
 
 /** The log's groups, regrouped from the first changed step only. */
 function useGroups(steps: readonly StepFact[]): readonly StepGroup[] {
-  const [grouped, setGrouped] = useState<Grouped>(() => groupSteps(steps));
-  if (grouped.facts === steps) return grouped.groups;
-  const next = groupSteps(steps, grouped);
-  setGrouped(next);
-  return next.groups;
+  // Remembers the facts it last grouped, apart from the grouping: an unchanged grouping comes back
+  // as the same object, whose own facts may be an older (equal) array.
+  const [state, setState] = useState<{ facts: readonly StepFact[]; grouped: Grouped }>(() => ({
+    facts: steps,
+    grouped: groupSteps(steps),
+  }));
+  if (state.facts === steps) return state.grouped.groups;
+  const grouped = groupSteps(steps, state.grouped);
+  setState({ facts: steps, grouped });
+  return grouped.groups;
 }
 
 const nothing: LogReading = { facts: [], surfaces: new Map(), retried: new Set() };

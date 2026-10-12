@@ -83,9 +83,11 @@ export function WorkingIndicator(props: {
   from?: number | undefined;
   /** A time it reached and holds (a wait): shown still, the glyph still. */
   held?: number | undefined;
+  /** Whether the glyph moves; still while the work waits (and whenever a time is held). */
+  moving?: boolean | undefined;
   className?: string;
 }) {
-  const moving = props.held === undefined;
+  const moving = (props.moving ?? true) && props.held === undefined;
   const label = props.label ?? "Working";
   const timed = props.held !== undefined || props.from !== undefined;
   return (

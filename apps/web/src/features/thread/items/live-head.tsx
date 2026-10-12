@@ -1,5 +1,6 @@
 import { livePlanStep, type TurnActivity } from "@ace/ui-core";
 import { useShownPlans } from "@/lib/use-plans.ts";
+import { useLiveConnection } from "@/lib/live-connection.ts";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -20,8 +21,10 @@ export function LiveHead(props: { threadId: string }) {
   const activity = useTurnActivity(props.threadId);
   const workspace = useWorkspaceActions(props.threadId);
   const plans = useShownPlans(props.threadId);
+  const live = useLiveConnection();
   const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
-  if (!activity || activity.tone === "paused") return null;
+  // A pause is the turn's own divider; a lost connection is the header's to say.
+  if (!activity || activity.tone === "paused" || live.staleLabel) return null;
   // The status line stays a live region of its own; the whole row also opens the Summary.
   return (
     <div
@@ -69,11 +72,18 @@ export function ActivityLine(props: { activity: TurnActivity; progress?: string 
           />
           <Context activity={activity} progress={props.progress} />
         </span>
-      ) : activity.tone === "needs-you" && activity.elapsedMs !== undefined ? (
-        <span className="flex min-w-0 items-center gap-1.5">
-          <WorkingIndicator held={activity.elapsedMs} className="shrink-0" />
-          <span className="min-w-0 truncate">{` · ${activity.label}`}</span>
-        </span>
+      ) : activity.tone === "needs-you" ? (
+        // The request itself sits in the composer's strip; here the time just stands still.
+        <WorkingIndicator
+          // Under a second reads as no time yet, not "0s".
+          held={
+            activity.elapsedMs !== undefined && activity.elapsedMs >= 1000
+              ? activity.elapsedMs
+              : undefined
+          }
+          moving={false}
+          className="shrink-0"
+        />
       ) : (
         <span className="min-w-0 truncate">{label}</span>
       )}
