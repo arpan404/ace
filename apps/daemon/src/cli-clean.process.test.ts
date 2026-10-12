@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { once } from "node:events";
-import { access, mkdir, readFile, utimes, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, realpath, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { WebSocket, WebSocketServer } from "ws";
@@ -9,6 +9,9 @@ import { StoragePlan, ThreadId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { invoke } from "./cli-test-support.ts";
+import { parseArgs } from "./cli/args.ts";
+import { connectCli } from "./cli/connection.ts";
+import { command } from "./cli/mutations.ts";
 
 const day = 86_400_000;
 const git = (root: string, ...args: string[]) => promisify(execFile)("git", ["-C", root, ...args]);
@@ -18,8 +21,8 @@ async function cleanFixture() {
   const f = await daemonFixture();
   const home = join(f.h.home, "daemon");
   try {
-    const repo = join(f.h.home, "repo");
-    await mkdir(repo);
+    await mkdir(join(f.h.home, "repo"));
+    const repo = await realpath(join(f.h.home, "repo"));
     await git(repo, "init", "-b", "main");
     await writeFile(join(repo, "file.txt"), "original\n");
     await git(repo, "add", ".");
@@ -33,29 +36,30 @@ async function cleanFixture() {
       "-m",
       "Init",
     );
-    // The ace-created worktree goes through the public CLI run path.
-    const run = await invoke(home, [
-      "run",
-      "finished task",
-      "--project",
-      repo,
-      "--worktree",
-      "--provider",
-      "codex",
-      "--json",
-    ]);
-    if (run.code !== 0) throw new Error(run.stderr || run.stdout);
-    const threadId = ThreadId.parse(
-      z.object({ threadId: z.string() }).parse(JSON.parse(run.stdout)).threadId,
-    );
-    await f.daemon.engine?.flush();
-    await expect.poll(() => f.daemon.store.getThread(threadId)?.status.state).toBe("done");
+    // Prepared through the daemon's public command path, so ace records the worktree it created.
+    // Temp dirs are system paths to project registration, so the workspace is seeded directly.
+    const workspaceId = f.daemon.store.createWorkspace(repo, "repo");
+    const threadId = ThreadId.parse("finished-worktree");
+    const session = await connectCli(home, parseArgs([]));
+    try {
+      const prepare = { type: "thread.prepare", threadId, workspaceId, provider: "codex" };
+      await command(
+        session.client,
+        { ...prepare, title: "Finished", mode: "worktree", base: { ref: "main" } },
+        "prepare-worktree",
+        session.signal,
+      );
+      await command(
+        session.client,
+        { type: "thread.archive", threadId },
+        "archive-worktree",
+        session.signal,
+      );
+    } finally {
+      await session.close();
+    }
     const worktree = f.daemon.store.getThread(threadId)?.details?.worktree;
-    if (!worktree) throw new Error("Run created no worktree");
-    if (
-      !f.controls.delegations.command("archive-finished", { type: "thread.archive", threadId }).ok
-    )
-      throw new Error("Archive failed");
+    if (!worktree) throw new Error("Preparation created no worktree");
     // Published: the worktree head is reachable from a remote-tracking ref.
     await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
     await mkdir(join(home, "logs"), { recursive: true });
@@ -127,12 +131,15 @@ test("clean --logs --yes applies the logs plan unattended and leaves the worktre
   }
 });
 
-test("clean without a terminal or --yes is refused and removes nothing", async () => {
+test("clean is refused and removes nothing without consent, a kind for --older-than, or a forced preview", async () => {
   const f = await cleanFixture();
   try {
     for (const args of [
+      ["clean"],
       ["clean", "--logs"],
       ["clean", "--worktrees", "--older-than", "7d", "--json"],
+      ["clean", "--older-than", "1d", "--yes"],
+      ["clean", "--logs", "--force-items", '["unused"]', "--yes"],
     ]) {
       const output = await invoke(f.home, args);
       expect(output.code, output.stderr).toBe(4);
