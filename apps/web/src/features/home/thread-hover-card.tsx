@@ -61,11 +61,13 @@ export function ThreadHoverContent(props: {
           </Fact>
         )}
         <Fact>
+          {/* A black-and-white mark takes the card's muted ink, as in the row. */}
           <ProviderIcon
             provider={card.provider}
             acpAgentId={card.acpAgentId}
             size={14}
             decorative
+            className="text-muted-foreground"
           />
           <span className="shrink-0">
             {providerDisplayName(card.provider, card.acpAgentId)}

@@ -121,7 +121,7 @@ export function HeaderNav() {
 
 /**
  * The one header every screen uses: sidebar toggle, then the title and its
- * subtitle; on the right the actions, the ⋯ menu, the screen's tools (a thread's Work icon) and
+ * subtitle; on the right the actions, the ⋯ menu, the screen's tools (a thread's details icon) and
  * the side panel's toggle, with no rule between them. 44px, a drag region in Electron, hairline only once the content scrolls. Every control
  * is a 30px box on one centre line. On a phone it keeps the sidebar toggle, the title (two lines
  * if need be), the status mark, screen tools and one ⋯; the panel toggle moves into that ⋯.

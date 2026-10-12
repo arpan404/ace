@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useThreadMeta } from "@ace/client-react";
 import { WorkAutomations } from "@/features/automations/index.ts";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import {
   attachWorkspaceScroll,
   useWorkspaceActions,
@@ -28,9 +29,8 @@ export default function WorkTab(props: TabViewProps) {
   );
   if (!thread)
     return (
-      <p role="status" className="p-4 text-sm text-muted-foreground">
-        Reading work…
-      </p>
+      // Rows shaped like the tab's, while the thread's facts arrive.
+      <ListSkeleton label="summary" shape="row" rows={4} className="px-1.5 py-1.5" />
     );
   return (
     <div
