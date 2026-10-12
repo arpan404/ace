@@ -63,7 +63,7 @@ export function ModelControl(props: {
           onFocus={warm}
           className={cn(
             props.className,
-            "max-w-72 gap-1.5 text-ui leading-4 font-normal focus-ring-inset max-sm:shrink-0",
+            "max-w-72 gap-1.5 text-ui leading-4 font-normal focus-ring-inset",
           )}
         >
           {view.provider && (
