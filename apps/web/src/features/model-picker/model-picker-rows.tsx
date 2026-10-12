@@ -59,13 +59,10 @@ export function ModelRow(props: {
   const account = accounts.data?.find((entry) => entry.id === model.instance);
   const detail = rowDetail(model);
   const marker = model.isDefault ? (model.userDefault ? "Your choice" : "Recommended") : undefined;
+  const accountLabel =
+    account?.label ?? (model.source?.kind === "account" ? model.source.label : undefined);
   const subtitle = [
-    [
-      origin(model),
-      account?.label ?? (model.source?.kind === "account" ? model.source.label : undefined),
-    ]
-      .filter(Boolean)
-      .join(" · "),
+    [origin(model), accountLabel].filter(Boolean).join(" · "),
     props.mixed && model.legacy ? "Legacy" : undefined,
     model.unavailable,
   ]
@@ -81,8 +78,23 @@ export function ModelRow(props: {
   ]
     .filter(Boolean)
     .join(", ");
+  // The rail already names the provider and account; a mixed list (search, Favorites) adds the
+  // provider's mark, and the account only where the provider has more than one.
+  const ambiguous =
+    props.mixed &&
+    !!accountLabel &&
+    (accounts.data?.filter((entry) => entry.provider === model.provider).length ?? 0) > 1;
+  const suffix = [
+    ambiguous ? accountLabel : undefined,
+    props.mixed && model.legacy ? "Legacy" : undefined,
+    model.unavailable,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  // ⌘N and the star show on the highlighted (hovered or keyboard) row and the chosen one.
+  const revealed = props.highlighted || props.current;
   return (
-    <div role="none" className="relative">
+    <div role="none" className="group/row relative">
       <div
         role="option"
         id={props.id}
@@ -95,44 +107,41 @@ export function ModelRow(props: {
         onMouseMove={props.onHighlight}
         onClick={props.onPick}
         className={cn(
-          "flex h-13 w-full items-center gap-2 rounded-sm px-2 py-1.5 pr-9 text-ui whitespace-nowrap text-foreground select-none data-highlighted:bg-accent data-disabled:opacity-50 focus-ring-inset",
+          "flex h-8 w-full items-center gap-1.5 rounded-sm px-2 pr-8 text-ui whitespace-nowrap text-foreground select-none data-highlighted:bg-accent data-disabled:opacity-50 focus-ring-inset",
           !model.unavailable && "cursor-pointer",
         )}
       >
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate font-normal" onPointerEnter={titleWhenClipped(model.label)}>
-              {model.label}
-            </span>
-          </span>
-          {subtitle && (
-            <span className="flex min-w-0 items-center gap-1 text-xs text-subtle-foreground">
-              {
-                <ProviderIcon
-                  provider={model.provider}
-                  acpAgentId={account?.acpAgentId}
-                  size={12}
-                  className="size-3"
-                  decorative
-                />
-              }
-              <span
-                className="truncate"
-                title={[subtitle, model.detail].filter(Boolean).join(" · ")}
-              >
-                {subtitle}
-              </span>
-            </span>
-          )}
+        {props.mixed && (
+          <ProviderIcon
+            provider={model.provider}
+            acpAgentId={account?.acpAgentId}
+            size={14}
+            className="size-3.5 shrink-0"
+            decorative
+          />
+        )}
+        <span className="truncate font-normal" onPointerEnter={titleWhenClipped(model.label)}>
+          {model.label}
         </span>
-        {props.current && <CheckIcon aria-hidden size={12} weight="bold" className="shrink-0" />}
+        {detail && (
+          <span className="min-w-0 truncate text-xs text-subtle-foreground">{detail}</span>
+        )}
+        {model.isNew && <span className="shrink-0 text-xs text-link">New</span>}
+        {suffix && (
+          <span className="min-w-0 truncate text-xs text-subtle-foreground">{suffix}</span>
+        )}
+        <span className="flex-1" />
         {props.number !== undefined && (
           <Kbd
             keys={`mod+${props.number}`}
             variant="bare"
-            className="bg-transparent tabular-nums"
+            className={cn(
+              "bg-transparent tabular-nums opacity-0 group-hover/row:opacity-100",
+              revealed && "opacity-100",
+            )}
           />
         )}
+        {props.current && <CheckIcon aria-hidden size={12} weight="bold" className="shrink-0" />}
       </div>
       <Tip label={`${props.starred ? "Remove from" : "Add to"} favorites`}>
         <button
@@ -142,7 +151,8 @@ export function ModelRow(props: {
           tabIndex={props.highlighted ? 0 : -1}
           onClick={props.onStar}
           className={cn(
-            "absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-subtle-foreground transition-colors duration-(--motion-fast) motion-reduce:transition-none hover:text-foreground focus-ring-inset aria-pressed:text-link",
+            "absolute top-1/2 right-1 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-subtle-foreground opacity-0 transition-[color,opacity] duration-(--motion-fast) group-hover/row:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-ring-inset aria-pressed:text-link pointer-coarse:opacity-100",
+            revealed && "opacity-100",
           )}
         >
           <StarIcon aria-hidden size={14} weight={props.starred ? "fill" : "regular"} />

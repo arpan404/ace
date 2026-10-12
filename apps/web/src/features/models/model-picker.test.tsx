@@ -1,3 +1,4 @@
+import { chooseSource, sourceTab } from "@/test/model-control.ts";
 import { replayCursor } from "@ace/fake-daemon";
 import type { CatalogModel } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
@@ -124,7 +125,7 @@ test("a row under another account moves the thread to that account", async () =>
 
 test("OpenCode lists its models by source, and a failing source says why beside its last models", async () => {
   const { popover, list } = await openPicker();
-  await userEvent.click(within(popover).getByRole("tab", { name: "OpenCode · Your CLI login" }));
+  await chooseSource(popover, "OpenCode · Your CLI login");
   expect(groupNames(list)).toEqual([
     "Local",
     "OpenCode Go",
@@ -154,7 +155,7 @@ test("OpenCode lists its models by source, and a failing source says why beside 
 
 test("Pi groups its models by the provider it is signed in to", async () => {
   const { popover, list } = await openPicker();
-  await userEvent.click(within(popover).getByRole("tab", { name: "Pi · Your CLI login" }));
+  await chooseSource(popover, "Pi · Your CLI login");
   expect(groupNames(list)).toEqual(["GitHub Copilot", "Anthropic"]);
   expect(names(group(list, "GitHub Copilot"))).toEqual([
     "Opus 5.5, Pi · GitHub Copilot · Your CLI login",
@@ -169,7 +170,7 @@ test("Pi groups its models by the provider it is signed in to", async () => {
 test("a provider whose sign-in expired says so and how to fix it, and Refresh models discovers again", async () => {
   const app = harness();
   const { popover, list } = await openPicker(app);
-  await userEvent.click(within(popover).getByRole("tab", { name: "Cursor · Your Cursor login" }));
+  await chooseSource(popover, "Cursor · Your Cursor login");
   expect(within(list).getByText("Cursor sign-in has expired.")).toBeTruthy();
   expect(within(list).getByText(/Sign in using Cursor, then refresh models\./)).toBeTruthy();
   expect(within(list).getByRole("option", { name: /^Composer 2\.5/ })).toBeTruthy();
@@ -207,7 +208,7 @@ test("a provider whose discovery failed with no models left still opens, to say 
             : push(reply),
         );
   const { popover, list } = await openPicker(app);
-  const cursor = within(popover).getByRole("tab", { name: "Cursor · Your Cursor login" });
+  const cursor = await sourceTab(popover, "Cursor · Your Cursor login");
   expect(cursor.getAttribute("aria-disabled")).toBeNull();
   await userEvent.click(cursor);
   expect(within(list).getByText("Cursor sign-in has expired.")).toBeTruthy();
@@ -315,7 +316,7 @@ test("a starred model is kept under Favorites, also the next time the picker ope
   await userEvent.click(
     within(group(list, "Personal")).getByRole("button", { name: "Add Haiku 4.5 to favorites" }),
   );
-  await userEvent.click(within(popover).getByRole("tab", { name: "Codex · Personal" }));
+  await chooseSource(popover, "Codex · Personal");
   await userEvent.click(
     within(group(list, "Personal")).getByRole("button", { name: "Add GPT-6 Luna to favorites" }),
   );
@@ -342,17 +343,17 @@ test("⌘ and a number pick that row and close the model picker", async () => {
   );
 });
 
-test("the provider column moves with the arrow keys", async () => {
+test("the provider column moves with the arrow keys, one tab per provider", async () => {
   const { popover, list } = await openPicker();
-  within(popover).getByRole("tab", { name: "Claude Code · Personal" }).focus();
+  const rail = within(popover).getByRole("tablist", { name: "Model sources" });
+  // Several accounts share one provider tab; the list header switches between them.
+  expect(within(rail).queryAllByRole("tab", { name: /^Claude Code/ })).toHaveLength(1);
+  within(rail).getByRole("tab", { name: "Claude Code" }).focus();
   await userEvent.keyboard("{ArrowDown}");
-  expect(document.activeElement).toBe(
-    within(popover).getByRole("tab", { name: "Claude Code · Work" }),
-  );
-  await userEvent.keyboard("{ArrowDown}");
-  expect(document.activeElement).toBe(
-    within(popover).getByRole("tab", { name: "Codex · Personal" }),
-  );
+  expect(document.activeElement).toBe(within(rail).getByRole("tab", { name: "Codex" }));
+  expect(
+    within(popover).getByRole("tab", { name: "Codex · Personal", selected: true }),
+  ).toBeTruthy();
   expect(names(group(list, "Personal"))).toEqual([
     "GPT-6.1 Sol, recommended, Codex · Personal",
     "GPT-5 Codex, Codex · Personal",
@@ -547,7 +548,7 @@ test("connected Copilot with no enabled models shows its hint and remains refres
           });
         });
   const { popover, list } = await openPicker(app);
-  const tab = within(popover).getByRole("tab", { name: "OpenCode · Your CLI login" });
+  const tab = await sourceTab(popover, "OpenCode · Your CLI login");
   expect(tab.getAttribute("aria-disabled")).toBeNull();
   await userEvent.click(tab);
   expect(

@@ -62,12 +62,30 @@ export async function chooseAccount(popover: HTMLElement, name: string) {
   await userEvent.click(option);
 }
 
+/**
+ * A model source's tab, "Codex · Team": the rail's own tab when the provider has one account,
+ * else the account's tab in the list header once the provider's rail tab is selected.
+ */
+export async function sourceTab(popover: HTMLElement, name: string): Promise<HTMLElement> {
+  const rail = within(popover).getByRole("tablist", { name: "Model sources" });
+  const direct = within(rail).queryByRole("tab", { name });
+  if (direct) return direct;
+  await userEvent.click(within(rail).getByRole("tab", { name: name.split(" · ")[0] ?? name }));
+  const accounts = within(popover).getByRole("tablist", { name: "Accounts" });
+  return within(accounts).getByRole("tab", { name });
+}
+
+/** Show a model source's models: "Codex · Team". */
+export async function chooseSource(popover: HTMLElement, name: string) {
+  await userEvent.click(await sourceTab(popover, name));
+}
+
 /** Choose an account within the selected provider. */
 export async function selectAccount(popover: HTMLElement, name: string) {
   const rail = within(popover).getByRole("tablist", { name: "Model sources" });
   const selected = within(rail).getByRole("tab", { selected: true });
   const provider = selected.getAttribute("aria-label")?.split(" · ")[0];
-  await userEvent.click(within(rail).getByRole("tab", { name: `${provider} · ${name}` }));
+  await chooseSource(popover, `${provider} · ${name}`);
 }
 
 /** Open the model chip on its Tune pane, where effort and speed are. */

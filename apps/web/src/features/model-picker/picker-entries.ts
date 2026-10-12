@@ -67,3 +67,43 @@ export function pickerEntries(
     }),
   ];
 }
+
+/** One rail tab: Favorites, or a provider with its accounts (switched in the list header). */
+export interface RailGroup {
+  id: string;
+  provider?: ProviderKind | undefined;
+  /** "Claude Code" for several accounts; the account's own name for one. */
+  name: string;
+  /** Why none of its accounts can be picked from. */
+  reason?: string | undefined;
+  accounts: readonly PickerEntry[];
+}
+
+/**
+ * The rail: one tab per provider rather than per account, so several accounts never stack up
+ * as a column of near-identical logos. A provider is usable while any of its accounts is.
+ */
+export function railGroups(entries: readonly PickerEntry[]): RailGroup[] {
+  const groups: RailGroup[] = [];
+  for (const entry of entries) {
+    const key = entry.provider ?? entry.id;
+    const group = groups.find((candidate) => candidate.id === key);
+    if (group) {
+      const accounts = [...group.accounts, entry];
+      groups[groups.indexOf(group)] = {
+        ...group,
+        name: entry.provider ? providerNames[entry.provider] : group.name,
+        reason: accounts.every((account) => account.reason) ? group.reason : undefined,
+        accounts,
+      };
+    } else
+      groups.push({
+        id: key,
+        provider: entry.provider,
+        name: entry.name,
+        reason: entry.reason,
+        accounts: [entry],
+      });
+  }
+  return groups;
+}

@@ -72,8 +72,8 @@ export function VirtualPickerRows(props: {
       return entry?.kind === "heading"
         ? entry.group.problems.length * 48
         : entry?.item.kind === "legacy"
-          ? 32
-          : 52;
+          ? 28
+          : 32;
     },
     overscan: 4,
     rangeExtractor: (range) =>

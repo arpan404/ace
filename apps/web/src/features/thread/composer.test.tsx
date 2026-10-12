@@ -1,4 +1,5 @@
 import { currentCheckout, gitAction, openWorkCard } from "@/test/open-work.ts";
+import { sourceTab } from "@/test/model-control.ts";
 import { chooseAccount } from "@/test/model-control.ts";
 import { fixtureImage, longHistory, replayCursor } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
@@ -149,7 +150,7 @@ test("the account row moves the thread to another account and blocks one at its 
   await userEvent.click(within(dialog).getByRole("button", { name: /^Switch to/ }));
   const codex = await openModelControl(/^Model: GPT-5 Codex, Personal/);
   await openModelPicker(codex);
-  const team = within(codex).getByRole("tab", { name: "Codex · Team" });
+  const team = await sourceTab(codex, "Codex · Team");
   expect(team.getAttribute("aria-disabled")).toBe("true");
   await userEvent.click(team);
   expect(screen.getByRole("button", { name: /^Model: GPT-5 Codex, Personal/ })).toBeTruthy();

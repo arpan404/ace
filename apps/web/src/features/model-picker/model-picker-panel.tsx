@@ -22,29 +22,27 @@ import {
 import { VirtualPickerRows, type PickerItem } from "./virtual-picker-rows.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { PickerRail } from "./picker-rail.tsx";
-import { pickerEntries } from "./picker-entries.ts";
+import { pickerEntries, railGroups } from "./picker-entries.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatResetCountdown } from "@/features/accounts/index.ts";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useModelInstances, type CatalogState } from "@/lib/model-catalog.ts";
 import { useFavoriteModels } from "./favorites.ts";
+import { AccountSwitch } from "./account-switch.tsx";
 import { GroupProblem, LegacyToggle, ModelRow, PickerEmpty } from "./model-picker-rows.tsx";
 import { useRefreshModels } from "./use-refresh-models.ts";
 
 /** ⌘1…⌘9 pick the first rows. */
 const numbered = 9;
 
-/**
- * The panel's height, reserved from the moment it opens: loading rows, the catalog arriving or
- * refreshing, another tab, a search or a new star never move the search field or the list.
- * Longer lists scroll; the viewport can still make it shorter.
- */
-const panelHeight = 428;
+/** The panel follows its content up to this height, then its list scrolls. */
+const panelHeight = 360;
 
 /**
- * Pick a model: Favorites and one entry per account down the left, a search over every provider
- * on top with Refresh models, and the tab's models by source (each account, local runtimes,
+ * Pick a model: Favorites and one tab per provider down the left (its accounts switched in the
+ * list's header), a search over every provider on top with Refresh models, and the tab's models
+ * by source (each account, local runtimes,
  * OpenCode Go and Zen, the person's own API keys), current models first and older ones under
  * each group's Legacy models. Each group says when it is refreshing or couldn't be refreshed.
  * ⌘1…⌘9 pick the first rows, a check marks the current one, a star favorites. Arrows move from
@@ -106,6 +104,23 @@ export function ModelPickerPanel(props: {
     tabs.find((entry) => entry.provider === (props.only ?? props.currentProvider)) ??
     tabs.find((entry) => !entry.reason);
   const tab = selected?.id ?? "favorites";
+  const railTabs = useMemo(() => railGroups(tabs), [tabs]);
+  const railGroup =
+    railTabs.find((group) => group.accounts.some((entry) => entry.id === tab)) ?? railTabs[0];
+  const railTab = railGroup?.id ?? "favorites";
+  // A provider's tab opens on the account the model runs on, else its first usable one.
+  const showGroup = (id: string) => {
+    const group = railTabs.find((candidate) => candidate.id === id);
+    const entry =
+      group?.accounts.find(
+        (candidate) =>
+          candidate.provider === props.currentProvider &&
+          candidate.instance === props.currentInstance,
+      ) ??
+      group?.accounts.find((candidate) => !candidate.reason) ??
+      group?.accounts[0];
+    if (entry) showTab(entry.id);
+  };
   const provider = selected?.provider;
   const selectedInstance = selected?.instance;
   const [query, setQuery] = useState("");
@@ -233,7 +248,7 @@ export function ModelPickerPanel(props: {
           !(items[active]?.kind === "model" && items[active]?.model.legacy)))
     ) {
       event.preventDefault();
-      rail.current?.querySelector<HTMLElement>(`[data-tab="${tab}"]`)?.focus();
+      rail.current?.querySelector<HTMLElement>(`[data-tab="${railTab}"]`)?.focus();
       return;
     }
     if (event.key === "Escape" && props.onClose) {
@@ -360,28 +375,25 @@ export function ModelPickerPanel(props: {
     <div
       data-slot="model-picker"
       onKeyDownCapture={onKeyDown}
-      className="flex w-115 max-w-[calc(100vw-2rem)]"
-      style={{ height: `min(${panelHeight}px, var(--available-height, ${panelHeight}px))` }}
+      className="flex w-88 max-w-[calc(100vw-2rem)]"
+      style={{ maxHeight: `min(${panelHeight}px, var(--available-height, ${panelHeight}px))` }}
     >
       <PickerRail
-        entries={tabs}
-        selected={tab}
+        groups={railTabs}
+        selected={railTab}
         searching={!!query}
-        provider={provider}
-        only={!!props.only}
         listId={listId}
         ref={rail}
         focusList={() => search.current?.focus()}
-        onSelect={showTab}
-        onClose={props.onClose}
+        onSelect={showGroup}
       />
       <div
         role="tabpanel"
         id={`${listId}-pane`}
         aria-label={mixed ? "Search results and favorites" : (selected?.name ?? "Models")}
-        className="flex min-w-0 flex-1 flex-col"
+        className="flex min-h-0 min-w-0 flex-1 flex-col"
       >
-        <div className="mx-3 flex h-11 shrink-0 items-center gap-2 border-b border-border text-subtle-foreground focus-within:border-ring">
+        <div className="mx-2 flex h-8 shrink-0 items-center gap-2 border-b border-border text-subtle-foreground focus-within:border-ring">
           <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
           <input
             ref={search}
@@ -413,13 +425,21 @@ export function ModelPickerPanel(props: {
             }
           />
         </div>
+        {!mixed && railGroup && railGroup.accounts.length > 1 && (
+          <AccountSwitch
+            accounts={railGroup.accounts}
+            selected={tab}
+            listId={listId}
+            onSelect={showTab}
+          />
+        )}
         <div
           ref={list}
           role="listbox"
           id={listId}
           aria-label="Models"
           aria-busy={loading || undefined}
-          className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-2 [scrollbar-width:thin]"
+          className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-1 [scrollbar-width:thin]"
         >
           {!mixed && selected?.reason && (
             <p role="status" className="px-2.5 py-2 text-xs text-status-limited">

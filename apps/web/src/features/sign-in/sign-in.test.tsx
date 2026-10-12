@@ -1,3 +1,4 @@
+import { chooseSource } from "@/test/model-control.ts";
 import type { ProviderKind, ProviderStatus } from "@ace/protocol";
 import { replayCursor, workbench } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
@@ -268,7 +269,7 @@ test("the model picker's expired-sign-in row signs in to Cursor, and its models 
   await screen.findByRole("feed", { name: "Transcript" });
   const popover = await openModelControl(/^Model: /);
   const list = await openModelPicker(popover);
-  await userEvent.click(within(popover).getByRole("tab", { name: "Cursor · Your Cursor login" }));
+  await chooseSource(popover, "Cursor · Your Cursor login");
   await selectAccount(popover, "Your Cursor login");
   expect(within(list).getByText("Cursor sign-in has expired.")).toBeTruthy();
   await userEvent.click(within(list).getByRole("button", { name: "Sign in" }));

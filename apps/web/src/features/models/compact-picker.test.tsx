@@ -114,23 +114,24 @@ test("a nonvirtual legacy disclosure controls its actual labeled model region", 
   expect(within(legacy).getByRole("option", { name: /^Opus 5, / })).toBeTruthy();
 });
 
-test("Tab reaches the account rail and arrows filter it before returning to search", async () => {
+test("Tab reaches the provider rail, the account switch filters the list, then search crosses it", async () => {
   const { popover, list } = await openCatalog();
   const search = within(popover).getByRole("combobox", { name: "Search models" });
   await userEvent.tab({ shift: true });
   expect(document.activeElement).toBe(
-    within(popover).getByRole("tab", { name: "Claude Code · Personal" }),
+    within(popover).getByRole("tab", { name: "Claude Code", selected: true }),
   );
-  await userEvent.keyboard("{ArrowDown}");
+  const accounts = within(popover).getByRole("tablist", { name: "Accounts" });
+  within(accounts).getByRole("tab", { name: "Claude Code · Personal" }).focus();
+  await userEvent.keyboard("{ArrowRight}");
   expect(document.activeElement).toBe(
-    within(popover).getByRole("tab", { name: "Claude Code · Work", selected: true }),
+    within(accounts).getByRole("tab", { name: "Claude Code · Work", selected: true }),
   );
   expect(
     within(list).getByRole("option", { name: /^Sonnet 5\.5, Claude Code · Work/ }),
   ).toBeTruthy();
   expect(within(list).queryByRole("option", { name: /Shortcut model/ })).toBeNull();
-  await userEvent.tab();
-  expect(document.activeElement).toBe(search);
+  await userEvent.click(search);
   // Searching still crosses the selected account/provider boundary.
   await userEvent.type(search, "Shortcut model 009");
   await userEvent.keyboard("{Enter}");
