@@ -9,11 +9,11 @@ struct NativeTextInput: UIViewRepresentable {
         let view = ComposerTextView()
         view.delegate = context.coordinator
         view.inputBegan = inputBegan
-        view.font = UIFont.preferredFont(forTextStyle: .body)
+        view.font = AceTheme.uiFont(AceTheme.Typography.body, relativeTo: .body, traits: view.traitCollection)
         view.adjustsFontForContentSizeCategory = true
         view.backgroundColor = .clear
         view.textContainerInset = .zero
-        view.textContainer.lineFragmentPadding = 0
+        view.textContainer.lineFragmentPadding = AceTheme.Spacing.none
         view.isScrollEnabled = false
         view.accessibilityIdentifier = "composer.input"
         view.accessibilityLabel = "Steer or follow up"
@@ -24,11 +24,13 @@ struct NativeTextInput: UIViewRepresentable {
         context.coordinator.parent = self
         if view.text != text { view.text = text }
         view.inputBegan = inputBegan
+        view.font = AceTheme.uiFont(AceTheme.Typography.body, relativeTo: .body, traits: view.traitCollection)
         view.textColor = UIColor(AceTheme.Colours.foreground)
+        view.typingAttributes = AceTheme.inputAttributes(traits: view.traitCollection)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ComposerTextView, context: Context) -> CGSize? {
         guard let width = proposal.width else { return nil }
-        let line = uiView.font?.lineHeight ?? 22
+        let line = UIFontMetrics(forTextStyle: .body).scaledValue(for: AceTheme.Typography.body.lineHeight, compatibleWith: uiView.traitCollection)
         let height = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
         return CGSize(width: width, height: max(line, min(height, line * 5)))
     }

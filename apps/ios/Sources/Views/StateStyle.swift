@@ -40,16 +40,17 @@ import SwiftUI
 struct StateLabel: View {
     let state: String
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: AceTheme.Spacing.xs) {
             Circle().fill(StateStyle.marker(state)).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
-            Text(StateStyle.label(state)).font(.caption).foregroundStyle(StateStyle.text(state))
+            Text(StateStyle.label(state)).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(StateStyle.text(state))
         }
         .accessibilityElement(children: .combine)
     }
 }
 extension View {
     @ViewBuilder func floatingGlass() -> some View {
-        if #available(iOS 26, *) { self.glassEffect(.regular, in: Capsule()) }
-        else { self.background(.regularMaterial, in: Capsule()).overlay(Capsule().stroke(AceTheme.Colours.separator.opacity(0.25), lineWidth: 0.5)) }
+        let shape = RoundedRectangle(cornerRadius: AceTheme.Radii.composer)
+        if #available(iOS 26, *) { self.glassEffect(.regular, in: shape) }
+        else { self.background(.regularMaterial, in: shape).overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border)) }
     }
 }

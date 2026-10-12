@@ -34,8 +34,9 @@ The spike retains at most 2,200 items with SDK text bounds of 8,192 code units.
 Snapshots still contain at most 200 items; the 2,000-item run hydrates through
 `loadOlder`, exercising the SDK's page/delta journal.
 
-`@ace/design-tokens` supplies the palette. The Swift generator validates the raw
-JSON with `DesignTokensSchema` and has a reproducibility check. Dots use `status`;
+`@ace/design-tokens` supplies the palette, typography metrics, spacing, radii,
+dimensions, elevation, opacity and motion timing. The Swift generator validates the
+raw JSON with `DesignTokensSchema` and has a reproducibility check. Dots use `status`;
 labels use the AA-readable `statusText`. Native SF Pro/SF Mono and Dynamic Type
 follow the issue's typography instruction. SwiftUI supplies navigation, lists,
 menus, swipe actions, detent sheets, haptics and native materials. iOS 26 uses Liquid
@@ -77,9 +78,11 @@ The idle streaming portion after the first 30 seconds averaged 41.5 callbacks/s,
 Raw evidence: [summary](../design/ios-spike/results.json), [input/cadence samples](../design/ios-spike/input-raw.json),
 [XCTest scroll metrics](../design/ios-spike/scroll-xctest.json),
 [memory samples](../design/ios-spike/memory-raw.json). Latency uses nearest-rank p95.
-The input/cadence and screenshot runs precede the final navigation-cancellation
-review fixes; those fixes receive separate behavior verification. No performance
-improvement is claimed for them.
+The input/cadence runs precede the final navigation-cancellation review fixes and
+the shared typography/layout token follow-up. Navigation fixes receive separate
+behavior verification; refreshed screenshots verify the token follow-up. No
+performance improvement is claimed for either change; these numbers are not a new
+measurement of the final visual revision.
 
 ## Screens and remaining scope
 

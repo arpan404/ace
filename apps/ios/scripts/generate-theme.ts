@@ -36,9 +36,23 @@ for (const group of ["spacing", "radii", "dimensions", "elevation"] as const) {
     lines.push(`        static let ${key}: CGFloat = ${value}`);
   lines.push("    }");
 }
-lines.push("    enum Motion {");
+lines.push("    enum Opacity {");
+for (const key of Object.keys(tokens.schemes.light.opacity)) {
+  const light: Record<string, number> = tokens.schemes.light.opacity;
+  const dark: Record<string, number> = tokens.schemes.dark.opacity;
+  lines.push(
+    `        static func ${key}(_ scheme: ColorScheme) -> Double { scheme == .dark ? ${dark[key]} : ${light[key]} }`,
+  );
+}
+lines.push("    }", "    enum Motion {");
 for (const [key, value] of Object.entries(tokens.motion))
   if (typeof value === "number") lines.push(`        static let ${key}: Double = ${value / 1000}`);
+for (const [key, points] of Object.entries(tokens.motion.easing)) {
+  lines.push(
+    `        static let ${key}Curve = Animation.timingCurve(${points.join(", ")}, duration: ${tokens.motion[key === "standard" ? "standard" : key === "enter" ? "enter" : "exit"] / 1000})`,
+  );
+}
+lines.push("        static let spring = Animation.spring(duration: enter)");
 lines.push(
   "    }",
   "    struct TypeStyle: Sendable { let size: CGFloat; let lineHeight: CGFloat; let weight: CGFloat; let tracking: CGFloat }",
@@ -48,7 +62,65 @@ for (const [key, value] of Object.entries(tokens.typography.typeScale))
   lines.push(
     `        static let ${key} = TypeStyle(size: ${value.size}, lineHeight: ${value.lineHeight}, weight: ${value.weight}, tracking: ${value.letterSpacing})`,
   );
-lines.push("    }", "}", "");
+lines.push(`    }
+    static func fontWeight(_ value: CGFloat) -> Font.Weight {
+        switch value {
+        case 500: .medium
+        case 600: .semibold
+        case 700: .bold
+        default: .regular
+        }
+    }
+    static func uiFont(_ style: TypeStyle, relativeTo: UIFont.TextStyle, traits: UITraitCollection) -> UIFont {
+        let weight: UIFont.Weight = switch style.weight {
+        case 500: .medium
+        case 600: .semibold
+        case 700: .bold
+        default: .regular
+        }
+        return UIFontMetrics(forTextStyle: relativeTo).scaledFont(for: .systemFont(ofSize: style.size, weight: weight), compatibleWith: traits)
+    }
+    static func inputAttributes(traits: UITraitCollection) -> [NSAttributedString.Key: Any] {
+        let style = Typography.body
+        let font = uiFont(style, relativeTo: .body, traits: traits)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = UIFontMetrics(forTextStyle: .body).scaledValue(for: style.lineHeight, compatibleWith: traits)
+        paragraph.maximumLineHeight = paragraph.minimumLineHeight
+        return [.font: font, .foregroundColor: UIColor(Colours.foreground), .paragraphStyle: paragraph, .kern: style.tracking * font.pointSize / style.size]
+    }
+}
+
+@MainActor private struct AceTokenFont: ViewModifier {
+    let style: AceTheme.TypeStyle
+    let design: Font.Design
+    @ScaledMetric private var size: CGFloat
+    @ScaledMetric private var lineHeight: CGFloat
+    @ScaledMetric private var tracking: CGFloat
+
+    init(style: AceTheme.TypeStyle, relativeTo: Font.TextStyle, design: Font.Design) {
+        self.style = style
+        self.design = design
+        _size = ScaledMetric(wrappedValue: style.size, relativeTo: relativeTo)
+        _lineHeight = ScaledMetric(wrappedValue: style.lineHeight, relativeTo: relativeTo)
+        _tracking = ScaledMetric(wrappedValue: style.tracking, relativeTo: relativeTo)
+    }
+
+    func body(content: Content) -> some View {
+        content.font(.system(size: size, weight: AceTheme.fontWeight(style.weight), design: design))
+            .tracking(tracking)
+            .lineSpacing(max(AceTheme.Spacing.none, lineHeight - UIFont.systemFont(ofSize: size).lineHeight))
+    }
+}
+
+extension View {
+    @MainActor func aceFont(_ style: AceTheme.TypeStyle, relativeTo: Font.TextStyle) -> some View {
+        modifier(AceTokenFont(style: style, relativeTo: relativeTo, design: .default))
+    }
+    @MainActor func aceMonospace(_ style: AceTheme.TypeStyle, relativeTo: Font.TextStyle) -> some View {
+        modifier(AceTokenFont(style: style, relativeTo: relativeTo, design: .monospaced))
+    }
+}
+`);
 const output = lines.join("\n");
 const path = new URL("../Sources/Views/AceTheme.generated.swift", import.meta.url);
 if (process.argv.includes("--check")) {

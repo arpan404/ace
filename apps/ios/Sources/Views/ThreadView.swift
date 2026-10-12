@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ThreadView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel
     @State private var showWork = false
@@ -15,17 +16,17 @@ struct ThreadView: View {
                     if let item = thread.items[id] {
                         TranscriptItemView(item: item, expanded: showWork)
                             .id(id).listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.xl, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.xl))
                     }
                 }
                 ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(row.text).font(.body).padding(12).background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: 16))
+                    VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+                        Text(row.text).aceFont(AceTheme.Typography.body, relativeTo: .body).padding(AceTheme.Spacing.md).background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.bubble))
                         Text(row.state == "failed" ? "Send needs attention" : row.state == "accepted" ? "Accepted" : row.state == "saving" ? "Saving on your phone…" : "Sends on reconnect")
-                            .font(.caption2).foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
                     }.frame(maxWidth: .infinity, alignment: .trailing).listRowSeparator(.hidden)
                 }
-                Color.clear.frame(height: 1).id("tail").listRowSeparator(.hidden)
+                Color.clear.frame(height: AceTheme.Dimensions.border).id("tail").listRowSeparator(.hidden)
             }
             .listStyle(.plain).scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
@@ -34,8 +35,8 @@ struct ThreadView: View {
             .onChange(of: thread.loaded) { _, loaded in
                 if loaded && !scrolledToTail { proxy.scrollTo("tail", anchor: .bottom); scrolledToTail = true }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                VStack(spacing: 0) {
+            .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
+                VStack(spacing: AceTheme.Spacing.none) {
                     ForEach(thread.approvals) { approval in
                         if approval.kind == "approval" { ApprovalCard(approval: approval) { model.approve(approval, option: $0) } }
                     }
@@ -45,15 +46,15 @@ struct ThreadView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(metadata?.title ?? "Thread").font(.subheadline.weight(.semibold)).lineLimit(1)
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                        Text(metadata?.title ?? "Thread").aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
                         Text("\(metadata?.project ?? "") · \(metadata?.machine ?? "") · \(metadata?.provider.capitalized ?? "")")
-                            .font(.caption2).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button(showWork ? "Collapse work" : "Expand work", systemImage: "list.bullet.rectangle") { withAnimation(.spring) { showWork.toggle() } }
+                        Button(showWork ? "Collapse work" : "Expand work", systemImage: "list.bullet.rectangle") { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { showWork.toggle() } }
                         Button("Connection details", systemImage: "network") { showDetails = true }
                     } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Thread options")
                 }
@@ -68,8 +69,8 @@ struct ThreadView: View {
             #if DEBUG
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled {
-                    Text(verbatim: "\(thread.items.count) items · \(model.connection)").font(.caption2.monospaced())
-                        .padding(4).background(.thinMaterial, in: Capsule()).allowsHitTesting(false)
+                    Text(verbatim: "\(thread.items.count) items · \(model.connection)").aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
+                        .padding(AceTheme.Spacing.xs).background(.thinMaterial, in: Capsule()).allowsHitTesting(false)
                         .accessibilityLabel("Loaded transcript").accessibilityValue(String(thread.items.count))
                         .accessibilityIdentifier("spike.loaded")
                 }
@@ -84,19 +85,19 @@ private struct TranscriptItemView: View {
     var body: some View {
         let row = item.row
         if row.type == "message" {
-            VStack(alignment: row.role == "user" ? .trailing : .leading, spacing: 5) {
-                Text(row.text).font(.body).lineSpacing(3).textSelection(.enabled)
-                    .padding(row.role == "user" ? 12 : 0)
-                    .background(row.role == "user" ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: 17))
-                if row.truncated { Text("Showing a bounded preview").font(.caption2).foregroundStyle(AceTheme.Colours.mutedForeground) }
+            VStack(alignment: row.role == "user" ? .trailing : .leading, spacing: AceTheme.Spacing.xs) {
+                Text(row.text).aceFont(AceTheme.Typography.body, relativeTo: .body).textSelection(.enabled)
+                    .padding(row.role == "user" ? AceTheme.Spacing.md : AceTheme.Spacing.none)
+                    .background(row.role == "user" ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.bubble))
+                if row.truncated { Text("Showing a bounded preview").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
             }.frame(maxWidth: .infinity, alignment: row.role == "user" ? .trailing : .leading)
         } else {
-            HStack {
+            HStack(spacing: AceTheme.Spacing.sm) {
                 Image(systemName: row.type == "tool_call" ? "wrench.and.screwdriver" : "text.alignleft")
                 Text(expanded ? row.text : row.type == "tool_call" ? row.text : "Worked · \(row.type.replacingOccurrences(of: "_", with: " "))").lineLimit(expanded ? nil : 1)
-                Spacer(minLength: 0)
-                Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.caption2)
-            }.font(.footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                Spacer(minLength: AceTheme.Spacing.none)
+                Image(systemName: expanded ? "chevron.down" : "chevron.right").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+            }.aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
         }
     }
 }

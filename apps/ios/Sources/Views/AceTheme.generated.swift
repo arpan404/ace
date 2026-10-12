@@ -82,6 +82,13 @@ import UIKit
         static let floating: CGFloat = 8
         static let sheet: CGFloat = 12
     }
+    enum Opacity {
+        static func glass(_ scheme: ColorScheme) -> Double { scheme == .dark ? 0.78 : 0.78 }
+        static func scrim(_ scheme: ColorScheme) -> Double { scheme == .dark ? 0.18 : 0.18 }
+        static func ripple(_ scheme: ColorScheme) -> Double { scheme == .dark ? 0.12 : 0.12 }
+        static func disabled(_ scheme: ColorScheme) -> Double { scheme == .dark ? 0.38 : 0.38 }
+        static func shadow(_ scheme: ColorScheme) -> Double { scheme == .dark ? 0.5 : 0.1 }
+    }
     enum Motion {
         static let instant: Double = 0
         static let fast: Double = 0.1
@@ -89,6 +96,10 @@ import UIKit
         static let enter: Double = 0.3
         static let exit: Double = 0.2
         static let statusPulse: Double = 1.6
+        static let standardCurve = Animation.timingCurve(0.2, 0, 0, 1, duration: 0.2)
+        static let enterCurve = Animation.timingCurve(0, 0, 0, 1, duration: 0.3)
+        static let exitCurve = Animation.timingCurve(0.3, 0, 1, 1, duration: 0.2)
+        static let spring = Animation.spring(duration: enter)
     }
     struct TypeStyle: Sendable { let size: CGFloat; let lineHeight: CGFloat; let weight: CGFloat; let tracking: CGFloat }
     enum Typography {
@@ -99,5 +110,61 @@ import UIKit
         static let title = TypeStyle(size: 17, lineHeight: 23, weight: 600, tracking: -0.17)
         static let wordmark = TypeStyle(size: 22, lineHeight: 28, weight: 700, tracking: -0.44)
         static let code = TypeStyle(size: 12.5, lineHeight: 19, weight: 400, tracking: 0)
+    }
+    static func fontWeight(_ value: CGFloat) -> Font.Weight {
+        switch value {
+        case 500: .medium
+        case 600: .semibold
+        case 700: .bold
+        default: .regular
+        }
+    }
+    static func uiFont(_ style: TypeStyle, relativeTo: UIFont.TextStyle, traits: UITraitCollection) -> UIFont {
+        let weight: UIFont.Weight = switch style.weight {
+        case 500: .medium
+        case 600: .semibold
+        case 700: .bold
+        default: .regular
+        }
+        return UIFontMetrics(forTextStyle: relativeTo).scaledFont(for: .systemFont(ofSize: style.size, weight: weight), compatibleWith: traits)
+    }
+    static func inputAttributes(traits: UITraitCollection) -> [NSAttributedString.Key: Any] {
+        let style = Typography.body
+        let font = uiFont(style, relativeTo: .body, traits: traits)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = UIFontMetrics(forTextStyle: .body).scaledValue(for: style.lineHeight, compatibleWith: traits)
+        paragraph.maximumLineHeight = paragraph.minimumLineHeight
+        return [.font: font, .foregroundColor: UIColor(Colours.foreground), .paragraphStyle: paragraph, .kern: style.tracking * font.pointSize / style.size]
+    }
+}
+
+@MainActor private struct AceTokenFont: ViewModifier {
+    let style: AceTheme.TypeStyle
+    let design: Font.Design
+    @ScaledMetric private var size: CGFloat
+    @ScaledMetric private var lineHeight: CGFloat
+    @ScaledMetric private var tracking: CGFloat
+
+    init(style: AceTheme.TypeStyle, relativeTo: Font.TextStyle, design: Font.Design) {
+        self.style = style
+        self.design = design
+        _size = ScaledMetric(wrappedValue: style.size, relativeTo: relativeTo)
+        _lineHeight = ScaledMetric(wrappedValue: style.lineHeight, relativeTo: relativeTo)
+        _tracking = ScaledMetric(wrappedValue: style.tracking, relativeTo: relativeTo)
+    }
+
+    func body(content: Content) -> some View {
+        content.font(.system(size: size, weight: AceTheme.fontWeight(style.weight), design: design))
+            .tracking(tracking)
+            .lineSpacing(max(AceTheme.Spacing.none, lineHeight - UIFont.systemFont(ofSize: size).lineHeight))
+    }
+}
+
+extension View {
+    @MainActor func aceFont(_ style: AceTheme.TypeStyle, relativeTo: Font.TextStyle) -> some View {
+        modifier(AceTokenFont(style: style, relativeTo: relativeTo, design: .default))
+    }
+    @MainActor func aceMonospace(_ style: AceTheme.TypeStyle, relativeTo: Font.TextStyle) -> some View {
+        modifier(AceTokenFont(style: style, relativeTo: relativeTo, design: .monospaced))
     }
 }

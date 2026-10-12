@@ -32,8 +32,13 @@ or performance runs. Contract sends deliberately add inputs to its history.
 XcodeGen output, generated `Resources/client.js`, build products and xcresult bundles
 are ignored. Run `generate` before opening Xcode. The Swift theme is committed;
 `theme:check` validates reproducibility against the schema-validated token JSON.
-SF Pro and SF Mono with Dynamic Type follow the issue's native typography decision;
-token colour values come from `@ace/design-tokens`.
+SF Pro and SF Mono with Dynamic Type follow the issue's native typography decision.
+The shared tokens supply colour, type size/weight/tracking/line height, spacing,
+radii, dimensions, elevation, opacity and motion timing. Native system chrome keeps
+its platform defaults. Status-coloured text uses `statusText`; state dots and icons
+use `status`. The generated theme contains the UIKit and SwiftUI type adapters;
+custom views carry no separate palette or numeric style overrides. Spring motion
+uses the shared enter duration and respects Reduce Motion.
 
 ## Verification
 

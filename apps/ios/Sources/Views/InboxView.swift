@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct InboxView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var model: ClientModel
     @State private var path: [String] = []
     @State private var search = ""
@@ -18,7 +19,7 @@ struct InboxView: View {
                 if model.connection != "ready" {
                     Button { model.retry() } label: {
                         Label(model.connection == "fatal" ? "Connection needs attention" : "Connecting to your machine…", systemImage: "wifi.slash")
-                            .font(.footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                     }.listRowSeparator(.hidden)
                 }
                 group("Needs you", state: "needs_you")
@@ -28,9 +29,9 @@ struct InboxView: View {
                 if !unsent.isEmpty {
                     Section {
                         ForEach(unsent.sorted { $0.id < $1.id }) { entry in
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(entry.text).lineLimit(2).font(.body)
-                                Text(entry.state == "failed" ? "Send needs attention" : "Sends on reconnect").font(.caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                                Text(entry.text).lineLimit(2).aceFont(AceTheme.Typography.body, relativeTo: .body)
+                                Text(entry.state == "failed" ? "Send needs attention" : "Sends on reconnect").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
                             }
                         }
                     } header: { sectionHeader("Unsent", count: unsent.count) }
@@ -39,7 +40,7 @@ struct InboxView: View {
                     ForEach(rows.filter { $0.state == "done" || $0.snoozedUntil != nil }) { row in inboxRow(row) }
                 } label: {
                     Text("Done today (\(rows.filter { $0.state == "done" }.count)) · Snoozed (\(rows.filter { $0.snoozedUntil != nil }.count))")
-                        .font(.footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                 }.listRowSeparator(.hidden)
                 if model.inboxLoaded && rows.isEmpty {
                     ContentUnavailableView("Your inbox is clear", systemImage: "tray", description: Text("Tasks from your machines will appear here."))
@@ -51,19 +52,17 @@ struct InboxView: View {
             .background(AceTheme.Colours.background)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 10) {
-                        Text("ace.").font(.title3.weight(.bold)).foregroundStyle(AceTheme.Colours.foreground)
-                        Button { showingMachines = true } label: {
-                            HStack(spacing: 5) {
-                                Circle().fill(model.connection == "ready" ? AceTheme.Status.done : AceTheme.Colours.decoration).frame(width: 5, height: 5)
-                                Text("1 machine").font(.caption)
-                            }.foregroundStyle(AceTheme.Colours.mutedForeground)
-                        }.accessibilityLabel("Machines")
-                    }
+                ToolbarItemGroup(placement: .topBarLeading) {
+                    Text("ace.").aceFont(AceTheme.Typography.wordmark, relativeTo: .title3).foregroundStyle(AceTheme.Colours.foreground)
+                    Button { showingMachines = true } label: {
+                        HStack(spacing: AceTheme.Spacing.xs) {
+                            Circle().fill(model.connection == "ready" ? AceTheme.Status.done : AceTheme.Colours.decoration).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
+                            Text("1 machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        }.foregroundStyle(AceTheme.Colours.mutedForeground)
+                    }.accessibilityLabel("Machines")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { withAnimation(.spring) { showingSearch.toggle() } } label: { Image(systemName: "magnifyingglass") }
+                    Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { showingSearch.toggle() } } label: { Image(systemName: "magnifyingglass") }
                         .accessibilityLabel("Search threads")
                 }
             }
@@ -85,35 +84,35 @@ struct InboxView: View {
         }
     }
     private func sectionHeader(_ title: String, count: Int) -> some View {
-        HStack(spacing: 10) {
-            Text(title).font(.caption.weight(.medium)).textCase(nil)
-            Rectangle().fill(AceTheme.Colours.separator).frame(height: 0.5)
-            Text(count.formatted()).font(.caption.monospacedDigit())
-        }.foregroundStyle(AceTheme.Colours.mutedForeground).padding(.vertical, 3)
+        HStack(spacing: AceTheme.Spacing.md) {
+            Text(title).aceFont(AceTheme.Typography.label, relativeTo: .caption).textCase(nil)
+            Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
+            Text(count.formatted()).aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
+        }.foregroundStyle(AceTheme.Colours.mutedForeground).padding(.vertical, AceTheme.Spacing.xxs)
     }
     private func inboxRow(_ row: ThreadRow) -> some View {
         Button { model.open(row.id); path.append(row.id) } label: {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                    Image(systemName: "folder").font(.caption2)
-                    Text(row.project).font(.caption)
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                HStack(spacing: AceTheme.Spacing.sm) {
+                    Image(systemName: "folder").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    Text(row.project).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     Spacer()
                     StateLabel(state: row.state)
                 }.foregroundStyle(AceTheme.Colours.mutedForeground)
-                Text(row.title).font(.body.weight(.medium)).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-                HStack(spacing: 6) {
-                    Text(row.branch).font(.caption2.monospaced()).lineLimit(1)
-                    Text("· \(row.machine)").font(.caption2).lineLimit(1)
-                    Spacer(minLength: 0)
-                    if row.agents > 1 { Label("\(row.agents) agents", systemImage: "point.3.connected.trianglepath.dotted").font(.caption2) }
+                Text(row.title).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
+                HStack(spacing: AceTheme.Spacing.sm) {
+                    Text(row.branch).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1)
+                    Text("· \(row.machine)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1)
+                    Spacer(minLength: AceTheme.Spacing.none)
+                    if row.agents > 1 { Label("\(row.agents) agents", systemImage: "point.3.connected.trianglepath.dotted").aceFont(AceTheme.Typography.caption, relativeTo: .caption) }
                 }.foregroundStyle(AceTheme.Colours.mutedForeground)
-            }.padding(.vertical, 7).contentShape(Rectangle())
+            }.padding(.vertical, AceTheme.Spacing.sm).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("thread.\(row.id)")
         .listRowBackground(row.state == "needs_you" ? AceTheme.Colours.needsYouSurface : AceTheme.Colours.background)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button("Archive", systemImage: "archivebox") { model.archive(row.id) }.tint(.secondary)
+            Button("Archive", systemImage: "archivebox") { model.archive(row.id) }.tint(AceTheme.Colours.mutedForeground)
         }
         .contextMenu { Button("Archive", systemImage: "archivebox") { model.archive(row.id) } }
     }
@@ -122,7 +121,7 @@ struct InboxView: View {
             List {
                 Label(model.inbox.values.first?.machine ?? "Your machine", systemImage: "laptopcomputer")
                 LabeledContent("Connection", value: model.connection)
-                Text("Phase 0 connects to the local spike daemon. Pairing is part of the MVP.").font(.footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text("Phase 0 connects to the local spike daemon. Pairing is part of the MVP.").aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
             .navigationTitle("Machines").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showingMachines = false } } }
