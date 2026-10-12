@@ -130,10 +130,10 @@ export interface CompactionLimits {
 }
 
 /**
- * Journaled compaction under the Store maintenance fence. Each chunk is its own SQLite
- * transaction and a full VACUUM is atomic, so a kill at any point leaves an intact file
- * and a running journal entry. Incremental work resumes; a full rebuild never restarts
- * without a new confirmation.
+ * Journaled incremental compaction under the Store maintenance fence. Each chunk is its own
+ * SQLite transaction, so a kill at any point leaves an intact file and a running journal
+ * entry that resumes. A full VACUUM is never run: it renumbers rows in tables without an
+ * INTEGER PRIMARY KEY, and engine frames, MCP intents and blobs are addressed by rowid.
  */
 export async function compactStorage(
   owner: StorageOwner,
@@ -146,26 +146,18 @@ export async function compactStorage(
   await owner.store.maintenance(async (db) => {
     const pragma = (sql: string) => Number(Object.values(db.prepare(sql).get() ?? {})[0]);
     if (state.phase === "vacuum") {
-      if (state.mode === "full") {
+      // Reads the file's mode, not the pending INCREMENTAL setting the Store requested.
+      state.incrementalUnavailable = pragma("PRAGMA auto_vacuum") === 0;
+      for (let chunk = 0; !state.incrementalUnavailable && chunk < limits.maxChunks; chunk++) {
+        if (pragma("PRAGMA freelist_count") === 0) break;
         if (!allowed()) return;
-        // Converts files created before incremental vacuum; takes effect through VACUUM.
-        db.exec("PRAGMA auto_vacuum=INCREMENTAL");
+        db.exec(`PRAGMA incremental_vacuum(${limits.chunkPages})`);
+        state.chunks++;
+        save();
         await owner.afterCompactionStep?.();
-        db.exec("VACUUM");
-        state.fullRequired = false;
-      } else {
-        state.fullRequired = pragma("PRAGMA auto_vacuum") === 0;
-        for (let chunk = 0; !state.fullRequired && chunk < limits.maxChunks; chunk++) {
-          if (pragma("PRAGMA freelist_count") === 0) break;
-          if (!allowed()) return;
-          db.exec(`PRAGMA incremental_vacuum(${limits.chunkPages})`);
-          state.chunks++;
-          save();
-          await owner.afterCompactionStep?.();
-          await limits.pause();
-        }
-        if (!state.fullRequired && pragma("PRAGMA freelist_count") > 0) return;
+        await limits.pause();
       }
+      if (!state.incrementalUnavailable && pragma("PRAGMA freelist_count") > 0) return;
       state.phase = "checkpoint";
       save();
     }

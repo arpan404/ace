@@ -113,16 +113,15 @@ export const StorageApply = z.object({
     .max(256),
 });
 export type StorageApply = z.infer<typeof StorageApply>;
-/** Incremental reuses SQLite's free pages; full rebuilds the file and needs confirmation. */
-export const StorageCompactionMode = z.enum(["incremental", "full"]);
-export type StorageCompactionMode = z.infer<typeof StorageCompactionMode>;
+/**
+ * Incremental compaction hands SQLite's free pages back to the file system. A full VACUUM is
+ * never offered: rebuilding renumbers rows in tables without an INTEGER PRIMARY KEY.
+ */
 export const StorageCompaction = z.object({
   id,
-  mode: StorageCompactionMode,
-  /** Interrupted full rebuilds wait for a new confirmation or an explicit abandon. */
-  state: z.enum(["complete", "pending", "interrupted", "abandoned"]),
-  /** The file predates incremental vacuum; only a confirmed full rebuild can shrink it. */
-  fullRequired: z.boolean(),
+  state: z.enum(["complete", "pending", "abandoned"]),
+  /** The file predates incremental vacuum and cannot shrink in place; nothing was changed. */
+  incrementalUnavailable: z.boolean(),
   databaseBytesBefore: bytes,
   databaseBytes: bytes,
   reclaimableDatabaseBytes: bytes,
@@ -147,11 +146,7 @@ export const StorageRequest = z.object({
       revision: StoragePlan.shape.revision,
     }),
     z.object({ op: z.literal("cleanup.status"), planId: id }),
-    z.object({
-      op: z.literal("cleanup.compact"),
-      mode: StorageCompactionMode.default("incremental"),
-      confirm: z.boolean().default(false),
-    }),
+    z.object({ op: z.literal("cleanup.compact") }),
     z.object({ op: z.literal("cleanup.compactAbandon"), compactionId: id }),
   ]),
 });

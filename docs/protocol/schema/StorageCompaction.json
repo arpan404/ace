@@ -15,16 +15,13 @@
       "minimum": 0,
       "type": "integer"
     },
-    "fullRequired": {
-      "type": "boolean"
-    },
     "id": {
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
     },
-    "mode": {
-      "$ref": "https://ace.local/protocol/v1/StorageCompactionMode.json"
+    "incrementalUnavailable": {
+      "type": "boolean"
     },
     "reclaimableDatabaseBytes": {
       "maximum": 9007199254740991,
@@ -35,7 +32,6 @@
       "enum": [
         "complete",
         "pending",
-        "interrupted",
         "abandoned"
       ],
       "type": "string"
@@ -43,9 +39,8 @@
   },
   "required": [
     "id",
-    "mode",
     "state",
-    "fullRequired",
+    "incrementalUnavailable",
     "databaseBytesBefore",
     "databaseBytes",
     "reclaimableDatabaseBytes",

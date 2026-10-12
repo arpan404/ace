@@ -4,10 +4,12 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { Store } from "../store.ts";
 import { storageFixture } from "./test-support.ts";
 
+// Each test writes and compacts several megabytes of real SQLite.
+vi.setConfig({ testTimeout: 30_000 });
 const fixtures: Awaited<ReturnType<typeof storageFixture>>[] = [];
 const roots: string[] = [];
 afterEach(async () => {
@@ -43,16 +45,24 @@ function integrity(path: string): string {
     db.close();
   }
 }
-const crash = (root: string, mode: "compact" | "compact-full") =>
-  promisify(execFile)(process.execPath, [join(import.meta.dirname, "crash-worker.ts"), root, mode]);
+const crash = (root: string) =>
+  promisify(execFile)(process.execPath, [
+    join(import.meta.dirname, "crash-worker.ts"),
+    root,
+    "compact",
+  ]);
 
 test("compacting after purging threads shrinks the database file and leaves no reusable pages", async () => {
   const f = await open();
   await purge(f);
   const before = await f.storage.usage();
   expect(before.reclaimableDatabaseBytes).toBeGreaterThan(2 * 1024 * 1024);
-  const compaction = await f.storage.compact("owner", {});
-  expect(compaction).toMatchObject({ state: "complete", fullRequired: false, checkpointed: true });
+  const compaction = await f.storage.compact("owner");
+  expect(compaction).toMatchObject({
+    state: "complete",
+    incrementalUnavailable: false,
+    checkpointed: true,
+  });
   const after = await f.storage.usage();
   expect(after.databaseBytes).toBeLessThan(before.databaseBytes - 2 * 1024 * 1024);
   expect(after.reclaimableDatabaseBytes).toBeLessThan(64 * 1024);
@@ -87,7 +97,7 @@ test("writes issued during compaction wait for it, then all commit", async () =>
   f.store.atomic((db) => db.exec("CREATE TABLE compaction_probe(n INTEGER)"));
   await purge(f);
   const live = f.thread("live");
-  const compaction = await f.storage.compact("owner", {});
+  const compaction = await f.storage.compact("owner");
   expect(compaction.state).toBe("complete");
   expect(writes).toHaveLength(5);
   expect(await Promise.all(writes)).toEqual(Array(5).fill("complete"));
@@ -110,22 +120,31 @@ test("a writer held by maintenance fails as busy after its bounded wait instead 
   }
 });
 
-test("maintenance waits for an in-flight history publication and holds a new one out", async () => {
+test("maintenance waits for an in-flight history publication, and a new one queues behind it", async () => {
   const root = await directory();
   const store = new Store(join(root, "events.sqlite"));
   try {
     store.setHistoryWriting(true);
     let ran = false;
+    let queued: Promise<void> | undefined;
+    let publishing = false;
     const maintenance = store.maintenance(async () => {
       ran = true;
-      expect(() => store.setHistoryWriting(true)).toThrow("Store is busy");
+      queued = store.startHistoryWriting().then(() => {
+        publishing = store.isHistoryWriting();
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(store.isHistoryWriting()).toBe(false);
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(ran).toBe(false);
     store.setHistoryWriting(false);
     await maintenance;
+    await queued;
     expect(ran).toBe(true);
+    expect(publishing).toBe(true);
   } finally {
+    store.setHistoryWriting(false);
     await store.close();
   }
 });
@@ -136,7 +155,7 @@ test("a kill mid-compaction leaves an intact database whose journal resumes to c
   await purge(f);
   const before = await f.storage.usage();
   await f.close();
-  await expect(crash(root, "compact")).rejects.toMatchObject({ signal: "SIGKILL" });
+  await expect(crash(root)).rejects.toMatchObject({ signal: "SIGKILL" });
   expect(integrity(join(root, "events.sqlite"))).toBe("ok");
   const restarted = await open(root);
   expect(restarted.store.statement("SELECT state FROM storage_compactions").get()?.state).toBe(
@@ -151,33 +170,73 @@ test("a kill mid-compaction leaves an intact database whose journal resumes to c
   );
 });
 
-test("a killed full rebuild never restarts on its own and can be abandoned", async () => {
-  const root = await directory();
-  const f = await storageFixture(root);
+test("a stopped compaction is not resumed, and the next request starts a new one", async () => {
+  const f = await open(undefined, undefined, { limits: { chunkPages: 8, maxChunks: 1 } });
   await purge(f);
-  await f.close();
-  await expect(crash(root, "compact-full")).rejects.toMatchObject({ signal: "SIGKILL" });
-  expect(integrity(join(root, "events.sqlite"))).toBe("ok");
-  const restarted = await open(root);
-  await restarted.storage.resume();
-  const waiting = await restarted.storage.compact("owner", {});
-  expect(waiting).toMatchObject({ mode: "full", state: "interrupted" });
-  expect(waiting.reclaimableDatabaseBytes).toBeGreaterThan(2 * 1024 * 1024);
-  expect(await restarted.storage.abandonCompaction(waiting.id)).toMatchObject({
-    state: "abandoned",
-  });
-  expect((await restarted.storage.compact("owner", {})).state).toBe("complete");
+  const pending = await f.storage.compact("owner");
+  expect(pending.state).toBe("pending");
+  expect(await f.storage.abandonCompaction(pending.id)).toMatchObject({ state: "abandoned" });
+  const reclaimable = (await f.storage.usage()).reclaimableDatabaseBytes;
+  await f.storage.resume();
+  expect((await f.storage.usage()).reclaimableDatabaseBytes).toBe(reclaimable);
+  const next = await f.storage.compact("owner");
+  expect(next.id).not.toBe(pending.id);
+  expect(next.reclaimableDatabaseBytes).toBeLessThan(reclaimable);
 });
 
-test("a full rebuild requires confirmation", async () => {
-  const f = await open();
-  await expect(f.storage.compact("owner", { mode: "full" })).rejects.toThrow(
-    "storage_confirmation_required",
+/** Rows of every rowid table without an INTEGER PRIMARY KEY alias, keyed by rowid. */
+function implicitRowids(db: DatabaseSync) {
+  const tables = db
+    .prepare(
+      "SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND sql NOT LIKE 'CREATE VIRTUAL%'",
+    )
+    .all()
+    .filter((row) => !/WITHOUT\s+ROWID/i.test(String(row.sql)))
+    .map((row) => String(row.name))
+    .filter((name) => {
+      const keys = db
+        .prepare(`SELECT type FROM pragma_table_info(?) WHERE pk>0`)
+        .all(name)
+        .map((row) => String(row.type).toUpperCase());
+      return !(keys.length === 1 && keys[0] === "INTEGER");
+    });
+  return Object.fromEntries(
+    tables.map((name) => [
+      name,
+      JSON.stringify(
+        db.prepare(`SELECT rowid AS _rowid, * FROM "${name}" ORDER BY rowid`).all(),
+        (_key, value: unknown) =>
+          value instanceof Uint8Array ? Buffer.from(value).toString("hex") : value,
+      ),
+    ]),
   );
-  const result = await f.storage.handle(
-    "owner",
-    { type: "storage.request", requestId: "r", operation: { op: "cleanup.compact", mode: "full" } },
-    () => true,
-  );
-  expect(result.result).toMatchObject({ kind: "error", code: "invalid_request" });
+}
+
+test("a file created without incremental vacuum is reported and left untouched, rowids included", async () => {
+  const root = await directory();
+  const legacy = new DatabaseSync(join(root, "events.sqlite"));
+  legacy.exec("PRAGMA auto_vacuum=NONE; PRAGMA journal_mode=WAL;");
+  legacy.close();
+  const f = await open(root);
+  let connection: DatabaseSync | undefined;
+  f.store.atomic((db) => {
+    connection = db;
+    // Rowids referenced elsewhere, with gaps that a rebuild would close by renumbering.
+    db.exec("CREATE TABLE rowid_probe(owner TEXT NOT NULL, frame TEXT NOT NULL)");
+    const insert = db.prepare("INSERT INTO rowid_probe VALUES (?,?)");
+    for (let i = 0; i < 500; i++) insert.run(`owner-${i % 7}`, `frame-${i}`);
+    db.exec("DELETE FROM rowid_probe WHERE rowid % 3 = 0");
+  });
+  if (!connection) throw new Error("Missing connection");
+  await purge(f);
+  const usage = await f.storage.usage();
+  const { storage_compactions: _before, ...before } = implicitRowids(connection);
+  const compaction = await f.storage.compact("owner");
+  expect(compaction).toMatchObject({ state: "complete", incrementalUnavailable: true });
+  expect(compaction.reclaimableDatabaseBytes).toBe(usage.reclaimableDatabaseBytes);
+  expect(f.store.statement("PRAGMA auto_vacuum").get()?.auto_vacuum).toBe(0);
+  const { storage_compactions: _after, ...after } = implicitRowids(connection);
+  expect(before.rowid_probe).toBeDefined();
+  expect(after).toEqual(before);
+  expect(integrity(join(root, "events.sqlite"))).toBe("ok");
 });

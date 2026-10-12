@@ -1,4 +1,4 @@
-import { StorageCompactionMode, StoragePlan, type StorageApply } from "@ace/protocol";
+import { StoragePlan, type StorageApply } from "@ace/protocol";
 import { z } from "zod";
 import type { Store } from "../store.ts";
 import { ReviewedStorageItem } from "./types.ts";
@@ -13,12 +13,11 @@ export type CleanupJournal = z.infer<typeof CleanupJournal>;
 export const CompactionJournal = z.object({
   id: z.string(),
   owner: z.string(),
-  mode: StorageCompactionMode,
-  state: z.enum(["running", "interrupted", "complete", "abandoned"]),
+  state: z.enum(["running", "complete", "abandoned"]),
   phase: z.enum(["vacuum", "checkpoint"]),
   chunks: z.number().int().nonnegative(),
   databaseBytesBefore: z.number().int().nonnegative(),
-  fullRequired: z.boolean(),
+  incrementalUnavailable: z.boolean(),
   checkpointed: z.boolean(),
 });
 export type CompactionJournal = z.infer<typeof CompactionJournal>;
@@ -72,9 +71,7 @@ export class StorageJournal {
   /** At most one compaction is unfinished; settled ones keep only the latest few. */
   unfinishedCompaction(): CompactionJournal | undefined {
     const row = this.store
-      .statement(
-        "SELECT document FROM storage_compactions WHERE state IN ('running','interrupted') LIMIT 1",
-      )
+      .statement("SELECT document FROM storage_compactions WHERE state='running' LIMIT 1")
       .get();
     return row ? CompactionJournal.parse(JSON.parse(z.string().parse(row.document))) : undefined;
   }

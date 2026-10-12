@@ -15,11 +15,15 @@ export class FakeStorageWire {
   private candidates: StorageCandidate[] = [];
   private plans = new Map<string, { plan: StoragePlan; owner: string; result?: StorageApply }>();
   private sequence = 0;
+  private database = { bytes: 0, reclaimable: 0 };
   private host: FakeServiceContext;
   private settings: FakeSettings;
   constructor(host: FakeServiceContext, settings: FakeSettings) {
     this.host = host;
     this.settings = settings;
+  }
+  seedDatabase(database: { bytes: number; reclaimable: number }): void {
+    this.database = { ...database };
   }
   seed(candidates: readonly StorageCandidate[]): void {
     this.candidates = candidates.map((entry) => ({ ...entry }));
@@ -54,8 +58,8 @@ export class FakeStorageWire {
               items: items.length,
             };
           }),
-          databaseBytes: 0,
-          reclaimableDatabaseBytes: 0,
+          databaseBytes: this.database.bytes,
+          reclaimableDatabaseBytes: this.database.reclaimable,
           measuredAt: this.host.now(),
           complete: true,
         },
@@ -87,17 +91,19 @@ export class FakeStorageWire {
       this.plans.set(plan.id, { plan, owner: device });
       result = { kind: "plan", plan };
     } else if (op.op === "cleanup.compact" || op.op === "cleanup.compactAbandon") {
-      // The fake keeps no SQLite file, so compaction is an immediate no-op result.
+      // Compaction releases every free page at once; there is no real SQLite file.
+      const before = this.database.bytes;
+      if (op.op === "cleanup.compact")
+        this.database = { bytes: before - this.database.reclaimable, reclaimable: 0 };
       result = {
         kind: "compaction",
         compaction: {
           id: op.op === "cleanup.compactAbandon" ? op.compactionId : `compact-${++this.sequence}`,
-          mode: op.op === "cleanup.compact" ? op.mode : "incremental",
           state: op.op === "cleanup.compact" ? "complete" : "abandoned",
-          fullRequired: false,
-          databaseBytesBefore: 0,
-          databaseBytes: 0,
-          reclaimableDatabaseBytes: 0,
+          incrementalUnavailable: false,
+          databaseBytesBefore: before,
+          databaseBytes: this.database.bytes,
+          reclaimableDatabaseBytes: this.database.reclaimable,
           checkpointed: true,
         },
       };

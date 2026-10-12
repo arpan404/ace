@@ -2,21 +2,16 @@ import { z } from "zod";
 import { storageFixture } from "./test-support.ts";
 
 const args = process.argv.slice(2);
-if (args[1] === "compact" || args[1] === "compact-full") {
+if (args[1] === "compact") {
   // Killed without exit handlers right after the first durable compaction step.
-  const [root, mode] = z
-    .tuple([z.string().min(1), z.enum(["compact", "compact-full"])])
-    .parse(args);
+  const [root] = z.tuple([z.string().min(1), z.literal("compact")]).parse(args);
   const fixture = await storageFixture(root, undefined, {
     limits: { chunkPages: 8 },
     afterCompactionStep: async () => {
       process.kill(process.pid, "SIGKILL");
     },
   });
-  await fixture.storage.compact(
-    "owner",
-    mode === "compact-full" ? { mode: "full", confirm: true } : {},
-  );
+  await fixture.storage.compact("owner");
   await fixture.close();
 } else {
   const [root, planId, revision] = z

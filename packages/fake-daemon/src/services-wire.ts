@@ -30,6 +30,8 @@ import type { FakeSettings } from "./services/settings.ts";
 /** Service state a daemon accumulates over time, which scenario facts can't reach. */
 export interface ServicesSeed extends AutomationSeed {
   storageItems?: readonly import("@ace/core").StorageCandidate[];
+  /** Database file bytes and the free pages compaction would release. */
+  storageDatabase?: { bytes: number; reclaimable: number };
   promptFiles?: readonly PromptSeed[];
   catalogLoading?: readonly import("@ace/protocol").ProviderKind[];
   extensionCatalogs?: Partial<
@@ -103,6 +105,7 @@ export class FakeServicesWire {
   }
   seed(seed: ServicesSeed): void {
     if (seed.storageItems) this.storage.seed(seed.storageItems);
+    if (seed.storageDatabase) this.storage.seedDatabase(seed.storageDatabase);
     if (seed.promptFiles) this.prompts.seed(seed.promptFiles);
     if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs, seed.catalogLoading);
     if (seed.history) this.history.seed(seed.history, seed.historyTranscripts);

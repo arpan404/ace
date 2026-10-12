@@ -92,14 +92,6 @@
         },
         {
           "properties": {
-            "confirm": {
-              "default": false,
-              "type": "boolean"
-            },
-            "mode": {
-              "$ref": "https://ace.local/protocol/v1/StorageCompactionMode.json",
-              "default": "incremental"
-            },
             "op": {
               "const": "cleanup.compact",
               "type": "string"

@@ -85,39 +85,23 @@ export class StorageService {
     return { databaseBytes, reclaimableDatabaseBytes: page * free };
   }
   /**
-   * Admin-only database compaction. Never part of retention apply. An unfinished journal
-   * entry is resumed first; an interrupted full rebuild needs a fresh confirmation.
+   * Admin-only incremental compaction. Never part of retention apply. An unfinished
+   * journal entry is resumed rather than replaced.
    */
-  compact(
-    device: string,
-    input: { mode?: "incremental" | "full"; confirm?: boolean },
-    allowed = () => true,
-  ): Promise<StorageCompaction> {
+  compact(device: string, allowed = () => true): Promise<StorageCompaction> {
     return this.serial(async () => {
-      const mode = input.mode ?? "incremental";
       if (!allowed()) throw new Error("storage_forbidden");
-      let state = this.journal.unfinishedCompaction();
-      if (state?.state === "interrupted") {
-        if (mode !== "full" || input.confirm !== true) return this.compaction(state);
-        state.state = "running";
-      }
-      if (!state) {
-        if (mode === "full" && input.confirm !== true)
-          throw new Error("storage_confirmation_required");
-        state = {
-          id: this.owner.id(),
-          owner: device,
-          mode,
-          state: "running",
-          phase: "vacuum",
-          chunks: 0,
-          databaseBytesBefore: (await this.database()).databaseBytes,
-          fullRequired: false,
-          checkpointed: false,
-        };
-      }
-      const admitted = state;
-      await this.owner.store.write(() => this.journal.saveCompaction(admitted));
+      const state = this.journal.unfinishedCompaction() ?? {
+        id: this.owner.id(),
+        owner: device,
+        state: "running" as const,
+        phase: "vacuum" as const,
+        chunks: 0,
+        databaseBytesBefore: (await this.database()).databaseBytes,
+        incrementalUnavailable: false,
+        checkpointed: false,
+      };
+      await this.owner.store.write(() => this.journal.saveCompaction(state));
       await compactStorage(
         this.owner,
         this.journal,
@@ -128,14 +112,14 @@ export class StorageService {
       return this.compaction(state);
     });
   }
+  /** Stop resuming an unfinished compaction. Chunks already released stay released. */
   abandonCompaction(id: string): Promise<StorageCompaction> {
     return this.serial(async () => {
       const state = this.journal.compaction(id);
       if (!state) throw new Error("storage_plan_not_found");
-      if (state.state === "running" || state.state === "interrupted") {
+      if (state.state === "running") {
         state.state = "abandoned";
-        const settled = state;
-        await this.owner.store.write(() => this.journal.saveCompaction(settled));
+        await this.owner.store.write(() => this.journal.saveCompaction(state));
       }
       return this.compaction(state);
     });
@@ -143,9 +127,8 @@ export class StorageService {
   private async compaction(state: CompactionJournal): Promise<StorageCompaction> {
     return {
       id: state.id,
-      mode: state.mode,
       state: state.state === "running" ? "pending" : state.state,
-      fullRequired: state.fullRequired,
+      incrementalUnavailable: state.incrementalUnavailable,
       databaseBytesBefore: state.databaseBytesBefore,
       ...(await this.database()),
       checkpointed: state.checkpointed,
@@ -309,14 +292,7 @@ export class StorageService {
       if (journal) await this.serial(() => this.run(journal, () => allowed(journal.owner)));
     }
     const compaction = this.journal.unfinishedCompaction();
-    if (compaction?.state !== "running") return;
-    // A full rebuild was confirmed for one attempt only; it waits for a new confirmation.
-    if (compaction.mode === "full") {
-      compaction.state = "interrupted";
-      await this.owner.store.write(() => this.journal.saveCompaction(compaction));
-      return;
-    }
-    if (allowed(compaction.owner))
+    if (compaction?.state === "running" && allowed(compaction.owner))
       await this.serial(() =>
         compactStorage(this.owner, this.journal, compaction, this.limits, () => !this.closed),
       );
@@ -344,7 +320,7 @@ export class StorageService {
           result = { kind: "apply", apply: this.status(device, op.planId) };
           break;
         case "cleanup.compact":
-          result = { kind: "compaction", compaction: await this.compact(device, op, allowed) };
+          result = { kind: "compaction", compaction: await this.compact(device, allowed) };
           break;
         case "cleanup.compactAbandon":
           result = {
@@ -361,13 +337,11 @@ export class StorageService {
         code:
           message === "storage_busy" || message === "Store is busy"
             ? "busy"
-            : message === "storage_confirmation_required"
-              ? "invalid_request"
-              : message === "storage_forbidden"
-                ? "forbidden"
-                : message === "storage_plan_not_found"
-                  ? "not_found"
-                  : "unavailable",
+            : message === "storage_forbidden"
+              ? "forbidden"
+              : message === "storage_plan_not_found"
+                ? "not_found"
+                : "unavailable",
         message: "Storage operation could not finish. Refresh usage or resume the reviewed plan.",
       };
     }
