@@ -20,9 +20,6 @@ import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 const StartedTitlePublisher = deferredComponent(() =>
   import("./started-rows.tsx").then((module) => module.StartedTitlePublisher),
 );
-const UnsentRows = deferredComponent(() =>
-  import("./unsent-rows.tsx").then((module) => module.UnsentRows),
-);
 
 /**
  * Home's list in the sidebar: one list of tasks across projects, pinned first, then in the order
@@ -90,9 +87,7 @@ export function HomeSidebar() {
                 ) : undefined
               }
             />
-            <Suspense fallback={null}>
-              <UnsentRows.Component />
-            </Suspense>
+            <ThreadList list={list} />
           </>
         ) : (
           <ThreadList list={list} settledTotal={settledTotal} />

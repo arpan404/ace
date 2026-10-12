@@ -181,3 +181,42 @@ test("Snoozed folds quiet tasks away but leaves a request in the main list", asy
   await userEvent.click(snoozed);
   expect(await nav.findByRole("link", { name: /^First task/ })).toBeTruthy();
 });
+
+test("an Unsent-only list supports forward and backward navigation", async () => {
+  const storage = memoryKeyValue();
+  const app = harness({ storage });
+  storage.setItem(
+    `ace.preparations:${app.daemon.hostId}`,
+    JSON.stringify([
+      [
+        "saved-release-plan",
+        { project: "relay", title: "Draft release plan", provider: "codex", choices: {} },
+      ],
+    ]),
+  );
+  await app.open("/new");
+  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  app.client.networkOnline(false);
+  for (const title of ["First offline task", "Second offline task"])
+    await app.client.enqueue({
+      type: "thread.create",
+      workspaceId: WorkspaceId.parse("ace"),
+      provider: "codex",
+      title,
+      input: [{ type: "text", text: title }],
+    });
+  await nav.findByRole("link", { name: /^Second offline task/ });
+  await nav.findByRole("link", { name: /^Draft release plan/ });
+  const links = nav.getAllByRole("link");
+  const first = links[0];
+  if (!first) throw new Error("Missing first Unsent task");
+  first.focus();
+  for (const next of links.slice(1)) {
+    await userEvent.keyboard("j");
+    await waitFor(() => expect(document.activeElement).toBe(next));
+  }
+  for (const previous of links.slice(0, -1).toReversed()) {
+    await userEvent.keyboard("{ArrowUp}");
+    await waitFor(() => expect(document.activeElement).toBe(previous));
+  }
+});
