@@ -39,7 +39,7 @@ test("the agent tree shows subagents as they spawn and marks the one that fails"
   expect(within(detail).getByRole("heading", { name: "migration-tester" })).toBeTruthy();
 });
 
-test("the Agents tab shows what each agent is doing, the background shell, and why the thread isn't done", async () => {
+test("the Work tree shows what each agent is doing, the background shell, and why the thread isn't done", async () => {
   const app = harness();
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");

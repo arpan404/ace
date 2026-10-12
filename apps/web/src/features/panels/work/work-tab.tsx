@@ -7,7 +7,7 @@ import {
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
 import { useThreadParts } from "../agents/thread-parts.ts";
-import { AgentsTab } from "../agents/agents-tab.tsx";
+import { WorkTree } from "../agents/work-tree.tsx";
 import { WorkPlans } from "./work-plans.tsx";
 
 /** One home for the thread's checkout, whole agent tree and project schedules. */
@@ -50,7 +50,7 @@ export default function WorkTab(props: TabViewProps) {
         <WorkPlans threadId={props.scope} />
         <section aria-label="Agents" className="min-w-0 py-3">
           <h2 className="px-5 text-xs font-medium text-muted-foreground">Agents</h2>
-          <AgentsTab threadId={props.scope} />
+          <WorkTree threadId={props.scope} />
         </section>
         <div className="px-3">
           <WorkAutomations
