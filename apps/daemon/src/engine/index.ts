@@ -149,8 +149,7 @@ export class Engine {
     this.repositoryTransfers = new RepositoryTransfers(
       this.repo,
       () => this.actors.keys(),
-      async (id) => {
-        await this.actors.get(id)?.flush();
+      (id) => {
         const work = this.liveWork(id);
         return (
           work.agentsRunning > 0 ||
@@ -160,6 +159,10 @@ export class Engine {
           this.controls.isActive(id)
         );
       },
+      async (id) => {
+        await this.actors.get(id)?.flush();
+      },
+      this.clock,
       (id) => this.wake(id),
     );
     const models = (this.models = new EngineModels(

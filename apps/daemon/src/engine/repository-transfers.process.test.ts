@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Command, ThreadId } from "@ace/protocol";
@@ -35,7 +37,7 @@ async function setup() {
   const id = await h.create();
   const peerWorkspace = h.store.createWorkspace(peerRoot, "Linked worktree");
   const peer = ThreadId.parse("linked-peer");
-  return { h, id, peer, peerRoot, peerWorkspace, remote };
+  return { h, frames, id, peer, peerRoot, peerWorkspace, remote };
 }
 function runtime(
   f: Awaited<ReturnType<typeof setup>>,
@@ -177,14 +179,30 @@ test("a transfer holds provider admission across discovery and execution, includ
   }
 });
 
-test("an agent running in an unrelated repository does not block a user's push", async () => {
+test("corrupted metadata in an unrelated active linked worktree does not fence pushes or provider admission", async () => {
   const f = await setup();
   const workspace = runtime(f);
-  const other = join(f.h.home, "other-repository");
+  const unrelated = await mkdtemp(join(tmpdir(), "ace-unrelated-repository-"));
+  const other = join(unrelated, "repository");
   try {
     await mkdir(other);
     await git(other, "init", "-b", "main");
-    const otherWorkspace = f.h.store.createWorkspace(other, "Unrelated repository");
+    await git(
+      other,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "-c",
+      "commit.gpgSign=false",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "Initial",
+    );
+    const linked = join(unrelated, "linked-checkout");
+    await git(other, "worktree", "add", "-b", "other-peer", linked, "HEAD");
+    const otherWorkspace = f.h.store.createWorkspace(linked, "Unrelated linked worktree");
     expect(
       f.h.command({
         type: "thread.create",
@@ -204,11 +222,148 @@ test("an agent running in an unrelated repository does not block a user's push",
     ).toMatchObject({ ok: true });
     await f.h.engine.flush();
     expect(f.h.store.getThread(f.peer)?.status.state).toBe("working");
+    await writeFile(join(linked, ".git"), "malformed agent-written metadata\n");
     expect(await push(f, workspace)).toMatchObject({ ok: true });
     expect(await git(f.remote, "rev-parse", "refs/heads/main")).toBe(
       await git(f.h.home, "rev-parse", "HEAD"),
     );
+    // A second transfer and a provider dispatch both use the durable admission owner.
+    // Either would fail if discovery accidentally left a permanent target reservation.
+    expect(await push(f, workspace)).toMatchObject({ ok: true });
+    expect(
+      f.h.command({
+        type: "thread.send",
+        threadId: f.id,
+        input: [{ type: "text", text: "Resume healthy repository" }],
+      }),
+    ).toMatchObject({ ok: true });
+    await f.h.engine.flush();
+    expect(f.h.store.getThread(f.id)?.status.state).toBe("working");
   } finally {
+    await workspace.close();
+    await f.h.close();
+    await rm(unrelated, { recursive: true, force: true });
+  }
+});
+
+test("a push refuses known active work while provider output keeps streaming into a blocked mailbox", async () => {
+  const f = await setup();
+  const workspace = runtime(f);
+  const timeout = new AbortController();
+  let stream: ReturnType<typeof setInterval> | undefined;
+  try {
+    expect(
+      f.h.command({
+        type: "thread.create",
+        threadId: f.peer,
+        workspaceId: f.peerWorkspace,
+        provider: "codex",
+        input: [{ type: "text", text: "First peer turn" }],
+      }),
+    ).toMatchObject({ ok: true });
+    await f.h.engine.flush();
+    expect(
+      f.h.command({
+        type: "thread.send",
+        threadId: f.peer,
+        input: [{ type: "text", text: "Keep streaming" }],
+      }),
+    ).toMatchObject({ ok: true });
+    await f.h.engine.flush();
+    expect(f.h.store.getThread(f.peer)?.status.state).toBe("working");
+    const context = f.h.contexts.at(-1);
+    if (!context) throw new Error("Missing provider context");
+    f.h.store.setHistoryWriting(true);
+    const emit = () =>
+      context.onFrame(
+        f.frames.frame({
+          type: "item.delta",
+          agent: "root",
+          item: "stream",
+          field: "text",
+          append: "More output\n",
+        }),
+      );
+    emit();
+    stream = setInterval(emit, 5);
+    const result = await Promise.race([
+      push(f, workspace),
+      delay(2_000, undefined, { signal: timeout.signal }).then(() => {
+        throw new Error("Push waited for a live provider mailbox");
+      }),
+    ]);
+    expect(result).toMatchObject({ ok: false, error: "git_repository_agent_running" });
+    await expect(git(f.remote, "rev-parse", "--verify", "HEAD")).rejects.toBeDefined();
+  } finally {
+    timeout.abort();
+    clearInterval(stream);
+    f.h.store.setHistoryWriting(false);
+    await workspace.close();
+    await f.h.close();
+  }
+});
+
+test("unsettled activity reconciliation refuses within its deadline and releases provider admission", async () => {
+  const f = await setup();
+  const workspace = runtime(f);
+  try {
+    // The provider is idle, but its mailbox cannot reconcile during history publication.
+    f.h.store.setHistoryWriting(true);
+    const waiting = f.h.clock.waitForDelay(1_000);
+    const pending = push(f, workspace);
+    await waiting;
+    f.h.clock.advance(f.h.clock.now() + 1_000);
+    expect(await pending).toMatchObject({ ok: false, error: "git_repository_agent_running" });
+    f.h.store.setHistoryWriting(false);
+    await f.h.engine.flush();
+    expect(await push(f, workspace)).toMatchObject({ ok: true });
+    expect(
+      f.h.command({
+        type: "thread.send",
+        threadId: f.id,
+        input: [{ type: "text", text: "Admission recovered" }],
+      }),
+    ).toMatchObject({ ok: true });
+    await f.h.engine.flush();
+    expect(f.h.store.getThread(f.id)?.status.state).toBe("working");
+  } finally {
+    f.h.store.setHistoryWriting(false);
+    await workspace.close();
+    await f.h.close();
+  }
+});
+
+test("target metadata discovery failure releases an undispatched transfer reservation", async () => {
+  const f = await setup();
+  const workspace = runtime(f);
+  const dot = join(f.peerRoot, ".git");
+  const original = await readFile(dot, "utf8");
+  try {
+    expect(
+      f.h.command({
+        type: "thread.create",
+        threadId: f.peer,
+        workspaceId: f.peerWorkspace,
+        provider: "codex",
+        input: [{ type: "text", text: "Idle linked peer" }],
+      }),
+    ).toMatchObject({ ok: true });
+    await f.h.engine.flush();
+    await writeFile(dot, "malformed target metadata\n");
+    expect(await push(f, workspace)).toMatchObject({ ok: false, error: "git_quarantined" });
+    await writeFile(dot, original);
+    expect(await push(f, workspace)).toMatchObject({ ok: true });
+    expect(
+      f.h.command({
+        type: "thread.send",
+        threadId: f.id,
+        input: [{ type: "text", text: "Target admission recovered" }],
+      }),
+    ).toMatchObject({ ok: true });
+    await f.h.engine.flush();
+    expect(f.h.store.getThread(f.id)?.status.state).toBe("working");
+  } finally {
+    await writeFile(dot, original);
     await workspace.close();
     await f.h.close();
   }
