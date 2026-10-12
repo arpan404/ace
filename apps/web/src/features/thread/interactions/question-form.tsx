@@ -220,7 +220,9 @@ function QuestionField(props: {
         value={props.text}
         disabled={props.disabled}
         placeholder="Something else…"
-        onFocus={() => {
+        // A click picks the free answer; tabbing through leaves the chosen option alone, and
+        // the first keystroke picks it (`onText`).
+        onPointerDown={() => {
           if (!props.picked.includes(other) && !question.multiSelect) props.onToggle(other);
         }}
         onChange={(event) => props.onText(event.target.value)}

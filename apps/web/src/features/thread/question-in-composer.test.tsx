@@ -122,3 +122,33 @@ test("picking an option enables Continue, which sends the selected option", asyn
     }),
   );
 });
+
+test("tabbing through Something else keeps the picked option, and typing there picks it", async () => {
+  const { card } = await openQuestion();
+  await userEvent.click(within(card).getByRole("radio", { name: "Spaces" }));
+  const field = within(card).getByRole("textbox", { name: /^Something else/ });
+  // Tab into the field and back out: the pick and Continue stay as they were.
+  for (let step = 0; step < 10 && document.activeElement !== field; step++) await userEvent.tab();
+  expect(document.activeElement).toBe(field);
+  await userEvent.tab({ shift: true });
+  expect(within(card).getByRole("radio", { name: "Spaces", checked: true })).toBeTruthy();
+  expect(within(card).getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(
+    false,
+  );
+  // The first keystroke in the field picks it instead.
+  field.focus();
+  await userEvent.keyboard("4");
+  expect(within(card).getByRole("radio", { name: "Something else", checked: true })).toBeTruthy();
+});
+
+test("Skip on the question card declines it", async () => {
+  const { app, card } = await openQuestion();
+  await userEvent.click(within(card).getByRole("button", { name: "Skip" }));
+  await waitFor(() =>
+    expect(app.daemon.resolution(threadId, "indent")).toEqual({
+      kind: "question",
+      answers: {},
+      dismissed: true,
+    }),
+  );
+});
