@@ -1,6 +1,6 @@
 import { WriteDispatch } from "./write-dispatch.ts";
 import { hostedReviewCommentEdit } from "./review-comment-body.ts";
-import { assertGraphqlResult } from "./graphql-errors.ts";
+import { ForgeMutationOutcome } from "./mutation.ts";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import type { ForgePrRef } from "@ace/protocol/forge";
@@ -87,6 +87,11 @@ export class GitHubReviews {
     const repo = pr(1).repository;
     this.#root = `repos/${repo.owner}/${repo.name}`;
   }
+  async #request(...args: Parameters<GhApi["request"]>) {
+    const response = await this.#api.request(...args);
+    if (response.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
+    return response;
+  }
   async host(number: number, signal: AbortSignal) {
     const { owner, name } = this.#pr(number).repository;
     let after: string | null = null;
@@ -98,7 +103,7 @@ export class GitHubReviews {
     }[] = [];
     const budget = new ReadBudget();
     for (let page = 0; page < 20; page++) {
-      const result = await this.#api.request("graphql", signal, {
+      const result = await this.#request("graphql", signal, {
         query: `query($owner:String!,$name:String!,$number:Int!,$after:String){ viewer { login } repository(owner:$owner,name:$name){ pullRequest(number:$number){ id headRefOid state viewerDidAuthor locked viewerCanUpdate reviewThreads(first:100,after:$after){ nodes { id isResolved viewerCanResolve viewerCanUnresolve } pageInfo { hasNextPage endCursor } } } } }`,
         variables: { owner, name, number, after },
       });
@@ -124,7 +129,7 @@ export class GitHubReviews {
     const files: { path: string; state: string }[] = [];
     const budget = new ReadBudget();
     for (let page = 0; page < 30; page++) {
-      const result = await this.#api.request("graphql", signal, {
+      const result = await this.#request("graphql", signal, {
         query: `query($owner:String!,$name:String!,$number:Int!,$after:String){ repository(owner:$owner,name:$name){ pullRequest(number:$number){ headRefOid files(first:100,after:$after){ nodes { path viewerViewedState } pageInfo { hasNextPage endCursor } } } } }`,
         variables: { owner, name, number, after },
       });
@@ -208,7 +213,7 @@ export class GitHubReviews {
     signal: AbortSignal,
     dispatch: WriteDispatch,
   ) {
-    const response = await this.#api.request(
+    const response = await this.#request(
       "graphql",
       signal,
       {
@@ -218,7 +223,6 @@ export class GitHubReviews {
       "POST",
       dispatch,
     );
-    assertGraphqlResult(response.body);
     const result = decode(
       z.object({
         data: z.record(z.string(), z.object({ clientMutationId: text.nullable() }).nullable()),
@@ -263,7 +267,7 @@ export class GitHubReviews {
       if (latest.pr.headRefOid !== action.headSha || latest.pr.state !== "OPEN")
         throw new ForgeError("conflict");
       if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
-      const response = await this.#api.request(
+      const response = await this.#request(
         `${this.#root}/pulls/${number}/reviews`,
         signal,
         {
@@ -307,7 +311,7 @@ export class GitHubReviews {
       decode(
         Comment,
         (
-          await this.#api.request(
+          await this.#request(
             `${this.#root}/${path}`,
             signal,
             {
@@ -327,7 +331,7 @@ export class GitHubReviews {
       if (!allowed()) throw new ForgeError("cancelled");
       const path = `${this.#root}/${action.source === "inline" ? "pulls" : "issues"}/comments/${action.commentId}`;
       if (signal.aborted || !allowed()) throw new ForgeError("cancelled");
-      await this.#api.request(
+      await this.#request(
         path,
         signal,
         action.kind === "comment.edit"

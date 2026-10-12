@@ -26,6 +26,7 @@ import {
 } from "@ace/protocol";
 import { listScripts, installedEditors, shellQuote } from "./workspace-scripts.ts";
 import { createCommandRunner, type CommandRunner } from "@ace/forge";
+import { pushWorkspace } from "./workspace-push.ts";
 import { WorkspaceForge } from "./workspace-forge.ts";
 import { RunCheckpoints } from "./run-checkpoints.ts";
 import { listClientRuns } from "./run-client-storage.ts";
@@ -34,6 +35,7 @@ import type { Store } from "./store.ts";
 import { systemCredentials } from "./credential-runtime.ts";
 
 export interface WorkspaceRuntimeOptions {
+  sourceControl?: import("./source-control.ts").SourceControl;
   git?: GitOptions;
   writingCli?: ReturnType<typeof createWritingCli>;
   reconcileThread?(id: ThreadId): Promise<void>;
@@ -86,19 +88,16 @@ export class WorkspaceRuntime {
     this.terminalId = options.terminalId ?? systemCredentials.id;
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
     this.git = options.gitService ?? new GitService(options.git);
-    this.roots = new WorkspaceRoots(
-      store,
-      this.git,
-      directory,
-      now,
-      this.machine,
-      options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {},
-    );
+    this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine, {
+      ...(options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {}),
+      ...(options.sourceControl ? { sourceControl: options.sourceControl } : {}),
+    });
     this.forge = new WorkspaceForge(
       store,
       this.git,
       now,
       options.forgeRunner ?? ((cwd) => createCommandRunner({ cwd })),
+      options.sourceControl,
     );
     this.commands = new AsyncCommands(store);
     this.checkpoints = new RunCheckpoints(store, this.git, (id) => this.root(id), now);
@@ -396,7 +395,7 @@ export class WorkspaceRuntime {
           }),
         };
       if (p.type === "git.push") {
-        await this.git.push({ worktree: cwd, remote: p.remote });
+        await pushWorkspace(this.git, this.options.sourceControl, cwd, p, allowed);
         return { ok: true };
       }
       if (p.type === "workspace.editor.open") {

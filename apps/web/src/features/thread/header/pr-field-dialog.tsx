@@ -1,4 +1,5 @@
-import { parsePrReference, parseReviewers, type Checkout } from "@ace/ui-core";
+import { usePrReference } from "../lib/use-pr-reference.ts";
+import { parseReviewers, type Checkout } from "@ace/ui-core";
 import { useState } from "react";
 import { InlineMarkdown } from "@/components/inline-markdown.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -41,11 +42,12 @@ export function PrFieldDialog(props: {
   onClose(): void;
 }) {
   const form = forms[props.kind];
+  const parseReference = usePrReference();
   const [value, setValue] = useState("");
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
   const { repository, pr } = props.checkout;
-  const parse = (): GitChange | string => {
+  const parse = async (): Promise<GitChange | string> => {
     if (props.kind === "request-review") {
       const parsed = parseReviewers(value);
       if ("error" in parsed) return parsed.error;
@@ -54,7 +56,7 @@ export function PrFieldDialog(props: {
         : "Name at least one GitHub username";
     }
     if (!repository) return "This checkout has no GitHub remote";
-    const parsed = parsePrReference(value, repository);
+    const parsed = await parseReference(value, repository);
     return "error" in parsed
       ? parsed.error
       : {
@@ -63,15 +65,20 @@ export function PrFieldDialog(props: {
           ...(parsed.repository ? { repository: parsed.repository } : {}),
         };
   };
-  const submit = () => {
-    const change = parse();
-    if (typeof change === "string") return setError(change);
-    setError(undefined);
+  const submit = async () => {
+    if (pending) return;
     setPending(true);
-    props.onSubmit(change).then(props.onClose, (failure: unknown) => {
-      setPending(false);
+    setError(undefined);
+    try {
+      const change = await parse();
+      if (typeof change === "string") return setError(change);
+      await props.onSubmit(change);
+      props.onClose();
+    } catch (failure) {
       setError(failure instanceof Error ? failure.message : "That didn't work.");
-    });
+    } finally {
+      setPending(false);
+    }
   };
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
@@ -80,7 +87,7 @@ export function PrFieldDialog(props: {
           className="contents"
           onSubmit={(event) => {
             event.preventDefault();
-            submit();
+            void submit();
           }}
         >
           <DialogHeader>

@@ -1,17 +1,22 @@
 import { once } from "node:events";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { createHash } from "node:crypto";
+import { keyPair, fingerprint as relayKeyFingerprint } from "@ace/secure-channel";
+import { RemoteAuth } from "./remote-auth.ts";
+import { startFilesRelay } from "./files-relay.ts";
+import { createHash, randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import { z } from "zod";
 import { afterEach, expect, it } from "vitest";
-import { AgentId, DeviceId, ServerMessage, FilesServerMessage } from "@ace/protocol";
+import { AgentId, DeviceId, ClientMessage, ServerMessage, FilesServerMessage } from "@ace/protocol";
 import { decodeFileFrame } from "@ace/files";
 import { workspaceRuntime } from "@ace/workspace";
 import { startRelay, connectClientViaRelay } from "@ace/relay";
-import { startDaemon, createDevThread, type DaemonOptions } from "./index.ts";
+import { startDaemon, createDevThread, stubHandler, type DaemonOptions } from "./index.ts";
+import { startServer } from "./server.ts";
+import { FilesWorkspaces } from "./files-workspaces.ts";
 import { message, shell } from "./payload-test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -451,3 +456,267 @@ async function relayFileFrame(client: Awaited<ReturnType<typeof connectClientVia
       throw new Error("Expected a binary file frame");
   }
 }
+
+for (const transport of ["websocket", "relay"]) {
+  it(`read-only ${transport} exports exact thread-scoped output and raw bytes while denying mutations`, async () => {
+    const relay = transport === "relay" ? await startRelay() : undefined;
+    if (relay) cleanup.push(() => relay.close());
+    const f = await setup(relay?.url);
+    const workspace = f.daemon.store.createWorkspace(f.root, "Workspace");
+    const thread = createDevThread(f.daemon.store, workspace);
+    const native = { text: "raw retained bytes".repeat(5000) };
+    const rawItem = message("scoped-raw");
+    if (rawItem.type !== "message") throw new Error("Wrong item");
+    rawItem.raw = [{ type: "future", data: native }];
+    f.daemon.store.appendEvents(thread.id, [
+      { type: "item.created", item: shell() },
+      {
+        type: "item.delta",
+        itemId: shell().id,
+        agentId: AgentId.parse("root"),
+        field: "output",
+        append: "retained output\n",
+      },
+      { type: "item.created", item: rawItem },
+    ]);
+    const stored = f.daemon.store.snapshotThread(thread.id).items[rawItem.id];
+    if (stored?.type !== "message") throw new Error("Missing message");
+    const raw = stored.raw[0];
+    if (!raw || !("blobRef" in raw)) throw new Error("Missing blob");
+    const paired = f.daemon.store.devices.create("Reader", ["read"], 1);
+    let client: { send(value: unknown): void | Promise<void>; next(): Promise<unknown> };
+    if (relay) {
+      const hostId = f.daemon.relayHostId;
+      const fingerprint = f.daemon.relayFingerprint;
+      if (!hostId || !fingerprint) throw new Error("Missing relay endpoint");
+      const remote = await connectClientViaRelay({
+        relayUrl: relay.url,
+        hostId,
+        pinnedFingerprint: fingerprint,
+      });
+      cleanup.push(async () => {
+        remote.close();
+        await remote.closed;
+      });
+      await remote.send({
+        type: "hello",
+        protocolVersion: 1,
+        deviceId: paired.device.id,
+        token: paired.token,
+      });
+      expect(await remote.receive()).toMatchObject({ type: "welcome" });
+      client = {
+        send: (value) => remote.send(ClientMessage.parse(value)),
+        next: () => relayFileReply(remote),
+      };
+    } else {
+      const local = await f.connect(paired);
+      client = { send: (value) => local.send(value), next: () => fileReply(local) };
+    }
+    const request = async (operation: unknown) => {
+      await client.send({
+        type: "files.request",
+        requestId: "scoped",
+        threadId: thread.id,
+        operation,
+      });
+      return FilesServerMessage.parse(await client.next());
+    };
+    for (const [operation, expected] of [
+      [{ op: "artifact.output", streamId: "output:shell" }, "retained output\n"],
+      [{ op: "artifact.raw", blobRef: raw.blobRef }, JSON.stringify(native)],
+    ] as const) {
+      const exported = await request(operation);
+      expect(exported).toMatchObject({ type: "files.result" });
+      const result = z.object({ value: z.object({ artifactId: z.string() }) }).parse(exported);
+      const ready = z.object({ channel: z.number() }).parse(
+        await request({
+          op: "artifact.download",
+          artifactId: result.value.artifactId,
+          offset: 0,
+        }),
+      );
+      const chunks: Buffer[] = [];
+      for (;;) {
+        await client.send({ type: "files.pull", requestId: "pull", channel: ready.channel });
+        const data = FilesServerMessage.parse(await client.next());
+        if (data.type !== "files.data") throw new Error(`Unexpected ${data.type}`);
+        chunks.push(Buffer.from(data.data, "base64"));
+        if (data.eof) break;
+      }
+      expect(Buffer.concat(chunks).toString()).toBe(expected);
+    }
+    for (const operation of [
+      { op: "create", path: "denied", expected: null, text: "bad" },
+      { op: "upload.begin", path: "denied", expected: null, size: 1 },
+      {
+        op: "move",
+        path: "denied",
+        destination: "other",
+        destinationExpected: null,
+        expected: "unknown",
+      },
+      { op: "delete", path: "denied", expected: "unknown" },
+    ])
+      expect(await request(operation)).toMatchObject({ type: "files.error", code: "FORBIDDEN" });
+    expect(await request({ op: "artifact.output", streamId: "output:missing" })).toMatchObject({
+      type: "files.error",
+    });
+  });
+}
+
+for (const transport of ["websocket", "relay"])
+  it(`read-only ${transport} exports cannot borrow an allowed thread to read another source or its registered artifact`, async () => {
+    const f = await setup();
+    const store = f.daemon.store;
+    const workspace = store.createWorkspace(f.root, "Workspace");
+    const allowed = createDevThread(store, workspace);
+    const denied = createDevThread(store, workspace);
+    const rawItem = message("private-raw");
+    if (rawItem.type !== "message") throw new Error("Wrong item");
+    const native = { secret: "private bytes".repeat(10000) };
+    rawItem.raw = [{ type: "future", data: native }];
+    store.appendEvents(denied.id, [
+      { type: "item.created", item: shell("private-shell") },
+      {
+        type: "item.delta",
+        itemId: shell("private-shell").id,
+        agentId: AgentId.parse("root"),
+        field: "output",
+        append: "private output",
+      },
+      { type: "item.created", item: rawItem },
+    ]);
+    store.appendEvents(allowed.id, [
+      { type: "item.created", item: shell("public-shell") },
+      {
+        type: "item.delta",
+        itemId: shell("public-shell").id,
+        agentId: AgentId.parse("root"),
+        field: "output",
+        append: "allowed bytes",
+      },
+    ]);
+    const stored = store.snapshotThread(denied.id).items[rawItem.id];
+    if (stored?.type !== "message") throw new Error("Missing message");
+    const raw = stored.raw[0];
+    if (!raw || !("blobRef" in raw)) throw new Error("Missing blob");
+    const files = f.daemon.files;
+    if (!files) throw new Error("Missing files");
+    const secretArtifact = z
+      .object({ artifactId: z.string() })
+      .parse(
+        await files.request("owner", { op: "artifact.output", streamId: "output:private-shell" }),
+      ).artifactId;
+    let counter = 0;
+    const scoped = new FilesWorkspaces({
+      store,
+      options: {},
+      now: () => 1,
+      id: () => `scope-${++counter}`,
+      config: {
+        dataDir: join(f.home, "scoped"),
+        host: "127.0.0.1",
+        port: 0,
+        remotePort: 0,
+        listen: "local",
+        logLevel: "silent",
+      },
+    });
+    scoped.register(await realpath(f.root), files);
+    cleanup.push(() => scoped.close());
+    let readable = true;
+    const server = await startServer({
+      port: 0,
+      token: "a".repeat(64),
+      hostId: "source-auth",
+      store,
+      files,
+      threadFiles: scoped,
+      handler: stubHandler({ development: true }),
+      canReadThread: (_device, thread) => readable && thread === allowed.id,
+    });
+    cleanup.push(() => server.close());
+    const paired = store.devices.create("Reader", ["read"], 1);
+    let client: { send(value: unknown): void | Promise<void>; next(): Promise<unknown> };
+    if (transport === "relay") {
+      const relay = await startRelay();
+      cleanup.push(() => relay.close());
+      const keys = keyPair();
+      const host = await startFilesRelay({
+        url: relay.url,
+        keys,
+        auth: new RemoteAuth(store.devices, "a".repeat(64), { now: () => 1, secret: randomUUID }),
+        devices: store.devices,
+        store,
+        files,
+        threadFiles: scoped,
+        hostId: "source-auth",
+        headSeq: () => store.headSeq(),
+        canReadThread: (_device, thread) => readable && thread === allowed.id,
+      });
+      cleanup.push(() => host.close());
+      const remote = await connectClientViaRelay({
+        relayUrl: relay.url,
+        hostId: host.hostId,
+        pinnedFingerprint: relayKeyFingerprint(keys.publicKey),
+      });
+      cleanup.push(async () => {
+        remote.close();
+        await remote.closed;
+      });
+      await remote.send({
+        type: "hello",
+        protocolVersion: 1,
+        deviceId: paired.device.id,
+        token: paired.token,
+      });
+      expect(await remote.receive()).toMatchObject({ type: "welcome" });
+      client = {
+        send: (value) => remote.send(ClientMessage.parse(value)),
+        next: () => relayFileReply(remote),
+      };
+    } else {
+      const local = new Client(server.url);
+      cleanup.push(() => local.close());
+      await once(local.socket, "open");
+      local.send({
+        type: "hello",
+        protocolVersion: 1,
+        deviceId: paired.device.id,
+        token: paired.token,
+      });
+      expect(await local.next()).toMatchObject({ type: "welcome" });
+      client = { send: (value) => local.send(value), next: () => fileReply(local) };
+    }
+    const request = async (operation: unknown, scopedRequest = true) => {
+      await client.send({
+        type: "files.request",
+        requestId: "source",
+        ...(scopedRequest ? { threadId: allowed.id } : {}),
+        operation,
+      });
+      return FilesServerMessage.parse(await client.next());
+    };
+    for (const operation of [
+      { op: "artifact.output", streamId: "output:private-shell" },
+      { op: "artifact.raw", blobRef: raw.blobRef },
+      { op: "artifact.download", artifactId: secretArtifact, offset: 0 },
+    ]) {
+      expect(await request(operation)).toMatchObject({ type: "files.error", code: "FORBIDDEN" });
+      expect(await request(operation, false)).toMatchObject({
+        type: "files.error",
+        code: "FORBIDDEN",
+      });
+    }
+    const publicArtifact = z
+      .object({ value: z.object({ artifactId: z.string() }) })
+      .parse(await request({ op: "artifact.output", streamId: "output:public-shell" }))
+      .value.artifactId;
+    const ready = z
+      .object({ channel: z.number() })
+      .parse(await request({ op: "artifact.download", artifactId: publicArtifact, offset: 0 }));
+    readable = false;
+    await client.send({ type: "files.pull", requestId: "revoked", channel: ready.channel });
+    expect(await client.next()).toMatchObject({ type: "files.error", code: "FORBIDDEN" });
+  });

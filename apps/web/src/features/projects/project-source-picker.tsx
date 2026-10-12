@@ -27,6 +27,12 @@ const sources = [
     description: "Create a folder and an optional Git repository",
     icon: FolderPlusIcon,
   },
+  {
+    tab: "github",
+    name: "GitHub repositories",
+    description: "Browse repositories with this computer’s logged-in CLI",
+    icon: LinkIcon,
+  },
 ] as const;
 
 /** One source choice before showing only that source's required inputs. */

@@ -86,6 +86,14 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
     usageSnapshot: (key) => live.usageSnapshot(key),
     // A window's own items arrive whole from the daemon's bounded reply; nothing was cut here.
     truncated: (id) => (items.has(id) && !(joined && live.item(id)) ? false : live.truncated(id)),
+    observe(tap) {
+      return live.observe((keys) => {
+        if (keys === "all") return tap(keys);
+        // Follow explicit deletions in detached windows, just like select().
+        const visible = new Set([...keys].filter((key) => key !== "history"));
+        if (visible.size) tap(visible);
+      });
+    },
     select<T>(
       keys: readonly ThreadKey[],
       selector: (reader: ThreadReader) => T,

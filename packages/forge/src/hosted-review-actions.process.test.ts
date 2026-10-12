@@ -7,7 +7,7 @@ import {
   repository,
   sha,
 } from "./testing/fixtures.ts";
-import { GitHubForge, reviewWriteMarker } from "./index.ts";
+import { GitHubForge, WriteDispatch, reviewWriteMarker, identityRunner } from "./index.ts";
 const signal = () => new AbortController().signal;
 const allowed = () => true;
 
@@ -195,6 +195,46 @@ test("view and unview marks written by one client are visible through another cl
         },
       },
     ]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a comment acknowledged after the CLI identity changes remains uncertain", async () => {
+  const fixtures = reviewFixtures();
+  fixtures.user = [
+    { body: { login: "reviewer" } },
+    { body: { login: "reviewer" } },
+    { body: { login: "reviewer" } },
+    { body: { login: "other" } },
+  ];
+  fixtures["repos/octo/ace/issues/7/comments"] = [
+    { body: { id: 8, body: "Response", user: { login: "reviewer" } } },
+  ];
+  const f = await fakeGh(fixtures);
+  const backend = new GitHubForge({
+    repository,
+    now: () => 1000,
+    runner: identityRunner(
+      (request) => f.runner({ ...request, command: f.executable }),
+      repository.host,
+      "reviewer",
+    ),
+  });
+  const dispatch = new WriteDispatch();
+  try {
+    await expect(
+      backend.reviews.write(
+        7,
+        { kind: "conversation", body: "Response" },
+        [],
+        "identity-change",
+        signal(),
+        allowed,
+        dispatch,
+      ),
+    ).rejects.toMatchObject({ kind: "outcome_uncertain" });
+    expect(dispatch.definitelyFailed).toBe(false);
   } finally {
     await f.cleanup();
   }

@@ -1,7 +1,8 @@
-import type { WriteDispatch } from "./write-dispatch.ts";
 import { GitHubReviews } from "./github-reviews.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import type { ForgePrSearch } from "@ace/protocol/forge-browser";
+import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
+import { replyIntent, replyCutoff, reconcileReply, type ReplyReceipts } from "./reply-receipts.ts";
 import { z } from "zod";
 import {
   ForgeRepository,
@@ -29,12 +30,15 @@ export class GitHubForge implements Forge, ForgeBrowser {
   readonly #status = new GitHubStatusReader(this.revisions);
   readonly #root: string;
   readonly #browser: GitHubBrowser;
+  readonly #replyReceipts: ReplyReceipts | undefined;
   constructor(options: {
     repository: ForgeRepository;
     runner: CommandRunner;
     command?: string;
     now: () => number;
+    replyReceipts?: ReplyReceipts;
   }) {
+    this.#replyReceipts = options.replyReceipts;
     this.repository = ForgeRepository.parse(options.repository);
     if (this.repository.forge !== "github" || this.repository.owner.includes("/"))
       throw new ForgeError("unsupported");
@@ -133,7 +137,8 @@ export class GitHubForge implements Forge, ForgeBrowser {
       draft: value.draft,
     });
     const parsed = GitHubPr.safeParse(response.body);
-    if (!parsed.success) throw new ForgeError("invalid_data");
+    if (!parsed.success) throw new ForgeMutationOutcome({ dispatched: true });
+    if (response.identityChanged) throw new ForgeMutationOutcome(this.#ref(parsed.data.number));
     return this.#ref(parsed.data.number);
   }
   async replyComment(
@@ -141,26 +146,59 @@ export class GitHubForge implements Forge, ForgeBrowser {
     commentId: number,
     body: string,
     signal: AbortSignal,
-    dispatch?: WriteDispatch,
+    observer?: MutationDispatch,
   ): Promise<void> {
     this.#ref(number);
     positive.parse(commentId);
     z.string().min(1).max(65_536).parse(body);
-    const response = await this.#api.request(
-      `${this.#root}/pulls/${number}/comments/${commentId}/replies`,
-      signal,
-      { body },
-      "POST",
-      dispatch,
-    );
-    if (!z.object({ id: positive }).safeParse(response.body).success)
-      throw new ForgeError("invalid_data");
+    const receipts = observer ? undefined : this.#replyReceipts;
+    const intent = replyIntent(this.repository, number, commentId, body);
+    const reconcile = async (receipt: NonNullable<ReturnType<ReplyReceipts["get"]>>) => {
+      const id = await reconcileReply(
+        this.#api,
+        this.#root,
+        receipt,
+        { account: receipts?.account ?? "", body, commentId, number },
+        signal,
+      );
+      receipts?.put(intent, id);
+    };
+    const receipt = receipts?.get(intent);
+    if (receipt) return reconcile(receipt);
+    if (receipts) {
+      const before = await replyCutoff(this.#api, this.#root, number, signal);
+      if (!receipts.reserve(intent, before)) {
+        const pending = receipts.get(intent);
+        if (!pending) throw new ForgeError("conflict");
+        return reconcile(pending);
+      }
+    }
+    const dispatch = observer ?? new MutationDispatch();
+    let response: import("./http.ts").Page;
+    try {
+      response = await this.#api.request(
+        `${this.#root}/pulls/${number}/comments/${commentId}/replies`,
+        signal,
+        { body },
+        "POST",
+        dispatch,
+      );
+    } catch (error) {
+      if (!(error instanceof ForgeMutationOutcome)) receipts?.remove(intent);
+      throw error;
+    }
+
+    const parsed = z.object({ id: positive }).safeParse(response.body);
+    if (!parsed.success) throw new ForgeMutationOutcome({ id: null });
+    receipts?.put(intent, parsed.data.id);
+    if (response.identityChanged) throw new ForgeMutationOutcome({ id: parsed.data.id });
   }
+
   async requestReviews(
     number: number,
     reviewers: string[],
     signal: AbortSignal,
-    dispatch?: WriteDispatch,
+    dispatch = new MutationDispatch(),
   ): Promise<void> {
     this.#ref(number);
     const names = z
@@ -180,14 +218,15 @@ export class GitHubForge implements Forge, ForgeBrowser {
         .object({ requested_reviewers: z.array(z.object({ login: z.string() })).max(100) })
         .safeParse(response.body).success
     )
-      throw new ForgeError("invalid_data");
+      throw new ForgeMutationOutcome({ dispatched: true });
+    if (response.identityChanged) throw new ForgeMutationOutcome(response.body);
   }
   async merge(
     number: number,
     headSha: string,
     method: MergeMethod,
     signal: AbortSignal,
-    dispatch?: WriteDispatch,
+    dispatch = new MutationDispatch(),
   ): Promise<void> {
     this.#ref(number);
     shaSchema.parse(headSha);
@@ -200,19 +239,19 @@ export class GitHubForge implements Forge, ForgeBrowser {
       dispatch,
     );
     const parsed = z.object({ merged: z.boolean() }).safeParse(response.body);
-    if (!parsed.success) throw new ForgeError("invalid_data");
+    if (!parsed.success) throw new ForgeMutationOutcome({ dispatched: true });
     if (!parsed.data.merged) {
-      const error = new ForgeError("conflict", undefined, false);
-      dispatch?.reject(error);
-      throw error;
+      dispatch.reject();
+      throw new ForgeError("conflict", undefined, false);
     }
+    if (response.identityChanged) throw new ForgeMutationOutcome(parsed.data);
   }
   async enableAutoMerge(
     number: number,
     headSha: string,
     method: MergeMethod,
     signal: AbortSignal,
-    dispatch?: WriteDispatch,
+    dispatch = new MutationDispatch(),
   ): Promise<void> {
     this.#ref(number);
     shaSchema.parse(headSha);
@@ -250,7 +289,8 @@ export class GitHubForge implements Forge, ForgeBrowser {
       !acknowledgement.success ||
       acknowledgement.data.data.enablePullRequestAutoMerge.pullRequest.id !== metadata.data.node_id
     )
-      throw new ForgeError("invalid_data");
+      throw new ForgeMutationOutcome({ dispatched: true });
+    if (response.identityChanged) throw new ForgeMutationOutcome({ number, headSha });
   }
 
   async logTail(jobId: number, signal: AbortSignal) {

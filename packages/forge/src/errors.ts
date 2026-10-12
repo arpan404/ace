@@ -7,7 +7,9 @@ export type ForgeErrorKind =
   | "cli"
   | "cancelled"
   | "unsupported"
-  | "conflict";
+  | "conflict"
+  | "outcome_uncertain"
+  | "preferences_changed";
 export class ForgeError extends Error {
   readonly kind: ForgeErrorKind;
   readonly retryAt: number | undefined;

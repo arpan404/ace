@@ -34,7 +34,7 @@ test("after a dropped connection the transcript catches up by replay, without du
     /checkout.spec.ts fails about one run in five/,
     "I'll look for timing assumptions in the checkout flow first.",
     /The payment poller retries/,
-    "Started 1 subagent",
+    "1 subagent",
     "bun run test --watch checkout",
   ])
     expect(within(feed).getAllByText(text)).toHaveLength(1);
