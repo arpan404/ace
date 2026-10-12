@@ -43,7 +43,7 @@ uses the shared enter duration and respects Reduce Motion.
 ## Verification
 
 With the fixture running, use the same destination and `-jobs 4`, adding
-`-parallel-testing-enabled NO`. Select `-only-testing:AceTests` for the seventeen Swift
+`-parallel-testing-enabled NO`. Select `-only-testing:AceTests` for the twenty-four Swift
 behavior/bridge tests, or individual `AceUITests/SpikeUITests` methods for screenshots,
 scrolling, typing, actual offline termination/relaunch, and the two-minute memory run.
 Keep a fresh fixture for screenshot/scroll/memory runs; restart verification accepts
@@ -70,8 +70,12 @@ simulator screenshots.
   Native assembly holds one patch, with a 512 MiB UTF-8 allowance covering the SDK's
   64 MiB UTF-16 reassembly budget and DTO identity duplication. The 2 MiB socket
   cap is a physical frame limit. Dirty keys retire only after confirmed delivery;
-  rejection restarts transfer from the retained reader. Display previews are
-  shortened; canonical identities and actions stay exact.
+  rejected rows retry individually with backoff, then degrade display details while
+  preserving canonical identities, status and actions. Changed readers rotate
+  behind peers after delivery; status, approvals and command outcomes precede
+  content. Native previews preserve grapheme boundaries. Degraded mode lasts until
+  deletion or resnapshot. Undecodable identities stay retained without a retry spin,
+  report a visible error, and can retry on a changed reader or resnapshot.
 - `Sources/Host/` owns URLSession sockets and transactional SQLite. Durable record writes
   use WAL with FULL synchronous commits before resolving JS promises. The database path
   includes daemon/device identity; its immutable host binding rejects another daemon.
@@ -84,7 +88,10 @@ simulator screenshots.
   admission/receipt results; canonical interaction updates close the card.
 - Large-approval contracts use 300 distinct action IDs over 32 KiB, real SDK
   snapshot fragments and exact canonical resolution, including redelivery after
-  final-frame rejection. More than three offered actions use a native overflow menu.
+  final-frame rejection. Deterministic JavaScriptCore/native-decoder tests also
+  cover surrogate boundaries, permanent rejection, continuous 100-KiB IDs alongside
+  approvals/status/content, and delayed resets. `generate` bundles their scenarios
+  only into the unit-test target. More than three offered actions use a native overflow menu.
 - Encoding and secure entropy adapters provide the portable core's required globals.
   This is a direct TLS spike, not a browser runtime or a full Web Crypto implementation.
   Additional URL/crypto APIs for future service and encrypted-relay flows need contracts

@@ -39,9 +39,17 @@ a scope from another reader. Native assembly admits one complete patch at a time
 with a conservative 512 MiB UTF-8 allowance for those DTOs. It allocates only bytes
 received, not the allowance up front. The SDK still owns logical wire admission.
 Dirty keys stay queued until the final frame is accepted. Rejected frames send a
-negative acknowledgment and restart delivery from the still-dirty reader; they do
-not retire the update. Updates arriving during delivery remain dirty after an
-older transfer is confirmed. The SDK's existing item truncation flag is preserved alongside bridge
+negative acknowledgment. Rejected rows retry individually with 32/128/512 ms
+backoff, then use display placeholders retaining canonical state, identities and
+actions. Accepted placeholders retain degraded mode until deletion or resnapshot;
+continuous bad deltas cannot renew their raw retry budget. An undecodable canonical
+identity remains retained with a visible error and no scheduled spin; a changed
+reader or resnapshot can retry it. Scope resets precede their own rows, including
+when a reset is delayed by rejection. Status, approvals and command outcomes have
+priority over transcript content. Updates arriving during a transfer stay dirty
+and rotate behind their pending peers when the older transfer is confirmed.
+Previews use native Unicode grapheme boundaries and replace ill-formed display
+text before JSON serialization. Opaque identities never pass through this adapter. The SDK's existing item truncation flag is preserved alongside bridge
 truncation. Navigation generations reject stale patches, including reopening
 the same thread. Leaving a thread cancels its outstanding SDK history reads.
 The spike retains at most 2,200 items with SDK text bounds of 8,192 code units.
@@ -155,6 +163,40 @@ canonical closure. The card shows up to three direct controls; larger collection
 retain every remaining action in the menu. Scoped formatter, lint, `@ace/ios`
 typecheck and theme reproducibility pass. These are correctness checks, with no new
 rendering, memory or input-latency gate claim. The performance gate remains held.
+
+## Round-3 delivery correction
+
+The deterministic JavaScriptCore/native-decoder regression initially failed on
+`"😀" + "x".repeat(8191)`: tail slicing split the emoji, native decoding rejected
+five attempts, and a later canonical Working row remained absent. The separate
+100-KiB item-ID scenario continuously replaced the content reader and left a queued
+approval absent after 16 delivery cycles. A permanently invalid display field also
+blocked later Working status. All three initial regressions failed in 0.113 seconds
+of test execution; no daemon or wall-clock waits are needed for this feedback loop.
+
+Native grapheme previews now preserve surrogate pairs, combining marks and joined
+emoji. Bounded previews explicitly repair unpaired UTF-16 received through foreign
+`NSString` values, even when no truncation is needed. The actual TypeScript presenter and pump deliver the boundary title and
+later Working status without rejection. With the 100-KiB ID duplicated in its DTO
+and continuous reader replacement on every cycle, a queued approval with an exact
+32-KiB action ID, Working status and a same-priority sibling content row all arrive
+within 16 cycles. After streaming stops, the latest retained revision also arrives.
+These are virtual delivery-cycle bounds, not display FPS or device input latency.
+
+Permanent display rejection produces a visible placeholder after at most three raw
+attempts. Backoff leaves other work eligible; rejection of a batch isolates its
+rows on retry. Replacement readers preserve the retry budget, even after the first
+placeholder is accepted. The tests verify exact action IDs/kinds and pending state,
+no scheduled retry spin, recovery after an undecodable identity changes, and that a
+delayed reset cannot erase rows acknowledged ahead of it. Test-only JavaScript is
+bundled into the unit-test target; the shipping app has no scenario hooks.
+
+Twenty-four Swift behavior/bridge tests pass on the single iOS 26.5 simulator,
+including the real SDK/socket and SQLite contracts from previous rounds
+(37.616 seconds of test execution). [Captured verification](../design/ios-spike/round3-delivery-tests.txt)
+records baseline failures and the final results. Scoped
+formatter, lint, `@ace/ios` typecheck and theme reproducibility pass. The performance
+gate stays held; no new rendering, memory or input-latency measurement is claimed.
 
 ## Screens and remaining scope
 
