@@ -24,6 +24,8 @@ export async function composerAction(
   if (action === "model") return ports.model();
   if (action === "goal") return ports.insert("Keep working toward this goal: ");
   if (action === "plan") {
+    if (ports.thread.provider !== "claude")
+      throw new Error("Plan mode isn't available for this provider.");
     if (ports.plan) return ports.plan();
     if (ports.thread.draft)
       throw new Error("Choose plan mode in the approvals menu before sending.");

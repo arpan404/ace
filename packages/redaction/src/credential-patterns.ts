@@ -2,7 +2,7 @@ import { QUOTED_SECRET_ASSIGNMENT } from "./quoted-assignments.ts";
 
 interface CredentialPattern {
   pattern: RegExp;
-  /** Retain syntactic prefixes and quotes around JSON values or URL parameters. */
+  /** Retain syntactic prefixes around URL parameters. */
   prefix?: number;
   suffix?: number;
 }
@@ -24,11 +24,5 @@ export const CREDENTIAL_PATTERNS: readonly CredentialPattern[] = [
     QUOTED_SECRET_ASSIGNMENT,
     /\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi,
   ].map((pattern) => ({ pattern })),
-  {
-    pattern:
-      /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)[^"\n]*"\s*:\s*")(?:[^"\\]|\\.)+"/gi,
-    prefix: 0,
-    suffix: 1,
-  },
   { pattern: /([#&](?:code|ticket|token)=)[^&#\s]+/gi, prefix: 0 },
 ];

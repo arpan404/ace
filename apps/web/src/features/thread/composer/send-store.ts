@@ -86,21 +86,26 @@ export interface ReturnedDraft {
  * Composers that take a failed message back, by draft key. The thread's composer registers
  * while mounted; Edit on a failed bubble hands its draft to the one for that thread.
  */
-const takers = new Map<string, (draft: ReturnedDraft) => void>();
+const takers = new Map<string, { take(draft: ReturnedDraft): boolean; save(): boolean }>();
 
-export function takeDraftsFor(key: string, take: (draft: ReturnedDraft) => void): () => void {
-  takers.set(key, take);
+export function takeDraftsFor(
+  key: string,
+  take: (draft: ReturnedDraft) => boolean,
+  save: () => boolean,
+): () => void {
+  const editor = { take, save };
+  takers.set(key, editor);
   return () => {
-    if (takers.get(key) === take) takers.delete(key);
+    if (takers.get(key) === editor) takers.delete(key);
   };
 }
 
-/** Hand a draft to the composer under `key`; false when none is mounted there. */
-export function returnDraft(key: string, draft: ReturnedDraft): boolean {
-  const take = takers.get(key);
-  if (!take) return false;
-  take(draft);
-  return true;
+/** Undefined means no editor; false means it holds the returned draft in memory but couldn't save it. */
+export function returnDraft(key: string, draft: ReturnedDraft): boolean | undefined {
+  return takers.get(key)?.take(draft);
+}
+export function saveOpenDraft(key: string): boolean {
+  return takers.get(key)?.save() ?? false;
 }
 
 /** The text a message carries, as written. */

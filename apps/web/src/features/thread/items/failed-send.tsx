@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import { dismissSend } from "../composer/dismissed-sends.ts";
-import { draftOf, type SendPayload } from "../composer/returned-draft.ts";
-import { returnDraft, leasable } from "../composer/send-store.ts";
+import { draftOf, restoreReturnedDraft, type SendPayload } from "../composer/returned-draft.ts";
+import { returnDraft, saveOpenDraft, leasable } from "../composer/send-store.ts";
 import { canRetry, retryStaged, unstage, type StagedSend } from "../composer/staged-sends.ts";
 import { useThreadSources } from "../sources/index.ts";
 import { commandOf } from "./pending-sends.ts";
@@ -142,17 +142,25 @@ export function useSendActions(threadId: string) {
     },
     edit(commandId: string, payload: SendPayload) {
       const draft = draftOf(payload);
-      dismissSend(storage, commandId);
       if (payload.type === "thread.create")
         return void import("../composer/draft-store.ts").then(({ writeDraft }) => {
-          writeDraft(storage, `new:${payload.workspaceId}`, draft);
+          if (!writeDraft(storage, `new:${payload.workspaceId}`, draft)) {
+            toast.error({
+              title: "Couldn't save the edit",
+              description: "The original message is still here.",
+            });
+            return;
+          }
+          dismissSend(storage, commandId);
           void navigate({ to: "/new", search: { project: payload.workspaceId } });
         });
       const key = `thread:${threadId}`;
-      if (!returnDraft(key, draft))
-        void import("../composer/draft-store.ts").then(({ writeDraft }) =>
-          writeDraft(storage, key, draft),
-        );
+      if (restoreReturnedDraft(storage, key, draft)) dismissSend(storage, commandId);
+      else
+        toast.error({
+          title: "Couldn't save the edit",
+          description: "Keep this editor open. The original message is still here.",
+        });
     },
   };
 }
@@ -171,6 +179,7 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
   const meta = useThreadMeta(leasable(props.threadId));
   const { storage } = useLayout();
   const inFlight = useRef(false);
+  const [editing, setEditing] = useState(false);
   const retry = () => {
     if (!meta || inFlight.current) return;
     inFlight.current = true;
@@ -195,19 +204,28 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
       ),
       options: staged.options,
     };
-    unstage(staged.commandId);
-    dismissSend(storage, staged.commandId);
     const key = `thread:${props.threadId}`;
-    if (!returnDraft(key, draft))
-      void import("../composer/draft-store.ts").then(({ writeDraft }) =>
-        writeDraft(storage, key, draft),
-      );
+    let saved: boolean;
+    if (editing) saved = saveOpenDraft(key);
+    else {
+      const taken = returnDraft(key, draft);
+      if (taken !== undefined) setEditing(true);
+      saved = taken ?? restoreReturnedDraft(storage, key, draft);
+    }
+    if (!saved || !unstage(staged.commandId)) {
+      toast.error({
+        title: "Couldn't finish the edit",
+        description: "Keep this editor open. The original recovery copy is still here.",
+      });
+      return;
+    }
+    dismissSend(storage, staged.commandId);
   };
   return (
     <div role="alert" className="mt-[5px] flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
       <NotSent reason={staged.failed} />
       <span className="flex gap-1">
-        {canRetry(staged) && (
+        {!editing && canRetry(staged) && (
           <Button size="sm" variant="ghost" onClick={retry}>
             <Icon icon={ArrowClockwiseIcon} size={12} />
             Retry
@@ -215,7 +233,7 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
         )}
         <Button size="sm" variant="ghost" onClick={edit}>
           <Icon icon={PencilSimpleIcon} size={12} />
-          Edit
+          {editing ? "Save edit" : "Edit"}
         </Button>
       </span>
     </div>

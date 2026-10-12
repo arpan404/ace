@@ -1,7 +1,7 @@
 import { access, rm, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
-import { GitService } from "./index.ts";
+import { GitService, spawnGitProcess } from "./index.ts";
 import { git, repository, scalar } from "./test-repo.ts";
 
 test("a protected partial-clone checkout never launches a promisor SSH command for a missing blob", async () => {
@@ -19,6 +19,7 @@ test("a protected partial-clone checkout never launches a promisor SSH command f
   await scalar(repo, "config", "extensions.partialClone", "origin");
   await scalar(repo, "config", "remote.origin.promisor", "true");
   await scalar(repo, "config", "protocol.ssh.allow", "always");
+  await scalar(repo, "config", "protocol.file.allow", "always");
   await scalar(repo, "config", "remote.origin.partialclonefilter", "blob:none");
   await scalar(
     repo,
@@ -27,7 +28,16 @@ test("a protected partial-clone checkout never launches a promisor SSH command f
     `${JSON.stringify(process.execPath)} ${JSON.stringify(command)}`,
   );
   await rm(join(repo, ".git", "objects", blob.slice(0, 2), blob.slice(2)));
-  const service = new GitService();
+  const service = new GitService({
+    processRuntime: {
+      spawn(command, args, options) {
+        // Exercise the backstop on Git versions which ignore GIT_NO_LAZY_FETCH.
+        const env = { ...options.env };
+        delete env.GIT_NO_LAZY_FETCH;
+        return spawnGitProcess(command, args, { ...options, env });
+      },
+    },
+  });
   try {
     await expect(
       service.nonExecuting(() =>

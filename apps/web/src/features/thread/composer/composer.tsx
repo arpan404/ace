@@ -27,7 +27,7 @@ import {
   type Ref,
 } from "react";
 import { cn } from "@/lib/cn.ts";
-import { composerSurface } from "./composer-styles.ts";
+import { composerSurface, inputLine, inputMinLines } from "./composer-styles.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { ThreadRef } from "../sources/index.ts";
 import { AddButton, type AddHandle } from "./add-button.tsx";
@@ -45,7 +45,7 @@ import {
 } from "./deferred-parts.tsx";
 import { carriesFiles, takeTransfer, type Intake } from "./file-intake.ts";
 import { takeDraftsFor, type ReturnedDraft } from "./send-store.ts";
-import { mergeReturnedDraft } from "./returned-draft.ts";
+import { mergeReturnedDraft, restoreReturnedDraft } from "./returned-draft.ts";
 import { useSuggestions, type Suggestion } from "./suggestions.tsx";
 import { useAutosize } from "./use-autosize.ts";
 import { useDraftPersistence } from "./use-draft-persistence.ts";
@@ -58,7 +58,7 @@ export interface ComposerHandle {
   /** Keep the current draft for the thread that replaces this provisional view. */
   preserveDraft(key: string): void;
   /** A recovered send clears its matching draft and leaves any newer message alone. */
-  discardIfSubmitted(sent: SubmittedDraft): void;
+  discardIfSubmitted(sent: SubmittedDraft): boolean;
   /** Open the + menu (files, images, a mention, a page) over the composer. */
   openAdd(): void;
   /** Put the caret in the message. */
@@ -163,16 +163,15 @@ function ComposerContent({
 }) {
   // A failed message brought back with its files remounts the composer on the restored draft.
   const [generation, setGeneration] = useState(0);
-  const [replacedAttachments, setReplacedAttachments] =
-    useState<readonly { sha256: string; name: string }[]>();
+  const [replacedDraft, setReplacedDraft] = useState<ComposerDraft>();
   return (
     <ComposerBody
       key={generation}
       {...props}
       ref={ref}
-      replacedAttachments={replacedAttachments}
-      onReplaced={(files) => {
-        setReplacedAttachments(files);
+      replacedDraft={replacedDraft}
+      onReplaced={(draft) => {
+        setReplacedDraft(draft);
         setGeneration((value) => value + 1);
       }}
     />
@@ -183,8 +182,8 @@ function ComposerBody({
   ref,
   ...props
 }: Parameters<typeof Composer>[0] & {
-  replacedAttachments?: readonly { sha256: string; name: string }[] | undefined;
-  onReplaced(files?: readonly { sha256: string; name: string }[]): void;
+  replacedDraft?: ComposerDraft | undefined;
+  onReplaced(draft?: ComposerDraft): void;
 }) {
   // Kept out of the compiler, as it was before: memoizing every handler here costs the
   // thread route ~5 KB of code for a component that re-renders per keystroke anyway.
@@ -194,8 +193,8 @@ function ComposerBody({
   const navigate = useNavigate();
   const workspace = useWorkspaceActions(props.thread.id);
   const fork = useForkOpener();
-  const [restored] = useState(() =>
-    props.draftKey ? readDraft(storage, props.draftKey) : undefined,
+  const [restored] = useState(
+    () => props.replacedDraft ?? (props.draftKey ? readDraft(storage, props.draftKey) : undefined),
   );
   const [text, setText] = useState(restored?.text ?? props.initialText ?? "");
   const [tokens, setTokens] = useState<readonly ComposerToken[]>(restored?.tokens ?? []);
@@ -218,7 +217,8 @@ function ComposerBody({
   const addMenu = useRef<AddHandle>(null);
   const attachments = useAttachments(
     props.thread,
-    props.replacedAttachments ?? (props.keepsAttachments ? restored?.attachments : undefined),
+    props.replacedDraft?.attachments ??
+      (props.keepsAttachments ? restored?.attachments : undefined),
   );
   const attach = (files: Iterable<File>, note?: string) => {
     const left = attachments.add(files);
@@ -275,32 +275,47 @@ function ComposerBody({
     const draft = next ?? emptyDraft;
     if (document.activeElement === input.current) return void setTheirs(draft);
     if (!otherFiles(draft)) return void takeText(draft);
-    props.onReplaced();
+    props.onReplaced(draft);
     return "replace";
   });
   const apply = (next: ComposerDraft) => {
     if (!otherFiles(next)) return takeText(next);
     saved.drop();
-    props.onReplaced();
+    props.onReplaced(next);
   };
   // Edit on a failed message: its text joins what's here, its files and picks come back.
   const draftKey = props.draftKey;
   const takeReturned = useEffectEvent((returned: ReturnedDraft) => {
-    if (!draftKey) return;
-    saved.discard();
-    writeDraft(storage, draftKey, mergeReturnedDraft(current, returned));
+    if (!draftKey) return false;
+    const next = mergeReturnedDraft({ ...current, attachments: attachments.ready }, returned);
+    saved.drop();
+    const written = writeDraft(storage, draftKey, next);
     props.onReturnedOptions?.(returned.options);
-    props.onReplaced();
+    props.onReplaced(next);
+    return written;
   });
+  const saveReturned = useEffectEvent(() =>
+    draftKey
+      ? writeDraft(storage, draftKey, { ...current, attachments: attachments.ready })
+      : false,
+  );
   useEffect(() => {
     if (!draftKey) return;
-    return takeDraftsFor(draftKey, (returned) => takeReturned(returned));
+    return takeDraftsFor(
+      draftKey,
+      (returned) => takeReturned(returned),
+      () => saveReturned(),
+    );
   }, [draftKey]);
-  // Whether anything was typed since a message left (for one that has to come back).
-  const typed = useRef("");
-  useLayoutEffect(() => {
-    typed.current = text;
-  }, [text]);
+  const restoreSubmission = useEffectEvent((before: ReturnedDraft, draft: Draft) => {
+    const next = mergeReturnedDraft(current, before);
+    saved.discard();
+    if (props.draftKey) writeDraft(storage, props.draftKey, next);
+    if (draft.files.restore) {
+      draft.files.restore();
+      takeText(next);
+    } else props.onReplaced(next);
+  });
   useAutosize(input, text, width);
   useTypeToFocus(input, !!props.typeToFocus && !props.unavailable);
   // After an inserted suggestion or mention has rendered, put the caret after it.
@@ -340,7 +355,8 @@ function ComposerBody({
     takeFiles: intake,
     preserveDraft: (key) => writeDraft(storage, key, current),
     discardIfSubmitted(sent) {
-      if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent)) return;
+      if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent))
+        return false;
       // The recovery owner already removed the matching persisted draft. Stop a stale
       // unmount flush from restoring it while leaving newer drafts untouched.
       saved.drop();
@@ -349,6 +365,7 @@ function ComposerBody({
       setPicked(new Set());
       setCaret(0);
       attachments.clear();
+      return true;
     },
   }));
   const rememberMention = (path: string) => {
@@ -535,15 +552,17 @@ function ComposerBody({
     setPicked(new Set());
     setTokens([]);
     void props.onSubmit(draft).then((sent) => {
-      if (sent || !draftKey || typed.current.trim()) return;
-      // Couldn't be saved: back in the composer, files included (a remount restores them).
-      writeDraft(storage, draftKey, {
+      const returned = {
         text: before.text,
         tokens: before.tokens,
         mentions: [...before.picked],
         attachments: before.files,
-      });
-      props.onReplaced(before.files);
+      };
+      if (!saved.finish()) {
+        if (!sent && draftKey) restoreReturnedDraft(storage, draftKey, returned);
+        return;
+      }
+      if (!sent) restoreSubmission(returned, draft);
     });
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -732,7 +751,8 @@ function ComposerBody({
                 selection.addRange(range);
                 el.dispatchEvent(new Event("input", { bubbles: true }));
               }}
-              className="message-input block min-h-5 min-w-0 w-full overflow-y-auto bg-transparent p-0 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
+              style={{ minHeight: inputLine * inputMinLines }}
+              className="message-input block min-w-0 w-full overflow-y-auto bg-transparent p-0 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
             />
           </div>
           {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
