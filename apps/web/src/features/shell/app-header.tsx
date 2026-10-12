@@ -102,14 +102,17 @@ export function AppHeader(
           {props.breadcrumb && (
             <div className="truncate text-xs text-muted-foreground">{props.breadcrumb}</div>
           )}
-          <h1
-            className={cn(
-              "min-w-0 text-ui font-medium",
-              phone ? "line-clamp-2 leading-[18px] break-words" : "truncate",
-            )}
-          >
-            {props.title}
-          </h1>
+          {/* A screen still finding its title (a thread loading) has no heading yet, not an empty one. */}
+          {props.title !== "" && props.title != null && (
+            <h1
+              className={cn(
+                "min-w-0 text-ui font-medium",
+                phone ? "line-clamp-2 leading-[18px] break-words" : "truncate",
+              )}
+            >
+              {props.title}
+            </h1>
+          )}
         </div>
         {phone && props.status}
         {props.progress}

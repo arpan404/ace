@@ -32,11 +32,15 @@ import type { PrWorkspaceContext, PrWorkspaceExtensions, PrDiffContext } from ".
 import { PrFileReview } from "./pr-file-review.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
 
-// The diff renderer loads with this view, not with the app's first paint.
-void DeferredFileDiffBlock.preload();
-void DeferredFileTree.preload();
+// The diff renderer loads with this view, not with the app's first paint (`preloadPrFiles`).
 const FileDiffBlock = DeferredFileDiffBlock.Component;
 const FileTree = DeferredFileTree.Component;
+
+/** Warm the diff renderer while a pull request is open, before its Files tab is chosen. */
+export function preloadPrFiles(): void {
+  void DeferredFileDiffBlock.preload().catch(() => {});
+  void DeferredFileTree.preload().catch(() => {});
+}
 
 const fileStatus = (file: ForgeFile) =>
   file.status === "added"
