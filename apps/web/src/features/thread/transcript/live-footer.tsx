@@ -5,7 +5,7 @@ import { Dot } from "@/components/ui/dot.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { useShownPlans } from "../composer/plan-state.ts";
+import { useShownPlans } from "@/lib/use-plans.ts";
 import { useTicker } from "../lib/clock.ts";
 
 /** The turn's live status stays at the transcript's end until its whole tree settles. */

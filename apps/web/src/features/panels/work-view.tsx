@@ -1,5 +1,5 @@
 import type { TabViewProps } from "@/lib/workspace/index.ts";
-import { useShownPlans } from "@/features/thread/composer/plan-state.ts";
+import { useShownPlans } from "@/lib/use-plans.ts";
 import { AgentsTab } from "./agents/agents-tab.tsx";
 
 /** Operational plans belong with the thread's work, away from requests needing a decision. */

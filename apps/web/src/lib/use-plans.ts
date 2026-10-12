@@ -11,7 +11,7 @@ import {
 } from "@ace/ui-core";
 import { useCallback, useMemo } from "react";
 
-/** An agent's to-do list the composer's tab shows, and how far along it is. */
+/** An agent's operational plan and progress, shared by the transcript and Work. */
 export interface ShownPlan {
   step: PlanStep;
   progress: PlanProgress;
