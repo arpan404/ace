@@ -121,20 +121,25 @@ export function deleteHeldSend(commandId: string): boolean {
 }
 
 export function holdPageLock(): void {
-  if (!holdingLock && typeof navigator === "object" && "locks" in navigator) {
+  if (!holdingLock && typeof navigator === "object" && navigator.locks) {
     holdingLock = true;
     void navigator.locks.request(ownerLock(pageId), () => new Promise<void>(() => {}));
   }
 }
 
 export async function liveOwners(): Promise<ReadonlySet<string> | undefined> {
-  if (typeof navigator !== "object" || !("locks" in navigator)) return undefined;
-  const state = await navigator.locks.query();
-  return new Set(
-    (state.held ?? []).flatMap((lock) =>
-      lock.name?.startsWith("ace-staged-") ? [lock.name.slice("ace-staged-".length)] : [],
-    ),
-  );
+  if (typeof navigator !== "object" || !navigator.locks) return undefined;
+  try {
+    const state = await navigator.locks.query();
+    return new Set(
+      (state.held ?? []).flatMap((lock) =>
+        lock.name?.startsWith("ace-staged-") ? [lock.name.slice("ace-staged-".length)] : [],
+      ),
+    );
+  } catch {
+    // Denied or unavailable ownership inspection uses the same explicit recovery path.
+    return undefined;
+  }
 }
 
 /** Reload releases the page's views and lock; persisted holds remain owned by this store. */

@@ -221,6 +221,13 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
     }
     dismissSend(storage, staged.commandId);
   };
+  const remove = () => {
+    if (!unstage(staged.commandId)) {
+      toast.error({ title: "Couldn't remove the message", description: "It is still here." });
+      return;
+    }
+    dismissSend(storage, staged.commandId);
+  };
   return (
     <div role="alert" className="mt-[5px] flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
       <NotSent reason={staged.failed} />
@@ -234,6 +241,9 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
         <Button size="sm" variant="ghost" onClick={edit}>
           <Icon icon={PencilSimpleIcon} size={12} />
           {editing ? "Save edit" : "Edit"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={remove}>
+          Remove
         </Button>
       </span>
     </div>

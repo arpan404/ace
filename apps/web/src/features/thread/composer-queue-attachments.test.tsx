@@ -20,6 +20,57 @@ const image = () =>
   });
 const readQueue = async (app: ReturnType<typeof harness>) =>
   (await app.client.request({ type: "queue.get", threadId })).queue;
+
+test("a pending-upload reload without Web Locks offers recovery and releases later messages in order", async () => {
+  // Mock only the browser ownership boundary. No owner can be confirmed on the new page.
+  const previous = Object.getOwnPropertyDescriptor(navigator, "locks");
+  Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+  const { app, message } = await openBusy();
+  const file = image();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const slice = file.slice.bind(file);
+  file.slice = (start, end, type) => {
+    const part = slice(start, end, type);
+    const read = part.arrayBuffer.bind(part);
+    part.arrayBuffer = async () => {
+      entered.resolve();
+      await release.promise;
+      return read();
+    };
+    return part;
+  };
+  try {
+    await userEvent.upload(screen.getByLabelText("Files to attach"), file);
+    await entered.promise;
+    await userEvent.type(message, "A pending upload{Enter}B behind A{Enter}C behind B{Enter}");
+    cleanup();
+    await app.client.close();
+    reloadPage();
+    resetSendStore();
+    const again = harness({ daemon: app.daemon, storage: app.storage });
+    await again.open(`/t/${threadId}`);
+    const reason = await screen.findByText(/This upload belongs to another page/);
+    const failure = reason.closest('[role="alert"]');
+    if (!(failure instanceof HTMLElement)) throw new Error("Missing upload recovery actions");
+    expect(within(failure).getByRole("button", { name: "Edit" })).toBeTruthy();
+    expect((await readQueue(again)).messages).toEqual([]);
+    await userEvent.click(within(failure).getByRole("button", { name: "Remove" }));
+    await waitFor(async () =>
+      expect((await readQueue(again)).messages.map((entry) => entry.input)).toEqual([
+        [{ type: "text", text: "B behind A" }],
+        [{ type: "text", text: "C behind B" }],
+      ]),
+    );
+    // A late result from the departed uploader must never resurrect the cancelled message.
+    release.resolve();
+    await waitFor(async () => expect((await readQueue(again)).total).toBe(2));
+  } finally {
+    release.resolve();
+    if (previous) Object.defineProperty(navigator, "locks", previous);
+    else Reflect.deleteProperty(navigator, "locks");
+  }
+});
 async function openBusy(options: Parameters<typeof harness>[0] = {}) {
   const app = harness(options);
   app

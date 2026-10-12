@@ -138,12 +138,13 @@ export function useStaged(threadId: string): readonly StagedSend[] {
   }, [client, threadId, here, outbox, owned]);
   // Other pages' holds: alive while their pages hold their locks.
   const others = here.some((send) => send.owner !== pageId && !send.failed);
-  const [live, setLive] = useState<ReadonlySet<string>>();
+  // null means ownership cannot be checked: keep the message, but offer explicit recovery.
+  const [live, setLive] = useState<ReadonlySet<string> | null>();
   useEffect(() => {
     if (!others) return;
     let current = true;
     void liveOwners().then((owners) => {
-      if (current) setLive(owners ?? new Set(here.map((send) => send.owner)));
+      if (current) setLive(owners ?? null);
     });
     return () => {
       current = false;
@@ -159,8 +160,16 @@ export function useStaged(threadId: string): readonly StagedSend[] {
         )
         .map((send, index) => {
           const shown = Object.assign({}, withPreviews(send), { waitingForEarlier: index > 0 });
-          const gone = send.owner !== pageId && !send.failed && live && !live.has(send.owner);
-          return gone ? Object.assign({}, shown, { failed: interrupted(send) }) : shown;
+          const gone =
+            send.owner !== pageId && !send.failed && live !== undefined && !live?.has(send.owner);
+          return gone
+            ? Object.assign({}, shown, {
+                failed:
+                  live === null
+                    ? "This upload belongs to another page and can't be resumed here. Edit or remove this message to unblock later messages."
+                    : interrupted(send),
+              })
+            : shown;
         }),
     [here, live, outbox, owned],
   );
