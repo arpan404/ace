@@ -2,7 +2,7 @@ import { openEffortControl, chooseEffort, chooseSpeed } from "@/test/model-contr
 import { chooseAccount } from "@/test/model-control.ts";
 import { replayCursor } from "@ace/fake-daemon";
 import { CommandId, DeviceId, ThreadId, type Command, type CommandPayload } from "@ace/protocol";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { memoryStorage } from "@/boot/client.ts";
@@ -151,4 +151,41 @@ test("a move to another provider from another device resets what its model can't
   await userEvent.type(message, "Cap the replay at 200{Enter}");
   await waitFor(() => expect(sent).toHaveLength(1));
   expect(sent[0]?.options).toEqual({ effort: "medium" });
+});
+
+test("Reset on a thread whose selection names an effort sends the model's default by name", async () => {
+  const app = harness();
+  app.daemon.services.models = app.daemon.services.models.map((model) =>
+    model.provider === "claude" ? { ...model, defaultEffort: "medium" } : model,
+  );
+  app.play(replayCursor()).runThrough("finding");
+  const sent: Send[] = [];
+  const receive = app.daemon.command.bind(app.daemon);
+  app.daemon.command = (command: Command) => {
+    if (command.payload.type === "thread.send") sent.push(command.payload);
+    return receive(command);
+  };
+  await app.open("/t/thread-replay-cursor");
+  // The thread's own selection already runs at High (set from another device).
+  switchElsewhere(app, "at-high", {
+    provider: "claude",
+    model: "claude-opus-5-5",
+    instanceId: "claude-personal",
+    options: { effort: "high" },
+  });
+  await screen.findByRole("button", { name: /^Model: Opus 5\.5, Personal, High effort/ });
+  const popover = await openEffortControl();
+  await userEvent.click(within(popover).getByRole("button", { name: "Reset effort" }));
+  expect(
+    within(popover).getByRole("slider", { name: "Effort" }).getAttribute("aria-valuetext"),
+  ).toBe("Medium");
+  await closeModelControl();
+
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Message" }),
+    "Cap the replay at 200{Enter}",
+  );
+  await waitFor(() => expect(sent).toHaveLength(1));
+  // Leaving the option out would keep the provider at High.
+  expect(sent[0]?.options).toMatchObject({ effort: "medium" });
 });

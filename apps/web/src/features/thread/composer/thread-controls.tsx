@@ -304,7 +304,12 @@ export function ThreadModelControl(props: {
         className={chipControl}
         compact={compact}
         actions={{
-          onEffort: (next) => change({ effort: next }),
+          // Back to the default: where the thread's own selection names an effort, the
+          // provider keeps it unless told otherwise, so the default goes out by name.
+          onEffort: (next) =>
+            change({
+              effort: next ?? (optionEffort(base) === undefined ? undefined : preset),
+            }),
           onSpeed: (next) => change({ serviceTier: speedOption(speed.tiers, next) }),
           onModel: (key, instance) => {
             const from = moving.chosen ?? current;
