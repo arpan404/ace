@@ -1,6 +1,5 @@
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
-import { useConnectionState } from "@ace/client-react";
 import {
   useRefusedTitle,
   useSelected,
@@ -12,23 +11,28 @@ import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
-import { RowStatus, StatusMark, threadDetails, titleTone, quietCard } from "./row-parts.tsx";
+import {
+  ProjectMark,
+  RowStatus,
+  RowContext,
+  threadDetails,
+  titleTone,
+  quietCard,
+} from "./row-parts.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
 const row =
-  "flex w-full items-center rounded-md px-2 text-left text-ui outline-none transition-colors duration-(--dur-1)";
+  "flex w-full items-center border-b border-sidebar-border px-3 text-left text-ui outline-none transition-colors duration-(--dur-1)";
 
-/** One compact title row; full context stays in its accessible name and hover card. */
+/** Every task shows project and status/time, title, then branch, environment and provider. */
 export function ThreadRow(props: {
   threadId: string;
   settled: boolean;
   leaving?: boolean | undefined;
-  showProject?: boolean | undefined;
 }) {
   const { settled } = props;
-  const online = useConnectionState() === "ready";
   const data = useThreadCard(props.threadId, settled, props.leaving);
   const selection = useHomeSelection();
   const editing = useRenameTitle(props.threadId);
@@ -54,19 +58,15 @@ export function ThreadRow(props: {
     (entry.switch?.state === "queued" ? entry.switch.selection.instanceId : undefined) ??
     entry.live?.account ??
     entry.execution?.instanceId;
-  const attention = card.status.tone === "needs-you" || card.status.tone === "failed";
-  const body = (
-    <div className="flex min-w-0 w-full items-center gap-1.5 group-focus-within/row:pr-7 group-hover/row:pr-7">
-      <span
-        {...(card.flags.unread
-          ? { role: "img", "aria-label": "Unread activity" }
-          : { "aria-hidden": true })}
-        className="grid w-3 shrink-0 place-items-center"
-      >
-        <StatusMark card={card} muted={!attention} />
-      </span>
+  const height = "h-21 py-3";
+  const title = (
+    <div className="flex min-w-0 items-center gap-1.5">
       <div
-        className={cn("min-w-0 flex-1 truncate text-ui leading-4", titleTone(card, highlighted))}
+        className={cn(
+          "min-w-0 flex-1 truncate leading-5 group-hover/row:pr-7 group-focus-within/row:pr-7",
+          "text-base",
+          titleTone(card),
+        )}
       >
         {renaming ? (
           <RenameField
@@ -78,16 +78,21 @@ export function ThreadRow(props: {
           card.title
         )}
       </div>
-      <RowStatus card={card} />
+    </div>
+  );
+  const body = (
+    <div className="flex min-w-0 w-full flex-col gap-0.5">
+      <div className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
+        <ProjectMark badge={card.badge} />
+        <span className="min-w-0 flex-1 truncate">{card.project}</span>
+        <RowStatus card={card} />
+      </div>
+      {title}
+      <RowContext card={card} />
     </div>
   );
   return (
     <>
-      {props.showProject && (
-        <h3 className="flex h-7 items-center truncate px-2 text-xs font-normal text-muted-foreground">
-          {card.project}
-        </h3>
-      )}
       <HoverCard open={hover.open && !renaming} onOpenChange={hover.change}>
         <ThreadMenu
           entry={entry}
@@ -100,13 +105,13 @@ export function ThreadRow(props: {
             onClick={() => hover.change(false)}
             onContextMenu={() => hover.change(false)}
             render={<div />}
-            className={cn("group/row relative", !online && "opacity-60")}
+            className="group/row relative"
             data-attention={quiet ? "quiet" : "attention"}
             // Settled rows stay out of picking and dragging, as they always have.
             {...(settled ? {} : { "data-thread-row": entry.id })}
           >
             {renaming ? (
-              <div className={cn(row, "h-8 pointer-coarse:h-11")}>{body}</div>
+              <div className={cn(row, height)}>{body}</div>
             ) : (
               <Link
                 to="/t/$threadId"
@@ -116,9 +121,9 @@ export function ThreadRow(props: {
                 draggable={false}
                 className={cn(
                   row,
-                  "h-8 pointer-coarse:h-11",
-                  "group/link focus-ring focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/5",
-                  selected && "bg-foreground/5",
+                  height,
+                  "group/link focus-ring-inset hover:bg-foreground/3 focus-visible:bg-foreground/3 data-[status=active]:bg-foreground/3",
+                  highlighted && "bg-foreground/3",
                   handle && "pointer-coarse:pr-11",
                 )}
               >
@@ -148,7 +153,7 @@ export function ThreadRow(props: {
           </HoverCardTrigger>
         </ThreadMenu>
         {hover.open && !renaming && (
-          <ThreadHoverContent card={card} entry={entry} icon={data.icon} instance={instance} />
+          <ThreadHoverContent card={card} entry={entry} instance={instance} />
         )}
       </HoverCard>
     </>

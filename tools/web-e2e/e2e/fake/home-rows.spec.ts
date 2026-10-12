@@ -1,10 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { stageSidebarTasks } from "./sidebar-tasks.fixture.ts";
 
-/*
- * A Home row's marks give way to Settle or Unsettle on hover and focus. What they mean must stay
- * in the row's accessible name (with the page's real styles applied) and in its tooltip.
- */
+// Status and context stay visible beside the row's keyboard-accessible actions.
 test("a focused or hovered row keeps saying its status, and its tooltip what the marks mean", async ({
   page,
 }) => {
@@ -36,13 +33,11 @@ test("tasks show project and status above the title, with branch and provider be
   await expect(branch).toBeVisible();
   await expect(row.getByText("+3", { exact: true })).toHaveCount(0);
   await expect(row.getByText("−1", { exact: true })).toHaveCount(0);
-  await expect(
-    row.locator("..").getByRole("img", { name: "Claude Code", exact: true }),
-  ).toBeVisible();
+  await expect(row.getByRole("img", { name: "Claude Code", exact: true })).toBeVisible();
   const taskTitle = row.getByText("Audit Console Feature Gaps", { exact: true });
   expect((await branch.boundingBox())?.y).toBeGreaterThan((await taskTitle.boundingBox())?.y ?? 0);
   expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(72);
-  expect((await row.boundingBox())?.height).toBeLessThanOrEqual(80);
+  expect((await row.boundingBox())?.height).toBeLessThanOrEqual(88);
   const project = row.getByText("OpenForge", { exact: true });
   const status = row.getByText("Working", { exact: true });
   expect((await project.boundingBox())?.y).toBeLessThan((await taskTitle.boundingBox())?.y ?? 0);
@@ -56,28 +51,31 @@ test("tasks show project and status above the title, with branch and provider be
     await expect(task.getByText(title, { exact: true })).toBeVisible();
     await expect(task.getByText("OpenForge", { exact: true })).toBeVisible();
     if (title === "Hi bro") {
-      const machine = task.getByText("· Build server", { exact: true });
-      await expect(machine).toBeHidden();
+      await expect(task).toHaveAccessibleName(/Running on Build server/);
       await task.hover();
-      await expect(machine).toBeVisible();
-      await row.hover();
-      await expect(machine).toBeHidden();
+      await expect(page.getByLabel("Details for Hi bro", { exact: true })).toContainText(
+        "Build server",
+      );
     }
-    await expect(
-      task.locator("..").getByRole("img", { name: title === "greeting" ? "Claude Code" : "Codex" }),
-    ).toBeVisible();
+    await expect(task).toHaveAccessibleName(title === "greeting" ? /Claude Code/ : /Codex/);
   }
-  await nav.getByRole("button", { name: "Settled 1" }).click();
+  await nav.getByRole("button", { name: "Settled (1)" }).click();
   const settled = nav.getByRole("link", { name: /^Build Agent State Engine/ });
-  await expect(settled.getByText("OF", { exact: true })).toBeVisible();
-  await expect(settled.getByText("feat/agent-state", { exact: true })).toHaveCount(0);
-  expect((await settled.boundingBox())?.height).toBeLessThanOrEqual(36);
+  await expect(settled.getByText("OpenForge", { exact: true })).toBeVisible();
+  await expect(settled.getByText("feat/agent-state", { exact: true })).toBeVisible();
+  expect((await settled.boundingBox())?.height).toBeGreaterThanOrEqual(80);
   await row.hover();
-  await expect(row.getByText("Working", { exact: true })).toBeHidden();
+  await expect(row.getByText("Working", { exact: true })).toBeVisible();
+  const provider = row.getByRole("img", { name: "Claude Code", exact: true });
+  await expect(provider).toHaveCSS("opacity", "1");
+  await row.focus();
+  await expect(provider).toHaveCSS("opacity", "1");
   await expect(row.getByText("+3", { exact: true })).toHaveCount(0);
-  await expect(
-    nav.getByRole("button", { name: "Settle Audit Console Feature Gaps" }),
-  ).toBeVisible();
+  const actions = nav.getByRole("button", { name: "Actions for Audit Console Feature Gaps" });
+  await expect(actions).toBeVisible();
+  await actions.click();
+  await expect(page.getByRole("menuitem", { name: "Settle", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(nav.getByRole("button", { name: /^Pin / })).toHaveCount(0);
 });
 
@@ -103,7 +101,7 @@ for (const theme of ["light", "dark"])
       if (width === 390) await page.getByRole("button", { name: "Back to threads" }).click();
       const nav = page.getByRole("navigation", { name: "Threads" });
       await expect(nav.getByRole("link", { name: /^Audit Console/ })).toBeVisible();
-      await nav.getByRole("button", { name: "Settled 1" }).click();
+      await nav.getByRole("button", { name: "Settled (1)" }).click();
       await expect(nav.getByRole("link", { name: /^Build Agent/ })).toBeVisible();
       await page.mouse.move(width - 2, 898);
       await page.screenshot({
@@ -146,3 +144,74 @@ for (const theme of ["midnight", "graphite", "paper", "slate", "contrast"])
       path: `/tmp/ace-orch/shots/ui-task-rows-env-below/sidebar-${theme}-390.png`,
     });
   });
+
+test("scrolling and focusing a task clears the header inset and its preview stays inside the sidebar", async ({
+  page,
+}) => {
+  await stageSidebarTasks(page, "light");
+  await page.setViewportSize({ width: 1440, height: 500 });
+  await page.goto("/new");
+  const nav = page.getByRole("navigation", { name: "Threads" });
+  const viewport = nav.locator("[data-virtual-viewport]");
+  const first = nav.getByRole("link", { name: /^yo!/ });
+  await first.focus();
+  const viewportBox = await viewport.boundingBox();
+  const firstBox = await first.boundingBox();
+  if (!viewportBox || !firstBox) throw new Error("Missing sidebar bounds");
+  expect(firstBox.y).toBeGreaterThanOrEqual(viewportBox.y + 8);
+  const last = nav.getByRole("link", { name: /^independent browser-path/ });
+  await last.focus();
+  await page.keyboard.press("ArrowUp");
+  const details = page.getByLabel(/^Details for /);
+  await expect(details).toBeVisible();
+  const preview = await details.boundingBox();
+  if (!preview) throw new Error("Missing preview bounds");
+  expect(preview.x).toBeGreaterThanOrEqual(viewportBox.x);
+  expect(preview.x + preview.width).toBeLessThanOrEqual(viewportBox.x + viewportBox.width);
+  expect(preview.y).toBeGreaterThanOrEqual(8);
+  expect(preview.y + preview.height).toBeLessThanOrEqual(492);
+});
+
+test.describe("coarse pointer task rows", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 900 } });
+  test("task and settled links keep finger-sized targets", async ({ page }) => {
+    await stageSidebarTasks(page);
+    await page.goto("/t/sidebar-3");
+    await page.getByRole("button", { name: "Back to threads" }).click();
+    const nav = page.getByRole("navigation", { name: "Threads" });
+    const task = nav.getByRole("link", { name: /^Audit Console/ });
+    await expect(task.getByText("Working", { exact: true })).toBeVisible();
+    expect((await task.boundingBox())?.height).toBeGreaterThanOrEqual(72);
+    await nav.getByRole("button", { name: "Settled (1)" }).click();
+    const settled = nav.getByRole("link", { name: /^Build Agent State Engine/ });
+    await expect(settled).toBeVisible();
+    expect((await settled.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    await expect(settled.getByText("OpenForge", { exact: true })).toBeVisible();
+  });
+});
+
+test("fake provider variants identify themselves before the repeated task text", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "ace.home.organizer",
+      JSON.stringify({ project: "acme", baseline: 0, settledOpen: false }),
+    ),
+  );
+  await page.goto("/new?project=acme");
+  const nav = page.getByRole("navigation", { name: "Threads" });
+  const variants = nav.getByRole("link", { name: /Capture the document window/ });
+  await expect(variants).toHaveCount(6);
+  const names = await variants.evaluateAll((links) =>
+    links.map((link) => link.getAttribute("aria-label")?.split(". ")[0]),
+  );
+  expect(new Set(names).size).toBe(6);
+  expect(
+    names.every((name) =>
+      /^(Claude Code|Codex|OpenCode|Pi|Cursor|ACP agent) · Capture the document window/.test(
+        name ?? "",
+      ),
+    ),
+  ).toBe(true);
+});

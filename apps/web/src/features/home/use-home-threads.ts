@@ -15,19 +15,18 @@ export interface HomeList {
   pinned: string[];
   active: string[];
   recent: string[];
+  snoozed: string[];
   settled: string[];
   /** The listed threads that need you, which may rise while the list otherwise holds still. */
   needsYou: string[];
-  /** Project identities for grouping the visible window without per-row subscriptions. */
-  projects: Readonly<Record<string, string>>;
 }
 const empty: HomeList = {
   pinned: [],
   active: [],
   recent: [],
+  snoozed: [],
   settled: [],
   needsYou: [],
-  projects: {},
 };
 const noProjects: ProjectCount[] = [];
 
@@ -61,10 +60,9 @@ const listEqual = (a: HomeList, b: HomeList) =>
   arrayEqual(a.pinned, b.pinned) &&
   arrayEqual(a.active, b.active) &&
   arrayEqual(a.recent, b.recent) &&
+  arrayEqual(a.snoozed, b.snoozed) &&
   arrayEqual(a.settled, b.settled) &&
-  arrayEqual(a.needsYou, b.needsYou) &&
-  Object.keys(a.projects).length === Object.keys(b.projects).length &&
-  Object.entries(a.projects).every(([id, project]) => b.projects[id] === project);
+  arrayEqual(a.needsYou, b.needsYou);
 
 /**
  * Pinned threads in the person's order, then Home order (requests, working, then the rest,
@@ -80,11 +78,10 @@ export function useHomeList(): HomeList {
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
       const entries = read(reader);
-      const { pinned, active, recent, settled } = arrange(entries, state, now);
+      const { pinned, active, recent, snoozed, settled } = arrange(entries, state, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
       const needsYou = active.filter((id) => byId.get(id)?.status.state === "needs_you");
-      const projects = Object.fromEntries(entries.map((entry) => [entry.id, entry.workspaceId]));
-      return { pinned, active, recent, settled, needsYou, projects };
+      return { pinned, active, recent, snoozed, settled, needsYou };
     },
     [state, now, read],
   );

@@ -3,10 +3,9 @@ import { useConnectionState } from "@ace/client-react";
 import { UserIcon } from "@phosphor-icons/react";
 import { initials } from "@ace/ui-core";
 
-import { cn } from "@/lib/cn.ts";
 import { useProfileName } from "@/lib/profile.ts";
 import { Icon } from "@/components/icon.tsx";
-import { connectionDot, connectionLabels } from "./connection-labels.ts";
+import { connectionLabels } from "./connection-labels.ts";
 import { SidebarMenu } from "./sidebar-menu.tsx";
 
 const AccountMenuContent = deferredComponent(() =>
@@ -14,8 +13,8 @@ const AccountMenuContent = deferredComponent(() =>
 );
 /**
  * The profile at the foot of the sidebar, its full width: the person's initials on a neutral disc
- * (a silhouette until they give a name in Settings › General) and their name. The disc's dot is
- * the daemon connection, said in words under the name while it isn't connected. The connection is
+ * (a silhouette until they give a name in Settings › General) and their name. Connection trouble
+ * is said in words under the name; a healthy connection adds no indicator. The connection is
  * part of the button's name rather than a live region, so a flapping connection isn't read out
  * each time. Its menu is the only way to Usage.
  */
@@ -47,16 +46,14 @@ export function AccountMenu() {
             ) : (
               <Icon icon={UserIcon} size={14} />
             )}
-            <span
-              aria-hidden
-              data-state={state}
-              className="absolute -right-0.5 -bottom-0.5 grid size-3.5 place-items-center rounded-full bg-sidebar"
-            >
-              <span className={cn("size-[9px] rounded-full", connectionDot[state])} />
-            </span>
           </span>
           <span aria-hidden className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-ui font-medium text-foreground">{shown}</span>
+            {state !== "ready" && (
+              <span className="text-xs text-muted-foreground">
+                Daemon {connectionLabels[state].toLowerCase()}
+              </span>
+            )}
           </span>
         </button>
       }

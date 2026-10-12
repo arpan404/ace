@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { scrollToRow } from "./thread-list.ts";
 import { mkdir } from "node:fs/promises";
 
 const shots = "/tmp/ace-orch/shots/fix-audit-composer-lifecycle";
@@ -87,6 +88,12 @@ test("failed starts retain three-line row height and recovery text", async ({ pa
   });
   await page.goto("/new?project=relay");
   await expect(page.getByRole("button", { name: /^Model: Opus/ })).toBeVisible();
+  const first = page
+    .getByRole("navigation", { name: "Threads", exact: true })
+    .getByRole("link", { name: /^Partial refunds/ });
+  await expect(first).toBeVisible();
+  const firstHeight = (await first.boundingBox())?.height;
+  if (firstHeight === undefined) throw new Error("Missing admitted task height");
   await page
     .getByRole("combobox", { name: "Message", exact: true })
     .fill("Recover this failed start");
@@ -94,11 +101,9 @@ test("failed starts retain three-line row height and recovery text", async ({ pa
   const started = page
     .getByRole("list", { name: "Starting threads" })
     .getByRole("link", { name: /Recover this failed start/ });
+  await scrollToRow(page, started);
   await expect(started).toContainText("Not sent");
-  const first = page
-    .getByRole("navigation", { name: "Threads", exact: true })
-    .getByRole("link", { name: /^Partial refunds/ });
-  expect((await started.boundingBox())?.height).toBe((await first.boundingBox())?.height);
+  expect((await started.boundingBox())?.height).toBe(firstHeight);
   await page.screenshot({ path: `${shots}/failed-start-1440.png` });
 });
 
@@ -116,7 +121,7 @@ test("cold sidebar placeholders occupy the same space as active rows", async ({ 
     await expect(page.getByRole("status", { name: "Loading threads" })).toBeVisible();
     await expect(page.getByLabel("Loading thread controls")).toBeVisible();
     const placeholders = await page.getByRole("status", { name: "Loading threads" }).boundingBox();
-    expect(placeholders?.height).toBe(8 * 80);
+    expect(placeholders?.height).toBe(8 * 84);
     await page.screenshot({ path: `${shots}/cold-sidebar-1440.png` });
   } finally {
     release?.();
