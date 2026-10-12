@@ -1,4 +1,5 @@
 import type { ThreadListEntry } from "@ace/protocol";
+import { threadAttention } from "@ace/projection";
 import type { OrganizerState } from "./organizer.ts";
 import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
 
@@ -73,7 +74,8 @@ export function arrange(
     if (isDraft(entry)) continue;
     if (state.project !== null && entry.workspaceId !== state.project) continue;
     if (entry.pinned === true) pinned.push(entry);
-    else if (entry.status.state !== "needs_you" && isSnoozed(entry, now)) snoozed.push(entry);
+    else if (entry.status.state !== "needs_you" && !threadAttention(entry) && isSnoozed(entry, now))
+      snoozed.push(entry);
     else if (isSettled(entry)) settled.push(entry);
     else active.push({ entry, rank: rank(entry) });
   }

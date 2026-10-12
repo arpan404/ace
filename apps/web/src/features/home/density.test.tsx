@@ -220,3 +220,41 @@ test("an Unsent-only list supports forward and backward navigation", async () =>
     await waitFor(() => expect(document.activeElement).toBe(previous));
   }
 });
+
+test.each([
+  ["not_sent", "Not sent"],
+  ["uncertain", "Review a message"],
+] as const)(
+  "renewed %s queue recovery is visible while Snoozed stays closed",
+  async (reason, label) => {
+    const now = 100_000;
+    const app = harness({ clock: () => now, uiClock: () => now });
+    for (const [id, title] of [
+      ["recovery", "Recover the saved message"],
+      ["quiet", "Review this later"],
+    ] as const)
+      createIdleTask(app.daemon, { id, title, workspaceId: "ace", provider: "codex" });
+    await app.open("/new");
+    const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+    await nav.findByRole("link", { name: /^Recover the saved message/ });
+    for (const id of ["recovery", "quiet"])
+      await app.client.command({
+        type: "thread.snooze",
+        threadId: ThreadId.parse(id),
+        until: now + 3_600_000,
+      });
+    const closed = await nav.findByRole("button", { name: "Snoozed (2)" });
+    expect(closed.getAttribute("aria-expanded")).toBe("false");
+    await waitFor(() =>
+      expect(nav.queryByRole("link", { name: /^Recover the saved message/ })).toBeNull(),
+    );
+    app.daemon.holdQueue("recovery", reason);
+    const row = await nav.findByRole("link", {
+      name: new RegExp(`^Recover the saved message.*${label}`),
+    });
+    expect(within(row).getByText(label, { exact: true })).toBeTruthy();
+    const remaining = await nav.findByRole("button", { name: "Snoozed (1)" });
+    expect(remaining.getAttribute("aria-expanded")).toBe("false");
+    expect(nav.queryByRole("link", { name: /^Review this later/ })).toBeNull();
+  },
+);
