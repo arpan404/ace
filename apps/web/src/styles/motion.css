@@ -56,8 +56,12 @@
   --settle-scale: 1;
 }
 
-/* Base UI popups and dialogs scale in from their anchor; under reduced motion they only fade. */
-:root[data-reduce-motion] :is([data-starting-style], [data-ending-style]) {
+/*
+ * Under reduced motion only fades remain: Base UI popups and dialogs don't scale in from their
+ * anchor, and pressed controls don't shrink. Fixed slides (sheets, the segmented thumb) opt out
+ * with `motion-reduce:` utilities; everything else moves by --rise and --slide, which are zero.
+ */
+:root[data-reduce-motion] :is([data-starting-style], [data-ending-style], :active) {
   scale: none !important;
 }
 

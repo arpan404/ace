@@ -125,7 +125,7 @@ export function GpuTextView(props: {
     const theme = new MutationObserver(recolor);
     theme.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["data-theme", "class", "style"],
+      attributeFilter: ["data-theme", "data-scheme", "class", "style"],
     });
     return () => {
       stopped = true;

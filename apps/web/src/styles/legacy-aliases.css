@@ -1,0 +1,53 @@
+/*
+ * Names from before the visual-language foundation, kept as aliases so branches written against
+ * them (perf, composer, work card) keep their timing and materials when they merge. New code uses
+ * the names in docs/design/visual-language.md. Remove this file once those streams have landed
+ * and nothing references the old names.
+ */
+:root {
+  /* Motion: --dur-* and the old curve names. */
+  --dur-1: var(--motion-fast);
+  --dur-2: var(--motion-base);
+  --dur-3: var(--motion-slow);
+  --dur-4: var(--motion-slow);
+  --dur-exit: var(--motion-exit);
+  --ease: var(--ease-out);
+  --spring: var(--ease-spring);
+  --sheet: var(--ease-sheet);
+  --leave: var(--ease-exit);
+
+  /* Materials: the floating background follows Surfaces; the wallpaper is the page now. */
+  --glass-bg: var(--surface-2);
+  --wall: var(--background);
+}
+:root[data-surface="translucent"] {
+  --glass-bg: var(--glass-tint);
+}
+
+@layer components {
+  /* `.glass` is `.ace-floating` (styles/glass.css shares its rules). */
+  .glass-behind {
+    background: color-mix(in oklab, var(--glass-bg) 80%, var(--background));
+    box-shadow:
+      var(--glass-highlight),
+      0 0 0 1px var(--glass-edge),
+      0 -12px 32px -20px rgb(0 0 0 / 0.5);
+  }
+  .search-glass {
+    background: var(--glass-bg);
+  }
+  :root[data-surface="translucent"] .search-glass {
+    -webkit-backdrop-filter: blur(var(--glass-blur, 20px)) saturate(150%);
+    backdrop-filter: blur(var(--glass-blur, 20px)) saturate(150%);
+  }
+  /* The sidebar is opaque now; `.vibrancy` has nothing to blur. */
+  .vibrancy {
+    background-color: var(--sidebar);
+  }
+  .wallpaper {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    background: var(--background);
+  }
+}

@@ -14,6 +14,7 @@
  */
 @layer components {
   .ace-floating,
+  .glass,
   .ace-floating-solid {
     background: var(--surface-2);
     box-shadow:
@@ -21,7 +22,7 @@
       var(--float-shadow);
   }
 
-  :root[data-surface="translucent"] .ace-floating {
+  :root[data-surface="translucent"] :is(.ace-floating, .glass) {
     /* A faint sheen across the top; background-attachment keeps it still while content scrolls. */
     background:
       radial-gradient(120% 60% at 22% 0%, var(--glass-sheen), transparent 60%), var(--glass-tint);
@@ -33,7 +34,7 @@
     backdrop-filter: blur(var(--glass-blur, 20px)) saturate(180%);
   }
 
-  :root[data-surface="translucent"][data-glass-engine="liquid"] .ace-floating {
+  :root[data-surface="translucent"][data-glass-engine="liquid"] :is(.ace-floating, .glass) {
     background:
       radial-gradient(120% 60% at 22% 0%, var(--glass-sheen), transparent 60%),
       var(--glass-tint-liquid);

@@ -39,7 +39,7 @@ function ToastList() {
       className={cn(
         overlaySurface,
         "group/toast pointer-events-auto relative w-max max-w-full rounded-popup text-ui font-medium text-popover-foreground",
-        "transition-[opacity,transform] duration-(--motion-slow) ease-spring data-ending-style:-translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:-translate-y-2 data-starting-style:scale-[0.97] data-starting-style:opacity-0",
+        "transition-[opacity,transform] duration-(--motion-slow) ease-spring data-ending-style:-translate-y-[calc(var(--rise)*2)] data-ending-style:opacity-0 data-limited:hidden data-starting-style:-translate-y-[calc(var(--rise)*2)] data-starting-style:scale-[0.97] data-starting-style:opacity-0",
       )}
     >
       <Toast.Content className="flex items-center gap-2.5 py-[9px] pr-9 pl-3.5">

@@ -8,6 +8,10 @@ import { sharedStatus, syntax, type Palette, type Scheme } from "./palettes.ts";
  * made readable across the theme's surfaces.
  */
 
+/** "#RRGGBB" as "r g b", for the old `rgb(var(--x-rgb))` names. */
+const rgbTriple = (hex: string) =>
+  [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16)).join(" ");
+
 /** `colour` at `percent` over transparent. */
 const wash = (colour: string, percent: number) =>
   `color-mix(in srgb, ${colour} ${percent}%, transparent)`;
@@ -126,12 +130,19 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     "--glass-inner": glassInner,
     "--glass-sheen": light ? "rgb(255 255 255 / 0.35)" : "rgb(255 255 255 / 0.045)",
     "--glass-shadow": floatShadow,
+    "--glass-border": light ? `rgb(${p.shadow} / 0.1)` : "rgb(255 255 255 / 0.09)",
     "--glass-highlight": `inset 0 1px 0 ${glassInner}`,
     "--sliver": light
       ? `color-mix(in srgb, ${p.s2} 80%, ${p.s1})`
       : `color-mix(in srgb, ${p.s2}, ${p.s1} 30%)`,
 
     ...projectSets[scheme],
+
+    // Old names (styles/legacy-aliases.css explains when they go).
+    "--accent-theme": p.accent,
+    "--reading-rgb": rgbTriple(p.s0),
+    "--sidebar-rgb": rgbTriple(p.sidebar),
+    "--glass-rgb": rgbTriple(p.s2),
   };
 }
 

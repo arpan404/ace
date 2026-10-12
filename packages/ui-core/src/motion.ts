@@ -10,6 +10,8 @@ export const motionMs = {
   base: 200,
   slow: 320,
   exit: 140,
+  /** Old name for `slow`; remove once the parallel UI streams have landed. */
+  sheet: 320,
 } as const;
 
 /**
@@ -18,6 +20,8 @@ export const motionMs = {
  */
 export const motionCurves = {
   out: [0.2, 0.8, 0.2, 1],
+  /** Old name for `out`; remove once the parallel UI streams have landed. */
+  ease: [0.2, 0.8, 0.2, 1],
   spring: [0.3, 1.25, 0.5, 1],
   sheet: [0.32, 0.72, 0, 1],
   exit: [0.4, 0, 1, 1],

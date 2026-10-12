@@ -3,6 +3,7 @@
 @import "./tokens.css";
 @import "./motion.css";
 @import "./glass.css";
+@import "./legacy-aliases.css";
 
 /*
  * Scan only web runtime source. Tailwind turns class-like strings into CSS; generated
@@ -69,6 +70,9 @@
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
+  /* Old names for the floating background and edge (legacy-aliases.css). */
+  --color-glass: var(--glass-bg);
+  --color-glass-border: var(--glass-border);
   --color-diff-add: var(--diff-add);
   --color-diff-del: var(--diff-del);
 

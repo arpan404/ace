@@ -37,7 +37,7 @@ function SegmentedControl<T extends string>(props: {
     >
       <span
         aria-hidden
-        className="absolute inset-y-0.5 left-0.5 w-[calc((100%-4px)/var(--n))] translate-x-[calc(var(--i)*100%)] rounded-full bg-(--seg-thumb) shadow-(--seg-thumb-shadow) transition-transform duration-(--motion-slow) ease-spring"
+        className="absolute inset-y-0.5 left-0.5 w-[calc((100%-4px)/var(--n))] translate-x-[calc(var(--i)*100%)] rounded-full bg-(--seg-thumb) shadow-(--seg-thumb-shadow) transition-transform duration-(--motion-slow) ease-spring motion-reduce:transition-none"
       />
       {props.options.map((option) => (
         <Toggle

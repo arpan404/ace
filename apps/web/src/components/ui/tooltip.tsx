@@ -32,7 +32,7 @@ function TooltipContent({
           style={{ maxWidth: "min(20rem, calc(100vw - 24px))" }}
           className={cn(
             "ace-floating flex items-center gap-2 rounded-md px-2 py-1 text-xs leading-4 font-normal break-words text-popover-foreground",
-            "origin-(--transform-origin) transition-[opacity,transform] duration-(--motion-fast) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-100 data-instant:duration-0 data-starting-style:opacity-0 data-[side=bottom]:data-starting-style:-translate-y-0.5 data-[side=top]:data-starting-style:translate-y-0.5",
+            "origin-(--transform-origin) transition-[opacity,transform] duration-(--motion-fast) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-100 data-instant:duration-0 data-starting-style:opacity-0 data-[side=bottom]:data-starting-style:-translate-y-[calc(var(--rise)/2)] data-[side=top]:data-starting-style:translate-y-[calc(var(--rise)/2)]",
             className,
           )}
           {...props}
