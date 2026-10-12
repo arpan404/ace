@@ -111,7 +111,7 @@ export function ModelControl(props: {
         collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
         sideOffset={8}
         aria-label="Model and effort"
-        className="overflow-hidden p-0 duration-(--motion-fast)"
+        className="model-popover overflow-hidden p-0 duration-(--motion-fast)"
       >
         <Suspense
           fallback={

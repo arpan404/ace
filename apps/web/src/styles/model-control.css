@@ -6,6 +6,16 @@
  * opacity and a background position inside their own box. They are `.fx-flourish`: under
  * `[data-reduce-motion]` nothing moves and the label and glow stay lit.
  */
+/*
+ * The model popover is a dense list over the transcript: under Translucent its glass is tinted
+ * nearly solid, so text behind it never reads through the rows or the search field.
+ */
+:root[data-surface="translucent"] .model-popover {
+  background: color-mix(in oklab, var(--surface-2) 94%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  backdrop-filter: blur(28px) saturate(160%);
+}
+
 .model-effort-deep {
   background-image: linear-gradient(
     100deg,
