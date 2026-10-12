@@ -8,7 +8,7 @@ import { secureDataDir } from "../local-files.ts";
 import { type Args, timeoutMs } from "./args.ts";
 import { cloudPlan } from "./cloud-plan.ts";
 import { key } from "./mutations.ts";
-import { prompt, result } from "./io.ts";
+import { prompt, result, mutationResult } from "./io.ts";
 import { CliFailure } from "./output.ts";
 const Receipt = z.object({
   provider: z.literal("codex"),
@@ -47,10 +47,11 @@ export async function cloudCommand(args: Args, home: string) {
             throw new CliFailure(
               "uncertain",
               `Previous cloud invocation is uncertain; inspect codex cloud list before submitting new work. Key: ${id}`,
+              { provider: "codex", operation: args.words[2], idempotencyKey: id },
             );
           const receipt = Receipt.parse(JSON.parse(existing.result));
           db.exec("COMMIT");
-          return result(args, receipt, receipt.status);
+          return mutationResult(args, receipt, receipt.status);
         }
         db.exec("COMMIT");
       } catch (error) {
@@ -114,7 +115,7 @@ export async function cloudCommand(args: Args, home: string) {
         db.prepare("UPDATE receipts SET result=? WHERE id=?").run(JSON.stringify(receipt), id);
       if (stderr && !args.flags.json && !args.flags.jq)
         process.stderr.write(stripVTControlCharacters(stderr));
-      await result(args, receipt, receipt.status);
+      await (mutates ? mutationResult : result)(args, receipt, receipt.status);
     } finally {
       process.removeListener("SIGINT", interrupt);
       process.removeListener("SIGTERM", interrupt);
