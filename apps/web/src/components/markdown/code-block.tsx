@@ -10,6 +10,39 @@ import { LongRows } from "@/components/virtual-rows.tsx";
 import { CodeTokens } from "./code-tokens.tsx";
 export { tokenTone } from "./code-tokens.tsx";
 
+/**
+ * Copy for a fence. With a mouse it shows while the block is hovered or the button has focus,
+ * so a transcript of code isn't a column of buttons; on touch it always shows, at tap size.
+ * "Copied" holds it visible and is announced.
+ */
+const copyClass = [
+  "relative ml-auto inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-xs text-muted-foreground",
+  "transition-[opacity,color,background-color] duration-(--motion-fast) hover:bg-accent hover:text-foreground",
+  "focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-ring data-copied:opacity-100",
+  "pointer-fine:opacity-0 pointer-fine:group-hover/code:opacity-100",
+  "touch-hit pointer-coarse:h-8 pointer-coarse:px-2.5",
+].join(" ");
+
+function CopyCode(props: { copied: boolean; onCopy(): void }) {
+  return (
+    <>
+      <button
+        type="button"
+        onClick={props.onCopy}
+        aria-label={props.copied ? "Copied" : "Copy code"}
+        data-copied={props.copied ? "" : undefined}
+        className={copyClass}
+      >
+        {props.copied ? <CheckIcon aria-hidden size={13} /> : <CopyIcon aria-hidden size={13} />}
+        {props.copied ? "Copied" : "Copy"}
+      </button>
+      <span role="status" className="sr-only">
+        {props.copied ? "Copied to clipboard" : ""}
+      </span>
+    </>
+  );
+}
+
 /** A fenced code block: language and Copy in a quiet header, syntax highlighting below. */
 export function CodeBlock(props: {
   code: string;
@@ -54,15 +87,7 @@ export function CodeBlock(props: {
             {source ? "Highlighted view" : "Full source"}
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => copy(props.code)}
-          aria-label={copied ? "Copied" : "Copy code"}
-          className="ml-auto inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-xs text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground"
-        >
-          {copied ? <CheckIcon aria-hidden size={13} /> : <CopyIcon aria-hidden size={13} />}
-          {copied ? "Copied" : "Copy"}
-        </button>
+        <CopyCode copied={copied} onCopy={() => copy(props.code)} />
       </figcaption>
       {large ? (
         source ? (
