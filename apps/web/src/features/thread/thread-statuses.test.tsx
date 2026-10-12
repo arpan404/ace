@@ -56,11 +56,7 @@ test("a thread that asked a question keeps the waiting state in the thread and r
   expect(screen.getByRole("status", { name: "Waiting for your answer" })).toBeTruthy();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
   expect(within(header).queryByRole("status")).toBeNull();
-  expect(
-    within(header)
-      .getByRole("button", { name: /^Work card/ })
-      .getAttribute("aria-label"),
-  ).toContain("Needs you");
+  expect(within(header).queryByRole("button", { name: /^Work card/ })).toBeNull();
 });
 
 test("a thread running tests names its current action in the transcript live line", async () => {

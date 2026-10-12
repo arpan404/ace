@@ -31,7 +31,7 @@ test("Show more loads older settled pages and retries a failed page without dupl
   const lease = app.client.threads();
   try {
     await waitFor(() => expect(lease.store.ids).toHaveLength(20));
-    expect(await screen.findByRole("button", { name: "Settled 46" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Settled (46)" })).toBeTruthy();
     const nav = screen.getByRole("navigation", { name: "Threads" });
     const more = await within(nav).findByRole("button", { name: "Show more" });
     const fail = vi.spyOn(app.client, "threadsMore").mockRejectedValueOnce(new Error("offline"));

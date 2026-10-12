@@ -6,7 +6,13 @@ import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { formatDoctor, writeSupportBundle, recentThreadEvents } from "@ace/diagnostics";
 import { collectDoctorReport } from "./diagnostics-report.ts";
 import type { Config } from "./config.ts";
-export async function diagnosticsCli(args: string[], config: Config): Promise<boolean> {
+export async function diagnosticsCli(
+  args: string[],
+  config: Config,
+  write: (text: string) => void = (text) => {
+    process.stdout.write(text);
+  },
+): Promise<boolean> {
   if (args[0] === "--") args = args.slice(1);
   if (args[0] !== "doctor" && args[0] !== "support-bundle") return false;
   const context = { home: homedir(), env: process.env };
@@ -15,9 +21,7 @@ export async function diagnosticsCli(args: string[], config: Config): Promise<bo
   if (args[0] === "doctor") {
     if (args.slice(1).some((arg) => arg !== "--json"))
       throw new Error("Usage: ace doctor [--json]");
-    process.stdout.write(
-      redact(args.includes("--json") ? JSON.stringify(report) : formatDoctor(report)) + "\n",
-    );
+    write(redact(args.includes("--json") ? JSON.stringify(report) : formatDoctor(report)) + "\n");
     process.exitCode = report.checks.some((check) => check.status === "fail") ? 1 : 0;
     return true;
   }
@@ -56,6 +60,6 @@ export async function diagnosticsCli(args: string[], config: Config): Promise<bo
     if (created) await rm(path, { force: true });
     throw error;
   }
-  process.stdout.write(`Support bundle: ${path}\n`);
+  write(`Support bundle: ${path}\n`);
   return true;
 }

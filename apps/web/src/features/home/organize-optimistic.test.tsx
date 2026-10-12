@@ -201,7 +201,7 @@ test("deleting another thread and a refused active delete preserve the open thre
       })(),
   );
   await screen.findByRole("heading", { level: 1, name: "Invoice PDF locale fallback" });
-  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
   await userEvent.click(
     screen.getByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
   );

@@ -42,7 +42,7 @@ export function TabStrip(props: {
   const focusNext = useRef<string>(undefined);
   const [drop, setDrop] = useState<{ key: string; side: DropSide }>();
   const [announcement, setAnnouncement] = useState("");
-  const overflowing = useOverflow(scroller, state.tabs.length);
+  const edges = useOverflow(scroller, state.tabs.length);
   const entering = useEntering(state.tabs.map((tab) => tab.key));
   useRevealShown(scroller, shown);
   useLayoutEffect(() => {
@@ -124,6 +124,9 @@ export function TabStrip(props: {
         ref={scroller}
         role="tablist"
         aria-label={props.label}
+        style={{
+          maskImage: `linear-gradient(to right, ${edges.left ? "transparent, black 16px" : "black, black 0px"}, ${edges.right ? "black calc(100% - 16px), transparent" : "black 100%, black"})`,
+        }}
         onDragOver={(event) => onDragOver(event)}
         onDragLeave={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop(undefined);
@@ -167,7 +170,7 @@ export function TabStrip(props: {
           onClick={() => actions.newTab()}
         />
       )}
-      {overflowing && (
+      {edges.overflowing && (
         <Menu>
           <MenuTrigger
             render={
@@ -216,20 +219,37 @@ function tabButton(strip: HTMLElement | null, key: string): HTMLButtonElement | 
 }
 
 /** True once the tabs are wider than their strip, so the All tabs menu appears. */
-function useOverflow(scroller: React.RefObject<HTMLDivElement | null>, count: number): boolean {
-  const [overflowing, setOverflowing] = useState(false);
+function useOverflow(scroller: React.RefObject<HTMLDivElement | null>, count: number) {
+  const [edges, setEdges] = useState({ overflowing: false, left: false, right: false });
   useLayoutEffect(() => {
     const element = scroller.current;
     if (!element) return;
-    const measure = () =>
-      setOverflowing(count > 1 && element.scrollWidth > element.clientWidth + 1);
+    const measure = () => {
+      const overflowing = count > 1 && element.scrollWidth > element.clientWidth + 1;
+      const next = {
+        overflowing,
+        left: overflowing && element.scrollLeft > 1,
+        right: overflowing && element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
+      };
+      setEdges((before) =>
+        before.overflowing === next.overflowing &&
+        before.left === next.left &&
+        before.right === next.right
+          ? before
+          : next,
+      );
+    };
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
+    element.addEventListener("scroll", measure, { passive: true });
+    const observer =
+      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer?.observe(element);
+    return () => {
+      observer?.disconnect();
+      element.removeEventListener("scroll", measure);
+    };
   }, [scroller, count]);
-  return overflowing;
+  return edges;
 }
 
 /** Keys that arrived since the last render, so a new tab pops in once (not on first paint). */

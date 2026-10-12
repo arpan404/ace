@@ -1,3 +1,4 @@
+import { openWorkPanel } from "@/test/open-work.ts";
 import { coldStartReplay } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -36,12 +37,12 @@ test("the Changes toolbar counts the selected turn and keeps it when another tab
   await waitFor(() => expectTotal(panel, 17, 5));
   await pick(panel, "Turn 1");
   await waitFor(() => expectTotal(panel, 8, 2));
-  await userEvent.click(within(panel).getByRole("tab", { name: "Agents" }));
+  await userEvent.click(within(panel).getByRole("tab", { name: "Work" }));
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
   expect(within(panel).getByRole("button", { name: "Scope: Turn 1" })).toBeTruthy();
   await waitFor(() => expectTotal(panel, 8, 2));
-  await userEvent.click(screen.getByRole("button", { name: /^Work card/ }));
-  const card = await screen.findByRole("complementary", { name: "Work card" });
+  await openWorkPanel();
+  const card = await screen.findByRole("tabpanel", { name: "Work" });
   expect(
     within(card).getByRole("button", { name: "Changes, 2 files: 38 added, 6 removed" }),
   ).toBeTruthy();
@@ -61,7 +62,7 @@ test("uncommitted totals come from the live checkout and stay selected across ta
   );
   await waitFor(() => expectTotal(panel, 2, 1));
   expect(within(panel).getByRole("button", { name: "Scope: Uncommitted" })).toBeTruthy();
-  await userEvent.click(within(panel).getByRole("tab", { name: "Agents" }));
+  await userEvent.click(within(panel).getByRole("tab", { name: "Work" }));
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
   expect(within(panel).getByRole("button", { name: "Scope: Uncommitted" })).toBeTruthy();
   await waitFor(() => expectTotal(panel, 2, 1));

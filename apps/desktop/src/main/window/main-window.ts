@@ -55,6 +55,21 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
 
   const contents = window.webContents;
   contents.setWindowOpenHandler(({ url }) => {
+    // Only the trusted renderer can open its local blob wrapper. Authored content has no
+    // allow-popups token. This viewer gets no preload bridge or Node privileges.
+    if (url.startsWith("blob:") && isAppUrl(url.slice(5), options.url))
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          title: "ace visualization",
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+            preload: "",
+          },
+        },
+      };
     if (isExternalUrl(url)) void shell.openExternal(url);
     return { action: "deny" };
   });

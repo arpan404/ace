@@ -59,6 +59,8 @@ if (unsafe) {
   app.setPath("userData", userData);
   // Before anything starts Chromium's network service: never the older ace app's keychain item.
   claimKeychainName(app, process.platform);
+  // Defense in depth for the renderer and its offline visualization frames.
+  app.commandLine.appendSwitch("blink-settings", "dnsPrefetchingEnabled=false");
   registerAppScheme();
   if (!app.requestSingleInstanceLock()) app.quit();
   else

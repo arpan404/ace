@@ -18,6 +18,7 @@ test("settling puts a finished thread in Settled and drops its snooze", () => {
     pinned: [],
     active: [],
     recent: [],
+    snoozed: [],
     settled: ["t"],
   });
 });

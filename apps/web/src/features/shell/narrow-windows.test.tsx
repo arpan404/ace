@@ -107,50 +107,49 @@ test("on a narrow window ⌘\\ opens and closes the sheet and leaves the wide wi
   expect(layout()).toBe(before);
 });
 
-test("on a phone the work icon stays in the header while the panel toggle folds", async () => {
+test("on a phone Work is reached through the header menu", async () => {
   windowWidth(390);
   await openThread();
   const header = screen.getByRole("banner");
   expect(within(header).getByRole("button", { name: "Back to threads" })).toBeTruthy();
-  expect(within(header).getByRole("button", { name: /^Work card/ })).toBeTruthy();
+  expect(within(header).queryByRole("button", { name: /^Work card/ })).toBeNull();
   expect(screen.queryByRole("button", { name: "Right panel" })).toBeNull();
   const more = await moreActions(header);
   await userEvent.click(more);
-  expect(await screen.findByRole("menuitem", { name: "Changes" })).toBeTruthy();
+  expect(await screen.findByRole("menuitem", { name: "Work" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Changes" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Work" })).toBeNull());
   await userEvent.keyboard("{Meta>}f{/Meta}");
   expect(await screen.findByRole("search", { name: "Search this thread" })).toBeTruthy();
 });
 
-test("on a phone the work card stacks above the thread and Escape returns to its icon", async () => {
+test("on a phone Work opens in the panel sheet and Escape closes it", async () => {
   windowWidth(390);
   await openThread();
-  await userEvent.click(await screen.findByRole("button", { name: /^Work card/ }));
-  const card = await screen.findByRole("complementary", { name: /^Work card/ });
-  expect(within(card).getByRole("region", { name: "Background" })).toBeTruthy();
+  await userEvent.click(await moreActions(screen.getByRole("banner")));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Work" }));
+  const work = await screen.findByRole("tabpanel", { name: "Work" });
+  expect(await within(work).findByRole("region", { name: "Background" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
-  await waitFor(() =>
-    expect(screen.queryByRole("complementary", { name: /^Work card/ })).toBeNull(),
-  );
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
-test("in a wide window the header shows only its ⋯, the work card and the side panel's toggle", async () => {
+test("in a wide window the header shows only its menu and panel toggle", async () => {
   windowWidth(1440);
   await openThread();
   const header = screen.getByRole("banner");
-  for (const name of ["More actions", /^Work card/, "Right panel"])
+  for (const name of ["More actions", "Right panel"])
     expect(within(header).getByRole("button", { name })).toBeTruthy();
   for (const name of ["Search this thread", "Turns", "Commit", "Open", "Bottom panel"])
     expect(within(header).queryByRole("button", { name })).toBeNull();
 });
 
-test("a header narrowed by a side panel still shows the work card and one ⋯", async () => {
+test("a header narrowed by a side panel still shows one menu and no floating Work control", async () => {
   windowWidth(1440);
   headerWidth(400);
   await openThread();
   const header = screen.getByRole("banner");
-  expect(within(header).getByRole("button", { name: /^Work card/ })).toBeTruthy();
+  expect(within(header).queryByRole("button", { name: /^Work card/ })).toBeNull();
   expect(within(header).getAllByRole("button", { name: "More actions" })).toHaveLength(1);
   await userEvent.click(within(header).getByRole("button", { name: "More actions" }));
   expect(await screen.findByRole("menuitem", { name: /Rename/ })).toBeTruthy();
@@ -161,7 +160,7 @@ test("on a phone a panel covers the thread as a sheet that Done or Escape closes
   await openThread();
   // On a phone the panel's toggle lives in the header's ⋯, which focus returns to.
   await userEvent.click(await moreActions(screen.getByRole("banner")));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Changes" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Work" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).queryByRole("separator", { name: /Resize/ })).toBeNull();
   // Focus moves into the sheet, onto its showing tab.

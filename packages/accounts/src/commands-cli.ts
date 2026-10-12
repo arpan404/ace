@@ -16,6 +16,8 @@ export async function runAccountsCommand(
     env?: NodeJS.ProcessEnv;
     now?: () => number;
     write?: (text: string) => void;
+    progress?: (text: string) => void;
+    loginOutput?: "stdout" | "stderr";
     sdkDiscovery?: typeof discoverCursorSdk;
     cursorAuth?: () => Promise<CursorCliAuth>;
   } = {},
@@ -58,14 +60,17 @@ export async function runAccountsCommand(
       const result = await addAccount(registry, createInstance({ provider, id, homeDir, label }), {
         now,
         mode: rest[4] === "--console" ? "api" : "subscription",
+        loginOutput: options.loginOutput ?? "stdout",
         ...(cursorSdk
           ? {
               cursorSdk,
-              loginUrl: (url: string) => write(`Cursor SDK sign-in: ${url}\n`),
+              loginUrl: (url: string) =>
+                (options.progress ?? write)(`Cursor SDK sign-in: ${url}\n`),
             }
           : {}),
       });
       if (result.code !== 0) process.exitCode = 1;
+      write(`${JSON.stringify({ ok: result.code === 0, status: result.status })}\n`);
     } else if (command === "status") {
       if (rest.length !== 1) throw new Error("Expected instance ID");
       const account = registry.get(rest[0] ?? "");

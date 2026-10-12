@@ -1,5 +1,6 @@
 import {
   FileTextIcon,
+  HardDriveIcon,
   BellIcon,
   CodeIcon,
   CursorClickIcon,
@@ -21,7 +22,8 @@ export type SettingsPath =
   | "/settings/remote"
   | "/settings/computer-use"
   | "/settings/keyboard"
-  | "/settings/advanced";
+  | "/settings/advanced"
+  | "/settings/storage";
 
 export const settingsPages: readonly { to: SettingsPath; title: string; icon: IconGlyph }[] = [
   { to: "/settings/general", title: "General", icon: SlidersHorizontalIcon },
@@ -33,6 +35,7 @@ export const settingsPages: readonly { to: SettingsPath; title: string; icon: Ic
   { to: "/settings/remote", title: "Remote devices", icon: LaptopIcon },
   { to: "/settings/computer-use", title: "Computer use", icon: CursorClickIcon },
   { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon },
+  { to: "/settings/storage", title: "Storage", icon: HardDriveIcon },
   { to: "/settings/advanced", title: "Advanced", icon: CodeIcon },
 ];
 

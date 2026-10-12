@@ -2,11 +2,10 @@ import { useAgent, useAgentTree, useItem, useSidebarThread } from "@ace/client-r
 import type { Agent } from "@ace/protocol";
 import {
   agentName,
-  agentStatusLabel,
+  agentWorkState,
   describeActivity,
   formatAgo,
   formatElapsed,
-  isRunning,
   providerNames,
 } from "@ace/ui-core";
 import { ArrowLeftIcon, ArrowUpRightIcon, RobotIcon } from "@phosphor-icons/react";
@@ -22,6 +21,9 @@ import { keymap } from "@/lib/keymap.ts";
 import { useNow } from "@/lib/time.ts";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
 import { StatusLabel } from "@/components/status-label.tsx";
+import { useLiveConnection } from "@/lib/live-connection.ts";
+import { useTreeWork } from "./use-tree-work.ts";
+import type { TreeWork } from "./tree-work-context.ts";
 import { useAgentEnd } from "./use-agent-end.ts";
 import { StopAgent } from "./stop-agent.tsx";
 import { countSubagents, findAgentNode } from "./subagents.ts";
@@ -36,6 +38,7 @@ export function AgentTab(props: TabViewProps) {
   const agentId = props.tab.id;
   const agent = useAgent(props.scope, agentId);
   const actions = useWorkspaceActions(props.scope);
+  const { work } = useTreeWork(props.scope);
   const name = agent ? agentName(agent) : undefined;
   // The strip shows the agent's name, before this tab's code loads next time too.
   useEffect(() => {
@@ -44,16 +47,18 @@ export function AgentTab(props: TabViewProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-10 shrink-0 items-center gap-1 border-b px-1.5">
-        <Button size="sm" variant="ghost" onClick={() => actions.open({ kind: "agents" })}>
+        <Button size="sm" variant="ghost" onClick={() => actions.open({ kind: "work" })}>
           <ArrowLeftIcon aria-hidden size={14} />
           Back to agents
           <Kbd keys={keymap.agents.keys} />
         </Button>
         <span className="flex-1" />
-        {agent && <AgentStop threadId={props.scope} agent={agent} />}
+        {agent && (
+          <AgentStop threadId={props.scope} agent={agent} pending={work.running.has(agent.id)} />
+        )}
       </div>
       {agent ? (
-        <AgentDetail threadId={props.scope} agent={agent} />
+        <AgentDetail threadId={props.scope} agent={agent} work={work} />
       ) : (
         <EmptyState
           icon={RobotIcon}
@@ -66,15 +71,15 @@ export function AgentTab(props: TabViewProps) {
 }
 
 /** The agent's Stop, with the subagents that go with it. */
-function AgentStop(props: { threadId: string; agent: Agent }) {
+function AgentStop(props: { threadId: string; agent: Agent; pending: boolean }) {
   const tree = useAgentTree(props.threadId);
   const node = tree && findAgentNode(tree, props.agent.id);
   return (
     <StopAgent
       threadId={props.threadId}
       agent={props.agent}
+      pending={props.pending}
       subagents={node ? countSubagents(node) : 0}
-      showFailure
     />
   );
 }
@@ -85,7 +90,7 @@ const fidelityNotes: Record<Agent["fidelity"], string | undefined> = {
   placeholder: "shares only the call that started this subagent.",
 };
 
-function AgentDetail(props: { threadId: string; agent: Agent }) {
+function AgentDetail(props: { threadId: string; agent: Agent; work: TreeWork }) {
   const { agent } = props;
   const now = useNow();
   const { AgentTranscript } = useThreadParts();
@@ -93,8 +98,9 @@ function AgentDetail(props: { threadId: string; agent: Agent }) {
     props.threadId,
     agent.status.state === "working" && agent.status.itemId ? agent.status.itemId : "",
   );
-  const status = agentStatusLabel(agent.status);
-  const running = isRunning(agent);
+  const live = useLiveConnection();
+  const status = agentWorkState(agent, props.work, { fresh: live.fresh });
+  const running = status.running;
   const ended = useAgentEnd(props.threadId, agent);
   const end = running ? Math.max(now, agent.createdAt) : ended;
   const activity = describeActivity(
@@ -126,7 +132,11 @@ function AgentDetail(props: { threadId: string; agent: Agent }) {
               <h2 className="min-w-0 truncate text-md font-medium">{agentName(agent)}</h2>
               <StatusLabel
                 tone={status.tone}
-                label={agent.status.state === "idle" && ended !== undefined ? "Done" : status.label}
+                label={
+                  !running && agent.status.state === "idle" && ended !== undefined
+                    ? "Done"
+                    : status.label
+                }
               />
             </div>
             {(tool || agent.status.state === "failed") && (

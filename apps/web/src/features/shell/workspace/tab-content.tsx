@@ -98,7 +98,7 @@ class TabBoundary extends Component<
         <EmptyState
           icon={WarningCircleIcon}
           title={`${this.props.label} couldn't load`}
-          description={`${this.state.error.message}. Check the connection, then try again.`}
+          description="Check the connection, then try again."
           action={
             <Button size="sm" variant="outline" onClick={() => this.setState({ error: undefined })}>
               Try again

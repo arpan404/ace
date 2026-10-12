@@ -9,7 +9,7 @@ import {
   GlobeSimpleIcon,
   PlusIcon,
   RobotIcon,
-  TreeStructureIcon,
+  ListBulletsIcon,
 } from "@phosphor-icons/react";
 import { ChangesSkeleton, FilesSkeleton } from "./tab-skeletons.tsx";
 import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
@@ -120,7 +120,7 @@ export const browserKind = defineTabKind({
     </span>
   ),
   launcher: 45,
-  title: (tab) => addressHost(field(tab.data, "url") ?? "") ?? "New page",
+  title: (tab) => addressHost(field(tab.data, "url") ?? "") ?? "Browser",
   Badge: LoadingBadge,
   load: () => import("./browser/browser-tab.tsx"),
   fromUrl: (url) => ({
@@ -180,23 +180,14 @@ export const deviceKind = defineTabKind({
   load: () => import("./devices-view.tsx").then((m) => ({ default: m.DeviceView })),
 });
 
-export const agentsKind = defineTabKind({
-  kind: "agents",
-  label: "Agents",
-  icon: TreeStructureIcon,
-  singleton: true,
-  pinned: true,
-  launcher: 70,
-  load: () => views().then((m) => ({ default: m.AgentsView })),
-});
-
-/** Work entry point used by the transcript; #578 replaces the legacy Agents surface. */
 export const workKind = defineTabKind({
   kind: "work",
   label: "Work",
-  icon: TreeStructureIcon,
+  icon: ListBulletsIcon,
   singleton: true,
-  load: () => import("./work-view.tsx").then((m) => ({ default: m.WorkView })),
+  pinned: true,
+  launcher: 0,
+  load: () => import("./work/work-tab.tsx"),
 });
 
 /** One agent of the tree, opened from its row: its delegation, transcript and follow-up. */
@@ -218,6 +209,7 @@ export const launcherKind = defineTabKind({
 });
 
 export const threadKinds: readonly TabKind[] = [
+  workKind,
   changesKind,
   terminalKind,
   filesKind,
@@ -228,8 +220,6 @@ export const threadKinds: readonly TabKind[] = [
   devicesKind,
   deviceKind,
   computerUseKind,
-  agentsKind,
-  workKind,
   logsKind,
   agentKind,
   shellKind,

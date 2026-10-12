@@ -58,11 +58,6 @@ function RepositoryStackGroups(props: {
   }
   return (
     <>
-      {query.isError && (
-        <p role="status" className="text-sm">
-          Stack membership unavailable. {query.error.message}
-        </p>
-      )}
       {!query.isError &&
         [...groups.entries()].map(([id, stack]) => (
           <div key={id} className="space-y-2 border-l border-border pl-3 text-sm">

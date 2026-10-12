@@ -13,7 +13,8 @@ export class WorkspaceReservations {
   ) {
     this.db = db;
     this.statement = statement;
-    db.exec(`CREATE TABLE IF NOT EXISTS workspace_root_reservations (
+    db.exec(`CREATE TABLE IF NOT EXISTS storage_removed_roots(root TEXT PRIMARY KEY,at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS workspace_root_reservations (
       root TEXT PRIMARY KEY, thread_id TEXT NOT NULL, command_id TEXT NOT NULL
     ); CREATE INDEX IF NOT EXISTS workspace_reservation_owner ON workspace_root_reservations(thread_id);
     CREATE TABLE IF NOT EXISTS workspace_canonical_roots (workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), root TEXT NOT NULL);
@@ -50,6 +51,8 @@ export class WorkspaceReservations {
     );
   }
   assertAvailable(root: string): void {
+    if (this.statement("SELECT 1 FROM storage_removed_roots WHERE root=?").get(root))
+      throw new Error("workspace_removed");
     const kind = this.reservation(root);
     if (kind)
       throw new Error(
@@ -127,14 +130,17 @@ export class WorkspaceReservations {
   }
   owners(roots: readonly string[]): ThreadId[] {
     const owners = new Set<ThreadId>();
+    const sessionsExist = Boolean(
+      this.statement("SELECT 1 FROM sqlite_master WHERE name='engine_sessions'").get(),
+    );
     for (const root of roots) {
       // Scope by indexed root/workspace first. No transcript or event history is read.
-      const sessions = this.statement(
-        "SELECT thread_id FROM engine_sessions WHERE cwd=? LIMIT 257",
-      ).all(root);
+      const sessions = sessionsExist
+        ? this.statement("SELECT thread_id FROM engine_sessions WHERE cwd=? LIMIT 257").all(root)
+        : [];
       const local =
         this.statement(`SELECT t.id AS thread_id FROM workspace_canonical_roots w JOIN threads t ON t.workspace_id=w.workspace_id
-        WHERE w.root=? AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id) LIMIT 257`).all(
+        WHERE w.root=? ${sessionsExist ? "AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id)" : ""} LIMIT 257`).all(
           root,
         );
       for (const row of [...sessions, ...local]) owners.add(ThreadId.parse(row.thread_id));

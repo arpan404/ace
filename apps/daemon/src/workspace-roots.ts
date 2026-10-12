@@ -1,3 +1,4 @@
+import { ManagedWorktrees } from "./managed-worktrees.ts";
 import type { PreparePrBase } from "./pr-worktree-resolution.ts";
 import type { CreationProgress } from "./creation-progress.ts";
 import { WorkspaceCreations } from "./creation-workspace.ts";
@@ -40,6 +41,7 @@ export class WorkspaceRoots {
       git,
       directory,
       options.baseFetchTimeoutMs ?? defaultBaseFetchTimeoutMs,
+      now,
       options.preparePr,
     );
     this.store = store;
@@ -143,6 +145,13 @@ export class WorkspaceRoots {
         baseRef,
         branch,
       });
+      await new ManagedWorktrees(this.store, this.directory).created(
+        this.git,
+        project,
+        path,
+        id,
+        this.now(),
+      );
     }
     if (this.closing) throw new Error("workspace_closed");
     return { path, branch };
@@ -197,7 +206,7 @@ export class WorkspaceRoots {
       await mkdir(join(this.directory, "worktrees"), { recursive: true, mode: 0o700 });
       path = join(await realpath(join(this.directory, "worktrees")), key);
       const existing = (await this.git.listWorktrees(project)).find((tree) => tree.path === path);
-      if (!existing)
+      if (!existing) {
         await this.git.createWorktree({
           repo: project,
           path,
@@ -205,7 +214,14 @@ export class WorkspaceRoots {
           baseRef: selection.branch ?? recordedBaseRef(thread.details),
           reuseBranch: true,
         });
-      else if (selection.branch)
+        await new ManagedWorktrees(this.store, this.directory).created(
+          this.git,
+          project,
+          path,
+          id,
+          this.now(),
+        );
+      } else if (selection.branch)
         await this.git.switchBranch({
           worktree: path,
           branch: selection.branch,

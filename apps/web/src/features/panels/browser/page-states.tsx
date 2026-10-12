@@ -106,13 +106,8 @@ export function StartPage(props: {
 }) {
   return (
     <div className="@container mx-auto flex w-full max-w-[640px] flex-col px-6 pt-14 pb-10">
-      <h2 className="text-md font-medium text-foreground">Open a page</h2>
-      <p className="mt-1 text-ui leading-normal text-muted-foreground">
-        Type an address above. This thread's agents use the same page, so you can watch them or take
-        over.
-      </p>
       {props.suggestions.length > 0 && (
-        <section aria-labelledby="browser-suggested" className="mt-8">
+        <section aria-labelledby="browser-suggested">
           <h3 id="browser-suggested" className="text-xs font-medium text-subtle-foreground">
             Suggested
           </h3>

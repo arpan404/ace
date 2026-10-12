@@ -118,7 +118,7 @@ test("subagents open inline as the agents started, and the agent tree is one cli
 
   await userEvent.click(screen.getByRole("button", { name: "Open work and agents" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Agents");
+  expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Work");
 });
 
 test("the transcript live line counts the working subagents without a composer pill", async () => {
@@ -167,7 +167,7 @@ test("returning to a thread shows new output without a divider and advances its 
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
   await act(async () => script.runThrough("finding"));
 
-  await userEvent.click(screen.getByRole("button", { name: "Back" }));
+  await userEvent.keyboard("{Meta>}[{/Meta}");
   const again = await screen.findByRole("feed", { name: "Transcript" });
   expect(await within(again).findByText(/reconnect-audit found one more path/)).toBeTruthy();
   expect(within(again).queryByRole("separator", { name: "New activity" })).toBeNull();

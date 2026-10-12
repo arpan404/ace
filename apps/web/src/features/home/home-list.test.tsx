@@ -44,24 +44,25 @@ function workbenchApp(options: Parameters<typeof harness>[0] = {}) {
   return app;
 }
 
-test("Home groups project threads and keeps requests first within each project", async () => {
+test("Home keeps attention and active tasks ahead across projects, with settled work at the end", async () => {
   await openHome(workbenchApp());
-  // Project order follows its first thread in Home priority; requests lead within each project.
+  // Home priority crosses project boundaries rather than collecting each project together.
   expect(order()).toEqual([
     "Partial refunds double-count tax",
-    "Invoice PDF locale fallback",
     "Approval sheet loses its state on rotate",
     "Retry budget for app-server restarts",
-    "Backpressure on broadcast fan-out",
     "Dedupe thread events after reconnect",
     "Rewrite the install page for the daemon",
+    "Backpressure on broadcast fan-out",
+    "Invoice PDF locale fallback",
   ]);
   expect(within(threads()).queryByRole("button", { name: /^Show more/ })).toBeNull();
   // The finished thread's PR merged, so the daemon has settled it out of the way.
-  const settled = screen.getByRole("button", { name: "Settled 1" });
+  const settled = screen.getByRole("button", { name: "Settled (1)" });
   expect(settled.getAttribute("aria-expanded")).toBe("false");
   await userEvent.click(settled);
-  expect(card(/Bump Codex app-server to 0.48/)).toBeTruthy();
+  expect(order().at(-1)).toBe("Bump Codex app-server to 0.48");
+  expect(within(threads()).queryAllByRole("heading")).toHaveLength(0);
 });
 
 test("a pinned thread leads the list, ahead of threads that need you", async () => {
@@ -80,7 +81,7 @@ test("a pinned thread leads the list, ahead of threads that need you", async () 
 test("tasks expose status, linked PR, provider and branch details", async () => {
   await openHome(workbenchApp());
   const refund = card(/^Partial refunds double-count tax/);
-  expect(within(refund).queryByText("fix/refund-tax")).toBeNull();
+  expect(within(refund).getByText("fix/refund-tax")).toBeTruthy();
   expect(refund.getAttribute("aria-label") ?? refund.textContent).toContain(
     "Waiting for your approval",
   );
@@ -88,12 +89,12 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   expect(refund.getAttribute("aria-label")).toContain("Pull request #77");
   expect(refund.getAttribute("aria-label")).toContain("fix/refund-tax");
   expect(refund.getAttribute("aria-label")).toContain("billing-api");
-  expect(within(refund).queryByText("billing-api")).toBeNull();
-  expect(within(threads()).getByRole("heading", { name: "billing-api" })).toBeTruthy();
+  expect(within(refund).getByText("billing-api")).toBeTruthy();
+  expect(within(threads()).queryAllByRole("heading")).toHaveLength(0);
 
   // Working rows expose their worktree and subagents too.
   const dedupe = card(/^Dedupe thread events after reconnect/);
-  expect(within(dedupe).queryByText("fix/replay-dedupe")).toBeNull();
+  expect(within(dedupe).getByText("fix/replay-dedupe")).toBeTruthy();
   expect(dedupe.getAttribute("aria-label")).toContain("Claude Code · 2 subagents running");
   expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toContain(
     "Waiting on 2 subagents",
@@ -108,7 +109,7 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
 
 /** Bring the settled thread back to the list, done and at rest. */
 async function unsettleBump() {
-  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
   await rowAction("Unsettle", "Bump Codex app-server to 0.48");
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
 }
@@ -139,7 +140,7 @@ test("Up and Down (and j and k) move between rows, past the Settled heading", as
   const last = rows.at(-1);
   last?.focus();
   await userEvent.keyboard("j");
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Settled 1" }));
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Settled (1)" }));
   await userEvent.keyboard("{Enter}{ArrowDown}");
   expect(document.activeElement).toBe(card(/^Bump Codex app-server to 0.48/));
 });
@@ -181,14 +182,14 @@ test("a row's actions offer Settle for finished work and hide it while work cont
 test("Settled stays open or closed as the person left it, across a reload", async () => {
   const storage = memoryKeyValue();
   const view = await openHome(workbenchApp({ storage }));
-  const toggle = await screen.findByRole("button", { name: "Settled 1" });
+  const toggle = await screen.findByRole("button", { name: "Settled (1)" });
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   await userEvent.click(toggle);
   expect(card(/^Bump Codex app-server to 0.48/)).toBeTruthy();
   view.unmount();
 
   await openHome(workbenchApp({ storage }));
-  const reopened = await screen.findByRole("button", { name: "Settled 1" });
+  const reopened = await screen.findByRole("button", { name: "Settled (1)" });
   expect(reopened.getAttribute("aria-expanded")).toBe("true");
   expect(card(/^Bump Codex app-server to 0.48/)).toBeTruthy();
   await userEvent.click(reopened);
@@ -215,14 +216,14 @@ test("hovering a row's link shows what its marks mean in a tooltip", async () =>
 test("Settle drops a finished thread into Settled on the daemon and Undo puts it back", async () => {
   const app = workbenchApp();
   await openHome(app);
-  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
   await rowAction("Unsettle", "Bump Codex app-server to 0.48");
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
   expect(order()).toContain("Bump Codex app-server to 0.48");
 
   await rowAction("Settle", "Bump Codex app-server to 0.48");
   expect(await screen.findByText("Settled · Bump Codex app-server to 0.48")).toBeTruthy();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 1" })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (1)" })).toBeTruthy());
   const settledAt = () => {
     const view = app.daemon.snapshot({ kind: "threads" });
     return view?.kind === "threads" ? view.threads["thread-bump-codex"]?.settledAt : undefined;
@@ -240,11 +241,11 @@ test("Settle drops a finished thread into Settled on the daemon and Undo puts it
 test("a settled thread comes back to the list as soon as it moves again", async () => {
   const app = workbenchApp();
   await openHome(app);
-  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
   await rowAction("Unsettle", "Bump Codex app-server to 0.48");
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
   await rowAction("Settle", "Bump Codex app-server to 0.48");
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 1" })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (1)" })).toBeTruthy());
 
   // New work on it: the agent starts another turn and the thread is working again.
   app.daemon.apply("thread-bump-codex", [
@@ -257,7 +258,7 @@ test("a settled thread comes back to the list as soon as it moves again", async 
 test("Settled lists settled threads without the settle rule, which lives in Settings", async () => {
   const app = workbenchApp();
   await openHome(app);
-  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
   expect(card(/^Bump Codex/)).toBeTruthy();
   expect(screen.queryByText(/Threads that need you never settle/)).toBeNull();
   expect(screen.queryByRole("button", { name: "When done threads settle" })).toBeNull();
@@ -359,7 +360,7 @@ test("a row's name and tooltip give its whole branch, including main", async () 
 
   const onMain = card(/^Tidy the README/);
   expect(onMain.getAttribute("aria-label")).toContain("Branch main");
-  expect(within(onMain).queryByText("main", { exact: true })).toBeNull();
+  expect(within(onMain).getByText("main", { exact: true })).toBeTruthy();
   await userEvent.unhover(hashed);
   onMain.focus();
   const details = await screen.findByLabelText(/^Details for Tidy the README/);
