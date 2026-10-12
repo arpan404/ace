@@ -128,3 +128,40 @@ test("a turn the index has never seen is refused", () => {
     "turn_target_unavailable",
   );
 });
+
+// Mutation: one surface the wire can't carry failing the whole turn's read.
+test("an icon the wire can't carry costs only that icon, never the turn", () => {
+  const f = twoTurns();
+  const page = f.store.turnSteps({ threadId: f.thread.id, turnOrdinal: 1 }, () => "not-a-hash");
+  const open = page.steps.find((step) => step.item.id === "open");
+  expect(open?.surface).toEqual({
+    kind: "browser",
+    icon: { kind: "site", origin: "https://github.com" },
+  });
+  expect(page.steps).toHaveLength(4);
+});
+
+// Mutation: resetting the carried site at a page boundary.
+test("a later page's step that names no URL keeps the site its earlier steps were on", () => {
+  const f = twoTurns();
+  const first = f.store.turnSteps({ threadId: f.thread.id, turnOrdinal: 1, limit: 2 });
+  const rest = f.store.turnSteps({
+    threadId: f.thread.id,
+    turnOrdinal: 1,
+    limit: 2,
+    after: first.after ?? 0,
+  });
+  expect(rest.steps[0]?.item.id).toBe("click");
+  expect(rest.steps[0]?.surface?.icon).toEqual({ kind: "site", origin: "https://github.com" });
+});
+
+// Mutation: working out an icon for anything but the thread's own recorded steps.
+test("only a thread's own recorded steps name a surface to resolve", () => {
+  const f = twoTurns();
+  expect(f.store.stepSurface(f.thread.id, "click")?.icon).toEqual({
+    kind: "site",
+    origin: "https://github.com",
+  });
+  expect(f.store.stepSurface(f.thread.id, "read")).toBeUndefined();
+  expect(f.store.stepSurface(f.thread.id, "no-such-step")).toBeUndefined();
+});

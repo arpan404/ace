@@ -421,20 +421,18 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"icons.resolve"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
-| icons | yes | array | {"minItems":1,"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/ToolIcon.json"}} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| itemIds | yes | array | {"minItems":1,"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/ItemId.json"}} |
 
 Example:
 
 ```json
 {
-  "icons": [
-    {
-      "identity": "example",
-      "kind": "app",
-      "name": "example"
-    }
+  "itemIds": [
+    "example"
   ],
   "requestId": "example",
+  "threadId": "example",
   "type": "icons.resolve"
 }
 ```
@@ -451,7 +449,7 @@ Example:
 
 ```json
 {
-  "ref": "320931dc5c6c96ed01bd50ed6dd5760af69e1c8b77367926a232113e5939286a",
+  "ref": "ed320931dc5c6c96ed01bd50ed6dd5760af69e1c8b77367926a232113e593928",
   "requestId": "example",
   "type": "icons.read"
 }
@@ -474,7 +472,8 @@ Example:
 
 ```json
 {
-  "limit": 8,
+  "cursor": "example",
+  "filter": "errors",
   "requestId": "example",
   "text": "example",
   "threadId": "example",

@@ -84,3 +84,15 @@ it("gives fetched pages their site and leaves ordinary tools without a surface",
   expect(shell.type === "tool_call" && toolSurface(shell.call)).toBeUndefined();
   expect(local.type === "tool_call" && toolSurface(local.call)).toBeUndefined();
 });
+
+it("names no site for a host a site origin can't hold", () => {
+  for (const url of ["http://[::1]:3000/a", "https://my_host.local/x", "ftp://github.com"]) {
+    const item = browse("odd", url);
+    expect(item.type === "tool_call" && toolSurface(item.call)).toEqual({ kind: "browser" });
+  }
+});
+
+it("an earlier page's site carries into a step that names none", () => {
+  const surfaces = toolSurfaces([browse("click")], new Map([["root", "https://github.com"]]));
+  expect(surfaces.get("click")?.icon).toEqual({ kind: "site", origin: "https://github.com" });
+});

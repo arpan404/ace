@@ -4,11 +4,6 @@
   "oneOf": [
     {
       "properties": {
-        "favicon": {
-          "maxLength": 2048,
-          "pattern": "^https?:\\/\\/\\S+$",
-          "type": "string"
-        },
         "kind": {
           "const": "site",
           "type": "string"

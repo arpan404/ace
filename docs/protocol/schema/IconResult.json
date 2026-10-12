@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/IconResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ref": {
+      "$ref": "https://ace.local/protocol/v1/IconRef.json"
+    },
+    "state": {
+      "maxLength": 32,
+      "type": "string",
+      "x-ace-values": [
+        "found",
+        "none",
+        "later"
+      ]
+    }
+  },
+  "required": [
+    "state"
+  ],
+  "type": "object"
+}

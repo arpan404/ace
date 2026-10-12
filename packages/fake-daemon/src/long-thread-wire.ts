@@ -58,7 +58,7 @@ export class FakeLongThreadWire {
     deviceId: string,
     send: (message: ServerMessage) => void,
   ): boolean {
-    if (this.icons.handle(message, send)) return true;
+    if (this.icons.handle(message, send, (id) => this.visible(id))) return true;
     if (
       ![
         "turns.page",

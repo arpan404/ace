@@ -6,13 +6,20 @@ import type { Item, ToolCall, ToolSurface } from "@ace/protocol";
  * agent last opened, so the site carries forward through a turn's steps. Pure.
  */
 
-/** `https://github.com` for an http(s) URL; never a path, query or userinfo. */
+/** A web host name: letters, digits, dots and hyphens (no IP-literal brackets, no `_`). */
+const hostName = /^[a-z0-9.-]{1,253}$/;
+
+/**
+ * `https://github.com` for an http(s) URL with a plain host name; never a path, query or
+ * userinfo, and undefined for anything `SiteOrigin` would refuse.
+ */
 export function siteOrigin(url: string | undefined): string | undefined {
   if (!url) return undefined;
   try {
     const parsed = new URL(url);
-    if (!/^https?:$/.test(parsed.protocol) || !parsed.hostname) return undefined;
-    return `${parsed.protocol}//${parsed.host.toLowerCase()}`;
+    const host = parsed.hostname.toLowerCase();
+    if (!/^https?:$/.test(parsed.protocol) || !hostName.test(host)) return undefined;
+    return `${parsed.protocol}//${host}${parsed.port ? `:${parsed.port}` : ""}`;
   } catch {
     return undefined;
   }
@@ -44,7 +51,7 @@ function argumentsOf(call: ToolCall): unknown {
  */
 export function toolSurface(call: ToolCall, carried?: string): ToolSurface | undefined {
   const target = call.result?.target;
-  if (target?.bundleId)
+  if (target?.bundleId && target.bundleId.length <= 1024)
     return {
       kind: "computer",
       icon: { kind: "app", identity: target.bundleId, name: target.displayName },
@@ -57,7 +64,7 @@ export function toolSurface(call: ToolCall, carried?: string): ToolSurface | und
   const args = argumentsOf(call);
   if (name && screenTool.test(name)) {
     const bundleId = field(args, "bundleId");
-    return bundleId
+    return bundleId && bundleId.length <= 1024
       ? { kind: "computer", icon: { kind: "app", identity: bundleId } }
       : { kind: "computer" };
   }
@@ -68,16 +75,23 @@ export function toolSurface(call: ToolCall, carried?: string): ToolSurface | und
   return undefined;
 }
 
-/** Each tool step's surface, carrying each agent's site forward in order. */
-export function toolSurfaces(items: readonly Item[]): Map<string, ToolSurface> {
+/**
+ * Each tool step's surface, carrying each agent's site forward in order. `carried` seeds the site
+ * each agent was on before the first item (an earlier page of the same turn).
+ */
+export function toolSurfaces(
+  items: readonly Item[],
+  carried?: ReadonlyMap<string, string>,
+): Map<string, ToolSurface> {
   const surfaces = new Map<string, ToolSurface>();
-  const sites = new Map<string, string>();
+  const sites = new Map<string, string>(carried);
   for (const item of items) {
     if (item.type !== "tool_call") continue;
-    const surface = toolSurface(item.call, sites.get(item.agentId));
+    const agent = item.agentId ?? "";
+    const surface = toolSurface(item.call, sites.get(agent));
     if (!surface) continue;
     surfaces.set(item.id, surface);
-    if (surface.icon?.kind === "site") sites.set(item.agentId, surface.icon.origin);
+    if (surface.icon?.kind === "site") sites.set(agent, surface.icon.origin);
   }
   return surfaces;
 }

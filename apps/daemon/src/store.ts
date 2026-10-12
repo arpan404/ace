@@ -10,7 +10,7 @@ import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
 import { migrateProjects, decodeProjectRow } from "./project-storage.ts";
 import { LongThreadIndex } from "./long-thread/index.ts";
-import { readTurnSteps, type TurnStepsSource } from "./long-thread/steps.ts";
+import { readTurnSteps, stepSurface, type TurnStepsSource } from "./long-thread/steps.ts";
 import {
   TurnsPageRequest,
   ItemsWindowRequest,
@@ -1095,6 +1095,18 @@ export class Store {
       },
       query,
       this.headSeq(),
+    );
+  }
+  /** A recorded step's site or app, worked out by the daemon (`icons.resolve`). */
+  stepSurface(threadId: ThreadId, itemId: string) {
+    this.readableThread(threadId);
+    return stepSurface(
+      {
+        data: this.longThreads.data,
+        item: (thread, id) => this.payloads.stepItem(thread, id),
+      },
+      threadId,
+      itemId,
     );
   }
   itemsWindow(input: Omit<WindowQuery, "type" | "requestId"> & { requestId?: string }) {

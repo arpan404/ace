@@ -367,14 +367,16 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"icons.resolve"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
-| refs | yes | array | {"maxItems":32,"items":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/IconRef.json"},{"type":"null"}]}} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| icons | yes | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/IconResult.json"}} |
 
 Example:
 
 ```json
 {
-  "refs": [],
+  "icons": [],
   "requestId": "example",
+  "threadId": "example",
   "type": "icons.resolve"
 }
 ```

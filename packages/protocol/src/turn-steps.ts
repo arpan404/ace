@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ThreadId } from "./ids.ts";
+import { ItemId, ThreadId } from "./ids.ts";
 import { Item } from "./items.ts";
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -16,19 +16,11 @@ export type SiteOrigin = z.infer<typeof SiteOrigin>;
 
 /**
  * What a browser or computer-use step acted on, as the daemon can resolve an icon for it: a web
- * site by origin (with the favicon URL the provider reported, when it did) or a native app by its
- * platform identity (a macOS bundle id, a Windows exe path, a Linux WM_CLASS).
+ * site by origin or a native app by its platform identity (a macOS bundle id, a Windows exe path,
+ * a Linux WM_CLASS).
  */
 export const ToolIcon = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("site"),
-    origin: SiteOrigin,
-    favicon: z
-      .string()
-      .max(2048)
-      .regex(/^https?:\/\/\S+$/)
-      .optional(),
-  }),
+  z.object({ kind: z.literal("site"), origin: SiteOrigin }),
   z.object({
     kind: z.literal("app"),
     identity: z.string().min(1).max(1024),
@@ -53,10 +45,24 @@ export type ToolSurface = z.infer<typeof ToolSurface>;
  * One of a turn's steps as its work log shows it: the item without its native payloads (`raw`
  * is kept only for `custom` calls, whose arguments live there) and text cut to a preview.
  */
+/**
+ * A surface as the wire carries it. A kind or icon a client doesn't know still decodes; clients
+ * read it with `ToolSurface` and skip what they can't (never fatal to the turn).
+ */
+export const StepSurface = z.object({
+  kind: z.string().max(32),
+  icon: z
+    .object({ kind: z.string().max(32) })
+    .loose()
+    .optional(),
+  iconRef: IconRef.optional(),
+});
+export type StepSurface = z.infer<typeof StepSurface>;
+
 export const TurnStep = z.object({
   seq: ordinal,
   item: Item,
-  surface: ToolSurface.optional(),
+  surface: StepSurface.optional(),
 });
 export type TurnStep = z.infer<typeof TurnStep>;
 
@@ -85,18 +91,36 @@ export const TurnStepsResponse = z.object({
 });
 export type TurnStepsResponse = z.infer<typeof TurnStepsResponse>;
 
-/** Icons for the given sites and apps, resolved on the daemon host (ADR 0002: no credentials). */
+/**
+ * The icons of a thread's own recorded steps. The daemon reads each step and works out its site
+ * or app itself: it never fetches an origin a client names (ADR 0002, no request forgery).
+ */
 export const IconsResolveRequest = z.object({
   type: z.literal("icons.resolve"),
   requestId,
-  icons: z.array(ToolIcon).min(1).max(32),
+  threadId: ThreadId,
+  itemIds: z.array(ItemId).min(1).max(32),
 });
 export type IconsResolveRequest = z.infer<typeof IconsResolveRequest>;
+/**
+ * `found` (with `ref`) names the icon's PNG; `none` says the step has no icon (no surface, or none
+ * exists); `later` says the lookup failed in a way that may pass, so ask again later. Clients
+ * read any other state as `later`.
+ */
+export const IconResult = z.object({
+  state: z
+    .string()
+    .max(32)
+    .meta({ "x-ace-values": ["found", "none", "later"] }),
+  ref: IconRef.optional(),
+});
+export type IconResult = z.infer<typeof IconResult>;
 export const IconsResolveResponse = z.object({
   type: z.literal("icons.resolve"),
   requestId,
-  /** One per requested icon, in order; null when none could be found. */
-  refs: z.array(IconRef.nullable()).max(32),
+  threadId: ThreadId,
+  /** One per requested step, in order. */
+  icons: z.array(IconResult).max(32),
 });
 export type IconsResolveResponse = z.infer<typeof IconsResolveResponse>;
 

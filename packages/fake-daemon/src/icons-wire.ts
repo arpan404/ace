@@ -1,4 +1,6 @@
-import type { ClientMessage, ServerMessage, ToolIcon } from "@ace/protocol";
+import { toolSurfaces } from "@ace/projection";
+import type { ClientMessage, IconResult, Item, ServerMessage, ToolIcon } from "@ace/protocol";
+import type { ThreadHost } from "./thread-host.ts";
 import { fixtureIcons } from "./icon-fixtures.ts";
 
 /** A stable 64-hex stand-in for the PNG's SHA-256 (fake mode only needs it unique and stable). */
@@ -29,12 +31,28 @@ export class FakeIcons {
     return this.byKey.get(`site:${icon.origin}`) ?? this.byKey.get(`site:${host}`);
   }
 
-  handle(message: ClientMessage, send: (message: ServerMessage) => void): boolean {
+  handle(
+    message: ClientMessage,
+    send: (message: ServerMessage) => void,
+    thread: (id: string) => ThreadHost | undefined,
+  ): boolean {
     if (message.type === "icons.resolve") {
+      // Like the daemon: each step's site or app comes from the thread's own recorded steps.
+      const host = thread(message.threadId);
+      const items = (host?.view.itemOrder ?? []).flatMap((id): Item[] => {
+        const item = host?.view.items[id];
+        return item ? [item] : [];
+      });
+      const surfaces = toolSurfaces(items);
       send({
         type: "icons.resolve",
         requestId: message.requestId,
-        refs: message.icons.map((icon) => this.ref(icon) ?? null),
+        threadId: message.threadId,
+        icons: message.itemIds.map((id): IconResult => {
+          const icon = surfaces.get(id)?.icon;
+          const ref = icon ? this.ref(icon) : undefined;
+          return ref ? { state: "found", ref } : { state: "none" };
+        }),
       });
       return true;
     }
