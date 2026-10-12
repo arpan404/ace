@@ -2,24 +2,30 @@ import type { Item, Thread, ThreadListEntry, Interaction } from "@ace/protocol";
 import { threadAttention } from "@ace/projection";
 import type { ThreadReader } from "@ace/client";
 
+function preview(text: string, limit = 512): string {
+  if (text.length <= limit) return text;
+  const end = text.charCodeAt(limit - 1);
+  return text.slice(0, end >= 0xd800 && end <= 0xdbff ? limit - 1 : limit) + "…";
+}
+
 export function threadRow(thread: Thread | ThreadListEntry) {
   return {
     id: thread.id,
-    title: thread.title,
+    title: preview(thread.title),
     state: thread.status.state,
     attention: threadAttention(thread) ?? null,
-    project: thread.details?.workspace?.name ?? thread.workspaceId,
-    branch: thread.details?.branch ?? "",
-    machine: thread.details?.machine?.name ?? "",
+    project: preview(thread.details?.workspace?.name ?? thread.workspaceId),
+    branch: preview(thread.details?.branch ?? ""),
+    machine: preview(thread.details?.machine?.name ?? ""),
     provider: thread.provider,
-    model: thread.live?.model ?? thread.execution?.model ?? "",
+    model: preview(thread.live?.model ?? thread.execution?.model ?? ""),
     agents: (thread.live?.subagentCount ?? 0) + 1,
     snoozedUntil: thread.snoozedUntil ?? null,
     updatedAt: thread.updatedAt,
     canSteer: thread.capabilities?.steer ?? false,
   };
 }
-export function itemRow(item: Item, index?: number) {
+export function itemRow(item: Item, index?: number, sourceTruncated = false) {
   let text = "";
   let role = "";
   if (item.type === "message") {
@@ -41,7 +47,7 @@ export function itemRow(item: Item, index?: number) {
     complete: item.complete,
     createdAt: item.createdAt,
     agentId: "agentId" in item ? item.agentId : "",
-    truncated: text.length > 8192,
+    truncated: sourceTruncated || text.length > 8192,
   };
 }
 export function approvalRow(interaction: Interaction, reader: ThreadReader) {
@@ -53,9 +59,20 @@ export function approvalRow(interaction: Interaction, reader: ThreadReader) {
     id: interaction.id,
     kind: request.kind,
     state: interaction.state,
-    title: request.kind === "approval" ? request.title : "Your answer is needed",
-    description: request.kind === "approval" ? (request.description ?? "") : "",
-    command,
-    options: request.kind === "approval" ? request.options : [],
+    title: request.kind === "approval" ? preview(request.title) : "Your answer is needed",
+    description: request.kind === "approval" ? preview(request.description ?? "", 2048) : "",
+    command: preview(command, 8192),
+    truncated:
+      command.length > 8192 ||
+      (request.kind === "approval" &&
+        (request.title.length > 512 || (request.description?.length ?? 0) > 2048)),
+    options:
+      request.kind === "approval"
+        ? request.options.map((option) => ({
+            id: option.id,
+            kind: option.kind,
+            label: preview(option.label, 128),
+          }))
+        : [],
   };
 }

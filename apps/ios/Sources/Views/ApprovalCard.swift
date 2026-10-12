@@ -20,6 +20,7 @@ struct ApprovalCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(AceTheme.Spacing.md)
                     .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.code))
             }
+            if approval.truncated { Text("Some details are shortened for display").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
             HStack(spacing: AceTheme.Spacing.sm) {
                 ForEach(approval.options.sorted { rank($0.kind) < rank($1.kind) }) { option in
                     Button {

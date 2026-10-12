@@ -30,6 +30,7 @@ import CryptoKit
     var inboxLoaded = false
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: ClientRuntime?
+    @ObservationIgnored private var frames = BridgeFrames()
     @ObservationIgnored let now: () -> Double
     @ObservationIgnored var metrics: SpikeMetrics?
     @ObservationIgnored var largestFrame = 0
@@ -51,7 +52,7 @@ import CryptoKit
     }
     func receive(_ data: Data) {
         largestFrame = max(largestFrame, data.count)
-        guard data.count <= 32768, let patches = try? JSONDecoder().decode([BridgePatch].self, from: data), patches.count <= 32 else {
+        guard let patches = try? frames.decode(data) else {
             error = "Could not read a client update"
             return
         }
@@ -59,6 +60,7 @@ import CryptoKit
         for patch in patches {
             patchCount += 1
             switch patch {
+            case .fragment: break // BridgeFrames only returns complete patches.
             case .inboxReset: inbox.removeAll(keepingCapacity: true); inboxLoaded = true
             case .inbox(let id, let row): inbox[id] = row
             case .connection(let state): connection = state

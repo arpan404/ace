@@ -35,10 +35,12 @@ struct ApprovalRow: Codable, Sendable, Identifiable {
     let description: String
     let command: String
     let options: [Option]
+    let truncated: Bool
 }
 struct PendingRow: Codable, Sendable, Identifiable { let id: String; let threadId: String; let state: String; let waiting: Bool; let text: String }
 
 enum BridgePatch: Decodable, Sendable {
+    case fragment(BridgeFragment)
     case inboxReset
     case inbox(String, ThreadRow?)
     case threadReset(String, Int)
@@ -59,6 +61,7 @@ enum BridgePatch: Decodable, Sendable {
         let type = try box.decode(String.self, forKey: .type)
         func scope() throws -> (String, Int) { (try box.decode(String.self, forKey: .threadId), try box.decode(Int.self, forKey: .epoch)) }
         switch type {
+        case "fragment": self = .fragment(try BridgeFragment(from: decoder))
         case "inbox.reset": self = .inboxReset
         case "inbox.row": self = .inbox(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ThreadRow.self, forKey: .row))
         case "thread.reset": let (id, epoch) = try scope(); self = .threadReset(id, epoch)

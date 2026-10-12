@@ -3,6 +3,7 @@ import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
 import { z } from "zod";
 import { ThreadId } from "@ace/protocol";
+import { oversizedScenario } from "./review-scenarios.ts";
 
 const daemon = new FakeDaemon({
   clock: Date.now,
@@ -140,6 +141,10 @@ const server = Bun.serve<undefined>({
   port: 9841,
   async fetch(request, listener) {
     const path = new URL(request.url).pathname;
+    if (path === "/review/oversized" && request.method === "POST") {
+      oversizedScenario(daemon, z.enum(["create", "work", "approval"]).parse(await request.json()));
+      return Response.json({ ok: true });
+    }
     if (path === "/health")
       return Response.json({ head: daemon.head, deltas, commands, snapshots, replays });
     if (path === "/control" && request.method === "POST") {
@@ -149,7 +154,10 @@ const server = Bun.serve<undefined>({
     }
     if (path === "/state")
       return Response.json(
-        daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("ios-stream") }),
+        daemon.snapshot({
+          kind: "thread",
+          threadId: ThreadId.parse(new URL(request.url).searchParams.get("thread") ?? "ios-stream"),
+        }),
       );
     if (online && listener.upgrade(request)) return;
     return new Response("Unavailable", { status: 503 });

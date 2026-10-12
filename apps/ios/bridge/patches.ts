@@ -7,6 +7,7 @@ export class PatchPump {
   #inFlight = false;
   #timer: (() => void) | undefined;
   #tasks = new Map<string, () => unknown | undefined>();
+  #fragment: { id: string; bytes: number[]; offset: number; index: number } | undefined;
   put(key: string, read: () => unknown | undefined): void {
     this.#tasks.set(key, read);
     this.#schedule();
@@ -19,7 +20,7 @@ export class PatchPump {
     for (const key of this.#tasks.keys()) if (key.startsWith(prefix)) this.#tasks.delete(key);
   }
   #schedule(): void {
-    if (this.#inFlight || this.#timer || !this.#tasks.size) return;
+    if (this.#inFlight || this.#timer || (!this.#tasks.size && !this.#fragment)) return;
     this.#timer = scheduler.set(8, () => {
       this.#timer = undefined;
       this.#flush();
@@ -27,6 +28,10 @@ export class PatchPump {
   }
   #flush(): void {
     if (this.#inFlight) return;
+    if (this.#fragment) {
+      this.#emitFragment();
+      return;
+    }
     const frame: unknown[] = [];
     let bytes = 2;
     for (const [key, read] of this.#tasks) {
@@ -36,14 +41,14 @@ export class PatchPump {
         continue;
       }
       const json = JSON.stringify(patch);
-      const size = host.encode(json).length;
+      const encoded = host.encode(json);
+      const size = encoded.length;
       if (size > 32760) {
+        if (frame.length) break;
         this.#tasks.delete(key);
-        this.put("error", () => ({
-          type: "error",
-          message: "Native patch exceeded its byte budget",
-        }));
-        continue;
+        this.#fragment = { id: host.uuid(), bytes: encoded, offset: 0, index: 0 };
+        this.#emitFragment();
+        return;
       }
       if (bytes + size + 1 > 32768 || frame.length >= 32) break;
       this.#tasks.delete(key);
@@ -54,6 +59,19 @@ export class PatchPump {
       this.#inFlight = true;
       host.emit(JSON.stringify(frame));
     }
+  }
+  #emitFragment(): void {
+    const fragment = this.#fragment;
+    if (!fragment) return;
+    // Decimal byte arrays take at most four JSON bytes per byte. No UTF-16 boundary cuts.
+    const bytes = fragment.bytes.slice(fragment.offset, fragment.offset + 4096);
+    fragment.offset += bytes.length;
+    const last = fragment.offset === fragment.bytes.length;
+    this.#inFlight = true;
+    host.emit(
+      JSON.stringify([{ type: "fragment", id: fragment.id, index: fragment.index++, last, bytes }]),
+    );
+    if (last) this.#fragment = undefined;
   }
 }
 export function followInbox(store: SidebarSource, pump: PatchPump): () => void {
@@ -96,7 +114,11 @@ export function followThread(
     if (index !== undefined) positions.set(id, index);
     put(`item:${id}`, () => {
       const item = store.item(id);
-      return { type: "thread.item", id, row: item ? itemRow(item, positions.get(id)) : null };
+      return {
+        type: "thread.item",
+        id,
+        row: item ? itemRow(item, positions.get(id), store.truncated(id)) : null,
+      };
     });
   };
   const interaction = (id: string) =>
