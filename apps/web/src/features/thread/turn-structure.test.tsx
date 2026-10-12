@@ -100,8 +100,9 @@ test("a running turn keeps interim notes in its log and one working line after i
   await app.open("/t/thread-stuck");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   expect(within(feed).queryByText("Work so far")).toBeNull();
-  expect(screen.getByRole("status", { name: "Working" }).textContent).toContain("src/config");
-  expect(within(feed).queryByText("Installing; reading the config meanwhile.")).toBeNull();
+  // The step in flight closes the flow under the header; the note before it reads as prose.
+  await waitFor(() => expect(within(feed).getAllByTitle(/src\/config/).length).toBeGreaterThan(0));
+  expect(within(feed).getAllByText("Installing; reading the config meanwhile.")).toHaveLength(1);
   act(() => script.runThrough("answered"));
   expect(await within(feed).findByText("The config reads the lockfile path.")).toBeTruthy();
   expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
@@ -394,9 +395,8 @@ test("the live line follows command refinements without rebuilding the transcrip
     .runUntilBlocked();
   await app.open("/t/thread-run");
   await screen.findByRole("feed", { name: "Transcript" });
-  expect(screen.getByRole("status", { name: "Working" }).textContent).toContain(
-    "Running bun run build",
-  );
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  expect(within(feed).getByTitle("bun run build")).toBeTruthy();
 
   // The provider refines the command; the agent's own status doesn't change.
   act(() =>
@@ -412,11 +412,7 @@ test("the live line follows command refinements without rebuilding the transcrip
       },
     ]),
   );
-  await waitFor(() =>
-    expect(screen.getByRole("status", { name: "Working" }).textContent).toContain(
-      "Running bun run build apps/web",
-    ),
-  );
+  expect(await within(feed).findByTitle("bun run build apps/web")).toBeTruthy();
 });
 
 test("an open turn has a quiet work log that becomes timed history when the turn settles", async () => {

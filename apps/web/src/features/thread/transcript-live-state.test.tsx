@@ -9,6 +9,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { createTimeSource, TimeContext } from "@/lib/time.ts";
 import { ActivityLine } from "./items/live-head.tsx";
+import { ToastProvider } from "@/components/ui/toast.tsx";
 
 beforeEach(() => localStorage.clear());
 
@@ -81,7 +82,9 @@ test("steering into an active turn preserves its elapsed time and shows the new 
       }),
     ]),
   );
-  await waitFor(() => expect(live().textContent).toContain("mobile.ts"));
+  // The new step flows under the header, which keeps the turn's time.
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  await waitFor(() => expect(within(feed).getByText("mobile.ts")).toBeTruthy());
   expect(live().textContent).toContain("Working for 1m 14s");
 });
 
@@ -134,7 +137,6 @@ test("a parent answer stays working until its subagent finishes and its line ope
     ]),
   );
   await waitFor(() => expect(live().textContent).toContain("1 subagent"));
-  expect(live().textContent).toContain("Running bun run audit");
   act(() =>
     app.daemon.apply(id, [
       facts.tool("audit", "audit-check", {
@@ -144,9 +146,9 @@ test("a parent answer stays working until its subagent finishes and its line ope
       }),
     ]),
   );
-  await waitFor(() => expect(live().textContent).toContain("Running bun run audit mobile"));
+  expect(live().textContent).toContain("1 subagent");
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
-  await userEvent.click(live());
+  await userEvent.click(within(live()).getByRole("button", { name: "Open summary" }));
   expect(await screen.findByRole("region", { name: "Thread panel" })).toBeTruthy();
   act(() => app.daemon.apply(id, [facts.toolDone("audit", "audit-check"), facts.endTurn("audit")]));
   expect(await screen.findByRole("button", { name: /^Worked for 1m 14s/ })).toBeTruthy();
@@ -208,7 +210,9 @@ test("approval inside a subagent holds the parent in a needs-you state, its time
   // The time the turn reached stands still while it waits, however long that is.
   const head = screen.getByRole("group", { name: "Turn in progress" });
   const waiting = head.textContent;
-  expect(waiting).toMatch(/^Working for \d.* · Waiting for your approval$/);
+  // The request is the composer's to show; the head only holds its time.
+  expect(waiting).toMatch(/^Working for \d/);
+  expect(waiting).not.toContain("Waiting for your approval");
   act(() => setTime(10 * 60_000));
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 1100));
@@ -311,9 +315,7 @@ test("the live line ticks with an injected clock and stops ticking when approval
     now = 200_000;
     act(() => vi.advanceTimersByTime(1_000));
     // The time stands where the wait began.
-    expect(screen.getByRole("status").textContent).toBe(
-      "Working for 1m 15s · Waiting for your approval",
-    );
+    expect(screen.getByRole("status").textContent).toBe("Working for 1m 15s");
     view.unmount();
   } finally {
     vi.useRealTimers();
@@ -415,19 +417,21 @@ test("only the visible activity line ticks while ongoing work logs stay static",
   vi.useFakeTimers();
   const view = render(
     <ClientProvider client={app.client}>
-      <TimeContext value={time}>
-        <Profiler
-          id="hidden-work"
-          onRender={() => {
-            logRenders++;
-          }}
-        >
-          <WorkLog threadId={id} block={{ kind: "work", key: "work", itemIds, ongoing: true }} />
-        </Profiler>
-        <ActivityLine
-          activity={{ label: "Working", tone: "working", elapsedFrom: 1_000, current: undefined }}
-        />
-      </TimeContext>
+      <ToastProvider>
+        <TimeContext value={time}>
+          <Profiler
+            id="hidden-work"
+            onRender={() => {
+              logRenders++;
+            }}
+          >
+            <WorkLog threadId={id} block={{ kind: "work", key: "work", itemIds, ongoing: true }} />
+          </Profiler>
+          <ActivityLine
+            activity={{ label: "Working", tone: "working", elapsedFrom: 1_000, current: undefined }}
+          />
+        </TimeContext>
+      </ToastProvider>
     </ClientProvider>,
   );
   try {

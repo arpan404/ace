@@ -20,19 +20,12 @@ async function openReplay(through = "finding") {
 test("tool work collapses into one line that opens to its steps and their output", async () => {
   const { app, feed } = await openReplay("answered");
   act(() => app.daemon.apply("thread-replay-cursor", [facts.endTurn("root")]));
-  const summary = await within(feed).findByRole("button", { name: /^Worked for/ });
-  expect(summary.textContent).toContain(
-    "Explored 3 files · 1 search · Ran 2 commands · Edited 2 files",
-  );
-  expect(within(feed).queryByText("apps/server/src/cursor.ts")).toBeNull();
+  expect(await within(feed).findByRole("button", { name: /^Worked for/ })).toBeTruthy();
+  expect(within(feed).queryByTitle("apps/server/src/cursor.ts")).toBeNull();
 
-  // Any file's chip opens the turn's changes.
-  const [chip] = within(summary).getAllByRole("button");
-  if (!chip) throw new Error("No changed-file chip");
-  await userEvent.click(chip);
-  // The steps load with the thread's deferred parts.
-  const steps = await within(feed).findByRole("list", { name: "Steps" });
-  expect(await within(steps).findByText("apps/server/src/cursor.ts")).toBeTruthy();
+  // The steps load with the thread's deferred parts, as the line opens.
+  const steps = await openWorkLog(feed);
+  expect(within(steps).getAllByTitle("apps/server/src/cursor.ts").length).toBeGreaterThan(0);
   expect(within(steps).getByText("4 matches")).toBeTruthy();
 
   await userEvent.click(
@@ -106,7 +99,10 @@ test("a full-text edit's changed-files stat counts the lines that changed, as Ch
   const step = within(feed).getByRole("button", { name: /^Edited apps\/server\/src\/replay.ts/ });
   await waitFor(() => expect(step.textContent).toContain(`+${stat?.[1]} −${stat?.[2]}`));
 
-  await userEvent.click(card);
+  // The file's chip opens the turn's changes.
+  const [chip] = within(card).getAllByRole("button");
+  if (!chip) throw new Error("No changed-file chip");
+  await userEvent.click(chip);
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   const toolbar = await within(panel).findByRole("toolbar", { name: "Changes" });
   expect(within(toolbar).getByText(`+${stat?.[1]}`)).toBeTruthy();

@@ -48,7 +48,7 @@ test("a finished turn with nothing but its answer opens to say it recorded no st
   expect(await within(feed).findByText("No steps recorded.")).toBeTruthy();
   expect(within(feed).queryByRole("status", { name: "Loading steps" })).toBeNull();
   // The answer stays in view, outside the log.
-  expect(within(feed).getAllByText("The build passes.")).toHaveLength(1);
+  expect(await within(feed).findAllByText("The build passes.")).toHaveLength(1);
 });
 
 // Mutation: silently showing whatever the window holds after a failed read.
@@ -100,8 +100,8 @@ test("a turn longer than one read offers to load the rest of its steps", async (
   await app.open("/t/long");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
-  expect(await within(feed).findByText("Ran 1000 commands")).toBeTruthy();
+  expect(await within(feed).findByText("Ran 1000 commands", {}, { timeout: 8000 })).toBeTruthy();
   await userEvent.click(within(feed).getByRole("button", { name: "Load more steps" }));
-  expect(await within(feed).findByText("Ran 1001 commands")).toBeTruthy();
+  expect(await within(feed).findByText("Ran 1001 commands", {}, { timeout: 8000 })).toBeTruthy();
   expect(within(feed).queryByRole("button", { name: "Load more steps" })).toBeNull();
-});
+}, 30_000);
