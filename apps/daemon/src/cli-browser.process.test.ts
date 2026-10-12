@@ -1,15 +1,15 @@
 import { EventEmitter } from "node:events";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BrowserBackend } from "@ace/browser";
 import { expect, test } from "vitest";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { invoke } from "./cli-test-support.ts";
 
-test("browser CLI captures through the shared owner and downloads a private artifact without overwriting files", async () => {
+function screenshotBackend(bytes: Buffer): BrowserBackend {
   const events = new EventEmitter();
-  const bytes = Buffer.from("synthetic image bytes");
-  const backend: BrowserBackend = {
+  return {
     kind: "headless",
     async open(request) {
       let url = "about:blank";
@@ -38,9 +38,66 @@ test("browser CLI captures through the shared owner and downloads a private arti
       };
     },
   };
+}
+
+test.each(["missing", "failed"])(
+  "browser recording refuses an incomplete player download when the encoder is %s",
+  async (encoder) => {
+    const root = await mkdtemp(join(tmpdir(), "ace-cli-encoder-"));
+    const ffmpeg = join(root, "ffmpeg");
+    if (encoder === "failed")
+      await writeFile(ffmpeg, `#!${process.execPath}\nprocess.exit(1);\n`, { mode: 0o700 });
+    const f = await daemonFixture(undefined, {
+      browser: {
+        ffmpeg,
+        headlessBackend: screenshotBackend(Buffer.from("synthetic frame")),
+        backendPreference: async (): Promise<"headless"> => "headless",
+      },
+    });
+    try {
+      const output = join(root, "capture.mp4");
+      const result = await invoke(join(f.h.home, "daemon"), [
+        "browser",
+        "record",
+        f.caller.threadId,
+        "--duration",
+        "10ms",
+        "--output",
+        output,
+        "--json",
+      ]);
+      expect(result.code, result.stderr).toBe(4);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        status: "refused",
+        error: expect.stringContaining("Install ffmpeg"),
+        admission: { mimeType: "text/html", path: expect.stringContaining("player.html") },
+      });
+      await expect(stat(output)).rejects.toMatchObject({ code: "ENOENT" });
+      const transcript = await invoke(join(f.h.home, "daemon"), [
+        "thread",
+        "read",
+        f.caller.threadId,
+        "--json",
+      ]);
+      expect(JSON.parse(transcript.stdout).items).toContainEqual(
+        expect.objectContaining({
+          type: "artifact",
+          source: "browser",
+          mimeType: "text/html",
+        }),
+      );
+    } finally {
+      await f.daemon.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test("browser CLI captures through the shared owner and downloads a private artifact without overwriting files", async () => {
+  const bytes = Buffer.from("synthetic image bytes");
   const f = await daemonFixture(undefined, {
     browser: {
-      headlessBackend: backend,
+      headlessBackend: screenshotBackend(bytes),
       backendPreference: async (): Promise<"headless"> => "headless",
     },
   });
