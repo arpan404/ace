@@ -23,7 +23,7 @@ Example:
 ```json
 {
   "operation": {
-    "op": "task.status",
+    "op": "thread.tree",
     "threadId": "example"
   },
   "requestId": "example",

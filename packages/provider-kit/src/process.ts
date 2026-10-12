@@ -8,6 +8,8 @@ import { byteLimit } from "./byte-limit.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 export {
+  stopOwnedGroups,
+  observeProcessGroups,
   installShutdownHandlers,
   registerGroup,
   unregisterGroup,
@@ -167,7 +169,11 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
       return exited;
     },
   };
-  if (pid !== undefined) registerGroup(pid, (graceMs) => handle.stop({ graceMs }));
+  if (pid !== undefined)
+    registerGroup(pid, (graceMs) => handle.stop({ graceMs }), {
+      name: options.name,
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    });
   return handle;
 }
 
@@ -278,3 +284,10 @@ export async function probe(command: string, args: readonly string[]): Promise<s
   return output.stdout;
 }
 export { spawnInteractive, type InteractiveProcess } from "./process-interactive.ts";
+
+export {
+  ProcessInventory,
+  inventoryRuntime,
+  type InventoryRuntime,
+  type ProcessEntry,
+} from "./process-inventory.ts";

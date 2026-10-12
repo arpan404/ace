@@ -1,3 +1,5 @@
+import { controlCommand, stopCommand } from "./control.ts";
+import { providersCommand, loginCommand } from "./providers.ts";
 import { ClientError } from "@ace/client";
 import { readConfig } from "../config.ts";
 import { parseArgs, type Args } from "./args.ts";
@@ -18,6 +20,10 @@ ace start|status|token|pair [SCOPES]|devices list|revoke ID
 ace service install|uninstall|start|stop|status
 ace accounts add|list|status|discover
 ace doctor|support-bundle PATH
+ace stop|kill-all [--thread ID|--provider PROVIDER|--project ID]
+ace mcp enroll --scope read|operate --ttl DURATION [--project ID]
+ace mcp list|revoke ID
+ace capabilities|providers status|login codex|claude
 
 All commands: --json, --jq EXPR, --timeout DURATION
 Mutations: --idempotency-key KEY. Waits: --tree. Run: --stream jsonl.
@@ -76,14 +82,32 @@ export async function main(input: string[]): Promise<void> {
       else process.stdout.write(output.join(""));
       return;
     }
+    if (command === "stop") return await stopCommand(args, config.dataDir);
     if (["start", "service"].includes(command)) return await runtimeCommand(args, config);
     if (["status", "token", "pair", "devices"].includes(command))
       return await accessCommand(args, config.dataDir);
-    if (!["run", "threads", "thread", "task"].includes(command))
+    if (
+      ![
+        "run",
+        "threads",
+        "thread",
+        "task",
+        "kill-all",
+        "mcp",
+        "capabilities",
+        "providers",
+        "login",
+      ].includes(command)
+    )
       throw new CliFailure("refused", "Unknown command. See ace --help.");
     const session = await connectCli(config.dataDir, args);
     try {
-      if (command === "run") {
+      if (command === "kill-all" || command === "mcp")
+        await controlCommand(args, session.client, session.signal);
+      else if (command === "capabilities" || command === "providers")
+        await providersCommand(args, session.client, session.signal);
+      else if (command === "login") await loginCommand(args, session.client, session.signal);
+      else if (command === "run") {
         const id = await runCommand(args, session.client, session.signal);
         if (args.flags.stream === "jsonl")
           await waitThread(

@@ -28,6 +28,7 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  externalMcp?: import("../external-mcp/server.ts").ExternalMcp;
   sourceControl?: import("../source-control.ts").SourceControl;
   antigravityAuth?: "logged_in" | "logged_out";
   rediscoverProviders?: () => Promise<void>;

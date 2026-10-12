@@ -1,3 +1,4 @@
+import { ProcessInventory, observeProcessGroups } from "@ace/provider-kit/process";
 import { cliControl } from "./services/cli-control.ts";
 import { shutdownDeadline } from "./shutdown.ts";
 import { connectedDoctorReport } from "./diagnostics-report.ts";
@@ -90,6 +91,19 @@ export async function startDaemon(options: DaemonOptions = {}) {
   }
   const unlock = acquireLock(config.dataDir);
   const resources = new Resources();
+  const inventory = new ProcessInventory(join(config.dataDir, "processes.sqlite"));
+  try {
+    inventory.recover();
+  } catch (error) {
+    inventory.close();
+    unlock();
+    throw error;
+  }
+  const stopInventory = observeProcessGroups(inventory);
+  resources.own(() => {
+    stopInventory();
+    inventory.close();
+  });
   const lifetime = new AbortController();
   resources.onShutdown(() => lifetime.abort());
   let initialized = false;
@@ -228,6 +242,11 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const socketReady = Promise.withResolvers<void>();
     resources.onShutdown(() => socketReady.resolve());
     const serverOptions: ServerOptions = {
+      shutdown: () => {
+        void closeResources().catch((error: unknown) =>
+          log.log("error", "CLI shutdown failed", logError(error)),
+        );
+      },
       ...services,
       get promptFiles() {
         return services.promptFiles;
