@@ -20,6 +20,7 @@ export async function addAccount(
     cancellationGraceMs?: number;
     cursorSdk?: Pick<ReturnType<typeof cursorDaemonDriver>, "status" | "login">;
     loginUrl?: (url: string) => void;
+    loginOutput?: "stdout" | "stderr";
   },
 ) {
   if (instance.provider === "cursor" && options.cursorSdk) {
@@ -55,7 +56,12 @@ export async function addAccount(
   if (!status.path) throw new Error("Provider CLI is not installed");
   const env = instanceEnv(instance, options.discovery?.env ?? process.env);
   options.signal?.throwIfAborted();
-  const child = (options.spawn ?? spawnInteractive)({ command: status.path, args, env });
+  const child = (options.spawn ?? spawnInteractive)({
+    command: status.path,
+    args,
+    env,
+    stdout: options.loginOutput ?? "stdout",
+  });
   const cancel = () => {
     void child.stop({ graceMs: options.cancellationGraceMs ?? 500 });
   };
