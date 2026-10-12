@@ -1,6 +1,5 @@
 import { useLocation } from "@tanstack/react-router";
 import {
-  createContext,
   use,
   useEffect,
   useId,
@@ -11,11 +10,10 @@ import {
   type RefObject,
 } from "react";
 import { CaretRightIcon } from "@phosphor-icons/react";
+import { InCard } from "@/components/ui/surface-context.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
-/** Rows inside a grouped section: the group draws the hairlines between them. */
-const InCard = createContext(false);
 /**
  * Marks the children that inset themselves inside a card (rows, notes, footers, lists). Anything
  * else a page puts in a card gets a margin inset, so a button keeps its own padding.
@@ -231,6 +229,37 @@ export function SettingList({ className, ...props }: ComponentProps<"ul">) {
   return <ul {...slot} className={cn("divide-y divide-border-soft", className)} {...props} />;
 }
 
+/** One row of a `SettingList`: the row's height and inset, whatever it holds. */
+export function SettingListItem({ className, ...props }: ComponentProps<"li">) {
+  return (
+    <li
+      className={cn(
+        "flex min-h-(--setting-row-height) items-center gap-2 px-4 py-(--setting-row-y)",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+/**
+ * A row that is itself the action ("+ Add account", "+ Pair a device"): a full-width button whose
+ * label starts on the row text's edge. Works as a card child or inside a `SettingList`.
+ */
+export function SettingAction({ className, type = "button", ...props }: ComponentProps<"button">) {
+  return (
+    <button
+      {...slot}
+      type={type}
+      className={cn(
+        "flex min-h-(--setting-row-height) w-full items-center gap-2 px-4 text-left text-ui font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-fill hover:text-foreground disabled:opacity-50",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
 /**
  * A group of rows behind a one-row disclosure, with a caret instead of the browser's triangle.
  * Inside a card it is one row of the card; its content sits under it.
@@ -247,6 +276,7 @@ export function SettingDisclosure(props: {
     <details
       {...slot}
       open={props.open || undefined}
+      data-setting-surface={inCard ? "card" : "plain"}
       onToggle={(event) => props.onToggle?.(event.currentTarget.open)}
       className={cn("group/disclosure", props.className)}
     >

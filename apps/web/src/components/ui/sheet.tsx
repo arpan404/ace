@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn.ts";
 import { XIcon } from "@phosphor-icons/react";
 import { IconButton } from "./icon-button.tsx";
 import { layers } from "./menu-styles.ts";
+import { InCard } from "./surface-context.ts";
 
 function Sheet({ ...props }: SheetPrimitive.Root.Props) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;
@@ -61,7 +62,7 @@ function SheetContent({
         )}
         {...props}
       >
-        {children}
+        <InCard value={false}>{children}</InCard>
         {showCloseButton && (
           <SheetPrimitive.Close
             data-slot="sheet-close"

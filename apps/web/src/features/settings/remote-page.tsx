@@ -61,7 +61,7 @@ function PairedDevices() {
           </RowMenu>
         </SettingRow>
       ))}
-      <SettingRow id="remote.pair" title={<PairDevice />} compact inline />
+      <PairDevice />
       <RevokeDialog device={revoking} onDone={() => setRevoking(undefined)} />
     </SettingSection>
   );

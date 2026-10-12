@@ -31,6 +31,7 @@ import {
   useScopeWorkspace,
   useWorkspaceActions,
   useWorkspaceCommands,
+  type WorkspaceCommand,
 } from "@/lib/workspace/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { themeIds, themes } from "@/theme/palettes.ts";
@@ -60,8 +61,9 @@ const orderOf = (group: PaletteGroup) => {
 };
 
 /** The side panel's own tab commands, each with a glyph that says what it does. */
-function tabCommandIcon(id: string, label: string): PaletteCommand["icon"] {
-  if (id === "tab-pin") return label.startsWith("Unpin") ? PushPinSlashIcon : PushPinIcon;
+function tabCommandIcon(command: WorkspaceCommand): PaletteCommand["icon"] {
+  const id = command.id;
+  if (id === "tab-pin") return command.pinned ? PushPinSlashIcon : PushPinIcon;
   if (id === "tab-close-others") return XSquareIcon;
   if (id === "tab-reopen") return ArrowCounterClockwiseIcon;
   return "action";
@@ -233,7 +235,7 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
               ...tabCommands.map((command): PaletteCommand => ({
                 ...command,
                 id: `workspace-${command.id}`,
-                icon: tabCommandIcon(command.id, command.label),
+                icon: tabCommandIcon(command),
                 run: run(command.run),
               })),
             ]

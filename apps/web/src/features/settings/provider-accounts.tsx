@@ -27,7 +27,7 @@ import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { useNow } from "@/lib/time.ts";
 import { useAccountViews } from "@/features/accounts/index.ts";
 import { preloadSignIn, useInlineSignIn, useSignIn } from "@/features/sign-in/index.ts";
-import { AddAccountButton, AccountKeyMark } from "@/features/account-management/index.ts";
+import { AddAccountRow, AccountKeyMark } from "@/features/account-management/index.ts";
 import {
   apiKeyUpstreamLabel,
   canAddAccounts,
@@ -82,8 +82,8 @@ export function ProviderAccounts(props: {
           />
         ))}
         {manageable && (
-          <li className="flex min-h-(--setting-row-height) items-center px-4">
-            <AddAccountButton provider={props.provider} label="+ Add account" />
+          <li>
+            <AddAccountRow provider={props.provider} label="+ Add account" />
           </li>
         )}
       </SettingList>

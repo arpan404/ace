@@ -219,8 +219,11 @@ Dialogs, sheets and the command palette (`components/ui/dialog.tsx`, `sheet.tsx`
   saturate, under a faint tint (`--scrim-glass`); there is no dark dim. Under Solid or reduced
   transparency it is a light neutral scrim (`--scrim`). It fades in by opacity with the motion
   tokens; the blur radius never animates.
-- **Panel** (`.ace-modal` with `.ace-floating`): a 90–92% tint over the already blurred page, with
-  no blur or displacement of its own, so text and fields read as on a solid surface.
+- **Panel** (`.ace-modal` with `.ace-floating`) for dialogs and the palette: a 90–92% tint over
+  the already blurred page, with no blur or displacement of its own, so text and fields read as on
+  a solid surface. Sheet panels are solid (`--popover`) over the same backdrop.
+- A dialog or sheet is its own surface: settings rows inside it are not rows of the card that
+  opened it (`components/ui/surface-context.ts`).
 - **Placement:** centred with insets and auto margins, never with a translate. Dialogs centre in
   the window; the palette and search are 640px wide (less on phones), 13vh from the top, and as
   tall as their content.
@@ -235,7 +238,8 @@ Dialogs, sheets and the command palette (`components/ui/dialog.tsx`, `sheet.tsx`
 - Every row is one height (`--setting-row-height`, 52px; 44px compact).
 - Inside a card, use the slots, which inset themselves to the card's one left edge:
   `SettingRow` (a setting), `SettingNote` (prose: status lines, what a group does),
-  `SettingFooter` (actions, one row tall, at the row's end), `SettingList` (a list of rows) and
+  `SettingFooter` (actions, one row tall, at the row's end), `SettingList` of `SettingListItem`s
+  (a list of rows), `SettingAction` (a row that is itself the action, "+ Add account") and
   `SettingDisclosure` (a caret row in place of the browser's triangle). Anything else gets a
   margin inset as a fallback; wrap rows in a fragment, never a plain `<div>`, or they inset twice.
 - Explanations of a whole group go in the section's `note`, above the card.

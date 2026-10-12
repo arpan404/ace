@@ -19,6 +19,8 @@ export interface WorkspaceCommand {
   keys?: string;
   /** Why it can't run now. */
   disabled?: string;
+  /** For pin: whether the tab is pinned now, so the command reads (and shows) as unpin. */
+  pinned?: boolean;
   run(): void;
 }
 
@@ -50,6 +52,7 @@ function useScopeCommands(
     commands.push({
       id: "tab-pin",
       label: tab.pinned ? `Unpin ${title}` : `Pin ${title}`,
+      pinned: tab.pinned === true,
       run: () => actions.setPinned(tab.key, !tab.pinned),
     });
     const others = workspace.tabs.filter((each) => !each.pinned && each.key !== tab.key);

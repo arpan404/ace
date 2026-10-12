@@ -1,4 +1,4 @@
-export { AddAccountHost, AddAccountButton } from "./add-account-host.tsx";
+export { AddAccountHost, AddAccountRow } from "./add-account-host.tsx";
 export {
   useAccountActions,
   canAddAccounts,

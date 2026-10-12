@@ -18,6 +18,7 @@ import { parseChord } from "@/lib/keymap.ts";
 import { IconButton } from "./icon-button.tsx";
 import { Kbd } from "./kbd.tsx";
 import { layers, overlaySurface } from "./menu-styles.ts";
+import { InCard } from "./surface-context.ts";
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -98,7 +99,8 @@ function DialogContent({
         {...props}
       >
         <OpenerProbe openerRef={openerRef} />
-        {children}
+        {/* A dialog is its own surface, even when a settings row opened it. */}
+        <InCard value={false}>{children}</InCard>
         {showCloseButton && (
           <DialogPrimitive.Close
             render={

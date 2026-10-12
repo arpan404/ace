@@ -140,7 +140,7 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     "--float-edge": light ? `color-mix(in srgb, ${p.border}, ${p.t1} 4%)` : p.border,
     "--float-shadow": floatShadow,
     "--glass-tint": `color-mix(in srgb, ${p.s2} ${light ? 64 : 68}%, transparent)`,
-    // Dialogs, sheets and the palette: glass dense enough that nothing behind reads through.
+    // Dialogs and the palette: glass dense enough that nothing behind reads through.
     "--glass-tint-modal": `color-mix(in srgb, ${p.s2} ${light ? 90 : 92}%, transparent)`,
     "--glass-tint-liquid": `color-mix(in srgb, ${p.s2} ${light ? 56 : 62}%, transparent)`,
     "--glass-edge": light ? `rgb(${p.shadow} / 0.1)` : "rgb(255 255 255 / 0.09)",

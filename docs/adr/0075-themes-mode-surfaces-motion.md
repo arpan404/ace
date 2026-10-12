@@ -65,8 +65,8 @@ These are replaced by the theme set and Surfaces:
     opens; after a resize its old rim comes off and a new filter applies once the size has held
     for 160ms.
 - Modal layers (dialogs, sheets, the palette) don't use liquid glass. Their backdrop blurs the page
-  once with a faint tint (a light neutral scrim when solid), and the panel is a dense tint with no
-  blur of its own.
+  once with a faint tint (a light neutral scrim when solid). Dialog and palette panels are a dense
+  tint with no blur of their own; sheet panels are solid.
 - **Safari and Firefox** get blur and saturate.
   - They drop `url()` backdrop filters while `CSS.supports` still reports support, so the engine
     comes from the user agent.

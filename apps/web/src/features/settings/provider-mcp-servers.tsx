@@ -2,7 +2,13 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import type { McpSources, ProviderKind } from "@ace/protocol";
 import { ArrowsClockwiseIcon, PlusIcon, PowerIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { SettingList, SettingNote, SettingSection } from "@/components/setting-row.tsx";
+import {
+  SettingAction,
+  SettingList,
+  SettingListItem,
+  SettingNote,
+  SettingSection,
+} from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { providerMcpSource } from "./provider-mcp-source.ts";
@@ -105,10 +111,7 @@ function McpServerList(props: { provider: ProviderKind; name: string }) {
           const word = words[server.status];
           const off = server.status === "disabled";
           return (
-            <li
-              key={server.name}
-              className="flex min-h-(--setting-row-height) items-center gap-2 px-4 py-(--setting-row-y)"
-            >
+            <SettingListItem key={server.name}>
               <span className="min-w-0 flex-1 truncate font-medium">{server.name}</span>
               {word && <span className="shrink-0 text-sm text-muted-foreground">{word}</span>}
               {!off && (
@@ -133,19 +136,15 @@ function McpServerList(props: { provider: ProviderKind; name: string }) {
                     : control("mcp.provider.disable", server.name, "turn off"))
                 }
               />
-            </li>
+            </SettingListItem>
           );
         })}
         {data?.canAdd && (
           <li>
-            <button
-              type="button"
-              onClick={() => setAdding(true)}
-              className="flex min-h-(--setting-row-height) w-full items-center gap-2 px-4 text-left text-muted-foreground focus-ring-inset hover:text-foreground"
-            >
+            <SettingAction onClick={() => setAdding(true)}>
               <PlusIcon aria-hidden size={14} />
-              <span className="font-medium">Add MCP server</span>
-            </button>
+              Add MCP server
+            </SettingAction>
           </li>
         )}
       </SettingList>

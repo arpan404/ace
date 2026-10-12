@@ -1,9 +1,9 @@
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import type { ProviderKind } from "@ace/protocol";
 import { createContext, Suspense, useContext, useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { canAddAccounts } from "./actions.ts";
+import { SettingAction } from "@/components/setting-row.tsx";
 
 const Form = deferredComponent(() =>
   import("./add-account-form.tsx").then((module) => module.AddAccountForm),
@@ -32,17 +32,12 @@ export function AddAccountHost(props: { children: ReactNode }) {
 
 const useAddAccount = () => useContext(AddContext);
 
-export function AddAccountButton(props: {
-  provider: ProviderKind;
-  label?: string;
-  onOpen?(): void;
-}) {
+/** The "+ Add account" row of a provider's accounts card; absent where accounts can't be added. */
+export function AddAccountRow(props: { provider: ProviderKind; label?: string; onOpen?(): void }) {
   const open = useAddAccount();
   if (!open || !canAddAccounts(props.provider)) return null;
   return (
-    <Button
-      size="sm"
-      variant="ghost"
+    <SettingAction
       onPointerEnter={() => void Form.preload()}
       onClick={() => {
         props.onOpen?.();
@@ -50,6 +45,6 @@ export function AddAccountButton(props: {
       }}
     >
       {props.label ?? "Add account"}
-    </Button>
+    </SettingAction>
   );
 }

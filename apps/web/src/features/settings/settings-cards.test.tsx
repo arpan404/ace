@@ -43,3 +43,20 @@ test("a group's explanation reads before its rows, inside the same titled sectio
   const save = within(retention).getByRole("button", { name: "Save retention" });
   expect(firstRow.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
+
+test("a dialog opened from a settings card is its own surface, not a row of the card", async () => {
+  const general = await harness().open("/settings/general");
+  await screen.findByText("Per-provider defaults", { selector: "summary" });
+  // On a card, a disclosure is one of the card's rows.
+  expect(disclosureOf("Per-provider defaults").dataset.settingSurface).toBe("card");
+  general.unmount();
+
+  await harness().open("/settings/remote");
+  await userEvent.click(await screen.findByRole("button", { name: "+ Pair a device" }));
+  const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
+  const advanced = (
+    await within(dialog).findByText("Advanced access", { selector: "summary" })
+  ).closest("details");
+  // The pairing dialog opens from the Paired devices card, but its disclosure is a plain one.
+  expect(advanced?.dataset.settingSurface).toBe("plain");
+});

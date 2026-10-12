@@ -3,7 +3,13 @@ import { useRefreshModels } from "@/features/model-picker/index.ts";
 import type { ModelSourceStatus, ProviderKind } from "@ace/protocol";
 import { PlusIcon } from "@phosphor-icons/react";
 import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
-import { SettingList, SettingNote, SettingSection } from "@/components/setting-row.tsx";
+import {
+  SettingAction,
+  SettingList,
+  SettingListItem,
+  SettingNote,
+  SettingSection,
+} from "@/components/setting-row.tsx";
 import { useModelInstances } from "@/lib/model-catalog.ts";
 import { preloadSignIn, SignInButton, useSignIn } from "@/features/sign-in/index.ts";
 
@@ -36,10 +42,7 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
     <SettingSection label="Services">
       <SettingList aria-label={`${props.name} services`}>
         {listed.map(({ source, error }) => (
-          <li
-            key={source.id}
-            className="flex min-h-(--setting-row-height) items-center gap-2 px-4 py-(--setting-row-y)"
-          >
+          <SettingListItem key={source.id}>
             <ProviderTile
               provider={props.provider}
               service={source}
@@ -85,21 +88,19 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
                 Disconnect
               </SignInButton>
             ) : null}
-          </li>
+          </SettingListItem>
         ))}
         {signIn && (
           <li>
-            <button
-              type="button"
+            <SettingAction
               onPointerEnter={() => void preloadSignIn()}
               onClick={() => signIn({ provider: props.provider })}
-              className="flex min-h-(--setting-row-height) w-full items-center gap-2 px-4 text-left text-muted-foreground focus-ring-inset hover:text-foreground"
             >
               <span className="grid size-5 place-items-center">
                 <PlusIcon aria-hidden size={14} />
               </span>
-              <span className="font-medium">Connect a service</span>
-            </button>
+              Connect a service
+            </SettingAction>
           </li>
         )}
       </SettingList>

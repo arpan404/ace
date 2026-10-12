@@ -60,7 +60,7 @@
   }
 
   /*
-   * Modal layers (dialogs, sheets, the command palette): `.ace-modal` on the panel. Under
+   * Modal panels (dialogs and the command palette; sheets are solid): `.ace-modal` on the panel. Under
    * Translucent the backdrop behind it is the blur (`.ace-backdrop`), so the panel adds no blur of
    * its own and no displacement: it is a dense tint over an already blurred page, so text and
    * fields read as on a solid surface. The liquid rule excludes `.ace-modal`, so this applies on
