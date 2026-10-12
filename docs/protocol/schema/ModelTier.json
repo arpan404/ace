@@ -37,7 +37,8 @@
     "speed": {
       "enum": [
         "standard",
-        "fast"
+        "fast",
+        "ultrafast"
       ],
       "type": "string"
     }

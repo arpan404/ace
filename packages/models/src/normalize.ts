@@ -20,6 +20,16 @@ import { base } from "./model.ts";
 import { OpenCodeParser } from "./open-code.ts";
 import { chatMetadata } from "./catalog-metadata.ts";
 
+/** Codex's tier ids by speed: `priority` is Fast and `ultrafast` Ultrafast; others (flex) aren't speeds. */
+const codexSpeeds: Readonly<Record<string, "fast" | "ultrafast">> = {
+  priority: "fast",
+  ultrafast: "ultrafast",
+};
+const codexSpeed = (id: string) => {
+  const speed = codexSpeeds[id];
+  return speed ? { speed } : {};
+};
+
 export function normalizeCodex(payload: unknown, instance: ModelInstance): CatalogModel[] {
   return CodexPage.parse(payload)
     .data.filter(chatMetadata)
@@ -37,7 +47,7 @@ export function normalizeCodex(payload: unknown, instance: ModelInstance): Catal
           ? native.serviceTiers.map((tier) => ({
               id: tier.id,
               name: tier.name,
-              ...(tier.id === "priority" ? { speed: "fast" } : {}),
+              ...codexSpeed(tier.id),
               parameters: { serviceTier: tier.id },
             }))
           : native.additionalSpeedTiers.map((id) => ({

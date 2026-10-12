@@ -14,6 +14,12 @@ export const ultraPreviewModel = CatalogModel.parse({
   serviceTiers: [
     { id: "default", name: "Standard", speed: "standard", parameters: { serviceTier: "default" } },
     { id: "priority", name: "Fast", speed: "fast", parameters: { serviceTier: "priority" } },
+    {
+      id: "ultrafast",
+      name: "Ultrafast",
+      speed: "ultrafast",
+      parameters: { serviceTier: "ultrafast" },
+    },
   ],
   inputModalities: ["text", "image"],
   isDefault: false,

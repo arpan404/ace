@@ -10,6 +10,7 @@ import type { ProviderStatus } from "./provider-status.ts";
 import { modelAliases } from "./catalog-ids.ts";
 import { modelLine, modelName } from "./model-label.ts";
 import { modelLabel, providerNames } from "./providers.ts";
+import { defaultSpeed, speedTiers, type Speed, type SpeedTier } from "./speed.ts";
 
 /**
  * Where a picker places a model: its quiet detail, the order and source group it lists under,
@@ -108,10 +109,10 @@ export interface ModelChoice extends ModelPlacement {
   isNew: boolean;
   /** An older model (tier legacy) or one its provider deprecated: listed under Legacy models. */
   legacy: boolean;
-  /** The `serviceTier` that runs it faster, when it has one ace can ask for. */
-  fastTier: string | undefined;
-  /** The catalog runs it on that faster tier unless asked otherwise (`defaultTier`). */
-  fastDefault: boolean;
+  /** The speeds ace can ask for, slowest first; empty when there's nothing faster. */
+  speeds: readonly SpeedTier[];
+  /** The speed the catalog runs it at unless asked otherwise (`defaultTier`). */
+  defaultSpeed: Speed;
 }
 
 /**
@@ -120,29 +121,6 @@ export interface ModelChoice extends ModelPlacement {
  */
 export function modelKey(provider: ProviderKind, id: string): string {
   return `${provider}\u0000${id}`;
-}
-
-/**
- * The service tier that makes a model faster, when the catalog names it as a `serviceTier`
- * launch option (Codex's priority tier). Tiers set some other way (a Claude fast-mode flag) are
- * not something a thread can be started or switched with, so they don't count.
- */
-export function fastTier(model: Pick<CatalogModel, "serviceTiers">): string | undefined {
-  return fastTierEntry(model)?.value;
-}
-
-function fastTierEntry(model: Pick<CatalogModel, "serviceTiers">) {
-  for (const tier of model.serviceTiers) {
-    const value = tier.parameters["serviceTier"];
-    if (tier.speed === "fast" && typeof value === "string") return { id: tier.id, value };
-  }
-  return undefined;
-}
-
-/** The catalog's default tier is the faster one: speed is on until the person turns it off. */
-export function fastByDefault(model: Pick<CatalogModel, "serviceTiers" | "defaultTier">): boolean {
-  const tier = fastTierEntry(model);
-  return tier !== undefined && model.defaultTier === tier.id;
 }
 
 /**
@@ -173,8 +151,8 @@ export function recordedChoice(
     key: modelKey(selection.provider, model ?? ""),
     isNew: false,
     legacy: false,
-    fastTier: undefined,
-    fastDefault: false,
+    speeds: [],
+    defaultSpeed: "standard",
   };
 }
 
@@ -251,8 +229,8 @@ export function modelChoices(
             key: modelKey(provider, model.id),
             isNew: model.isNew ?? false,
             legacy: isLegacy(model),
-            fastTier: fastTier(model),
-            fastDefault: fastByDefault(model),
+            speeds: speedTiers(model),
+            defaultSpeed: defaultSpeed(model),
             ...placement(model, account),
           },
         ];
@@ -352,10 +330,10 @@ export interface ModelOption extends ModelPlacement {
   isNew: boolean;
   /** An older model (tier legacy) or one its provider deprecated: listed under Legacy models. */
   legacy: boolean;
-  /** The `serviceTier` that runs it faster, when it has one ace can ask for. */
-  fastTier: string | undefined;
-  /** The catalog runs it on that faster tier unless asked otherwise (`defaultTier`). */
-  fastDefault: boolean;
+  /** The speeds ace can ask for, slowest first; empty when there's nothing faster. */
+  speeds: readonly SpeedTier[];
+  /** The speed the catalog runs it at unless asked otherwise (`defaultTier`). */
+  defaultSpeed: Speed;
 }
 
 /** A signed-in account of the chosen model's provider, with how much quota it has used. */
@@ -410,8 +388,8 @@ export function newThreadOptions(
       defaultEffort: model.defaultEffort,
       isNew: model.isNew ?? false,
       legacy: isLegacy(model),
-      fastTier: fastTier(model),
-      fastDefault: fastByDefault(model),
+      speeds: speedTiers(model),
+      defaultSpeed: defaultSpeed(model),
       ...placement(
         model,
         accounts.find((entry) => entry.id === model.instance),

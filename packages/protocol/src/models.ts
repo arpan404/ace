@@ -7,7 +7,8 @@ const label = z.string().min(1).max(256);
 export const ModelTier = z.object({
   id: label,
   name: label,
-  speed: z.enum(["standard", "fast"]).optional(),
+  /** How fast the tier serves, slowest first: the speed control orders tiers by it. */
+  speed: z.enum(["standard", "fast", "ultrafast"]).optional(),
   parameters: z
     .record(label, z.union([z.string().max(256), z.boolean()]))
     .default({})
