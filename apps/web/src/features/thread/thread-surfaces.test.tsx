@@ -61,7 +61,7 @@ test("a streaming answer keeps a single live Working line at the transcript end"
   );
   await within(feed).findByText("The reconnect fix is ready");
   expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
-  expect(screen.getByRole("status", { name: "Working" }).textContent).toMatch(/^Working for/);
+  expect(screen.getByRole("status", { name: "Working" }).textContent).toMatch(/^Working \d/);
   expect(within(feed).queryByText("Work so far")).toBeNull();
 });
 

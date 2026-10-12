@@ -1,15 +1,14 @@
-import { formatElapsed, type TurnActivity } from "@ace/ui-core";
-import { useContext, useLayoutEffect, useRef } from "react";
+import type { TurnActivity } from "@ace/ui-core";
+import { WorkingIndicator } from "@/components/working-indicator.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { TimeContext } from "@/lib/time.ts";
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { ThinkingRow } from "./step-groups-view.tsx";
 
 /*
- * The live turn's header, right under the ask that started it: one muted "Working for 3m 6s"
+ * The live turn's header, right under the ask that started it: one muted `[grid] Working 3m 6s`
  * row over a hairline, the turn's steps flowing below it. It reads the same `turnActivity` as
  * every other surface, counting the whole tree. The timer writes its text through a ref, so a
  * ticking second re-renders nothing, and it stands at the time reached while the turn waits on
@@ -33,27 +32,8 @@ export function LiveHead(props: { threadId: string }) {
 }
 
 /**
- * "1m 14s" since `from`, written straight into the element on the page's shared one-second
- * clock: no React render per tick.
- */
-function Elapsed(props: { from: number }) {
-  const element = useRef<HTMLSpanElement>(null);
-  const { seconds } = useContext(TimeContext);
-  const { from } = props;
-  useLayoutEffect(() => {
-    const write = () => {
-      if (element.current)
-        element.current.textContent = formatElapsed(Math.max(0, seconds.read() - from));
-    };
-    write();
-    return seconds.subscribe(write);
-  }, [seconds, from]);
-  return <span ref={element} className="tabular-nums" />;
-}
-
-/**
- * The live line, muted: "Working for 1m 14s" moving; "Working for 1m 15s · Waiting for your
- * approval" standing still while the person is asked; a held line as it is; a usage-limit pause
+ * The live line, muted: `[grid] Working 1m 14s` moving; `Working 1m 15s · Waiting for your
+ * approval` standing still while the person is asked; a held line as it is; a usage-limit pause
  * as a divider.
  */
 export function ActivityLine(props: { activity: TurnActivity }) {
@@ -71,13 +51,12 @@ export function ActivityLine(props: { activity: TurnActivity }) {
       aria-label={label}
       className="flex min-h-8 min-w-0 items-center text-ui text-muted-foreground"
     >
-      {activity.tone === "working" && activity.elapsedFrom !== undefined ? (
-        <span className="shrink-0">
-          {activity.label} for <Elapsed from={activity.elapsedFrom} />
-        </span>
+      {activity.tone === "working" ? (
+        <WorkingIndicator label={activity.label} from={activity.elapsedFrom} />
       ) : activity.tone === "needs-you" && activity.elapsedMs !== undefined ? (
-        <span className="min-w-0 truncate">
-          {`Working for ${formatElapsed(activity.elapsedMs)} · ${activity.label}`}
+        <span className="flex min-w-0 items-center gap-1.5">
+          <WorkingIndicator held={activity.elapsedMs} className="shrink-0" />
+          <span className="min-w-0 truncate">{` · ${activity.label}`}</span>
         </span>
       ) : (
         <span className="min-w-0 truncate">{label}</span>

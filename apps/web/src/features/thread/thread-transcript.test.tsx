@@ -26,7 +26,10 @@ test("tool work collapses into one line that opens to its steps and their output
   );
   expect(within(feed).queryByText("apps/server/src/cursor.ts")).toBeNull();
 
-  await userEvent.click(summary);
+  // Any file's chip opens the turn's changes.
+  const [chip] = within(summary).getAllByRole("button");
+  if (!chip) throw new Error("No changed-file chip");
+  await userEvent.click(chip);
   // The steps load with the thread's deferred parts.
   const steps = await within(feed).findByRole("list", { name: "Steps" });
   expect(await within(steps).findByText("apps/server/src/cursor.ts")).toBeTruthy();
@@ -63,9 +66,12 @@ test("the changed-files summary opens the turn's files in the Changes tab", asyn
   const { app, feed } = await openReplay("answered");
   // The card sums up a turn once it has ended.
   act(() => app.daemon.apply("thread-replay-cursor", [facts.endTurn("root")]));
-  const summary = await within(feed).findByRole("button", { name: /^Changed 2 files/ });
+  const summary = await within(feed).findByRole("group", { name: /^Changed 2 files/ });
   expect(within(feed).queryByText("apps/server/src/replay.ts")).toBeNull();
-  await userEvent.click(summary);
+  // Any file's chip opens the turn's changes.
+  const [chip] = within(summary).getAllByRole("button");
+  if (!chip) throw new Error("No changed-file chip");
+  await userEvent.click(chip);
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(
     within(panel)
@@ -85,7 +91,7 @@ test("a full-text edit's changed-files stat counts the lines that changed, as Ch
   app.play(coldStartReplay()).runThrough("turn-1");
   await app.open("/t/thread-cold-start");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const card = await within(feed).findByRole("button", { name: /^Changed 1 file/ });
+  const card = await within(feed).findByRole("group", { name: /^Changed 1 file/ });
   const stat = await waitFor(() => {
     const text = card.textContent?.match(/\+(\d+) −(\d+)/);
     expect(text).toBeTruthy();

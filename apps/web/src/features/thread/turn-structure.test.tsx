@@ -116,7 +116,7 @@ test("an approval is explained by its request card without repeated waiting stat
   const approval = await screen.findByRole("region", { name: "Waiting for you" });
   expect(within(approval).getByRole("button", { name: "Allow once" })).toBeTruthy();
   expect(within(feed).getByRole("link", { name: "Waiting for your approval" })).toBeTruthy();
-  expect(within(feed).queryByRole("button", { name: /^Working for/ })).toBeNull();
+  expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
 });
 
 function edit(key: string, path: string, agent = "root") {
@@ -168,11 +168,11 @@ test("a turn's changed files show once, after its last answer, when it has ended
   await app.open("/t/thread-edits");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   await within(feed).findByText("Renamed in both files.");
-  expect(within(feed).queryByRole("button", { name: /^Changed \d+ files?/ })).toBeNull();
+  expect(within(feed).queryByRole("group", { name: /^Changed \d+ files?/ })).toBeNull();
 
   act(() => script.runThrough("ended"));
-  const card = await within(feed).findByRole("button", { name: /^Changed 2 files/ });
-  expect(within(feed).getAllByRole("button", { name: /^Changed \d+ files?/ })).toHaveLength(1);
+  const card = await within(feed).findByRole("group", { name: /^Changed 2 files/ });
+  expect(within(feed).getAllByRole("group", { name: /^Changed \d+ files?/ })).toHaveLength(1);
   expect(follows(within(feed).getByText("Renamed in both files."), card)).toBe(true);
 });
 
@@ -358,11 +358,11 @@ test("the changed-files card waits until the subagents a turn started have finis
   await app.open("/t/thread-tree");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   await within(feed).findByText("Renamed; the subagent is finishing the tests.");
-  expect(within(feed).queryByRole("button", { name: /^Changed \d+ files?/ })).toBeNull();
+  expect(within(feed).queryByRole("group", { name: /^Changed \d+ files?/ })).toBeNull();
 
   // The subagent's run ends on its own: that alone settles the turn.
   act(() => script.runThrough("tree-done"));
-  expect(await within(feed).findByRole("button", { name: /^Changed 3 files/ })).toBeTruthy();
+  expect(await within(feed).findByRole("group", { name: /^Changed 3 files/ })).toBeTruthy();
 });
 
 test("the live line follows command refinements without rebuilding the transcript", async () => {
@@ -455,7 +455,7 @@ test("an open turn has a quiet work log that becomes timed history when the turn
   expect(screen.getByRole("status", { name: "Working" })).toBeTruthy();
   expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
   expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
-  expect(within(feed).queryByText(/^Working for/)).toBeNull();
+  expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
 
   now = 101_000;
   act(() => script.runThrough("settled"));

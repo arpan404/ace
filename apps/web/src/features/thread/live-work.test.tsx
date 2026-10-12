@@ -13,7 +13,7 @@ test("between steps an open turn keeps its log and the transcript live line", as
   const feed = await screen.findByRole("feed", { name: "Transcript" });
 
   expect(within(feed).queryByText("Work so far")).toBeNull();
-  expect(screen.getByRole("status", { name: "Working" }).textContent).toMatch(/^Working for/);
+  expect(screen.getByRole("status", { name: "Working" }).textContent).toMatch(/^Working \d/);
 
   // An answer alone does not close the open turn.
   act(() => script.runThrough("answered"));
