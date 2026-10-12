@@ -7,7 +7,7 @@ import type {
   ThreadStatus,
 } from "@ace/protocol";
 import { isActionableInteraction } from "@ace/core/human";
-import { agentStatusLabel } from "./status.ts";
+import { agentStatusLabel, type Tone } from "./status.ts";
 import { providerNames } from "./providers.ts";
 
 /** How an agent is named in trees and status lines: the provider for the root, else its name. */
@@ -121,7 +121,7 @@ export function agentWorkState(
   agent: Agent,
   work: ReturnType<typeof agentTreeWork>,
   evidence: { fresh: boolean; toolTitle?: string | undefined },
-): { running: boolean; needsYou: boolean; label: string; activity: string } {
+): { running: boolean; needsYou: boolean; label: string; tone: Tone; activity: string } {
   const running = work.running.has(agent.id);
   const needsYou = work.needsYou.has(agent.id);
   const waiting = running && !isRunning(agent);
@@ -139,7 +139,12 @@ export function agentWorkState(
       : (!evidence.fresh && running) || needsYou || waiting
         ? label
         : describeActivity(agent.status, evidence.toolTitle);
-  return { running, needsYou, label, activity };
+  const tone = needsYou
+    ? "needs-you"
+    : waiting || (!evidence.fresh && running)
+      ? "waiting"
+      : agentStatusLabel(agent.status).tone;
+  return { running, needsYou, label, tone, activity };
 }
 
 const taskStates: Record<BackgroundTask["status"], string> = {
