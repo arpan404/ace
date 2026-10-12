@@ -110,7 +110,6 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       await expect(nav.getByText("New thread", { exact: true })).toHaveCount(0);
       await nav.getByRole("button", { name: /^Settled/ }).click();
       await expect(row("Bump the client SDK")).toBeVisible();
-      await paintedProviders(nav);
       await nav.locator("[data-virtual-viewport]").evaluate((element) => element.scrollTo(0, 0));
       await page.mouse.move(width - 2, 840);
       await page.screenshot({ path: `${shots}/tasks-${theme}-${width}.png` });

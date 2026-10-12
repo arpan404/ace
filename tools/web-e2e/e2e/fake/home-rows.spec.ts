@@ -189,6 +189,12 @@ test.describe("coarse pointer task rows", () => {
 test("fake provider variants identify themselves before the repeated task text", async ({
   page,
 }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "ace.home.organizer",
+      JSON.stringify({ project: "acme", baseline: 0, settledOpen: false }),
+    ),
+  );
   await page.goto("/new?project=acme");
   const nav = page.getByRole("navigation", { name: "Threads" });
   const variants = nav.getByRole("link", { name: /Capture the document window/ });

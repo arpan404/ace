@@ -124,7 +124,6 @@ export function ThreadRow(props: {
             render={<div />}
             className={cn("group/row relative", !online && "opacity-60")}
             data-attention={quiet ? "quiet" : "attention"}
-            data-row-layout={compact ? "compact" : "task"}
             // Settled rows stay out of picking and dragging, as they always have.
             {...(settled ? {} : { "data-thread-row": entry.id })}
           >

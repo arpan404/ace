@@ -19,7 +19,7 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
 /*
- * Shared row pieces render the card facts. RowStatus reads the shared clock for elapsed time;
+ * Shared row pieces render the card facts. RowTime reads the shared clock for elapsed time;
  * the row name and tooltip keep the full wording when the visible text is shortened.
  */
 
