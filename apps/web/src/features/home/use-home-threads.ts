@@ -15,6 +15,7 @@ export interface HomeList {
   pinned: string[];
   active: string[];
   recent: string[];
+  snoozed: string[];
   settled: string[];
   /** The listed threads that need you, which may rise while the list otherwise holds still. */
   needsYou: string[];
@@ -23,6 +24,7 @@ const empty: HomeList = {
   pinned: [],
   active: [],
   recent: [],
+  snoozed: [],
   settled: [],
   needsYou: [],
 };
@@ -58,6 +60,7 @@ const listEqual = (a: HomeList, b: HomeList) =>
   arrayEqual(a.pinned, b.pinned) &&
   arrayEqual(a.active, b.active) &&
   arrayEqual(a.recent, b.recent) &&
+  arrayEqual(a.snoozed, b.snoozed) &&
   arrayEqual(a.settled, b.settled) &&
   arrayEqual(a.needsYou, b.needsYou);
 
@@ -75,10 +78,10 @@ export function useHomeList(): HomeList {
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
       const entries = read(reader);
-      const { pinned, active, recent, settled } = arrange(entries, state, now);
+      const { pinned, active, recent, snoozed, settled } = arrange(entries, state, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
       const needsYou = active.filter((id) => byId.get(id)?.status.state === "needs_you");
-      return { pinned, active, recent, settled, needsYou };
+      return { pinned, active, recent, snoozed, settled, needsYou };
     },
     [state, now, read],
   );

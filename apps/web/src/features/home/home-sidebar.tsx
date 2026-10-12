@@ -35,7 +35,9 @@ export function HomeSidebar() {
   const { project, settledOpen } = useOrganizerState();
   const organizer = useOrganizer();
   const loaded = useSidebarLoaded();
-  const empty = [list.pinned, list.active, list.recent, list.settled].every((ids) => !ids.length);
+  const empty = [list.pinned, list.active, list.recent, list.snoozed, list.settled].every(
+    (ids) => !ids.length,
+  );
   const directory = useProjectDirectory();
   const keys = useResolvedKeymap();
   const noProjects = directory.loaded && directory.projects.length === 0;

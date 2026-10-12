@@ -9,6 +9,7 @@ const now = 10 * 24 * hour;
 const state = (patch: Partial<OrganizerState> = {}): OrganizerState => ({
   baseline: 0,
   project: null,
+  snoozedOpen: false,
   settledOpen: false,
   ...patch,
 });
@@ -74,16 +75,23 @@ test("recency is the last work, so renaming or pinning a thread doesn't move it 
   expect(arrange(entries, state(), now).recent).toEqual(["worked", "renamed"]);
 });
 
-test("a snoozed thread rests in Recent, below finished ones, until its time passes", () => {
+test("snoozed tasks fold away until expiry, but renewed requests stay exposed", () => {
   const entries = [
     entry("asks", { state: "needs_you", interactions: 1 }, now, { snoozedUntil: now + hour }),
+    entry("later", { state: "done" }, now - hour, { snoozedUntil: now + hour }),
     entry("done", { state: "done" }, now),
   ];
-  expect(arrange(entries, state(), now)).toMatchObject({ active: [], recent: ["done", "asks"] });
-  expect(arrange(entries, state(), now + 2 * hour)).toMatchObject({
+  expect(arrange(entries, state(), now)).toMatchObject({
     active: ["asks"],
     recent: ["done"],
+    snoozed: ["later"],
   });
+  expect(arrange(entries, state(), now + 2 * hour)).toMatchObject({
+    active: ["asks"],
+    recent: ["done", "later"],
+    snoozed: [],
+  });
+  expect(arrange(entries, state({ project: "other" }), now).snoozed).toEqual([]);
 });
 
 test("threads the daemon settled go to Settled, except one that needs you again", () => {

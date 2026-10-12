@@ -18,6 +18,7 @@ const Stored = z.object({
   baseline: z.number(),
   /** Home list project filter; null is every project. */
   project: z.string().nullable().catch(null),
+  snoozedOpen: z.boolean().catch(false),
   settledOpen: z.boolean().catch(false),
 });
 type Stored = z.infer<typeof Stored>;
@@ -37,6 +38,7 @@ export class Organizer {
     const fresh: Stored = {
       baseline: firstLaunch(storage, now),
       project: null,
+      snoozedOpen: false,
       settledOpen: false,
     };
     const stored = readJson(storage, storageKey, Stored, fresh);
@@ -51,6 +53,9 @@ export class Organizer {
   setProject(project: string | null): void {
     this.set({ project });
   }
+  setSnoozedOpen(snoozedOpen: boolean): void {
+    this.set({ snoozedOpen });
+  }
   setSettledOpen(settledOpen: boolean): void {
     this.set({ settledOpen });
   }
@@ -60,8 +65,13 @@ export class Organizer {
     this.emit();
   }
   private persist(): void {
-    const { baseline, project, settledOpen } = this.state;
-    writeJson(this.storage, storageKey, { baseline, project, settledOpen } satisfies Stored);
+    const { baseline, project, snoozedOpen, settledOpen } = this.state;
+    writeJson(this.storage, storageKey, {
+      baseline,
+      project,
+      snoozedOpen,
+      settledOpen,
+    } satisfies Stored);
   }
   private emit(): void {
     for (const listener of this.listeners) listener();
