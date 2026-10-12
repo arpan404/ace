@@ -53,6 +53,8 @@ export class TurnStepsCache {
   /** Holds by turn, apart from slots: a turn read again keeps the holds it had. */
   private readonly holds = new Map<string, number>();
   private readonly expiries = new Map<string, () => void>();
+  /** Bumped when a thread is dropped, so holds taken before it release nothing after. */
+  private readonly epochs = new Map<string, number>();
   private readonly listeners = new Set<() => void>();
   private readonly options: Required<Omit<TurnStepsCacheOptions, "read">> & { read: Read };
   constructor(options: TurnStepsCacheOptions) {
@@ -97,8 +99,10 @@ export class TurnStepsCache {
     this.expiries.get(id)?.();
     this.expiries.delete(id);
     let released = false;
+    const epoch = this.epochs.get(threadId) ?? 0;
     return () => {
-      if (released) return;
+      // A hold from before the thread was dropped has nothing left to release.
+      if (released || (this.epochs.get(threadId) ?? 0) !== epoch) return;
       released = true;
       const left = (this.holds.get(id) ?? 1) - 1;
       if (left > 0) {
@@ -128,6 +132,7 @@ export class TurnStepsCache {
   /** The thread closed: none of its turns are needed. */
   dropThread(threadId: string): void {
     const prefix = `${threadId}\u0000`;
+    this.epochs.set(threadId, (this.epochs.get(threadId) ?? 0) + 1);
     for (const [id, slot] of this.slots)
       if (id.startsWith(prefix)) {
         slot.abort?.abort();

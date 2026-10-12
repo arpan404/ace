@@ -17,7 +17,8 @@ export interface ToolIconCacheOptions {
   maxIcons?: number;
   /** How long to wait before asking again about an icon that may come later. */
   retryMs?: number;
-  now?(): number;
+  /** The clock retries are timed by. */
+  now(): number;
   /** Run a batch soon (after the rows that ask for icons in one render have asked). */
   defer?(run: () => void): void;
 }
@@ -77,7 +78,7 @@ export class ToolIconCache {
   }
 
   private now(): number {
-    return this.options.now?.() ?? Date.now();
+    return this.options.now();
   }
 
   private later(id: string): void {
@@ -88,6 +89,12 @@ export class ToolIconCache {
       if (this.retryAt.size <= max) break;
       this.retryAt.delete(old);
     }
+    // Rows waiting on it stop waiting (they keep their glyph until it comes).
+    this.emit();
+  }
+
+  private emit(): void {
+    for (const listener of this.listeners) listener();
   }
 
   private async flush(): Promise<void> {
@@ -148,6 +155,6 @@ export class ToolIconCache {
       if (this.byRef.size <= max) break;
       this.byRef.delete(ref);
     }
-    for (const listener of this.listeners) listener();
+    this.emit();
   }
 }

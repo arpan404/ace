@@ -181,3 +181,19 @@ test("a turn longer than one read says so and reads on when asked", async () => 
   expect(cache.get("t", 1)?.steps.at(-1)?.item.id).toBe("1-450");
   release();
 });
+
+// Mutation: a release from before the thread was dropped evicting the turn shown again.
+test("a turn shown again after its thread was dropped stays, whatever the old view releases", async () => {
+  const d = daemon(() => 2);
+  const clock = timers();
+  const cache = new TurnStepsCache({ read: d.read, schedule: clock.schedule });
+  const old = cache.retain("t", 1);
+  await settle();
+  cache.dropThread("t");
+  const shown = cache.retain("t", 1);
+  await settle();
+  old();
+  clock.fire();
+  expect(cache.get("t", 1)?.state).toBe("ready");
+  shown();
+});
