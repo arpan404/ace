@@ -1,6 +1,5 @@
 import { AccountSummary } from "@ace/protocol/accounts";
 import { accountView } from "@ace/ui-core";
-import { acpAgentName } from "@ace/ui-core/provider-icons";
 import { expect, test } from "vitest";
 import { pickerEntries, railGroups } from "./picker-entries.ts";
 
@@ -53,8 +52,8 @@ test("a provider's accounts share one rail tab, while each ACP agent keeps its o
   expect(groups.map((group) => [group.name, group.accounts.map((entry) => entry.name)])).toEqual([
     ["Favorites", ["Favorites"]],
     ["Claude Code", ["Claude Code · Personal", "Claude Code · Work"]],
-    [acpAgentName("official:gemini"), [acpAgentName("official:gemini")]],
-    [acpAgentName("official:qwen-code"), [acpAgentName("official:qwen-code")]],
+    ["Gemini CLI", ["Gemini CLI"]],
+    ["Qwen Code", ["Qwen Code"]],
   ]);
   expect(groups.some((group) => group.name.startsWith("ACP agent"))).toBe(false);
 });
