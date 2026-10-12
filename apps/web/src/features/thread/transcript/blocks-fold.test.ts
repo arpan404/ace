@@ -88,6 +88,30 @@ test("a completed turn folds its work behind one head; its answer and failures s
   expect(blocks[3]?.kind === "message" && blocks[3].itemId).toBe("answer");
 });
 
+test("a completed turn's own notice stays where it happened, outside the fold", () => {
+  const warning = Item.parse({
+    id: "restarted",
+    agentId: "root",
+    runId: "turn",
+    createdAt: 3,
+    complete: true,
+    type: "notice",
+    level: "warning",
+    text: "The provider restarted",
+  });
+  const blocks = buildBlocks(
+    source([...turn.slice(0, 2), warning, ...turn.slice(3, 4), ...turn.slice(5)], {
+      state: "completed",
+      trigger: "user",
+      startedAt: 1,
+      endedAt: 7,
+    }),
+  );
+  expect(blocks.some((block) => block.kind === "item" && block.itemId === "restarted")).toBe(true);
+  const head = blocks.find((block) => block.kind === "work");
+  expect(head?.kind === "work" && head.folded?.flatMap(blockItems)).not.toContain("restarted");
+});
+
 test("a failed turn keeps everything it did in view", () => {
   const blocks = buildBlocks(
     source(turn, { state: "failed", trigger: "user", startedAt: 1, endedAt: 7 }),

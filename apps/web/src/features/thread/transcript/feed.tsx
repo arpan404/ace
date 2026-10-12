@@ -1,6 +1,6 @@
 import { listenScrollIntent } from "./scroll-intent.ts";
 import type { ThreadReader } from "@ace/client";
-import { useItemOrder, type HistoryPager } from "@ace/client-react";
+import type { HistoryPager } from "@ace/client-react";
 import { ledgerOf } from "@ace/ui-core";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -56,7 +56,6 @@ import { useTurnActivity } from "./use-turn-activity.ts";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useReadMarker } from "./seen.ts";
 
-const none: readonly string[] = [];
 const unsettledKeys = ["order", "interactions"] as const;
 interface Unsettled {
   /** Steps still in flight (or awaiting approval) and the steps open requests came from. */
@@ -190,7 +189,6 @@ export function Feed(props: FeedProps) {
       ? [...merged, tailLive]
       : merged;
   }, [local, built, detached, working]);
-  const order = useItemOrder(threadId) ?? none;
   const runOrdinals = useRunOrdinals(threadId);
   const { seqTurns } = props;
   const ordinalOf = useCallback(
@@ -221,7 +219,7 @@ export function Feed(props: FeedProps) {
   // window the reader reads on from the turn they jumped to: it and every later turn show
   // whole, the turns before it fold.
   const latest = newestOrdinal(blocks, ordinalOf);
-  const recent = recentFrom(latest, turnCount(blocks, ordinalOf), order.length);
+  const recent = recentFrom(latest, turnCount(blocks, ordinalOf));
   // A window not joined to the tail holds no recent turns: only its own from the jump on.
   const openFrom = detached
     ? (jump.turn ?? Infinity)

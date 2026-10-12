@@ -663,7 +663,7 @@ export function buildBlocks(source: BlockSource): Block[] {
             continue;
           }
           if (index === headAt) folded.push({ kind: "work", key: head.key, itemIds: firstIds });
-          else if (foldable(block, source)) {
+          else if (foldable(block)) {
             folded.push(block);
             absorbed.add(index);
           }
@@ -720,23 +720,14 @@ export function buildBlocks(source: BlockSource): Block[] {
   return result;
 }
 
-/** Whether a settled turn's block folds behind its "Worked for": never an error or an ending. */
-function foldable(block: Block, source: BlockSource): boolean {
-  switch (block.kind) {
-    case "work":
-    case "message":
-    case "subagents":
-    case "background":
-    case "question":
-    case "event":
-      return true;
-    case "item": {
-      const item = source.item(block.itemId);
-      return !(item?.type === "notice" && item.level === "error");
-    }
-    default:
-      return false;
-  }
+/**
+ * Whether a settled turn's block folds behind its "Worked for": its steps, what it said between
+ * them and its background commands. Never a notice, an ending, a request it asked (with its
+ * answer), a record such as a saved file, or the subagents it started: those stay where they
+ * happened, since the steps read back on opening are the turn's work alone.
+ */
+function foldable(block: Block): boolean {
+  return block.kind === "work" || block.kind === "message" || block.kind === "background";
 }
 
 function endBlock(
@@ -784,8 +775,9 @@ function settled(source: BlockSource, turn: TurnMark, newest: boolean): boolean 
 
 /** The items a block shows, for finding its turn and the row a jump lands on. */
 export function blockItems(block: Block): readonly string[] {
+  // A folded head holds its turn in order: each item once, as the turn said it.
   if (block.kind === "work" && block.folded)
-    return [...block.itemIds, ...block.folded.flatMap((inner) => blockItems(inner))];
+    return [...new Set([...block.folded.flatMap((inner) => blockItems(inner)), ...block.itemIds])];
   if ("itemIds" in block) return block.itemIds ?? [];
   if (block.kind === "live" || block.kind === "thinking") return [];
   if (block.kind === "question") {

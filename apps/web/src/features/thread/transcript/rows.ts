@@ -1,4 +1,3 @@
-import { defaultLimits } from "@ace/client";
 import { blockItems, type Block } from "./blocks.ts";
 
 /*
@@ -36,20 +35,15 @@ export interface RowOptions {
 }
 
 /**
- * Older turns fold only once the loaded window is long: more than 12 turns, or three quarters of
- * the items a thread's window holds (`defaultLimits.items`, 200). Then the 5 newest stay whole.
- * The item bound must sit under the window's own size, or it could never be reached.
+ * Older turns fold only once the loaded window holds more than 12 turns; then the 5 newest stay
+ * whole. (An item bound never applied: the thread's window holds at most 200 items, and a
+ * finished turn already folds its work into "Worked for".)
  */
-export const foldRule = {
-  turns: 12,
-  items: Math.floor(defaultLimits.items * 0.75),
-  keep: 5,
-} as const;
+export const foldRule = { turns: 12, keep: 5 } as const;
 
 /** The first turn shown whole in the live transcript: every turn, until the window is long. */
-export function recentFrom(latest: number | undefined, turns: number, items: number): number {
-  if (latest === undefined || (turns <= foldRule.turns && items <= foldRule.items))
-    return Number.NEGATIVE_INFINITY;
+export function recentFrom(latest: number | undefined, turns: number): number {
+  if (latest === undefined || turns <= foldRule.turns) return Number.NEGATIVE_INFINITY;
   return latest - foldRule.keep + 1;
 }
 
