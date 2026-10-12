@@ -75,6 +75,14 @@ export function FailedTurn(props: {
         threadId: ThreadId.parse(props.threadId),
         input,
         trigger: "user",
+        ...(ask?.type === "message" && ask.attachments?.length
+          ? {
+              context: {
+                mentions: [],
+                attachments: ask.attachments.map((file) => ({ sha256: file.sha256 })),
+              },
+            }
+          : {}),
       });
     } catch {
       toast.error({ title: "Couldn't retry the turn" });

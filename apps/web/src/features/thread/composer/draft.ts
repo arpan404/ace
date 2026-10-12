@@ -22,6 +22,8 @@ export interface Draft {
     /** The files themselves, in `local`'s order, for an upload to be retried. */
     files: (File | undefined)[];
     release(): void;
+    /** Return attachment ownership when the send handoff is refused. */
+    restore?(): void;
   };
   /** ⌘↵ / Ctrl+↵: the opposite of the follow-up default (steer instead of queue, or back). */
   opposite: boolean;

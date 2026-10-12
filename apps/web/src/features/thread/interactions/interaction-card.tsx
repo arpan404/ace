@@ -29,6 +29,7 @@ import { Prose } from "@/components/markdown/prose.tsx";
 import { AnsweredQuestionCard, closedMeta } from "./answered-question.tsx";
 import { answerStore, pendingAnswers, useLocalAnswer, type LocalAnswer } from "./answers.ts";
 import { QuestionForm } from "./question-form.tsx";
+import { Elicitation } from "./elicitation.tsx";
 import { PlanReview } from "./plan-review.tsx";
 import type { Answer } from "./answer.ts";
 import { useEarlierAnswer } from "./use-earlier-answer.ts";
@@ -362,24 +363,7 @@ function OpenRequest(props: {
         </PlanReview>
       )}
       {request.kind === "elicitation" && (
-        <div className="mt-3.5 flex gap-2">
-          <Button
-            size="sm"
-            variant="primary"
-            disabled={sending}
-            onClick={() => answer({ kind: "elicitation", action: "accept" })}
-          >
-            Continue
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={sending}
-            onClick={() => answer({ kind: "elicitation", action: "decline" })}
-          >
-            Decline
-          </Button>
-        </div>
+        <Elicitation request={request} disabled={sending} onAnswer={answer} />
       )}
       {sending && !chosen && !failed && (
         <p role="status" className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">

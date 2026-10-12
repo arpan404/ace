@@ -78,6 +78,29 @@ test("a pre-thread upload survives restart and adoption authorizes only its devi
     expect(
       await request("phone", { op: "attachment.list", threadId: ThreadId.parse("created") }),
     ).toMatchObject({ kind: "attachments", attachments: [{ sha256, name: "draft.txt" }] });
+    const resume = {
+      op: "draft.mention.complete",
+      draftId: draft.draftId,
+      query: "",
+      limit: 1,
+    } satisfies ContextOperation;
+    expect(await request("phone", resume)).toMatchObject({
+      kind: "error",
+      code: "forbidden",
+      message: "Draft already adopted",
+    });
+    await service.close();
+    service = await ContextService.open(options);
+    expect(await request("phone", resume)).toMatchObject({
+      kind: "error",
+      code: "forbidden",
+      message: "Draft already adopted",
+    });
+    // Receipt replay for the same thread remains idempotent despite the rejected resume probe.
+    await service.uploads.adopt("phone", draft.draftId, "created");
+    expect(
+      await request("phone", { op: "attachment.list", threadId: ThreadId.parse("created") }),
+    ).toMatchObject({ kind: "attachments", attachments: [{ name: "draft.txt" }] });
   } finally {
     await service.close();
     await rm(root, { recursive: true, force: true });

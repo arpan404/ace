@@ -55,7 +55,7 @@ export function restoreReturnedDraft(
   storage: KeyValueStorage | undefined,
   key: string,
   returned: ReturnedDraft,
-): void {
-  if (!returnDraft(key, returned))
-    writeDraft(storage, key, mergeReturnedDraft(readDraft(storage, key), returned));
+): boolean {
+  const saved = returnDraft(key, returned);
+  return saved ?? writeDraft(storage, key, mergeReturnedDraft(readDraft(storage, key), returned));
 }

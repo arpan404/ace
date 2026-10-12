@@ -94,6 +94,7 @@ export const pendingThreadId = (commandId: string) => `pending:${commandId}`;
  */
 export function useCreateThread(
   onRecovered: (payload: SubmittedDraft & { workspaceId: string }) => void,
+  canNavigate?: (() => boolean) | undefined,
 ): {
   /** Resolves false when the composer must keep its draft, including uncertain worker delivery. */
   create(request: CreateRequest): Promise<boolean>;
@@ -120,6 +121,7 @@ export function useCreateThread(
     isSubmitting: () => flight.current !== undefined,
     onError: setError,
     onRecovered,
+    canNavigate,
   });
 
   const submit = useCallback(
@@ -157,7 +159,8 @@ export function useCreateThread(
         void settleCreateAttempt(client, storage, recoveryKey, attempt).catch(() => {
           /* Reconnect recovers the saved payload under its original ID. */
         });
-        void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
+        if (canNavigate?.() !== false)
+          void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
         return sameSubmittedDraft(requested, attempt.payload);
       } catch (failure) {
         if (submitted && failure instanceof ClientError && failure.code === "offline") {
@@ -180,7 +183,7 @@ export function useCreateThread(
         return false;
       }
     },
-    [client, navigate, storage, recoveryKey, host],
+    [client, navigate, storage, recoveryKey, host, canNavigate],
   );
   const create = useCallback(
     (request: CreateRequest) => {
