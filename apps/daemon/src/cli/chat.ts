@@ -15,6 +15,7 @@ import { selectedProfile } from "./profiles.ts";
 import { ensureDaemon, systemOpenRuntime } from "./open-runtime.ts";
 import { key, command } from "./mutations.ts";
 import { admitWork, runThreadId } from "./work.ts";
+import { remoteWorkProject } from "./projects.ts";
 import { approval } from "./approval.ts";
 import { CliFailure, treeOutcome } from "./output.ts";
 import { chatAction } from "./chat-input.ts";
@@ -41,6 +42,7 @@ export async function chatCommand(
   let attention: { id: string; lease: ThreadSubscription } | undefined;
   let lastMutation: { threadId: string | undefined; idempotencyKey: string } | undefined;
   let admitting = false;
+  let attaching = false;
   let quitRequested = false;
   let failure: unknown;
   let queuedBytes = 0;
@@ -130,14 +132,20 @@ export async function chatCommand(
   const attach = async (id: string, idempotencyKey?: string) => {
     root?.release();
     root = session.client.thread(id);
-    await waitSelection(
-      root.store.select(["thread", "error"], (reader) => ({
-        loaded: !!reader.thread,
-        error: reader.error,
-      })),
-      (value) => value.loaded || !!value.error,
-      signal,
-    );
+    attaching = true;
+    cancelObservation();
+    try {
+      await waitSelection(
+        root.store.select(["thread", "error"], (reader) => ({
+          loaded: !!reader.thread,
+          error: reader.error,
+        })),
+        (value) => value.loaded || !!value.error,
+        signal,
+      );
+    } finally {
+      attaching = false;
+    }
     if (root.store.error) throw root.store.error;
     const selected = option(args, "provider");
     if (selected && root.store.thread?.provider !== selected)
@@ -211,27 +219,29 @@ export async function chatCommand(
       );
   };
   const stopConnection = connection.subscribe(fatal);
-  const cancelReceipt = () => {
-    if (admitting && quitRequested)
+  const cancelObservation = () => {
+    if ((admitting || attaching) && quitRequested)
       lifetime.abort(
         new CliFailure(
           "uncertain",
-          "Detached before the command acknowledgement. Check the thread or retry with its key.",
-          lastMutation,
+          admitting
+            ? "Detached before the command acknowledgement. Check the thread or retry with its key."
+            : "Detached before the thread snapshot. Check the thread when connected.",
+          lastMutation ?? { threadId },
         ),
       );
   };
   const stopInput = io.onLine((line) => {
     if (line.trim() === "/quit") {
       quitRequested = true;
-      cancelReceipt();
+      cancelObservation();
     }
   });
   const submit: typeof command = async (client, payload, id, observation) => {
     // Commit to the SDK outbox before a buffered quit cancels receipt observation.
     await client.enqueue(CommandPayload.parse(payload), id);
     admitting = true;
-    cancelReceipt();
+    cancelObservation();
     try {
       return await command(client, payload, id, observation);
     } finally {
@@ -282,15 +292,16 @@ export async function chatCommand(
           }
           if (action.kind !== "send")
             throw new CliFailure("refused", "Send a prompt to create a thread first");
-          if (session.remote && !option(args, "project"))
-            throw new CliFailure("refused", "Remote chat creation requires --project WORKSPACE_ID");
+          const project = session.remote
+            ? await remoteWorkProject(option(args, "project"), session.client, signal)
+            : option(args, "project");
           const id = option(args, "idempotency-key") ? key(args) : io.id();
           lastMutation = { threadId: runThreadId(id), idempotencyKey: id };
           const admission = await admitWork(
             {
               text: action.text,
               id,
-              project: option(args, "project"),
+              project,
               provider: option(args, "provider") ?? "codex",
               model,
               mode: "local",

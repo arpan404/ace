@@ -41,6 +41,19 @@ export async function getProject(client: Client, id: string, signal: AbortSignal
     );
   return response.result.project;
 }
+/** Remote work binds to a registered host identity, never a client-resolved directory. */
+export async function remoteWorkProject(
+  value: string | undefined,
+  client: Client,
+  signal: AbortSignal,
+) {
+  if (!value || value.startsWith(".") || /[/\\]/.test(value))
+    throw new CliFailure(
+      "refused",
+      "Remote work requires --project WORKSPACE_ID from ace project list; paths are not accepted",
+    );
+  return (await getProject(client, value, signal)).id;
+}
 export async function projectCommand(
   args: Args,
   client: Client,

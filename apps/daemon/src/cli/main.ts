@@ -16,7 +16,7 @@ import { connectCli } from "./connection.ts";
 import { runCommand } from "./work.ts";
 import { listThreads, threadCommand, waitThread } from "./threads.ts";
 import { taskCommand } from "./tasks.ts";
-import { projectCommand } from "./projects.ts";
+import { projectCommand, remoteWorkProject } from "./projects.ts";
 import { openCommand } from "./open.ts";
 import { retentionCommand } from "./retention.ts";
 const help = `ace run [PROMPT|-] [--provider codex|claude] [--project ID|PATH] [--worktree] [--model MODEL]
@@ -48,6 +48,7 @@ ace clean apply PLAN_ID --revision REVISION|clean status PLAN_ID
 
 All commands: --json, --jq EXPR, --timeout DURATION
 Mutations: --idempotency-key KEY. Waits: --tree. Run: --stream jsonl.
+Remote run/chat: --project WORKSPACE_ID from ace project list; paths are refused.
 Exit: 0 ok, 1 failed, 2 needs-human, 3 timeout, 4 refused, 5 uncertain.
 `;
 export async function main(input: string[]): Promise<void> {
@@ -153,9 +154,10 @@ export async function main(input: string[]): Promise<void> {
         await providersCommand(args, session.client, session.signal);
       else if (command === "login") await loginCommand(args, session.client, session.signal);
       else if (command === "run") {
-        if (session.remote && !option(args, "project"))
-          throw new CliFailure("refused", "Remote runs require --project WORKSPACE_ID");
-        const id = await runCommand(args, session.client, session.signal);
+        const project = session.remote
+          ? await remoteWorkProject(option(args, "project"), session.client, session.signal)
+          : option(args, "project");
+        const id = await runCommand(args, session.client, session.signal, project);
         if (args.flags.stream === "jsonl")
           await waitThread(
             { ...args, flags: { ...args.flags, tree: true } },

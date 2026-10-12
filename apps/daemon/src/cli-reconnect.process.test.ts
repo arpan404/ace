@@ -7,6 +7,47 @@ import { remoteCliFixture } from "./cli-remote-test-support.ts";
 import { openCli, startCli, invoke } from "./cli-test-support.ts";
 
 test(
+  "quit detaches promptly when a connection drops before the attached thread snapshot",
+  { timeout: 30000 },
+  async () => {
+    const f = await remoteCliFixture();
+    f.interruptBeforeSnapshots();
+    const cli = openCli(f.home, [
+      "chat",
+      "--thread",
+      f.caller.threadId,
+      ...f.remoteArgs,
+      "--stream",
+      "jsonl",
+    ]);
+    try {
+      await expect.poll(f.lostSnapshots).toBeGreaterThan(0);
+      cli.child.stdin.write("/quit\n");
+      let exited = false;
+      void cli.exited.then(() => {
+        exited = true;
+      });
+      await expect.poll(() => exited, { timeout: 5000 }).toBe(true);
+      const result = await cli.exited;
+      expect(result.code, result.stderr).toBe(5);
+      const records: unknown[] = result.stdout
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(records.at(-1)).toMatchObject({
+        status: "uncertain",
+        admission: { threadId: f.caller.threadId },
+      });
+      expect(f.commands).toEqual([]);
+    } finally {
+      cli.child.kill("SIGKILL");
+      await cli.exited;
+      await f.close();
+    }
+  },
+);
+
+test(
   "a single stdin chunk containing a prompt and quit exits uncertain and keeps the prompt replayable",
   { timeout: 30000 },
   async () => {

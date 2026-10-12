@@ -10,7 +10,7 @@ import { accessRequest, redeemPairing, ticketSocket } from "./client-access.ts";
 import { loadIdentity } from "./tls-identity.ts";
 import { invoke } from "./cli-test-support.ts";
 
-/** Real pinned edges; the proxy controls only ticket outages and lost command replies. */
+/** Real pinned edges; the proxy controls ticket outages and lost replies/snapshots. */
 export async function remoteCliFixture() {
   const f = await daemonFixture(
     undefined,
@@ -33,7 +33,9 @@ export async function remoteCliFixture() {
   const identity = loadIdentity(home);
   let ticketFailures = 0,
     failedTickets = 0,
-    dropReply = false;
+    dropReply = false,
+    dropSnapshot = false,
+    lostSnapshots = 0;
   const commands: Command[] = [];
   const receipts: string[] = [];
   const sockets = new Set<WebSocket>();
@@ -91,6 +93,12 @@ export async function remoteCliFixture() {
     upstream.on("message", (bytes, binary) => {
       if (!binary) {
         const parsed = ServerMessage.parse(JSON.parse(bytes.toString()));
+        if (dropSnapshot && parsed.type === "snapshot" && parsed.view.kind === "thread") {
+          lostSnapshots++;
+          downstream.terminate();
+          upstream.terminate();
+          return;
+        }
         if (parsed.type === "commandResult") {
           receipts.push(parsed.commandId);
           if (dropReply) return;
@@ -146,6 +154,10 @@ export async function remoteCliFixture() {
       for (const socket of sockets) socket.terminate();
     },
     failedTickets: () => failedTickets,
+    interruptBeforeSnapshots() {
+      dropSnapshot = true;
+    },
+    lostSnapshots: () => lostSnapshots,
     async revoke() {
       await accessRequest(local, `/v1/devices/${paired.device.id}`, {
         method: "DELETE",

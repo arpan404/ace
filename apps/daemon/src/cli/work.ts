@@ -7,7 +7,12 @@ import { prompt, mutationResult } from "./io.ts";
 import { CliFailure } from "./output.ts";
 import { command, key } from "./mutations.ts";
 import { addProject } from "./projects.ts";
-export async function runCommand(args: Args, client: Client, signal: AbortSignal) {
+export async function runCommand(
+  args: Args,
+  client: Client,
+  signal: AbortSignal,
+  project = option(args, "project"),
+) {
   validateArgs(
     args,
     ["provider", "project", "worktree", "model", "idempotency-key", "stream"],
@@ -22,7 +27,7 @@ export async function runCommand(args: Args, client: Client, signal: AbortSignal
     {
       text,
       id,
-      project: option(args, "project"),
+      project,
       provider: option(args, "provider") ?? "codex",
       model: option(args, "model"),
       mode: args.flags.worktree ? "worktree" : "local",
