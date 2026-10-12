@@ -16,10 +16,17 @@ import {
   holdPageLock,
   reloadHeldStore,
   pageId as currentPageId,
+  startUploadLease,
+  finishUploadLease,
 } from "@/lib/held-send-store.ts";
 export { pageId, liveOwners } from "@/lib/held-send-store.ts";
 import { z } from "zod";
 import { rememberAttachments, type StagedSend } from "./send-store.ts";
+import {
+  browserUploadLeaseClock,
+  uploadOwnerAlive,
+  type UploadLeaseClock,
+} from "@/lib/upload-owner-lease.ts";
 
 /*
  * Messages held back until their files upload (UX audit SY-2, AT-2; review of #126). The person
@@ -100,8 +107,17 @@ export function stagedSends(store: KeyValueStorage | undefined): typeof all {
 }
 
 /** Hold a message while its files upload; `files` and `previews` stay in this page. */
-export function stage(send: Omit<StagedSend, "owner">, local: Held): boolean {
-  if (!save({ ...send, owner: currentPageId })) return false;
+export function stage(
+  send: Omit<StagedSend, "owner">,
+  local: Held,
+  clock: UploadLeaseClock = browserUploadLeaseClock,
+): boolean {
+  const uploading = send.preparing || send.attachments.some((file) => !file.sha256);
+  if (uploading && !startUploadLease(send.commandId, clock)) return false;
+  if (!save({ ...send, preparing: !!uploading, owner: currentPageId })) {
+    finishUploadLease(send.commandId);
+    return false;
+  }
   held.set(send.commandId, local);
   holdPageLock();
   return true;
@@ -132,6 +148,7 @@ function patch(commandId: string, change: Partial<StagedSend>): boolean {
  */
 export function unstage(commandId: string, keepPreviews = false): boolean {
   if (!deleteHeldSend(commandId)) return false;
+  finishUploadLease(commandId);
   const local = held.get(commandId);
   held.delete(commandId);
   if (local && !keepPreviews) for (const url of local.previews) if (url) URL.revokeObjectURL(url);
@@ -142,6 +159,22 @@ export function unstage(commandId: string, keepPreviews = false): boolean {
 export function canRetry(send: StagedSend): boolean {
   const local = held.get(send.commandId);
   return send.attachments.every((file, index) => !!file.sha256 || !!local?.files[index]);
+}
+
+/** Re-check the durable lease at the action boundary, including a heartbeat since render. */
+export function canRecoverStaged(
+  commandId: string,
+  storage: KeyValueStorage | undefined,
+  now: number,
+): boolean {
+  refreshHeldSends();
+  const send = all.get().find((entry) => entry.commandId === commandId);
+  if (!send) return false;
+  return (
+    send.owner === currentPageId ||
+    (!send.preparing && send.attachments.every((file) => !!file.sha256)) ||
+    !uploadOwnerAlive(storage, send.owner, now)
+  );
 }
 
 /** The held message's files, with this page's previews where it has them. */
@@ -172,7 +205,10 @@ function settle(
 ): boolean {
   refreshHeldSends();
   const send = all.get().find((entry) => entry.commandId === commandId);
-  if (!send) return false;
+  if (!send) {
+    finishUploadLease(commandId);
+    return false;
+  }
   const attachments = send.attachments.map((file, index) => {
     const outcome = outcomes[index];
     return outcome && "sha256" in outcome
@@ -189,6 +225,7 @@ function settle(
     attachments,
     failed: failed.length ? failed.join(" · ") : undefined,
   });
+  finishUploadLease(commandId);
   return saved && !failed.length;
 }
 
@@ -308,13 +345,18 @@ export async function retryStaged(
   client: ClientApi,
   commandId: string,
   upload: (file: File) => Promise<{ sha256: string }>,
+  clock: UploadLeaseClock = browserUploadLeaseClock,
 ): Promise<boolean> {
   const epoch = generation;
   refreshHeldSends();
   const send = all.get().find((entry) => entry.commandId === commandId);
   const local = held.get(commandId);
   if (!send) return false;
-  patch(commandId, { preparing: true, failed: undefined, owner: currentPageId });
+  if (!startUploadLease(commandId, clock)) return false;
+  if (!patch(commandId, { preparing: true, failed: undefined, owner: currentPageId })) {
+    finishUploadLease(commandId);
+    return false;
+  }
   const outcomes = await Promise.all(
     send.attachments.map(async (file, index) => {
       if (file.sha256) return { sha256: file.sha256 };

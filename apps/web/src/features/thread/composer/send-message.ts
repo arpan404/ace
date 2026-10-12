@@ -4,6 +4,7 @@ import type { KeyValueStorage } from "@ace/ui-core";
 import type { Draft } from "./draft.ts";
 import { type StagedSend } from "./send-store.ts";
 import { sendWhenUploaded, stage, stagedSends } from "./staged-sends.ts";
+import type { UploadLeaseClock } from "@/lib/upload-owner-lease.ts";
 
 /*
  * Sending one message from the thread's composer (UX audit SY-2, AT-2). Loaded with the
@@ -13,6 +14,7 @@ import { sendWhenUploaded, stage, stagedSends } from "./staged-sends.ts";
 export interface SendRequest {
   client: ClientApi;
   storage: KeyValueStorage | undefined;
+  clock?: UploadLeaseClock;
   threadId: string;
   commandId: string;
   draft: Draft;
@@ -33,7 +35,13 @@ export async function sendMessage(request: SendRequest): Promise<boolean> {
   const local = { files: files.files, previews: files.local.map((file) => file.previewUrl) };
   stagedSends(request.storage);
   // Reserve the submission's place before waiting for any upload or asynchronous outbox write.
-  if (!stage({ ...heldMessage(request), attachments: files.local, preparing: true }, local))
+  if (
+    !stage(
+      { ...heldMessage(request), attachments: files.local, preparing: true },
+      local,
+      request.clock,
+    )
+  )
     return refuseStage(request);
   void sendWhenUploaded(client, commandId, files.outcomes);
   return true;

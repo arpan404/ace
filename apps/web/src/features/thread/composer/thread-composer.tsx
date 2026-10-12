@@ -10,7 +10,9 @@ import {
   resolveEffort,
   type AttachmentReader,
 } from "@ace/ui-core";
-import { Suspense, useEffect, useRef, useState, type Ref } from "react";
+import { Suspense, useContext, useEffect, useRef, useState, type Ref } from "react";
+import { TimeContext } from "@/lib/time.ts";
+import { uploadLeaseClock } from "@/lib/upload-owner-lease.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 // The catalog alone: the models feature is also loaded lazily, so importing its index would bring
 // its pickers into this route.
@@ -78,6 +80,7 @@ export function ThreadComposer({
 }) {
   const client = useClient();
   const { storage } = useLayout();
+  const time = useContext(TimeContext);
   const toast = useToast();
   const meta = useThreadMeta(props.thread.id);
   const modelChoices = useModelChoices();
@@ -173,6 +176,7 @@ export function ThreadComposer({
     const ok = await sendMessage({
       client,
       storage,
+      clock: uploadLeaseClock(time.read),
       threadId: props.thread.id,
       commandId,
       draft,

@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { memoryStorage } from "@/boot/client.ts";
 import { harness } from "@/test/harness.tsx";
+import { maintainUploadLease } from "@/lib/upload-owner-lease.ts";
 import { resetSendStore } from "./composer/send-store.ts";
 import { reloadPage, resetStaged, stagedSends } from "./composer/staged-sends.ts";
 
@@ -25,7 +26,8 @@ test("a pending-upload reload without Web Locks offers recovery and releases lat
   // Mock only the browser ownership boundary. No owner can be confirmed on the new page.
   const previous = Object.getOwnPropertyDescriptor(navigator, "locks");
   Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
-  const { app, message } = await openBusy();
+  let wall = 1000;
+  const { app, message } = await openBusy({ uiClock: () => wall });
   const file = image();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -48,9 +50,10 @@ test("a pending-upload reload without Web Locks offers recovery and releases lat
     await app.client.close();
     reloadPage();
     resetSendStore();
-    const again = harness({ daemon: app.daemon, storage: app.storage });
+    wall += 180_000;
+    const again = harness({ daemon: app.daemon, storage: app.storage, uiClock: () => wall });
     await again.open(`/t/${threadId}`);
-    const reason = await screen.findByText(/Can't verify the upload's owner/);
+    const reason = await screen.findByText(/The upload owner's lease expired/);
     const failure = reason.closest('[role="alert"]');
     if (!(failure instanceof HTMLElement)) throw new Error("Missing upload recovery actions");
     expect(within(failure).getByRole("button", { name: "Edit" })).toBeTruthy();
@@ -63,6 +66,73 @@ test("a pending-upload reload without Web Locks offers recovery and releases lat
       ]),
     );
   } finally {
+    release.resolve();
+    if (previous) Object.defineProperty(navigator, "locks", previous);
+    else Reflect.deleteProperty(navigator, "locks");
+  }
+});
+
+test("a foreign uploading owner stays live while heartbeats renew and recovers only after expiry", async () => {
+  const previous = Object.getOwnPropertyDescriptor(navigator, "locks");
+  Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+  let wall = 1000;
+  let beat: (() => void) | undefined;
+  const { app, message } = await openBusy({ uiClock: () => wall });
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const file = image();
+  const slice = file.slice.bind(file);
+  file.slice = (start, end, type) => {
+    const part = slice(start, end, type);
+    const read = part.arrayBuffer.bind(part);
+    part.arrayBuffer = async () => {
+      entered.resolve();
+      await release.promise;
+      return read();
+    };
+    return part;
+  };
+  let lease: ReturnType<typeof maintainUploadLease>;
+  try {
+    await userEvent.upload(screen.getByLabelText("Files to attach"), file);
+    await entered.promise;
+    await userEvent.type(message, "Upload still running in its owner tab{Enter}");
+    const owner = stagedSends(app.storage).get()[0]?.owner;
+    if (!owner) throw new Error("Missing uploading owner");
+    cleanup();
+    await app.client.close();
+    reloadPage();
+    resetSendStore();
+    // An independent tab's heartbeat uses its own injected clock and timer boundary.
+    lease = maintainUploadLease(app.storage, owner, {
+      now: () => wall,
+      setTimer(callback) {
+        beat = callback;
+        return () => {
+          beat = undefined;
+        };
+      },
+    });
+    if (!lease) throw new Error("Owner couldn't establish its lease");
+    const observer = harness({ daemon: app.daemon, storage: app.storage, uiClock: () => wall });
+    await observer.open(`/t/${threadId}`);
+    await screen.findByText("Uploading an image…");
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    wall = 110_000;
+    act(() => beat?.());
+    lease.abandon();
+    wall = 200_000; // Past the original lease, still within the renewed lease.
+    fireEvent(document, new Event("visibilitychange"));
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    wall = 240_000;
+    fireEvent(document, new Event("visibilitychange"));
+    await screen.findByText(/The upload owner's lease expired/);
+    expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy();
+  } finally {
+    lease?.abandon();
     release.resolve();
     if (previous) Object.defineProperty(navigator, "locks", previous);
     else Reflect.deleteProperty(navigator, "locks");

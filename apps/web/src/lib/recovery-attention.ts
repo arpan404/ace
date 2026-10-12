@@ -5,18 +5,24 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { dismissedSends, loadDismissed } from "./dismissed-sends.ts";
 import { useLayout } from "./layout.tsx";
 import { liveOwners, pageId, heldSendStore } from "./held-send-store.ts";
+import { useSeconds } from "./time.ts";
+import { uploadOwnerAlive } from "./upload-owner-lease.ts";
 
 /** Saved holds survive the outbox's memory cache and the page that started them. */
 function useHeldFailures() {
   const { storage } = useLayout();
   const store = heldSendStore(storage);
   const all = useSyncExternalStore(store.subscribe, store.get, store.get);
-  const [owners, setOwners] = useState<ReadonlySet<string>>();
+  const [owners, setOwners] = useState<ReadonlySet<string> | null>();
+  const foreign = all.some(
+    (send) => send.owner !== pageId && send.preparing !== false && !send.failed,
+  );
+  const now = useSeconds(foreign);
   useEffect(() => {
     if (!all.some((send) => send.owner !== pageId && !send.failed)) return;
     let active = true;
     void liveOwners().then((live) => {
-      if (active) setOwners(live);
+      if (active) setOwners(live ?? null);
     });
     return () => {
       active = false;
@@ -25,9 +31,15 @@ function useHeldFailures() {
   return useMemo(
     () =>
       all.filter(
-        (send) => !!send.failed || (send.owner !== pageId && !!owners && !owners.has(send.owner)),
+        (send) =>
+          !!send.failed ||
+          (send.owner !== pageId &&
+            send.preparing !== false &&
+            owners !== undefined &&
+            !owners?.has(send.owner) &&
+            !uploadOwnerAlive(storage, send.owner, now)),
       ),
-    [all, owners],
+    [all, owners, storage, now],
   );
 }
 

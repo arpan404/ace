@@ -3,6 +3,8 @@ import { arrayEqual, useThread, usePendingSends, useClient } from "@ace/client-r
 import type { QueuePage } from "@ace/protocol";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useLayout } from "@/lib/layout.tsx";
+import { useSeconds } from "@/lib/time.ts";
+import { uploadOwnerAlive } from "@/lib/upload-owner-lease.ts";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { dismissedSends, loadDismissed } from "../composer/dismissed-sends.ts";
 import {
@@ -144,8 +146,9 @@ export function useStaged(threadId: string): readonly StagedSend[] {
       ),
     [here],
   );
-  // null means ownership cannot be checked: keep the message, but offer explicit recovery.
+  // null means Web Locks cannot be queried; a fresh durable lease still protects the owner.
   const [live, setLive] = useState<ReadonlySet<string> | null>();
+  const now = useSeconds(otherOwners.size > 0);
   useEffect(() => {
     if (!otherOwners.size) return;
     let current = true;
@@ -172,17 +175,18 @@ export function useStaged(threadId: string): readonly StagedSend[] {
             !send.failed &&
             (send.preparing || send.attachments.some((file) => !file.sha256)) &&
             live !== undefined &&
-            !live?.has(send.owner);
+            !live?.has(send.owner) &&
+            !uploadOwnerAlive(storage, send.owner, now);
           return gone
             ? Object.assign({}, shown, {
                 failed:
                   live === null
-                    ? "Can't verify the upload's owner. Edit or remove to unblock the queue."
+                    ? "The upload owner's lease expired. Edit or remove to unblock the queue."
                     : interrupted(send),
               })
             : shown;
         }),
-    [here, live, outbox, owned],
+    [here, live, outbox, owned, storage, now],
   );
 }
 

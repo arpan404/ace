@@ -1,4 +1,6 @@
-import { useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
+import { TimeContext } from "@/lib/time.ts";
+import { uploadLeaseClock } from "@/lib/upload-owner-lease.ts";
 import { tokensFromInput } from "@ace/ui-core";
 import type { PendingSend } from "@ace/client";
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
@@ -12,7 +14,13 @@ import { useLayout } from "@/lib/layout.tsx";
 import { dismissSend } from "../composer/dismissed-sends.ts";
 import { draftOf, restoreReturnedDraft, type SendPayload } from "../composer/returned-draft.ts";
 import { returnDraft, saveOpenDraft, leasable } from "../composer/send-store.ts";
-import { canRetry, retryStaged, unstage, type StagedSend } from "../composer/staged-sends.ts";
+import {
+  canRetry,
+  canRecoverStaged,
+  retryStaged,
+  unstage,
+  type StagedSend,
+} from "../composer/staged-sends.ts";
 import { useThreadSources } from "../sources/index.ts";
 import { commandOf } from "./pending-sends.ts";
 
@@ -178,14 +186,19 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
   const sources = useThreadSources();
   const meta = useThreadMeta(leasable(props.threadId));
   const { storage } = useLayout();
+  const time = useContext(TimeContext);
   const inFlight = useRef(false);
   const [editing, setEditing] = useState(false);
   const retry = () => {
-    if (!meta || inFlight.current) return;
+    if (!meta || inFlight.current || !canRecoverStaged(staged.commandId, storage, time.read()))
+      return;
     inFlight.current = true;
     const thread = { id: props.threadId, workspaceId: meta.workspaceId, title: meta.title };
-    void retryStaged(client, staged.commandId, (file) =>
-      sources.context.upload(thread, file, () => {}),
+    void retryStaged(
+      client,
+      staged.commandId,
+      (file) => sources.context.upload(thread, file, () => {}),
+      uploadLeaseClock(time.read),
     )
       .then((sent) => {
         if (!sent) toast.error({ title: "It still didn't go", description: "It is still here." });
@@ -195,6 +208,7 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
       });
   };
   const edit = () => {
+    if (!canRecoverStaged(staged.commandId, storage, time.read())) return;
     const draft = {
       text: staged.text,
       tokens: staged.input ? tokensFromInput(staged.input).tokens : [],
@@ -222,6 +236,7 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
     dismissSend(storage, staged.commandId);
   };
   const remove = () => {
+    if (!canRecoverStaged(staged.commandId, storage, time.read())) return;
     if (!unstage(staged.commandId)) {
       toast.error({ title: "Couldn't remove the message", description: "It is still here." });
       return;
