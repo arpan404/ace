@@ -1,2 +1,4 @@
 const { getDefaultConfig } = require("expo/metro-config");
-module.exports = getDefaultConfig(__dirname);
+const config = getDefaultConfig(__dirname);
+config.maxWorkers = 4;
+module.exports = config;

@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Module boundaries for the web app and the client packages (`bun run check:deps`).
+ * Module boundaries for Android, the web app and the client packages (`bun run check:deps`).
  *
  * dependency-cruiser parses with swc because TypeScript 7 no longer ships the JS compiler API its
  * tsc parser needs (it prints a "missing-typescript-transpiler" note; swc sees every import,
@@ -15,7 +15,8 @@
  */
 const web = "^apps/web/src/";
 /** Browser source roots. Workspace dependencies are followed to detect Node-only entries. */
-const scope = "^(apps/web/|packages/(client|client-worker|client-react|fake-daemon|ui-core)/)";
+const scope =
+  "^(apps/android/(src|modules)/|apps/web/|packages/(client|client-worker|client-react|fake-daemon|ui-core)/)";
 /** Test-only code may reach a daemon or fixtures that production code must not. */
 const testOnly = "(\\.test\\.tsx?|\\.fixture\\.ts|/test-support\\.ts)$|(^|/)test/";
 const feature = `${web}features/([^/]+)/`;
@@ -35,6 +36,14 @@ module.exports = {
       // when it lives in a workspace package or node_modules.
       from: { path: ".", pathNot: testOnly },
       to: { path: nodeOnly, dependencyTypesNot: ["type-only"] },
+    },
+    {
+      name: "android-not-server-or-other-apps",
+      severity: "error",
+      comment:
+        "Android reaches shared packages only through portable public entries and never another app.",
+      from: { path: "^apps/android/(src|modules)/", pathNot: testOnly },
+      to: { path: "^(apps/(?!android/)|packages/(fake-daemon|provider-kit|core)/)" },
     },
     {
       name: "no-circular",
@@ -116,15 +125,34 @@ module.exports = {
   options: {
     parser: "swc",
     // Follow workspace exports so a Node-only package root cannot hide a built-in import.
-    doNotFollow: { dependencyTypes: ["type-only"] },
+    // RN's published implementation is Flow, which the SWC TypeScript parser cannot read.
+    // Its entry still resolves; every ace workspace runtime dependency is followed.
+    doNotFollow: {
+      dependencyTypes: ["type-only"],
+      path: "(^|/)node_modules/(react-native|@react-native-masked-view)/",
+    },
     exclude: { path: `(^|/)routeTree\\.gen\\.ts$|${testOnly}` },
     tsPreCompilationDeps: true,
     combinedDependencies: true,
     enhancedResolveOptions: {
       exportsFields: ["exports"],
       aliasFields: ["browser"],
-      conditionNames: ["browser", "import", "default"],
-      extensions: [".ts", ".tsx", ".js", ".mjs", ".d.ts"],
+      conditionNames: ["react-native", "browser", "import", "default"],
+      extensions: [
+        ".android.ts",
+        ".native.ts",
+        ".android.tsx",
+        ".native.tsx",
+        ".android.js",
+        ".native.js",
+        ".ttf",
+        ".json",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".mjs",
+        ".d.ts",
+      ],
       mainFields: ["browser", "module", "main", "types"],
     },
     webpackConfig: { fileName: "scripts/depcruise-resolve.cjs" },

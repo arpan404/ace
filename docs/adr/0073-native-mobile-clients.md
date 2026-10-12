@@ -1,4 +1,4 @@
-# 0072: Native mobile clients share the headless SDK and design tokens
+# 0073: Native mobile clients share the headless SDK and design tokens
 
 Date: 2026-10-11. Status: accepted stack; performance gate pending.
 
@@ -26,7 +26,8 @@ passes normal-text contrast on every permitted content surface.
 Android has an ace Material 3 theme. Dynamic colour is off. A small local Expo
 module wraps Compose children with exact token colours, typography, shapes and
 ripple. Inter and JetBrains Mono are bundled under their SIL Open Font Licenses.
-The UI sets component shapes, elevations and colour roles explicitly. Font sizes
+The entry point installs standard ES2023 array-copy polyfills required by the SDK
+on Hermes. The UI sets component shapes, elevations and colour roles explicitly. Font sizes
 respect the system text scale. Edge-to-edge layouts use one safe-area owner.
 Native-stack navigation handles system and predictive back; sheets use Compose
 motion and the app presents snackbars.

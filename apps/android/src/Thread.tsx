@@ -156,7 +156,9 @@ export function ThreadScreen({
                   style={{
                     ...textStyle("caption"),
                     color:
-                      p.state === "failed" ? theme.status.failed : theme.colours.mutedForeground,
+                      p.state === "failed"
+                        ? theme.statusText.failed
+                        : theme.colours.mutedForeground,
                   }}
                 >
                   {p.state === "failed"

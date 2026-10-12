@@ -13,7 +13,7 @@ import {
   fillMaxWidth,
   background,
 } from "./components.tsx";
-import { clickable, border } from "@expo/ui/jetpack-compose/modifiers";
+import { clickable } from "@expo/ui/jetpack-compose/modifiers";
 import { statusAppearance } from "./status.ts";
 
 type InboxEntry = { kind: "heading"; id: string; title: string } | { kind: "thread"; id: string };
@@ -59,36 +59,44 @@ const InboxRow = memo(function InboxRow({
   if (!thread) return null;
   const status = statusAppearance(thread.status, theme);
   return (
-    <AceHost style={{ width: "100%" }}>
-      <Column
-        modifiers={[
-          fillMaxWidth(),
-          background(
-            thread.status.state === "needs_you"
-              ? theme.colours.needsYouSurface
-              : theme.colours.background,
-          ),
-          clickable(() => open(id)),
-          padding(tokens.spacing.xl, tokens.spacing.md, tokens.spacing.xl, tokens.spacing.md),
-          border(tokens.dimensions.border, theme.colours.separator),
-        ]}
-        verticalArrangement={{ spacedBy: tokens.spacing.xs }}
-      >
-        <Row modifiers={[fillMaxWidth()]} horizontalArrangement="spaceBetween">
-          <AceText role="caption" colour={theme.colours.mutedForeground}>
-            {thread.workspaceId}
+    <View
+      style={{
+        borderBottomWidth: tokens.dimensions.border,
+        borderBottomColor: theme.colours.separator,
+      }}
+    >
+      <AceHost style={{ width: "100%" }}>
+        <Column
+          modifiers={[
+            fillMaxWidth(),
+            background(
+              thread.status.state === "needs_you"
+                ? theme.colours.needsYouSurface
+                : theme.colours.background,
+            ),
+            clickable(() => open(id)),
+            padding(tokens.spacing.xl, tokens.spacing.md, tokens.spacing.xl, tokens.spacing.md),
+          ]}
+          verticalArrangement={{ spacedBy: tokens.spacing.xs }}
+        >
+          <Row modifiers={[fillMaxWidth()]} horizontalArrangement="spaceBetween">
+            <AceText role="caption" colour={theme.colours.mutedForeground}>
+              {thread.workspaceId}
+            </AceText>
+            <StatusPill {...status} />
+          </Row>
+          <AceText role="rowTitle" maxLines={1}>
+            {thread.title}
           </AceText>
-          <StatusPill {...status} />
-        </Row>
-        <AceText role="rowTitle" maxLines={1}>
-          {thread.title}
-        </AceText>
-        <AceText role="caption" colour={theme.colours.mutedForeground}>
-          {thread.provider} ·{" "}
-          {thread.status.state === "working" ? `${thread.status.agents} agents` : status.label}
-        </AceText>
-      </Column>
-    </AceHost>
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            {thread.provider} ·{" "}
+            {thread.status.state === "working"
+              ? `${thread.status.agents} ${thread.status.agents === 1 ? "agent" : "agents"}`
+              : status.label}
+          </AceText>
+        </Column>
+      </AceHost>
+    </View>
   );
 });
 export function Inbox({

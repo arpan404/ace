@@ -60,7 +60,7 @@ export function Approval({
         ]}
         verticalArrangement={{ spacedBy: tokens.spacing.md }}
       >
-        <AceText role="label" colour={theme.status.needsYou}>
+        <AceText role="label" colour={theme.statusText.needsYou}>
           Approval needed
         </AceText>
         <AceText role="title">{request.title}</AceText>

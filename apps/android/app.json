@@ -11,6 +11,12 @@
       "package": "dev.ace.android",
       "predictiveBackGestureEnabled": true
     },
-    "plugins": ["expo-sqlite", "expo-font", "expo-secure-store", "./plugins/with-ace-host.ts"]
+    "plugins": [
+      "expo-sqlite",
+      "expo-font",
+      "expo-secure-store",
+      "./plugins/with-ace-host.ts",
+      "./plugins/with-ace-network.ts"
+    ]
   }
 }

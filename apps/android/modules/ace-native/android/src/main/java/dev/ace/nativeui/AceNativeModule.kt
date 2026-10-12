@@ -12,11 +12,14 @@ class AceNativeModule : Module() {
     Name("AceNative")
     AsyncFunction("watchInput") { tag: Int ->
       val view = appContext.findView<EditText>(tag) ?: throw IllegalArgumentException("Input is unavailable")
-      metrics.attach(view)
+      val window = appContext.currentActivity?.window ?: throw IllegalStateException("Window is unavailable")
+      metrics.attach(view, window)
     }.runOnQueue(Queues.MAIN)
+    AsyncFunction("commitInput") { length: Int -> metrics.commit(length) }.runOnQueue(Queues.MAIN)
     AsyncFunction("inputMetrics") { metrics.summary() }.runOnQueue(Queues.MAIN)
+    AsyncFunction("fontEvidence") { metrics.fontEvidence(appContext.reactContext ?: throw IllegalStateException("React is unavailable")) }.runOnQueue(Queues.MAIN)
     AsyncFunction("stopInputMetrics") { metrics.close() }.runOnQueue(Queues.MAIN)
-    OnDestroy { metrics.close() }
+    OnDestroy { appContext.currentActivity?.runOnUiThread { metrics.close() } }
     ExpoUIView<AceThemeProps>("AceTheme") {
       Content { props -> AceThemeContent(props) }
     }

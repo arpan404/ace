@@ -17,7 +17,7 @@ import {
   background,
   Box,
 } from "./components.tsx";
-import { useSelection } from "./selection.ts";
+import { useSelection, sameIds } from "./selection.ts";
 export function AceSheet({
   title,
   dismiss,
@@ -49,7 +49,7 @@ export function AceSheet({
               modifiers={[
                 size(tokens.dimensions.sheetHandleWidth, tokens.dimensions.sheetHandleHeight),
                 clip({ type: "roundedCorner", radius: tokens.radii.pill }),
-                background(c.subtleForeground),
+                background(c.decoration),
               ]}
             />
           </Row>
@@ -67,6 +67,33 @@ export function AceSheet({
     </AceHost>
   );
 }
+function AgentRow({ store, id }: { store: ThreadSource; id: string }) {
+  const theme = useTheme();
+  const agent = useSelection(
+    useMemo(() => store.select([`agent:${id}`], (r) => r.agent(id)), [store, id]),
+  );
+  return agent ? (
+    <Column>
+      <AceText role="rowTitle">
+        {agent.parentId ? "↳ " : ""}
+        {agent.name ?? agent.native.provider}
+      </AceText>
+      <AceText role="caption" colour={theme.colours.mutedForeground}>
+        {agent.status.state}
+      </AceText>
+    </Column>
+  ) : null;
+}
+function TaskRow({ store, id }: { store: ThreadSource; id: string }) {
+  const task = useSelection(
+    useMemo(() => store.select([`task:${id}`], (r) => r.task(id)), [store, id]),
+  );
+  return task ? (
+    <AceText>
+      {task.title} · {task.status}
+    </AceText>
+  ) : null;
+}
 export function AgentsSheet({
   store,
   client,
@@ -78,21 +105,17 @@ export function AgentsSheet({
   dismiss(): void;
   notify(text: string): void;
 }) {
-  const theme = useTheme();
-  const selection = useMemo(
-    () =>
-      store.select(["agents", "tasks", "thread"], (r) => ({
-        thread: r.thread,
-        agents: r.agentIds().map((id) => r.agent(id)),
-        tasks: r.taskIds().map((id) => r.task(id)),
-      })),
-    [store],
+  const agents = useSelection(
+    useMemo(() => store.select(["agents"], (r) => r.agentIds(), sameIds), [store]),
   );
-  const state = useSelection(selection);
+  const tasks = useSelection(
+    useMemo(() => store.select(["tasks"], (r) => r.taskIds(), sameIds), [store]),
+  );
+  const thread = useSelection(useMemo(() => store.select(["thread"], (r) => r.thread), [store]));
   async function stop() {
-    if (!state.thread) return;
+    if (!thread) return;
     try {
-      await client.enqueue({ type: "thread.interrupt", threadId: state.thread.id, cascade: true });
+      await client.enqueue({ type: "thread.interrupt", threadId: thread.id, cascade: true });
       notify("Stop requested for every agent");
     } catch {
       notify("Stop could not be saved");
@@ -101,30 +124,16 @@ export function AgentsSheet({
   return (
     <AceSheet title="Agents" dismiss={dismiss}>
       <Group>
-        {state.agents.slice(0, 24).map((agent) =>
-          agent ? (
-            <Column key={agent.id}>
-              <AceText role="rowTitle">
-                {agent.parentId ? "↳ " : ""}
-                {agent.name ?? agent.native.provider}
-              </AceText>
-              <AceText role="caption" colour={theme.colours.mutedForeground}>
-                {agent.status.state}
-              </AceText>
-            </Column>
-          ) : null,
-        )}
+        {agents.slice(0, 24).map((id) => (
+          <AgentRow key={id} store={store} id={id} />
+        ))}
       </Group>
-      {state.tasks.length ? (
+      {tasks.length ? (
         <Group>
           <AceText role="label">Running in background</AceText>
-          {state.tasks.slice(0, 12).map((task) =>
-            task ? (
-              <AceText key={task.id}>
-                {task.title} · {task.status}
-              </AceText>
-            ) : null,
-          )}
+          {tasks.slice(0, 12).map((id) => (
+            <TaskRow key={id} store={store} id={id} />
+          ))}
         </Group>
       ) : null}
       <AceButton label="Stop all" onPress={() => void stop()} />
@@ -148,7 +157,8 @@ export function MachinesSheet({
         <AceText role="rowTitle">arpan-mbp</AceText>
         <StatusPill
           label={state}
-          colour={state === "ready" ? theme.status.done : theme.status.waiting}
+          markerColour={state === "ready" ? theme.status.done : theme.status.waiting}
+          textColour={state === "ready" ? theme.statusText.done : theme.statusText.waiting}
         />
       </Group>
       {__DEV__ ? (

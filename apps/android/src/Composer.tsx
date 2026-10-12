@@ -1,9 +1,17 @@
-import { useState, useRef, useEffect } from "react";
+import { useMemo, useRef, useEffect, useLayoutEffect } from "react";
 import { TextInput, View, Text, findNodeHandle } from "react-native";
 import type { ClientApi } from "@ace/client";
 import { ThreadId } from "@ace/protocol";
 import { AceHost, useTheme, tokens, textStyle } from "./theme.tsx";
-import { watchInput, stopInputMetrics, inputMetrics } from "./input-metrics.ts";
+import {
+  fontEvidence,
+  commitInput,
+  watchInput,
+  stopInputMetrics,
+  inputMetrics,
+} from "./input-metrics.ts";
+import { ComposerDraft } from "./composer-draft.ts";
+import { useSelection } from "./selection.ts";
 import { AceButton, Row } from "./components.tsx";
 export function Composer({
   threadId,
@@ -22,24 +30,28 @@ export function Composer({
     [],
   );
   const theme = useTheme();
-  const [draft, setDraft] = useState("");
-  const [saving, setSaving] = useState(false);
+  const model = useMemo(
+    () =>
+      new ComposerDraft((text) =>
+        client.enqueue({
+          type: "thread.send",
+          threadId: ThreadId.parse(threadId),
+          input: [{ type: "text", text }],
+          delivery: "steer",
+        }),
+      ),
+    [client, threadId],
+  );
+  const { text: draft, saving } = useSelection(model.selection);
+  useLayoutEffect(() => {
+    void commitInput(draft.length);
+  }, [draft]);
   async function send() {
-    if (!draft.trim() || saving) return;
-    setSaving(true);
     try {
-      await client.enqueue({
-        type: "thread.send",
-        threadId: ThreadId.parse(threadId),
-        input: [{ type: "text", text: draft }],
-        delivery: "steer",
-      });
-      setDraft("");
-      notify(client.state === "ready" ? "Message saved" : "Will send when reconnected");
+      if ((await model.send()) === "saved")
+        notify(client.state === "ready" ? "Message saved" : "Will send when reconnected");
     } catch {
       notify("Message could not be saved. Your draft is still here.");
-    } finally {
-      setSaving(false);
     }
   }
   return (
@@ -59,14 +71,15 @@ export function Composer({
         ref={input}
         onFocus={() => {
           const tag = findNodeHandle(input.current);
-          if (tag !== null) void watchInput(tag);
+          if (tag !== null)
+            void watchInput(tag).catch(() => notify("Input measurement is unavailable"));
         }}
         accessibilityLabel="Message"
         placeholder="Steer the agent…"
         placeholderTextColor={theme.colours.mutedForeground}
         multiline
         value={draft}
-        onChangeText={setDraft}
+        onChangeText={(text) => model.edit(text)}
         style={{
           ...textStyle("body"),
           color: theme.colours.foreground,
@@ -85,9 +98,12 @@ export function Composer({
               label="Metrics"
               kind="secondary"
               onPress={() => {
-                void inputMetrics().then((m) =>
-                  notify(`${m.samples} edits · p95 ${m.p95Ms.toFixed(1)} ms to draw`),
-                );
+                void Promise.all([inputMetrics(), fontEvidence()])
+                  .then(([m, font]) => {
+                    console.info("AceSpikeMetrics", JSON.stringify({ input: m, font }));
+                    notify(`${m.samples} edits · p95 ${m.p95Ms.toFixed(1)} ms end to end`);
+                  })
+                  .catch(() => notify("Focus the composer before measuring"));
               }}
             />
             <AceButton label="↑" onPress={() => void send()} enabled={!!draft.trim() && !saving} />

@@ -89,17 +89,25 @@ export function AceButton({
     </Button>
   );
 }
-export function StatusPill({ label, colour }: { label: string; colour: string }) {
+export function StatusPill({
+  label,
+  markerColour,
+  textColour,
+}: {
+  label: string;
+  markerColour: string;
+  textColour: string;
+}) {
   return (
     <Row verticalAlignment="center" horizontalArrangement={{ spacedBy: tokens.spacing.xs }}>
       <Box
         modifiers={[
           size(tokens.dimensions.statusDot, tokens.dimensions.statusDot),
           clip({ type: "circle" }),
-          background(colour),
+          background(markerColour),
         ]}
       />
-      <AceText role="label" colour={colour}>
+      <AceText role="label" colour={textColour}>
         {label}
       </AceText>
     </Row>
