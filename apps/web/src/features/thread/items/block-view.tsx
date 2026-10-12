@@ -6,7 +6,7 @@ import { usageWarning } from "../lib/usage-warning.ts";
 import { DeferredEvent } from "./deferred-review.ts";
 import type { Block } from "../transcript/blocks.ts";
 import { TurnEnd } from "../transcript/turn-end.tsx";
-import { BackgroundTaskLine } from "./background-task.tsx";
+import { BackgroundTaskLine } from "./background-task-line.tsx";
 import { ChangedFiles } from "./changed-files.tsx";
 import { AssistantMessage } from "./messages.tsx";
 import { QuestionBlock } from "./question-block.tsx";

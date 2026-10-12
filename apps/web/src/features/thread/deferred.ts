@@ -8,7 +8,7 @@ import {
   DeferredApprovalRecord,
 } from "./interactions/deferred-card.ts";
 import { DeferredReviewNote } from "./items/deferred-review.ts";
-import { DeferredBackgroundTask } from "./items/background-task.tsx";
+import { DeferredBackgroundTask } from "./items/background-task-line.tsx";
 import { DeferredSubagents } from "./items/subagents.tsx";
 import { preloadJump } from "./long/jump.ts";
 
