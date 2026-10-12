@@ -13,7 +13,13 @@ import {
 import { Select } from "@/components/ui/select.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { SettingCard, SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import {
+  SettingCard,
+  SettingFooter,
+  SettingNote,
+  SettingRow,
+  SettingSection,
+} from "@/components/setting-row.tsx";
 
 export function SourceControlSettings() {
   const machines = useMachines();
@@ -170,23 +176,20 @@ function MachineSourceControl({ client }: { client: ClientApi }) {
             Rescan
           </Button>
         </SettingRow>
-        {status && (
-          <p role="status" className="py-3 text-sm text-muted-foreground">
-            {status.instructions}
-          </p>
-        )}
         {status?.accounts.length ? (
-          <p className="pb-3 text-sm text-muted-foreground">
-            CLI accounts:{" "}
-            {status.accounts
-              .map((entry) => `${entry.login}${entry.active ? " (active)" : ""}`)
-              .join(", ")}
-          </p>
+          <SettingRow title="CLI accounts" inline>
+            <span className="text-sm text-muted-foreground">
+              {status.accounts
+                .map((entry) => `${entry.login}${entry.active ? " (active)" : ""}`)
+                .join(", ")}
+            </span>
+          </SettingRow>
         ) : null}
+        {status && <SettingNote role="status">{status.instructions}</SettingNote>}
         {error && (
-          <p role="alert" className="py-3 text-sm text-destructive">
+          <SettingNote role="alert" className="text-destructive">
             {error}
-          </p>
+          </SettingNote>
         )}
       </SettingSection>
       <SettingSection label="Host and expected account" scope="daemon">
@@ -226,9 +229,11 @@ function MachineSourceControl({ client }: { client: ClientApi }) {
             disabled={disabled}
           />
         </SettingRow>
-        <Button className="mt-3" disabled={disabled || !status} onClick={() => void save()}>
-          Save preferences
-        </Button>
+        <SettingFooter>
+          <Button disabled={disabled || !status} onClick={() => void save()}>
+            Save preferences
+          </Button>
+        </SettingFooter>
       </SettingSection>
       <SettingSection label="Git transport">
         <SettingRow
@@ -250,10 +255,10 @@ function MachineSourceControl({ client }: { client: ClientApi }) {
             disabled={disabled}
           />
         </SettingRow>
-        <p className="py-3 text-sm text-muted-foreground">
+        <SettingNote>
           {status?.transportInstructions ??
             "Clone and push use Git's own credential helper or SSH keys on this computer. GitHub API sign-in is separate. Push permission is checked by the push itself."}
-        </p>
+        </SettingNote>
       </SettingSection>
     </>
   );

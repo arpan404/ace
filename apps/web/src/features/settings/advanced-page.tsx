@@ -2,7 +2,7 @@ import { useProviderEntries, entryStatus } from "./provider-entries.ts";
 import { RunChecks } from "@/features/diagnostics/index.ts";
 import { SupportExport } from "@/features/diagnostics/index.ts";
 import { useState } from "react";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingDisclosure, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -50,10 +50,9 @@ export function AdvancedSettings() {
         </SettingRow>
       </SettingSection>
       {/* The in-page development daemon: a developer detail, so not on General. */}
-      <details className="mt-7">
-        <summary className="rounded-sm text-sm text-muted-foreground focus-ring">Advanced</summary>
+      <SettingDisclosure title="Advanced" className="mt-7">
         <DaemonSettings />
-      </details>
+      </SettingDisclosure>
     </>
   );
 }

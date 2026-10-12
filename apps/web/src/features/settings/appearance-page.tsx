@@ -50,7 +50,7 @@ export function AppearanceSettings() {
             onValueChange={(mode) => update({ mode })}
           />
         </SettingRow>
-        <div id="appearance.theme" className="flex flex-col gap-3 px-4 py-3.5">
+        <div data-setting-slot="" id="appearance.theme" className="flex flex-col gap-3 px-4 py-3.5">
           <div className="text-ui font-medium">{settingRow("appearance.theme").title}</div>
           <ThemeChooser />
         </div>

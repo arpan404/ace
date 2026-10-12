@@ -2,7 +2,15 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { StorageKind, StorageRetention } from "@ace/protocol";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import {
+  SettingFooter,
+  SettingNote,
+  SettingRow,
+  SettingSection,
+} from "@/components/setting-row.tsx";
+import { fieldClassName } from "@/components/ui/input.tsx";
+import { Switch } from "@/components/ui/switch.tsx";
+import { cn } from "@/lib/cn.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { storageLabels } from "./storage-copy.ts";
 
@@ -65,11 +73,11 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
     }
   };
   return (
-    <SettingSection label="Retention" scope="daemon">
-      <p className="mb-3 text-sm text-muted-foreground">
-        Keep archived threads and unused data for these many days. Leave a value empty to keep it
-        indefinitely. Pins and live work always stay.
-      </p>
+    <SettingSection
+      label="Retention"
+      scope="daemon"
+      note="Days to keep archived threads and unused data. Empty keeps it indefinitely; pins and live work always stay."
+    >
       {values ? (
         StorageKind.options.map((kind) => (
           <SettingRow key={kind} title={storageLabels[kind]} inline>
@@ -78,7 +86,7 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
               type="number"
               min={1}
               max={36500}
-              className="w-24 rounded-md border bg-background px-2 py-1 text-sm tabular-nums focus-ring"
+              className={cn(fieldClassName, "h-8 w-24 tabular-nums")}
               placeholder="Keep"
               value={values[kind] ?? ""}
               disabled={!ready || running}
@@ -92,38 +100,34 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
           </SettingRow>
         ))
       ) : (
-        <p role={query.isError ? "alert" : "status"}>
+        <SettingNote role={query.isError ? "alert" : "status"}>
           {query.isError
             ? "Retention could not be loaded. Reconnect and try again."
             : "Loading retention…"}
-        </p>
+        </SettingNote>
       )}
       <SettingRow
         title="Daily cleanup"
         description="Automatically applies the saved retention policy. Forced worktree removal stays manual."
         inline
       >
-        <input
-          type="checkbox"
-          aria-title="Daily cleanup"
+        <Switch
+          aria-label="Daily cleanup"
           checked={scheduledDraft ?? query.data?.scheduled ?? false}
           disabled={!ready || running || !values}
-          onChange={(event) => setScheduledDraft(event.target.checked)}
+          onCheckedChange={(checked) => setScheduledDraft(checked)}
         />
       </SettingRow>
       {error && (
-        <p role="alert" className="mt-2 text-sm text-destructive">
+        <SettingNote role="alert" className="text-destructive">
           {error}
-        </p>
+        </SettingNote>
       )}
-      <Button
-        size="sm"
-        className="mt-3"
-        disabled={!ready || running || !values}
-        onClick={() => void save()}
-      >
-        {running ? "Saving…" : "Save retention"}
-      </Button>
+      <SettingFooter>
+        <Button size="sm" disabled={!ready || running || !values} onClick={() => void save()}>
+          {running ? "Saving…" : "Save retention"}
+        </Button>
+      </SettingFooter>
     </SettingSection>
   );
 }

@@ -98,12 +98,13 @@ export function ProviderSetupRow({
           : undefined;
   return (
     <div className="flex min-w-0 flex-col">
-      <div className="flex h-9 min-w-0 items-center gap-2 text-sm">
+      {/* On a narrow screen the status and actions wrap under the name instead of crushing it. */}
+      <div className="flex min-h-9 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
         {!props.heading && (
           <ProviderIcon provider={provider} acpAgentId={props.acpAgentId} size={16} />
         )}
         {!props.heading && (
-          <span className="min-w-0 flex-1 truncate font-medium">{props.title ?? name}</span>
+          <span className="min-w-[8rem] flex-1 truncate font-medium">{props.title ?? name}</span>
         )}
         {status ? (
           <span role={failed ? "alert" : "status"}>

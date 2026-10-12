@@ -3,7 +3,7 @@ import { ProviderReadError, useProviderReadError } from "@/components/provider-r
 import type { ProviderKind } from "@ace/protocol";
 import { providerChoiceLabel, providerNames } from "@ace/ui-core";
 import { useConnectionState } from "@ace/client-react";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingDisclosure, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
@@ -70,12 +70,9 @@ export function GeneralSettings() {
         <SettingSwitch setting={settingKeys.settleOnClose} entry="threads.settleOnClose" />
       </SettingSection>
       <SettingSection label="Default permissions" anchor="permissions.providerModes" scope="daemon">
-        <details open={permissionsTarget || undefined}>
-          <summary className="focus-ring rounded-md py-(--setting-row-padding) text-ui text-muted-foreground">
-            Per-provider defaults
-          </summary>
+        <SettingDisclosure title="Per-provider defaults" open={permissionsTarget}>
           <PermissionDefaults />
-        </details>
+        </SettingDisclosure>
       </SettingSection>
       <ProjectFolders />
       <RecoverySettings />

@@ -3,7 +3,7 @@ import { CaretLeftIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { Suspense, useRef, useState } from "react";
 import { ProviderTile } from "@/components/provider-tile.tsx";
-import { SettingSection } from "@/components/setting-row.tsx";
+import { SettingDisclosure, SettingSection } from "@/components/setting-row.tsx";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -190,13 +190,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
             </SettingSection>
           </>
         )}
-        <details
-          className="mt-7 text-sm"
-          onToggle={(event) => setAdvanced(event.currentTarget.open)}
-        >
-          <summary className="cursor-pointer rounded-xs text-muted-foreground focus-ring hover:text-foreground">
-            Advanced
-          </summary>
+        <SettingDisclosure title="Advanced" className="mt-7" onToggle={setAdvanced}>
           {advanced && row && (
             <Suspense fallback={null}>
               <DeferredProviderMcpServers.Component provider={install.kind} name={install.name} />
@@ -217,7 +211,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
               <DeferredProviderTail.Component entry={props.entry} missing={missing} />
             </Suspense>
           )}
-        </details>
+        </SettingDisclosure>
       </div>
     </SettingsBody>
   );

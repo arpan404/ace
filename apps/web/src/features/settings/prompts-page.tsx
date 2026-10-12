@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { promptProblem } from "./prompt-copy.ts";
-import { SettingCard, SettingRow } from "@/components/setting-row.tsx";
+import { SettingCard, SettingList, SettingRow } from "@/components/setting-row.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { SettingsBody } from "./settings-body.tsx";
@@ -121,7 +121,7 @@ export function PromptsSettingsScreen() {
         <p className="mt-6 text-ui text-muted-foreground">No prompts yet.</p>
       ) : (
         <SettingCard className="mt-4">
-          <ul aria-label="Prompt files" className="divide-y divide-border-soft">
+          <SettingList aria-label="Prompt files">
             {files.data.map((file) => (
               <li key={`${file.scope.kind}:${file.name}`}>
                 <SettingRow
@@ -154,7 +154,7 @@ export function PromptsSettingsScreen() {
                 </SettingRow>
               </li>
             ))}
-          </ul>
+          </SettingList>
         </SettingCard>
       )}
     </SettingsBody>

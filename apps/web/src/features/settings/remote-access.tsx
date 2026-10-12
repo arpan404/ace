@@ -1,6 +1,6 @@
 import { useRemoteStatus } from "./data/use-settings.ts";
 import { useId } from "react";
-import { SettingCard, SettingRow } from "@/components/setting-row.tsx";
+import { SettingCard, SettingNote, SettingRow } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -43,21 +43,17 @@ export function RemoteAccess() {
         </DaemonSlot>
       </SettingRow>
       {overridden && (
-        <p className="py-2 text-sm text-muted-foreground">
+        <SettingNote>
           Remote access is controlled by this computer's launch configuration. Change it there to
           use these controls.
-        </p>
+        </SettingNote>
       )}
       {status.data?.error && (
-        <p role="alert" className="py-2 text-sm text-destructive">
+        <SettingNote role="alert" className="text-destructive">
           {status.data.error} Retrying automatically.
-        </p>
+        </SettingNote>
       )}
-      {status.isError && (
-        <p role="alert" className="py-2 text-sm text-muted-foreground">
-          {status.error.message}
-        </p>
-      )}
+      {status.isError && <SettingNote role="alert">{status.error.message}</SettingNote>}
       <SettingRow
         id="remote.transport"
         title="Transport"
@@ -79,13 +75,13 @@ export function RemoteAccess() {
           />
         </DaemonSlot>
       </SettingRow>
-      <p className="py-2 text-sm text-muted-foreground">
+      <SettingNote>
         {selected === "lan"
           ? "Encrypted access on your local network. Browsers must trust this computer's HTTPS certificate. Never forward its local port to the internet."
           : selected === "tailscale"
             ? "Encrypted access on your private Tailscale network. Tailscale must be running; ace never falls back to LAN."
             : "Use a relay you host yourself for encrypted files, delegation, browser and computer controls. Direct LAN access stays on for pairing and conversations."}
-      </p>
+      </SettingNote>
       {selected === "relay" && (
         <SettingRow title="Relay address" htmlFor={`${id}-relay`} compact>
           <Input

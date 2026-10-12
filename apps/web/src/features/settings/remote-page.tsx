@@ -4,7 +4,7 @@ import { deviceScopeLabels } from "./device-scopes.ts";
 import type { Device } from "@ace/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -48,9 +48,7 @@ function PairedDevices() {
     <SettingSection label="Paired devices">
       {devices.isPending && <ListSkeleton label="paired devices" shape="row" rows={2} />}
       {devices.isError && <LoadError error={devices.error} />}
-      {devices.data?.length === 0 && (
-        <p className="py-3.5 text-sm text-muted-foreground">No paired devices.</p>
-      )}
+      {devices.data?.length === 0 && <SettingNote>No paired devices.</SettingNote>}
       {devices.data?.map((device) => (
         <SettingRow
           key={device.id}

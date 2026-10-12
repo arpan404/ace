@@ -1,7 +1,7 @@
 import { useClient, useConnectionState } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingSection, SettingRow } from "@/components/setting-row.tsx";
+import { SettingList, SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { RowMenu } from "@/components/ui/row-menu.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
@@ -33,36 +33,39 @@ export function ProjectFolders() {
   const disabled = offline || pending || roots === undefined;
   return (
     <SettingSection label="Project folders" anchor="projects.roots" scope="daemon">
-      <ul aria-label="Project folders">
-        {(roots ?? []).map((root) => (
-          <li key={root}>
-            <SettingRow
-              title={root.split(/[\\/]/).findLast(Boolean) ?? "Projects"}
-              description={root}
-              compact
-              inline
-            >
-              <RowMenu label={`Actions for ${root}`}>
-                <MenuItem
-                  disabled={disabled}
-                  onClick={() =>
-                    void run(() =>
-                      saveProjectRoots(
-                        client,
-                        (roots ?? []).filter((value) => value !== root),
-                      ),
-                    )
-                  }
-                >
-                  Remove
-                </MenuItem>
-              </RowMenu>
-            </SettingRow>
-          </li>
-        ))}
-      </ul>
+      {roots?.length ? (
+        <SettingList aria-label="Project folders">
+          {(roots ?? []).map((root) => (
+            <li key={root}>
+              <SettingRow
+                title={root.split(/[\\/]/).findLast(Boolean) ?? "Projects"}
+                description={root}
+                compact
+                inline
+              >
+                <RowMenu label={`Actions for ${root}`}>
+                  <MenuItem
+                    disabled={disabled}
+                    onClick={() =>
+                      void run(() =>
+                        saveProjectRoots(
+                          client,
+                          (roots ?? []).filter((value) => value !== root),
+                        ),
+                      )
+                    }
+                  >
+                    Remove
+                  </MenuItem>
+                </RowMenu>
+              </SettingRow>
+            </li>
+          ))}
+        </SettingList>
+      ) : null}
       <form
-        className="flex items-center gap-2"
+        data-setting-slot=""
+        className="flex min-h-(--setting-row-height) items-center gap-2 px-4 py-(--setting-row-y)"
         onSubmit={(event) => {
           event.preventDefault();
           void run(() => addProjectRoot(client, path.trim()));
@@ -86,9 +89,9 @@ export function ProjectFolders() {
         </Button>
       </form>
       {problem && (
-        <p role="alert" className="mt-1 text-sm text-status-failed">
+        <SettingNote role="alert" className="text-status-failed">
           {problem}
-        </p>
+        </SettingNote>
       )}
     </SettingSection>
   );

@@ -4,7 +4,7 @@ import { AccountBadge } from "@/components/ui/provider-account-icon.tsx";
 import { compareVersions } from "@ace/ui-core/acp-registry";
 import { Link } from "@tanstack/react-router";
 import { ProviderSetupRow } from "@/features/provider-setup/index.ts";
-import { SettingSection } from "@/components/setting-row.tsx";
+import { SettingNote, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -37,9 +37,9 @@ export function ProviderSettings() {
         {installed.length ? (
           installed.map((entry) => <ProviderRow key={entry.id} entry={entry} />)
         ) : (
-          <p className="px-4 py-5 text-muted-foreground">
+          <SettingNote>
             No coding agents found yet. Install one below, then check again.
-          </p>
+          </SettingNote>
         )}
       </SettingSection>
       {missing.length > 0 && (
@@ -66,7 +66,7 @@ function ProviderRow(props: { entry: ProviderEntry }) {
       (install.kind !== "acp" || account.acpAgentId === install.acpAgentId),
   );
   return (
-    <div role="group" aria-label={install.name}>
+    <div role="group" aria-label={install.name} className="py-2">
       <ProviderSetupRow
         provider={install.kind}
         acpAgentId={install.registry?.agent?.acpAgentId ?? install.acpAgentId}

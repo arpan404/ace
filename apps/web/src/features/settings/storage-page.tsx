@@ -3,7 +3,12 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import { useQuery } from "@tanstack/react-query";
 import type { StorageApply, StorageCompaction, StoragePlan, StorageRequest } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import {
+  SettingFooter,
+  SettingNote,
+  SettingRow,
+  SettingSection,
+} from "@/components/setting-row.tsx";
 import { StorageRetentionControls } from "./storage-retention.tsx";
 import { StorageCompactAction, StoragePlanPreview } from "./storage-plan.tsx";
 import { storageBytes, storageLabels } from "./storage-copy.ts";
@@ -104,21 +109,21 @@ export function StorageSettings() {
                 {storageBytes(usage.data.databaseBytes)}
               </span>
             </SettingRow>
-            <p className="mt-2 text-xs text-muted-foreground">
+            <SettingNote>
               Thread sizes count stored payloads. Database disk usage is shown separately.
               {!usage.data.complete ? " This measurement covers a bounded batch." : ""}
-            </p>
+            </SettingNote>
           </>
         ) : (
-          <p role={usage.isError ? "alert" : "status"} className="text-sm">
+          <SettingNote role={usage.isError ? "alert" : "status"}>
             {usage.isError
               ? "Storage usage is unavailable. Refresh to try again."
               : ready
                 ? "Measuring storage…"
                 : "Reconnect to measure storage."}
-          </p>
+          </SettingNote>
         )}
-        <div className="mt-4 flex flex-wrap gap-2">
+        <SettingFooter>
           <Button
             size="sm"
             variant="ghost"
@@ -134,7 +139,7 @@ export function StorageSettings() {
                 ? "Preview selected force removals"
                 : "Preview cleanup"}
           </Button>
-        </div>
+        </SettingFooter>
         {usage.data && (
           <StorageCompactAction
             result={compaction}
@@ -147,9 +152,9 @@ export function StorageSettings() {
           />
         )}
         {error && (
-          <p role="alert" className="mt-3 text-sm text-destructive">
+          <SettingNote role="alert" className="text-destructive">
             {error}
-          </p>
+          </SettingNote>
         )}
       </SettingSection>
       {plan && (
