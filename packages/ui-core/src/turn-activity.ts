@@ -170,9 +170,10 @@ export function readTurnActivity(
     run?.startedAt ??
     reader.thread?.live?.workingSince ??
     stretch.start;
+  const root = rootStandOf(activity, status);
   const working = treeWorking({
     needsYou: tree.needsYou || activity?.tone === "needs-you",
-    root: rootStandOf(activity, status),
+    root,
     subagents,
     backgroundCommands,
   });
@@ -188,7 +189,9 @@ export function readTurnActivity(
             : from +
               (clock?.idle ?? stretch.idle) +
               ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from),
+        // A root held while its tree works names the hold as its step: "Rate limited · …".
         current:
+          (root === "held" && activity ? activityText(activity, 0) : undefined) ??
           activity?.current ??
           currentAction(stretch.current, options.labels) ??
           tree.currentCommand(),

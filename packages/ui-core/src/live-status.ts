@@ -126,13 +126,15 @@ export interface TreeFacts {
 
 /**
  * The one rule the transcript's live line, the sidebar row and the header's Work dot share: a
- * tree reads as Working while its root works, waits on its own subagents or background
- * commands, or has finished its turn while any of them still runs. A request waiting on the
- * person always outranks it, and a root held by a limit or the network says so instead.
+ * tree reads as Working while its root works or waits on its own subagents or background
+ * commands, or while any of them still runs, whatever holds the root itself (a finished turn,
+ * a usage limit, the network). A request waiting on the person always outranks it. A held
+ * root says so only when nothing else in its tree runs, which every surface can tell from the
+ * same counts.
  */
 export function treeWorking(facts: TreeFacts): boolean {
-  if (facts.needsYou || facts.root === "held") return false;
-  if (facts.root !== "idle") return true;
+  if (facts.needsYou) return false;
+  if (facts.root === "working" || facts.root === "on-tree") return true;
   return facts.subagents > 0 || facts.backgroundCommands > 0;
 }
 
