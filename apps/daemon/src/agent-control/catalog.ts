@@ -57,6 +57,7 @@ export function readAgentCatalog(
         : {}),
       launchOptions: capabilities?.launchOptions ?? [],
       allowedPermissionModes: selected.filter((mode) => allows(status, mode.id)),
+      allowedDefault: allows(status),
       ...(permissionOffset + selected.length < modes.length
         ? { nextPermissionOffset: permissionOffset + selected.length }
         : {}),

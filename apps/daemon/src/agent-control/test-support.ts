@@ -75,6 +75,7 @@ export function setup(
     imageInput: false,
     rewindFiles: false,
     launchOptions: ["effort", "serviceTier"],
+    sessionOptions: true,
   });
   for (const provider of ["codex", "claude"] as const) {
     const adapter = createScriptedAdapter({

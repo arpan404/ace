@@ -11,6 +11,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "allowedDefault": {
+      "type": "boolean"
+    },
     "allowedPermissionModes": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/NativePermissionMode.json"
@@ -119,7 +122,8 @@
     "installed",
     "auth",
     "launchOptions",
-    "allowedPermissionModes"
+    "allowedPermissionModes",
+    "allowedDefault"
   ],
   "type": "object"
 }

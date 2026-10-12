@@ -12,6 +12,7 @@ import type { Store } from "../store.ts";
 import type { DelegationService } from "./delegations.ts";
 import { controlCommandId } from "./delegations.ts";
 import { agentTaskView } from "./task-view.ts";
+import { conversationTool, type ConversationStartPort } from "./conversation-tools.ts";
 
 export type ExtensionOperation = Extract<
   AgentControlOperation,
@@ -56,6 +57,7 @@ export type PrOwnerOperation = Extract<
 >;
 /** Typed owner ports are capability-gated. They cannot carry an approval or arbitrary command. */
 export interface AgentControlExtensions {
+  startConversation?: ConversationStartPort;
   delegateWorkspace?(
     caller: McpAttribution,
     request: import("@ace/protocol").DelegationRequest,
@@ -126,6 +128,15 @@ export function createAgentControlPort(
           return result;
         }
       }
+      const conversation = await conversationTool(
+        store,
+        service,
+        caller,
+        operation,
+        signal,
+        extensions.startConversation,
+      );
+      if (conversation) return conversation;
       switch (operation.op) {
         case "agents.catalog": {
           const { op: _op, ...input } = operation;
@@ -205,13 +216,21 @@ export function createAgentControlPort(
             !service.journal.isDescendant(operation.threadId, caller.threadId)
           )
             return { ok: false, code: "forbidden" };
-          const result = service.message(
-            caller,
-            operation.requestId,
-            operation.threadId,
-            operation.text,
-            operation.delivery,
-          );
+          const result =
+            operation.delivery === "restart"
+              ? service.restartMessage(
+                  caller,
+                  operation.requestId,
+                  operation.threadId,
+                  operation.text,
+                )
+              : service.message(
+                  caller,
+                  operation.requestId,
+                  operation.threadId,
+                  operation.text,
+                  operation.delivery,
+                );
           return { ok: result.ok, ...(result.ok ? {} : { code: "unavailable" as const }) };
         }
         case "thread.wait":
