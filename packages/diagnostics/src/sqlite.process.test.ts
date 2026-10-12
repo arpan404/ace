@@ -86,7 +86,7 @@ it("thread export reads recent events with bounded oversized payloads", async ()
   db.exec("COMMIT");
   db.close();
   const lines: string[] = [];
-  for await (const line of recentThreadEvents(path, controlledWorker)) lines.push(line);
+  for await (const line of recentThreadEvents(path, {}, controlledWorker)) lines.push(line);
   expect(lines).toHaveLength(2000);
   expect(JSON.parse(lines[0] ?? "null").seq).toBe(2);
   expect(lines.at(-1)).toContain("OVERSIZED EVENT OMITTED");

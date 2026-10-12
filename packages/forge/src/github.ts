@@ -1,3 +1,5 @@
+import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
+import { replyIntent, replyCutoff, reconcileReply, type ReplyReceipts } from "./reply-receipts.ts";
 import { z } from "zod";
 import {
   ForgeRepository,
@@ -23,12 +25,15 @@ export class GitHubForge implements Forge {
   readonly revisions = new StatusRevisions();
   readonly #status = new GitHubStatusReader(this.revisions);
   readonly #root: string;
+  readonly #replyReceipts: ReplyReceipts | undefined;
   constructor(options: {
     repository: ForgeRepository;
     runner: CommandRunner;
     command?: string;
     now: () => number;
+    replyReceipts?: ReplyReceipts;
   }) {
+    this.#replyReceipts = options.replyReceipts;
     this.repository = ForgeRepository.parse(options.repository);
     if (this.repository.forge !== "github" || this.repository.owner.includes("/"))
       throw new ForgeError("unsupported");
@@ -95,7 +100,8 @@ export class GitHubForge implements Forge {
       draft: value.draft,
     });
     const parsed = GitHubPr.safeParse(response.body);
-    if (!parsed.success) throw new ForgeError("invalid_data");
+    if (!parsed.success) throw new ForgeMutationOutcome({ dispatched: true });
+    if (response.identityChanged) throw new ForgeMutationOutcome(this.#ref(parsed.data.number));
     return this.#ref(parsed.data.number);
   }
   async replyComment(
@@ -107,14 +113,48 @@ export class GitHubForge implements Forge {
     this.#ref(number);
     positive.parse(commentId);
     z.string().min(1).max(65_536).parse(body);
-    const response = await this.#api.request(
-      `${this.#root}/pulls/${number}/comments/${commentId}/replies`,
-      signal,
-      { body },
-    );
-    if (!z.object({ id: positive }).safeParse(response.body).success)
-      throw new ForgeError("invalid_data");
+    const intent = replyIntent(this.repository, number, commentId, body);
+    const reconcile = async (receipt: NonNullable<ReturnType<ReplyReceipts["get"]>>) => {
+      const id = await reconcileReply(
+        this.#api,
+        this.#root,
+        receipt,
+        { account: this.#replyReceipts?.account ?? "", body, commentId, number },
+        signal,
+      );
+      this.#replyReceipts?.put(intent, id);
+    };
+    const receipt = this.#replyReceipts?.get(intent);
+    if (receipt) return reconcile(receipt);
+    if (this.#replyReceipts) {
+      const before = await replyCutoff(this.#api, this.#root, number, signal);
+      if (!this.#replyReceipts.reserve(intent, before)) {
+        const pending = this.#replyReceipts.get(intent);
+        if (!pending) throw new ForgeError("conflict");
+        return reconcile(pending);
+      }
+    }
+    const dispatch = new MutationDispatch();
+    let response: import("./http.ts").Page;
+    try {
+      response = await this.#api.request(
+        `${this.#root}/pulls/${number}/comments/${commentId}/replies`,
+        signal,
+        { body },
+        "POST",
+        dispatch,
+      );
+    } catch (error) {
+      if (!(error instanceof ForgeMutationOutcome)) this.#replyReceipts?.remove(intent);
+      throw error;
+    }
+
+    const parsed = z.object({ id: positive }).safeParse(response.body);
+    if (!parsed.success) throw new ForgeMutationOutcome({ id: null });
+    this.#replyReceipts?.put(intent, parsed.data.id);
+    if (response.identityChanged) throw new ForgeMutationOutcome({ id: parsed.data.id });
   }
+
   async requestReviews(number: number, reviewers: string[], signal: AbortSignal): Promise<void> {
     this.#ref(number);
     const names = z
@@ -132,7 +172,8 @@ export class GitHubForge implements Forge {
         .object({ requested_reviewers: z.array(z.object({ login: z.string() })).max(100) })
         .safeParse(response.body).success
     )
-      throw new ForgeError("invalid_data");
+      throw new ForgeMutationOutcome({ dispatched: true });
+    if (response.identityChanged) throw new ForgeMutationOutcome(response.body);
   }
   async merge(
     number: number,
@@ -150,8 +191,9 @@ export class GitHubForge implements Forge {
       "PUT",
     );
     const parsed = z.object({ merged: z.boolean() }).safeParse(response.body);
-    if (!parsed.success) throw new ForgeError("invalid_data");
+    if (!parsed.success) throw new ForgeMutationOutcome({ dispatched: true });
     if (!parsed.data.merged) throw new ForgeError("conflict");
+    if (response.identityChanged) throw new ForgeMutationOutcome(parsed.data);
   }
   async enableAutoMerge(
     number: number,

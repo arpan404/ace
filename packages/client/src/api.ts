@@ -40,6 +40,8 @@ import type { ClientError, ConnectionInfo, ConnectionState, RequestOptions } fro
 
 /** A thread's live state with keyed change notification. */
 export interface ThreadSource extends ThreadReader {
+  /** Follow canonical change keys, including snapshot replacement, for shared projections. */
+  observe(tap: ChangeTap): () => void;
   select<T>(
     keys: readonly ThreadKey[],
     selector: (reader: ThreadReader) => T,

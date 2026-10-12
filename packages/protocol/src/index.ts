@@ -125,4 +125,7 @@ export * from "./remote-delegation.ts";
 
 export * from "./remote-context.ts";
 
+export * from "./source-control.ts";
 export * from "./source-control-draft.ts";
+
+export * from "./hosted-repositories.ts";

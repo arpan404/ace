@@ -16,7 +16,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "cn:tables": "bun scripts/cn-tables.ts && oxfmt src/lib/cn-tables.gen.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
     "@ace/automations": "workspace:*",
@@ -24,6 +24,7 @@
     "@ace/client-react": "workspace:*",
     "@ace/client-worker": "workspace:*",
     "@ace/commands": "workspace:*",
+    "@ace/core": "workspace:*",
     "@ace/project-picker": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",

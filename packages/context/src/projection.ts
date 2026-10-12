@@ -135,7 +135,10 @@ export function projectAttachments(
             ? "inline_text_and_path"
             : "inline_text";
       if (part.type === "document") return "native_pdf";
-      if (part.type === "resource") return "native_resource";
+      if (part.type === "resource")
+        return "text" in part.resource && attachment.truncated
+          ? "inline_text_and_path"
+          : "native_resource";
       if (part.type === "file" && part.mime === "application/pdf") return "native_pdf";
       return "native_image";
     });

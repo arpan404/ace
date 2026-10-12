@@ -1,6 +1,12 @@
 import { writingContext } from "./writing-context.ts";
 import { SourceControlContext, type SourceControlSelection } from "@ace/protocol";
 import {
+  publicationInfo,
+  attachPublicationOrigin,
+  pushPublication,
+  type PublicationGitInput,
+} from "./publication.ts";
+import {
   cloneRepository,
   initRepository,
   initialBranch,
@@ -30,8 +36,9 @@ import {
   type BranchRefs,
   type FetchBranchOptions,
 } from "./remote-branches.ts";
-import type { ChangedFile, Checkpoint, DiffSide, GitOptions } from "./types.ts";
+import type { ChangedFile, Checkpoint, DiffSide, GitOptions, PushOptions } from "./types.ts";
 
+export { publicationOriginMatches } from "./publication.ts";
 export { validateCloneUrl } from "./projects.ts";
 export { publicationRemote } from "./publication-remote.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
@@ -96,6 +103,15 @@ export class GitService {
     return projectInfo(this.repository.cli, path, directoryFd, signal);
   }
 
+  publicationInfo(input: PublicationGitInput) {
+    return publicationInfo(this.repository, input);
+  }
+  attachPublicationOrigin(input: PublicationGitInput & { url: string }) {
+    return attachPublicationOrigin(this.repository, input);
+  }
+  pushPublication(input: PublicationGitInput & { url: string }, policy?: ProjectGitPolicy) {
+    return pushPublication(this.repository, input, policy);
+  }
   resourceUsage(): { checkpointCounters: number; activeCalls: number } {
     return {
       checkpointCounters: this.repository.numbers.size,
@@ -159,7 +175,7 @@ export class GitService {
   changeSummary(worktree: string) {
     return changeSummary(this.repository, worktree);
   }
-  push(options: { worktree: string; remote: string }): Promise<void> {
+  push(options: PushOptions): Promise<void> {
     return pushBranch(this.repository, options);
   }
   switchBranch(options: {

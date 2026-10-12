@@ -14,7 +14,7 @@
         "eslint-plugin-react-hooks": "^7.1.1",
         "oxfmt": "^0.71.0",
         "oxlint": "^1.86.0",
-        "typescript": "^7.0.2",
+        "typescript": "7.0.2",
         "vitest": "^5.0.3",
         "zod": "^4.6.5",
       },
@@ -131,6 +131,7 @@
         "@ace/client-react": "workspace:*",
         "@ace/client-worker": "workspace:*",
         "@ace/commands": "workspace:*",
+        "@ace/core": "workspace:*",
         "@ace/project-picker": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
@@ -525,9 +526,11 @@
     "packages/git": {
       "name": "@ace/git",
       "dependencies": {
+        "@ace/redaction": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "koffi": "3.3.2",
+        "yaml": "^2.8.1",
         "zod": "^4.6.5",
       },
     },
@@ -736,6 +739,7 @@
       "dependencies": {
         "@ace/accounts": "workspace:*",
         "@ace/client": "workspace:*",
+        "@ace/core": "workspace:*",
         "@ace/forge": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/native-session": "workspace:*",

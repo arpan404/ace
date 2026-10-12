@@ -35,3 +35,28 @@ export function providerMcpSources(input: unknown): McpSources["servers"] {
           : undefined) ?? "unknown",
     }));
 }
+
+const nativeStatusFrame = z.object({
+  type: z.literal("control_response"),
+  response: z.object({
+    subtype: z.string(),
+    request_id: z.string(),
+    response: z.object({ mcpServers: z.unknown() }),
+  }),
+});
+
+/** Native status provenance has the same inventory boundary as client responses. */
+export function providerMcpStatusFrame(input: unknown): unknown {
+  const parsed = nativeStatusFrame.safeParse(input);
+  if (!parsed.success) return input;
+  let inventory: McpSources["servers"] = [];
+  try {
+    inventory = providerMcpSources(parsed.data.response.response.mcpServers);
+  } catch {
+    // Malformed native inventory cannot retain credential-bearing configuration as raw data.
+  }
+  return {
+    ...parsed.data,
+    response: { ...parsed.data.response, response: { mcpServers: inventory } },
+  };
+}
