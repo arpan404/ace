@@ -190,7 +190,7 @@ test("requesting disabled compaction still removes reviewed bytes and leaves dur
   await expect(access(path)).rejects.toMatchObject({ code: "ENOENT" });
   f.store.appendEvents(
     thread.id,
-    [{ type: "thread.client.updated", changes: { title: "Still writable" } }],
+    [{ type: "thread.updated", title: "Still writable" }],
     2,
   );
   expect(f.store.getThread(thread.id)?.title).toBe("Still writable");
