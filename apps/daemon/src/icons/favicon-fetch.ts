@@ -1,86 +1,55 @@
-import type { ToolIcon } from "@ace/protocol";
+import { publicGet, type PublicFetchOptions } from "./public-fetch.ts";
 
 /*
- * A site's favicon, fetched the way any visitor could: the URL the provider reported for the
- * page, then `<origin>/favicon.ico`. Public requests only (ADR 0002): no cookies, no credentials,
- * no referrer, a short timeout and a byte cap. The fetcher is injected.
+ * A site's favicon, fetched the way any visitor could, through the public-web fetch (no local
+ * network, no credentials): `<origin>/favicon.ico`, else the icon the site's home page declares
+ * with `<link rel="icon">` (or its touch icon). No provider reports the icon of the page an agent
+ * loaded, so there is no cheaper source to read first.
  */
 
-export type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
-
-export interface FaviconFetchOptions {
-  fetch: Fetcher;
-  timeoutMs?: number;
-  maxBytes?: number;
-}
-
-/** Bytes read up to `max`; undefined when the body is larger. */
-async function capped(response: Response, max: number): Promise<Buffer | undefined> {
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > max) return undefined;
-  const reader = response.body?.getReader();
-  if (!reader) return Buffer.alloc(0);
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > max) {
-      await reader.cancel();
-      return undefined;
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks);
-}
-
-function candidates(icon: Extract<ToolIcon, { kind: "site" }>): string[] {
-  const urls: string[] = [];
-  if (icon.favicon) {
+/** The icons a page declares, best first: plain icons, then touch icons. */
+export function declaredIcons(html: string, base: string): string[] {
+  const plain: string[] = [];
+  const touch: string[] = [];
+  for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
+    const rel = /\brel\s*=\s*["']?([^"'>]+)/i.exec(tag)?.[1]?.toLowerCase() ?? "";
+    const href =
+      /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1] ?? /\bhref\s*=\s*([^\s>]+)/i.exec(tag)?.[1];
+    if (!href || !/\bicon\b/.test(rel) || href.startsWith("data:")) continue;
     try {
-      const url = new URL(icon.favicon);
-      if ((url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password)
-        urls.push(url.href);
+      const url = new URL(href, base).href;
+      (rel.includes("apple-touch") ? touch : plain).push(url);
     } catch {
-      /* A malformed reported URL leaves the origin's own favicon. */
+      /* A malformed href is just not an icon. */
     }
   }
-  urls.push(`${icon.origin}/favicon.ico`);
-  return [...new Set(urls)];
+  return [...new Set([...plain, ...touch])];
 }
 
 /**
- * The first favicon bytes the site serves. Null when it has none; undefined when every attempt
- * failed in a way that may pass (a timeout, the network), so the miss is not remembered.
+ * The first favicon bytes the site serves. Null when it has none; undefined when an attempt
+ * failed in a way that may pass (a timeout, the network, a 5xx), so the miss is not remembered.
  */
 export async function fetchFavicon(
-  icon: Extract<ToolIcon, { kind: "site" }>,
-  options: FaviconFetchOptions,
+  origin: string,
+  options: PublicFetchOptions = {},
 ): Promise<Buffer | null | undefined> {
-  const timeoutMs = options.timeoutMs ?? 3000;
-  const maxBytes = options.maxBytes ?? 256 * 1024;
   let transient = false;
-  for (const url of candidates(icon)) {
-    const signal = AbortSignal.timeout(timeoutMs);
-    try {
-      const response = await options.fetch(url, {
-        signal,
-        redirect: "follow",
-        credentials: "omit",
-        referrerPolicy: "no-referrer",
-        headers: { accept: "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8" },
-      });
-      if (!response.ok) {
-        await response.body?.cancel();
-        if (response.status >= 500 || response.status === 429) transient = true;
-        continue;
-      }
-      const bytes = await capped(response, maxBytes);
-      if (bytes?.length) return bytes;
-    } catch {
-      transient = true;
+  const icon = await publicGet(`${origin}/favicon.ico`, options);
+  if (icon.kind === "ok") return icon.body;
+  if (icon.kind === "failed") transient = true;
+  if (icon.kind === "refused") return null;
+  const page = await publicGet(`${origin}/`, {
+    ...options,
+    accept: "text/html",
+    maxBytes: 512 * 1024,
+  });
+  if (page.kind === "failed") transient = true;
+  if (page.kind === "ok" && /html/i.test(page.contentType))
+    for (const url of declaredIcons(page.body.toString("utf8"), page.url).slice(0, 2)) {
+      const declared = await publicGet(url, options);
+      if (declared.kind === "ok") return declared.body;
+      if (declared.kind === "failed") transient = true;
     }
-  }
   return transient ? undefined : null;
 }

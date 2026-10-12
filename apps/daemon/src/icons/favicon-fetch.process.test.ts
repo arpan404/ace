@@ -1,52 +1,23 @@
-import { createServer, type IncomingHttpHeaders } from "node:http";
-import type { AddressInfo } from "node:net";
 import { afterEach, expect, test } from "vitest";
 import { fetchFavicon } from "./favicon-fetch.ts";
+import { localSite } from "./local-site.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of closers.splice(0)) await close();
 });
-
-/** A real local site; `routes` maps paths to bodies, anything else is a 404. */
-async function site(routes: Record<string, Buffer | "hang">) {
-  const seen: { path: string; headers: IncomingHttpHeaders }[] = [];
-  const server = createServer((request, response) => {
-    seen.push({ path: request.url ?? "", headers: request.headers });
-    const body = routes[request.url ?? ""];
-    if (body === "hang") return;
-    if (!body) {
-      response.statusCode = 404;
-      response.end("not found");
-      return;
-    }
-    response.setHeader("content-type", "image/png");
-    response.end(body);
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  closers.push(
-    () =>
-      new Promise((resolve) => {
-        server.closeAllConnections();
-        server.close(() => resolve());
-      }),
-  );
-  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return { origin, seen };
+async function site(routes: Parameters<typeof localSite>[0]) {
+  const s = await localSite(routes);
+  closers.push(s.close);
+  return s;
 }
 
-const options = { fetch: globalThis.fetch, timeoutMs: 500 };
-
-// Mutations: skipping the provider's URL, or never falling back to /favicon.ico.
-test("the provider's favicon URL is tried first, then the origin's favicon.ico", async () => {
+// Mutation: sending identifying headers with a public request.
+test("a site's favicon.ico comes back, asked for with nothing that identifies the person", async () => {
   const s = await site({ "/favicon.ico": Buffer.from("ico") });
-  const bytes = await fetchFavicon(
-    { kind: "site", origin: s.origin, favicon: `${s.origin}/static/icon.png` },
-    options,
-  );
+  const bytes = await fetchFavicon(s.origin, { allowed: s.allowed, timeoutMs: 500 });
   expect(bytes?.toString()).toBe("ico");
-  expect(s.seen.map((request) => request.path)).toEqual(["/static/icon.png", "/favicon.ico"]);
-  // Public requests only: nothing that identifies the person goes with them.
+  expect(s.seen.map((request) => request.path)).toEqual(["/favicon.ico"]);
   for (const request of s.seen) {
     expect(request.headers.cookie).toBeUndefined();
     expect(request.headers.authorization).toBeUndefined();
@@ -54,18 +25,29 @@ test("the provider's favicon URL is tried first, then the origin's favicon.ico",
   }
 });
 
-// Mutation: reading an unbounded body.
-test("a favicon past the byte cap is refused, and a site without one has none", async () => {
-  const s = await site({ "/favicon.ico": Buffer.alloc(4096, 1) });
-  expect(
-    await fetchFavicon({ kind: "site", origin: s.origin }, { ...options, maxBytes: 1024 }),
-  ).toBeNull();
-  const empty = await site({});
-  expect(await fetchFavicon({ kind: "site", origin: empty.origin }, options)).toBeNull();
+// Mutation: stopping at a missing favicon.ico.
+test("without favicon.ico, the icon the home page declares is used", async () => {
+  const s = await site({
+    "/": { html: '<html><head><link rel="icon" href="/static/mark.png"></head></html>' },
+    "/static/mark.png": Buffer.from("mark"),
+  });
+  const bytes = await fetchFavicon(s.origin, { allowed: s.allowed, timeoutMs: 500 });
+  expect(bytes?.toString()).toBe("mark");
+  expect(s.seen.map((request) => request.path)).toEqual(["/favicon.ico", "/", "/static/mark.png"]);
 });
 
-// Mutation: waiting forever on a site that never answers, or remembering it as having none.
-test("a site that does not answer in time may be asked again later", async () => {
-  const s = await site({ "/favicon.ico": "hang" });
-  expect(await fetchFavicon({ kind: "site", origin: s.origin }, options)).toBeUndefined();
+test("a site with no icon has none; one that does not answer may be asked again later", async () => {
+  const empty = await site({});
+  expect(await fetchFavicon(empty.origin, { allowed: empty.allowed, timeoutMs: 500 })).toBeNull();
+  const hanging = await site({ "/favicon.ico": "hang", "/": "hang" });
+  expect(
+    await fetchFavicon(hanging.origin, { allowed: hanging.allowed, timeoutMs: 300 }),
+  ).toBeUndefined();
+});
+
+// Mutation: fetching the local network under the default policy.
+test("a loopback or private origin is never fetched", async () => {
+  const s = await site({ "/favicon.ico": Buffer.from("ico") });
+  expect(await fetchFavicon(s.origin, { timeoutMs: 500 })).toBeNull();
+  expect(s.seen).toHaveLength(0);
 });
