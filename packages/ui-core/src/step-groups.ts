@@ -51,16 +51,21 @@ export interface StepGroup {
   summary: string;
   running: boolean;
   failed: number;
-  /** Only reads, listings, searches and thinking. */
+  /** Only reads, listings and searches. */
   explore: boolean;
+  icon: GroupIcon;
   /** The newest step, which stays in view while the group is folded. */
   newest: string;
 }
 
-const exploring = new Set<StepKind>(["read", "list", "search", "think"]);
+const exploring = new Set<StepKind>(["read", "list", "search"]);
 
-/** How one item counts for grouping; `retried` holds failed steps a later step re-ran. */
-export function stepFact(item: Item, retried?: ReadonlySet<string>): StepFact {
+/**
+ * How one item counts for grouping; `retried` holds failed steps a later step re-ran. Undefined
+ * for what is no step at all: a finished thought with no words, a person's or synthetic message,
+ * a launch or bookkeeping record.
+ */
+export function stepFact(item: Item, retried?: ReadonlySet<string>): StepFact | undefined {
   const base = {
     id: item.id,
     agentId: item.agentId ?? "",
@@ -70,13 +75,18 @@ export function stepFact(item: Item, retried?: ReadonlySet<string>): StepFact {
   };
   switch (item.type) {
     case "reasoning":
-      return { ...base, kind: "think", running: !item.complete };
+      // What the agent thought reads on its own row, between the steps.
+      if (item.complete && !item.text.trim()) return undefined;
+      return { ...base, kind: "think", alone: true, running: !item.complete };
     case "message":
+      if (item.role !== "assistant" || item.synthetic) return undefined;
       return { ...base, kind: "tool", alone: true, running: !item.complete };
+    case "notice":
+      return { ...base, kind: "tool", alone: true };
     case "tool_call":
       break;
     default:
-      return { ...base, kind: "tool", alone: true };
+      return undefined;
   }
   const call = item.call;
   const running =
@@ -143,59 +153,91 @@ function distinct(facts: readonly StepFact[], kind: StepKind): number {
   return targets.size;
 }
 
-/** Each kind's phrase, mutating kinds first; exploration reads as one phrase. */
-function phrases(facts: readonly StepFact[]): { text: string; steps: number }[] {
+/** Each kind's phrase, mutating kinds first. */
+function phrases(facts: readonly StepFact[]): { kind: StepKind; text: string; steps: number }[] {
   const count = (kind: StepKind) => facts.filter((fact) => fact.kind === kind).length;
-  const out: { text: string; steps: number }[] = [];
-  const add = (steps: number, text: string) => {
-    if (steps) out.push({ text, steps });
+  const out: { kind: StepKind; text: string; steps: number }[] = [];
+  const add = (kind: StepKind, text: (steps: number) => string) => {
+    const steps = count(kind);
+    if (steps) out.push({ kind, text: text(steps), steps });
   };
-  add(count("edit"), `edited ${plural(distinct(facts, "edit"), "file")}`);
-  add(count("command"), `ran ${plural(count("command"), "command")}`);
-  add(count("computer"), plural(count("computer"), "app step"));
-  const sites = facts.some((fact) => fact.kind === "browser" && fact.target)
-    ? distinct(
-        facts.filter((fact) => fact.target),
-        "browser",
-      )
-    : 0;
-  add(
-    count("browser"),
-    sites ? `visited ${plural(sites, "site")}` : plural(count("browser"), "browser step"),
+  const known = (kind: StepKind) =>
+    facts.some((fact) => fact.kind === kind && fact.target)
+      ? distinct(
+          facts.filter((fact) => fact.target),
+          kind,
+        )
+      : 0;
+  add("edit", () => `edited ${plural(distinct(facts, "edit"), "file")}`);
+  add("command", (steps) => `ran ${plural(steps, "command")}`);
+  add("computer", (steps) => `used ${plural(known("computer") || steps, "app")}`);
+  add("browser", (steps) =>
+    known("browser")
+      ? `visited ${plural(known("browser"), "site")}`
+      : `browsed ${plural(steps, "page")}`,
   );
-  add(count("fetch"), `fetched ${plural(count("fetch"), "page")}`);
-  add(count("websearch"), plural(count("websearch"), "web search", "web searches"));
-  const reads = count("read");
-  const searches = count("search");
-  const lists = count("list");
-  const explore = [
-    reads ? `explored ${plural(distinct(facts, "read"), "file")}` : "",
-    searches ? plural(searches, "search", "searches") : "",
-    lists ? `listed ${plural(lists, "folder")}` : "",
-  ].filter(Boolean);
-  add(reads + searches + lists, explore.join(" · "));
-  add(count("plan"), "updated the plan");
-  add(count("spawn"), `started ${plural(count("spawn"), "subagent")}`);
-  add(count("agent"), `messaged ${plural(count("agent"), "subagent")}`);
-  add(count("tool"), `used ${plural(count("tool"), "tool")}`);
+  add("fetch", (steps) => `fetched ${plural(steps, "page")}`);
+  add("websearch", (steps) => `searched the web ${steps === 1 ? "once" : `${steps} times`}`);
+  add("read", () => `read ${plural(distinct(facts, "read"), "file")}`);
+  add("search", (steps) => `searched ${steps === 1 ? "once" : `${steps} times`}`);
+  add("list", (steps) => `listed ${plural(steps, "folder")}`);
+  add("plan", () => "updated the plan");
+  add("spawn", (steps) => `started ${plural(steps, "subagent")}`);
+  add("agent", (steps) => `messaged ${plural(steps, "subagent")}`);
+  add("tool", (steps) => `used ${plural(steps, "tool")}`);
   return out;
 }
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
-/** "Edited 2 files · ran 1 command · 3 other steps · 1 failed". */
+/** "a", "a and b", "a, b and c". */
+function sentence(parts: readonly string[]): string {
+  if (parts.length < 3) return parts.join(" and ");
+  return `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
+}
+
+/** What a group's icon shows: its one kind of step, exploration, or a mix. */
+export type GroupIcon = StepKind | "explore" | "mixed";
+
+function exploreOnly(facts: readonly StepFact[]): boolean {
+  return facts.every((fact) => exploring.has(fact.kind));
+}
+
+/**
+ * "Ran 5 commands and read 1 file", "Explored 3 files and 2 searches", "Edited 2 files, ran 1
+ * command and 3 other steps". At most two kinds are named, changes first. A failure not run
+ * again with success adds " · 1 failed".
+ */
 export function groupSummary(facts: readonly StepFact[]): string {
-  const named = phrases(facts);
-  const parts = named.slice(0, 2).map((phrase) => phrase.text);
-  const others = named.slice(2).reduce((total, phrase) => total + phrase.steps, 0);
-  if (others) parts.push(plural(others, "other step"));
-  if (!parts.length) {
-    const thoughts = facts.filter((fact) => fact.kind === "think").length;
-    parts.push(thoughts > 1 ? `Thought ${thoughts} times` : "Thought");
+  let text: string;
+  if (exploreOnly(facts)) {
+    const reads = distinct(facts, "read");
+    const searches = facts.filter((fact) => fact.kind === "search").length;
+    const lists = facts.filter((fact) => fact.kind === "list").length;
+    text = `Explored ${sentence(
+      [
+        reads ? plural(reads, "file") : "",
+        searches ? plural(searches, "search", "searches") : "",
+        lists ? plural(lists, "folder") : "",
+      ].filter(Boolean),
+    )}`;
+  } else {
+    const named = phrases(facts);
+    const parts = named.slice(0, 2).map((phrase) => phrase.text);
+    const others = named.slice(2).reduce((total, phrase) => total + phrase.steps, 0);
+    if (others) parts.push(plural(others, "other step"));
+    text = capital(sentence(parts));
   }
   const failed = facts.filter((fact) => fact.failed).length;
-  if (failed) parts.push(`${failed} failed`);
-  return capital(parts.join(" · "));
+  return failed ? `${text} · ${failed} failed` : text;
+}
+
+/** The group's icon kind. */
+export function groupIcon(facts: readonly StepFact[]): GroupIcon {
+  if (exploreOnly(facts)) return "explore";
+  const kinds = new Set(facts.map((fact) => fact.kind));
+  const [only] = kinds;
+  return kinds.size === 1 && only ? only : "mixed";
 }
 
 function makeGroup(facts: readonly StepFact[]): StepGroup {
@@ -211,7 +253,8 @@ function makeGroup(facts: readonly StepFact[]): StepGroup {
     summary: single ? "" : groupSummary(facts),
     running: facts.some((fact) => fact.running),
     failed: facts.filter((fact) => fact.failed).length,
-    explore: facts.every((fact) => exploring.has(fact.kind)),
+    explore: exploreOnly(facts),
+    icon: groupIcon(facts),
     newest: last.id,
   };
 }

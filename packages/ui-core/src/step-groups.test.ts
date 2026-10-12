@@ -44,7 +44,7 @@ const prose = (id: string) =>
   });
 const facts = (items: Item[]) => {
   const retried = retriedStepIds(items);
-  return items.map((item) => stepFact(item, retried));
+  return items.flatMap((item) => stepFact(item, retried) ?? []);
 };
 
 it("exploration alone reads as files explored and searches, counting each file once", () => {
@@ -55,7 +55,8 @@ it("exploration alone reads as files explored and searches, counting each file o
   expect(groups[0]).toMatchObject({
     single: false,
     explore: true,
-    summary: "Explored 2 files · 2 searches",
+    summary: "Explored 2 files and 2 searches",
+    icon: "explore",
     newest: "rg",
   });
 });
@@ -71,7 +72,8 @@ it("a mixed group names at most two kinds, changes first, and counts the rest", 
       call("plan", { kind: "plan", todos: [] }),
     ]),
   );
-  expect(groups[0]?.summary).toBe("Edited 2 files · ran 1 command · 3 other steps");
+  expect(groups[0]?.summary).toBe("Edited 2 files, ran 1 command and 3 other steps");
+  expect(groups[0]?.icon).toBe("mixed");
 });
 
 it("what the agent says between steps stands alone and splits the groups", () => {
@@ -90,6 +92,7 @@ it("what the agent says between steps stands alone and splits the groups", () =>
     [["x", "y"], false],
   ]);
   expect(groups[2]?.summary).toBe("Ran 2 commands");
+  expect(groups[2]?.icon).toBe("command");
 });
 
 it("another agent's steps start their own group", () => {
@@ -122,7 +125,7 @@ it("browser and computer-use steps count sites visited and app steps", () => {
       call("click", { kind: "mcp", server: "ace", tool: "screen_click", arguments: {} }),
     ]),
   );
-  expect(summary).toBe("1 app step · visited 2 sites");
+  expect(summary).toBe("Used 1 app and visited 2 sites");
 });
 
 it("appending a step builds only the last group again; earlier groups stay the same objects", () => {
@@ -151,4 +154,33 @@ it("a step settling regroups from its group on and keeps its summary current", (
   const after = groupSteps(facts([read("a"), shell("x", "bun install")]), before);
   expect(before.groups[0]?.running).toBe(true);
   expect(after.groups[0]?.running).toBe(false);
+});
+
+it("a thought reads on its own row; a finished thought with no words is no step", () => {
+  const thought = (id: string, text: string, complete = true) =>
+    Item.parse({ id, agentId: "root", type: "reasoning", text, complete, createdAt: ++created });
+  const { groups } = groupSteps(
+    facts([
+      shell("a", "bun install"),
+      thought("empty", ""),
+      shell("b", "bun run build"),
+      thought("why", "The build needs the generated types first."),
+      thought("now", "", false),
+    ]),
+  );
+  expect(groups.map((group) => group.ids)).toEqual([["a", "b"], ["why"], ["now"]]);
+  expect(groups[2]?.running).toBe(true);
+});
+
+it("a mixed group names two kinds as a sentence: commands and a file read", () => {
+  expect(
+    groupSummary(
+      facts([
+        shell("a", "bun install"),
+        shell("b", "bun run build"),
+        read("r"),
+        shell("c", "bun run lint"),
+      ]),
+    ),
+  ).toBe("Ran 3 commands and read 1 file");
 });

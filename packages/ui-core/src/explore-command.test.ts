@@ -20,3 +20,20 @@ it("anything that can change something, or that it cannot read, is a plain comma
   expect(exploreAction("cat $(ls)")).toBeUndefined();
   expect(exploreAction("git push")).toBeUndefined();
 });
+
+it("a backgrounded or second-line command is read too, and can make the whole thing a command", () => {
+  expect(exploreAction("rg foo & rm -rf dist")).toBeUndefined();
+  expect(exploreAction("ls\nrm -rf x")).toBeUndefined();
+  expect(exploreAction("ls src\ncat a.ts")).toBe("read");
+});
+
+it("options that write a file or run a program are not exploring", () => {
+  expect(exploreAction("sort -o out.txt names.txt")).toBeUndefined();
+  expect(exploreAction("git diff --output=patch.diff")).toBeUndefined();
+  expect(exploreAction("rg --pre ./run.sh foo")).toBeUndefined();
+  expect(exploreAction("fd -x rm")).toBeUndefined();
+  expect(exploreAction("find . -fprint out")).toBeUndefined();
+  expect(exploreAction("sed -n 'w out.txt' a.ts")).toBeUndefined();
+  expect(exploreAction("sed -n '$p' a.ts")).toBe("read");
+  expect(exploreAction("git diff HEAD~1")).toBe("read");
+});

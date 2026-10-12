@@ -1,7 +1,7 @@
 import { TurnDigest } from "@ace/protocol";
 import { expect, test } from "vitest";
 import type { z } from "zod";
-import { digestFacts, digestWork, turnHeadline, turnSpan } from "./turn-digest.ts";
+import { digestFacts, turnHeadline, turnSpan } from "./turn-digest.ts";
 
 const digest = (patch: Partial<z.input<typeof TurnDigest>> = {}): TurnDigest =>
   TurnDigest.parse({
@@ -95,23 +95,4 @@ test("a turn's headline is its ask on one line, else what the agent said", () =>
   expect(turnHeadline({ initiatingMessagePreview: " ", latestAgentMessagePreview: "" })).toBe(
     "Automatic turn",
   );
-});
-
-test("a finished turn's work reads from its whole digest, not what is loaded", () => {
-  expect(
-    digestWork(
-      digest({
-        toolCounts: { "file.read": 3, search: 2, shell: 2, "file.edit": 2, mcp: 1 },
-        files: [
-          { path: "a.ts", added: 1, removed: 0 },
-          { path: "b.ts", added: 1, removed: 1 },
-        ],
-        commandsRun: 2,
-        commandsFailed: 1,
-      }),
-    ),
-  ).toBe(
-    "Explored 3 files · 2 searches · ran 2 commands · edited 2 files · 1 other step · 1 failed",
-  );
-  expect(digestWork(digest())).toBe("");
 });

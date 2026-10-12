@@ -33,7 +33,7 @@ function words(part: string): string[] | undefined {
   return out;
 }
 
-/** Split on `|`, `&&`, `||` and `;` outside quotes. */
+/** Split on `|`, `&&`, `||`, `&`, `;` and newlines outside quotes. */
 function parts(command: string): { text: string; piped: boolean }[] {
   const out: { text: string; piped: boolean }[] = [];
   let current = "";
@@ -49,7 +49,15 @@ function parts(command: string): { text: string; piped: boolean }[] {
     }
     if (char === "'" || char === '"') quote = char;
     const pair = char + (next ?? "");
-    if (pair === "&&" || pair === "||" || char === ";" || char === "|") {
+    if (
+      pair === "&&" ||
+      pair === "||" ||
+      char === ";" ||
+      char === "|" ||
+      char === "&" ||
+      char === "\n" ||
+      char === "\r"
+    ) {
       out.push({ text: current, piped });
       piped = char === "|" && pair !== "||";
       current = "";
@@ -62,9 +70,21 @@ function parts(command: string): { text: string; piped: boolean }[] {
   return out.filter((part) => part.text.trim());
 }
 
+/** Options that write a file or run another program, on commands that otherwise only look. */
+const unsafe: Record<string, RegExp> = {
+  sort: /^(-o|--output)/,
+  tree: /^-o$/,
+  rg: /^--pre/,
+  fd: /^(-x|-X|--exec)/,
+  git: /^(--output|-O|--open-files-in-pager|--ext-diff|--textconv)/,
+};
+
 function action(argv: readonly string[], piped: boolean): ExploreAction | "neutral" | undefined {
   const [name = "", ...rest] = argv;
   const program = name.split("/").at(-1) ?? name;
+  if (rest.some((arg) => arg.startsWith("--output"))) return undefined;
+  const risky = unsafe[program];
+  if (risky && rest.some((arg) => risky.test(arg))) return undefined;
   if (program === "cd" || program === "echo" || program === "true") return "neutral";
   if (piped && helpers.has(program)) return "neutral";
   if (program === "git") {
@@ -74,10 +94,17 @@ function action(argv: readonly string[], piped: boolean): ExploreAction | "neutr
     if (sub === "show" || sub === "log" || sub === "diff" || sub === "blame") return "read";
     return undefined;
   }
+  // Only `sed -n '1,80p' file`: a script of line ranges printed, nothing written or run.
   if (program === "sed")
-    return rest.includes("-n") && !rest.some((arg) => arg.startsWith("-i")) ? "read" : undefined;
+    return rest.includes("-n") &&
+      rest.some((arg) => /^(\d+|\$)?(,(\d+|\$))?p$/.test(arg)) &&
+      !rest.some((arg) => /^-[ief]/.test(arg))
+      ? "read"
+      : undefined;
   if (program === "find")
-    return rest.some((arg) => /^-(exec|execdir|delete|ok|fprint)/.test(arg)) ? undefined : "list";
+    return rest.some((arg) => /^-(exec|execdir|delete|ok|okdir|fprint|fprintf|fls)/.test(arg))
+      ? undefined
+      : "list";
   if (readers.has(program)) return "read";
   if (listers.has(program)) return "list";
   if (searchers.has(program)) return "search";

@@ -267,7 +267,11 @@ test("after the answer the timer resumes from where it stopped, leaving out the 
     [said("ask", "user", 0), shell("install", "bun install", "running", 0)],
     [approval("ask-install", 10 * second)],
   );
-  expect(turnActivity(thread.reader, "root")?.tone).toBe("needs-you");
+  // While it waits, the line keeps the 10s it had reached, wherever it is drawn again.
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
+    tone: "needs-you",
+    elapsedMs: 10 * second,
+  });
   thread.ask(approval("ask-install", 10 * second, 370 * second));
   expect(activityText(turnActivity(thread.reader, "root")!, 374 * second)).toBe("Working for 14s");
 });

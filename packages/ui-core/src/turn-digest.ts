@@ -128,34 +128,3 @@ export function asSentence(text: string): string {
 export function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
-
-/**
- * What a finished turn did, for its "Worked for" header: "Explored 3 files · 2 searches · ran 2
- * commands · edited 2 files", from the daemon's digest, so a turn larger than what is loaded
- * still counts in full.
- */
-export function digestWork(digest: TurnDigest): string {
-  const tools = digest.toolCounts;
-  const count = (kind: keyof typeof tools) => tools[kind] ?? 0;
-  const reads = count("file.read");
-  const searches = count("search") + count("web.search");
-  const commands = digest.commandsRun || count("shell");
-  const edited = digest.files.length;
-  const counted = reads + count("search") + count("web.search") + count("shell");
-  const edits =
-    count("file.edit") + count("file.write") + count("file.delete") + count("file.move");
-  const others = toolTotal(digest) - counted - edits - count("agent.spawn");
-  const parts = [
-    reads ? `explored ${pluralCount(reads, "file")}` : "",
-    searches ? pluralCount(searches, "search", "searches") : "",
-    commands ? `ran ${pluralCount(commands, "command")}` : "",
-    edited
-      ? `edited ${digest.truncated && edited >= 64 ? "64+ files" : pluralCount(edited, "file")}`
-      : "",
-    digest.subagentsStarted ? `started ${pluralCount(digest.subagentsStarted, "subagent")}` : "",
-    others > 0 ? pluralCount(others, "other step") : "",
-    digest.commandsFailed ? `${formatCount(digest.commandsFailed)} failed` : "",
-  ].filter(Boolean);
-  const text = parts.join(" · ");
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
