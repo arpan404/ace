@@ -29,7 +29,7 @@ async function delivered(made: ReturnType<typeof harness>, title: string) {
   return created;
 }
 
-test.each(["content", "rows", "row deletion", "rotation"])(
+test.each(["content", "rows", "row deletion", "rotation", "new content"])(
   "an accepted create stays recoverable when handoff %s is refused, and later files use a fresh scope",
   async (refusal) => {
     const backing = memoryKeyValue();
@@ -39,9 +39,9 @@ test.each(["content", "rows", "row deletion", "rotation"])(
       setItem(key: string, value: string) {
         if (
           full &&
-          ((refusal === "content" && key === "ace.composer.drafts") ||
+          (((refusal === "content" || refusal === "new content") && key === "ace.composer.drafts") ||
             (key.startsWith("ace.preparations:") &&
-              (refusal === "rows" || refusal === "rotation" || value === "[]")))
+              (refusal === "rows" || refusal === "rotation" || (refusal === "row deletion" && value === "[]"))))
         )
           throw new Error("quota");
         backing.setItem(key, value);
@@ -87,7 +87,8 @@ test.each(["content", "rows", "row deletion", "rotation"])(
     await entered.promise;
     const recoveryKey = [...backing.data.keys()].find((key) => key.startsWith("ace.createAttempt:"));
     if (!recoveryKey) throw new Error("create recovery was not reserved");
-    if (refusal === "rotation")
+    if (refusal === "new content") full = true;
+    if (refusal === "rotation" || refusal === "new content")
       await userEvent.type(screen.getByRole("combobox", { name: "Message" }), "Second preparation");
     await act(async () => gate.resolve());
     const first = await delivered(made, "First accepted preparation");
@@ -100,18 +101,24 @@ test.each(["content", "rows", "row deletion", "rotation"])(
         original.result.attachments.map((file) => file.name),
     ).toEqual(["original.txt"]);
     await waitFor(() => expect(readCreateAttempt(storage, recoveryKey)).toBeUndefined());
-    cleanup();
-    await made.client.close();
+    let again = made;
+    if (refusal !== "new content") {
+      cleanup();
+      await made.client.close();
     // A new client and storage wrapper discard the page's retirement cache. The daemon must
     // reject the durable adopted ID, while retaining the already delivered thread's file.
-    const again = harness({ daemon: made.daemon, storage: { ...storage }, outbox });
-    await again.open("/new?project=relay");
-    if (refusal === "rotation") {
+      again = harness({ daemon: made.daemon, storage: { ...storage }, outbox });
+      await again.open("/new?project=relay");
+    }
+    if (refusal === "rotation" || refusal === "new content") {
       expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
         "Second preparation",
       );
       await screen.findByText(/Couldn't save this preparation/);
       full = false;
+      hold = false;
+      if (refusal === "new content")
+        await userEvent.click(screen.getByRole("button", { name: "Save draft" }));
     } else {
       await userEvent.click(await screen.findByRole("button", { name: "Discard draft in relay" }));
       await screen.findByText(/Couldn't discard the draft on this device/);

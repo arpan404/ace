@@ -61,6 +61,7 @@ import {
 } from "./preparations.ts";
 import { UnavailablePreparation } from "./unavailable-preparation.tsx";
 import { discardPreparation } from "./discard-preparation.ts";
+import { Button } from "@/components/ui/button.tsx";
 import { SignInNotice } from "@/features/sign-in/index.ts";
 
 /** Where the thread runs, below the composer. */
@@ -206,6 +207,8 @@ function PreparationPage(props: {
   const latestContent = useRef(readDraft(storage, draftKey));
   const submitting = useRef(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const contentSaveRefused = useRef(false);
+  const metadataSaveRefused = useRef(false);
   const page = useRef<HTMLDivElement>(null);
   const composer = useRef<ComposerHandle>(null);
   useEffect(() => whenIdle(() => void preloadComposerParts()), []);
@@ -282,10 +285,12 @@ function PreparationPage(props: {
       project,
       owner: editorOwner,
       skill: props.skill,
-      choices: { ...snapshot(previous?.choices ?? choices, resolved), project },
+      choices: { ...snapshot(selection ?? previous?.choices ?? choices, resolved), project },
       settingsResolved: completed || !!resolved.model,
-      provider: previous?.provider ?? provider,
-      permission: permission ?? previous?.permission,
+      provider: selection ? provider : previous?.provider ?? provider,
+      permission: permissionChoice?.provider === provider
+        ? permission
+        : previous?.provider === provider ? previous.permission : undefined,
       base: baseChoice ?? base,
       scopeEpoch: previous?.scopeEpoch,
       attachmentsUnavailable: previous?.attachmentsUnavailable && !!content?.attachments.length,
@@ -301,7 +306,8 @@ function PreparationPage(props: {
         previous?.title ?? content?.text.trim().split("\n")[0]?.slice(0, 100) ?? "New preparation",
       ...patch,
     });
-    setSaveFailed(!saved);
+    metadataSaveRefused.current = !saved;
+    setSaveFailed(!saved || contentSaveRefused.current);
   };
   const choose = (patch: Partial<Choices>) => {
     const next = {
@@ -355,6 +361,7 @@ function PreparationPage(props: {
   });
   const { create, error, recovering } = useCreateThread((payload) => {
     const matched =
+      !metadataSaveRefused.current && !contentSaveRefused.current &&
       payload.workspaceId === project && composer.current?.discardIfSubmitted(payload);
     if (payload.context?.draftId) {
       scope.retire(payload.context.draftId);
@@ -369,13 +376,14 @@ function PreparationPage(props: {
           setSaveFailed(true);
       }
     }
-  });
+  }, () => !contentSaveRefused.current && !metadataSaveRefused.current &&
+    !preparationSaveFailed(storage, draftKey));
   const settlePreparation = useEffectEvent(() => {
     const saved = preparation(storage, props.host, draftKey);
     if (!saved || !resolved.model) return;
     const completed = saved.settingsResolved ?? (!!saved.provider && !!saved.choices.model);
     const snapshot = completed ? completePreparationChoices : shownPreparationChoices;
-    const next = { ...snapshot(saved.choices, resolved), project };
+    const next = { ...snapshot(selection ?? saved.choices, resolved), project };
     if (
       !saved.provider ||
       !saved.settingsResolved ||
@@ -385,7 +393,7 @@ function PreparationPage(props: {
         ...saved,
         choices: next,
         settingsResolved: true,
-        provider: saved.provider ?? provider,
+        provider: selection ? provider : saved.provider ?? provider,
       });
     }
   });
@@ -510,6 +518,9 @@ function PreparationPage(props: {
     if (
       sent &&
       unchanged &&
+      !contentSaveRefused.current &&
+      !metadataSaveRefused.current &&
+      !preparationSaveFailed(storage, draftKey) &&
       (!mounted.current ||
         (!latestContent.current?.text.trim() && !latestContent.current?.attachments.length))
     ) {
@@ -525,7 +536,7 @@ function PreparationPage(props: {
       // The handoff consumed this scope. Retained content now owns a new preparation.
       scope.retire(draftId);
       const retired = retirePreparationScope(storage, props.host, draftKey, draftId);
-      if (mounted.current) setSaveFailed(!retired);
+      if (mounted.current) setSaveFailed(!retired || contentSaveRefused.current || metadataSaveRefused.current);
       if (mounted.current) scopeId.current = undefined;
     } else if (sent) {
       scope.retire(draftId);
@@ -627,9 +638,11 @@ function PreparationPage(props: {
                   (!submitting.current || content.text.trim() || content.attachments.length) &&
                   !writeDraft(storage, draftKey, content)
                 ) {
+                  contentSaveRefused.current = true;
                   setSaveFailed(true);
                   return;
                 }
+                contentSaveRefused.current = false;
                 if (!content.text.trim() && !content.attachments.length) {
                   if (!submitting.current && preparation(storage, props.host, draftKey))
                     remember({ title: "New preparation" });
@@ -731,10 +744,31 @@ function PreparationPage(props: {
             <SignInNotice provider={provider} />
             <PastSessions />
             {(saveFailed || preparationSaveFailed(storage, draftKey)) && (
-              <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
-                Couldn't save this preparation on this device. Keep this page open and free space or
-                discard an older draft before leaving.
-              </p>
+              <div role="alert" className="mt-3 px-2 text-ui text-status-failed">
+                <p>
+                  Couldn't save this preparation on this device. Keep this page open and free space or
+                  discard an older draft before leaving.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    const content = latestContent.current;
+                    if (!content || !writeDraft(storage, draftKey, content)) {
+                      contentSaveRefused.current = true;
+                      setSaveFailed(true);
+                      return;
+                    }
+                    contentSaveRefused.current = false;
+                    remember({
+                      title: content.text.trim().split("\n")[0]?.slice(0, 100) || "New preparation",
+                    });
+                  }}
+                >
+                  Save draft
+                </Button>
+              </div>
             )}
             {error && (
               <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
