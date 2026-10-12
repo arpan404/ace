@@ -422,13 +422,19 @@ export class WorkspaceForge {
       const status = await (
         await this.backend(cwd, link.pr.repository)
       ).status(link.pr.number, this.lifetime.signal);
-      check?.();
-      if (this.owner.current(link.pr, revision)) this.projection.update(id, status, generation);
+      await this.store.write(() => {
+        check?.();
+        if (this.owner.current(link.pr, revision)) this.projection.update(id, status, generation);
+      });
       return status;
     } catch (error) {
       check?.();
       if (error instanceof ForgeError && error.kind === "not_found") {
-        if (this.owner.current(link.pr, revision)) this.projection.deleted(id, link.pr, generation);
+        await this.store.write(() => {
+          check?.();
+          if (this.owner.current(link.pr, revision))
+            this.projection.deleted(id, link.pr, generation);
+        });
         return this.projection.fallback(
           link.pr,
           this.links.summaries(id).find((pr) => pr.number === link.pr.number),
@@ -470,20 +476,23 @@ export class WorkspaceForge {
             batch.map((number) => [number, this.owner.capture({ repository: group.repo, number })]),
           );
           const summaries = await backend.states(batch, this.lifetime.signal);
-          check?.();
-          for (const entry of group.entries) {
-            const revision = revisions.get(entry.pr.number);
-            if (!revision || !this.owner.current(entry.pr, revision)) continue;
-            const summary = summaries.get(entry.pr.number);
-            if (summary === null) this.projection.deleted(entry.id, entry.pr, entry.generation);
-            else if (
-              summary &&
-              this.links.getLinkState(entry.id, entry.pr)?.generation === entry.generation
-            ) {
-              this.links.update(entry.id, summary, entry.generation);
-              this.projection.publish(entry.id);
+          // Ownership and generation checks run inside the same commit as the projection.
+          await this.store.write(() => {
+            check?.();
+            for (const entry of group.entries) {
+              const revision = revisions.get(entry.pr.number);
+              if (!revision || !this.owner.current(entry.pr, revision)) continue;
+              const summary = summaries.get(entry.pr.number);
+              if (summary === null) this.projection.deleted(entry.id, entry.pr, entry.generation);
+              else if (
+                summary &&
+                this.links.getLinkState(entry.id, entry.pr)?.generation === entry.generation
+              ) {
+                this.links.update(entry.id, summary, entry.generation);
+                this.projection.publish(entry.id);
+              }
             }
-          }
+          });
         }
       } catch (error) {
         failure ??= error;
@@ -541,14 +550,18 @@ export class WorkspaceForge {
         );
       } else pr = await publish();
     }
-    if (!allowed()) throw new Error("forbidden");
     // Persist the receipt even if the subsequent status read fails.
-    this.links.link({ threadId: id, pr });
-    this.projection.publish(id);
-    const generation = this.links.getLinkState(id, pr)?.generation;
+    const generation = await this.store.write(() => {
+      if (!allowed()) throw new Error("forbidden");
+      this.links.link({ threadId: id, pr });
+      this.projection.publish(id);
+      return this.links.getLinkState(id, pr)?.generation;
+    });
     const status = await backend.status(pr.number, this.lifetime.signal);
-    if (!allowed()) throw new Error("forbidden");
-    this.projection.update(id, status, generation);
+    await this.store.write(() => {
+      if (!allowed()) throw new Error("forbidden");
+      this.projection.update(id, status, generation);
+    });
     return status;
   }
   async execute(

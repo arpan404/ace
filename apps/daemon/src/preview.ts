@@ -30,7 +30,8 @@ export async function createDaemonPreview(
     now,
     authority: {
       async authorize(token) {
-        const device = store.devices.authenticate(token, now());
+        // Authentication records last-seen bookkeeping, so it passes the write boundary.
+        const device = await store.write(() => store.devices.authenticate(token, now()));
         return allows(device, "operate") ? (device?.id ?? null) : null;
       },
       async isPaired(id) {

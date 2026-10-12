@@ -77,7 +77,7 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
       refresh();
     });
   return {
-    execute(input, signal) {
+    async execute(input, signal) {
       const handler = services.engine?.internalHandler ?? services.handler;
       if (!handler) throw new Error("engine_unavailable");
       const workspaceId = store.atomic((db) =>
@@ -103,8 +103,10 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
           input: [{ type: "text", text: input.prompt }],
         },
       });
-      const result = store.recordCommand(command.id, command.deviceId, () =>
-        handler.handle(command, commandContext(store)),
+      const result = await store.write(() =>
+        store.recordCommand(command.id, command.deviceId, () =>
+          handler.handle(command, commandContext(store)),
+        ),
       );
       if (!result.ok || !result.threadId)
         throw new Error(result.error ?? "automation_admission_failed");

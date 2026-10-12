@@ -61,7 +61,7 @@ export class WorkspaceRefresh {
       for (const id of ids) {
         if (this.closed) return;
         // Advance before I/O. An event during the refresh resets due to zero.
-        privateStore.atomic((db) =>
+        await privateStore.write((db) =>
           db
             .prepare("UPDATE workspace_refresh SET due=? WHERE thread_id=?")
             .run(now() + 60_000, id),
@@ -74,7 +74,7 @@ export class WorkspaceRefresh {
             !thread.details?.linkedPrs?.length &&
             !thread.details?.linkedPr)
         ) {
-          privateStore.atomic((db) =>
+          await privateStore.write((db) =>
             db.prepare("DELETE FROM workspace_refresh WHERE thread_id=?").run(id),
           );
           continue;
@@ -89,7 +89,7 @@ export class WorkspaceRefresh {
             !current.details?.linkedPrs?.length &&
             !current.details?.linkedPr
           )
-            privateStore.atomic((db) =>
+            await privateStore.write((db) =>
               db.prepare("DELETE FROM workspace_refresh WHERE thread_id=? AND due>0").run(id),
             );
         } catch (error) {

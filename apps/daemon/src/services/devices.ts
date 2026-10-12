@@ -64,23 +64,25 @@ export async function startDevices(context: ServiceContext): Promise<void> {
             category: "recording",
             id: artifact.id,
           });
-          context.store.appendEvents(ThreadId.parse(threadId), [
-            {
-              type: "item.created",
-              item: {
-                type: "artifact",
-                source: "device",
-                artifactId: artifact.id,
-                id: ItemId.parse(id()),
-                createdAt: now(),
-                complete: true,
-                filename: "Device recording.mp4",
-                path: video.path,
-                mimeType: video.mimeType,
-                bytes: video.bytes,
+          await context.store.write(() =>
+            context.store.appendEvents(ThreadId.parse(threadId), [
+              {
+                type: "item.created",
+                item: {
+                  type: "artifact",
+                  source: "device",
+                  artifactId: artifact.id,
+                  id: ItemId.parse(id()),
+                  createdAt: now(),
+                  complete: true,
+                  filename: "Device recording.mp4",
+                  path: video.path,
+                  mimeType: video.mimeType,
+                  bytes: video.bytes,
+                },
               },
-            },
-          ]);
+            ]),
+          );
           return video;
         });
       },
