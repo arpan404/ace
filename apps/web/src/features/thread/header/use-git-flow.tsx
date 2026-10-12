@@ -1,11 +1,12 @@
 import type { ForgePrRef, ForgePrStatus } from "@ace/protocol";
-import { actionErrorText, mergeMethods, prBlocker, type Checkout } from "@ace/ui-core";
+import { mergeMethods, prBlocker, type Checkout } from "@ace/ui-core";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { InlineMarkdown } from "@/components/inline-markdown.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useCheckoutState, useGitActions, type GitChange } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
+import { gitFailureText } from "../lib/git-failure.ts";
 import type { GitDialogKind } from "./git-dialog.tsx";
 import { GitWriteConfirm } from "./git-write-confirm.tsx";
 
@@ -16,9 +17,7 @@ const PrFieldDialog = lazy(() =>
 );
 
 /** What went wrong, in the daemon's words for its code, with commands set as code. */
-export const failure = (error: unknown) => (
-  <InlineMarkdown text={error instanceof Error ? error.message : actionErrorText(undefined)} />
-);
+export const failure = (error: unknown) => <InlineMarkdown text={gitFailureText(error)} />;
 
 /** The toast that confirms a change, from what the daemon answered. */
 function confirmation(change: GitChange, status: ForgePrStatus | undefined): string {

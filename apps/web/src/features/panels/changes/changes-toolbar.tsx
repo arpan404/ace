@@ -115,7 +115,7 @@ export function ChangesToolbar(props: {
             checked={prefs.wrap}
             onCheckedChange={(wrap) => props.onPrefs((value) => ({ ...value, wrap }))}
           >
-            Wrap long lines
+            Soft wrap at word boundaries
           </MenuCheckboxItem>
           <MenuItem onClick={() => props.onCollapseAll(!props.allCollapsed)}>
             {props.allCollapsed ? "Expand all files" : "Collapse all files"}

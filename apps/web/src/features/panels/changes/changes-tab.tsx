@@ -155,7 +155,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
     if (block) block.scrollIntoView?.({ block: "start" });
     else blocks.current?.scrollToIndex(index);
   };
-  // Opened on a file (the launcher's Suggested, a changed-files card): show that file, once
+  // Opened on a file (a changed-files card): show that file, once
   // its diff is ready.
   const ready = files.some((file) => file.path === props.path);
   const jumped = useRef<string>(undefined);
@@ -260,7 +260,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         view={view}
         onView={(next) => setView(file.path, next)}
         mode={mode}
-        wrap={width < 640 || prefs.wrap}
+        wrap={prefs.wrap}
         viewed={isViewed}
         actions={
           <FileActions
@@ -372,16 +372,18 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         canShowTree={files.length > 1}
         onRefreshReview={() => void session.refetch()}
       />
-      <ReviewBar
-        drafts={drafts}
-        session={session.data ?? undefined}
-        onReview={review}
-        onSend={(keys) => void send(keys)}
-        onJump={(draft) => {
-          jump(draft.file);
-          setSelectedComment(draft.key);
-        }}
-      />
+      {drafts.length > 0 && (
+        <ReviewBar
+          drafts={drafts}
+          session={session.data ?? undefined}
+          onReview={review}
+          onSend={(keys) => void send(keys)}
+          onJump={(draft) => {
+            jump(draft.file);
+            setSelectedComment(draft.key);
+          }}
+        />
+      )}
       {compositionError && (
         <p role="alert" className="shrink-0 border-b px-2.5 py-2 text-sm text-subtle-foreground">
           {compositionError}

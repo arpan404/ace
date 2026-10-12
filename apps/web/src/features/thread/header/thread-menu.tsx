@@ -84,7 +84,7 @@ export function ThreadMenuItems(props: {
           <MenuItem
             icon={<TreeStructureIcon aria-hidden size={16} />}
             keys={keymap.agents.keys}
-            onClick={() => workspace.open({ kind: "agents" })}
+            onClick={() => workspace.open({ kind: "work" })}
           >
             Open agent tree
           </MenuItem>

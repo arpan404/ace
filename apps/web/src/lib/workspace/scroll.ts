@@ -1,5 +1,5 @@
-/** A mounted card keeps one pending restoration, cancelled by an actual user gesture. */
-export function attachCardScroll(
+/** A mounted panel keeps one pending restoration, cancelled by an actual user gesture. */
+export function attachWorkspaceScroll(
   node: HTMLDivElement,
   saved: number,
   save: (position: number) => void,

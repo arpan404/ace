@@ -8,7 +8,6 @@ import {
   CopyIcon,
   DotsThreeIcon,
   CaretDownIcon,
-  FolderIcon,
   PlusIcon,
   FolderOpenIcon,
   GitForkIcon,
@@ -181,7 +180,6 @@ export function ProjectRow(props: {
         <div className="flex min-h-(--row-height) min-w-0 flex-1 items-center gap-(--surface-gap) px-2 text-foreground">
           <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
             <LaptopIcon aria-hidden size={16} />
-            <FolderIcon aria-hidden size={16} />
           </span>
           <Tip label={`${project} · ${path ?? "Reading checkout"}`}>
             <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{machine.name}</h2>
@@ -192,6 +190,10 @@ export function ProjectRow(props: {
           trigger={<IconButton icon={DotsThreeIcon} label="Project actions" size="sm" />}
         />
       </div>
+      <p className="truncate px-8 pb-1 text-xs text-muted-foreground" title={path}>
+        {project}
+        {path ? ` · ${path}` : " · Reading checkout…"}
+      </p>
       <div className="flex items-center">
         <Suspense fallback={<RowNote className="flex-1">Reading checkout openers…</RowNote>}>
           <DeferredOpenButton.Component thread={props.thread} />

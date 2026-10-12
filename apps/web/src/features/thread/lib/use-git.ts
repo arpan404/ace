@@ -3,6 +3,7 @@ import type { ForgePrRef, ForgePrStatus, ForgeRepository, ThreadDetails } from "
 import { checkoutOf, type Checkout, type MergeMethod } from "@ace/ui-core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { WorkspaceError } from "../sources/workspace-source.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 
 const detailsKey = (threadId: string) => ["thread", "details", threadId];
@@ -189,7 +190,7 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
             ...(checkout.baseRef ? { baseRef: checkout.baseRef } : {}),
           });
           if (context.fingerprint !== change.draftFingerprint)
-            throw new Error("The branch changes moved. Generate again or discard the draft.");
+            throw new WorkspaceError("draft_changes_moved");
         }
         // A branch without an upstream reports nothing ahead; pushing first is always safe.
         await workspace.push(thread, { repository, branch, head: checkout.head });

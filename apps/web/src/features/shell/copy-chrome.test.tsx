@@ -1,3 +1,4 @@
+import { openWorkPanel } from "@/test/open-work.ts";
 import { replayCursor } from "@ace/fake-daemon";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -6,7 +7,7 @@ import { harness } from "@/test/harness.tsx";
 
 // The demo thread deliberately carries an older machine name. Every current-machine view
 // must prefer the host identity instead of that saved metadata or the connection address.
-test("the connected machine keeps its name in menus and settings without repeating it in the card", async () => {
+test("the connected machine keeps its name in menus and settings and appears once in Work", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   app.daemon.services.settings.seed({ "host.displayName": "Workshop Mac" });
@@ -34,9 +35,9 @@ test("the connected machine keeps its name in menus and settings without repeati
   view.unmount();
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(await screen.findByRole("button", { name: /^Work card/ }));
-  const card = await screen.findByRole("complementary", { name: "Work card" });
-  expect(card.textContent).not.toContain("Workshop Mac");
+  await openWorkPanel();
+  const card = await screen.findByRole("tabpanel", { name: "Work" });
+  expect(within(card).getByRole("heading", { name: "Workshop Mac" })).toBeTruthy();
 });
 
 test("unknown command failures explain recovery without showing the server's code", async () => {
@@ -74,8 +75,10 @@ test("a thread on another machine keeps that machine's name", async () => {
     .runThrough("finding");
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(await screen.findByRole("button", { name: /^Work card/ }));
-  const card = await screen.findByRole("complementary", { name: "Work card" });
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("Build server");
+  await openWorkPanel();
+  const card = await screen.findByRole("tabpanel", { name: "Work" });
+  expect(
+    within(card).getByRole("heading", { level: 2, name: "Build server" }).textContent,
+  ).toContain("Build server");
   expect(card.textContent).not.toContain("Workshop Mac");
 });

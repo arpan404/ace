@@ -62,7 +62,7 @@ export function WorkingTreeDiff(props: {
             )}
             <pre
               aria-label="Uncommitted diff"
-              className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed"
+              className="min-w-max whitespace-pre font-mono text-xs leading-relaxed"
             >
               {diff.data.patch}
             </pre>

@@ -30,6 +30,8 @@ export interface TabUiState {
   query?: string | undefined;
   collapsed?: readonly string[] | undefined;
   selected?: string | undefined;
+  sections?: Record<string, boolean> | undefined;
+  scrollTop?: number | undefined;
 }
 
 export interface ScopeWorkspace {
@@ -43,14 +45,6 @@ export interface ScopeWorkspace {
   expanded: boolean;
   dock?: "side" | "bottom" | undefined;
   bottomSize?: number | undefined;
-  workCard?: WorkCardState | undefined;
-}
-
-export interface WorkCardState {
-  open: boolean;
-  sections: Record<string, boolean>;
-  search: string;
-  scrollTop?: number | undefined;
 }
 
 export interface OpenRequest {
@@ -289,58 +283,24 @@ const TabSchema = z.object({
       query: z.optional(z.string()),
       collapsed: z.optional(z.array(z.string())),
       selected: z.optional(z.string()),
-    }),
-  ),
-});
-const PanelSchema = z.object({
-  tabs: z.array(TabSchema),
-  active: z.optional(z.string()),
-  open: z.boolean(),
-  size: z.optional(z.number()),
-});
-const CurrentSchema = z.object({
-  dock: z.optional(z.enum(["side", "bottom"])),
-  bottomSize: z.optional(z.number().check(z.gte(0), z.lte(10_000))),
-  ...PanelSchema.shape,
-  expanded: z.catch(z.boolean(), false),
-  workCard: z.optional(
-    z.object({
-      open: z.boolean(),
-      sections: z.record(z.string(), z.boolean()),
-      search: z.string(),
+      sections: z.optional(z.record(z.string(), z.boolean())),
       scrollTop: z.optional(z.number().check(z.gte(0), z.lte(10_000_000))),
     }),
   ),
 });
-/** Before 0.9 a scope had a side panel (`right`) and a bottom panel (terminals, logs). */
-const LegacySchema = z.object({
-  right: PanelSchema,
-  bottom: z.optional(PanelSchema),
+export const ScopeWorkspaceSchema = z.object({
+  tabs: z.array(TabSchema),
+  active: z.optional(z.string()),
+  open: z.boolean(),
+  size: z.optional(z.number()),
+  dock: z.optional(z.enum(["side", "bottom"])),
+  bottomSize: z.optional(z.number().check(z.gte(0), z.lte(10_000))),
   expanded: z.catch(z.boolean(), false),
 });
-export const ScopeWorkspaceSchema = z.union([CurrentSchema, LegacySchema]);
 type Stored = z.infer<typeof ScopeWorkspaceSchema>;
 
-/**
- * An older entry's two panels as the one side panel: the side panel's tabs, then the bottom
- * panel's (its terminals and logs). Whichever panel showed stays showing, the side one first.
- */
-function migrate(stored: Stored): z.infer<typeof CurrentSchema> {
-  if (!("right" in stored)) return stored;
-  const { right, bottom } = stored;
-  const showing = right.open ? right : bottom?.open ? bottom : right;
-  return {
-    tabs: [...right.tabs, ...(bottom?.tabs ?? [])],
-    active: showing.active ?? right.active,
-    open: right.open || (bottom?.open ?? false),
-    size: right.size,
-    expanded: stored.expanded,
-  };
-}
-
-/** Drop what a hand-edited or older entry could carry that the model never makes. */
-export function sanitize(stored: Stored): ScopeWorkspace {
-  const workspace = migrate(stored);
+/** Drop what a hand-edited entry could carry that the model never makes. */
+export function sanitize(workspace: Stored): ScopeWorkspace {
   const seen = new Set<string>();
   const tabs = workspace.tabs.filter((tab) => !seen.has(tab.key) && seen.add(tab.key));
   const ordered = [...tabs.filter((tab) => tab.pinned), ...tabs.filter((tab) => !tab.pinned)];
@@ -354,6 +314,5 @@ export function sanitize(stored: Stored): ScopeWorkspace {
     dock: workspace.dock,
     bottomSize: workspace.bottomSize,
     expanded: workspace.expanded && open,
-    ...(workspace.workCard ? { workCard: workspace.workCard } : {}),
   };
 }
