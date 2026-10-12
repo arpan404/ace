@@ -1,0 +1,115 @@
+{
+  "$id": "https://ace.local/protocol/v1/StorageRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "operation": {
+      "oneOf": [
+        {
+          "properties": {
+            "op": {
+              "const": "storage.usage",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "forceItems": {
+              "default": [],
+              "items": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 256,
+              "type": "array"
+            },
+            "kinds": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/StorageKind.json"
+              },
+              "maxItems": 6,
+              "minItems": 1,
+              "type": "array"
+            },
+            "op": {
+              "const": "cleanup.plan",
+              "type": "string"
+            },
+            "retention": {
+              "$ref": "https://ace.local/protocol/v1/StorageRetention.json"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "compact": {
+              "default": false,
+              "type": "boolean"
+            },
+            "op": {
+              "const": "cleanup.apply",
+              "type": "string"
+            },
+            "planId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "revision": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "planId",
+            "revision"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "cleanup.status",
+              "type": "string"
+            },
+            "planId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "planId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "storage.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "operation"
+  ],
+  "type": "object"
+}

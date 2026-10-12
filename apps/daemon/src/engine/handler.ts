@@ -1,3 +1,4 @@
+import { WorkspacePrLinks } from "../workspace-pr-links.ts";
 import { WorkspaceIssueLinks } from "../workspace-issue-links.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { isDefaultSelection } from "@ace/models";
@@ -204,6 +205,17 @@ export function engineHandler(
           const prepared = context.preparedWorkspace;
           const baseBranch = baseBranchLabel(p);
           threadId = ThreadId.parse(prepared?.id ?? p.threadId ?? nextId());
+          if (
+            p.pullRequest &&
+            (!prepared?.pullRequestWorkspace ||
+              !prepared.prStatus ||
+              p.mode !== "worktree" ||
+              prepared.pullRequestWorkspace.headSha !== p.pullRequest.headSha ||
+              JSON.stringify(prepared.pullRequestWorkspace.ref) !==
+                JSON.stringify(p.pullRequest.ref) ||
+              prepared.prStatus.headSha !== p.pullRequest.headSha)
+          )
+            return fail("workspace_preparation_mismatch");
           if (prepared) {
             if (
               prepared.id !== p.threadId ||
@@ -261,6 +273,9 @@ export function engineHandler(
                 mode: ("mode" in p ? p.mode : undefined) ?? "local",
                 worktree: cwd,
                 ...(prepared ? { branch: prepared.branch } : {}),
+                ...(prepared?.pullRequestWorkspace
+                  ? { pullRequestWorkspace: prepared.pullRequestWorkspace }
+                  : {}),
                 ...(baseBranch ? { baseBranch } : {}),
                 ...(prepared?.base ? { base: prepared.base } : {}),
                 ...(machine ? { machine } : {}),
@@ -275,6 +290,21 @@ export function engineHandler(
               },
             },
           });
+          if (prepared?.prStatus && prepared.pullRequestWorkspace) {
+            const projection = new WorkspacePrLinks(repo.store, now);
+            projection.links.link({ threadId, pr: prepared.prStatus.ref });
+            projection.update(
+              threadId,
+              prepared.prStatus,
+              projection.links.getLinkState(threadId, prepared.prStatus.ref)?.generation,
+            );
+            projection.publish(threadId);
+            const previous = repo.transitions.get(threadId);
+            repo.transitions.set(threadId, {
+              ...previous,
+              context: [...previous.context, prepared.pullRequestWorkspace.context],
+            });
+          }
           if (p.type === "thread.create" && p.issue)
             new WorkspaceIssueLinks(repo.store).link(threadId, p.issue, at);
           if (handoff && p.handoffFrom) {

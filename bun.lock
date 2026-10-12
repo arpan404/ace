@@ -421,6 +421,7 @@
         "@ace/handoff": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@ace/workspace": "workspace:*",
         "image-size": "^2.0.2",
         "sharp": "0.34.5",
         "zod": "^4.1.12",
@@ -432,6 +433,12 @@
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
+    "packages/design-tokens": {
+      "name": "@ace/design-tokens",
+      "dependencies": {
         "zod": "^4.6.5",
       },
     },
@@ -924,6 +931,8 @@
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
+
+    "@ace/design-tokens": ["@ace/design-tokens@workspace:packages/design-tokens"],
 
     "@ace/desktop": ["@ace/desktop@workspace:apps/desktop"],
 

@@ -1,3 +1,4 @@
+import { actionErrorCode } from "../action-errors.ts";
 import { Command, type DeviceId, type CommandResult } from "@ace/protocol";
 import { isMutationUnavailable } from "@ace/git";
 import { commandContext } from "../commands.ts";
@@ -10,6 +11,7 @@ import type { SocketContext, SocketService } from "./socket.ts";
 function localCommand(command: Command): Command {
   const p = command.payload;
   if (p.type !== "thread.create" && p.type !== "thread.prepare") return command;
+  if (p.pullRequest) throw new Error("pr_requires_worktree");
   const { base: _base, baseBranch: _baseBranch, ...rest } = p;
   return Command.parse({ ...command, payload: { ...rest, mode: "local" } });
 }
@@ -75,7 +77,7 @@ export function createEngineSession(context: SocketContext): SocketService {
                   : undefined,
             },
           });
-          operation = drafts.begin(draft, device, (message) => {
+          operation = await drafts.begin(draft, device, (message) => {
             if (context.connected()) send(message);
           });
           owned.add(operation);
@@ -126,6 +128,8 @@ export function createEngineSession(context: SocketContext): SocketService {
         result = { commandId: command.id, ok: false, error: "handoff_source_not_found" };
         return;
       }
+      await preparation?.verify?.();
+      if (!context.connected() || !context.authorize("operate")) return;
       result = options.store.recordCommand(command.id, device, () =>
         options.handler.handle(accepted, {
           ...commandContext(options.store),
@@ -155,7 +159,13 @@ export function createEngineSession(context: SocketContext): SocketService {
                 title: error.title,
                 detail: "We couldn't create the worktree. Try again or use the local checkout.",
               }
-            : { error: "workspace_unavailable" }),
+            : {
+                error:
+                  (payload.type === "thread.create" || payload.type === "thread.prepare") &&
+                  payload.pullRequest
+                    ? actionErrorCode(error)
+                    : "workspace_unavailable",
+              }),
       };
     } finally {
       try {
@@ -258,6 +268,10 @@ export function createEngineSession(context: SocketContext): SocketService {
           ok: true,
           progress: draft.progress,
         });
+        return true;
+      }
+      if (!draft.progress.actions.includes(message.action)) {
+        response("settled");
         return true;
       }
       if (draft.operation?.active) {

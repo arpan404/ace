@@ -1,5 +1,7 @@
 import { ProcessInventory, observeProcessGroups } from "@ace/provider-kit/process";
 import { cliControl } from "./services/cli-control.ts";
+export { StorageService } from "./storage/service.ts";
+export { planStorageItem, type StorageCandidate } from "./storage/planner.ts";
 import { shutdownDeadline } from "./shutdown.ts";
 import { shutdownControl } from "./shutdown-receipt.ts";
 import { connectedDoctorReport } from "./diagnostics-report.ts";
@@ -310,6 +312,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "previewClient",
       "automations",
       "activityReads",
+      "storage",
       "devices",
     ] as const)
       Object.defineProperty(serverOptions, key, {
@@ -374,6 +377,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       get devices() {
         return services.devices;
       },
+      storage: services.storage,
       engine: services.engine,
       agentControl: services.agentControl,
       cliControl: cliControl(serviceContext),

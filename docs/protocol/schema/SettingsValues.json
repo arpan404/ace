@@ -220,6 +220,12 @@
         }
       ]
     },
+    "storage.retention": {
+      "$ref": "https://ace.local/protocol/v1/StorageRetention.json"
+    },
+    "storage.scheduledCleanup": {
+      "type": "boolean"
+    },
     "threads.autoSettleAfter": {
       "enum": [
         "1d",
@@ -267,6 +273,8 @@
     }
   },
   "required": [
+    "storage.retention",
+    "storage.scheduledCleanup",
     "sourceControl.preferences",
     "providers.configuration",
     "host.displayName",

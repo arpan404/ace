@@ -1,4 +1,5 @@
 import { startExternalMcp } from "./external-mcp.ts";
+import { startStorage } from "./storage.ts";
 import { startSourceControl } from "./source-control.ts";
 import { startProviderInstalls } from "./provider-install.ts";
 import { startProviderLogin } from "./provider-login.ts";
@@ -174,6 +175,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: ["engine", "settings"],
     after: ["context", "agentControl", "workspaceActions"],
     start: startAutomations,
+  },
+  {
+    name: "storage",
+    phase: "listener",
+    requires: ["context", "workspaceActions"],
+    after: ["engine", "agentControl", "threadOrganization", "browser", "settings", "automations"],
+    start: startStorage,
   },
 ];
 /** Public daemon access fails explicitly when a feature could not be initialized. */

@@ -369,6 +369,32 @@ test("a PR's file cap does not label a complete individual-commit diff as trunca
     await f.cleanup();
   }
 });
+test("checkout metadata resolves a fork head and refuses a moved or deleted source branch", async () => {
+  for (const scenario of ["valid", "moved", "missing"]) {
+    const fixtures = standard();
+    fixtures["repos/octo/ace/pulls/7"] = [{ body: richPr }];
+    fixtures["repos/contributor/fork/git/ref/heads/feat%2Ffix"] =
+      scenario === "missing"
+        ? [{ status: 404, body: { message: "Not Found" } }]
+        : [{ body: { object: { sha: scenario === "moved" ? nextSha : sha } } }];
+    const gh = await fakeGh(fixtures);
+    try {
+      if (scenario === "valid")
+        expect(await gh.forge.prCheckout(7, signal())).toMatchObject({
+          ref: { repository, number: 7 },
+          headSha: sha,
+          baseSha: nextSha,
+          headRepository: { owner: "contributor", name: "fork" },
+        });
+      else
+        await expect(gh.forge.prCheckout(7, signal())).rejects.toMatchObject({
+          kind: scenario === "moved" ? "conflict" : "not_found",
+        });
+    } finally {
+      await gh.cleanup();
+    }
+  }
+});
 
 test("timeline events preserve unknown kinds and fields while exposing actor, label and commit identities", async () => {
   const future = {

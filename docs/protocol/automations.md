@@ -30,20 +30,26 @@ Example:
 
 ```json
 {
-  "concurrency": 2,
-  "enabled": false,
+  "concurrency": 5,
+  "enabled": true,
   "id": "example",
-  "jitterMs": 1,
+  "jitterMs": 6,
   "missedRun": "run_once",
   "permissionMode": "example",
   "prompt": "example",
-  "provider": "claude",
+  "provider": "opencode",
   "title": "example",
   "trigger": {
-    "kind": "manual"
+    "kind": "schedule",
+    "schedule": {
+      "expression": "example",
+      "kind": "rrule",
+      "startAt": 0,
+      "timezone": "example"
+    }
   },
   "workspace": "example",
-  "worktree": false
+  "worktree": true
 }
 ```
 
@@ -78,7 +84,7 @@ Example:
 
 ```json
 {
-  "before": 9,
+  "before": null,
   "runs": []
 }
 ```
@@ -96,7 +102,7 @@ Example:
 
 ```json
 {
-  "at": 5,
+  "at": 1,
   "message": "example"
 }
 ```
@@ -118,22 +124,20 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 10,
+    "concurrency": 1,
     "enabled": true,
     "id": "example",
-    "jitterMs": 3,
+    "jitterMs": 1,
     "missedRun": "skip",
+    "permissionMode": "example",
     "prompt": "example",
     "provider": "opencode",
     "title": "example",
     "trigger": {
-      "event": "pr_changed",
-      "kind": "github",
-      "pollIntervalMs": 60006,
-      "repository": "1qjC/baqe52fjNZ"
+      "kind": "manual"
     },
     "workspace": "example",
-    "worktree": false
+    "worktree": true
   },
   "requestId": "example",
   "type": "automation.put"
@@ -208,9 +212,7 @@ Example:
 
 ```json
 {
-  "automationId": "example",
-  "before": 4,
-  "limit": 5,
+  "limit": 3,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -235,7 +237,7 @@ Example:
 
 ```json
 {
-  "ok": false,
+  "ok": true,
   "requestId": "example",
   "type": "automation.result"
 }
@@ -264,11 +266,13 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
+  "finishedAt": 1,
   "id": "example",
-  "startedAt": 4,
+  "startedAt": 8,
   "status": "skipped",
+  "threadId": "example",
   "title": "example",
-  "trigger": "schedule"
+  "trigger": "github"
 }
 ```
 
@@ -348,10 +352,11 @@ Example:
 
 ```json
 {
-  "event": "pr_changed",
+  "event": "issue_labelled",
   "kind": "github",
-  "pollIntervalMs": 60007,
-  "repository": "Z10dh8/B.fRr_3nx"
+  "label": "example",
+  "pollIntervalMs": 60004,
+  "repository": "p9G16jPfOn/WD_"
 }
 ```
 

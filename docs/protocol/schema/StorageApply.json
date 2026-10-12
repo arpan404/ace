@@ -1,0 +1,71 @@
+{
+  "$id": "https://ace.local/protocol/v1/StorageApply.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "compaction": {
+      "enum": [
+        "not_requested",
+        "complete",
+        "deferred"
+      ],
+      "type": "string"
+    },
+    "compactionReason": {
+      "const": "disabled",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "properties": {
+          "error": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "https://ace.local/protocol/v1/StorageReason.json"
+          },
+          "state": {
+            "enum": [
+              "removed",
+              "pending",
+              "protected"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state"
+        ],
+        "type": "object"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "planId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "complete",
+        "pending",
+        "stale"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "planId",
+    "state",
+    "items",
+    "compaction"
+  ],
+  "type": "object"
+}

@@ -9,10 +9,16 @@ export function UnavailablePreparation(props: {
   host: string;
   project: string;
   skill?: string | undefined;
+  pullRequest?: string | undefined;
   issue?: string | undefined;
 }) {
   const { storage } = useLayout();
-  const key = preparationKey(props.host, props.project, props.skill, props.issue);
+  const key = preparationKey(
+    props.host,
+    props.project,
+    props.skill,
+    props.issue ?? props.pullRequest,
+  );
   const content = readDraft(storage, key) ?? preparation(storage, props.host, key)?.discardRecovery;
   return (
     <Screen title="Project unavailable">

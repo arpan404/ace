@@ -13,11 +13,15 @@ export class WorkspaceReservations {
   ) {
     this.db = db;
     this.statement = statement;
-    db.exec(`CREATE TABLE IF NOT EXISTS workspace_root_reservations (
+    db.exec(`CREATE TABLE IF NOT EXISTS storage_removed_roots(root TEXT PRIMARY KEY,at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS workspace_root_reservations (
       root TEXT PRIMARY KEY, thread_id TEXT NOT NULL, command_id TEXT NOT NULL
     ); CREATE INDEX IF NOT EXISTS workspace_reservation_owner ON workspace_root_reservations(thread_id);
     CREATE TABLE IF NOT EXISTS workspace_canonical_roots (workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), root TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS workspace_canonical_root ON workspace_canonical_roots(root,workspace_id);`);
+    db.exec(`CREATE TABLE IF NOT EXISTS workspace_repository_roots (root TEXT PRIMARY KEY, repository TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS workspace_repository_root ON workspace_repository_roots(repository,root);
+      CREATE TABLE IF NOT EXISTS workspace_repository_reservations (repository TEXT PRIMARY KEY, command_id TEXT NOT NULL);`);
     for (const row of this.statement("SELECT id,path FROM workspaces").all())
       this.registerWorkspace(z.string().parse(row.id), z.string().parse(row.path));
   }
@@ -47,12 +51,61 @@ export class WorkspaceReservations {
     );
   }
   assertAvailable(root: string): void {
-    if (this.statement("SELECT 1 FROM workspace_root_reservations WHERE root=?").get(root))
-      throw new Error("workspace_change_in_progress");
+    if (this.statement("SELECT 1 FROM storage_removed_roots WHERE root=?").get(root))
+      throw new Error("workspace_removed");
+    const kind = this.reservation(root);
+    if (kind)
+      throw new Error(
+        kind === "workspace" ? "workspace_change_in_progress" : "repository_transfer_in_progress",
+      );
   }
   reserved(root: string): boolean {
+    return this.reservation(root) !== undefined;
+  }
+  private reservation(root: string): "workspace" | "repository" | undefined {
+    const row =
+      this.statement(`SELECT 'workspace' AS kind FROM workspace_root_reservations WHERE root=?
+      UNION ALL SELECT 'repository' AS kind FROM workspace_repository_roots r JOIN workspace_repository_reservations f
+      ON r.repository=f.repository WHERE r.root=? LIMIT 1`).get(root, root);
+    return row ? z.enum(["workspace", "repository"]).parse(row.kind) : undefined;
+  }
+  repository(root: string): string | undefined {
+    const row = this.statement(
+      "SELECT repository FROM workspace_repository_roots WHERE root=?",
+    ).get(canonicalRoot(root));
+    return row ? z.string().parse(row.repository) : undefined;
+  }
+  registerRepository(root: string, repository: string): void {
+    this.statement(`INSERT INTO workspace_repository_roots VALUES (?,?)
+      ON CONFLICT(root) DO UPDATE SET repository=excluded.repository`).run(
+      canonicalRoot(root),
+      repository,
+    );
+  }
+  repositoryReserved(repository: string): boolean {
     return Boolean(
-      this.statement("SELECT 1 FROM workspace_root_reservations WHERE root=?").get(root),
+      this.statement("SELECT 1 FROM workspace_repository_reservations WHERE repository=?").get(
+        repository,
+      ),
+    );
+  }
+  ownsRepositoryReservation(repository: string, commandId: string): boolean {
+    return Boolean(
+      this.statement(
+        "SELECT 1 FROM workspace_repository_reservations WHERE repository=? AND command_id=?",
+      ).get(repository, commandId),
+    );
+  }
+  reserveRepository(repository: string, commandId: string): void {
+    if (this.repositoryReserved(repository)) throw new Error("repository_transfer_in_progress");
+    this.statement("INSERT INTO workspace_repository_reservations VALUES (?,?)").run(
+      repository,
+      commandId,
+    );
+  }
+  releaseRepository(commandId: string): void {
+    this.statement("DELETE FROM workspace_repository_reservations WHERE command_id=?").run(
+      commandId,
     );
   }
   threadReserved(id: ThreadId): boolean {
@@ -77,14 +130,17 @@ export class WorkspaceReservations {
   }
   owners(roots: readonly string[]): ThreadId[] {
     const owners = new Set<ThreadId>();
+    const sessionsExist = Boolean(
+      this.statement("SELECT 1 FROM sqlite_master WHERE name='engine_sessions'").get(),
+    );
     for (const root of roots) {
       // Scope by indexed root/workspace first. No transcript or event history is read.
-      const sessions = this.statement(
-        "SELECT thread_id FROM engine_sessions WHERE cwd=? LIMIT 257",
-      ).all(root);
+      const sessions = sessionsExist
+        ? this.statement("SELECT thread_id FROM engine_sessions WHERE cwd=? LIMIT 257").all(root)
+        : [];
       const local =
         this.statement(`SELECT t.id AS thread_id FROM workspace_canonical_roots w JOIN threads t ON t.workspace_id=w.workspace_id
-        WHERE w.root=? AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id) LIMIT 257`).all(
+        WHERE w.root=? ${sessionsExist ? "AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id)" : ""} LIMIT 257`).all(
           root,
         );
       for (const row of [...sessions, ...local]) owners.add(ThreadId.parse(row.thread_id));

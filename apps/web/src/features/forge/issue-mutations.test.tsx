@@ -1,7 +1,9 @@
 import { beforeEach, expect, test } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Client, type Limits } from "@ace/client";
+import { z } from "zod";
+import { ClientHost, RemoteClient } from "@ace/client-worker";
+import { Client, defaultLimits, type Limits } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import {
   DeviceId,
@@ -12,7 +14,7 @@ import {
   WorkspaceId,
 } from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
-import { harness } from "@/test/harness.tsx";
+import { harness, fakeClient } from "@/test/harness.tsx";
 import { memoryStorage } from "@/boot/client.ts";
 
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;
@@ -442,4 +444,79 @@ test("an admitted comment's lost response is replayed through an admission pause
     (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Issue comment" })).value,
   ).toBe("");
   expect(await screen.findAllByText("Posted before the pause")).toHaveLength(1);
+});
+
+test("production worker capacity preserves a refused issue draft through remount and permits retry without reconciliation", async () => {
+  let holdReplies = false;
+  const held: (() => void)[] = [];
+  const scheduler = {
+    set(ms: number, callback: () => void) {
+      const timer = setTimeout(callback, ms);
+      return () => clearTimeout(timer);
+    },
+  };
+  const app = harness({
+    client: (daemon) => {
+      const host = new ClientHost({
+        target: () => ({ key: "worker-issue", create: () => fakeClient(daemon) }),
+        scheduler,
+        now: () => 1000,
+        frameMs: 4,
+        lingerMs: 1,
+      });
+      const { port1, port2 } = new MessageChannel();
+      host.attach({
+        start: () => port1.start(),
+        close: () => port1.close(),
+        addEventListener: (type, listener) => port1.addEventListener(type, listener),
+        removeEventListener: (type, listener) => port1.removeEventListener(type, listener),
+        postMessage(value: unknown, transfer: ArrayBuffer[] = []) {
+          const envelope = z.object({ t: z.string() }).parse(value);
+          const deliver = () => port1.postMessage(value, transfer);
+          if (holdReplies && (envelope.t === "reply" || envelope.t === "failed"))
+            held.push(deliver);
+          else deliver();
+        },
+      });
+      return new RemoteClient(port2, {}, { scheduler });
+    },
+  });
+  seed(app);
+  await app.open("/issues?project=api&number=42");
+  const comment = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Issue comment",
+  });
+  await userEvent.type(comment, "Refused before the worker received it");
+  await waitFor(() =>
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Post issue comment" }).disabled,
+    ).toBe(false),
+  );
+  holdReplies = true;
+  const reads = Array.from({ length: defaultLimits.requests }, () =>
+    app.client
+      .itemsPage({ threadId: ThreadId.parse("worker-capacity-read"), limit: 1 })
+      .catch((error: unknown) => error),
+  );
+  try {
+    await userEvent.click(screen.getByRole("button", { name: "Post issue comment" }));
+    await screen.findByText("This device couldn't save the action. Your draft is preserved.");
+    expect(comment.value).toBe("Refused before the worker received it");
+    expect(screen.queryByRole("button", { name: "Check submission" })).toBeNull();
+  } finally {
+    holdReplies = false;
+    for (const deliver of held.splice(0)) deliver();
+    await Promise.all(reads);
+  }
+  await userEvent.click(screen.getByRole("button", { name: "Back to issues" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Original issue #42" }));
+  const reopened = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Issue comment",
+  });
+  expect(reopened.value).toBe("Refused before the worker received it");
+  expect(screen.queryByRole("button", { name: "Check submission" })).toBeNull();
+  await submit("Post issue comment");
+  await screen.findByText("Saved on GitHub.");
+  expect(reopened.value).toBe("");
+  expect(await screen.findAllByText("Refused before the worker received it")).toHaveLength(1);
 });
