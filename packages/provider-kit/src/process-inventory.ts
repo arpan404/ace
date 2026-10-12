@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { DatabaseSync } from "./sqlite.ts";
-import { processIdentity, type ProcessIdentity } from "./process-identity.ts";
+import { processIdentity, processGroupIsGone, type ProcessIdentity } from "./process-identity.ts";
 export interface ProcessJournal {
   add(pid: number, metadata: { name: string; cwd?: string }): void;
   remove(pid: number): void;
@@ -29,13 +29,7 @@ export const inventoryRuntime: InventoryRuntime = {
   ownerPid: process.pid,
   now: Date.now,
   alive(group) {
-    try {
-      process.kill(-group, 0);
-      return true;
-    } catch (error) {
-      if (z.object({ code: z.literal("ESRCH") }).safeParse(error).success) return false;
-      throw error;
-    }
+    return !processGroupIsGone(group);
   },
   kill(group) {
     try {

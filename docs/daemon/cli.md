@@ -66,6 +66,9 @@ ace mcp revoke ENROLLMENT --json
 listener alone does not prove shutdown completion. `kill-all` records cancellation;
 subsequent waits return failed with the cancelled thread IDs. Provider and project
 filters apply to every terminated thread. `--thread` selects its subtree.
+Idle provider sessions are closed without changing completed work outcomes.
+Only unfinished selected work receives cancellation metadata; subtree cleanup
+also preserves the results of completed descendants.
 Without filters it also stops owned supervised groups. Retrying its key returns the
 receipt and does not terminate a later generation. Unfinished receipts are uncertain.
 The shared process supervisor journals kernel start identity, owner identity and
