@@ -2,11 +2,12 @@ import type { BrowserWindowConstructorOptions } from "electron";
 import { minimumSize, type Rectangle } from "./bounds.ts";
 
 /**
- * The approved design is translucent: the sidebar is glass over the desktop.
- * - macOS: sidebar vibrancy, hidden inset title bar, traffic lights over the top of the sidebar
- *   and the sidebar's top row (16 px from the top and left).
- * - Windows 11: Mica behind a hidden title bar with native caption buttons overlaid.
- * - Linux: solid, with the system frame.
+ * The page paints the whole window: the sidebar and reading column are opaque and only floating
+ * layers are glass (docs/design/visual-language.md), so no platform material sits behind it.
+ * - macOS: hidden inset title bar, traffic lights over the top of the sidebar and the sidebar's
+ *   top row (16 px from the top and left).
+ * - Windows 11: hidden title bar with native caption buttons overlaid.
+ * - Linux: the system frame.
  */
 export function windowOptions(options: {
   platform: NodeJS.Platform;
@@ -15,17 +16,14 @@ export function windowOptions(options: {
   /** JSON app info for the sandboxed preload, which cannot read it from Electron. */
   info: string;
   dark: boolean;
-  reducedTransparency: boolean;
 }): BrowserWindowConstructorOptions {
-  const solid = solidBackground(options.dark);
-  const translucent = !options.reducedTransparency;
   const base: BrowserWindowConstructorOptions = {
     ...options.bounds,
     minWidth: minimumSize.width,
     minHeight: minimumSize.height,
     show: false,
     title: "ace",
-    backgroundColor: solid,
+    backgroundColor: solidBackground(options.dark),
     webPreferences: {
       preload: options.preload,
       contextIsolation: true,
@@ -50,9 +48,6 @@ export function windowOptions(options: {
       titleBarStyle: "hiddenInset",
       // Centred on the 50 px header's midline (the lights are about 14 px tall).
       trafficLightPosition: { x: 16, y: 18 },
-      ...(translucent
-        ? { vibrancy: "sidebar", visualEffectState: "followWindow", backgroundColor: "#00000000" }
-        : {}),
     };
   if (options.platform === "win32")
     return {
@@ -63,29 +58,19 @@ export function windowOptions(options: {
         symbolColor: titleBarSymbolColor(options.dark),
         height: 50,
       },
-      ...(translucent ? { backgroundMaterial: "mica", backgroundColor: "#00000000" } : {}),
     };
   return base;
 }
 
-/** The window's colour before the page paints, when no material shows through. */
+/** The window's colour before the page paints: the default theme's (Ace) page colour. */
 export function solidBackground(dark: boolean): string {
-  return dark ? "#0a0a0a" : "#f6f6f7";
+  return dark ? "#131416" : "#fbfbfc";
 }
 
 /** Windows: the colour of the caption buttons drawn over the page. */
 export function titleBarSymbolColor(dark: boolean): string {
   return dark ? "#e8e8ea" : "#1d1d20";
 }
-
-/**
- * With vibrancy or Mica the page must let the material show through where the design puts
- * the wallpaper. Injected by the main process, so the web bundle stays platform-agnostic.
- */
-export const translucentCss = `
-html, body { background: transparent !important; }
-:root { --wall: transparent; }
-`;
 
 /**
  * macOS: the traffic lights span x 16–68 at the top of the window, over the start of the sidebar's
