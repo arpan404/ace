@@ -25,7 +25,7 @@ async function open() {
 }
 const live = () => screen.getByRole("button", { name: "Open the summary" });
 
-test("operational plans show the current step in the live line and their full list in the Summary, without a composer strip", async () => {
+test("operational plans show their progress in the composer strip and their full list in the Summary", async () => {
   const { plan } = await open();
   plan([
     todo("Find the reset", "completed"),
@@ -33,7 +33,9 @@ test("operational plans show the current step in the live line and their full li
     todo("Test", "pending"),
   ]);
   await waitFor(() => expect(live().textContent).toContain("Step 2 of 3 · Fix it"));
-  expect(screen.queryByRole("region", { name: "Plan" })).toBeNull();
+  const strip = await screen.findByRole("region", { name: "Plan" });
+  expect(strip.textContent).toContain("Plan · 1 of 3");
+  expect(strip.textContent).toContain("Fix it");
   expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull();
   await userEvent.click(live());
   expect(await screen.findByRole("tab", { name: "Summary" })).toBeTruthy();

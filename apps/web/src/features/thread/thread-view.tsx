@@ -60,7 +60,7 @@ import {
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
 import { useShownTitle } from "./lib/shown-title.ts";
-import { DeferredRequestStack } from "./composer/deferred-cards.ts";
+import { DeferredComposerStrip } from "./composer/deferred-cards.ts";
 import { DeferredLocalSends } from "./composer/deferred-parts.tsx";
 import { UserMessage } from "./items/user-message.tsx";
 import { ActivityLine } from "./transcript/live-footer.tsx";
@@ -144,7 +144,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const meta = useThreadMeta(props.threadId);
   const requests = useInteractions(props.threadId);
   // Requests are part of opening the thread, never deferred until browser idle time.
-  if (requests?.length) use(DeferredRequestStack.preload());
+  if (requests?.length) use(DeferredComposerStrip.preload());
   const error = useThreadError(props.threadId);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [merging, setMerging] = useState(false);

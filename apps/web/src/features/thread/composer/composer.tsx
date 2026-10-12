@@ -82,8 +82,8 @@ const terseWidth = 640;
  * line count (SPEC "Composer"). Text keeps one inset from empty to many lines and grows upward a
  * line at a time up to seven visible lines. The action row keeps + and approvals on
  * the left and model/effort beside send/stop on the right.
- * A card the agent or the person opens
- * (`attached`) sits behind its top edge like the next card of a deck. + opens the Add menu, `@` completes files,
+ * The one strip (`attached`) sits behind its top edge; nothing sits below it. + opens the Add
+ * menu, `@` completes files,
  * a leading `/` completes commands, and paste or drop attach files. Enter empties it at once:
  * the message shows as its bubble straight away (UX audit SY-2) and comes back here only if
  * this device couldn't even save it. The unsent draft is kept per `draftKey` across navigation,
@@ -132,9 +132,10 @@ function ComposerContent({
    * `useComposerCompact()` too.
    */
   attached?: ReactNode;
-  /** The queue unfolds below the input within the same composer surface. */
-  queued?: ReactNode;
-  /** Quiet environment controls below the box, sharing its compact-width context. */
+  /**
+   * Where the thread runs (New thread's machine, worktree and base): attached above the box when
+   * nothing else is, sharing its compact-width context. Nothing renders below the composer.
+   */
   environment?: ReactNode;
   /**
    * The question card above: while it asks, the primary action and Enter answer it ("Answer",
@@ -731,8 +732,14 @@ function ComposerBody({
           {notice}
         </p>
       )}
+      {saved.saveFailed && (
+        <p role="status" className="mb-1.5 px-2 text-xs text-subtle-foreground">
+          Draft not saved: storage full
+        </p>
+      )}
       <ComposerCompact value={compact}>
         {props.attached}
+        {props.environment}
         <div
           data-slot="composer"
           onDragOver={(event) => {
@@ -833,14 +840,7 @@ function ComposerBody({
               onStop={() => props.onStop?.()}
             />
           </div>
-          {saved.saveFailed && (
-            <p role="status" className="px-4 pb-2 text-xs text-muted-foreground">
-              Draft not saved: storage full
-            </p>
-          )}
-          {props.queued}
         </div>
-        {props.environment}
       </ComposerCompact>
     </div>
   );

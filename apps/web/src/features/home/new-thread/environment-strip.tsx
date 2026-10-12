@@ -18,7 +18,7 @@ import { BasePicker } from "./base-picker.tsx";
 import type { WorkMode } from "./choices.ts";
 
 /**
- * Where a new thread runs, below the composer: the machine, a
+ * Where a new thread runs, above the composer: the machine, a
  * Worktree toggle (a branch and folder of its own, or the project's checkout as it is) and, for
  * a worktree, the branch it starts from, local or on a remote, found by typing. The remote's
  * copy of the default branch is offered first; it is fetched just before the worktree is made.

@@ -1,9 +1,16 @@
 import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
-import { Suspense, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { InteractionCard } from "../interactions/interaction-card.tsx";
 import { usePendingAnswer } from "../interactions/pending-answers.ts";
-import { AttachedCard } from "./attached-card.tsx";
 
 /** Typing in these never cycles the stack. */
 const typing = (target: EventTarget) =>
@@ -11,10 +18,10 @@ const typing = (target: EventTarget) =>
   (target.isContentEditable || target.tagName === "TEXTAREA" || target.tagName === "INPUT");
 
 /**
- * The agent's open requests as a deck behind the composer's top edge: the first one to answer
- * on top, the rest peeking out above it. "1 of 3" with ‹ › (or [ and ] inside the card) moves
- * through them; answering one brings the next up. Escape goes back to the message. The
- * transcript keeps a line for each question; this is where they are answered.
+ * The agent's open requests in the composer's strip, the first one to answer showing. "1 of 3"
+ * with ‹ › (or [ and ] inside the card) moves through them; answering one brings the next up.
+ * Escape goes back to the message. The transcript keeps a line for each question; this is where
+ * they are answered.
  */
 export function RequestStack(props: {
   threadId: string;
@@ -22,6 +29,8 @@ export function RequestStack(props: {
   target?: string | undefined;
   /** Put the caret back in the message. */
   onLeave(): void;
+  /** The strip's other items, beside the pager. */
+  indicators?: ReactNode;
 }) {
   const [picked, setPicked] = useState<string>();
   const frame = useRef<HTMLDivElement>(null);
@@ -80,27 +89,10 @@ export function RequestStack(props: {
     }
   };
   const pager =
-    count > 1 ? (
-      <span className="flex items-center gap-0.5 text-xs text-subtle-foreground tabular-nums">
-        <IconButton
-          size="sm"
-          icon={CaretLeftIcon}
-          label="Previous request"
-          keys="["
-          resolve={false}
-          onClick={() => go(-1)}
-        />
-        <span aria-live="polite">
-          {at + 1} of {count}
-        </span>
-        <IconButton
-          size="sm"
-          icon={CaretRightIcon}
-          label="Next request"
-          keys="]"
-          resolve={false}
-          onClick={() => go(1)}
-        />
+    count > 1 || props.indicators ? (
+      <span className="flex items-center gap-3">
+        {props.indicators}
+        {count > 1 && <Pager at={at} count={count} go={go} />}
       </span>
     ) : undefined;
   const content = (
@@ -120,15 +112,12 @@ export function RequestStack(props: {
       />
     </Suspense>
   );
-  const card = (
-    <AttachedCard label="Waiting for you" behind={count - 1} cardKey={id}>
-      {content}
-    </AttachedCard>
-  );
   return (
     <div
       ref={frame}
       tabIndex={-1}
+      role="region"
+      aria-label="Waiting for you"
       onFocusCapture={() => {
         ownsFocus.current = true;
       }}
@@ -144,7 +133,37 @@ export function RequestStack(props: {
       onKeyDownCapture={onKeyDown}
       className="focus-ring"
     >
-      {card}
+      {/* What it shows changing settles in place; the strip stays. */}
+      <div key={id} className="fx-rise-in">
+        {content}
+      </div>
     </div>
+  );
+}
+
+/** "1 of 3" with ‹ ›, [ and ] doing the same. */
+function Pager(props: { at: number; count: number; go(step: number): void }) {
+  return (
+    <span className="flex items-center gap-0.5 text-xs text-subtle-foreground tabular-nums">
+      <IconButton
+        size="sm"
+        icon={CaretLeftIcon}
+        label="Previous request"
+        keys="["
+        resolve={false}
+        onClick={() => props.go(-1)}
+      />
+      <span aria-live="polite">
+        {props.at + 1} of {props.count}
+      </span>
+      <IconButton
+        size="sm"
+        icon={CaretRightIcon}
+        label="Next request"
+        keys="]"
+        resolve={false}
+        onClick={() => props.go(1)}
+      />
+    </span>
   );
 }

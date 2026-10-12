@@ -1,1 +1,55 @@
-/* The composer's one strip slot. */
+/*
+ * The composer's one strip slot. When what it shows changes, the surface eases to the new
+ * content's height while the content fades in. Reduced motion (the system's, or
+ * `[data-reduce-motion]` on <html> from Settings) keeps the fade and drops the height motion.
+ * The motion tokens are Foundation's, with this file's values until they land.
+ */
+.composer-strip-body {
+  overflow: hidden;
+  transition: height var(--motion-base, 200ms) var(--ease-spring, var(--spring));
+}
+.composer-strip-swap {
+  animation: composer-strip-in var(--motion-base, 200ms) var(--ease-out, var(--ease)) both;
+}
+@keyframes composer-strip-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-strip-body {
+    transition: none;
+  }
+}
+[data-reduce-motion] .composer-strip-body {
+  transition: none;
+}
+
+/* An indicator for an item the slot isn't showing: quiet until hovered. */
+.composer-strip-indicator {
+  display: inline-flex;
+  height: 1.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: var(--radius-sm);
+  padding-inline: 0.375rem;
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  transition:
+    background-color var(--motion-fast, 120ms) var(--ease-out, var(--ease)),
+    color var(--motion-fast, 120ms) var(--ease-out, var(--ease));
+}
+.composer-strip-indicator:hover,
+.composer-strip-indicator:focus-visible {
+  background-color: var(--accent);
+  color: var(--foreground);
+}
+.composer-strip-indicator[data-tone="needs-you"] {
+  color: var(--status-needs-you);
+}
+@media (pointer: coarse) {
+  .composer-strip-indicator {
+    height: 2rem;
+  }
+}

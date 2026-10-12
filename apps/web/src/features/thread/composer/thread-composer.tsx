@@ -10,7 +10,7 @@ import {
   resolveEffort,
   type AttachmentReader,
 } from "@ace/ui-core";
-import { Suspense, useContext, useEffect, useRef, useState, type Ref } from "react";
+import { Suspense, useCallback, useContext, useEffect, useRef, useState, type Ref } from "react";
 import { TimeContext } from "@/lib/time.ts";
 import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -30,10 +30,9 @@ import {
   DeferredCursorContinuation,
   DeferredModelControl,
   DeferredPermissionControl,
-  DeferredQueueArea,
-  DeferredQueuedMessages,
 } from "./deferred-parts.tsx";
-import { DeferredRequestStack } from "./deferred-cards.ts";
+import { DeferredComposerStrip } from "./deferred-cards.ts";
+import type { StripKind } from "./strip-slot.ts";
 import { UsageNotice } from "./usage-notice.tsx";
 import {
   runsOn,
@@ -61,12 +60,12 @@ export function isBusy(status: ThreadStatus | undefined): boolean {
  * The thread's composer, on the transcript's column. Enter sends: the message shows as its
  * bubble at once and goes through the client's outbox under its own command id. While the agent
  * works a message follows up the way the daemon's `threads.followUpBehavior` says (queue by
- * default), and ⌘↵ / Ctrl+↵ does the opposite where the provider can steer. Queued messages
- * wait in its queue tray, with the reason above when the queue is held. Its footer shows how actions
- * are approved and the model, both changeable from the next turn. One tab is attached to its top
- * edge for the agent's open requests (a deck of cards answered there, a picked answer
- * sent with the send button). Stop is in the send slot while the composer is empty, and never
- * while a request waits. The unsent draft is kept per thread.
+ * default), and ⌘↵ / Ctrl+↵ does the opposite where the provider can steer. Its footer shows
+ * how actions are approved and the model, both changeable from the next turn. Nothing sits below
+ * it; one strip sits above it (`ComposerStrip`): the agent's open requests (answered there, a
+ * picked answer sent with the send button), the connection, the queue or the plan. Stop is in
+ * the send slot while the composer is empty, and never while a request waits. The unsent draft
+ * is kept per thread.
  */
 export function ThreadComposer({
   composer,
@@ -221,7 +220,10 @@ export function ThreadComposer({
   const open = useInteractions(props.thread.id);
   const asking = !!open?.length;
   const answer = useComposerAnswer(props.thread.id);
-  const tab = asking ? "requests" : undefined;
+  // The message answers a request only while the strip shows its card.
+  const [shown, setShown] = useState<StripKind>();
+  const onShown = useCallback((kind: StripKind | undefined) => setShown(kind), []);
+  const tab = asking && shown === "request" ? "requests" : undefined;
   const toMessage = () =>
     box.current
       ?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')
@@ -261,13 +263,6 @@ export function ThreadComposer({
 
   return (
     <ComposerDock ref={box}>
-      <Suspense fallback={null}>
-        <DeferredQueueArea.Component
-          threadId={props.thread.id}
-          status={props.status}
-          onChooseModel={() => requestPicker((count) => count + 1)}
-        />
-      </Suspense>
       <Composer
         ref={composer}
         thread={props.thread}
@@ -287,22 +282,18 @@ export function ThreadComposer({
         typeToFocus
         reader={reader}
         sendsWhileUploading
-        queued={
-          <Suspense fallback={null}>
-            <DeferredQueuedMessages.Component key={props.thread.id} threadId={props.thread.id} />
-          </Suspense>
-        }
         attached={
           <Suspense fallback={null}>
             <UsageNotice threadId={props.thread.id} />
-            {tab === "requests" && open ? (
-              <DeferredRequestStack.Component
-                threadId={props.thread.id}
-                ids={open}
-                target={props.requestTarget}
-                onLeave={toMessage}
-              />
-            ) : null}
+            <DeferredComposerStrip.Component
+              key={props.thread.id}
+              threadId={props.thread.id}
+              status={props.status}
+              requestTarget={props.requestTarget}
+              onLeave={toMessage}
+              onChooseModel={() => requestPicker((count) => count + 1)}
+              onShown={onShown}
+            />
           </Suspense>
         }
         answer={tab === "requests" ? answer : undefined}

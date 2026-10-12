@@ -44,8 +44,8 @@ export const attachedCardPadding = "pb-[calc(var(--surface-gap)*2+var(--surface-
 /** The same glass, tucked behind the input's edge on a narrower panel. */
 export const attachedSurface = `${composerSurface} rounded-xl`;
 
-/** The matching lower flap: its top edge sits behind the input surface. */
-export const environmentSurface = `${attachedSurface} relative z-0 mx-4 -mt-4 pt-4`;
+/** Where a thread runs, in the strip's place above the input while nothing else is there. */
+export const environmentSurface = `${attachedSurface} relative z-0 ${attachedInset} ${attachedOverlap} ${attachedStripPadding}`;
 
 /** A one-line tab's row: 36px, the composer's text size, a step quieter than the message. */
 const stripRowLayout =

@@ -14,7 +14,6 @@ export {
   environmentSurface as composerEnvironmentSurface,
 } from "./composer/composer-styles.ts";
 /** The tab attached to the composer's top edge. */
-export { AttachedCard } from "./composer/attached-card.tsx";
 export { preloadComposerParts } from "./composer/deferred-parts.tsx";
 export { useComposerCompact } from "./composer/composer-compact.ts";
 export { ThreadView, type ThreadTarget } from "./thread-view.tsx";
