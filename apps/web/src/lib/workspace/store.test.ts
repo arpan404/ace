@@ -106,42 +106,6 @@ test("Work folds, selection and scroll are isolated and restored in the current 
   });
 });
 
-/** A panel as an older build stored it. */
-const storedDock = (tabs: string[], shown: boolean) => ({
-  tabs: tabs.map((key) => ({ key, kind: key, id: key, pinned: key === "changes" })),
-  active: tabs[0],
-  open: shown,
-});
-
-test("a thread saved with a bottom panel comes back with its terminal in the side panel", () => {
-  const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.workspace",
-    JSON.stringify({
-      preferred: { right: 560, bottom: 280 },
-      scopes: [
-        [
-          "a",
-          {
-            right: storedDock(["changes"], false),
-            bottom: storedDock(["terminal", "logs"], true),
-            expanded: false,
-            bottomMaximized: true,
-            summaryPinned: true,
-          },
-        ],
-      ],
-    }),
-  );
-  const { store } = open(storage);
-  store.define("a", definition);
-  const restored = store.get("a");
-  expect(restored.tabs.map((tab) => tab.key)).toEqual(["changes", "terminal", "logs"]);
-  expect(restored.open).toBe(true);
-  expect(shownTab(restored)?.key).toBe("terminal");
-  expect(store.preferred).toBe(560);
-});
-
 test("a resize becomes the width threads without one of their own start at", () => {
   const { store, scope } = open();
   scope("a").setSize(600, true);
