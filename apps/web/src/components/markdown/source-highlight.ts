@@ -90,8 +90,11 @@ export async function sourceHighlight(
   code: string,
   lang: string,
 ): Promise<CodeToken[][] | undefined> {
-  const { Prism } = await loadEngine();
+  const { Prism, grammars } = await loadEngine();
   const name = aliases[lang.toLowerCase()] ?? lang.toLowerCase();
+  const load = Object.hasOwn(grammars, name) ? grammars[name] : undefined;
+  if (!load) return undefined;
+  await load();
   const grammar = Prism.languages[name];
   if (!grammar || typeof grammar === "function") return undefined;
   const lines: CodeToken[][] = [[]];

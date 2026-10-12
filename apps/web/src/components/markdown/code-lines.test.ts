@@ -38,3 +38,19 @@ test("newline-heavy source returns no per-line graph and caches its compact plai
   expect(JSON.stringify(result).length).toBeLessThan(100);
   expect(await codeLines(source, "typescript")).toBe(result);
 });
+
+test("languages built on other grammars colour once their grammars load, keeping the text exact", async () => {
+  const samples: [string, string][] = [
+    ["tsx", 'export const App = () => <div className="x">{1}</div>;'],
+    ["cpp", "int main() {\n  return 0;\n}"],
+    ["markdown", "# Title\n\n`code` and **bold**"],
+    ["json5", "{ key: 'value', n: 1 }"],
+  ];
+  for (const [lang, code] of samples) {
+    const lines = await sourceHighlight(code, lang);
+    if (!lines) throw new Error(`Expected ${lang} grammar output`);
+    expect(lines.map((line) => line.map((token) => token.text).join("")).join("\n")).toBe(code);
+    expect(lines.flat().some((token) => token.light && token.dark)).toBe(true);
+  }
+  expect(await sourceHighlight("anything", "no-such-language")).toBeUndefined();
+});
