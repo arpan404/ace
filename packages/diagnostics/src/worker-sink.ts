@@ -5,7 +5,7 @@ import type { RedactionContext } from "@ace/redaction";
 import type { BatchSink, LogRecord } from "./logger.ts";
 import type { FileSinkOptions } from "./file-sink.ts";
 import { openFileSink } from "./file-sink.ts";
-import { createRedactor } from "@ace/redaction";
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 export interface LogWorkerRuntime {
   spawn(url: URL, data: unknown): Pick<Worker, "on" | "postMessage" | "terminate">;
   schedule(callback: () => void, milliseconds: number): () => void;
@@ -17,7 +17,7 @@ export async function createFileSink(
 ): Promise<BatchSink> {
   if (!runtime) {
     const sink = await openFileSink(options);
-    const redact = createRedactor(options.context);
+    const redact = createDiagnosticRedactor(options.context);
     // The logger bounds and serializes batches. File writes and rotation already use async I/O.
     return {
       write: (records) => sink.write(records.map((entry) => redact(JSON.stringify(entry)) + "\n")),

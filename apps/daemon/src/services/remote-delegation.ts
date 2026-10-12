@@ -46,7 +46,18 @@ export function createRemoteDelegationSession(context: SocketContext): SocketSer
       } else if (message.type === "delegation.broker.poll") {
         const tasks = owner.poll(context.sessionId, message.lease);
         context.send(
-          tasks ? { ...result, ok: true, tasks } : { ...result, ok: false, error: "forbidden" },
+          tasks
+            ? {
+                ...result,
+                ok: true,
+                tasks,
+                inactiveTaskIds: owner.inactive(
+                  context.sessionId,
+                  message.lease,
+                  message.trackedTaskIds ?? [],
+                ),
+              }
+            : { ...result, ok: false, error: "forbidden" },
         );
       } else {
         const task = owner.report(context.sessionId, message.lease, message.report);

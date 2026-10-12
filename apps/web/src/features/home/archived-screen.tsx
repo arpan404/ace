@@ -125,7 +125,7 @@ function ArchivedRow(props: { threadId: string; onDelete(entry: ThreadListEntry)
       <Button
         size="sm"
         variant="ghost"
-        className="opacity-0 group-hover/archived:opacity-100 group-focus-within/archived:opacity-100"
+        className="opacity-0 group-hover/archived:opacity-100 group-focus-within/archived:opacity-100 [@media(pointer:coarse)]:opacity-100"
         aria-label={`Restore ${entry.title}`}
         onClick={() => actions.restore(entry)}
       >
@@ -138,7 +138,7 @@ function ArchivedRow(props: { threadId: string; onDelete(entry: ThreadListEntry)
             <IconButton
               icon={DotsThreeIcon}
               label={`Actions for ${entry.title}`}
-              className="opacity-0 group-hover/archived:opacity-100 group-focus-within/archived:opacity-100"
+              className="opacity-0 group-hover/archived:opacity-100 group-focus-within/archived:opacity-100 [@media(pointer:coarse)]:opacity-100"
             />
           }
         />

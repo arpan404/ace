@@ -1,6 +1,6 @@
 # @ace/client
 
-One headless daemon SDK for Electron renderers, browsers and React Native. Runtime code imports no Node built-ins. Inject credentials, storage, socket creation, timers, randomness and ids. Callers own one client and one storage namespace per daemon/device. Only one active client may write that namespace at a time. Storage.save must atomically replace the previous value before resolving.
+One headless daemon SDK for Electron renderers, browsers and React Native. Runtime code imports no Node built-ins. Inject credentials, storage, socket creation, timers, randomness and ids. Callers own one client and one storage namespace per daemon/device. Only one active client may write that namespace at a time. Storage.save must atomically replace the previous value before resolving. Persistent adapters can expose `hostBinding.load/save` to pin the authenticated daemon before replay. Built-in browser, worker and desktop notification adapters do so: each saved intent carries its host identity, token renewal keeps the same outbox, and a different welcome fails closed. Unbound legacy records remain on disk for recovery with their original daemon; they are never automatically assigned to a new host. The desktop preserves the old `outbox.json` and starts a separate endpoint/device namespace.
 
 ```ts
 import { Client, webSocketTransport } from "@ace/client";

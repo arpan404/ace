@@ -36,22 +36,13 @@ export function ProviderAccountIcon(
   const siblings = own?.filter(
     (entry) => props.provider !== "acp" || entry.acpAgentId === account?.acpAgentId,
   );
-  if (account && !props.accountLabel)
-    return (
-      <AccountBadge
-        account={account}
-        className={props.className}
-        decorative={props.decorative}
-        tooltip={props.tooltip}
-      />
-    );
   const multiple = siblings !== undefined && siblings.length > 1;
   const size = props.size ?? 16;
   const name = [providerNames[props.provider], account?.label].filter(Boolean).join(" · ");
   return (
     <span
-      className={cn("relative inline-flex shrink-0 items-center justify-center", props.className)}
-      style={multiple && account ? { width: size + 2, height: size + 2 } : undefined}
+      className={cn("inline-flex shrink-0 items-center justify-center gap-1", props.className)}
+
       title={hoverTitle(props.tooltip, name, account?.shortLabel)}
       {...(props.decorative ? { "aria-hidden": true } : { role: "img", "aria-label": name })}
     >
@@ -63,11 +54,7 @@ export function ProviderAccountIcon(
         decorative
       />
       {multiple && account && (
-        <AccountBadge
-          account={account}
-          tooltip={props.tooltip}
-          className="absolute right-0 bottom-0 size-3 ring-1 ring-background"
-        />
+        <AccountBadge account={account} tooltip={props.tooltip} className="size-3" decorative />
       )}
     </span>
   );
@@ -89,20 +76,26 @@ export function AccountBadge(props: {
   decorative?: boolean | undefined;
   tooltip?: boolean | undefined;
   focusable?: boolean | undefined;
+  /** Colour is retained only in the account colour editor. */
+  colorPreview?: boolean | undefined;
 }) {
   const { account } = props;
   const mark = (
     <span
       className={cn(
-        "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-2xs font-semibold",
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground/8 text-2xs font-medium text-muted-foreground",
         props.focusable && "focus-ring",
         props.className,
       )}
       tabIndex={props.focusable ? 0 : undefined}
-      style={{
-        background: accountColors[account.badgeColor ?? "neutral"],
-        color: "var(--background)",
-      }}
+      style={
+        props.colorPreview
+          ? {
+              background: accountColors[account.badgeColor ?? "neutral"],
+              color: "var(--background)",
+            }
+          : undefined
+      }
       {...(props.decorative
         ? { "aria-hidden": true }
         : { role: "img", "aria-label": `${account.label} account` })}

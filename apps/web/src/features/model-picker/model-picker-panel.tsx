@@ -10,8 +10,16 @@ import {
   type PickerProvider,
 } from "@ace/ui-core";
 import { ArrowClockwiseIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import { Select } from "@/components/ui/select.tsx";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useMemo,
+  useCallback,
+  type KeyboardEvent,
+} from "react";
+import { VirtualPickerRows, type PickerItem } from "./virtual-picker-rows.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { PickerRail } from "./picker-rail.tsx";
 import { pickerEntries } from "./picker-entries.ts";
@@ -21,13 +29,7 @@ import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useModelInstances, type CatalogState } from "@/lib/model-catalog.ts";
 import { useFavoriteModels } from "./favorites.ts";
-import {
-  GroupHeader,
-  GroupProblem,
-  LegacyToggle,
-  ModelRow,
-  PickerEmpty,
-} from "./model-picker-rows.tsx";
+import { GroupProblem, LegacyToggle, ModelRow, PickerEmpty } from "./model-picker-rows.tsx";
 import { useRefreshModels } from "./use-refresh-models.ts";
 
 /** ⌘1…⌘9 pick the first rows. */
@@ -38,12 +40,7 @@ const numbered = 9;
  * refreshing, another tab, a search or a new star never move the search field or the list.
  * Longer lists scroll; the viewport can still make it shorter.
  */
-const panelHeight = 360;
-
-/** One row the arrows move through: a model, or a group's Legacy models row. */
-type Item =
-  | { kind: "model"; model: PickerModel; group: PickerGroup | undefined }
-  | { kind: "legacy"; group: PickerGroup; expanded: boolean };
+const panelHeight = 428;
 
 /**
  * Pick a model: Favorites and one entry per account down the left, a search over every provider
@@ -51,8 +48,7 @@ type Item =
  * OpenCode Go and Zen, the person's own API keys), current models first and older ones under
  * each group's Legacy models. Each group says when it is refreshing or couldn't be refreshed.
  * ⌘1…⌘9 pick the first rows, a check marks the current one, a star favorites. Arrows move from
- * the search field, → and ← open and close Legacy models, Enter picks; Escape clears a search
- * before it closes the popover.
+ * the search field, → and ← open and close Legacy models, Enter picks; Escape closes the popover.
  */
 export function ModelPickerPanel(props: {
   models: readonly PickerModel[];
@@ -73,20 +69,31 @@ export function ModelPickerPanel(props: {
   const accounts = useAccountViews();
   const refresh = useRefreshModels();
   // A provider whose discovery failed keeps its tab open, to say why it has nothing to pick.
-  const troubled = providersWithProblems(instances);
-  const providers = props.providers.map((entry) =>
-    entry.reason && troubled.has(entry.provider) ? { ...entry, reason: undefined } : entry,
+  const troubled = useMemo(() => providersWithProblems(instances), [instances]);
+  const providers = useMemo(
+    () =>
+      props.providers.map((entry) =>
+        entry.reason && troubled.has(entry.provider) ? { ...entry, reason: undefined } : entry,
+      ),
+    [props.providers, troubled],
   );
   const now = useNow();
   // Settings and automations choose a provider model without routing it to an account.
-  const providerOnly = props.only && !props.models.some((model) => model.instance !== undefined);
-  const entries = pickerEntries(
-    providers,
-    props.models,
-    providerOnly ? [] : (accounts.data ?? []),
-    now,
-    (at) =>
-      `Limit reached${at === undefined ? " · reset time unknown" : ` · ${formatResetCountdown(at, now)}`}`,
+  const providerOnly = useMemo(
+    () => props.only && !props.models.some((model) => model.instance !== undefined),
+    [props.only, props.models],
+  );
+  const entries = useMemo(
+    () =>
+      pickerEntries(
+        providers,
+        props.models,
+        providerOnly ? [] : (accounts.data ?? []),
+        now,
+        (at) =>
+          `Limit reached${at === undefined ? " · reset time unknown" : ` · ${formatResetCountdown(at, now)}`}`,
+      ),
+    [providers, props.models, providerOnly, accounts.data, now],
   );
   const tabs = props.only ? entries.filter((entry) => entry.provider === props.only) : entries;
   const [chosen, setChosen] = useState<string>();
@@ -100,55 +107,85 @@ export function ModelPickerPanel(props: {
     tabs.find((entry) => !entry.reason);
   const tab = selected?.id ?? "favorites";
   const provider = selected?.provider;
+  const selectedInstance = selected?.instance;
   const [query, setQuery] = useState("");
-  const scoped = props.only
-    ? props.models.filter((model) => model.provider === props.only)
-    : props.models;
+  const scoped = useMemo(
+    () =>
+      props.only ? props.models.filter((model) => model.provider === props.only) : props.models,
+    [props.only, props.models],
+  );
   // Search and Favorites mix providers, so each row names its account.
   const mixed = query.trim() !== "" || tab === "favorites";
   // Search lists each account’s rows; Favorites prefers the current account.
-  const isCurrent = (model: PickerModel) =>
-    model.key === props.current &&
-    (!props.currentInstance || !model.instance || model.instance === props.currentInstance);
+  const currentKey = props.current;
+  const currentAccount = props.currentInstance;
+  const isCurrent = useCallback(
+    (model: PickerModel) =>
+      model.key === currentKey &&
+      (!currentAccount || !model.instance || model.instance === currentAccount),
+    [currentKey, currentAccount],
+  );
   // Legacy models open where the current model is one of them, until the person toggles them.
   const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(new Map());
-  const expanded = (group: PickerGroup) => toggled.get(group.id) ?? group.legacy.some(isCurrent);
-  const groups =
-    mixed || !provider
-      ? []
-      : pickerGroups(
-          scoped.filter((model) => !selected?.instance || model.instance === selected.instance),
-          instances.filter(
-            (status) => !selected?.instance || status.instance === selected.instance,
-          ),
-          provider,
-          accounts.data ?? [],
-        );
-
-  const items: Item[] = mixed
-    ? pickerList(scoped, { query, favorites, instance: props.currentInstance }).rows.map(
-        (model) => ({ kind: "model", model, group: undefined }),
-      )
-    : groups.flatMap((group): Item[] => {
-        const shown = expanded(group);
-        return [
-          ...group.current.map((model): Item => ({ kind: "model", model, group })),
-          ...(group.legacy.length ? [{ kind: "legacy" as const, group, expanded: shown }] : []),
-          ...(shown ? group.legacy.map((model): Item => ({ kind: "model", model, group })) : []),
-        ];
-      });
-  const models = items.flatMap((item) => (item.kind === "model" ? [item.model] : []));
-  // Where each row sits among the items, and among the models (for its ⌘ number).
-  const itemAt = new Map<PickerModel | PickerGroup, number>();
-  items.forEach((item, index) =>
-    itemAt.set(item.kind === "model" ? item.model : item.group, index),
+  const expanded = useCallback(
+    (group: PickerGroup) => toggled.get(group.id) ?? group.legacy.some(isCurrent),
+    [toggled, isCurrent],
   );
-  const modelAt = new Map(models.map((model, index) => [model, index]));
+  const groups = useMemo(
+    () =>
+      mixed || !provider
+        ? []
+        : pickerGroups(
+            scoped.filter((model) => !selectedInstance || model.instance === selectedInstance),
+            instances.filter((status) => !selectedInstance || status.instance === selectedInstance),
+            provider,
+            accounts.data ?? [],
+          ),
+    [mixed, provider, scoped, selectedInstance, instances, accounts.data],
+  );
+
+  const items: PickerItem[] = useMemo(
+    () =>
+      mixed
+        ? pickerList(scoped, { query, favorites, instance: props.currentInstance }).rows.map(
+            (model) => ({ kind: "model", model, group: undefined }),
+          )
+        : groups.flatMap((group): PickerItem[] => {
+            const shown = expanded(group);
+            return [
+              ...group.current.map((model): PickerItem => ({ kind: "model", model, group })),
+              ...(group.legacy.length ? [{ kind: "legacy" as const, group, expanded: shown }] : []),
+              ...(shown
+                ? group.legacy.map((model): PickerItem => ({ kind: "model", model, group }))
+                : []),
+            ];
+          }),
+    [mixed, scoped, query, favorites, props.currentInstance, groups, expanded],
+  );
+  const models = useMemo(
+    () => items.flatMap((item) => (item.kind === "model" ? [item.model] : [])),
+    [items],
+  );
+  // Where each row sits among the items, and among the models (for its ⌘ number).
+  const itemAt = useMemo(
+    () =>
+      new Map(
+        items.map(
+          (item, index) => [item.kind === "model" ? item.model : item.group, index] as const,
+        ),
+      ),
+    [items],
+  );
+  const modelAt = useMemo(() => new Map(models.map((model, index) => [model, index])), [models]);
   // Likewise the highlight starts on the current model until the person moves it.
   const [highlight, setHighlight] = useState<number>();
-  const start = Math.max(
-    0,
-    items.findIndex((item) => item.kind === "model" && isCurrent(item.model)),
+  const start = useMemo(
+    () =>
+      Math.max(
+        0,
+        items.findIndex((item) => item.kind === "model" && isCurrent(item.model)),
+      ),
+    [items, isCurrent],
   );
   const active = Math.min(highlight ?? start, Math.max(0, items.length - 1));
   const listId = useId();
@@ -191,21 +228,18 @@ export function ModelPickerPanel(props: {
     if (
       (event.key === "ArrowLeft" || (event.key === "Tab" && event.shiftKey)) &&
       event.target === search.current &&
-      !(items[active]?.kind === "legacy" && items[active]?.expanded) &&
-      !(items[active]?.kind === "model" && items[active]?.model.legacy)
+      (event.key === "Tab" ||
+        (!(items[active]?.kind === "legacy" && items[active]?.expanded) &&
+          !(items[active]?.kind === "model" && items[active]?.model.legacy)))
     ) {
       event.preventDefault();
       rail.current?.querySelector<HTMLElement>(`[data-tab="${tab}"]`)?.focus();
       return;
     }
-    if (event.key === "Escape" && query) {
-      // Wherever focus is in the panel, the first Escape clears the search and goes back to
-      // it; the popover closes on the next.
+    if (event.key === "Escape" && props.onClose) {
       event.preventDefault();
       event.stopPropagation();
-      setQuery("");
-      setHighlight(undefined);
-      search.current?.focus();
+      props.onClose();
       return;
     }
     if ((event.metaKey || event.ctrlKey) && /^[1-9]$/.test(event.key)) {
@@ -238,7 +272,7 @@ export function ModelPickerPanel(props: {
     }
   };
 
-  const row = (item: Item, index: number, nested: boolean, section = 0) => {
+  const row = (item: PickerItem, index: number, nested: boolean, section?: number) => {
     const id = `${listId}-${index}`;
     if (item.kind === "legacy")
       return (
@@ -248,7 +282,10 @@ export function ModelPickerPanel(props: {
           count={item.group.legacy.length}
           expanded={item.expanded}
           highlighted={index === active}
-          controls={item.expanded ? `${listId}-legacy-${section}` : undefined}
+          // Only the nonvirtual list mounts a single region for this section.
+          controls={
+            item.expanded && section !== undefined ? `${listId}-legacy-${section}` : undefined
+          }
           onHighlight={() => setHighlight(index)}
           onToggle={() => activate(index)}
         />
@@ -272,49 +309,58 @@ export function ModelPickerPanel(props: {
     );
   };
   // Each group's rows, its legacy ones in their own labelled group under its toggle.
-  const sections = groups.map((group, section) => {
-    const at = (model: PickerModel) => itemAt.get(model) ?? -1;
-    const toggleAt = itemAt.get(group) ?? -1;
-    const problemIds = group.problems.map((_, index) => `${listId}-problem-${section}-${index}`);
-    const legacyRow = items[toggleAt];
-    return (
-      <div
-        key={group.id}
-        role="group"
-        aria-label={
-          group.label ??
-          accounts.data?.find((account) => account.id === selected?.instance)?.label ??
-          providerNames[group.provider]
-        }
-        aria-describedby={problemIds.join(" ") || undefined}
-        aria-busy={group.refreshing || undefined}
-      >
-        {groups.length > 1 && <GroupHeader group={group} />}
-        {group.problems.map((problem, index) => (
-          <GroupProblem
-            key={problem.message}
-            problem={problem}
-            id={problemIds[index] ?? ""}
-            provider={group.provider}
-          />
-        ))}
-        {group.current.map((model) => row({ kind: "model", model, group }, at(model), false))}
-        {legacyRow && row(legacyRow, toggleAt, false, section)}
-        {legacyRow?.kind === "legacy" && legacyRow.expanded && (
-          <div role="group" id={`${listId}-legacy-${section}`} aria-label="Legacy models">
-            {group.legacy.map((model) => row({ kind: "model", model, group }, at(model), true))}
-          </div>
-        )}
-      </div>
-    );
-  });
-  const legacyFrom = mixed ? models.findIndex((model) => model.legacy) : -1;
+  const sections =
+    items.length > 60
+      ? []
+      : groups.map((group, section) => {
+          const at = (model: PickerModel) => itemAt.get(model) ?? -1;
+          const toggleAt = itemAt.get(group) ?? -1;
+          const problemIds = group.problems.map(
+            (_, index) => `${listId}-problem-${section}-${index}`,
+          );
+          const legacyRow = items[toggleAt];
+          return (
+            <div
+              key={group.id}
+              role="group"
+              aria-label={
+                group.label ??
+                accounts.data?.find((account) => account.id === selected?.instance)?.label ??
+                providerNames[group.provider]
+              }
+              aria-describedby={problemIds.join(" ") || undefined}
+              aria-busy={group.refreshing || undefined}
+            >
+              {group.problems.map((problem, index) => (
+                <GroupProblem
+                  key={problem.message}
+                  problem={problem}
+                  id={problemIds[index] ?? ""}
+                  provider={group.provider}
+                />
+              ))}
+              {group.current.map((model) => row({ kind: "model", model, group }, at(model), false))}
+              {legacyRow && row(legacyRow, toggleAt, false, section)}
+              {legacyRow?.kind === "legacy" && legacyRow.expanded && (
+                <div role="group" id={`${listId}-legacy-${section}`} aria-label="Legacy models">
+                  {group.legacy.map((model) =>
+                    row({ kind: "model", model, group }, at(model), true),
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        });
+  const legacyFrom = useMemo(
+    () => (mixed ? models.findIndex((model) => model.legacy) : -1),
+    [mixed, models],
+  );
 
   return (
     <div
       data-slot="model-picker"
       onKeyDownCapture={onKeyDown}
-      className="flex w-[min(360px,calc(100vw-2rem))]"
+      className="flex w-115 max-w-[calc(100vw-2rem)]"
       style={{ height: `min(${panelHeight}px, var(--available-height, ${panelHeight}px))` }}
     >
       <PickerRail
@@ -329,25 +375,13 @@ export function ModelPickerPanel(props: {
         onSelect={showTab}
         onClose={props.onClose}
       />
-      <div className="flex min-w-0 flex-1 flex-col">
-        {provider && tabs.filter((entry) => entry.provider === provider).length > 1 && (
-          <div className="p-1">
-            <Select
-              label="Account"
-              value={tab}
-              className="w-full bg-transparent"
-              options={tabs
-                .filter((entry) => entry.provider === provider)
-                .map((entry) => ({
-                  value: entry.id,
-                  label: entry.name.replace(`${providerNames[provider]} · `, ""),
-                  disabled: !!entry.reason,
-                }))}
-              onValueChange={showTab}
-            />
-          </div>
-        )}
-        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border pr-1.5 pl-3 text-subtle-foreground">
+      <div
+        role="tabpanel"
+        id={`${listId}-pane`}
+        aria-label={mixed ? "Search results and favorites" : (selected?.name ?? "Models")}
+        className="flex min-w-0 flex-1 flex-col"
+      >
+        <div className="mx-3 flex h-11 shrink-0 items-center gap-2 border-b border-border text-subtle-foreground focus-within:border-ring">
           <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
           <input
             ref={search}
@@ -357,13 +391,13 @@ export function ModelPickerPanel(props: {
             aria-expanded
             aria-activedescendant={items.length ? `${listId}-${active}` : undefined}
             value={query}
-            placeholder="Search models"
+            placeholder="Search models…"
             onChange={(event) => {
               setQuery(event.target.value);
               setHighlight(0);
             }}
             onKeyDown={onSearchKey}
-            className="min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none placeholder:text-subtle-foreground"
+            className="min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none focus-visible:placeholder:text-muted-foreground placeholder:text-subtle-foreground"
           />
           {(props.catalog === "refreshing" || refresh.pending) && (
             <Spinner label="Refreshing models" />
@@ -385,14 +419,23 @@ export function ModelPickerPanel(props: {
           id={listId}
           aria-label="Models"
           aria-busy={loading || undefined}
-          className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-2 [scrollbar-width:thin]"
         >
           {!mixed && selected?.reason && (
             <p role="status" className="px-2.5 py-2 text-xs text-status-limited">
               {selected.reason}
             </p>
           )}
-          {mixed ? (
+          {items.length > 60 ? (
+            <VirtualPickerRows
+              items={items}
+              groups={groups}
+              active={active}
+              list={list}
+              listId={listId}
+              renderRow={(item, index) => row(item, index, false)}
+            />
+          ) : mixed ? (
             <>
               {models
                 .slice(0, legacyFrom < 0 ? undefined : legacyFrom)

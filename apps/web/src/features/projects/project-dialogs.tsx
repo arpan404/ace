@@ -1,3 +1,4 @@
+import { PublishRepositoryDialog } from "./publish-repository-dialog.tsx";
 import { useEffect, useRef, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { desktopFolders } from "@/boot/desktop-folders.ts";
@@ -102,6 +103,15 @@ export default function ProjectDialogs(props: {
     };
   }, [request, target]);
 
+  if (request.kind === "publish")
+    return open ? (
+      <PublishRepositoryDialog
+        key={request.projectId}
+        projectId={request.projectId}
+        open={open}
+        onOpenChange={onOpenChange}
+      />
+    ) : null;
   if (request.kind === "permissions")
     return (
       <ProjectPermissionsDialog
@@ -120,9 +130,14 @@ export default function ProjectDialogs(props: {
       />
     ) : null;
   if (request.kind === "remove")
-    return (
-      <RemoveProjectDialog projectId={request.projectId} open={open} onOpenChange={onOpenChange} />
-    );
+    return open ? (
+      <RemoveProjectDialog
+        key={request.projectId}
+        projectId={request.projectId}
+        open={open}
+        onOpenChange={onOpenChange}
+      />
+    ) : null;
   return (
     <AddProjectDialog
       open={open && request.kind === "add"}

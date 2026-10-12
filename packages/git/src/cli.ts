@@ -22,6 +22,7 @@ import { GitError, toGitError, type GitOptions, type GitProcessRuntime } from ".
 
 interface CallOptions {
   directoryFd?: number | undefined;
+  beforeSpawn?: (() => void) | undefined;
   signal?: AbortSignal | undefined;
   stderr?: (chunk: Buffer) => void;
   write?: boolean;
@@ -239,6 +240,9 @@ export class GitCli {
         detached: this.runtime.platform !== "win32",
         stdio: ["pipe", "pipe", "pipe"],
       };
+      options.beforeSpawn?.();
+      if (options.signal?.aborted)
+        throw new GitError("git_cancelled", "Git operation cancelled before dispatch");
       const child =
         options.directoryFd === undefined
           ? this.runtime.spawn(this.binary, ["--no-pager", ...args], spawnOptions)

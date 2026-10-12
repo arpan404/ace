@@ -1,5 +1,5 @@
 import { useThreadMeta } from "@ace/client-react";
-import type { ForgePrStatus, ForgeRepository, ThreadDetails } from "@ace/protocol";
+import type { ForgePrRef, ForgePrStatus, ForgeRepository, ThreadDetails } from "@ace/protocol";
 import { checkoutOf, type Checkout, type MergeMethod } from "@ace/ui-core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -93,11 +93,13 @@ export type GitChange =
       push: boolean;
       /** The files picked (a rename names both paths); every change when absent. */
       paths?: readonly string[];
+      draftFingerprint?: string | undefined;
     }
   | { kind: "push" }
   | {
       kind: "create-pr";
       title: string;
+      draftFingerprint?: string | undefined;
       summary: string;
       draft: boolean;
       /** GitHub usernames to ask for review once it is open. */
@@ -106,7 +108,7 @@ export type GitChange =
   | { kind: "link-pr"; number: number; repository?: ForgeRepository }
   | { kind: "unlink-pr"; number?: number; repo?: ForgeRepository; all?: true }
   /** Merge the head the person saw (`headSha`): the forge refuses if the branch moved since. */
-  | { kind: "merge"; method: MergeMethod; auto: boolean; headSha: string }
+  | { kind: "merge"; method: MergeMethod; auto: boolean; headSha: string; pr?: ForgePrRef }
   | { kind: "request-review"; reviewers: readonly string[] };
 
 /**
@@ -122,7 +124,13 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
     mutationFn: async (change: GitChange): Promise<ForgePrStatus | undefined> => {
       const workspace = sources.workspace;
       if (change.kind === "commit") {
-        await workspace.commit(thread, change.message, checkout?.head ?? null, change.paths);
+        await workspace.commit(
+          thread,
+          change.message,
+          checkout?.head ?? null,
+          change.paths,
+          change.draftFingerprint,
+        );
         if (change.push) await workspace.push(thread);
         return undefined;
       }
@@ -146,7 +154,9 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
       const repository =
         change.kind === "link-pr"
           ? (change.repository ?? checkout?.repository)
-          : checkout?.repository;
+          : change.kind === "merge" && change.pr
+            ? change.pr.repository
+            : checkout?.repository;
       if (!repository) throw new Error("This checkout has no GitHub remote.");
       const published = (status: ForgePrStatus) => {
         queries.setQueryData(
@@ -171,25 +181,40 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
       if (change.kind === "create-pr") {
         const branch = checkout.branch;
         if (!branch) throw new Error("This checkout can't open a pull request.");
+        if (change.draftFingerprint) {
+          const context = await workspace.draftContext(thread, {
+            kind: "pr",
+            branch,
+            base: checkout.baseBranch,
+            ...(checkout.baseRef ? { baseRef: checkout.baseRef } : {}),
+          });
+          if (context.fingerprint !== change.draftFingerprint)
+            throw new Error("The branch changes moved. Generate again or discard the draft.");
+        }
         // A branch without an upstream reports nothing ahead; pushing first is always safe.
-        await workspace.push(thread);
+        await workspace.push(thread, { repository, branch, head: checkout.head });
         const status = await workspace.createPr(thread, {
           repository,
           branch,
           base: checkout.baseBranch,
           title: change.title,
+          draftFingerprint: change.draftFingerprint,
+          draftBaseRef: checkout.baseRef,
           summary: change.summary,
           draft: change.draft,
+          ...(checkout.head ? { expectedHead: checkout.head } : {}),
         });
         published(status);
         return change.reviewers?.length
           ? published(await workspace.requestReview(thread, status.ref, change.reviewers))
           : status;
       }
-      const pr = checkout.pr && {
-        repository: checkout.pr.repo ?? repository,
-        number: checkout.pr.number,
-      };
+      const pr =
+        (change.kind === "merge" && change.pr) ||
+        (checkout.pr && {
+          repository: checkout.pr.repo ?? repository,
+          number: checkout.pr.number,
+        });
       if (!pr) throw new Error("No pull request is linked to this thread.");
       if (change.kind === "request-review")
         return published(await workspace.requestReview(thread, pr, change.reviewers));
@@ -210,15 +235,16 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
     },
   });
   /** Ask the forge for the linked PR's status now; failures leave the last one shown. */
-  const refreshPr = async () => {
-    const repository = checkout?.pr?.repo ?? checkout?.repository;
-    const number = checkout?.pr?.number;
+  const refreshPr = async (pr?: ForgePrRef) => {
+    const repository = pr?.repository ?? checkout?.pr?.repo ?? checkout?.repository;
+    const number = pr?.number ?? checkout?.pr?.number;
     if (!repository || number === undefined) return;
     const status = await sources.workspace.refreshPr(thread, { repository, number });
     queries.setQueryData(
       [...prKey(thread.id), ...repositoryKey(status.ref.repository), number, linkState(status)],
       status,
     );
+    return status;
   };
   return { change: mutation.mutateAsync, pending: mutation.isPending, refreshPr };
 }

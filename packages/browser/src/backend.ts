@@ -32,6 +32,8 @@ export interface BackendOpen {
   profileDir: string;
   signal: AbortSignal;
   allowed(url: string, context?: { navigation?: boolean; human?: boolean }): Promise<boolean>;
+  /** A page event submits navigation through the session owner before asking for approval. */
+  popup?(url: string, target: { current(): boolean; navigate(): Promise<void> }): Promise<void>;
   /** Initiating actor of active work, otherwise the current lease owner. */
   initiator?(): boolean;
   navigation(): void;

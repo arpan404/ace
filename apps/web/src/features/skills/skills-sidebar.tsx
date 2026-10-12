@@ -22,7 +22,6 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import {
   useViewListKeys,
   CompactViewRowBody,
-  ViewRowSection,
   compactViewRowClass,
   ViewSidebarError,
 } from "@/components/ui/view-row.tsx";
@@ -68,11 +67,16 @@ export function SkillsSidebar() {
   const discovery = useSkillDiscovery();
   useRemovalReconciler();
   const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState<ReadonlySet<SkillKind>>(new Set(["skill"]));
+  const [kind, setKind] = useState("all");
   const [plugin, setPlugin] = useState("all");
   const listKeys = useViewListKeys<HTMLElement>();
   const plugins = (skills.data ?? []).filter((skill) => skill.kind === "plugin");
   const shown = (skills.data ?? []).filter(
-    (skill) => (plugin === "all" || skill.plugin === plugin) && matches(skill, query),
+    (skill) =>
+      (kind === "all" || skill.kind === kind) &&
+      (plugin === "all" || skill.plugin === plugin) &&
+      matches(skill, query),
   );
   const groups = kinds
     .map((group) => ({ group, members: shown.filter((skill) => skill.kind === group.kind) }))
@@ -95,6 +99,15 @@ export function SkillsSidebar() {
                 ]}
                 onValueChange={setPlugin}
                 className="w-full"
+              />
+              <Select
+                label="Kind"
+                value={kind}
+                options={[
+                  { value: "all", label: "All kinds" },
+                  ...kinds.map((group) => ({ value: group.kind, label: group.label })),
+                ]}
+                onValueChange={setKind}
               />
               {discovery.controls}
             </PopoverContent>
@@ -130,6 +143,7 @@ export function SkillsSidebar() {
               onClick={() => {
                 setQuery("");
                 setPlugin("all");
+                setKind("all");
               }}
             >
               Clear search
@@ -139,6 +153,7 @@ export function SkillsSidebar() {
       ) : (
         <nav aria-label="Skills catalog" {...listKeys}>
           {groups.map(({ group, members }) => {
+            const expandedNow = !!query.trim() || kind !== "all" || expanded.has(group.kind);
             const rows = members.map((skill) => (
               <li key={skill.id}>
                 <Link
@@ -167,9 +182,25 @@ export function SkillsSidebar() {
             ));
             // One kind needs no label: the view's title already names the list.
             return groups.length > 1 ? (
-              <ViewRowSection key={group.kind} label={group.label}>
-                {rows}
-              </ViewRowSection>
+              <details key={group.kind} open={expandedNow} className="my-2">
+                <summary
+                  className="focus-ring rounded-md px-3 py-2 text-sm text-muted-foreground"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setExpanded((before) => {
+                      const next = new Set(before);
+                      if (next.has(group.kind)) next.delete(group.kind);
+                      else next.add(group.kind);
+                      return next;
+                    });
+                  }}
+                >
+                  {group.label} · {members.length}
+                </summary>
+                <ul hidden={!expandedNow} aria-label={group.label}>
+                  {rows}
+                </ul>
+              </details>
             ) : (
               <ul key={group.kind} className="mt-1 flex flex-col gap-px">
                 {rows}

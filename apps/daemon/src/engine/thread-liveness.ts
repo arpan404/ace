@@ -16,7 +16,6 @@ export interface LiveWork {
 export interface LivenessPorts {
   repo: EngineRepository;
   clock: EngineClock;
-  maxThreads: number;
   sessions: Sessions;
   sends: IntentWorkers;
   controls: IntentWorkers;
@@ -38,6 +37,10 @@ const resumable = new Set([
   "thread.limit",
 ]);
 
+// DelegationPolicy permits at most 64 owned children over the root's lifetime.
+// Historical ownership outlives sessions and must include the root itself.
+const maxOwnedThreads = 65;
+
 /**
  * Separates genuinely live work from records a dead provider left behind, and stops a
  * thread tree for deletion. Reads only bounded active state, never transcript history.
@@ -54,7 +57,7 @@ export class ThreadLiveness {
       const state = this.ports.repo.state(owner);
       for (const record of Object.values(state?.agents ?? {}))
         if (record.agent.childThreadId) ids.add(record.agent.childThreadId);
-      if (ids.size > this.ports.maxThreads) throw new Error("Thread tree exceeds capacity");
+      if (ids.size > maxOwnedThreads) throw new Error("Thread tree exceeds capacity");
     }
     return [...ids];
   }
@@ -157,7 +160,7 @@ export function reconcileStoppedThread(repo: EngineRepository, id: ThreadId, at:
   const state = repo.state(id);
   if (!state) return;
   repo.store.atomic(() => {
-    if (!state.processExit && lostWork(state)) {
+    if (!state.processExit && lostWork(state, 0, undefined, at)) {
       repo.apply(
         id,
         [

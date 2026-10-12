@@ -1,3 +1,11 @@
+import { writingContext } from "./writing-context.ts";
+import { SourceControlContext, type SourceControlSelection } from "@ace/protocol";
+import {
+  publicationInfo,
+  attachPublicationOrigin,
+  pushPublication,
+  type PublicationGitInput,
+} from "./publication.ts";
 import {
   cloneRepository,
   initRepository,
@@ -16,6 +24,7 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createCheckpoint, deleteCheckpoints, listCheckpoints } from "./checkpoints.ts";
 import { diff } from "./diff.ts";
+import { readRevisionLines, type RevisionLineOptions } from "./revision-lines.ts";
 import { Repository } from "./repository.ts";
 import { restoreCheckpoint } from "./restore.ts";
 import { createWorktree, removeWorktree, type CreateWorktreeOptions } from "./worktrees.ts";
@@ -27,9 +36,11 @@ import {
   type BranchRefs,
   type FetchBranchOptions,
 } from "./remote-branches.ts";
-import type { ChangedFile, Checkpoint, DiffSide, GitOptions } from "./types.ts";
+import type { ChangedFile, Checkpoint, DiffSide, GitOptions, PushOptions } from "./types.ts";
 
+export { publicationOriginMatches } from "./publication.ts";
 export { validateCloneUrl } from "./projects.ts";
+export { publicationRemote } from "./publication-remote.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
 export { GitError, isMutationUnavailable } from "./types.ts";
 export { spawnGitProcess } from "./process-runtime.ts";
@@ -37,6 +48,7 @@ export type * from "./types.ts";
 export type { MutationState } from "./mutation-state.ts";
 export type { CreateWorktreeOptions, WorktreeProgress } from "./worktrees.ts";
 export type { BranchRefs, FetchBranchOptions } from "./remote-branches.ts";
+export type { RevisionLineOptions } from "./revision-lines.ts";
 
 export class GitService {
   private readonly repository: Repository;
@@ -106,6 +118,15 @@ export class GitService {
     return projectInfo(this.repository.cli, path, directoryFd, signal);
   }
 
+  publicationInfo(input: PublicationGitInput) {
+    return publicationInfo(this.repository, input);
+  }
+  attachPublicationOrigin(input: PublicationGitInput & { url: string }) {
+    return attachPublicationOrigin(this.repository, input);
+  }
+  pushPublication(input: PublicationGitInput & { url: string }, policy?: ProjectGitPolicy) {
+    return pushPublication(this.repository, input, policy);
+  }
   resourceUsage(): { checkpointCounters: number; activeCalls: number } {
     return {
       checkpointCounters: this.repository.numbers.size,
@@ -117,11 +138,44 @@ export class GitService {
     return integrateRevision(this.repository, input);
   }
 
+  async writingContext(worktree: string, selection: SourceControlSelection) {
+    const root = await this.repository.root(worktree);
+    return this.repository.serial(root, () => writingContext(this.repository, root, selection));
+  }
+
+  /** Validate and publish under the checkout's mutation lease. The callback must not reenter Git. */
+  async withWritingGuard<T>(
+    worktree: string,
+    selection: SourceControlSelection,
+    fingerprint: string,
+    publish: () => Promise<T>,
+  ): Promise<T> {
+    const expected = SourceControlContext.shape.fingerprint.parse(fingerprint);
+    const root = await this.repository.root(worktree);
+    const outcome = await this.repository.serial(
+      root,
+      async (): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> => {
+        const context = await writingContext(this.repository, root, selection);
+        if (context.fingerprint !== expected)
+          throw new GitError("head_moved", "Draft changes moved; regenerate or discard the draft");
+        // The Git lease translates Git failures. Preserve the publisher's own error categories.
+        try {
+          return { ok: true, value: await publish() };
+        } catch (error) {
+          return { ok: false, error };
+        }
+      },
+    );
+    if (!outcome.ok) throw outcome.error;
+    return outcome.value;
+  }
+
   /** Commit every change, or only `paths`; other changes stay as they were. */
   commit(options: {
     worktree: string;
     message: string;
     expectedHead: string | null;
+    draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
   }): Promise<string> {
     return commitChanges(this.repository, options);
@@ -136,7 +190,7 @@ export class GitService {
   changeSummary(worktree: string) {
     return changeSummary(this.repository, worktree);
   }
-  push(options: { worktree: string; remote: string }): Promise<void> {
+  push(options: PushOptions): Promise<void> {
     return pushBranch(this.repository, options);
   }
   switchBranch(options: {
@@ -260,6 +314,12 @@ export class GitService {
         options.maxPatchBytes ?? this.maxPatchBytes,
       ),
     );
+  }
+
+  /** At most 106 lines and 8192 characters from an immutable commit or checkpoint. */
+  async readRevisionLines(options: RevisionLineOptions) {
+    const root = await this.repository.root(options.worktree);
+    return this.repository.serial(root, () => readRevisionLines(this.repository, root, options));
   }
 
   async resolveCommit(options: { worktree: string; ref: string }): Promise<string> {

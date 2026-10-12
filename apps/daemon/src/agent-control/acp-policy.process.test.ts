@@ -186,6 +186,7 @@ test("ACP discovery uses the account identity for auth, labels, availability and
     accounts,
     undefined,
     undefined,
+    undefined,
     (provider, instance) => provider !== "acp" || instance !== one.instanceId,
   );
   try {

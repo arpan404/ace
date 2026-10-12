@@ -14,7 +14,6 @@ import {
   ThreadId,
   type ServerMessage,
 } from "@ace/protocol";
-import { threadOutcome } from "./results.ts";
 import { createEngineSession } from "../services/creation-session.ts";
 import type { SocketContext, SocketService } from "../services/socket.ts";
 
@@ -235,78 +234,45 @@ export function createRemoteIncomingSession(context: SocketContext): SocketServi
           return true;
         }
 
-        const previous = context.options.agentControl?.publications.outcome(task.id);
+        const publications = context.options.agentControl?.publications;
+        // Recover terminal rows written before the publication owner subscribed.
+        publications?.capture(thread.id);
+        const previous = publications?.outcome(task.id);
         if (previous) {
           context.send({ ...base, ok: true, ...previous });
           return true;
         }
-        const family =
-          context.options.agentControl?.delegations.journal
-            .family(thread.id)
-            .map((edge) => edge.childId) ?? [];
-        const ids = [thread.id, ...family];
-        let usage = { tokens: 0, cost: 0 };
-        if (context.options.usage?.sessionTotals)
-          for (const threadId of ids) {
-            const rows = await context.options.usage.sessionTotals({
-              thread: threadId,
-              limit: 100,
-            });
-            for (const row of rows)
-              usage = {
-                tokens: Math.min(
-                  Number.MAX_SAFE_INTEGER,
-                  usage.tokens +
-                    row.inputTokens +
-                    row.outputTokens +
-                    row.cachedInputTokens +
-                    row.cacheWriteTokens +
-                    row.cacheWrite1hTokens,
-                ),
-                cost: usage.cost + row.costUsd,
-              };
-          }
-        if (!context.connected() || !context.authorize("read")) return true;
-        const current = store.getThread(thread.id);
-        if (!current || current.deletedAt !== undefined || !context.canReadThread(thread.id)) {
-          context.send({ ...base, ok: false, error: "not_found" });
-          return true;
-        }
-        const status = current.status.state;
+        const status = thread.status.state;
         const terminal = status === "done" || status === "failed";
-        const outcome = terminal ? threadOutcome(store, current) : undefined;
-        const sealed =
-          terminal && outcome
-            ? context.options.agentControl?.publications.seal(task, {
-                phase: status === "done" ? "completed" : "failed",
-                result: outcome.result,
-                truncated: outcome.truncated,
-                usage,
-              })
-            : undefined;
-        if (terminal && !sealed) {
-          context.send({ ...base, ok: true, phase: "waiting", usage });
-          return true;
-        }
+        const stopped = store.commandReceipt(CommandId.parse(`remote-stop:${id}`), owner)?.ok;
+        const usage = context.options.agentControl?.delegations.journal.tree(
+          thread.id,
+          context.options.now?.() ?? 0,
+        ).usage ?? { tokens: 0, cost: 0 };
         context.send({
           ...base,
           ok: true,
-          ...(sealed ?? { usage }),
-          phase:
-            status === "done"
-              ? "completed"
-              : status === "failed"
-                ? "failed"
-                : status === "working"
-                  ? "running"
-                  : "waiting",
-          ...(sealed ? { result: sealed.result, truncated: sealed.truncated } : {}),
+          usage,
+          phase: publications?.completionPending(task.id)
+            ? "waiting"
+            : stopped
+              ? terminal
+                ? "cancelled"
+                : "cancelling"
+              : status === "working"
+                ? "running"
+                : "waiting",
         });
         return true;
       }
+      if (thread) context.options.agentControl?.publications.capture(thread.id);
       const sealed = context.options.agentControl?.publications.outcome(id);
       if (sealed) {
         context.send({ ...base, ok: true, ...sealed });
+        return true;
+      }
+      if (context.options.agentControl?.publications.completionPending(id)) {
+        context.send({ ...base, ok: true, phase: "waiting" });
         return true;
       }
       // The same task-owned receipt fences a delayed start, including another broker device.

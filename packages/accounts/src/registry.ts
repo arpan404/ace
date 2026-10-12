@@ -433,6 +433,32 @@ export class AccountRegistry {
       JSON.stringify(account.quota),
     );
   }
+  /** An executable changed: its saved identity no longer proves the current CLI is signed in. */
+  invalidateAuth(id: string, expectedRevision: string): boolean {
+    const account = this.get(id);
+    if (!account || (account.instance.loginRevision ?? "0") !== expectedRevision) return false;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.recordAuth(id, "unknown");
+      this.loginChanged(id);
+      this.updateQuota.run(
+        JSON.stringify(AccountQuota.parse({ ...account.quota, auth: "unknown" })),
+        id,
+      );
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    for (const listener of this.quotaListeners) {
+      try {
+        listener(id);
+      } catch {
+        /* Reader owns delivery. */
+      }
+    }
+    return true;
+  }
   ingest(id: string, fact: QuotaFact) {
     this.db.exec("BEGIN IMMEDIATE");
     try {

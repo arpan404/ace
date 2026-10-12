@@ -1,6 +1,6 @@
 import { longHistory, replayCursor } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { CommandId, ThreadId } from "@ace/protocol";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -31,7 +31,11 @@ async function openBusy(options: { followUp?: "steer" | "queue" } = {}) {
 
 /** The daemon's queue, oldest first, as another device would read it. */
 async function daemonQueue(app: ReturnType<typeof harness>) {
-  const reply = await app.client.request({ type: "queue.get", threadId: ThreadId.parse(threadId) });
+  const reply = await app.client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse(threadId),
+    limit: 32,
+  });
   return reply.queue.messages.map((message) =>
     message.input.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""),
   );
@@ -42,38 +46,50 @@ const pills = () =>
     .getAllByRole("listitem")
     .map((pill) => pill.textContent ?? "");
 
+async function queuedEditButton(queued = screen.getByRole("list", { name: "Queued messages" })) {
+  const edit = within(queued).getByRole("button", { name: "Edit queued message" });
+  await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
+  return edit;
+}
+
+async function takeBackButton(queued: HTMLElement) {
+  await userEvent.click(await queuedEditButton(queued));
+  return screen.findByRole("button", { name: "Take back to composer" });
+}
+
 async function queueTwo(message: HTMLElement) {
   await userEvent.type(message, "Check the iOS path{Enter}");
   await userEvent.type(message, "Then the Android path{Enter}");
   await waitFor(() => expect(pills()).toHaveLength(2));
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("button", { name: "Reorder queued message 2" })
+        .getAttribute("aria-disabled"),
+    ).toBe("false"),
+  );
 }
 
-test("queued bubbles offer only sending and taking back, preserving daemon order", async () => {
+test("removing a queued message preserves the next message and the current draft", async () => {
   const { app, message } = await openBusy();
   await queueTwo(message);
   expect(await daemonQueue(app)).toEqual(["Check the iOS path", "Then the Android path"]);
-  const queued = screen.getByRole("list", { name: "Queued messages" });
-  const rows = within(queued).getAllByRole("listitem");
-  for (const row of rows) {
-    expect(
-      within(row)
-        .getAllByRole("button")
-        .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["Send now", "Take back to composer"]);
-  }
-  const first = rows[0];
+  await userEvent.type(message, "Keep this draft");
+  const first = within(screen.getByRole("list", { name: "Queued messages" })).getAllByRole(
+    "listitem",
+  )[0];
   if (!first) throw new Error("no queued message");
-  await userEvent.click(within(first).getByRole("button", { name: "Take back to composer" }));
+  await userEvent.click(within(first).getByRole("button", { name: "Remove queued message" }));
   await waitFor(() => expect(pills()).toHaveLength(1));
   expect(await daemonQueue(app)).toEqual(["Then the Android path"]);
-  expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe("Check the iOS path");
+  expect(message.textContent).toBe("Keep this draft");
 });
 
 test("a queued message can be taken back, edited and queued again", async () => {
   const { app, message } = await openBusy();
   await userEvent.type(message, "Cap retries at 3{Enter}");
   const queued = await screen.findByRole("list", { name: "Queued messages" });
-  await userEvent.click(within(queued).getByRole("button", { name: "Take back to composer" }));
+  await userEvent.click(await takeBackButton(queued));
   await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
   const restored = screen.getByRole("combobox", { name: "Message" });
   expect(restored.textContent).toBe("Cap retries at 3");
@@ -83,13 +99,13 @@ test("a queued message can be taken back, edited and queued again", async () => 
   expect(await daemonQueue(app)).toEqual(["Cap retries at 5"]);
 });
 
-test("Send now steers a queued message into the running turn", async () => {
+test("Steer sends a queued message into the running turn", async () => {
   const { app, feed, message } = await openBusy();
   await userEvent.type(message, "Use the cursor from the ack{Enter}");
   await waitFor(() => expect(pills()).toHaveLength(1));
   await userEvent.click(
     within(screen.getByRole("list", { name: "Queued messages" })).getByRole("button", {
-      name: "Send now",
+      name: "Steer",
     }),
   );
   expect(await within(feed).findByText("Use the cursor from the ack")).toBeTruthy();
@@ -102,7 +118,7 @@ test("taking back a queued message appends its text to the current draft once", 
   await userEvent.type(message, "Check the retry path{Enter}");
   const queued = await screen.findByRole("list", { name: "Queued messages" });
   await userEvent.type(message, "Keep this draft");
-  const takeBack = within(queued).getByRole("button", { name: "Take back to composer" });
+  const takeBack = await takeBackButton(queued);
   fireEvent.click(takeBack);
   fireEvent.click(takeBack);
   await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
@@ -120,11 +136,11 @@ test("taking back a queued attachment restores it alongside the current draft", 
   );
   await userEvent.type(message, "Review this trace{Enter}");
   const queued = await screen.findByRole("list", { name: "Queued messages" });
-  const takeBack = await within(queued).findByRole("button", { name: "Take back to composer" });
   const reply = await app.client.request({ type: "queue.get", threadId: ThreadId.parse(threadId) });
   const sha256 = reply.queue.messages[0]?.context?.attachments[0]?.sha256;
   expect(sha256).toBeTruthy();
   await userEvent.type(message, "Keep this draft");
+  const takeBack = await takeBackButton(queued);
   await userEvent.click(takeBack);
   await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
   expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
@@ -142,7 +158,7 @@ test("a refused take back keeps the queued message and leaves the current draft 
   const queued = await screen.findByRole("list", { name: "Queued messages" });
   await userEvent.type(message, "Keep this draft");
   app.daemon.refuseCommands("queue_conflict", "queue.remove");
-  await userEvent.click(within(queued).getByRole("button", { name: "Take back to composer" }));
+  await userEvent.click(await takeBackButton(queued));
   await screen.findByRole("alertdialog", { name: "Couldn't take back the message" });
   expect(
     within(screen.getByRole("list", { name: "Queued messages" })).getByText("Check retries"),
@@ -151,12 +167,12 @@ test("a refused take back keeps the queued message and leaves the current draft 
   expect(await daemonQueue(app)).toEqual(["Check retries"]);
 });
 
-test("a refused Send now keeps the pending bubble without adding a confirmed message", async () => {
+test("a refused Steer keeps the pending bubble without adding a confirmed message", async () => {
   const { app, feed, message } = await openBusy();
   await userEvent.type(message, "Check retries{Enter}");
   const queued = await screen.findByRole("list", { name: "Queued messages" });
   app.daemon.refuseCommands("queue_conflict", "queue.edit");
-  await userEvent.dblClick(within(queued).getByRole("button", { name: "Send now" }));
+  await userEvent.dblClick(within(queued).getByRole("button", { name: "Steer" }));
   await screen.findByRole("alertdialog", { name: "Couldn't send it now" });
   expect(
     within(screen.getByRole("list", { name: "Queued messages" })).getByText("Check retries"),
@@ -236,7 +252,6 @@ test("a rate-limited thread shows the hold banner, not a working spinner", async
 
 test("a queued ask appears after the previous reply when its execution turn starts", async () => {
   const { facts } = await import("@ace/fake-daemon");
-  const { act } = await import("@testing-library/react");
   const app = harness();
   app
     .play({
@@ -282,3 +297,368 @@ test("a queued ask appears after the previous reply when its execution turn star
   const reply = await within(feed).findByText("QA_QUEUED");
   expect(queued.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
+
+test("keyboard reordering changes daemon order and keeps the handle focused", async () => {
+  const { app, message } = await openBusy();
+  await queueTwo(message);
+  await waitFor(async () => expect(await daemonQueue(app)).toHaveLength(2));
+  const handle = screen.getByRole("button", { name: "Reorder queued message 2" });
+  handle.focus();
+  await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
+  await waitFor(async () =>
+    expect(await daemonQueue(app)).toEqual(["Then the Android path", "Check the iOS path"]),
+  );
+  expect(document.activeElement).toBe(handle);
+  expect(pills()[0]).toContain("Then the Android path");
+});
+
+test("a refused reorder restores the daemon order", async () => {
+  const { app, message } = await openBusy();
+  await queueTwo(message);
+  app.daemon.refuseCommands("queue_conflict", "queue.move");
+  screen.getByRole("button", { name: "Reorder queued message 2" }).focus();
+  await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
+  await screen.findByRole("alertdialog", { name: "Couldn't move the message" });
+  await waitFor(() => expect(pills()[0]).toContain("Check the iOS path"));
+  expect(await daemonQueue(app)).toEqual(["Check the iOS path", "Then the Android path"]);
+});
+
+test("dragging moves a queued message to a nonadjacent position", async () => {
+  const { app, message } = await openBusy();
+  await queueTwo(message);
+  await userEvent.type(message, "Finally check web{Enter}");
+  await waitFor(async () => expect(await daemonQueue(app)).toHaveLength(3));
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("button", { name: "Reorder queued message 3" })
+        .getAttribute("aria-disabled"),
+    ).toBe("false"),
+  );
+  const rows = within(screen.getByRole("list", { name: "Queued messages" })).getAllByRole(
+    "listitem",
+  );
+  const target = rows[2];
+  if (!target) throw new Error("no drop target");
+  fireEvent.dragStart(screen.getByRole("button", { name: "Reorder queued message 1" }), {
+    dataTransfer: { setData() {}, effectAllowed: "" },
+  });
+  fireEvent.drop(target);
+  await waitFor(async () =>
+    expect(await daemonQueue(app)).toEqual([
+      "Then the Android path",
+      "Finally check web",
+      "Check the iOS path",
+    ]),
+  );
+});
+
+test("a queue change during a drag asks the user to move again", async () => {
+  const { app, message } = await openBusy();
+  await queueTwo(message);
+  const rows = within(screen.getByRole("list", { name: "Queued messages" })).getAllByRole(
+    "listitem",
+  );
+  const target = rows[1];
+  if (!target) throw new Error("no drop target");
+  fireEvent.dragStart(screen.getByRole("button", { name: "Reorder queued message 1" }), {
+    dataTransfer: { setData() {}, effectAllowed: "" },
+  });
+  await userEvent.type(message, "A new message{Enter}");
+  await waitFor(() => expect(pills()).toHaveLength(3));
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("button", { name: "Reorder queued message 3" })
+        .getAttribute("aria-disabled"),
+    ).toBe("false"),
+  );
+  fireEvent.drop(target);
+  await screen.findByText("The queue changed. Try moving the message again.");
+  expect(await daemonQueue(app)).toEqual([
+    "Check the iOS path",
+    "Then the Android path",
+    "A new message",
+  ]);
+});
+
+test("editing a queued attachment keeps its file and leaves the composer draft alone", async () => {
+  const { app, message } = await openBusy();
+  await userEvent.upload(
+    screen.getByLabelText("Files to attach"),
+    new File(["hello"], "trace.txt", { type: "text/plain" }),
+  );
+  await userEvent.type(message, "Review this trace{Enter}");
+  await waitFor(() => expect(pills()).toHaveLength(1));
+  const before = await app.client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse(threadId),
+  });
+  await userEvent.type(message, "Keep this draft");
+  await userEvent.click(await queuedEditButton());
+  const editor = await screen.findByRole("textbox", { name: "Queued message text" });
+  await userEvent.clear(editor);
+  await userEvent.type(editor, "Review only errors{Control>}{Enter}{/Control}");
+  await waitFor(async () => expect(await daemonQueue(app)).toEqual(["Review only errors"]));
+  const after = await app.client.request({ type: "queue.get", threadId: ThreadId.parse(threadId) });
+  expect(after.queue.messages[0]?.context?.attachments).toEqual(
+    before.queue.messages[0]?.context?.attachments,
+  );
+  expect(message.textContent).toBe("Keep this draft");
+});
+
+test("an edit stays available to copy after another device dispatches the message", async () => {
+  const { app, message } = await openBusy();
+  await userEvent.type(message, "Check retries{Enter}");
+  const queued = await screen.findByRole("list", { name: "Queued messages" });
+  await userEvent.click(await queuedEditButton(queued));
+  const editor = await screen.findByRole("textbox", { name: "Queued message text" });
+  await userEvent.clear(editor);
+  await userEvent.type(editor, "Keep my revised wording");
+  const { queue } = await app.client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse(threadId),
+  });
+  const entry = queue.messages[0];
+  if (!entry) throw new Error("no queued message");
+  await act(async () => {
+    await app.client.command(
+      {
+        type: "queue.edit",
+        threadId: queue.threadId,
+        expectedRevision: queue.revision,
+        messageId: entry.id,
+        input: entry.input,
+        delivery: "steer",
+      },
+      {},
+      "other-device-steer",
+    );
+  });
+  await screen.findByText("This message has left the queue. Your edits are still here to copy.");
+  expect(editor).toHaveProperty("value", "Keep my revised wording");
+  expect(screen.getByRole("button", { name: "Save changes" }).hasAttribute("disabled")).toBe(true);
+  expect(await daemonQueue(app)).toEqual([]);
+});
+
+test("a refused edit keeps the unsaved text and the original queued message", async () => {
+  const { app, message } = await openBusy();
+  await userEvent.type(message, "Original wording{Enter}");
+  await screen.findByRole("list", { name: "Queued messages" });
+  await userEvent.click(await queuedEditButton());
+  const editor = await screen.findByRole("textbox", { name: "Queued message text" });
+  await userEvent.clear(editor);
+  await userEvent.type(editor, "Unsaved revision");
+  app.daemon.refuseCommands("queue_conflict", "queue.edit");
+  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await screen.findByRole("alertdialog", { name: "Couldn't save the message" });
+  expect(editor).toHaveProperty("value", "Unsaved revision");
+  expect(await daemonQueue(app)).toEqual(["Original wording"]);
+});
+
+test("a held queue explains why steering is disabled", async () => {
+  const { app, message } = await openBusy();
+  await userEvent.type(message, "Wait here{Enter}");
+  await screen.findByRole("list", { name: "Queued messages" });
+  const { queue } = await app.client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse(threadId),
+  });
+  await act(async () => {
+    await app.client.command(
+      { type: "queue.pause", threadId: queue.threadId, expectedRevision: queue.revision },
+      {},
+      "hold-queue",
+    );
+  });
+  const steer = screen.getByRole("button", { name: "Steer" });
+  await waitFor(() => expect(steer.getAttribute("aria-disabled")).toBe("true"));
+  expect(steer.getAttribute("aria-description")).toBe("Resume the queue before steering.");
+  await userEvent.click(steer);
+  expect(await daemonQueue(app)).toEqual(["Wait here"]);
+});
+
+test("collapse survives remount for its thread while another thread starts expanded", async () => {
+  const app = harness();
+  app.play(replayCursor()).runThrough("finding");
+  app.play(longHistory(2)).runUntilBlocked();
+  const view = await app.open(`/t/${threadId}`);
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Message" }),
+    "Keep queued{Enter}",
+  );
+  await screen.findByRole("list", { name: "Queued messages" });
+  await userEvent.click(screen.getByRole("button", { name: "Collapse queued messages" }));
+  expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
+  view.unmount();
+  const reopened = await app.open(`/t/${threadId}`);
+  await screen.findByRole("button", { name: "Expand queued messages" });
+  expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
+  reopened.unmount();
+  await app.open("/t/thread-router");
+  // An active run keeps the second thread's follow-up queued.
+  act(() =>
+    app.daemon.apply("thread-router", [
+      { type: "turn.started", agent: "root", nativeTurnId: "second-run", trigger: "user" },
+    ]),
+  );
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Message" }),
+    "Second thread{Enter}",
+  );
+  await screen.findByRole("button", { name: "Collapse queued messages" });
+  expect(await screen.findByRole("list", { name: "Queued messages" })).toBeTruthy();
+});
+
+test("loading more keeps every queued message beyond the first page reachable", async () => {
+  const { app } = await openBusy();
+  await act(async () => {
+    for (let index = 0; index < 35; index++)
+      await app.client.command(
+        {
+          type: "thread.send",
+          threadId: ThreadId.parse(threadId),
+          input: [{ type: "text", text: `Queued ${index}` }],
+          delivery: "queue",
+        },
+        {},
+        `page-message-${index}`,
+      );
+  });
+  await waitFor(() => expect(pills()).toHaveLength(16));
+  await userEvent.click(await screen.findByRole("button", { name: "Load more queued messages" }));
+  await waitFor(() => expect(pills()).toHaveLength(32));
+  await userEvent.click(screen.getByRole("button", { name: "Load more queued messages" }));
+  await waitFor(() => expect(pills()).toHaveLength(35));
+  const beforeHead = await app.client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse(threadId),
+  });
+  const before = await app.client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse(threadId),
+    expectedRevision: beforeHead.queue.revision,
+    after: CommandId.parse("page-message-31"),
+    limit: 32,
+  });
+  expect(
+    before.queue.messages.flatMap((entry) =>
+      entry.input.filter((part) => part.type === "text").map((part) => part.text),
+    ),
+  ).toContain("Queued 34");
+  const last = within(screen.getByRole("list", { name: "Queued messages" }))
+    .getAllByRole("listitem")
+    .at(-1);
+  if (!last) throw new Error("no last row");
+  await userEvent.click(within(last).getByRole("button", { name: "Remove queued message" }));
+  await waitFor(() => expect(pills()).toHaveLength(34));
+  const afterHead = await waitFor(async () => {
+    const head = await app.client.request({
+      type: "queue.get",
+      threadId: ThreadId.parse(threadId),
+    });
+    expect(head.queue.total).toBe(34);
+    return head;
+  });
+  const after = await app.client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse(threadId),
+    expectedRevision: afterHead.queue.revision,
+    after: CommandId.parse("page-message-31"),
+    limit: 32,
+  });
+  expect(after.queue.total).toBe(34);
+  expect(
+    after.queue.messages.flatMap((entry) =>
+      entry.input.filter((part) => part.type === "text").map((part) => part.text),
+    ),
+  ).not.toContain("Queued 34");
+});
+
+test("saved messages beyond the visible page do not reappear as saving rows or transcript bubbles", async () => {
+  const { app, feed, message } = await openBusy();
+  for (let index = 0; index < 18; index++)
+    await userEvent.type(message, `Follow-up ${index}{Enter}`);
+  await waitFor(() => expect(pills()).toHaveLength(16));
+  await screen.findByText("2 more queued messages");
+  expect(within(feed).queryByText("Follow-up 17")).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Load more queued messages" }));
+  await waitFor(() => expect(pills()).toHaveLength(18));
+  const last = within(screen.getByRole("list", { name: "Queued messages" }))
+    .getAllByRole("listitem")
+    .at(-1);
+  if (!last) throw new Error("no last row");
+  await userEvent.click(await queuedEditButton(last));
+  expect(await screen.findByRole("textbox", { name: "Queued message text" })).toHaveProperty(
+    "value",
+    "Follow-up 17",
+  );
+  expect(
+    (await app.client.request({ type: "queue.get", threadId: ThreadId.parse(threadId) })).queue
+      .total,
+  ).toBe(18);
+});
+
+test.each([17, 33, 257])(
+  "a fresh client can take back retained input %i without running earlier messages",
+  async (count) => {
+    const queuedCount = Math.min(count, 256);
+    const inputs = Array.from({ length: queuedCount }, (_, index) => `Retained input ${index + 1}`);
+    if (count > 256) inputs.unshift("Unconfirmed input");
+    const lastInput = `Retained input ${queuedCount}`;
+    const app = harness();
+    app.play(replayCursor()).runThrough("finding");
+    app.daemon.holdQueue(threadId, "manual");
+    const { fakeClient } = await import("@/test/harness.tsx");
+    const peer = fakeClient(app.daemon);
+    try {
+      await peer.start();
+      await waitFor(() => expect(peer.state).toBe("ready"));
+      for (let index = 1; index <= queuedCount; index++)
+        await peer.command({
+          type: "thread.send",
+          threadId: ThreadId.parse(threadId),
+          input: [{ type: "text", text: `Retained input ${index}` }],
+          delivery: "queue",
+        });
+      if (count > 256)
+        app.daemon.restoreUncertainInput(threadId, {
+          id: "unconfirmed-first",
+          input: [{ type: "text", text: "Unconfirmed input" }],
+          delivery: "queue",
+          state: "uncertain",
+        });
+      await app.open(`/t/${threadId}`);
+      await screen.findByRole("list", { name: "Queued messages" });
+      expect(
+        within(screen.getByRole("feed", { name: "Transcript" })).queryByText(lastInput),
+      ).toBeNull();
+      for (let shown = 16; shown < count; shown += 16)
+        await userEvent.click(
+          await screen.findByRole("button", { name: "Load more queued messages" }),
+        );
+      const last = await within(screen.getByRole("list", { name: "Queued messages" })).findByText(
+        lastInput,
+      );
+      const row = last.closest("li");
+      if (!row) throw new Error("Missing queued row");
+      await userEvent.click(await takeBackButton(row));
+      await waitFor(() =>
+        expect(screen.getByRole("combobox", { name: "Message" }).textContent).toContain(lastInput),
+      );
+      const remaining = await peer.request({
+        type: "queue.get",
+        threadId: ThreadId.parse(threadId),
+        limit: 32,
+      });
+      expect(remaining.queue.total).toBe(count - 1);
+      expect(
+        remaining.queue.messages.flatMap((entry) =>
+          entry.input.flatMap((part) => (part.type === "text" ? [part.text] : [])),
+        ),
+      ).toEqual(inputs.slice(0, -1).slice(0, 32));
+    } finally {
+      await peer.close();
+    }
+  },
+);

@@ -5,18 +5,21 @@
   "type": "module",
   "scripts": {
     "e2e": "playwright test --project=fake --project=real-daemon",
+    "e2e:fake": "playwright test --config playwright.fake.config.ts --project=fake",
     "screens": "playwright test --project=screens",
     "walkthrough": "playwright test --project=walkthrough",
     "daemon": "node src/real-daemon.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
+    "@ace/accounts": "workspace:*",
     "@ace/adapter-testkit": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/daemon": "workspace:*",
     "@ace/engine-api": "workspace:*",
     "@ace/fake-daemon": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "@ace/ui-core": "workspace:*",
     "@playwright/test": "1.63.0"
   }

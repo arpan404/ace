@@ -1,5 +1,5 @@
 import { automaticTarget, blockedUntil } from "@ace/accounts/availability";
-import { canonicalContext, ProjectionCapabilities } from "@ace/context";
+import { canonicalContext, ProjectionCapabilities, encodedContextBudget } from "@ace/context";
 import type { PrepareInput } from "../engine/input.ts";
 import { z } from "zod";
 import { ThreadId } from "@ace/protocol";
@@ -114,6 +114,7 @@ export function createRecoverySession(context: SocketContext): SocketService {
         "queue.edit",
         "queue.move",
         "queue.remove",
+        "queue.resend",
         "queue.pause",
         "queue.resume",
         "thread.resume",
@@ -205,6 +206,9 @@ export function prepareQueuedInput(context: Pick<ServiceContext, "services">): P
         documents: capabilities.attachmentInput?.documents ?? [],
         embeddedContext: capabilities.attachmentInput?.embeddedContext ?? false,
         maxInlineBytes: capabilities.attachmentInput?.maxInlineBytes ?? 128 * 1024,
+        ...(["acp", "opencode"].includes(capabilities.attachmentInput?.format ?? provider)
+          ? { maxEncodedBytes: encodedContextBudget(input) }
+          : {}),
       },
     );
     try {

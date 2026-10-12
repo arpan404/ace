@@ -135,12 +135,14 @@ export class Engine {
     const worktreeGit =
       options.worktreeGit ?? ((cwd, args) => runWorktreeGit(executeGit, cwd, args));
     this.nextThreadId = options.threadId ?? randomUUID;
+    this.clock = options.clock ?? systemClock;
     this.repo = new EngineRepository(
       store,
       options.ids,
       this.limits.maxActiveThreads,
       options.commandId,
       options.aceToolAction,
+      () => this.clock.now(),
     );
     const models = (this.models = new EngineModels(
       this.repo,
@@ -151,7 +153,6 @@ export class Engine {
     this.admissions = new CreationAdmissions(this.repo, this.nextThreadId);
     this.selectInstance = options.selectInstance;
     this.registry = options.registry ?? new AdapterRegistry();
-    this.clock = options.clock ?? systemClock;
     this.batchScheduler = options.batchScheduler ?? systemClock;
     this.idleMs = options.idleMs ?? 30 * 60_000;
     const silenceMs = options.silenceMs ?? 60_000;
@@ -179,7 +180,6 @@ export class Engine {
       clock: this.clock,
       closing: () => this.closing,
       wake: (id) => this.wake(id),
-      expireDelivery: (actor) => this.delivery.expire(actor, actor.generation - 1),
       released: (id) => {
         this.releaseDormant(id);
         this.wakeQueued();
@@ -239,7 +239,6 @@ export class Engine {
     this.liveness = new ThreadLiveness({
       repo: this.repo,
       clock: this.clock,
-      maxThreads: this.limits.maxActiveThreads,
       sessions: this.sessions,
       sends: this.sends,
       controls: this.controls,
@@ -356,6 +355,7 @@ export class Engine {
         () => this.flushDepth > 0,
         this.batchScheduler,
         this.diagnostic,
+        (retired, generation) => this.delivery.expire(retired, generation),
       );
       actor.generation = Math.max(
         this.repo.pending.latestGeneration(id),
@@ -1067,7 +1067,12 @@ export class Engine {
     actor.schedule();
   }
   private isSteer(intent: IntentHeader): boolean {
-    if (intent.kind !== "thread.send" || intent.delivery !== "steer") return false;
+    if (
+      intent.kind !== "thread.send" ||
+      intent.delivery !== "steer" ||
+      this.repo.pending.hasSelection(intent.id)
+    )
+      return false;
     if (this.repo.transitions.guarded(intent.threadId)) return false;
     const state = this.repo.requireState(intent.threadId);
     if (

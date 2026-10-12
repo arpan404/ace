@@ -8,8 +8,15 @@ export type CommandRequest = {
   input?: string;
   signal: AbortSignal;
   mode: "json" | "tail";
+  /** Passed only to the actual write, never to identity probes. */
+  dispatch?: { prepare?(): void; record(): void };
 };
-export type CommandResult = { code: number | null; stdout: string; truncated: boolean };
+export type CommandResult = {
+  code: number | null;
+  stdout: string;
+  truncated: boolean;
+  identityChanged?: true;
+};
 export type CommandRunner = (request: CommandRequest) => Promise<CommandResult>;
 
 /** Byte-oriented shell: provider-kit's readline probes cannot bound an oversized line.
@@ -36,9 +43,12 @@ export function createCommandRunner(options: {
       ...options.env,
       GH_PROMPT_DISABLED: "1",
       GH_PAGER: "cat",
+      GIT_TERMINAL_PROMPT: "0",
+      GCM_INTERACTIVE: "never",
     };
     delete env.GH_DEBUG;
     delete env.DEBUG;
+    request.dispatch?.prepare?.();
     const child = spawn(request.command, [...request.args], {
       cwd: options.cwd,
       env,
@@ -83,7 +93,6 @@ export function createCommandRunner(options: {
     });
     child.stderr.resume();
     child.stdin.on("error", () => {});
-    child.stdin.end(request.input);
     try {
       const code = await new Promise<number | null>((resolve) => {
         child.once("error", () => {
@@ -91,6 +100,10 @@ export function createCommandRunner(options: {
         });
         child.once("exit", stop);
         child.once("close", resolve);
+        // spawn has synchronously admitted a child when it exposes a PID. Before any await
+        // or stdin delivery, record that it may contact the remote, even if it later times out.
+        if (child.pid !== undefined) request.dispatch?.record();
+        child.stdin.end(request.input);
       });
       if (failure) throw failure;
       const output =

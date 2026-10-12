@@ -41,6 +41,7 @@ export interface AgentRecord {
   agent: Agent;
   externalStatus?: ThreadStatus;
   activeRun?: RunId;
+  completionRelevant?: boolean;
   lastRun?: RunId;
   /** Process-namespaced native turn ids index the canonical run history. */
   nativeRuns?: Record<string, RunId>;

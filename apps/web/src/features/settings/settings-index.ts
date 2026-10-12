@@ -17,6 +17,12 @@ export interface SettingEntry {
 
 const entries = [
   {
+    id: "source-control",
+    page: "/settings/source-control",
+    title: "Source control",
+    keywords: ["github", "gh", "git", "enterprise", "account", "rescan"],
+  },
+  {
     id: "prompts",
     page: "/settings/prompts",
     title: "Prompt files",

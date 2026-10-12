@@ -53,6 +53,195 @@ const ended = (state: RunFacts["state"]): RunFacts => ({ state, trigger: "user",
 const shown = (blocks: readonly Block[]) =>
   blocks.map((block) => ("itemId" in block ? block.itemId : `${block.kind}:${block.key}`));
 
+const mcpTool = (id: string, at: number) =>
+  Item.parse({
+    id,
+    agentId: "root",
+    runId: "turn",
+    createdAt: at,
+    complete: true,
+    type: "tool_call",
+    call: {
+      id,
+      agentId: "root",
+      kind: "mcp",
+      title: "Delegate work",
+      detail: { kind: "mcp", server: "ace", tool: "delegate_task" },
+      status: "succeeded",
+      startedAt: at,
+      raw: [],
+    },
+  });
+const delegationLaunch = (id: string, at: number) =>
+  Item.parse({
+    id,
+    agentId: "root",
+    runId: "turn",
+    createdAt: at,
+    complete: false,
+    type: "delegation.started",
+    origin: "ace",
+    childThreadId: `thread-${id}`,
+    provider: "codex",
+    title: id,
+    role: "review",
+    phase: "running",
+    status: { state: "working", agents: 1 },
+    updatedAt: at,
+    generation: 0,
+  });
+
+test.each([true, false])(
+  "MCP batch narration stays between cards and work segments stop at each card (complete=%s)",
+  (complete) => {
+    const items = [
+      mcpTool("mcp-first", 0),
+      delegationLaunch("first", 1),
+      mcpTool("mcp-second", 2),
+      delegationLaunch("second", 3),
+      Item.parse({
+        id: "narration",
+        agentId: "root",
+        runId: "turn",
+        createdAt: 4,
+        complete,
+        type: "message",
+        role: "assistant",
+        parts: [{ type: "text", text: "Starting the next batch" }],
+      }),
+      mcpTool("mcp-third", 5),
+      delegationLaunch("third", 6),
+      mcpTool("later-work", 7),
+    ];
+    const byId = new Map<string, Item>(items.map((item) => [item.id, item]));
+    const blocks = buildBlocks({
+      order: items.map((item) => item.id),
+      item: (id) => byId.get(id),
+      background: new Map(),
+    });
+    expect(shown(blocks)).toEqual([
+      "work:work:mcp-first",
+      "subagents:subagents:first",
+      "work:work:mcp-second",
+      "narration",
+      "work:work:mcp-third",
+      "subagents:subagents:third",
+      "work:work:later-work",
+    ]);
+    const work = blocks.filter((block) => block.kind === "work");
+    expect(work.map((block) => block.itemIds)).toEqual([
+      ["mcp-first"],
+      ["mcp-second"],
+      ["mcp-third"],
+      ["later-work"],
+    ]);
+    expect(work.map((block) => block.until)).toEqual([1, 4, 6, undefined]);
+    expect(
+      blocks.filter((block) => block.kind === "subagents").map((block) => block.itemIds),
+    ).toEqual([["first", "second"], ["third"]]);
+  },
+);
+
+test("delayed canonical launch records deduplicate at the original batch without reopening it", () => {
+  const items = [
+    Item.parse({
+      id: "native-first",
+      agentId: "root",
+      runId: "turn",
+      createdAt: 1,
+      complete: true,
+      type: "tool_call",
+      call: {
+        id: "native-first",
+        agentId: "root",
+        kind: "agent.spawn",
+        title: "Review first",
+        detail: { kind: "agent.spawn", childAgentId: "first" },
+        status: "succeeded",
+        startedAt: 1,
+        raw: [],
+      },
+    }),
+    Item.parse({
+      id: "narration",
+      agentId: "root",
+      runId: "turn",
+      createdAt: 2,
+      complete: true,
+      type: "message",
+      role: "assistant",
+      parts: [{ type: "text", text: "Next batch" }],
+    }),
+    ...["first", "second"].map((child, at) =>
+      Item.parse({
+        id: `launch-${child}`,
+        agentId: "root",
+        runId: "turn",
+        createdAt: 3 + at,
+        type: "delegation.started",
+        origin: "ace",
+        childThreadId: `thread-${child}`,
+        provider: "codex",
+        title: child,
+        role: "review",
+        phase: "running",
+        status: { state: "working", agents: 1 },
+        updatedAt: 3 + at,
+        generation: 0,
+        complete: false,
+      }),
+    ),
+  ];
+  const blocks = buildBlocks({
+    order: items.map((item) => item.id),
+    item: (id) => items.find((item) => item.id === id),
+    background: new Map(),
+    launchThread: (id) => (id === "first" ? "thread-first" : undefined),
+  });
+  expect(
+    blocks.filter((block) => block.kind === "subagents").map((block) => block.itemIds),
+  ).toEqual([["native-first", "launch-first"], ["launch-second"]]);
+  expect(shown(blocks)).toEqual([
+    "subagents:subagents:native-first",
+    "narration",
+    "subagents:subagents:launch-second",
+  ]);
+});
+
+test("subagents that run in the background retain one launch card rather than separate task lines", () => {
+  const items = ["first", "second"].map((id) =>
+    Item.parse({
+      id,
+      type: "tool_call",
+      agentId: "root",
+      createdAt: 1000,
+      complete: true,
+      call: {
+        id,
+        agentId: "root",
+        kind: "agent.spawn",
+        title: id,
+        detail: { kind: "agent.spawn", childAgentId: `child-${id}` },
+        status: "succeeded",
+        startedAt: 1000,
+        raw: [],
+      },
+    }),
+  );
+  const byId = new Map<string, Item>(items.map((item) => [item.id, item]));
+  const blocks = buildBlocks({
+    order: items.map((item) => item.id),
+    item: (id) => byId.get(id),
+    background: new Map([
+      ["first", "background-first"],
+      ["second", "background-second"],
+    ]),
+  });
+  expect(blocks).toEqual([
+    { kind: "subagents", key: "subagents:first", itemIds: ["first", "second"] },
+  ]);
+});
+
 test("a message queued while the agent worked reads after the answer it waited for", () => {
   // The daemon admitted the queued ask while the first turn still worked, so it sits between
   // that turn's commentary and its answer; it was answered by the second turn.

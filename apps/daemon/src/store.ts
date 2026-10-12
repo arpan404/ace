@@ -1,3 +1,4 @@
+import { SearchReplay } from "./search-replay.ts";
 import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
 import { sidebarPageStorage } from "./sidebar-page-storage.ts";
 import { SidebarPageWeight } from "./sidebar-page-weight.ts";
@@ -80,6 +81,7 @@ export class Store {
   readonly workspaceReservations: WorkspaceReservations;
   private readonly db: DatabaseSync;
   private readonly usageReplay: UsageReplay;
+  private readonly searchReplay: SearchReplay;
   private readonly usageListeners = new Set<() => void>();
   readonly search: SearchIndex;
   readonly searchQueries: SearchQueries;
@@ -177,8 +179,11 @@ export class Store {
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
       });
       this.mcp = new McpData(this.db, (id) => this.getThread(id));
+      this.searchReplay = new SearchReplay(this.db, this.history);
       this.search = new SearchIndex(this.db, {
         readOutput: (threadId, streamId, offset, limit) => {
+          const replay = this.history.readSearchBytes(threadId, streamId, offset, limit);
+          if (replay) return replay;
           if (this.payloads.streamThread(streamId) !== threadId) return undefined;
           return this.payloads.readOutputBytes(streamId, offset, limit).bytes;
         },
@@ -933,6 +938,9 @@ export class Store {
       if (bytes > (options.byteLimit ?? Infinity)) break;
     }
     return events;
+  }
+  readSearchPage(options: { afterSeq: number; limit: number; maxBytes: number }) {
+    return this.searchReplay.read(options, this.headSeq());
   }
   /** Usage replay skips transcript/output payloads while advancing host coverage. */
   readUsagePage(options: { afterSeq: number; limit: number; maxBytes?: number }) {

@@ -68,7 +68,8 @@ export function startAccountManagement(context: ServiceContext): void {
     signal: context.signal,
     discovery: options.accounts?.discovery,
     cursorDiscovery: options.engine?.cursor?.discovery,
-    configuration: (provider) => services.providerConfigurations?.for(provider) ?? { provider },
+    configuration: (provider, instance) =>
+      services.providerConfigurations?.for(provider, instance) ?? { provider },
     terminal: options.accounts?.terminal,
     authChanged: async () => {
       await services.providerStatuses?.refresh();

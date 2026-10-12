@@ -37,6 +37,8 @@ export async function assertManagedIdentity(input: ProviderInstance): Promise<vo
 /** Only direct private children of the daemon's injected data root are managed homes. */
 export async function assertManagedHome(dataDir: string, input: ProviderInstance): Promise<void> {
   const instance = ProviderInstance.parse(input);
+  const root = await lstat(resolve(dataDir));
+  if (!root.isDirectory() || root.isSymbolicLink()) throw new Error("Managed home refused");
   const parent = join(await realpath(dataDir), "account-homes");
   const expected = join(parent, instance.id);
   if (!instance.managed || instance.implicit || instance.homeDir !== expected)

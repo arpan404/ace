@@ -9,7 +9,7 @@
     "./pricing": "./src/pricing.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "bench": "node bench/usage.ts"
   },
   "dependencies": {

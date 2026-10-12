@@ -22,17 +22,23 @@ export function AccountsPage() {
       liveWindows(account, now).some((window) => window.usedPercent >= nearLimitPercent),
   );
   const ids = new Set(closest.map((account) => account.id));
+  const reported = (accounts.data ?? []).filter(
+    (account) => !ids.has(account.id) && liveWindows(account, now).length > 0,
+  );
+  const quiet = (accounts.data ?? []).filter(
+    (account) => !ids.has(account.id) && liveWindows(account, now).length === 0,
+  );
   const groups = [
     { name: "Closest to a limit", rows: closest },
-    {
-      name: "Everything else",
-      rows: (accounts.data ?? []).filter((account) => !ids.has(account.id)),
-    },
+    { name: "Reported limits", rows: reported },
   ];
   return (
     <Screen title="Usage">
       <div className="h-full overflow-auto">
-        <div className="mx-auto px-4 pt-6 pb-20 sm:px-8 sm:pt-11" style={{ maxWidth: 920 }}>
+        <div
+          className="@container mx-auto px-4 pt-6 pb-20 sm:px-8 sm:pt-11"
+          style={{ maxWidth: 920 }}
+        >
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <PageTitle
@@ -58,6 +64,7 @@ export function AccountsPage() {
               onClick={() => void refresh()}
             />
           </div>
+          {accounts.data && <UsageSection />}
           {accounts.isError ? (
             <EmptyState
               icon={ChartBarIcon}
@@ -94,7 +101,18 @@ export function AccountsPage() {
                 </section>
               ))
           )}
-          {accounts.data && <UsageSection />}
+          {quiet.length > 0 && (
+            <details className="mt-7">
+              <summary className="focus-ring rounded-md text-sm text-muted-foreground">
+                {quiet.length} accounts without reported limits
+              </summary>
+              <section aria-label="Accounts without reported limits" className="mt-3">
+                {quiet.map((account) => (
+                  <AccountCard key={account.id} account={account} />
+                ))}
+              </section>
+            </details>
+          )}
         </div>
       </div>
     </Screen>

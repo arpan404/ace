@@ -1,8 +1,10 @@
+import { createTimeSource, TimeContext } from "@/lib/time.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
-import { Client, type ClientApi } from "@ace/client";
+import { type ClientApi } from "@ace/client";
 import { ClientHost, RemoteClient } from "@ace/client-worker";
-import { FakeDaemon, ScenarioPlayer, fakeTransport, type Scenario } from "@ace/fake-daemon";
-import { DeviceId } from "@ace/protocol";
+import { FakeDaemon, ScenarioPlayer, type Scenario } from "@ace/fake-daemon";
+import { fakeClient } from "./fake-client.ts";
+export { fakeClient } from "./fake-client.ts";
 import { createMemoryHistory, type RouterHistory } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
 import { afterEach } from "vitest";
@@ -47,36 +49,13 @@ export function memoryKeyValue(): KeyValueStorage & { data: Map<string, string> 
   };
 }
 
-/** A @ace/client wired to a FakeDaemon speaking the wire protocol in memory. */
-export function fakeClient(
-  daemon: FakeDaemon,
-  token = daemon.token,
-  outbox: ClientStorage = memoryStorage(),
-): Client {
-  let ids = 0;
-  const client = new Client({
-    deviceId: DeviceId.parse("test-device"),
-    transport: () => fakeTransport(daemon),
-    credential: async () => token,
-    storage: outbox,
-    scheduler: {
-      set(delayMs, callback) {
-        const timer = setTimeout(callback, delayMs);
-        return () => clearTimeout(timer);
-      },
-    },
-    random: () => 0.5,
-    id: () => `id-${++ids}`,
-    limits: { retryBaseMs: 2, retryCapMs: 10 },
-  });
-  running.push(client);
-  return client;
-}
-
 /** The real app, a real @ace/client and a FakeDaemon speaking the wire protocol in memory. */
 export function harness(
   options: {
     snapshotItems?: number;
+    /** Reuse a daemon while replacing the page/worker boundary during recovery. */
+    daemon?: FakeDaemon;
+    client?(daemon: FakeDaemon): ClientApi;
     connection?: DaemonConnection;
     history?: RouterHistory;
     storage?: KeyValueStorage;
@@ -85,6 +64,8 @@ export function harness(
     throughWorker?: boolean;
     /** The daemon's clock; by default a counter from 1,000 ms. */
     clock?: () => number;
+    /** The rendered UI wall clock; injected separately from event admission time. */
+    uiClock?: () => number;
     /** When each stage of a project clone runs, on every machine (tests step clones by hand). */
     projectScheduler?: (callback: () => void) => void;
     /** Where the client keeps its outbox (tests hold a save to catch work done meanwhile). */
@@ -106,6 +87,7 @@ export function harness(
     worktreeSchedule?: (callback: () => void, delay: number) => () => void;
   } = {},
 ) {
+  const time = createTimeSource(options.uiClock ?? (() => Date.now()));
   let now = 1_000;
   const clock = options.clock ?? (() => (now += 1));
   const others = (options.machines ?? []).map(
@@ -117,24 +99,29 @@ export function harness(
         ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
       }),
   );
-  const daemon = new FakeDaemon({
-    clock,
-    ...(others.length ? { hostId: "this-mac", displayName: "This Mac" } : {}),
-    ...(options.snapshotItems ? { snapshotItems: options.snapshotItems } : {}),
-    ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
-    ...(options.worktreeSchedule
-      ? { worktreeCreationSlow: true, worktreeCreationSchedule: options.worktreeSchedule }
-      : {}),
-  });
+  const daemon =
+    options.daemon ??
+    new FakeDaemon({
+      clock,
+      ...(others.length ? { hostId: "this-mac", displayName: "This Mac" } : {}),
+      ...(options.snapshotItems ? { snapshotItems: options.snapshotItems } : {}),
+      ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
+      ...(options.worktreeSchedule
+        ? { worktreeCreationSlow: true, worktreeCreationSchedule: options.worktreeSchedule }
+        : {}),
+    });
   // Installed-app scenarios are explicit test facts, never fake-preview OS discovery.
   daemon.workspace.setEditors([
     { id: "code", name: "Visual Studio Code", command: "code" },
     { id: "zed", name: "Zed", command: "zed" },
   ]);
   if (options.onboarding !== "pending") daemon.services.providerLogin.dismiss("test-device");
-  const client = options.throughWorker
-    ? workerClient(daemon)
-    : fakeClient(daemon, daemon.token, options.outbox);
+  const client = options.client
+    ? options.client(daemon)
+    : options.throughWorker
+      ? workerClient(daemon)
+      : fakeClient(daemon, daemon.token, options.outbox);
+  if (options.client) running.push(client);
   const storage = options.storage ?? memoryKeyValue();
   let fake: FakeMachines | undefined;
   const pooled = () => {
@@ -162,19 +149,25 @@ export function harness(
       if (machines) running.push(machines);
       const connection = options.connection ?? fakeConnection(daemon);
       return render(
-        <AppFrame
-          environment={{ storage, root: document.documentElement, matchMedia: options.matchMedia }}
-        >
-          <DaemonConnectionContext.Provider value={connection}>
-            <App
-              client={client}
-              queryClient={createQueryClient()}
-              storage={storage}
-              history={options.history ?? createMemoryHistory({ initialEntries: [path] })}
-              machines={machines}
-            />
-          </DaemonConnectionContext.Provider>
-        </AppFrame>,
+        <TimeContext.Provider value={time}>
+          <AppFrame
+            environment={{
+              storage,
+              root: document.documentElement,
+              matchMedia: options.matchMedia,
+            }}
+          >
+            <DaemonConnectionContext.Provider value={connection}>
+              <App
+                client={client}
+                queryClient={createQueryClient()}
+                storage={storage}
+                history={options.history ?? createMemoryHistory({ initialEntries: [path] })}
+                machines={machines}
+              />
+            </DaemonConnectionContext.Provider>
+          </AppFrame>
+        </TimeContext.Provider>,
       );
     },
   };

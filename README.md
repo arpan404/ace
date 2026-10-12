@@ -38,6 +38,10 @@ Each agent CLI owns its credentials. ace can start its login or hand a pasted AP
 The [agent browser and computer tool contract](docs/daemon/agent-tools.md) documents
 scoped MCP calls, navigation waits, origin approval and control handback.
 
+The [source-control draft workflow](docs/daemon/source-control-drafts.md) documents
+editable commit and PR text generated through the user's own CLI, source revisions
+and cancellation.
+
 The generated [protocol reference](docs/protocol/README.md) covers WebSocket messages, canonical events and built-in MCP tools. Regenerate it with `bun run docs:protocol`.
 
 ## Development
@@ -110,6 +114,15 @@ has no prebuilds: run `bun run desktop:rebuild-native` before `desktop:build` th
   is up; check the `daemon │` lines meanwhile.
 - **Screen helper skipped during a build:** the Swift (macOS) or Rust (Windows, Linux) toolchain
   is missing. The app works without it; screen and computer use stay off.
+
+`bun run typecheck` uses incremental declaration builds and checks the original
+package programs, root test tooling, and browser-only client runtime. One native
+compiler runs at a time, with at most two project builders and two CPU threads.
+`bun run --filter @ace/protocol typecheck` checks a workspace and its dependencies.
+Use `bun run typecheck:clean` to remove the caches. See
+[incremental typechecking](docs/build/typecheck.md) for the design and cache rules.
+CI also runs `bun run typecheck:full`, checking every original program from source
+with fresh build info as an independent safety net for declaration inference.
 
 Tests run in separate unit and process projects with bounded concurrency. See
 [process test reliability](docs/testing/process-tests.md) for the real-I/O suite

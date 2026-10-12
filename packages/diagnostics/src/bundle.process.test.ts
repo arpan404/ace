@@ -189,7 +189,7 @@ it("a real thread archive strips array and object secrets even inside serialized
     settings: { values: ["ordinary", 5] },
     redact: createRedactor({}),
     includeThreads: true,
-    threads: () => recentThreadEvents(database),
+    threads: () => recentThreadEvents(database, {}),
   });
   const entries = await unpack(path),
     text = [...entries.values()].join("\n");

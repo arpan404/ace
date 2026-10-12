@@ -128,7 +128,7 @@ it("oversized event type columns are omitted before thread transfer", async () =
   db.prepare("INSERT INTO events VALUES(1,0,?,'{}')").run("é".repeat(100000));
   db.close();
   const lines: string[] = [];
-  for await (const line of recentThreadEvents(path, controlledWorker)) lines.push(line);
+  for await (const line of recentThreadEvents(path, {}, controlledWorker)) lines.push(line);
   expect(lines).toHaveLength(1);
   expect(lines[0]).toContain("OVERSIZED TYPE OMITTED");
   expect(Buffer.byteLength(lines[0] ?? "")).toBeLessThan(200);

@@ -15,6 +15,9 @@ import { nativeAgentKey } from "./keys.ts";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import type { SessionRuntime } from "./index.ts";
 import { object } from "./data.ts";
+import { harness } from "./test-helper.ts";
+import { projectAttachments, canonicalContext, encodedContextBudget } from "@ace/context";
+import { setTimeout as waitDelay } from "node:timers/promises";
 const fake = fileURLToPath(new URL("./testing/acp-server.ts", import.meta.url));
 const homes: string[] = [];
 afterEach(async () => {
@@ -82,6 +85,58 @@ async function setup(
 }
 const input = (text: string) => [{ type: "text" as const, text }];
 const method = (f: Frame, name: string) => object(f.data)["method"] === name;
+it.each([130_808, 700_000, 922_403])(
+  "ACP delivers or falls back before admission for a %s-byte image",
+  async (bytes) => {
+    const h = await setup();
+    try {
+      const base = input("attachment-proof");
+      const image = {
+        path: "/files/image.png",
+        name: "image.png",
+        mimeType: "image/png",
+        bytes,
+        base64: Buffer.alloc(bytes, 42).toString("base64"),
+      };
+      const projection = projectAttachments([image], {
+        provider: "acp",
+        images: ["image/png"],
+        documents: [],
+        embeddedContext: true,
+        maxInlineBytes: h.session.effectiveCapabilities?.attachmentInput?.maxInlineBytes ?? 0,
+        maxEncodedBytes: encodedContextBudget(base),
+      });
+      await h.session.send([...base, ...canonicalContext(projection)], "queue");
+      const proof = await h.wait((f) => f.dir === "recv" && method(f, "test/attachments"));
+      const actual = JSON.stringify(proof.data);
+      expect(actual).toContain(bytes < 900_000 ? image.base64 : "/files/image.png");
+      expect(h.frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(
+        1,
+      );
+    } finally {
+      await h.session.close("user");
+    }
+  },
+);
+it("passive completed child tool refreshes leave the next root prompt deliverable", async () => {
+  const h = await setup();
+  try {
+    await h.session.send(input("terminal-refresh"), "queue");
+    const projection = harness();
+    for (const frame of h.frames) projection.replay(frame);
+    expect(projection.state.status.state).toBe("done");
+    const next = h.session.send(input("next"), "queue");
+    void next.catch(() => {});
+    const delivered = await Promise.race([
+      next.then(() => true),
+      waitDelay(1000).then(() => false),
+    ]);
+    expect(delivered).toBe(true);
+    expect(h.frames.filter((f) => f.dir === "send" && method(f, "session/prompt"))).toHaveLength(2);
+  } finally {
+    await h.session.close("user");
+  }
+});
 it("ACP fallback correlates ace input before the native prompt is logged", async () => {
   const h = await setup(genericQuirks);
   try {

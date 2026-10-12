@@ -70,12 +70,14 @@ export class ProjectPaths {
     if (this.snapshotRoots !== undefined) return [...this.snapshotRoots];
     const configured = await this.configured();
     const roots = [...new Set(configured.length ? configured : [this.home])].slice(0, 32);
-    return Promise.all(
-      roots.map(async (root) => {
-        absoluteProjectPath(root);
-        return realpath(root);
-      }),
+    for (const root of roots) absoluteProjectPath(root);
+    const resolved = await Promise.allSettled(roots.map((root) => realpath(root)));
+    const available = resolved.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
     );
+    // An explicit unavailable allowlist must never widen to the default home.
+    if (!available.length) throw new ProjectError("directory_unavailable");
+    return available;
   }
   async directory(path: string): Promise<string> {
     absoluteProjectPath(path);

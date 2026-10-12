@@ -19,6 +19,7 @@ export interface Patch {
   append?: string | undefined;
   /** Item keys only: the item holds a prefix of its full text (ThreadReader.truncated). */
   cut?: boolean | undefined;
+  deleted?: boolean | undefined;
 }
 
 /** Ids and parent links of a thread's agents: what the "agents" key covers. */
@@ -104,6 +105,7 @@ const gained = (old: string, now: string) =>
 
 /** Whether `next` holds `previous`'s values in every field but `field`. */
 const sameBut = (previous: Record<string, unknown>, next: Record<string, unknown>, field: string) =>
+  Object.keys(previous).every((key) => key === field || Object.hasOwn(next, key)) &&
   Object.keys(next).every((key) => key === field || Object.is(previous[key], next[key]));
 
 /**
@@ -162,7 +164,11 @@ export function threadPatches(
     if (item) sent.set(id, item);
     else sent.delete(id);
     patches.push(
-      append !== undefined ? { k, append, cut } : item ? { k, v: item, cut } : { k, cut },
+      append !== undefined
+        ? { k, append, cut }
+        : item
+          ? { k, v: item, cut }
+          : { k, cut, deleted: reader.deleted?.(id) },
     );
   }
   return patches;

@@ -1,3 +1,4 @@
+import { openEffortControl, chooseEffort } from "@/test/model-control.ts";
 import { openProfileView } from "@/test/navigation.ts";
 import { workbench } from "@ace/fake-daemon";
 import { CatalogModel } from "@ace/protocol";
@@ -86,9 +87,7 @@ test("a model id two providers share starts the thread on the provider it was pi
   await made.open("/new?project=relay");
 
   await chooseModel("GPT-6", "Cursor", /^Model: Opus 5.5/);
-  const picker = await openModelPicker(
-    await screen.findByRole("dialog", { name: "Model and effort" }),
-  );
+  const picker = await openModelPicker(await openModelControl(/^Model: GPT-6/));
   await userEvent.clear(screen.getByRole("combobox", { name: "Search models" }));
   await userEvent.type(screen.getByRole("combobox", { name: "Search models" }), "GPT-6");
   expect(
@@ -231,7 +230,7 @@ test("the last model, account and work mode are remembered for the next thread",
   const storage = memoryKeyValue();
   await app({ storage }).open("/new?project=ace");
   await chooseModel("Sonnet 5.5", "Claude Code", /^Model: Opus 5\.5/);
-  await chooseAccount(screen.getByRole("dialog", { name: "Model and effort" }), "Work");
+  await chooseAccount(await openModelControl(/^Model: Sonnet 5.5/), "Work");
   await closeModelControl();
   const worktree = await screen.findByRole("checkbox", { name: "Worktree" });
   expect(worktree.getAttribute("aria-checked")).toBe("true");
@@ -282,10 +281,10 @@ test("⌘N and the sidebar's New thread start in the project Home is narrowed to
 test("a worktree thread starts from the chosen branch, on the chosen account and effort", async () => {
   const made = app();
   await made.open("/new?project=relay");
-  // Model and effort share one popover: picking a model comes back to its effort.
+  // Effort is selected from its own chip after choosing the model.
   await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
-  const popover = await screen.findByRole("dialog", { name: "Model and effort" });
-  await userEvent.click(within(popover).getByRole("button", { name: "High" }));
+  const popover = await openEffortControl();
+  await chooseEffort(popover, "{End}");
   await closeModelControl();
   expect(
     await screen.findByRole("button", { name: "Model: GPT-5 Codex, Personal, High effort" }),
@@ -445,13 +444,13 @@ test("the speed toggle starts the thread on the model's faster tier", async () =
   const made = app();
   await made.open("/new?project=relay");
   const claude = await openModelControl(/^Model: Opus 5.5/);
-  expect(within(claude).queryByRole("button", { name: "Fast" })).toBeNull();
+  expect(within(claude).queryByRole("button", { name: "Fast mode" })).toBeNull();
   await closeModelControl();
 
   await chooseModel("GPT-5 Codex", "Codex");
-  const popover = await screen.findByRole("dialog", { name: "Model and effort" });
-  await userEvent.click(within(popover).getByRole("button", { name: "Fast" }));
-  expect(within(popover).getByRole("button", { name: "Fast" }).ariaPressed).toBe("true");
+  const popover = await openEffortControl();
+  await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
+  expect(within(popover).getByRole("button", { name: "Fast mode" }).ariaPressed).toBe("true");
   await closeModelControl();
   expect(await screen.findByRole("button", { name: /^Model: GPT-5 Codex, .*fast$/ })).toBeTruthy();
 
@@ -461,17 +460,28 @@ test("the speed toggle starts the thread on the model's faster tier", async () =
   expect(created?.live?.options).toMatchObject({ serviceTier: "priority" });
 });
 
-test("reset puts effort and speed back to the model's defaults", async () => {
+test("effort reset keeps Fast selected until it is explicitly switched off", async () => {
   const made = app();
   await made.open("/new?project=relay");
   await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
-  const popover = await screen.findByRole("dialog", { name: "Model and effort" });
-  expect(within(popover).queryByRole("button", { name: "Reset" })).toBeNull();
-  await userEvent.click(within(popover).getByRole("button", { name: "High" }));
-  await userEvent.click(within(popover).getByRole("button", { name: "Fast" }));
-  await userEvent.click(within(popover).getByRole("button", { name: "Reset" }));
-  expect(within(popover).getByRole("button", { name: "Medium" }).ariaPressed).toBe("true");
-  expect(within(popover).getByRole("button", { name: "Fast" }).ariaPressed).toBe("false");
+  const popover = await openEffortControl();
+  expect(
+    within(popover).getByRole("button", { name: "Reset effort" }).getAttribute("aria-disabled"),
+  ).toBe("true");
+  await chooseEffort(popover, "{End}");
+  await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
+  expect(
+    within(popover)
+      .getAllByRole("button", { name: /^Reset/ })
+      .map((button) => button.getAttribute("aria-label")),
+  ).toEqual(["Reset effort"]);
+  await userEvent.click(within(popover).getByRole("button", { name: "Reset effort" }));
+  expect(
+    within(popover).getByRole("slider", { name: "Effort" }).getAttribute("aria-valuetext"),
+  ).toBe("Medium");
+  expect(within(popover).getByRole("button", { name: "Fast mode" }).ariaPressed).toBe("true");
+  await userEvent.click(within(popover).getByRole("button", { name: "Fast mode" }));
+  expect(within(popover).getByRole("button", { name: "Fast mode" }).ariaPressed).toBe("false");
   await closeModelControl();
 
   await userEvent.type(await prompt(), "Profile the relay startup{Enter}");
@@ -529,7 +539,7 @@ test("native settings remain inherited while the menu exposes every Claude mode"
     "Plan",
     "Auto",
     "Don't ask",
-    "Bypass permissions",
+    "Full access",
   ]);
   expect(
     screen.getByRole("menuitemradio", { name: "Accept edits" }).getAttribute("aria-checked"),
@@ -556,7 +566,7 @@ test("new threads leave the CLI default unpinned without a picker interaction", 
 test.each([
   ["ask", "Manual", "default"],
   ["on-failure", "Auto", "auto"],
-  ["never", "Bypass permissions", "bypassPermissions"],
+  ["never", "Full access", "bypassPermissions"],
 ])("a persisted %s approval policy supplies inherited native %s", async (policy, label, mode) => {
   const made = app();
   made.daemon.services.settings.seed({ "approvals.policy": policy });

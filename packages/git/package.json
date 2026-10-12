@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "benchmark": "node benchmark.ts",
     "benchmark:history": "node benchmark-history.ts",
     "benchmark:counters": "node --expose-gc benchmark-counters.ts",
@@ -16,7 +16,9 @@
   "dependencies": {
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "@ace/redaction": "workspace:*",
     "koffi": "3.3.2",
+    "yaml": "^2.8.1",
     "zod": "^4.6.5"
   }
 }

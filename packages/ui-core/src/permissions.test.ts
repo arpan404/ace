@@ -44,3 +44,49 @@ test("returning to the provider default remains visible while the previous nativ
   );
   expect(summary).toMatchObject({ mode: "acceptEdits", next: null, inherited: true });
 });
+
+test("verified full access names preserve the native selection, risk and provider-specific coverage", () => {
+  const native = {
+    ...capabilities,
+    permissionModes: [
+      {
+        id: "yolo",
+        label: "YOLO",
+        description: "Native policy applies",
+        risk: "high" as const,
+        presentation: "full-access" as const,
+      },
+      {
+        id: "review",
+        label: "Guardian review",
+        description: "Separate reviewer",
+        risk: "medium" as const,
+      },
+    ],
+  };
+  const choices = permissionChoices(native);
+  expect(choices).toEqual([
+    {
+      mode: "yolo",
+      label: "Full access",
+      description: "Native policy applies",
+      coverage: "Native policy applies",
+      attention: true,
+    },
+    {
+      mode: "review",
+      label: "Guardian review",
+      description: "Separate reviewer",
+      coverage: "Separate reviewer",
+      attention: false,
+    },
+  ]);
+  expect(permissionAdmission(native, choices[0]?.mode, "Gemini").mode).toBe("yolo");
+  expect(
+    threadPermissionSummary({ override: "yolo", effective: "yolo", pending: false }, native)?.label,
+  ).toBe("Full access");
+  expect(
+    threadPermissionSummary({ override: "yolo", effective: "yolo", pending: false }, capabilities)
+      ?.label,
+  ).toBe("Unavailable mode: yolo");
+});

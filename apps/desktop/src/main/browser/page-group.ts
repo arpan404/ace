@@ -9,9 +9,27 @@ const CdpCommand = TabCommand.extend({
   method: z.string().min(1).max(256),
   params: z.record(z.string(), z.unknown()).optional(),
 });
+type GroupPage = Pick<
+  EmbeddedPage,
+  | "cdp"
+  | "onEvent"
+  | "onBlockedInput"
+  | "navigate"
+  | "press"
+  | "resize"
+  | "setNativeInput"
+  | "setAgentControl"
+  | "url"
+  | "close"
+  | "viewport"
+  | "place"
+  | "placementReady"
+  | "isShown"
+>;
+
 interface Tab {
   id: string;
-  page: EmbeddedPage;
+  page: GroupPage;
   title: string;
   url: string;
   mainFrame?: string;
@@ -38,13 +56,13 @@ export class EmbeddedPageGroup implements ViewPage {
     device?: NativeDevice | undefined;
   } = { window: undefined, bounds: undefined, visible: false };
   constructor(
-    privateCreate: (id: string) => Promise<EmbeddedPage>,
+    privateCreate: (id: string) => Promise<GroupPage>,
     privateClose: () => Promise<void>,
   ) {
     this.create = privateCreate;
     this.finish = privateClose;
   }
-  private create: (id: string) => Promise<EmbeddedPage>;
+  private create: (id: string) => Promise<GroupPage>;
   private finish: () => Promise<void>;
   private current(): Tab {
     const tab = this.tabs.get(this.active);

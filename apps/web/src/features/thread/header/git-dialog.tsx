@@ -1,3 +1,5 @@
+import { DraftWriter } from "./draft-writer.tsx";
+import type { SourceControlSelection } from "@ace/protocol";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
@@ -43,6 +45,8 @@ export function GitDialog(props: {
 }) {
   const [subject, setSubject] = useState(props.thread.title);
   const [body, setBody] = useState("");
+  const [textRevision, setTextRevision] = useState(0);
+  const [draftSource, setDraftSource] = useState<{ fingerprint: string; selection: string }>();
   const [reviewerText, setReviewerText] = useState("");
   const [error, setError] = useState<string>();
   const { kind, checkout } = props;
@@ -58,6 +62,20 @@ export function GitDialog(props: {
   const [picked, setPicked] = useState<ReadonlySet<string>>();
   const chosen = picked ?? (files ? pickedByDefault(files) : new Set<string>());
   const nothing = commit && chosen.size === 0;
+  const selection: SourceControlSelection | undefined = commit
+    ? files && chosen.size
+      ? { kind: "commit", paths: pathsOf(files, chosen) }
+      : undefined
+    : checkout.branch
+      ? {
+          kind: "pr",
+          branch: checkout.branch,
+          base: checkout.baseBranch,
+          ...(checkout.baseRef ? { baseRef: checkout.baseRef } : {}),
+        }
+      : undefined;
+  const selectionKey = JSON.stringify(selection);
+  const staleDraft = draftSource !== undefined && draftSource.selection !== selectionKey;
   const text = commit
     ? {
         title: `Commit to ${checkout.branch ?? "your checkout"}`,
@@ -70,13 +88,26 @@ export function GitDialog(props: {
   const reviewers = parseReviewers(reviewerText);
   const submit = () => {
     const title = subject.trim();
-    if (!title || props.pending || nothing || (commit && !files)) return;
+    if (!title || staleDraft || props.pending || nothing || (commit && !files)) return;
     if ("error" in reviewers) return setError(reviewers.error);
     setError(undefined);
     const message = body.trim() ? `${title}\n\n${body.trim()}` : title;
     const change: GitChange = commit
-      ? { kind: "commit", message, push, paths: pathsOf(files ?? [], chosen) }
-      : { kind: "create-pr", title, summary: body.trim(), draft, ...reviewers };
+      ? {
+          kind: "commit",
+          message,
+          push,
+          paths: pathsOf(files ?? [], chosen),
+          draftFingerprint: draftSource?.fingerprint,
+        }
+      : {
+          kind: "create-pr",
+          title,
+          summary: body.trim(),
+          draft,
+          draftFingerprint: draftSource?.fingerprint,
+          ...reviewers,
+        };
     props
       .onSubmit(change)
       .then(props.onClose, (failure: unknown) =>
@@ -124,15 +155,52 @@ export function GitDialog(props: {
               value={subject}
               maxLength={commit ? 200 : 256}
               autoFocus
-              onChange={(event) => setSubject(event.target.value)}
+              onChange={(event) => {
+                setSubject(event.target.value);
+                setTextRevision((value) => value + 1);
+              }}
             />
             <Textarea
               aria-label={commit ? "Commit details" : "Pull request description"}
               placeholder={commit ? "Details (optional)" : "What changed and why (optional)"}
               value={body}
               maxLength={8000}
-              onChange={(event) => setBody(event.target.value)}
+              onChange={(event) => {
+                setBody(event.target.value);
+                setTextRevision((value) => value + 1);
+              }}
             />
+            <DraftWriter
+              thread={props.thread}
+              selection={selection}
+              textRevision={textRevision}
+              disabled={props.pending}
+              onApply={(generated, context) => {
+                setSubject(generated.subject);
+                setBody(generated.body);
+                setTextRevision((value) => value + 1);
+                setDraftSource({ fingerprint: context.fingerprint, selection: selectionKey });
+              }}
+            />
+            {draftSource && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span>
+                  {staleDraft
+                    ? "The draft's selected files changed. Generate again or discard the draft."
+                    : "Draft applied. Review and edit before submitting."}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setDraftSource(undefined);
+                  }}
+                >
+                  Discard draft tracking
+                </Button>
+              </div>
+            )}
             {!commit && <ReviewerField onChange={setReviewerText} />}
             {/* In a form, a one-off option is a checkbox; switches are for settings. */}
             {commit ? (
@@ -174,7 +242,9 @@ export function GitDialog(props: {
             <Button
               type="submit"
               variant="primary"
-              disabled={!subject.trim() || props.pending || nothing || (commit && !files)}
+              disabled={
+                !subject.trim() || staleDraft || props.pending || nothing || (commit && !files)
+              }
             >
               {props.pending && <Spinner />}
               {text.submit}

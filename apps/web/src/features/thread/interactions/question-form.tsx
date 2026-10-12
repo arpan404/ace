@@ -226,14 +226,6 @@ function QuestionField(props: {
           ) : (
             <RadioGroupItem value={option.id} disabled={props.disabled} className="mt-0.5" />
           )}
-          {index < 9 && (
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-0 mt-0.5 bg-background text-center text-xs text-subtle-foreground opacity-0 group-hover/option:opacity-100"
-            >
-              {index + 1}
-            </span>
-          )}
         </span>
         {/* The option's words, its description under them so a narrow card never wraps
                 them into columns. */}
@@ -248,6 +240,11 @@ function QuestionField(props: {
             <span className="block text-sm text-subtle-foreground">{option.description}</span>
           )}
         </span>
+        {index < 9 && (
+          <span aria-hidden className="shrink-0 self-center text-xs text-subtle-foreground">
+            {index + 1}
+          </span>
+        )}
       </label>
     );
   });

@@ -25,6 +25,7 @@ export function createSettingsSession(context: SocketContext): SocketService {
     resetKeys: () =>
       SettingsKey.options.filter(
         (key) =>
+          key !== "sourceControl.preferences" &&
           key !== "projects.roots" &&
           key !== "clients.theme" &&
           (!(key.startsWith("host.") || key.startsWith("remote.")) ||
@@ -37,7 +38,8 @@ export function createSettingsSession(context: SocketContext): SocketService {
     },
     authorize: (request) =>
       request.type === "settings.set" &&
-      (request.key === "projects.roots" ||
+      (request.key === "sourceControl.preferences" ||
+        request.key === "projects.roots" ||
         request.key === "providers.configuration" ||
         request.key.startsWith("host.") ||
         request.key.startsWith("remote."))

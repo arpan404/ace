@@ -4,6 +4,7 @@ import { RemoteReturns } from "../agent-control/remote-return.ts";
 import { prepareRemoteContext } from "../agent-control/remote-context-source.ts";
 import { loadHostId } from "../local-files.ts";
 import { RemoteDelegations } from "../agent-control/remote.ts";
+import { RemoteTaskJournal } from "../agent-control/remote-journal.ts";
 import { logError } from "@ace/diagnostics";
 import { agentControlCall } from "./agent-control-failure.ts";
 import { createAgentOwners } from "../agent-control/owners.ts";
@@ -22,12 +23,13 @@ export function startAgentControl(context: ServiceContext): void {
     maintenance = server.maintenance;
   });
   let remote: RemoteDelegations | undefined;
+  // Recovery needs remote accounting before the remote execution owner is constructed.
+  const remoteTasks = new RemoteTaskJournal(store);
   const delegations = new DelegationService({
     externalCapacity: (parent, root) => ({
-      concurrent:
-        remote?.journal.active().filter((task) => task.parentThreadId === parent).length ?? 0,
-      children: remote?.journal.root(root).children ?? 0,
-      usage: remote?.journal.root(root).usage ?? { tokens: 0, cost: 0 },
+      concurrent: remoteTasks.active().filter((task) => task.parentThreadId === parent).length,
+      children: remoteTasks.root(root).children,
+      usage: remoteTasks.root(root).usage,
     }),
     store,
     engine,
@@ -96,7 +98,10 @@ export function startAgentControl(context: ServiceContext): void {
     context: services.context,
     files: services.threadFiles,
     hostId: loadHostId(context.config.dataDir),
+    usage: (thread) => delegations.journal.tree(thread, now()).usage,
   });
+  resources.own(() => publications.close());
+  resources.onShutdown(() => publications.close());
   remote = new RemoteDelegations({
     resolveArtifacts: async (task) => {
       const ownedContext = services.context;

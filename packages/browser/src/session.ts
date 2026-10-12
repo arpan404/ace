@@ -264,8 +264,28 @@ export class BrowserSession {
     return this.queue.run(work);
   }
   execute(raw: unknown, actor: Actor = { kind: "agent" }, signal?: AbortSignal): Promise<unknown> {
+    return this.submit(BrowserCommand.parse(raw), actor, signal);
+  }
+  /** Popup events capture the submitting lease and page before entering the normal command queue. */
+  async popup(
+    url: string,
+    target: { current(): boolean; navigate(): Promise<void> },
+  ): Promise<void> {
+    const actor: Actor = this.initiatingHuman()
+      ? { kind: "human", connectionId: this.ownership.owner ?? "" }
+      : { kind: "agent" };
+    await this.submit(BrowserCommand.parse({ action: "navigate", url }), actor, undefined, target);
+  }
+  private submit(
+    command: BrowserCommand,
+    actor: Actor,
+    signal?: AbortSignal,
+    target?: { current(): boolean; navigate(): Promise<void> },
+  ): Promise<unknown> {
     this.lastActivity = this.options.now();
-    const command = BrowserCommand.parse(raw);
+    const checkTarget = () => {
+      if (target && !target.current()) throw new BrowserActionError("backend_changed");
+    };
     const submittedGeneration = this.ownership.generation;
     const privateEpoch = this.ownership.epoch;
     // Dialog answers cannot wait behind a renderer command paused by that dialog.
@@ -282,6 +302,7 @@ export class BrowserSession {
       })();
     return this.enqueue(async () => {
       signal?.throwIfAborted();
+      checkTarget();
       this.readCheck(actor, privateEpoch);
       if (this.closed) throw new BrowserActionError("browser_closed");
       if (mutatesBrowser(command)) {
@@ -315,7 +336,7 @@ export class BrowserSession {
       let result: unknown;
       try {
         result = await this.queue.untilDialog(() =>
-          this.run(command, actor, signal, submittedGeneration),
+          this.run(command, actor, signal, submittedGeneration, checkTarget, target?.navigate),
         );
       } catch (error) {
         if (error instanceof BrowserOriginError) this.blockedNavigation(error.blocked);
@@ -378,11 +399,13 @@ export class BrowserSession {
     signal: AbortSignal | undefined,
     generation: number,
     beforeInput?: () => void,
+    navigate?: () => Promise<void>,
   ): Promise<unknown> {
     const epoch = this.ownership.epoch;
     return executeBrowserCommand(command, actor, signal, generation, {
       options: this.options,
       beforeInput,
+      navigate,
       refs: this.refs,
       logs: this.logs,
       policies: this.policies,

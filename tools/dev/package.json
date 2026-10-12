@@ -7,12 +7,13 @@
     ".": "./src/runner.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
     "@ace/daemon": "workspace:*",
     "@ace/fake-daemon": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "zod": "^4.6.5"
   }
 }

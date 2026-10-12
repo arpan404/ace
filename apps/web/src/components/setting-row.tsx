@@ -51,7 +51,12 @@ export function SettingRow(props: {
         flashing && "bg-accent",
       )}
     >
-      <div className={cn("flex min-h-9 items-center gap-3 py-1")}>
+      <div
+        className={cn(
+          "flex min-h-(--row-height) items-center gap-3 py-(--setting-row-padding)",
+          !props.inline && "@max-[440px]:flex-col @max-[440px]:items-stretch",
+        )}
+      >
         <div className="min-w-0 flex-1">
           {compact && props.description ? (
             <Tip label={props.description}>
@@ -84,7 +89,7 @@ export function SettingRow(props: {
             <p
               id={hintId}
               title={typeof props.description === "string" ? props.description : undefined}
-              className="truncate text-xs text-muted-foreground"
+              className="text-xs text-muted-foreground"
             >
               {props.description}
             </p>
@@ -94,6 +99,8 @@ export function SettingRow(props: {
           <div
             className={cn(
               "ml-auto flex min-w-0 max-w-[60%] shrink-0 flex-wrap items-center justify-end gap-2 *:max-w-full",
+              !props.inline &&
+                "@max-[440px]:ml-0 @max-[440px]:max-w-full @max-[440px]:justify-start",
             )}
           >
             {props.children}
