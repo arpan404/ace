@@ -1,3 +1,4 @@
+import { createContext, use } from "react";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
 import { type ThreadCard } from "@ace/ui-core";
 import { formatSpan } from "@ace/ui-core";
@@ -104,7 +105,7 @@ export function RowTime(props: { card: ThreadCard }) {
  */
 export function RowContext(props: { card: ThreadCard }) {
   const { card } = props;
-  const devices = useConnectedDevices() > 1;
+  const devices = use(ManyDevices);
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
       {card.branch && (
@@ -139,9 +140,14 @@ export function RowContext(props: { card: ThreadCard }) {
   );
 }
 
-/** How many of the person's machines are connected now. */
-function useConnectedDevices(): number {
-  return useMachines().filter((machine) => machine.status === "online").length;
+/**
+ * More than one of the person's devices is connected: rows show their machine's icon. The list
+ * reads the machines once and hands the answer to every row.
+ */
+export const ManyDevices = createContext(false);
+
+export function useManyDevices(): boolean {
+  return useMachines().filter((machine) => machine.status === "online").length > 1;
 }
 
 /** Unread results and requests take priority over the canonical dimmed flag. */

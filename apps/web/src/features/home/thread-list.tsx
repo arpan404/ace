@@ -21,6 +21,7 @@ import { matchesChord } from "@/lib/hotkeys.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
 import { focusListRow, rowFocusSelector } from "./list-focus.ts";
+import { ManyDevices, useManyDevices } from "./row-parts.tsx";
 import { ThreadRow } from "./thread-row.tsx";
 import { UnsentRows } from "./unsent-rows.tsx";
 import type { HomeList } from "./use-home-threads.ts";
@@ -290,8 +291,9 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
     });
   };
   const movingSet = useMemo(() => new Set(moving), [moving]);
+  const manyDevices = useManyDevices();
   return (
-    <>
+    <ManyDevices value={manyDevices}>
       <div
         ref={viewport}
         {...hold.handlers}
@@ -426,7 +428,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
           <BulkBar.Component />
         </Suspense>
       )}
-    </>
+    </ManyDevices>
   );
 }
 
