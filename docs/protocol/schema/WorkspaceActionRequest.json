@@ -322,6 +322,68 @@
         },
         {
           "properties": {
+            "op": {
+              "const": "git.draft.context",
+              "type": "string"
+            },
+            "selection": {
+              "$ref": "https://ace.local/protocol/v1/SourceControlSelection.json"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "op",
+            "threadId",
+            "selection"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "input": {
+              "$ref": "https://ace.local/protocol/v1/SourceControlDraftInput.json"
+            },
+            "op": {
+              "const": "git.draft.generate",
+              "type": "string"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "op",
+            "threadId",
+            "input"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "generationId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "op": {
+              "const": "git.draft.cancel",
+              "type": "string"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "op",
+            "threadId",
+            "generationId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "before": {
               "default": 9007199254740991,
               "exclusiveMinimum": 0,

@@ -38,6 +38,10 @@ Each agent CLI owns its credentials. ace can start its login or hand a pasted AP
 The [agent browser and computer tool contract](docs/daemon/agent-tools.md) documents
 scoped MCP calls, navigation waits, origin approval and control handback.
 
+The [source-control draft workflow](docs/daemon/source-control-drafts.md) documents
+editable commit and PR text generated through the user's own CLI, source revisions
+and cancellation.
+
 The generated [protocol reference](docs/protocol/README.md) covers WebSocket messages, canonical events and built-in MCP tools. Regenerate it with `bun run docs:protocol`.
 
 ## Development
@@ -86,8 +90,10 @@ daemon's demo threads into an empty dev store before the daemon starts
 spawns one. The packaged app reuses a daemon already serving `ACE_HOME` (the CLI, or the login
 service from `ace service install`) and only starts its bundled daemon when none answers. To use
 a daemon on another machine, start the app with `ACE_DAEMON_URL=wss://host:port/` and
-`ACE_DAEMON_TOKEN=<64 hex>` (or `ACE_DAEMON_TOKEN_FILE`); in the browser build, enter the
-address and a paired-device token on the connection screen.
+`ACE_DAEMON_TOKEN=<paired device token>` (or `ACE_DAEMON_TOKEN_FILE`) and
+`ACE_DAEMON_DEVICE_ID=<paired device ID>`; use the credentials issued when pairing this
+device, rather than the host token printed by `ace token`. In the browser build, enter the
+address, paired-device token and paired device ID on the connection screen.
 
 **node-pty and Electron.** node-pty 1.x is a Node-API addon, so its npm prebuilds load in
 Electron's Node (ABI 149 in Electron 44) as well as in Node 24. The desktop app runs the daemon
@@ -108,6 +114,15 @@ has no prebuilds: run `bun run desktop:rebuild-native` before `desktop:build` th
   is up; check the `daemon │` lines meanwhile.
 - **Screen helper skipped during a build:** the Swift (macOS) or Rust (Windows, Linux) toolchain
   is missing. The app works without it; screen and computer use stay off.
+
+`bun run typecheck` uses incremental declaration builds and checks the original
+package programs, root test tooling, and browser-only client runtime. One native
+compiler runs at a time, with at most two project builders and two CPU threads.
+`bun run --filter @ace/protocol typecheck` checks a workspace and its dependencies.
+Use `bun run typecheck:clean` to remove the caches. See
+[incremental typechecking](docs/build/typecheck.md) for the design and cache rules.
+CI also runs `bun run typecheck:full`, checking every original program from source
+with fresh build info as an independent safety net for declaration inference.
 
 Tests run in separate unit and process projects with bounded concurrency. See
 [process test reliability](docs/testing/process-tests.md) for the real-I/O suite

@@ -64,17 +64,11 @@ async function openCard() {
 async function gitStep(name: string) {
   const card = await openCard();
   if (name === "Commit & push" || name === "Push") {
-    await userEvent.click(within(card).getByRole("button", { name: "Git actions" }));
+    await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
     return screen.findByRole("menuitem", { name: name === "Push" ? "Push" : "Commit & push…" });
   }
-  return within(card).findByRole("button", { name });
-}
-
-/** A git action from the card's branch row ⋯. */
-async function gitMenu(item: RegExp) {
-  const card = await openCard();
-  await userEvent.click(await within(card).findByRole("button", { name: "Git actions" }));
-  return screen.findByRole("menuitem", { name: item });
+  await userEvent.click(within(card).getByRole("button", { name: "Commit and push options" }));
+  return screen.findByRole("menuitem", { name: `${name}…` });
 }
 
 /** A one-thread scenario with this checkout, and only the root agent (the thread is idle). */
@@ -146,20 +140,22 @@ test("the work card opens under its button and closes on Escape, giving focus ba
   await openThread();
   const button = within(header()).getByRole("button", { name: /^Work card/ });
   const card = await openCard();
-  expect(button.getAttribute("aria-pressed")).toBe("true");
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toBe("relay · Local");
+  expect(button.getAttribute("aria-expanded")).toBe("true");
+  expect(await within(card).findByRole("heading", { level: 2, name: "Fake machine" })).toBeTruthy();
 
   await userEvent.keyboard("{Escape}");
   await waitFor(() =>
     expect(screen.queryByRole("complementary", { name: /^Work card/ })).toBeNull(),
   );
   expect(document.activeElement).toBe(button);
-  expect(button.getAttribute("aria-pressed")).toBe("false");
+  expect(button.getAttribute("aria-expanded")).toBe("false");
 
   await openCard();
   await userEvent.click(screen.getByRole("feed", { name: "Transcript" }));
-  expect(screen.getByRole("complementary", { name: /^Work card/ })).toBeTruthy();
-  await userEvent.click(button);
+  await waitFor(() =>
+    expect(screen.queryByRole("complementary", { name: /^Work card/ })).toBeNull(),
+  );
+  expect(button.getAttribute("aria-expanded")).toBe("false");
 
   // ⌥⌘O toggles it from anywhere on the thread.
   await act(() => userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}"));
@@ -334,16 +330,18 @@ test("the branch keeps its complete status and one commit entry point", async ()
   await app.open("/t/thread-branch");
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
-  expect(await within(card).findByText("· 3 files")).toBeTruthy();
+  expect(
+    await within(card).findByRole("button", { name: "Changes, 3 files: 38 added, 6 removed" }),
+  ).toBeTruthy();
   await userEvent.hover(
-    within(within(card).getByRole("region", { name: "Changes and branch" })).getByText(branch),
+    within(within(card).getByRole("region", { name: "Source control" })).getByText(branch),
   );
   expect((await screen.findByRole("tooltip")).textContent).toBe(`${branch} → main, 0 ahead`);
   await userEvent.unhover(
-    within(within(card).getByRole("region", { name: "Changes and branch" })).getByText(branch),
+    within(within(card).getByRole("region", { name: "Source control" })).getByText(branch),
   );
-  expect(within(card).getAllByRole("button", { name: /^Commit/ })).toHaveLength(1);
-  await userEvent.click(within(card).getByRole("button", { name: "Git actions" }));
+  expect(within(card).getByRole("button", { name: "Commit & push" })).toBeTruthy();
+  await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await screen.findByRole("menu");
   expect(screen.getByRole("menuitem", { name: /^Commit & push/ })).toBeTruthy();
 });
@@ -355,7 +353,7 @@ test("a provider MCP server waiting for its own sign-in shows nowhere in the thr
   await app.open("/t/thread-mcp");
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
-  await within(within(card).getByRole("region", { name: "Changes and branch" })).findByText(
+  await within(within(card).getByRole("region", { name: "Source control" })).findByText(
     "sketch/parser",
   );
   expect(within(card).queryByRole("region", { name: "Sources" })).toBeNull();
@@ -508,11 +506,18 @@ test("the card says when the thread's directory isn't a git checkout, and offers
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
   expect(await within(card).findByText("Not a git checkout")).toBeTruthy();
-  expect(within(card).queryByRole("button", { name: "Git actions" })).toBeNull();
   expect(within(card).queryByRole("button", { name: "Commit" })).toBeNull();
+  await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
+  const actions = await screen.findByRole("menu");
+  expect(within(actions).getByRole("menuitem", { name: "Copy path" })).toBeTruthy();
+  expect(
+    within(actions).queryByRole("menuitem", {
+      name: /Switch branch|Move to a worktree|Push|Create.*PR/,
+    }),
+  ).toBeNull();
 });
 
-test("with a linked PR, the card lists it, opens it, and says why a draft PR can't be created", async () => {
+test("with an open linked PR, the card opens it and omits new PR actions", async () => {
   const app = harness();
   app
     .play(
@@ -530,9 +535,12 @@ test("with a linked PR, the card lists it, opens it, and says why a draft PR can
   await app.open("/t/thread-linked-pr");
   await screen.findByRole("feed", { name: "Transcript" });
   const opened = vi.spyOn(window, "open").mockImplementation(() => null);
-  const draft = await gitMenu(/^Create draft PR/);
-  expect(draft.getAttribute("aria-disabled")).toBe("true");
-  expect(draft.getAttribute("aria-description")).toBe("PR #188 is already open");
+  const card = await openCard();
+  await within(card).findByRole("button", { name: /^Pull request #188/ });
+  expect(within(card).queryByRole("button", { name: "Create PR" })).toBeNull();
+  await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
+  const actions = await screen.findByRole("menu");
+  expect(within(actions).queryByRole("menuitem", { name: /^Create.*PR/ })).toBeNull();
   await userEvent.keyboard("{Escape}");
 
   const prs = within(screen.getByRole("complementary", { name: /^Work card/ })).getByRole(
@@ -647,7 +655,7 @@ test("past 500 files the list says it is cut short, and commits only what it lis
 test("project actions hide checkout moves while agents work", async () => {
   await openThread("checkout");
   const card = await openCard();
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("· Worktree");
+  expect(await within(card).findByRole("heading", { level: 2, name: "Fake machine" })).toBeTruthy();
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await screen.findByRole("menu");
   expect(screen.queryByRole("menuitem", { name: /Move to a worktree/ })).toBeNull();
@@ -665,7 +673,7 @@ test("from the card, an idle thread switches branch and moves into a worktree of
   expect(await screen.findByText("Switched to develop")).toBeTruthy();
   expect(
     (
-      await within(within(card).getByRole("region", { name: "Changes and branch" })).findByText(
+      await within(within(card).getByRole("region", { name: "Source control" })).findByText(
         "develop",
       )
     ).textContent,
@@ -674,7 +682,8 @@ test("from the card, an idle thread switches branch and moves into a worktree of
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to a worktree/ }));
   expect(await screen.findByText("Moved to a worktree")).toBeTruthy();
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("· Worktree");
+  const snapshot = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-idle") });
+  expect(snapshot && "thread" in snapshot && snapshot.thread.details?.mode).toBe("worktree");
 });
 
 // ---------------------------------------------------------------------------------------------

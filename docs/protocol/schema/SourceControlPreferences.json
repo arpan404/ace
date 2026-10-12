@@ -1,0 +1,51 @@
+{
+  "$id": "https://ace.local/protocol/v1/SourceControlPreferences.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    {
+      "host": "github.com",
+      "hosts": [
+        {
+          "host": "github.com"
+        }
+      ],
+      "remote": "origin"
+    }
+  ],
+  "properties": {
+    "host": {
+      "$ref": "https://ace.local/protocol/v1/GitHubHost.json"
+    },
+    "hosts": {
+      "items": {
+        "properties": {
+          "account": {
+            "$ref": "https://ace.local/protocol/v1/GitHubAccount.json"
+          },
+          "host": {
+            "$ref": "https://ace.local/protocol/v1/GitHubHost.json"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "type": "object"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "type": "array"
+    },
+    "remote": {
+      "maxLength": 100,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "hosts",
+    "host",
+    "remote"
+  ],
+  "type": "object",
+  "x-ace-constraint": "Hosts are unique and the selected host must be configured"
+}

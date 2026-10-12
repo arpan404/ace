@@ -3,6 +3,7 @@ import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeHistory } from "./history-wire.ts";
 import { FakeMcpWire } from "./mcp-wire.ts";
 import {
+  SourceControlPreferences,
   BrowserClientMessage,
   ServerMessage,
   type ClientMessage,
@@ -243,8 +244,136 @@ export class FakeServicesWire {
             if (picker === controller) picker = undefined;
             return;
           }
+          if (message.type === "repositories.request") {
+            const operation = message.operation;
+            const permitted = this.host.canManageProjects?.(device) ?? true;
+            let cancellationError: string | undefined;
+            if (permitted && operation.op === "publication.cancel") {
+              try {
+                this.workspace.projects.cancelPublication(operation.workspaceId, device);
+              } catch (error) {
+                cancellationError = error instanceof Error ? error.message : "publication_failed";
+              }
+            }
+            const input = operation.op === "list" ? operation.input : null;
+            const all = input
+              ? [
+                  {
+                    id: 1,
+                    repository: { forge: "github", host: input.host, owner: "ada", name: "engine" },
+                    description: "A private coding project",
+                    visibility: "private",
+                    archived: false,
+                    fork: false,
+                    url: `https://${input.host}/ada/engine`,
+                    cloneUrl: `https://${input.host}/ada/engine.git`,
+                  },
+                  {
+                    id: 2,
+                    repository: {
+                      forge: "github",
+                      host: input.host,
+                      owner: "ace-org",
+                      name: "docs",
+                    },
+                    description: "Public organization documentation",
+                    visibility: "public",
+                    archived: false,
+                    fork: false,
+                    url: `https://${input.host}/ace-org/docs`,
+                    cloneUrl: `https://${input.host}/ace-org/docs.git`,
+                  },
+                  {
+                    id: 3,
+                    repository: {
+                      forge: "github",
+                      host: input.host,
+                      owner: "ada",
+                      name: "old-fork",
+                    },
+                    description: "Archived fork",
+                    visibility: "public",
+                    archived: true,
+                    fork: true,
+                    url: `https://${input.host}/ada/old-fork`,
+                    cloneUrl: `https://${input.host}/ada/old-fork.git`,
+                  },
+                ].filter(
+                  (row) =>
+                    (!input.owner || row.repository.owner === input.owner) &&
+                    (input.visibility === "all" || row.visibility === input.visibility) &&
+                    (input.archived === "all" || row.archived === (input.archived === "yes")) &&
+                    (input.fork === "all" || row.fork === (input.fork === "yes")) &&
+                    `${row.repository.owner}/${row.repository.name} ${row.description}`
+                      .toLowerCase()
+                      .includes(input.query.toLowerCase()),
+                )
+              : [];
+            emit(
+              ServerMessage.parse({
+                type: "repositories.result",
+                requestId: message.requestId,
+                result: cancellationError
+                  ? { kind: "error", code: cancellationError }
+                  : !permitted || (input && input.account !== "ada")
+                    ? { kind: "error", code: "forbidden" }
+                    : input
+                      ? {
+                          kind: "repositories",
+                          repositories: all,
+                          account: input.account,
+                          host: input.host,
+                        }
+                      : {
+                          kind: "publication",
+                          ...(operation.op !== "list"
+                            ? this.workspace.projects.publicationActivity(
+                                operation.workspaceId,
+                                device,
+                              )
+                            : { running: false, canStop: false }),
+                          publication:
+                            operation.op !== "list"
+                              ? this.workspace.projects.publication(operation.workspaceId)
+                              : null,
+                        },
+              }),
+            );
+            return;
+          }
+          if (message.type === "source-control.request") {
+            const preferences = SourceControlPreferences.parse(
+              this.settings.get("sourceControl.preferences"),
+            );
+            const expected = preferences.hosts.find(
+              (entry) => entry.host === preferences.host,
+            )?.account;
+            emit({
+              type: "source-control.result",
+              requestId: message.requestId,
+              result: {
+                kind: "readiness",
+                readiness: {
+                  preferences,
+                  cli: "available",
+                  version: "2.90.0",
+                  accounts: [{ login: "ada", active: true }],
+                  account: "ada",
+                  api: expected && expected !== "ada" ? "account_mismatch" : "ready",
+                  instructions:
+                    expected && expected !== "ada"
+                      ? `Run gh auth switch --hostname ${preferences.host} --user ${expected} on this computer, then Rescan.`
+                      : `GitHub API access verified as ada on ${preferences.host}.`,
+                  transport: "unchecked",
+                  transportInstructions:
+                    "API sign-in does not verify Git clone or push access. Configure your Git credential helper / SSH key on this computer.",
+                },
+              },
+            });
+            return;
+          }
           if (message.type === "workspace.request") {
-            emit(this.workspace.read(message));
+            emit(await this.workspace.read(message));
             return;
           }
           if (message.type === "diagnostics.request") {

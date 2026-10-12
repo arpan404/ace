@@ -1,5 +1,6 @@
 import {
   Notifications,
+  defaultLimits,
   type ChangeTap,
   type ClientError,
   type Selection,
@@ -48,6 +49,10 @@ export class MirrorThread implements ThreadSource {
   private meters = new Map<string, ContextMeter>();
   private snapshots = new Map<string, View["usageSnapshots"][string]>();
   private cut = new Set<string>();
+  private removed = new Set<string>();
+  deleted(id: string): boolean {
+    return this.removed.has(id);
+  }
   constructor(listeners: number) {
     this.notifications = new Notifications(listeners);
   }
@@ -119,6 +124,9 @@ export class MirrorThread implements ThreadSource {
   ): Selection<T> {
     return this.notifications.select(keys, () => selector(this), equal);
   }
+  observe(tap: ChangeTap): () => void {
+    return this.notifications.tap(tap);
+  }
   reset(copy: ThreadExport): void {
     const view = copy.view;
     this.failure = errorOf(copy.error);
@@ -140,6 +148,7 @@ export class MirrorThread implements ThreadSource {
     this.meters = entries(view?.contextMeters);
     this.snapshots = entries(view?.usageSnapshots);
     this.cut = new Set(copy.truncated);
+    this.removed = new Set(copy.deleted);
     this.notifications.emitAll();
   }
   apply(patches: readonly Patch[]): void {
@@ -182,6 +191,14 @@ export class MirrorThread implements ThreadSource {
         this.taskList = trusted<readonly string[] | undefined>(v) ?? none;
         return;
       case "item":
+        if (patch.deleted) {
+          this.removed.add(id);
+          while (this.removed.size > defaultLimits.entities) {
+            const oldest = this.removed.values().next().value;
+            if (oldest === undefined) break;
+            this.removed.delete(oldest);
+          }
+        } else this.removed.delete(id);
         this.patchItem(id, patch);
         return;
       case "agent":

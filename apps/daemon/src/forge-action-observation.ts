@@ -18,6 +18,7 @@ export const ForgeWriteReceipt = z.object({
   ),
   phase: z.enum(["pending", "accepted", "reconciled", "failed"]),
   actor: z.string().optional(),
+  replyBaseline: z.array(z.number().int().positive()).optional(),
 });
 export type ForgeWriteReceipt = z.infer<typeof ForgeWriteReceipt>;
 
@@ -29,8 +30,10 @@ export function observedWrite(receipt: ForgeWriteReceipt, status: ForgePrStatus)
   if (action.type === "forge.comment.reply")
     return (
       receipt.actor !== undefined &&
+      receipt.replyBaseline !== undefined &&
       status.comments.some(
         (comment) =>
+          !receipt.replyBaseline?.includes(comment.id) &&
           comment.kind === "inline" &&
           comment.replyTo === action.commentId &&
           comment.body === action.body &&
@@ -45,13 +48,14 @@ export function observedWrite(receipt: ForgeWriteReceipt, status: ForgePrStatus)
       }),
     })
     .safeParse(status.raw);
-  if (action.type === "forge.review.request")
-    return (
-      raw.success &&
-      action.reviewers.every((login) =>
-        raw.data.pr.requested_reviewers?.some((reviewer) => reviewer.login === login),
-      )
+  if (action.type === "forge.review.request") {
+    if (!raw.success) return false;
+    const observed = new Set(
+      raw.data.pr.requested_reviewers?.map((reviewer) => reviewer.login.toLowerCase()),
     );
+    const requested = new Set(action.reviewers.map((login) => login.toLowerCase()));
+    return [...requested].every((login) => observed.has(login));
+  }
   if (action.type === "forge.pr.auto-merge")
     return (
       status.headSha === action.headSha &&

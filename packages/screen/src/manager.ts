@@ -175,6 +175,11 @@ export class ScreenManager {
     this.authorizationRevision++;
     return this.accessPolicy.enable(enabled);
   }
+  /** Device approval keeps screen changes temporary until its tool lifetime commits. */
+  deviceAccess(threadId: string): import("./access.ts").ScreenDeviceAccess {
+    this.authorizationRevision++;
+    return this.accessPolicy.deviceAccess(threadId);
+  }
   approve(
     bundleId: string,
     allowed: boolean,
@@ -415,7 +420,7 @@ export class ScreenManager {
   async mode(
     id: string,
     mode: ScreenState["mode"],
-    signal = new AbortController().signal,
+    signal: AbortSignal = new AbortController().signal,
     reason = "This app requires foreground input",
   ) {
     const session = this.live(id),

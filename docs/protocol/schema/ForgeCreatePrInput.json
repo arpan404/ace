@@ -16,6 +16,10 @@
       "default": false,
       "type": "boolean"
     },
+    "expectedHead": {
+      "pattern": "^[a-f0-9]{40,64}$",
+      "type": "string"
+    },
     "summary": {
       "maxLength": 65536,
       "type": "string"

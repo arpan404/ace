@@ -14,13 +14,25 @@
 
   /* Layout. */
   /* A view's own list beside its column (Automations, Skills, Activity). */
-  --header-h: 50px;
+  --header-h: 44px;
   --column: 760px;
   /* Every composer footer control: plus, permission, model, meter, send and stop. */
   --composer-control: 32px;
   /* One edge of the transcript's scrollbar room; 0 with overlay scrollbars. */
   --transcript-gutter: 0px;
-  --transcript-size: 15.5px;
+  --transcript-size: 14px;
+
+  /* Shared control and detail surfaces. Density changes rows, never minimum touch targets. */
+  --control-height: 30px;
+  --control-height-sm: 26px;
+  --row-height: 36px;
+  --surface-inset: 12px;
+  --surface-gap: 8px;
+  --theme-preview-height: 88px;
+  --work-details-width: 360px;
+  --setting-row-padding: 14px;
+  --picker-row-padding: 12px;
+  --picker-row-height: 48px;
 
   /* Glass intensity (Appearance slider) times the OS transparency preference. */
   --glass: 1;
@@ -49,4 +61,10 @@
   :root {
     --glass-on: 0;
   }
+}
+
+:root[data-density="compact"] {
+  --row-height: 32px;
+  --setting-row-padding: 8px;
+  --picker-row-padding: 10px;
 }

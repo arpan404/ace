@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Synthetic recorded responses only. Never contacts GitHub or provider CLIs.
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, watch } from "node:fs";
+import { dirname, join } from "node:path";
 const config = JSON.parse(readFileSync(process.env.FORGE_FIXTURE, "utf8"));
 const statePath = process.env.FORGE_STATE;
 let state;
@@ -33,6 +34,21 @@ const response = records[Math.min(count, records.length - 1)];
 state.counters[fixturePath] = count + 1;
 state.requests.push({ path, args, ...(body === undefined ? {} : { body }) });
 writeFileSync(statePath, JSON.stringify(state));
+if (response.barrier) {
+  const dir = dirname(process.env.FORGE_FIXTURE);
+  const gate = join(dir, response.barrier);
+  const released = Promise.withResolvers();
+  const observer = watch(dir, () => {
+    if (existsSync(gate)) released.resolve();
+  });
+  observer.on("error", released.reject);
+  try {
+    if (existsSync(gate)) released.resolve();
+    await released.promise;
+  } finally {
+    observer.close();
+  }
+}
 if (response.wait) {
   setInterval(() => {}, 1000);
 } else if (response.repeat) {

@@ -1,4 +1,6 @@
+import { projectIntent } from "./project-intents.ts";
 import { MachineIcon } from "@ace/protocol";
+import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.ts";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
 import { FakeWorktreeCreations } from "./worktree-creation.ts";
 import { prepareFakeDelete, reconcileFakeTerminals, withExitFacts } from "./thread-lifecycle.ts";
@@ -333,7 +335,12 @@ export class FakeDaemon implements Host {
   /** Threads' checkouts behind `workspace.request` and the git commands (`git.status`). */
   get workspace(): Pick<
     FakeWorkspaceWire,
-    "gitStatus" | "setGitStatus" | "setGitDiff" | "setEditors" | "setForgeRead"
+    | "gitStatus"
+    | "setGitStatus"
+    | "setGitDiff"
+    | "setEditors"
+    | "setForgeRead"
+    | "setDraftGenerator"
   > {
     return this.servicesWire.workspace;
   }
@@ -354,21 +361,19 @@ export class FakeDaemon implements Host {
   /** Fault injection: a restart lost proof that a queued message reached its provider. */
   uncertainQueuedMessage(threadId: string, messageId: string): void {
     const host = this.thread(threadId);
-    const message = host.queued.find((entry) => entry.key === messageId);
-    if (!message) throw new Error("No queued message to make uncertain");
-    message.state = "uncertain";
-    host.queue.paused = true;
-    host.queue.reason = "uncertain";
-    host.queueDirty = true;
+    markUncertainInput(host, messageId);
+    this.afterChange(host, this.options.clock());
+  }
+  /** A legacy daemon lost admission proof after filling the follow-up queue. */
+  restoreUncertainInput(threadId: string, value: unknown): void {
+    const host = this.thread(threadId);
+    restoreInput(host, value);
     this.afterChange(host, this.options.clock());
   }
   /** Fault injection: old snapshots repeated an input under two delivery states. */
   repeatQueuedInput(threadId: string, messageId: string): void {
     const host = this.thread(threadId);
-    const message = host.queued.find((entry) => entry.key === messageId);
-    if (!message) throw new Error("No queued input to repeat");
-    host.queued.push({ ...message, state: "queued" });
-    host.queueDirty = true;
+    repeatInput(host, messageId);
     this.afterChange(host, this.options.clock());
   }
   /** Simulate a pre-delivery failure without contacting any provider. Queued input is retained. */
@@ -985,33 +990,16 @@ export class FakeDaemon implements Host {
     }
     if (!this.canManageProjects(command.deviceId))
       return Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
-    if (command.payload.type !== "workspace.clone") return Promise.resolve(this.command(command));
-    // `refuseCommands` covers clones too: a clone Git refuses (sign-in, network) fails at once.
-    const refusal = this.refusals.get(command.payload.type);
-    if (refusal) return Promise.resolve({ commandId: command.id, ok: false, error: refusal });
-    const prior = this.receipts.get(command.id);
-    if (prior)
-      return Promise.resolve(
-        prior.deviceId === command.deviceId
-          ? prior.result
-          : { commandId: command.id, ok: false, error: "forbidden" },
-      );
-    const pending = this.projectFlights.get(command.id);
-    if (pending)
-      return pending.device === command.deviceId
-        ? pending.result
-        : Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
-    const result = this.servicesWire.workspace.projects
-      .clone(command.payload, command.id, command.deviceId)
-      .then((outcome) => {
-        const receipt = { commandId: command.id, ...outcome };
-        this.receipts.set(command.id, { deviceId: command.deviceId, result: receipt });
-        this.projectFlights.delete(command.id);
-        return receipt;
-      });
-    this.projectFlights.set(command.id, { device: command.deviceId, result });
-    return result;
+    if (command.payload.type !== "workspace.clone" && command.payload.type !== "workspace.publish")
+      return Promise.resolve(this.command(command));
+    return projectIntent(command, {
+      projects: this.servicesWire.workspace.projects,
+      receipts: this.receipts,
+      flights: this.projectFlights,
+      refusal: this.refusals.get(command.payload.type),
+    });
   }
+
   command(command: Command): CommandResult {
     const previous = this.receipts.get(command.id);
     if (previous)
@@ -1090,6 +1078,7 @@ export class FakeDaemon implements Host {
         "workspace.add",
         "workspace.create",
         "workspace.clone",
+        "workspace.publish",
         "workspace.rename",
         "workspace.update",
         "workspace.remove",

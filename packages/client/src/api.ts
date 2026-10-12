@@ -40,6 +40,8 @@ import type { ClientError, ConnectionInfo, ConnectionState, RequestOptions } fro
 
 /** A thread's live state with keyed change notification. */
 export interface ThreadSource extends ThreadReader {
+  /** Follow canonical change keys, including snapshot replacement, for shared projections. */
+  observe(tap: ChangeTap): () => void;
   select<T>(
     keys: readonly ThreadKey[],
     selector: (reader: ThreadReader) => T,
@@ -165,6 +167,7 @@ export interface ThreadExport {
   error: { code: ClientError["code"]; message: string } | undefined;
   view: Omit<ThreadView, "itemSeqs" | "kind"> | undefined;
   truncated: string[];
+  deleted?: string[];
 }
 export interface SidebarExport {
   loaded?: boolean | undefined;

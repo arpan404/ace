@@ -1,9 +1,15 @@
 import { ForgeHostedLifecycleCommand } from "./forge-lifecycle.ts";
+import {
+  SourceControlSelection,
+  SourceControlContext,
+  SourceControlDraft,
+  SourceControlDraftInput,
+} from "./source-control-draft.ts";
 import { Project } from "./projects.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import { ForgeBrowserOperations, ForgeBrowserResult } from "./forge-browser.ts";
-import { ForgePrStatus } from "./forge.ts";
+import { ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { Run } from "./thread.ts";
 import { ThreadDetails } from "./thread-client.ts";
 import { BranchRef } from "./worktree-base.ts";
@@ -61,6 +67,17 @@ export const WorkspaceActionRequest = z.object({
     z.object({ op: z.literal("git.status"), threadId: ThreadId }),
     z.object({ op: z.literal("git.diff"), threadId: ThreadId }),
     z.object({
+      op: z.literal("git.draft.context"),
+      threadId: ThreadId,
+      selection: SourceControlSelection,
+    }),
+    z.object({
+      op: z.literal("git.draft.generate"),
+      threadId: ThreadId,
+      input: SourceControlDraftInput,
+    }),
+    z.object({ op: z.literal("git.draft.cancel"), threadId: ThreadId, generationId: id }),
+    z.object({
       op: z.literal("runs.list"),
       threadId: ThreadId,
       before: z
@@ -114,6 +131,13 @@ export const WorkspaceActionResult = z.object({
       workspaces: z.array(Project).max(100),
       next: id.optional(),
     }),
+    z.object({ kind: z.literal("draftContext"), context: SourceControlContext }),
+    z.object({
+      kind: z.literal("draft"),
+      draft: SourceControlDraft,
+      context: SourceControlContext,
+    }),
+    z.object({ kind: z.literal("draftCancelled") }),
     z.object({ kind: z.literal("error"), code: z.string().max(128) }),
   ]),
 });
@@ -139,6 +163,7 @@ export const WorkspaceCommands = [
       .max(8192)
       .refine((value) => value.trim().length > 0)
       .meta({ "x-ace-constraint": "Must contain a non-whitespace commit message." }),
+    draftFingerprint: SourceControlContext.shape.fingerprint.optional(),
     expectedHead: z
       .string()
       .regex(/^[a-f0-9]{40,64}$/)
@@ -157,6 +182,17 @@ export const WorkspaceCommands = [
     type: z.literal("git.push"),
     threadId: ThreadId,
     remote: z.string().min(1).max(128).default("origin"),
+    /** Pin a PR's pushed head and repository to the checkout the person reviewed. */
+    target: z
+      .object({
+        repository: ForgeRepository,
+        branch: z.string().min(1).max(256),
+        head: z
+          .string()
+          .regex(/^[a-f0-9]{40,64}$/)
+          .nullable(),
+      })
+      .optional(),
   }),
 ] as const;
 

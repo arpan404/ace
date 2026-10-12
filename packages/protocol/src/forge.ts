@@ -1,3 +1,4 @@
+import { SourceControlContext } from "./source-control-draft.ts";
 import { z } from "zod";
 
 const text = z.string().max(65_536);
@@ -110,6 +111,10 @@ export const ForgeAutoFixIntent = z.object({
 });
 export type ForgeAutoFixIntent = z.infer<typeof ForgeAutoFixIntent>;
 export const ForgeCreatePrInput = z.object({
+  expectedHead: z
+    .string()
+    .regex(/^[a-f0-9]{40,64}$/)
+    .optional(),
   branch: z.string().min(1).max(256),
   base: z.string().min(1).max(256),
   title: z.string().min(1).max(256),
@@ -125,6 +130,8 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     threadId: z.string(),
     repository: ForgeRepository,
     input: ForgeCreatePrInput,
+    draftFingerprint: SourceControlContext.shape.fingerprint.optional(),
+    draftBaseRef: z.string().min(1).max(1200).optional(),
   }),
   z.object({ type: z.literal("forge.pr.link"), link: ForgeThreadLink }),
   z

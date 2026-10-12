@@ -2,13 +2,17 @@ import type { DatabaseSync, StatementSync } from "node:sqlite";
 import type { AgentRecord, ThreadState } from "@ace/core";
 import type { EventPayload } from "@ace/protocol";
 import { recordSchemas } from "./snapshot.ts";
-function agentReady(record: AgentRecord): boolean {
+function agentReady(record: AgentRecord, now: number): boolean {
   return (
     !record.activeRun &&
-    record.wakeUntil === undefined &&
+    (record.wakeUntil === undefined || record.wakeUntil <= now) &&
     record.disconnectedAt === undefined &&
     (["idle", "interrupted", "failed"].includes(record.agent.status.state) ||
-      (record.agent.status.state === "blocked" && record.agent.status.on === "rate_limit"))
+      (record.agent.status.state === "blocked" && record.agent.status.on === "rate_limit") ||
+      (record.agent.status.state === "working" &&
+        record.agent.status.activity === "starting_turn" &&
+        record.wakeUntil !== undefined &&
+        record.wakeUntil <= now))
   );
 }
 /** Stores only blockers. Delta handling never enumerates historical agents. */
@@ -17,10 +21,9 @@ export class TransitionReadiness {
   private remove: StatementSync;
   private find: StatementSync;
   private keys: StatementSync;
-  constructor(db: DatabaseSync) {
-    const exists = db
-      .prepare("SELECT name FROM sqlite_master WHERE name='engine_transition_blockers'")
-      .get();
+  private now: () => number;
+  constructor(db: DatabaseSync, now: () => number) {
+    this.now = now;
     db.exec(`CREATE TABLE IF NOT EXISTS engine_transition_blockers (
       thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
       agent_key TEXT NOT NULL, PRIMARY KEY(thread_id, agent_key)
@@ -33,17 +36,17 @@ export class TransitionReadiness {
       "SELECT agent_key FROM engine_transition_blockers WHERE thread_id=? LIMIT 1",
     );
     this.keys = db.prepare("SELECT agent_key FROM engine_transition_blockers WHERE thread_id=?");
-    if (!exists)
-      for (const row of db
-        .prepare("SELECT thread_id,key,value FROM engine_state_records WHERE section='agents'")
-        .iterate()) {
-        const record = recordSchemas.agents.parse(JSON.parse(String(row.value)));
-        if (!agentReady(record)) this.put.run(String(row.thread_id), String(row.key));
-      }
+    db.exec("DELETE FROM engine_transition_blockers");
+    for (const row of db
+      .prepare("SELECT thread_id,key,value FROM engine_state_records WHERE section='agents'")
+      .iterate()) {
+      const record = recordSchemas.agents.parse(JSON.parse(String(row.value)));
+      if (!agentReady(record, this.now())) this.put.run(String(row.thread_id), String(row.key));
+    }
   }
   private update(state: ThreadState, key: string): void {
     const record = state.agents[key];
-    if (!record || agentReady(record)) this.remove.run(state.threadId, key);
+    if (!record || agentReady(record, this.now())) this.remove.run(state.threadId, key);
     else this.put.run(state.threadId, key);
   }
   capture(state: ThreadState, events: readonly EventPayload[]): void {

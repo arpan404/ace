@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "dev": "node scripts/dev.ts",
     "build": "node scripts/build.ts",
     "package": "node scripts/package.ts",
@@ -15,14 +15,15 @@
     "measure:memory": "node scripts/measure-memory.ts"
   },
   "dependencies": {
+    "@ace/browser": "workspace:*",
     "@ace/client": "workspace:*",
     "@ace/diagnostics": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/service": "workspace:*",
+    "@ace/ui-core": "workspace:*",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@ace/browser": "workspace:*",
     "@ace/daemon": "workspace:*",
     "@ace/release": "workspace:*",
     "@electron/rebuild": "4.2.0",

@@ -1,6 +1,7 @@
 import { AppWindowIcon } from "@phosphor-icons/react";
 import { folderName, parentFolder, projectProblem } from "@ace/ui-core";
 import { useEffect, useRef, useState } from "react";
+import { useDaemonConnection } from "@/boot/connection.tsx";
 import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -33,12 +34,25 @@ export function OpenFolderTab(props: {
     return parent ? `${parent.replace(/\/+$/, "")}/` : "";
   });
   const [highlighted, setHighlighted] = useState<FolderRow>();
+  const [pickedKey, setPickedKey] = useState<string | undefined>(() =>
+    props.attempt ? `${machine.id}\u0000${props.attempt.path}` : undefined,
+  );
   const [problem, setProblem] = useState<
-    { key: string; message: string; denied: boolean; canAllow?: boolean | undefined } | undefined
+    | {
+        key: string;
+        path: string;
+        machine: Machine;
+        message: string;
+        denied: boolean;
+        canAllow?: boolean | undefined;
+      }
+    | undefined
   >(
     () =>
       props.attempt && {
         key: `${machine.id}\u0000${props.attempt.path}`,
+        path: props.attempt.path,
+        machine,
         message: props.attempt.problem,
         denied: true,
         canAllow: props.attempt.canAllow,
@@ -51,9 +65,10 @@ export function OpenFolderTab(props: {
   if (shownFor !== machine.id) {
     setShownFor(machine.id);
     setProblem(undefined);
+    setPickedKey(undefined);
   }
   const search = useFolderSearch({ machine, machines: props.machines, text, mode: "open" });
-  const native = useNativePicker();
+  const native = useNativePicker(machine.primary);
   const target = highlighted;
   const on = target?.machine ?? machine;
   const commandsOn = useProjectCommandsOn();
@@ -73,6 +88,8 @@ export function OpenFolderTab(props: {
       pending.current = false;
       setProblem({
         key: `${where.id}\u0000${path}`,
+        path,
+        machine: where,
         message: failure.message,
         denied: failure.denied ?? false,
         canAllow: failure.canAllow,
@@ -86,7 +103,8 @@ export function OpenFolderTab(props: {
     void add(row.path, newThread ? "thread" : "open", row.machine);
   };
 
-  const shownProblem = problem && target && problem.key === target.key ? problem : undefined;
+  const shownProblem =
+    problem && (problem.key === target?.key || problem.key === pickedKey) ? problem : undefined;
   return (
     <div className="grid gap-3">
       <FolderSearchBox
@@ -96,7 +114,10 @@ export function OpenFolderTab(props: {
         placeholder="Search folders, or type a path: / ~ ./"
         search={search}
         text={text}
-        onText={setText}
+        onText={(value) => {
+          setPickedKey(undefined);
+          setText(value);
+        }}
         mode="open"
         several={props.machines.length > 1}
         onChoose={(row, how) => open(row, how.newThread)}
@@ -112,7 +133,10 @@ export function OpenFolderTab(props: {
               disabled={offline || adding}
               onClick={() =>
                 void native.choose().then((chosen) => {
-                  if (chosen) void add(chosen, "open", machine);
+                  if (chosen) {
+                    setPickedKey(`${machine.id}\u0000${chosen}`);
+                    void add(chosen, "open", machine);
+                  }
                 })
               }
             />
@@ -124,12 +148,13 @@ export function OpenFolderTab(props: {
       )}
       {shownProblem ? (
         <Problem>
+          <p className="break-all font-mono">{shownProblem.path}</p>
           {shownProblem.message}
-          {shownProblem.canAllow && target && (
+          {shownProblem.canAllow && (
             <AllowFolder
-              client={on.client}
-              path={target.path}
-              onAllowed={() => void add(target.path, "open", on)}
+              client={shownProblem.machine.client}
+              path={shownProblem.path}
+              onAllowed={() => void add(shownProblem.path, "open", shownProblem.machine)}
             />
           )}
           {shownProblem.denied && (
@@ -137,7 +162,10 @@ export function OpenFolderTab(props: {
               className="mt-1 justify-start"
               roots={search.home?.roots ?? []}
               home={search.home?.path}
-              onGo={(path) => setText(`${path.replace(/\/+$/, "")}/`)}
+              onGo={(path) => {
+                setPickedKey(undefined);
+                setText(`${path.replace(/\/+$/, "")}/`);
+              }}
             />
           )}
         </Problem>
@@ -171,18 +199,29 @@ export function OpenFolderTab(props: {
 }
 
 /** The desktop app's folder picker, when the daemon runs on this computer. */
-function useNativePicker() {
+function useNativePicker(primary: boolean) {
   const [picker] = useState(() => desktopFolders());
-  const [local, setLocal] = useState(false);
+  const endpoint = useDaemonConnection().endpoint;
+  const target = endpoint?.kind === "daemon" ? endpoint.target : undefined;
+  const [confirmed, setConfirmed] = useState<typeof target>();
+  const generation = useRef(0);
   useEffect(() => {
-    if (!picker) return;
-    let current = true;
-    void picker.local().then((value) => {
-      if (current) setLocal(value);
-    });
+    const revision = ++generation.current;
+    if (picker && primary && target)
+      void picker.local(target).then((local) => {
+        if (generation.current === revision) setConfirmed(local ? target : undefined);
+      });
     return () => {
-      current = false;
+      generation.current = revision + 1;
     };
-  }, [picker]);
-  return picker && local ? picker : undefined;
+  }, [picker, primary, target]);
+  if (!picker || !primary || !target || confirmed !== target) return undefined;
+  return {
+    async choose() {
+      const revision = generation.current;
+      if (!(await picker.local(target))) return null;
+      const chosen = await picker.choose();
+      return generation.current === revision && (await picker.local(target)) ? chosen : null;
+    },
+  };
 }

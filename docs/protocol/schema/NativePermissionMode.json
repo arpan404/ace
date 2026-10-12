@@ -17,6 +17,10 @@
       "minLength": 1,
       "type": "string"
     },
+    "presentation": {
+      "const": "full-access",
+      "type": "string"
+    },
     "risk": {
       "enum": [
         "low",

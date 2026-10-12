@@ -94,7 +94,7 @@ test("expanded completed agents and their scroll position survive a remount", as
   const view = await app.open(`/t/${scenario.thread.id}`);
   await userEvent.click(await screen.findByRole("button", { name: /^Work card/ }));
   const card = screen.getByRole("complementary", { name: "Work card" });
-  await userEvent.click(within(card).getByRole("button", { name: "7 done" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Previous agents (10)" }));
   const scroll = card.querySelector<HTMLElement>("[data-work-card-scroll]");
   if (!scroll) throw new Error("Missing card scroll region");
   scroll.scrollTop = 450;
@@ -104,7 +104,9 @@ test("expanded completed agents and their scroll position survive a remount", as
   await app.open(`/t/${scenario.thread.id}`);
   const restored = await screen.findByRole("complementary", { name: "Work card" });
   expect(
-    within(restored).getByRole("button", { name: "Show fewer" }).getAttribute("aria-expanded"),
+    within(restored)
+      .getByRole("button", { name: "Previous agents (10)" })
+      .getAttribute("aria-expanded"),
   ).toBe("true");
   act(() => resized.forEach((notify) => notify()));
   expect(restored.querySelector<HTMLElement>("[data-work-card-scroll]")?.scrollTop).toBe(450);

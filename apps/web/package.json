@@ -16,13 +16,15 @@
     "build": "vite build",
     "preview": "vite preview",
     "cn:tables": "bun scripts/cn-tables.ts && oxfmt src/lib/cn-tables.gen.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
     "@ace/automations": "workspace:*",
     "@ace/client": "workspace:*",
     "@ace/client-react": "workspace:*",
     "@ace/client-worker": "workspace:*",
+    "@ace/commands": "workspace:*",
+    "@ace/core": "workspace:*",
     "@ace/forge": "workspace:*",
     "@ace/project-picker": "workspace:*",
     "@ace/projection": "workspace:*",
@@ -54,7 +56,10 @@
     "@ace/adapter-cursor": "workspace:*",
     "@ace/adapter-opencode": "workspace:*",
     "@ace/adapter-testkit": "workspace:*",
+    "@ace/browser": "workspace:*",
+    "@ace/daemon": "workspace:*",
     "@ace/fake-daemon": "workspace:*",
+    "@ace/review": "workspace:*",
     "@babel/core": "^8.0.6",
     "@playwright/test": "1.63.0",
     "@rolldown/plugin-babel": "^0.2.4",

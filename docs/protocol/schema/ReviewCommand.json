@@ -20,6 +20,9 @@
     },
     {
       "properties": {
+        "expectedFingerprint": {
+          "$ref": "https://ace.local/protocol/v1/ReviewFingerprint.json"
+        },
         "position": {
           "$ref": "https://ace.local/protocol/v1/ReviewPosition.json"
         },

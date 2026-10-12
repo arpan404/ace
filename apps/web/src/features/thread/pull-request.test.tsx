@@ -1,5 +1,5 @@
 import { facts, workbench, type Scenario } from "@ace/fake-daemon";
-import { ForgePrStatus, ThreadId } from "@ace/protocol";
+import { ForgePrStatus, ThreadId, type CommandPayload } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
@@ -103,7 +103,8 @@ async function openPr(number = 42) {
 }
 
 async function linkField(card: HTMLElement) {
-  await userEvent.click(within(card).getByRole("button", { name: "Link a pull request" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Link a pull request" }));
   return within(card).getByRole("textbox", { name: "Link pull request…" });
 }
 async function unlink(card: HTMLElement, number: number, index = 0) {
@@ -163,6 +164,9 @@ test("a passing PR merges with the method picked, and the thread's PR reads merg
   await userEvent.click(within(popover).getByRole("button", { name: "Merge options" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Rebase and merge" }));
   await userEvent.click(within(popover).getByRole("button", { name: "Rebase and merge" }));
+  const confirm = await screen.findByRole("dialog", { name: "Merge PR #42?" });
+  expect(linked(app)).toMatchObject({ state: "open" });
+  await userEvent.click(within(confirm).getByRole("button", { name: "Merge" }));
   expect(await screen.findByText("Merged #42")).toBeTruthy();
   await waitFor(() => expect(linked(app)).toMatchObject({ number: 42, state: "merged" }));
 });
@@ -176,6 +180,12 @@ test("auto-merge waits for running checks, then the PR merges once they pass", a
   await userEvent.click(within(popover).getByRole("button", { name: "Merge options" }));
   await userEvent.click(
     await screen.findByRole("menuitem", { name: /Auto-merge when checks pass/ }),
+  );
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "Enable auto-merge PR #42?" })).getByRole(
+      "button",
+      { name: "Enable auto-merge" },
+    ),
   );
   expect(
     await screen.findByText("Auto-merge on: #42 will squash and merge once checks pass"),
@@ -253,7 +263,11 @@ test("a forge refusal reads as a sentence with its fix, not its code", async () 
   app.daemon.refuseCommands("forge_auth", "forge.pr.merge");
   const popover = await openPr();
   await userEvent.click(await within(popover).findByRole("button", { name: "Squash and merge" }));
-  expect(await screen.findAllByText("Couldn't merge")).not.toHaveLength(0);
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "Merge PR #42?" })).getByRole("button", {
+      name: "Merge",
+    }),
+  );
   expect(await screen.findAllByText(/Sign in to GitHub: run/)).not.toHaveLength(0);
   expect(await screen.findAllByText("gh auth login")).not.toHaveLength(0);
   expect(await screen.findAllByText(/, then retry\./)).not.toHaveLength(0);
@@ -295,7 +309,7 @@ test("a thread in its own worktree moves back to the local checkout", async () =
   await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Move to local checkout/ }));
   expect(await screen.findByText("Moved to the local checkout")).toBeTruthy();
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("· Local");
+  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("Local");
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
   expect(view && "thread" in view && view.thread.details?.mode).toBe("local");
 });
@@ -345,7 +359,7 @@ test("the commit dialog lists the supervisor checkout files and commits the sele
   await app.open("/t/thread-retry-budget");
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openCard();
-  await userEvent.click(await within(card).findByRole("button", { name: "Git actions" }));
+  await userEvent.click(await within(card).findByRole("button", { name: "Project actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Commit & push…" }));
   const dialog = await screen.findByRole("dialog", { name: /^Commit to / });
   const files = await within(dialog).findByRole("list", { name: "Files to commit" });
@@ -365,6 +379,7 @@ test("several pull requests stay linked, duplicates do nothing, and people can u
   const card = await openCard();
   let input = await linkField(card);
   await userEvent.type(input, "#284{Enter}");
+  await userEvent.click(await within(card).findByRole("button", { name: "Show 1 more" }));
   expect(await within(card).findByRole("button", { name: "PR #283 actions" })).toBeTruthy();
   expect(await within(card).findByRole("button", { name: "PR #284 actions" })).toBeTruthy();
   input = await linkField(card);
@@ -399,6 +414,7 @@ test("a live link publication updates the work card and sidebar with both PRs", 
   app.daemon.seedServices({
     pullRequests: { "thread-pr": pr({ ref: { repository, number: 283 } }) },
   });
+  await userEvent.click(await within(card).findByRole("button", { name: "Show 1 more" }));
   expect(await within(card).findByRole("button", { name: "PR #283 actions" })).toBeTruthy();
   expect(await within(card).findByRole("button", { name: "PR #284 actions" })).toBeTruthy();
   const sidebar = screen.getByRole("navigation", { name: "Threads" });
@@ -420,13 +436,14 @@ test("explicit PR addresses can link another repository and unlink only that ass
     const snapshot = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
     expect(snapshot && "thread" in snapshot && snapshot.thread.details?.linkedPrs).toHaveLength(2);
   });
+  await userEvent.click(await within(card).findByRole("button", { name: "Show 1 more" }));
   const secondary = within(card).getAllByRole("button", { name: /^Pull request #283/ })[1];
   if (!secondary) throw new Error("The second linked pull request is missing");
   await userEvent.click(secondary);
   const details = within(card).getByRole("region", { name: "Pull request #283" });
-  expect(within(details).getByText("No status from GitHub yet")).toBeTruthy();
-  expect(within(details).queryByRole("button", { name: "Refresh" })).toBeNull();
-  expect(within(details).queryByRole("button", { name: /^Merge/ })).toBeNull();
+  expect(await within(details).findByText("2 checks passed")).toBeTruthy();
+  expect(within(details).getByRole("button", { name: "Refresh" })).toBeTruthy();
+  expect(within(details).getByRole("button", { name: "Squash and merge" })).toBeTruthy();
   await userEvent.click(secondary);
   await unlink(card, 283);
   await waitFor(() => {
@@ -435,4 +452,101 @@ test("explicit PR addresses can link another repository and unlink only that ass
       { number: 283, repo: repository },
     ]);
   });
+});
+
+test("the work card links a configured Enterprise address through the worker connection", async () => {
+  const app = harness({ throughWorker: true });
+  app.play(idle("thread-pr", checkout)).runUntilBlocked();
+  await app.open("/t/thread-pr");
+  await app.client.request({
+    type: "settings.set",
+    key: "sourceControl.preferences",
+    layer: { kind: "global" },
+    value: {
+      hosts: [{ host: "github.com" }, { host: "git.example.com" }],
+      host: "git.example.com",
+      remote: "upstream",
+    },
+  });
+  const card = await openCard();
+  await userEvent.type(await linkField(card), "https://git.example.com/octo/ace/pull/7{Enter}");
+  await waitFor(() => {
+    const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
+    expect(view && "thread" in view && view.thread.details?.linkedPrs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          number: 7,
+          repo: { forge: "github", host: "git.example.com", owner: "octo", name: "ace" },
+        }),
+      ]),
+    );
+  });
+});
+
+test("Create PR sends the selected remote and the same reviewed head to push and PR creation", async () => {
+  const app = harness({ throughWorker: true });
+  app.play(idle("selected-remote", checkout)).runUntilBlocked();
+  app.daemon.services.settings.seed({
+    "sourceControl.preferences": {
+      hosts: [{ host: "github.com", account: "ada" }],
+      host: "github.com",
+      remote: "upstream",
+    },
+  });
+  const frames: CommandPayload[] = [];
+  const receive = app.daemon.command.bind(app.daemon);
+  app.daemon.command = (command) => {
+    frames.push(command.payload);
+    return receive(command);
+  };
+  await app.open("/t/selected-remote");
+  const card = await openCard();
+  await userEvent.click(await within(card).findByRole("button", { name: "Create PR" }));
+  const dialog = await screen.findByRole("dialog", { name: "Open a pull request" });
+  await userEvent.click(within(dialog).getByRole("button", { name: /^Create PR/ }));
+  await waitFor(() =>
+    expect(frames.find((frame) => frame.type === "forge.pr.create")).toMatchObject({
+      repository,
+      input: { branch: checkout.branch, expectedHead: checkout.head },
+    }),
+  );
+  expect(frames.find((frame) => frame.type === "git.push")).toMatchObject({
+    remote: "upstream",
+    target: { repository, branch: checkout.branch, head: checkout.head },
+  });
+});
+
+test("an inline merge confirms the selected repository and leaves another linked PR untouched", async () => {
+  const otherRepository = { ...repository, owner: "other", name: "docs" };
+  const app = await withPr(pr({ ref: { repository, number: 283 } }));
+  app.daemon.seedServices({
+    pullRequests: {
+      "thread-pr": pr({ ref: { repository: otherRepository, number: 284 }, title: "Docs fix" }),
+    },
+  });
+  const card = await openCard();
+  await userEvent.click(await within(card).findByRole("button", { name: "Show 1 more" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Merge PR #283" }));
+  const confirm = await screen.findByRole("dialog", { name: "Merge PR #283?" });
+  expect(confirm.textContent).toContain("acme/api#283");
+  const links = () => {
+    const snapshot = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
+    return snapshot && "thread" in snapshot ? snapshot.thread.details?.linkedPrs : undefined;
+  };
+  expect(links()?.every((link) => link.state === "open")).toBe(true);
+  await userEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+  expect(links()?.every((link) => link.state === "open")).toBe(true);
+  await userEvent.click(within(card).getByRole("button", { name: "Merge PR #283" }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "Merge PR #283?" })).getByRole("button", {
+      name: "Merge",
+    }),
+  );
+  await waitFor(() =>
+    expect(links()).toMatchObject([
+      { number: 284, repo: otherRepository, state: "open" },
+      { number: 283, repo: repository, state: "merged" },
+    ]),
+  );
+  expect(await screen.findByText("Merged #283")).toBeTruthy();
 });

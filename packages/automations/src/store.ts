@@ -1,4 +1,4 @@
-import { migratePermissionMode } from "@ace/provider-kit/permission-modes";
+import { normalizeAutomation } from "./definition.ts";
 import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
 import {
@@ -87,11 +87,7 @@ export class AutomationStore {
       Number(this.sql("SELECT COUNT(*) AS n FROM automation_jobs").get()?.n) >= 1000
     )
       throw new Error("Automation limit reached");
-    const native =
-      automation.provider === "acp" || automation.provider === "antigravity"
-        ? automation.permissionMode
-        : migratePermissionMode(automation.provider, automation.permissionMode);
-    const body = JSON.stringify({ ...automation, permissionMode: native ?? undefined });
+    const body = JSON.stringify(normalizeAutomation(automation));
     const snapshot = JSON.stringify(state);
     this.transaction(() => {
       this.sql(

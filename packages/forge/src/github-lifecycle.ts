@@ -1,5 +1,5 @@
 import { WriteDispatch } from "./write-dispatch.ts";
-import { assertGraphqlResult } from "./graphql-errors.ts";
+import { ForgeMutationOutcome } from "./mutation.ts";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import {
@@ -52,7 +52,7 @@ export class GitHubLifecycle {
       "POST",
       dispatch,
     );
-    assertGraphqlResult(response.body);
+    if (response.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
     return response;
   }
   async snapshot(number: number, signal: AbortSignal): Promise<ForgeLifecycleSnapshot> {

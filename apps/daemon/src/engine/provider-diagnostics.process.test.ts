@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { ProviderPayload } from "@ace/provider-kit/payload";
-import { createFileSink, createLogger, logFields, logMetadata } from "@ace/diagnostics";
+import { createFileSink, createLogger, logFields } from "@ace/diagnostics";
 import { createRedactor } from "@ace/redaction";
 import { codexCapabilities } from "@ace/adapter-codex";
 import { protocolNoiseCases } from "./protocol-noise-test-support.ts";
@@ -183,7 +183,7 @@ test("sustained provider diagnostics keep recent evidence within the file retent
           [
             "raw",
             [
-              logMetadata({
+              logger.metadata({
                 type: "future/extension",
                 data: {
                   marker: `provider-record-${index}`,

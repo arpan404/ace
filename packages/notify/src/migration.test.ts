@@ -1,7 +1,7 @@
-import { DeviceId } from "@ace/protocol";
+import { DeviceId, Event, EventPayload, Notification } from "@ace/protocol";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
-import { setup } from "./notify.test-helper.ts";
+import { setup, writeLegacyQueue } from "./notify.test-helper.ts";
 
 it("upgrading an old projection rebuilds eligible links and preserves device policy", async () => {
   const f = setup();
@@ -76,6 +76,167 @@ it("an older device table can accept new browser identities after migration with
     expect(f.deliveries.find(({ device }) => device.id === f.phone)?.notification.preview).toBe(
       "sensitive preview",
     );
+  } finally {
+    await f.close();
+  }
+});
+
+it("upgrading a version-2 projection replays skipped deletion and preserves device policy", async () => {
+  const f = setup("retry");
+  try {
+    f.service.preferences(f.phone, { includePreview: true });
+    f.service.notify({
+      id: "mcp:deleted-notice",
+      threadId: f.threadId,
+      title: "Accepted notice",
+      status: "agent_says",
+      message: "Queued before deletion",
+      backgroundCount: 0,
+      actions: [],
+    });
+    f.start();
+    f.end();
+    await f.flush();
+    const deletion = Event.parse({
+      seq: f.service.cursor() + 1,
+      id: "skipped-deletion",
+      threadId: f.threadId,
+      at: 6000,
+      payload: { type: "thread.client.updated", changes: { deletedAt: 6000 } },
+    });
+    f.history.push(deletion);
+    await f.service.close();
+    writeLegacyQueue(f.path, 2);
+    const legacy = new DatabaseSync(f.path);
+    try {
+      // Version 2 advanced past deletion without projecting it or cancelling its jobs.
+      legacy.exec(`ALTER TABLE devices DROP COLUMN expired;
+        UPDATE threads SET body=json_remove(body,'$.deleted');`);
+      legacy.prepare("UPDATE cursor SET seq=? WHERE id=1").run(deletion.seq);
+    } finally {
+      legacy.close();
+    }
+    await f.reopen();
+    expect(f.service.cursor()).toBe(0);
+    expect(f.service.getPreferences(f.phone)).toMatchObject({ includePreview: true });
+    f.service.ingest(f.history);
+    f.setOutcome("accepted");
+    f.service.notify({
+      id: "late-deleted-notice",
+      threadId: f.threadId,
+      title: "Late notice",
+      status: "agent_says",
+      backgroundCount: 0,
+      actions: [],
+    });
+    await f.flush();
+    expect(f.service.cursor()).toBe(deletion.seq);
+    expect(f.deliveries).toHaveLength(4);
+    await f.reopen();
+    await f.flush();
+    expect(f.deliveries).toHaveLength(4);
+  } finally {
+    await f.close();
+  }
+});
+
+it.each(["acknowledged", "unacknowledged"] as const)(
+  "a queued live MCP notice survives a version-2 upgrade with an %s intent and its original backoff",
+  async (receipt) => {
+    const f = setup("retry");
+    try {
+      const notice = Notification.parse({
+        id: "mcp:accepted-intent",
+        threadId: f.threadId,
+        title: "Safe title",
+        status: "agent_says",
+        message: "The build is ready",
+        backgroundCount: 0,
+        actions: [],
+      });
+      f.append([
+        EventPayload.parse({
+          type: "item.created",
+          item: {
+            type: "notice",
+            id: "accepted-notice-item",
+            agentId: "root",
+            createdAt: 1000,
+            complete: true,
+            level: "info",
+            text: notice.message,
+          },
+        }),
+      ]);
+      f.service.notify(notice);
+      await f.service.drain();
+      expect(f.deliveries).toHaveLength(2);
+      await f.service.close();
+      writeLegacyQueue(f.path, 2);
+      await f.reopen();
+      f.service.ingest(f.history);
+      if (receipt === "unacknowledged") f.service.notify(notice);
+      f.setTime(1999);
+      await f.service.drain();
+      expect(f.deliveries).toHaveLength(2);
+      f.setTime(2000);
+      await f.service.drain();
+      expect(
+        f.deliveries.slice(2).map(({ device, notification }) => ({
+          device: device.id,
+          id: notification.id,
+          message: notification.message,
+        })),
+      ).toEqual([
+        { device: f.desktop, id: "mcp:accepted-intent", message: "The build is ready" },
+        { device: f.phone, id: "mcp:accepted-intent", message: "The build is ready" },
+      ]);
+      // The retained first retry must advance to the second backoff, not start over.
+      f.setOutcome("accepted");
+      f.setTime(3999);
+      await f.service.drain();
+      expect(f.deliveries).toHaveLength(4);
+      f.setTime(4000);
+      await f.service.drain();
+      expect(f.deliveries.slice(4).map(({ notification }) => notification.id)).toEqual([
+        "mcp:accepted-intent",
+        "mcp:accepted-intent",
+      ]);
+      await f.reopen();
+      f.service.notify(notice);
+      await f.service.drain();
+      expect(f.deliveries).toHaveLength(6);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+it("upgrading a version-3 queue preserves notification identities and retry backoff", async () => {
+  const f = setup("retry");
+  try {
+    f.start();
+    f.end();
+    await f.flush();
+    const ids = f.deliveries.map(({ notification }) => notification.id);
+    const cursor = f.service.cursor();
+    await f.service.close();
+    writeLegacyQueue(f.path, 3);
+    await f.reopen();
+    expect(f.service.cursor()).toBe(cursor);
+    f.setTime(6999);
+    await f.service.drain();
+    expect(f.deliveries).toHaveLength(2);
+    f.setTime(7000);
+    await f.service.drain();
+    expect(f.deliveries.slice(2).map(({ notification }) => notification.id)).toEqual(ids);
+    f.setOutcome("accepted");
+    f.setTime(8999);
+    await f.service.drain();
+    expect(f.deliveries).toHaveLength(4);
+    f.setTime(9000);
+    await f.service.drain();
+    expect(f.deliveries.slice(4).map(({ notification }) => notification.id)).toEqual(ids);
   } finally {
     await f.close();
   }

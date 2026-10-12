@@ -441,3 +441,59 @@ test("a rejected saved relay leaves startup, local conversations and direct pair
     await relay.close();
   }
 });
+
+test("a rejected relay edit restores the saved relay and preserves direct pairing", async () => {
+  const saved = await startRelay();
+  const rejected = await startRelay({ allowedHostIds: [] });
+  const f = await runtime({ enabled: true, transport: "relay", relayUrl: saved.url });
+  try {
+    const issued = f.store.devices.create("Phone", ["read"], 1000);
+    const keys = await loadOrCreateHostKeys(join(f.config.dataDir, "relay"));
+    const pin = fingerprint(keys.publicKey);
+    const pairing = PairingResponse.parse(await f.local("/v1/pairings", {}));
+    const connect = async () => {
+      const channel = await connectClientViaRelay({
+        relayUrl: saved.url,
+        hostId: pin,
+        pinnedFingerprint: pin,
+      });
+      try {
+        await channel.send({
+          type: "hello",
+          channel: "files",
+          protocolVersion: 1,
+          deviceId: issued.device.id,
+          token: issued.token,
+        });
+        expect(await channel.receive()).toMatchObject({ type: "welcome" });
+      } finally {
+        channel.close();
+        await channel.closed;
+      }
+    };
+    await connect();
+    expect(await f.set("remote.relayUrl", rejected.url)).toMatchObject({ ok: false });
+    expect((await f.settings.get("remote.relayUrl")).value).toBe(saved.url);
+    expect(await f.local("/v1/status")).toMatchObject({
+      remoteAccess: { enabled: true, transport: "relay" },
+    });
+    expect(new URL(PairingResponse.parse(await f.local("/v1/pairings", {})).url).origin).toBe(
+      new URL(pairing.url).origin,
+    );
+    await connect();
+    expect(await f.set("remote.relayUrl", saved.url)).toMatchObject({ ok: true });
+    await connect();
+    const paired = DeviceCredential.parse(
+      await accessRequest(new URL(pairing.url).origin, "/v1/pair", {
+        fingerprint: f.identity.fingerprint,
+        method: "POST",
+        body: { code: codeOf(pairing.url), name: "Laptop" },
+      }),
+    );
+    expect(paired.device.name).toBe("Laptop");
+  } finally {
+    await f.close();
+    await rejected.close();
+    await saved.close();
+  }
+});

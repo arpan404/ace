@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { createInterface } from "node:readline";
 import { ScreenHelperRequestV2, ScreenUINode } from "@ace/protocol";
@@ -11,6 +11,11 @@ const padding = z.coerce
   .min(0)
   .max(1048576)
   .parse(process.env.PAYLOAD_PADDING ?? 0);
+const nativeReplies = process.env.NATIVE_UI_REPLIES
+  ? z
+      .object({ tree: z.unknown(), find: z.unknown() })
+      .parse(JSON.parse(await readFile(process.env.NATIVE_UI_REPLIES, "utf8")))
+  : undefined;
 let socket: Socket | undefined;
 await rm(endpoint.slice(5), { force: true });
 const server = createServer((client) => {
@@ -141,6 +146,10 @@ lines.on("line", (line) => {
       }
       break;
     case "ui.tree":
+      if (nativeReplies) {
+        data = nativeReplies.tree;
+        break;
+      }
       {
         let root = node();
         if (process.env.UI_MODE === "nodes") root.children = [node(), node()];
@@ -152,6 +161,10 @@ lines.on("line", (line) => {
       }
       break;
     case "ui.find":
+      if (nativeReplies) {
+        data = nativeReplies.find;
+        break;
+      }
       data = {
         nodes:
           request.query.name === "missing"

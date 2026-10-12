@@ -209,9 +209,17 @@ export class CommandLibrary implements CommandService {
       const roots =
         target.provider === "claude" ? loadedPluginRoots(frame, target.instance) : undefined;
       if (roots) {
+        const previousRoots = entry.nativePluginRoots;
         entry.nativePluginRoots = roots;
         await this.setPluginRoots(entry, target.instance);
+        if (token.cancelled) {
+          if (entry.runtime.size && previousRoots) entry.nativePluginRoots = previousRoots;
+          else delete entry.nativePluginRoots;
+          await this.setPluginRoots(entry, target.instance);
+          return false;
+        }
       }
+      if (token.cancelled) return false;
       if (accepted) {
         entry.extrasAt = this.now();
         entry.runtime.add(thread);

@@ -3,9 +3,11 @@ const noop = () => {};
 import { Worker } from "node:worker_threads";
 import type { LogWorkerRuntime } from "./worker-sink.ts";
 import { z } from "zod";
+import type { RedactionContext } from "@ace/redaction";
 /** Pull one bounded batch at a time. The bundle owns this generator's lifetime. */
 export async function* recentThreadEvents(
   path: string,
+  context: RedactionContext,
   runtime: LogWorkerRuntime = {
     spawn: (url, data) => new Worker(url, { workerData: data }),
     schedule(callback, ms) {
@@ -15,7 +17,7 @@ export async function* recentThreadEvents(
     deadlineMs: 5000,
   },
 ): AsyncIterable<string> {
-  const worker = runtime.spawn(new URL("./thread-worker.ts", import.meta.url), { path });
+  const worker = runtime.spawn(new URL("./thread-worker.ts", import.meta.url), { path, context });
   let failure: Error | undefined;
   let pending: { resolve: (input: unknown) => void; reject: (error: Error) => void } | undefined;
   worker.on("error", (error: unknown) => {

@@ -1,6 +1,5 @@
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
-import { effortLabel } from "@ace/ui-core";
-import { CaretDownIcon, ClockIcon, LightningIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, ClockIcon } from "@phosphor-icons/react";
 import { Suspense, useState, type ReactElement } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -8,9 +7,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/cn.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import type { ModelControlActions, ModelControlView } from "./control-view.ts";
-import { isDeepReasoning, reasoningShortLabel } from "./reasoning-level.ts";
+import { ReasoningControl } from "./reasoning-control.tsx";
 
-/** The popover's effort, speed, account and model picker: loaded on hover, focus or idle. */
+/** The model picker loads on hover, focus or idle. */
 const DeferredModelPopover = deferredComponent(() =>
   import("./model-popover.tsx").then((module) => module.ModelPopover),
 );
@@ -21,9 +20,8 @@ export function preloadModelControl(): Promise<unknown> {
 const warm = () => void preloadModelControl();
 
 /**
- * The model name yields space to fixed effort and Fast indicators. A pending switch shows
- * its target; the former model remains in the full tooltip. It opens a popover with effort, speed, the
- * account and the way to another model, anchored to this control even as the pane resizes.
+ * The model and effort have independent compact chips. A pending switch shows its target;
+ * the former model remains in the full tooltip. Both popovers stay anchored as the pane resizes.
  */
 export function ModelControl(props: {
   view: ModelControlView;
@@ -50,89 +48,73 @@ export function ModelControl(props: {
     .filter(Boolean)
     .join(" · ");
   return (
-    <Popover open={open || requested} onOpenChange={changeOpen}>
-      <ModelTip label={tip} disabled={open || requested}>
-        <PopoverTrigger
-          disabled={view.disabled}
-          aria-label={view.ariaLabel}
-          aria-description={switching?.description}
-          onPointerEnter={warm}
-          onFocus={warm}
-          className={cn(props.className, "max-w-64 gap-1.5 text-sm leading-4 max-sm:shrink-0")}
+    <>
+      <Popover open={open || requested} onOpenChange={changeOpen}>
+        <ModelTip label={tip} disabled={open || requested}>
+          <PopoverTrigger
+            disabled={view.disabled}
+            aria-label={view.ariaLabel}
+            aria-description={switching?.description}
+            onPointerEnter={warm}
+            onFocus={warm}
+            className={cn(
+              props.className,
+              "max-w-64 gap-1.5 text-ui leading-4 font-normal focus-ring-inset max-sm:shrink-0",
+            )}
+          >
+            {view.provider && (
+              <ProviderAccountIcon
+                provider={view.provider}
+                instance={view.instance ?? view.account}
+                size={14}
+                accountLabel
+              />
+            )}
+            {!view.label && view.catalog === "loading" && <Spinner />}
+            <span data-slot="model-name" className="min-w-0 flex-1 truncate text-foreground">
+              {view.label ?? view.placeholder}
+            </span>
+            {view.unavailable && (
+              <span className="shrink-0 text-xs text-status-failed">Unavailable</span>
+            )}
+            {switching && (
+              <ClockIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
+            )}
+            <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
+          </PopoverTrigger>
+        </ModelTip>
+        <PopoverContent
+          side={view.side ?? "top"}
+          align="start"
+          sideOffset={8}
+          aria-label="Choose model"
+          className="overflow-hidden p-0 duration-(--dur-1) motion-reduce:transition-none"
         >
-          {view.provider && (
-            <ProviderAccountIcon
-              provider={view.provider}
-              instance={view.instance ?? view.account}
-              size={14}
-              accountLabel
+          <Suspense
+            fallback={
+              // Reserve the model pane's footprint while its code arrives.
+              <div className="grid h-107 w-115 max-w-[calc(100vw-2rem)] place-items-center">
+                <Spinner label="Loading" />
+              </div>
+            }
+          >
+            <DeferredModelPopover.Component
+              view={view}
+              actions={props.actions}
+              onClose={() => changeOpen(false)}
             />
-          )}
-          {!view.label && view.catalog === "loading" && <Spinner />}
-          <span data-slot="model-name" className="min-w-0 flex-1 truncate text-foreground">
-            {view.label ?? view.placeholder}
-          </span>
-          {view.unavailable && (
-            <span className="shrink-0 text-xs text-status-failed">Unavailable</span>
-          )}
-          {view.label && view.effort !== undefined && view.efforts.length > 1 && (
-            <ReasoningSignal view={view} disabled={open || requested} />
-          )}
-          {view.fast && (
-            <ModelTip label="Fast: on" disabled={open || requested}>
-              <span role="img" aria-label="Fast: on" className="inline-flex shrink-0">
-                <LightningIcon aria-hidden size={12} weight="fill" />
-              </span>
-            </ModelTip>
-          )}
-          {switching && (
-            <ClockIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
-          )}
-          <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
-        </PopoverTrigger>
-      </ModelTip>
-      <PopoverContent
-        side={view.side ?? "top"}
-        align={view.side === "bottom" ? "start" : "end"}
-        sideOffset={8}
-        aria-label="Model and effort"
-        className="overflow-hidden p-0 duration-(--dur-1)"
-      >
-        <Suspense
-          fallback={
-            // The effort pane's footprint, so the popover doesn't jump when its code arrives.
-            <div className="grid h-32 w-70 place-items-center">
-              <Spinner label="Loading" />
-            </div>
-          }
-        >
-          <DeferredModelPopover.Component
-            view={view}
-            actions={props.actions}
-            onClose={() => changeOpen(false)}
-          />
-        </Suspense>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-/** Only a known actual thinking level gets a chip indicator. */
-function ReasoningSignal(props: { view: ModelControlView; disabled: boolean }) {
-  const { efforts, effort, effortDefault } = props.view;
-  if (effort === undefined) return null;
-  const label = `${effortLabel(effort)} reasoning${effortDefault ? " · default" : ""}`;
-  return (
-    <ModelTip label={label} disabled={props.disabled}>
-      <span role="img" aria-label={label} className="inline-flex shrink-0 items-center gap-1">
-        <span aria-hidden className="text-subtle-foreground">
-          ·
-        </span>
-        <span className={isDeepReasoning(effort, efforts) ? "model-deep-reasoning" : undefined}>
-          {reasoningShortLabel(effort)}
-        </span>
-      </span>
-    </ModelTip>
+          </Suspense>
+        </PopoverContent>
+      </Popover>
+      {view.label && view.efforts.length > 0 && (
+        <ReasoningControl
+          view={view}
+          actions={props.actions}
+          onModels={() => changeOpen(true)}
+          className={props.className}
+        />
+      )}
+    </>
   );
 }
 

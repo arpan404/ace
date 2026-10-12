@@ -1,4 +1,5 @@
 import { admitDelegation } from "@ace/orchestrator";
+import { incomingRemoteRoot } from "./incoming-root.ts";
 import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -213,7 +214,7 @@ export class RemoteDelegations {
   poll(session: string, lease: string): RemoteTask[] | undefined {
     if (!this.owns(session, lease)) return undefined;
     return this.store.atomic(() =>
-      [...this.journal.active(), ...this.journal.reconciling(this.now())].map((task) => {
+      this.journal.poll(this.now()).map((task) => {
         this.revalidate(task);
         if (remoteTerminal(task)) {
           this.finish(task);
@@ -231,6 +232,10 @@ export class RemoteDelegations {
         return task;
       }),
     );
+  }
+  inactive(session: string, lease: string, ids: readonly string[]): string[] | undefined {
+    if (!this.owns(session, lease)) return undefined;
+    return this.journal.inactive(ids, this.now());
   }
   report(session: string, lease: string, report: RemoteTaskReport): RemoteTask | undefined {
     if (!this.owns(session, lease)) return undefined;
@@ -293,6 +298,8 @@ export class RemoteDelegations {
     });
   }
   private revalidate(task: RemoteTask) {
+    // Reconciliation only retrieves a sealed answer; terminal ownership never reopens.
+    if (remoteTerminal(task)) return;
     if (task.phase === "cancelling") {
       task.cancellingAt ??= this.now();
       if (this.now() - task.cancellingAt >= 30000) {
@@ -481,16 +488,7 @@ export class RemoteDelegations {
       if (!mode) return { ok: false, code: "forbidden" };
       const tree = this.admission(parent.id);
       if (!tree) return { ok: false, code: "limit" };
-      const incoming = this.store.atomic((db) =>
-        db.prepare("SELECT name FROM sqlite_master WHERE name='remote_agent_incoming'").get(),
-      );
-      if (
-        incoming &&
-        this.store.atomic((db) =>
-          db.prepare("SELECT id FROM remote_agent_incoming WHERE thread_id=?").get(tree.root),
-        )
-      )
-        return { ok: false, code: "forbidden" };
+      if (incomingRemoteRoot(this.store, tree.root)) return { ok: false, code: "forbidden" };
       const task: RemoteTask = {
         id,
         sourceHostId: HostId.parse(this.hostId),
@@ -558,17 +556,44 @@ export class RemoteDelegations {
         this.finish(cancelled);
       });
     }
-    if (operation.op === "device.task_wait") {
-      this.waiters.set(task.id, (this.waiters.get(task.id) ?? 0) + 1);
-      try {
+    const waiting = operation.op === "device.task_wait";
+    if (waiting) this.waiters.set(task.id, (this.waiters.get(task.id) ?? 0) + 1);
+    try {
+      if (waiting) {
         while (!remoteTerminal(task)) {
           await delay(250, undefined, { signal });
           task = this.journal.get(operation.taskId);
           if (!task) return { ok: false, code: "not_found" };
         }
+      }
+      const returnedFiles = task.artifacts?.attachments.length
+        ? await this.resolveArtifacts?.(task)
+        : undefined;
+      signal.throwIfAborted();
+      if (
+        !this.store.getMcpAgent(caller.threadId, caller.agentId) ||
+        this.store.getThread(caller.threadId)?.deletedAt !== undefined
+      )
+        return { ok: false, code: "forbidden" };
+      // The observer owns delivery through every asynchronous response-preparation boundary.
+      if (waiting) {
         task.delivered = true;
         this.journal.save(task);
-      } finally {
+      }
+      const targetHost = task.request.hostId;
+      return {
+        ok: true,
+        data: {
+          ...task,
+          ...(returnedFiles ? { returnedFiles } : {}),
+          ...(!remoteTerminal(task) &&
+          !this.current()?.hosts.some((host) => host.hostId === targetHost)
+            ? { phase: task.phase === "cancelling" ? "cancelling" : "unavailable" }
+            : {}),
+        },
+      };
+    } finally {
+      if (waiting) {
         const remaining = (this.waiters.get(operation.taskId) ?? 1) - 1;
         if (remaining) this.waiters.set(operation.taskId, remaining);
         else this.waiters.delete(operation.taskId);
@@ -576,25 +601,5 @@ export class RemoteDelegations {
         if (current) this.finish(current);
       }
     }
-    const returnedFiles = task.artifacts?.attachments.length
-      ? await this.resolveArtifacts?.(task)
-      : undefined;
-    signal.throwIfAborted();
-    if (
-      !this.store.getMcpAgent(caller.threadId, caller.agentId) ||
-      this.store.getThread(caller.threadId)?.deletedAt !== undefined
-    )
-      return { ok: false, code: "forbidden" };
-    return {
-      ok: true,
-      data: {
-        ...task,
-        ...(returnedFiles ? { returnedFiles } : {}),
-        ...(!remoteTerminal(task) &&
-        !this.current()?.hosts.some((host) => host.hostId === task.request.hostId)
-          ? { phase: task.phase === "cancelling" ? "cancelling" : "unavailable" }
-          : {}),
-      },
-    };
   }
 }

@@ -83,6 +83,12 @@ export class FakeReviewDesk {
               payload.position.end,
             )
           : [];
+        // The fake has checkout text rather than Git snapshots; honor the admission guard.
+        if (
+          payload.expectedFingerprint &&
+          JSON.stringify(payload.expectedFingerprint.lines) !== JSON.stringify(lines)
+        )
+          return { ok: false, error: "review_selection_mismatch" };
         const anchor = {
           position: payload.position,
           revision: session.source.to,

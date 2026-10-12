@@ -1,3 +1,4 @@
+import { RepositoryPublishInput } from "./hosted-repositories.ts";
 import { z } from "zod";
 import { WorkspaceId } from "./ids.ts";
 
@@ -73,6 +74,11 @@ export const ProjectInspection = z.object({
   suggestedRepoRoot: path.optional(),
 });
 export const ProjectCommands = [
+  z.object({
+    type: z.literal("workspace.publish"),
+    workspaceId: WorkspaceId,
+    input: RepositoryPublishInput,
+  }),
   z.object({
     type: z.literal("workspace.add"),
     path,

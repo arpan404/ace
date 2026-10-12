@@ -9,7 +9,7 @@
     "./calendar": "./src/calendar.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "bench": "node bench/automations.ts && node bench/poll-admission.ts && node bench/gh-io.ts && node bench/lifecycle.ts"
   },
   "dependencies": {

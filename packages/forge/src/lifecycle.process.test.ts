@@ -1,6 +1,6 @@
-import { lifecycleWriteMarker, WriteDispatch } from "./index.ts";
+import { GitHubForge, lifecycleWriteMarker, WriteDispatch } from "./index.ts";
 import { expect, test } from "vitest";
-import { fakeGh, lifecycleFixtures, lifecycleRecord, sha, nextSha } from "./testing/fixtures.ts";
+import { fakeGh, lifecycleFixtures, lifecycleRecord, repository, sha, nextSha } from "./testing/fixtures.ts";
 const signal = () => new AbortController().signal;
 const allowed = () => true;
 const beforeWrite = new WriteDispatch();
@@ -400,6 +400,42 @@ test("a lost revert response is recovered from the first page of a large PR hist
         signal(),
       ),
     ).toMatchObject({ outcome: "accepted", revertPr: { number: 9001 } });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("an acknowledged lifecycle write retains uncertainty after the transport reports an identity change", async () => {
+  const fixtures = lifecycleFixtures();
+  fixtures["graphql:mutation($input:ClosePullRequestInput!"] = [
+    { body: { data: { closePullRequest: { pullRequest: { headRefOid: sha } } } } },
+  ];
+  const f = await fakeGh(fixtures);
+  const backend = new GitHubForge({
+    repository,
+    now: () => 1000,
+    runner: async (request) => {
+      const result = await f.runner({ ...request, command: f.executable });
+      return request.input?.includes("mutation($input:ClosePullRequestInput!")
+        ? { ...result, identityChanged: true }
+        : result;
+    },
+  });
+  const dispatch = new WriteDispatch();
+  try {
+    const snapshot = await backend.lifecycle.snapshot(7, signal());
+    await expect(
+      backend.lifecycle.apply(
+        7,
+        snapshot.version,
+        { kind: "close" },
+        "identity-close",
+        signal(),
+        allowed,
+        dispatch,
+      ),
+    ).rejects.toMatchObject({ kind: "outcome_uncertain" });
+    expect(dispatch.definitelyFailed).toBe(false);
   } finally {
     await f.cleanup();
   }

@@ -1,6 +1,6 @@
 import { DeviceSubscriptions } from "./subscriptions.ts";
 import { DeviceFrameWriter } from "./frame-writer.ts";
-import { DeviceClientMessage, type DeviceServerMessage } from "@ace/protocol/devices";
+import { DeviceClientMessage, DeviceState, type DeviceServerMessage } from "@ace/protocol/devices";
 import type { Frame } from "@ace/screen";
 import { DevicesService, deviceFailure } from "./service.ts";
 import type { Actor } from "./lease.ts";
@@ -17,7 +17,7 @@ export interface DevicePeer {
 /** A transport owner supplies authenticated identity and revocation checks. */
 export function connectDevices(service: DevicesService, owner: string, peer: DevicePeer) {
   const frames = new DeviceFrameWriter(peer.frame);
-  const actor: Actor = { kind: "human", owner };
+  const actor: Actor = { kind: "human", owner, guard: () => access() };
   const streams = new DeviceSubscriptions();
   const logs = new DeviceSubscriptions();
   let closed = false;
@@ -34,9 +34,13 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
     access();
     await peer.send(message);
   };
+  const stateForPeer = (state: DeviceState): DeviceState => ({
+    ...state,
+    ownedHere: service.ownsControl(state.device.id, owner),
+  });
   const unwatch = service.watch((state) => {
     if (state.threadId && !peer.canReadThread(state.threadId)) return;
-    void send({ type: "devices.state", state }).catch(close);
+    void send({ type: "devices.state", state: stateForPeer(state) }).catch(close);
   });
   // Admin peers see the whole inventory, as a "list" request would show them.
   const unwatchInventory = service.watchInventory((inventory) => {
@@ -88,6 +92,7 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
         }
         pending++;
         try {
+          let requestActor = actor;
           if (operation.op === "subscribe") {
             const slot = streams.reserve(operation.deviceId);
             try {
@@ -110,11 +115,15 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
           }
           if (operation.op === "logs.start") {
             const slot = logs.reserve(operation.deviceId);
+            const guard = () => {
+              deviceAccess(operation.deviceId);
+              if (!slot.active()) throw new Error("Device log subscription superseded");
+            };
+            requestActor = { ...actor, guard };
             try {
               slot.attach(
-                await service.subscribeLogs(operation.deviceId, actor, async (batch) => {
-                  deviceAccess(operation.deviceId);
-                  if (!slot.active()) throw new Error("Device log subscription superseded");
+                await service.subscribeLogs(operation.deviceId, requestActor, async (batch) => {
+                  guard();
                   await send({ type: "devices.logs", deviceId: operation.deviceId, ...batch });
                 }),
               );
@@ -137,7 +146,7 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
               ? { watching: inventoryView !== undefined }
               : operation.op === "screenshot"
                 ? undefined
-                : await service.request(operation, actor);
+                : await service.request(operation, requestActor);
           access();
           if ("deviceId" in operation) deviceAccess(operation.deviceId);
           if (operation.op === "screenshot") {
@@ -156,10 +165,15 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
                 ? {
                     states: service
                       .states()
-                      .filter((state) => !state.threadId || peer.canReadThread(state.threadId)),
+                      .filter((state) => !state.threadId || peer.canReadThread(state.threadId))
+                      .map(stateForPeer),
                     enabled: service.isEnabled(),
                   }
-                : data;
+                : ["controller", "approve", "start", "stop", "subscribe", "unsubscribe"].includes(
+                      operation.op,
+                    )
+                  ? stateForPeer(DeviceState.parse(data))
+                  : data;
             await send({
               type: "devices.result",
               requestId: message.requestId,

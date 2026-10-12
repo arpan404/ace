@@ -1,3 +1,4 @@
+import type { FileOperation } from "@ace/protocol";
 import { WebSocket } from "ws";
 import { attachFilesChannel } from "./socket.ts";
 import type { FilesService } from "./service.ts";
@@ -6,7 +7,10 @@ export function attachFilesSocket(
   service: FilesService,
   socket: WebSocket,
   device: string,
-  authorize: (capability: "files.read" | "files.write") => boolean = () => true,
+  authorize: (
+    capability: "files.read" | "files.write",
+    operation?: FileOperation,
+  ) => boolean = () => true,
 ) {
   const write = (data: string | Buffer) =>
     new Promise<void>((resolve, reject) => {

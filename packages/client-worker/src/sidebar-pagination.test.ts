@@ -128,3 +128,40 @@ test("duplicate initial Home and Archive snapshots do not discard expanded pages
   expect(lease.store.homeWindow?.total).toBe(45);
   expect(lease.store.window?.total).toBe(45);
 });
+
+test("Home in another tab cannot replace Archive rows or its continuation", async () => {
+  const { daemon, tab } = world();
+  for (let i = 0; i < 45; i++) {
+    const id = `archive-${i}`;
+    daemon.createThread({ id, workspaceId: "repo", title: id, provider: "codex" });
+    daemon.updateThread(id, { status: { state: "done" }, archivedAt: i + 1 });
+  }
+  daemon.createThread({ id: "active", workspaceId: "repo", title: "Active", provider: "codex" });
+  const a = tab();
+  await a.start();
+  await vi.waitFor(() => expect(a.state).toBe("ready"));
+  const archive = a.threads();
+  cleanups.push(archive.release);
+  await a.threadsWindow({ archived: true });
+  await vi.waitFor(() => expect(archive.store.ids).toHaveLength(21));
+  const before = archive.store.window?.before;
+  const b = tab();
+  await b.start();
+  const home = b.threads();
+  cleanups.push(home.release);
+  await b.threadsWindow({});
+  await b.request({ type: "diagnostics.health" });
+  expect(archive.store.ids).toHaveLength(21);
+  expect(archive.store.window?.total).toBe(45);
+  expect(archive.store.window?.before).toEqual(before);
+  await a.threadsMore();
+  await vi.waitFor(() => expect(archive.store.ids).toHaveLength(41));
+  expect(home.store.ids).toEqual(["active"]);
+  await b.threadsWindow({ project: "missing" });
+  await vi.waitFor(() => expect(home.store.loaded && home.store.ids.length === 0).toBe(true));
+  expect(archive.store.ids).toHaveLength(41);
+  home.release();
+  await b.close();
+  daemon.updateThread("active", { title: "Still live" });
+  await vi.waitFor(() => expect(archive.store.thread("active")?.title).toBe("Still live"));
+});

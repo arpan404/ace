@@ -1,3 +1,4 @@
+import { providerMcpStatusFrame } from "../provider-mcp-sources.ts";
 import { addClaudeMcp } from "../provider-mcp-add.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import type { ClaudeOptions, ClaudeRateLimitObservation } from "@ace/adapter-claude";
@@ -81,7 +82,9 @@ export async function daemonClaudeAdapter(
               return;
             }
             // Admission certifies the redacted bytes, never the original credential-bearing value.
-            const payload = new ProviderPayload(redact(JSON.stringify(frame.data) ?? "null"));
+            const payload = new ProviderPayload(
+              redact(JSON.stringify(providerMcpStatusFrame(frame.data)) ?? "null"),
+            );
             ctx.onFrame({ ...frame, data: payload.data, payload });
           },
           onExit(exit) {

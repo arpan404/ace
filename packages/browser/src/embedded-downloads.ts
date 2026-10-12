@@ -58,26 +58,31 @@ export class EmbeddedDownloads {
     );
     void done.catch(() => {});
     this.transfers.response(url, mimeType);
-    void this.transfers.accept(
-      {
-        suggestedFilename: () => filename,
-        url: () => url,
-        cancel: async () => {
-          await call("ace.download.cancel");
-          this.waiting.get(guid)?.reject(new Error("Download cancelled"));
-          this.waiting.delete(guid);
+    void this.transfers
+      .accept(
+        {
+          suggestedFilename: () => filename,
+          url: () => url,
+          cancel: async () => {
+            try {
+              await call("ace.download.cancel");
+            } finally {
+              this.waiting.get(guid)?.reject(new Error("Download cancelled"));
+              this.waiting.delete(guid);
+            }
+          },
+          delete: async () => {
+            await rm(path, { force: true });
+          },
+          createReadStream: async () => {
+            await call("ace.download.resume");
+            await done;
+            return createReadStream(path);
+          },
         },
-        delete: async () => {
-          await rm(path, { force: true });
-        },
-        createReadStream: async () => {
-          await call("ace.download.resume");
-          await done;
-          return createReadStream(path);
-        },
-      },
-      tabId,
-    );
+        tabId,
+      )
+      .catch(() => {});
   }
   stop() {
     for (const waiter of this.waiting.values()) waiter.reject(new Error("Browser closed"));

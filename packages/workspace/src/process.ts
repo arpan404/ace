@@ -27,7 +27,7 @@ export async function command(
       for (let index = 0; index < (options.inputs?.length ?? 0); index++) pipes.push(inputPipe());
       child = runtime.spawn(binary, args, {
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-        env: { ...process.env, RIPGREP_CONFIG_PATH: "", GIT_OPTIONAL_LOCKS: "0" },
+        env: { ...runtime.environment, RIPGREP_CONFIG_PATH: "", GIT_OPTIONAL_LOCKS: "0" },
         stdio: ["pipe", "pipe", "pipe", ...pipes.map((pipe) => pipe.fd)],
       });
       for (const pipe of pipes) pipe.releaseReader();

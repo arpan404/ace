@@ -41,6 +41,9 @@ export function createAcpAdapter(
       return {
         translate: (frame, now) => identify(translator.translate(frame, now)),
         tick: (now) => identify(translator.tick(now)),
+        ...(translator.takeDiagnostics
+          ? { takeDiagnostics: () => translator.takeDiagnostics?.() ?? [] }
+          : {}),
         ...(translator.nextDeadline ? { nextDeadline: () => translator.nextDeadline?.() } : {}),
       };
     },

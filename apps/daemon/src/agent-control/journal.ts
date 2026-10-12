@@ -253,6 +253,14 @@ export class DelegationJournal {
       .all()
       .map((row) => this.decode(row.record));
   }
+  /** Recovery also restores ownership of provider work committed just before a crash. */
+  revived() {
+    return this.sql(`SELECT record FROM delegated_threads JOIN threads ON threads.id=child_id
+      WHERE phase='settled' AND json_extract(threads.status,'$.state') NOT IN ('done','failed')
+      AND json_extract(threads.client,'$.deletedAt') IS NULL ORDER BY child_id LIMIT 10001`)
+      .all()
+      .map((row) => this.decode(row.record));
+  }
   family(root: ThreadId) {
     return this.sql(
       "SELECT record FROM delegated_threads WHERE root_id=? ORDER BY child_id LIMIT 64",
@@ -279,14 +287,18 @@ export class DelegationJournal {
   }
   reopen(record: DelegationRecord) {
     this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(record.childId);
+    this.sql("UPDATE delegated_threads SET wake_suppressed=0 WHERE child_id=?").run(record.childId);
+    this.revive(record);
+  }
+  /** Native work must be counted even when Stop still owns its cancellation. */
+  revive(record: DelegationRecord) {
+    if (record.phase !== "settled") return;
     record.phase = "running";
     record.generation++;
     delete record.outcome;
     this.save(record);
     this.sql("UPDATE delegation_trees SET active=active+1 WHERE root_id=?").run(record.rootId);
-    this.sql(
-      "UPDATE delegated_threads SET result_pending=0,wake_suppressed=0 WHERE child_id=?",
-    ).run(record.childId);
+    this.sql("UPDATE delegated_threads SET result_pending=0 WHERE child_id=?").run(record.childId);
     this.sql(
       "DELETE FROM delegation_wakes WHERE parent_id=? AND NOT EXISTS (SELECT 1 FROM delegated_threads WHERE parent_id=? AND result_pending=1)",
     ).run(record.parentId, record.parentId);

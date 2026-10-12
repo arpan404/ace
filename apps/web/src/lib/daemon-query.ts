@@ -1,7 +1,10 @@
 import type { ClientApi } from "@ace/client";
 import { useClient, useConnectionState } from "@ace/client-react";
+import { useEffect } from "react";
+import { refreshOnReconnect } from "./daemon-query-reconnect.ts";
 import {
   useQuery,
+  useQueryClient,
   type QueryKey,
   type UseQueryOptions,
   type UseQueryResult,
@@ -22,9 +25,17 @@ export function useDaemonQuery<T>(
   const client = useClient();
   const ready = useConnectionState() === "ready";
   const { read, enabled, ...rest } = options;
-  return useQuery({
+  const cache = useQueryClient();
+  const query = useQuery({
     ...rest,
+    meta: { ...rest.meta, daemonClient: client },
     queryFn: ({ signal }) => read(client, signal),
     enabled: ready && (enabled ?? true),
   });
+  const hash = cache.getQueryCache().find({ queryKey: rest.queryKey, exact: true })?.queryHash;
+  useEffect(
+    () => (hash === undefined ? undefined : refreshOnReconnect(client, cache, hash)),
+    [client, cache, hash],
+  );
+  return query;
 }
