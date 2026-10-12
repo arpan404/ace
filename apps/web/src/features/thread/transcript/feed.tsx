@@ -251,7 +251,9 @@ export function Feed(props: FeedProps) {
     count: rows.length,
     getScrollElement: () => viewport.current,
     estimateSize: (index) => (rows[index]?.kind === "block" ? 96 : 36),
-    overscan: 8,
+    // Rows are tall (a message, a log): four either side cover a fast flick with no gap, and
+    // half the eight it was halves what mounts per scrolled frame on a slow device.
+    overscan: 4,
     // Scroll-driven range changes render with the next update rather than synchronously in
     // the scroll event: one commit per frame however many scroll events it brings.
     useFlushSync: false,
