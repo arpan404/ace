@@ -190,7 +190,7 @@ test("a task keeps project and provider context visible without duplicating Done
   );
   expect(bare.getAttribute("aria-label")).toContain("Codex");
   expect(within(bare).getByText("relay")).toBeTruthy();
-  expect(within(bare).queryByText("Done", { exact: true })).toBeNull();
+  expect(within(bare).getAllByText("Done", { exact: true })).toHaveLength(1);
   expect(within(bare).getByRole("img", { name: "Codex" })).toBeTruthy();
   await userEvent.hover(bare);
   expect(

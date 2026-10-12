@@ -318,6 +318,9 @@ test("Tab walks a task link, its actions, then the next task", async () => {
   const [first, second] = within(threads()).getAllByRole("link");
   if (!first || !second) throw new Error("expected two rows");
   first.focus();
+  // The first row waits on an approval, so it has no Settle: Snooze, then the menu.
+  await userEvent.tab();
+  expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Snooze /);
   await userEvent.tab();
   expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Actions for /);
   await userEvent.tab();

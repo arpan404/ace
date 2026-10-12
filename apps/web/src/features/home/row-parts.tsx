@@ -1,6 +1,13 @@
 import { createContext, use } from "react";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
-import { type ThreadCard } from "@ace/ui-core";
+import { type ThreadCard, type Tone } from "@ace/ui-core";
+import {
+  CheckCircleIcon,
+  CircleDashedIcon,
+  HandPalmIcon,
+  XCircleIcon,
+} from "@phosphor-icons/react";
+import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { formatSpan } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
@@ -69,18 +76,43 @@ export function PullRequest(props: { card: ThreadCard }) {
   );
 }
 
-/** The first line keeps its status word visible during hover, focus and renaming. */
+/** A small glyph beside the status word: the colour is never the only clue. */
+const statusGlyphs: Partial<Record<Tone, IconGlyph>> = {
+  done: CheckCircleIcon,
+  // Drawn still: the app doesn't spin marks, and the elapsed time beside it shows the motion.
+  working: CircleDashedIcon,
+  "needs-you": HandPalmIcon,
+  failed: XCircleIcon,
+};
+
+/**
+ * The first line's status: a glyph and a word in the status colour (Working carries its elapsed
+ * time). A thread at rest, or one already settled, reads its age instead.
+ */
 export function RowStatus(props: { card: ThreadCard }) {
   const { card } = props;
-  if (card.status.tone === "done" || card.status.tone === "idle") return <RowTime card={card} />;
+  const { tone } = card.status;
+  if (tone === "idle" || (tone === "done" && card.flags.settled)) return <RowTime card={card} />;
+  const glyph = statusGlyphs[tone];
   return (
     <StatusLabel
-      tone={card.status.tone}
+      tone={tone}
       label={card.status.compact}
-      mark={false}
-      className="gap-0 text-xs font-normal"
-    />
+      mark={glyph ? <Icon icon={glyph} size={13} className="text-(--tone)" /> : false}
+      className="gap-1 text-xs font-normal"
+    >
+      {tone === "working" && <WorkingFor card={card} />}
+    </StatusLabel>
   );
+}
+
+/** How long the tree has been working, on the shared second clock while the facts are fresh. */
+function WorkingFor(props: { card: ThreadCard }) {
+  const { since } = props.card.status;
+  const fresh = useLiveConnection().fresh;
+  const now = useSeconds(fresh && since !== undefined);
+  if (!fresh || since === undefined) return null;
+  return <span className="tabular-nums">{formatSpan(since, now)}</span>;
 }
 
 /** Only visible, fresh working rows subscribe to the shared second clock. */
