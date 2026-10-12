@@ -89,7 +89,9 @@ Workspace strategies are explicit for conversation launch, optional for children
   restart. Capacity is reserved before Git effects.
   Agent requests skip automatic setup scripts. Preparation and compensating
   cleanup use the shared Git policy that disables hooks, fsmonitor and configured
-  filters, including LFS. Retained checkouts keep this policy across owner restart.
+  filters, including LFS. It also disables lazy object fetching and denies Git
+  transports, including child promisor fetches. Missing objects fail locally; fetch
+  them in ace before retrying. Retained checkouts keep this policy across owner restart.
 - `{ "kind": "existing_worktree", "path": "/absolute/registered/path" }` reuses
   a worktree registered to that Git project. Arbitrary directories are rejected.
 
