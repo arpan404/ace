@@ -279,17 +279,24 @@ export class FakeContextWire {
         check(scope);
         const workspaceId =
           this.drafts.get(scope)?.workspaceId ?? this.context.thread(scope)?.thread.workspaceId;
-        result = {
-          kind: "completion",
-          paths: workspaceId
-            ? completePaths(
-                workspaceId,
-                op.query,
-                op.limit,
-                this.drafts.has(scope) ? undefined : this.checkoutPaths?.(scope),
-              )
-            : [],
-        };
+        result =
+          op.op === "draft.mention.complete" && this.drafts.get(scope)?.adopted
+            ? {
+                kind: "error",
+                code: "forbidden",
+                message: "Draft already adopted",
+              }
+            : {
+                kind: "completion",
+                paths: workspaceId
+                  ? completePaths(
+                      workspaceId,
+                      op.query,
+                      op.limit,
+                      this.drafts.has(scope) ? undefined : this.checkoutPaths?.(scope),
+                    )
+                  : [],
+              };
       }
     } catch (error) {
       const code = error instanceof Error ? error.message : "invalid_request";

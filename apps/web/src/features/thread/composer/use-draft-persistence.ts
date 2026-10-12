@@ -1,5 +1,5 @@
 import type { ComposerDraft, KeyValueStorage } from "@ace/ui-core";
-import { useEffect, useEffectEvent, useRef, type RefObject } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, type RefObject } from "react";
 import { useLayout } from "@/lib/layout.tsx";
 import { draftsKey, readDraft, writeDraft, writeDraftJson } from "./draft-store.ts";
 
@@ -18,10 +18,17 @@ export function useDraftPersistence(
   draft: ComposerDraft,
   /** Return "replace" when the composer takes the stored draft over its own unsaved copy. */
   onExternal?: (draft: ComposerDraft | undefined) => "replace" | void,
-): { discard(): void; drop(): void } {
+): { discard(): void; drop(): void; finish(): boolean } {
   const { storage } = useLayout();
   const pending = useRef<string | undefined>(undefined);
   const serial = JSON.stringify(draft);
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   useEffect(() => {
     if (!key) return;
     const flush = () => flushDraft(pending, storage, key);
@@ -56,6 +63,10 @@ export function useDraftPersistence(
     return () => removeEventListener("storage", listen);
   }, [key]);
   return {
+    // A reopened editor owns this key. Late completions must return through the shared draft store.
+    finish() {
+      return mounted.current;
+    },
     discard() {
       pending.current = undefined;
       if (key) writeDraft(storage, key, undefined);
