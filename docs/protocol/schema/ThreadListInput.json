@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadListInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cursor": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    },
+    "limit": {
+      "default": 10,
+      "maximum": 20,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "query": {
+      "default": "",
+      "maxLength": 256,
+      "type": "string"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "type": "object"
+}

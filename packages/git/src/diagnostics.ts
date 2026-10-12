@@ -20,6 +20,7 @@ export class GitDiagnostics {
   private authFailed = false;
   private conflicts = false;
   private remoteUnreachable = false;
+  private objectsUnavailable = false;
   accept(chunk: Buffer): void {
     // Never concatenate an arbitrarily large process write into our retained state.
     for (let offset = 0; offset < chunk.length; offset += 4096)
@@ -35,9 +36,11 @@ export class GitDiagnostics {
         ? "auth_failed"
         : this.conflicts
           ? "conflicts"
-          : this.remoteUnreachable
-            ? "remote_unreachable"
-            : "git_failed";
+          : this.objectsUnavailable
+            ? "objects_not_available"
+            : this.remoteUnreachable
+              ? "remote_unreachable"
+              : "git_failed";
   }
   private text(text: string): void {
     const lines = (this.tail + text).split("\n");
@@ -80,6 +83,10 @@ export class GitDiagnostics {
     if (!this.discardedTrace) this.plain(line);
   }
   private plain(text: string): void {
+    this.objectsUnavailable ||=
+      /unable to read sha(?:1|256) file|unable to read tree|missing (?:blob|tree|object)|could not fetch [a-f0-9]+ from promisor remote|could not read [a-f0-9]{40,64}/i.test(
+        text,
+      );
     this.authFailed ||=
       /authentication failed|could not read (Username|Password)|permission denied \(publickey\)|authorization failed|HTTP[^\n]*40[13]|returned error: 40[13]|access denied/i.test(
         text,

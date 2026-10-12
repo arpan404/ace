@@ -31,3 +31,10 @@ export {
   sameSubmittedDraft,
   type SubmittedDraft,
 } from "./composer/submitted-draft.ts";
+/** The existing composer content owner, reused by visible unsent preparations. */
+export {
+  ComposerDraftSchema,
+  discardDraft,
+  readDraft,
+  writeDraft,
+} from "./composer/draft-store.ts";

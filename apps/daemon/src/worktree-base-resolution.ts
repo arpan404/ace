@@ -18,7 +18,8 @@ export class WorktreeBaseError extends Error {
   }
 }
 
-type BaseGit = Pick<GitService, "resolveCommit" | "branchHead" | "fetchBranch">;
+type LocalBaseGit = Pick<GitService, "resolveCommit" | "branchHead">;
+type BaseGit = LocalBaseGit & Pick<GitService, "fetchBranch">;
 
 /** Fetch failures that mean "the remote couldn't be reached", where a cached copy will do. */
 const unreachable = new Set(["remote_unreachable", "auth_failed", "git_timeout", "git_failed"]);
@@ -73,8 +74,29 @@ export async function resolveWorktreeBase(
   );
 }
 
+/** Agent requests can only use already-local refs. Transport execution needs host authorization. */
+export async function resolveAgentWorktreeBase(
+  git: LocalBaseGit,
+  project: string,
+  requested: RequestedBase,
+): Promise<{ head: string; record?: WorktreeBaseRecord }> {
+  if (requested.kind === "revision")
+    return { head: await git.resolveCommit({ worktree: project, ref: requested.revision }) };
+  const { ref, remote } = requested;
+  const head = await branchHead(git, project, ref, remote);
+  if (!head) {
+    if (!remote) throw notFound(requested);
+    throw new WorktreeBaseError(
+      "worktree_base_not_found",
+      "Remote branch not available locally",
+      `Fetch the branch first: refs/remotes/${remote}/${ref} is not available locally.`,
+    );
+  }
+  return { head, record: { ref, head, ...(remote ? { remote } : {}) } };
+}
+
 async function branchHead(
-  git: BaseGit,
+  git: LocalBaseGit,
   project: string,
   branch: string,
   remote?: string,

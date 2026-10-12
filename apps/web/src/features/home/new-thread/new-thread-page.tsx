@@ -1,13 +1,16 @@
+import { useNavigate } from "@tanstack/react-router";
 import { PastSessions } from "@/features/history/index.ts";
 import { ProjectPicker } from "./project-picker.tsx";
 import type { BranchRef, PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
-import { Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import {
   Composer,
   PermissionPicker,
   preloadComposerParts,
   rememberAttachments,
+  readDraft,
+  writeDraft,
   useDraftScope,
   usePermissionModes,
   type Draft,
@@ -22,7 +25,6 @@ import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { WorkspaceId } from "@ace/protocol";
 import {
-  readJson,
   defaultWorktreeBase,
   permissionUnavailable,
   permissionCoverage,
@@ -32,13 +34,33 @@ import {
   speedOffTier,
 } from "@ace/ui-core";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { loadChoices, pickProject, resolve, saveChoices, type Choices } from "./choices.ts";
+import {
+  completePreparationChoices,
+  shownPreparationChoices,
+  loadChoices,
+  pickProject,
+  resolve,
+  saveChoices,
+  type Choices,
+} from "./choices.ts";
 import { ModelPicker } from "./model-picker.tsx";
 import { useBaseRefs } from "@/lib/branches.ts";
 import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
-import * as z from "zod/mini";
+import {
+  preparation,
+  preparationSaveFailed,
+  retirePreparationScope,
+  retainPromotedPreparation,
+  preparationKey,
+  savePreparation,
+  type Preparation,
+  usePreparationsChanged,
+} from "./preparations.ts";
+import { UnavailablePreparation } from "./unavailable-preparation.tsx";
+import { discardPreparation } from "./discard-preparation.ts";
+import { Button } from "@/components/ui/button.tsx";
 import { SignInNotice } from "@/features/sign-in/index.ts";
 
 /** Where the thread runs, below the composer. */
@@ -91,23 +113,95 @@ export function NewThreadPage(props: {
   skill?: string | undefined;
 }) {
   const { storage } = useLayout();
-  const readinessId = useId();
   const { project: filter } = useOrganizerState();
+  const { ids: projects, loaded } = useRegisteredProjects();
+  const host = useHostIdentity()?.hostId;
+  const navigate = useNavigate();
+  const project =
+    props.project ?? pickProject(projects, undefined, loadChoices(storage).project, filter);
+  if (!loaded || !host)
+    return (
+      <Screen title="New thread">
+        <p role="status" className="px-5 py-6 text-sm text-muted-foreground">
+          Loading projects…
+        </p>
+      </Screen>
+    );
+  if (props.project && !projects.includes(props.project))
+    return <UnavailablePreparation host={host} project={props.project} skill={props.skill} />;
+  if (!projects.length || !project)
+    return (
+      <Screen title="New thread">
+        <ProjectsEmptyState />
+      </Screen>
+    );
+  return (
+    <PreparationPage
+      key={preparationKey(host, project, props.skill)}
+      {...props}
+      host={host}
+      project={project}
+      onProject={(next) => {
+        saveChoices(storage, { ...loadChoices(storage), project: next });
+        void navigate({ to: "/new", search: { project: next, skill: props.skill } });
+      }}
+    />
+  );
+}
+
+function PreparationPage(props: {
+  host: string;
+  project: string;
+  base?: string | undefined;
+  skill?: string | undefined;
+  onProject(project: string): void;
+}) {
+  const { storage } = useLayout();
+  const readinessId = useId();
   const { ids: projects, name, loaded } = useRegisteredProjects();
-  const [choices, setChoices] = useState<Choices>(() => loadChoices(storage));
-  const [requested, setRequested] = useState(props.project);
-  const project = pickProject(projects, requested, choices.project, filter);
-  const [baseChoice, setBase] = useState<WorktreeBase | string | undefined>(props.base);
+  usePreparationsChanged();
+  const project = props.project;
+  const draftKey = preparationKey(props.host, project, props.skill);
+  const [restored] = useState<Preparation | undefined>(() => {
+    const previous = preparation(storage, props.host, draftKey);
+    if (previous?.discardRecovery) {
+      if (readDraft(storage, draftKey) || writeDraft(storage, draftKey, previous.discardRecovery))
+        savePreparation(storage, props.host, draftKey, { ...previous, discardRecovery: undefined });
+    }
+    return previous;
+  });
+  const [initialChoices] = useState<Choices>(() => restored?.choices ?? loadChoices(storage));
+  const [selection, setChoices] = useState<Choices | undefined>(undefined);
+  const choices =
+    selection ?? preparation(storage, props.host, draftKey)?.choices ?? initialChoices;
+  const [baseChoice, setBase] = useState<WorktreeBase | string | undefined>(
+    props.base ?? restored?.base,
+  );
+  const [editorOwner] = useState(() => crypto.randomUUID());
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    const saved = preparation(storage, props.host, draftKey);
+    if (saved) savePreparation(storage, props.host, draftKey, { ...saved, owner: editorOwner });
+    return () => {
+      mounted.current = false;
+    };
+  }, [storage, props.host, draftKey, editorOwner]);
+  const scopeId = useRef(restored?.draftId);
+  const latestContent = useRef(readDraft(storage, draftKey));
+  const submitting = useRef(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const contentSaveRefused = useRef(false);
+  const metadataSaveRefused = useRef(false);
   const page = useRef<HTMLDivElement>(null);
   const composer = useRef<ComposerHandle>(null);
-  const [scopeSaveFailed, setScopeSaveFailed] = useState(false);
   useEffect(() => whenIdle(() => void preloadComposerParts()), []);
 
   // Until the starting provider is known, show models loading rather than a provider to undo.
   const start = useStartingProvider();
   const catalog = useNewThreadOptions();
   const options = start.loaded ? catalog : undefined;
-  const [picked, setPicked] = useState<ProviderKind>();
+  const [picked, setPicked] = useState<ProviderKind | undefined>(restored?.provider);
   const [useWorktree] = useDaemonSetting("threads.useWorktree");
   const resolved = resolve(
     options,
@@ -119,24 +213,38 @@ export function NewThreadPage(props: {
   // The base picked here, else the one asked for by name (a local branch until the branches
   // say otherwise), else the default branch at its freshest; undefined while the branches load
   // (the daemon then starts from HEAD).
+  const savedBase = baseChoice ?? preparation(storage, props.host, draftKey)?.base;
   const base =
-    typeof baseChoice === "object"
-      ? baseChoice
-      : baseChoice !== undefined
-        ? namedBase(baseChoice, branches.refs)
+    typeof savedBase === "object"
+      ? savedBase
+      : savedBase !== undefined
+        ? namedBase(savedBase, branches.refs)
         : defaultWorktreeBase(branches.refs, branches.defaultBranch);
   const provider = resolved.provider;
 
-  // Keep explicit choices across account/provider changes; null is an intentional reset.
-  const [permission, setPermission] = useState<PermissionMode | null>();
+  // A selection belongs to this provider; omission retains its configured native default.
+  const [permissionChoice, setPermissionChoice] = useState<
+    | {
+        provider: ProviderKind | undefined;
+        id: PermissionMode | undefined;
+      }
+    | undefined
+  >(restored ? { provider: restored.provider, id: restored.permission } : undefined);
+  if (provider && permissionChoice && permissionChoice.provider !== provider)
+    setPermissionChoice(undefined);
+  const permission = permissionChoice?.provider === provider ? permissionChoice?.id : undefined;
+  const setPermission = (id: PermissionMode | undefined) => {
+    setPermissionChoice({ provider, id });
+    remember({ permission: id });
+  };
   const [defaultMode] = useDaemonSetting(
     "permissions.providerModes",
     project ? { workspaceId: WorkspaceId.parse(project) } : {},
   );
   const permissions = usePermissionModes(provider, {
     instanceId: resolved.account?.id,
-    currentId: permission !== undefined ? permission : provider ? defaultMode?.[provider] : null,
-    setCurrentId: setPermission,
+    currentId: permission ?? (provider ? defaultMode?.[provider] : undefined),
+    setCurrentId: (id) => setPermissionChoice({ provider, id: id ?? undefined }),
   });
   const admitted = {
     mode: permissions.currentId ?? undefined,
@@ -148,19 +256,68 @@ export function NewThreadPage(props: {
         )
       : undefined,
   };
-  const chosen = permission === undefined ? undefined : (permissions.currentId ?? undefined);
+  const chosen =
+    permission && permissions.modes.some((mode) => mode.id === permission) ? permission : undefined;
 
+  const remember = (patch: Partial<Preparation> = {}) => {
+    const previous = preparation(storage, props.host, draftKey);
+    const content = readDraft(storage, draftKey);
+    const completed =
+      previous?.settingsResolved ?? (!!previous?.provider && !!previous?.choices.model);
+    const snapshot = completed ? completePreparationChoices : shownPreparationChoices;
+    const saved = savePreparation(storage, props.host, draftKey, {
+      project,
+      owner: editorOwner,
+      skill: props.skill,
+      choices: { ...snapshot(selection ?? previous?.choices ?? choices, resolved), project },
+      settingsResolved: completed || !!resolved.model,
+      provider: selection ? provider : (previous?.provider ?? provider),
+      permission:
+        permissionChoice?.provider === provider
+          ? permission
+          : previous?.provider === provider
+            ? previous.permission
+            : undefined,
+      base: baseChoice ?? base,
+      scopeEpoch: previous?.scopeEpoch,
+      attachmentsUnavailable: previous?.attachmentsUnavailable && !!content?.attachments.length,
+      discardRecovery: previous?.discardRecovery,
+      handoffCleanupPending: previous?.handoffCleanupPending,
+      draftId:
+        previous?.draftId && previous.draftId !== scopeId.current && content?.attachments.length
+          ? previous.draftId
+          : scope.draftId === scopeId.current
+            ? scopeId.current
+            : undefined,
+      title:
+        previous?.title ?? content?.text.trim().split("\n")[0]?.slice(0, 100) ?? "New preparation",
+      ...patch,
+    });
+    metadataSaveRefused.current = !saved;
+    setSaveFailed(!saved || contentSaveRefused.current);
+  };
   const choose = (patch: Partial<Choices>) => {
-    const next = { ...choices, ...patch };
+    const next = {
+      ...choices,
+      project,
+      model: resolved.model?.key ?? choices.model,
+      account: resolved.account?.id ?? choices.account,
+      mode: resolved.mode,
+      effort: resolved.effort,
+      fast: resolved.fast,
+      ...patch,
+    };
     setChoices(next);
     saveChoices(storage, next);
+    const nextProvider =
+      options?.models.find((row) => row.key === next.model)?.provider ?? provider;
+    remember({
+      choices: next,
+      provider: nextProvider,
+      ...(nextProvider !== provider ? { permission: undefined } : {}),
+    });
   };
-  const chooseProject = (next: string) => {
-    setRequested(next);
-    setBase(undefined);
-    choose({ project: next });
-  };
-  const draftKeyFor = (id: string) => `new:${id}${props.skill ? `:skill:${props.skill}` : ""}`;
+  const chooseProject = props.onProject;
   // A model remembered as a bare id (before option keys) is saved under its option key, again
   // after any later choice saves the bare id it still holds.
   const upgraded = resolved.upgradedModel;
@@ -169,57 +326,158 @@ export function NewThreadPage(props: {
   }, [upgraded, choices, storage]);
   // Mentions, uploads and slash commands go to a draft scope on the daemon before the thread
   // exists; the new thread adopts it. A draft ref's id is that scope.
-  const host = useHostIdentity()?.hostId;
-  const scopeKey =
-    host && project
-      ? `ace.composer.scope:${JSON.stringify([host, draftKeyFor(project)])}`
-      : undefined;
-  const readScope = () =>
-    scopeKey ? readJson(storage, scopeKey, z.string(), undefined) : undefined;
-  const saveScope = (value: string | null): boolean => {
-    if (!scopeKey || !storage || storage.durable === false) return false;
-    try {
-      storage.setItem(scopeKey, JSON.stringify(value));
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  const scope = useDraftScope(host ? project : undefined, {
-    read: readScope,
+  const scope = useDraftScope(project, {
+    epoch: preparation(storage, props.host, draftKey)?.scopeEpoch,
+    read: () => preparation(storage, props.host, draftKey)?.draftId,
     granted(id) {
-      setScopeSaveFailed(!saveScope(id));
+      scopeId.current = id;
+      const saved = preparation(storage, props.host, draftKey);
+      if (
+        saved &&
+        (!saved.draftId ||
+          saved.draftId === id ||
+          !readDraft(storage, draftKey)?.attachments.length)
+      )
+        if (!savePreparation(storage, props.host, draftKey, { ...saved, draftId: id }))
+          setSaveFailed(true);
     },
-    owns: (id) => readScope() === id,
+    owns: (id) => preparation(storage, props.host, draftKey)?.draftId === id,
+    consumed(id) {
+      if (!retirePreparationScope(storage, props.host, draftKey, id)) setSaveFailed(true);
+    },
   });
-  const { create, error, recovering } = useCreateThread((payload) => {
-    if (payload.context?.draftId) {
-      scope.retire(payload.context.draftId);
-      if (payload.workspaceId === project && readScope() === payload.context.draftId)
-        setScopeSaveFailed(!saveScope(null));
+  const { create, error, recovering } = useCreateThread(
+    (payload) => {
+      const matched =
+        !metadataSaveRefused.current &&
+        !contentSaveRefused.current &&
+        payload.workspaceId === project &&
+        composer.current?.discardIfSubmitted(payload);
+      if (payload.context?.draftId) {
+        scope.retire(payload.context.draftId);
+        if (payload.workspaceId === project) {
+          if (matched && !discardPreparation(storage, props.host, draftKey)) {
+            if (!retainPromotedPreparation(storage, props.host, draftKey, payload.context.draftId))
+              setSaveFailed(true);
+          } else if (
+            !matched &&
+            !retirePreparationScope(storage, props.host, draftKey, payload.context.draftId)
+          )
+            setSaveFailed(true);
+        }
+      }
+    },
+    () =>
+      !contentSaveRefused.current &&
+      !metadataSaveRefused.current &&
+      !preparationSaveFailed(storage, draftKey),
+  );
+  const settlePreparation = useEffectEvent(() => {
+    const saved = preparation(storage, props.host, draftKey);
+    if (!saved || !resolved.model) return;
+    const completed = saved.settingsResolved ?? (!!saved.provider && !!saved.choices.model);
+    const snapshot = completed ? completePreparationChoices : shownPreparationChoices;
+    const next = { ...snapshot(selection ?? saved.choices, resolved), project };
+    if (
+      !saved.provider ||
+      !saved.settingsResolved ||
+      JSON.stringify(next) !== JSON.stringify(saved.choices)
+    ) {
+      savePreparation(storage, props.host, draftKey, {
+        ...saved,
+        choices: next,
+        settingsResolved: true,
+        provider: selection ? provider : (saved.provider ?? provider),
+      });
     }
-    if (payload.workspaceId === project) composer.current?.discardIfSubmitted(payload);
   });
+  const settledSettings = resolved.model
+    ? JSON.stringify([
+        provider,
+        resolved.model.key,
+        resolved.account?.id,
+        resolved.effort,
+        resolved.fast,
+        resolved.mode,
+      ])
+    : undefined;
+  const settleBase = useEffectEvent(() => {
+    const saved = preparation(storage, props.host, draftKey);
+    if (saved && saved.base === undefined && base !== undefined)
+      savePreparation(storage, props.host, draftKey, { ...saved, base });
+  });
+  const settledBase = branches.state === "ready" ? JSON.stringify(base) : undefined;
+  useEffect(() => {
+    if (settledSettings !== undefined) settlePreparation();
+  }, [settledSettings]);
+  useEffect(() => {
+    if (settledBase !== undefined) settleBase();
+  }, [settledBase]);
   const accountId = resolved.account?.id;
   const draftThread = useDraftThreadRef(scope.draftId, project, provider, accountId, scope.retry);
   const waitingForAdmission =
     !start.loaded ||
     options === undefined ||
     (!!provider && (defaultMode === undefined || permissions.loading));
+  const missingSelection =
+    restored &&
+    options &&
+    ((choices.model !== undefined &&
+      !options.models.some(
+        (row) => row.key === choices.model && (!choices.account || row.account === choices.account),
+      )) ||
+      (choices.account !== undefined &&
+        !options.accounts.some((row) => row.id === choices.account)) ||
+      (choices.effort !== undefined &&
+        resolved.model &&
+        !resolved.model.efforts?.includes(choices.effort)) ||
+      (choices.fast === true && !resolved.model?.fastTier));
+  const missingPermission =
+    permission &&
+    permissions.capabilities &&
+    !permissions.modes.some((mode) => mode.id === permission);
+  const missingBase =
+    resolved.mode === "worktree" &&
+    savedBase &&
+    branches.state === "ready" &&
+    branches.refs.length > 0 &&
+    !branches.refs.some((ref) =>
+      typeof savedBase === "string"
+        ? ref.name === savedBase || `${ref.remote}/${ref.name}` === savedBase
+        : ref.name === savedBase.ref && ref.remote === savedBase.remote,
+    );
+  const savedScope = preparation(storage, props.host, draftKey)?.draftId;
+  const missingFiles =
+    (preparation(storage, props.host, draftKey)?.attachmentsUnavailable &&
+      !!readDraft(storage, draftKey)?.attachments.length) ||
+    (savedScope &&
+      scope.draftId &&
+      savedScope !== scope.draftId &&
+      !!readDraft(storage, draftKey)?.attachments.length);
   const admissionProblem = recovering
     ? "Recovering the previous thread start…"
-    : waitingForAdmission
-      ? "Checking provider settings…"
-      : permissions.failed
-        ? "Couldn't check provider permissions. Reconnect and try again."
-        : !scope.draftId
-          ? "Preparing attachment storage…"
-          : !resolved.model
-            ? "No model selected. Open the model menu to refresh or sign in."
-            : admitted.fallback;
+    : missingPermission
+      ? "The saved approval mode is unavailable. Choose an available approval mode before sending."
+      : missingBase
+        ? "The saved base branch is unavailable. Choose an available branch before sending."
+        : missingSelection
+          ? "A saved model, account, or reasoning setting is unavailable. Choose an available setting before sending."
+          : missingFiles
+            ? "Saved attachments are unavailable. Remove and add them again before sending."
+            : waitingForAdmission
+              ? "Checking provider settings…"
+              : permissions.failed
+                ? "Couldn't check provider permissions. Reconnect and try again."
+                : !scope.draftId
+                  ? "Preparing attachment storage…"
+                  : !resolved.model
+                    ? "No model selected. Open the model menu to refresh or sign in."
+                    : admitted.fallback;
   const send = async (draft: Draft) => {
     if (!project || !resolved.model || admissionProblem || !scope.draftId) return false;
-    choose({ project });
+    submitting.current = true;
+    const submittedRevision = preparation(storage, props.host, draftKey)?.revision;
+    const submittedContent = JSON.stringify(readDraft(storage, draftKey));
     const draftId = scope.draftId;
     // The new thread takes the draft scope over: keep it when this page closes, which is now.
     scope.adopt();
@@ -227,7 +485,7 @@ export function NewThreadPage(props: {
     void draft.files.settled.then((ready) => rememberAttachments(draft.files.local, ready));
     const sent = await create({
       project,
-      draftKey: draftKeyFor(project),
+      draftKey,
       scope: resolved.model.scope,
       model: resolved.model.id,
       mode: resolved.mode,
@@ -244,11 +502,39 @@ export function NewThreadPage(props: {
         attachments: draft.attachments,
       },
     });
-    // Durable admission hands this scope to the thread. Later composition must allocate its own.
-    // A refused save still needs the original scope to restore and resubmit its files.
-    if (sent) {
+    submitting.current = false;
+    const current = preparation(storage, props.host, draftKey);
+    const content = readDraft(storage, draftKey);
+    const unchanged =
+      current?.owner === editorOwner &&
+      current.revision === submittedRevision &&
+      (JSON.stringify(content) === submittedContent || !content);
+    if (
+      sent &&
+      unchanged &&
+      !contentSaveRefused.current &&
+      !metadataSaveRefused.current &&
+      !preparationSaveFailed(storage, draftKey) &&
+      (!mounted.current ||
+        (!latestContent.current?.text.trim() && !latestContent.current?.attachments.length))
+    ) {
       scope.retire(draftId);
-      if (readScope() === draftId) setScopeSaveFailed(!saveScope(null));
+      if (!discardPreparation(storage, props.host, draftKey)) {
+        const retired = retainPromotedPreparation(storage, props.host, draftKey, draftId);
+        if (mounted.current)
+          setSaveFailed(
+            !retired || preparation(storage, props.host, draftKey)?.handoffCleanupPending === true,
+          );
+      }
+    } else if (sent && current?.draftId === draftId) {
+      // The handoff consumed this scope. Retained content now owns a new preparation.
+      scope.retire(draftId);
+      const retired = retirePreparationScope(storage, props.host, draftKey, draftId);
+      if (mounted.current)
+        setSaveFailed(!retired || contentSaveRefused.current || metadataSaveRefused.current);
+      if (mounted.current) scopeId.current = undefined;
+    } else if (sent) {
+      scope.retire(draftId);
     }
     return sent;
   };
@@ -271,6 +557,29 @@ export function NewThreadPage(props: {
     return (
       <Screen title="New thread">
         <ProjectsEmptyState />
+      </Screen>
+    );
+  const recoverable =
+    readDraft(storage, draftKey) ?? preparation(storage, props.host, draftKey)?.discardRecovery;
+  const promoted = preparation(storage, props.host, draftKey)?.handoffCleanupPending;
+  if (promoted || (recoverable && !readDraft(storage, draftKey)))
+    return (
+      <Screen title="Saved preparation">
+        <div className="px-5 py-6">
+          <p role="alert" className="text-ui text-status-failed">
+            {promoted
+              ? "The thread was saved, but its preparation couldn't be removed. Discard this recovery copy when this device has free space."
+              : "Couldn't restore this saved preparation in the editor. Free space or discard an older draft, then reopen it."}
+          </p>
+          <pre aria-label="Saved message" className="mt-4 whitespace-pre-wrap text-ui">
+            {recoverable?.text ?? ""}
+          </pre>
+          <ul aria-label="Saved attachments" className="mt-3 text-ui">
+            {recoverable?.attachments.map((file) => (
+              <li key={`${file.sha256}:${file.name}`}>{file.name}</li>
+            ))}
+          </ul>
+        </div>
       </Screen>
     );
   return (
@@ -309,8 +618,33 @@ export function NewThreadPage(props: {
                 if (provider === "claude") setPermission("plan");
               }}
               thread={draftThread}
-              draftKey={project ? draftKeyFor(project) : undefined}
+              draftKey={draftKey}
               keepsAttachments
+              ownsDraft={() => {
+                const current = preparation(storage, props.host, draftKey);
+                return !current || current.owner === editorOwner;
+              }}
+              onFilesAdded={() => remember({ title: "Attached files" })}
+              onDraftChange={(content) => {
+                latestContent.current = content;
+                if (
+                  (!submitting.current || content.text.trim() || content.attachments.length) &&
+                  !writeDraft(storage, draftKey, content)
+                ) {
+                  contentSaveRefused.current = true;
+                  setSaveFailed(true);
+                  return;
+                }
+                contentSaveRefused.current = false;
+                if (!content.text.trim() && !content.attachments.length) {
+                  if (!submitting.current && preparation(storage, props.host, draftKey))
+                    remember({ title: "New preparation" });
+                  return;
+                }
+                remember({
+                  title: content.text.trim().split("\n")[0]?.slice(0, 100) || "Attached files",
+                });
+              }}
               initialText={props.skill ? `/${props.skill} ` : undefined}
               busy={false}
               sendBlocked={
@@ -340,6 +674,7 @@ export function NewThreadPage(props: {
                     base={base}
                     onBase={(next) => {
                       setBase(next);
+                      remember({ base: next });
                       toMessage();
                     }}
                   />
@@ -390,7 +725,7 @@ export function NewThreadPage(props: {
 
                     fallback: admitted.fallback,
                   }}
-                  onChange={permissions.setCurrentId}
+                  onChange={(id) => setPermission(id ?? undefined)}
                 />
               }
             />
@@ -401,15 +736,36 @@ export function NewThreadPage(props: {
             )}
             <SignInNotice provider={provider} />
             <PastSessions />
+            {(saveFailed || preparationSaveFailed(storage, draftKey)) && (
+              <div role="alert" className="mt-3 px-2 text-ui text-status-failed">
+                <p>
+                  Couldn't save this preparation on this device. Keep this page open and free space
+                  or discard an older draft before leaving.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    const content = latestContent.current;
+                    if (!content || !writeDraft(storage, draftKey, content)) {
+                      contentSaveRefused.current = true;
+                      setSaveFailed(true);
+                      return;
+                    }
+                    contentSaveRefused.current = false;
+                    remember({
+                      title: content.text.trim().split("\n")[0]?.slice(0, 100) || "New preparation",
+                    });
+                  }}
+                >
+                  Save draft
+                </Button>
+              </div>
+            )}
             {error && (
               <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
                 {error}
-              </p>
-            )}
-            {scopeSaveFailed && (
-              <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
-                Couldn't save attachment storage ownership. Keep this editor open until this device
-                has free space.
               </p>
             )}
           </div>
