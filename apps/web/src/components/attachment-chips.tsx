@@ -1,9 +1,10 @@
 import type { Attachment } from "@ace/protocol";
 import { XIcon } from "@phosphor-icons/react";
-import { useRef, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
+import { AttachmentChipImage } from "./attachment-chip-image.tsx";
 import { FileGlyph, FileName } from "./attachment-face.tsx";
 import type { FileSource, ShownImage } from "./attachment-format.ts";
 import { describeFile, fileMeta } from "./attachment-kind.ts";
@@ -46,6 +47,9 @@ export function AttachmentChipRow(props: {
   threadId?: string | undefined;
 }) {
   const list = useRef<HTMLUListElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? props.items : props.items.slice(0, 8);
+  const more = props.items.length - shown.length;
   const images = props.items.flatMap((item): ShownImage[] => {
     const source = imageSource(item, props.threadId);
     return source && describeFile(item).kind === "image"
@@ -55,7 +59,7 @@ export function AttachmentChipRow(props: {
   const { show: showImage, lightbox } = useLightbox(images);
   const { show: showFile, preview } = useFilePreview();
   const open = (item: ChipAttachment, element: HTMLElement) => {
-    const image = images.findIndex((shown) => shown.key === String(item.key));
+    const image = images.findIndex((candidate) => candidate.key === String(item.key));
     if (image >= 0) return showImage(image, element);
     showFile(
       {
@@ -71,7 +75,8 @@ export function AttachmentChipRow(props: {
   // Focus moves on before the chip goes, so the keyboard never lands on the page's body.
   const remove = (key: number, from: HTMLElement) => {
     const chips = [...(list.current?.querySelectorAll<HTMLElement>("[data-chip-open]") ?? [])];
-    const at = chips.indexOf(from);
+    const opened = from.closest("li")?.querySelector<HTMLElement>("[data-chip-open]");
+    const at = chips.findIndex((chip) => chip === opened);
     const next =
       chips[at + 1] ??
       chips[at - 1] ??
@@ -86,18 +91,35 @@ export function AttachmentChipRow(props: {
       <ul
         ref={list}
         aria-label="Attachments"
-        className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto px-3 pt-3 [scrollbar-width:none]"
+        className="flex max-h-60 flex-wrap items-start gap-2 overflow-y-auto px-3 pt-3 [scrollbar-width:none]"
       >
-        {props.items.map((item) => (
+        {shown.map((item) => (
           <Chip
             key={item.key}
             item={item}
+            threadId={props.threadId}
             onOpen={open}
             onRemove={remove}
             onRetry={props.onRetry}
           />
         ))}
       </ul>
+      {more > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="focus-ring mx-3 mt-1 rounded-sm text-xs text-muted-foreground hover:text-foreground"
+        >
+          Show {more} more attachments
+        </button>
+      )}
+      {props.items
+        .filter((item) => item.mimeType?.startsWith("image/") && item.kind && item.kind !== "image")
+        .map((item) => (
+          <p key={item.key} role="status" className="px-3 pt-1 text-xs text-muted-foreground">
+            {item.name} is attached as a file. Image previews support PNG, JPEG, GIF and WebP.
+          </p>
+        ))}
       {lightbox}
       {preview}
     </>
@@ -126,11 +148,14 @@ function fileSource(item: ChipAttachment, threadId: string | undefined): FileSou
 
 function Chip(props: {
   item: ChipAttachment;
+  threadId?: string | undefined;
   onOpen(item: ChipAttachment, element: HTMLElement): void;
   onRemove(key: number, from: HTMLElement): void;
   onRetry?: ((key: number) => void) | undefined;
 }) {
   const { item } = props;
+  if (describeFile(item).kind === "image")
+    return <AttachmentChipImage {...props} source={imageSource(item, props.threadId)} />;
   const failed = item.state === "failed";
   const uploading = item.state === "uploading";
   const reason = item.error ?? "The upload failed";
@@ -213,11 +238,12 @@ function Thumb(props: { item: ChipAttachment }) {
   const uploading = item.state === "uploading";
   // Inside the ring the glyph shrinks so the chip keeps its height.
   const size = uploading ? "size-5" : "size-6";
-  const glyph = item.preview ? (
-    <img src={item.preview} alt="" className={cn(size, "shrink-0 rounded-sm object-cover")} />
-  ) : (
-    <FileGlyph kind={describeFile(item).kind} className={size} />
-  );
+  const glyph =
+    item.preview && describeFile(item).kind === "image" ? (
+      <img src={item.preview} alt="" className={cn(size, "shrink-0 rounded-sm object-cover")} />
+    ) : (
+      <FileGlyph kind={describeFile(item).kind} className={size} />
+    );
   if (!uploading) return glyph;
   // r = 13 on a 28 box: circumference ≈ 81.7.
   const circumference = 2 * Math.PI * 13;

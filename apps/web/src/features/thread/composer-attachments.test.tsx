@@ -79,7 +79,7 @@ test("pasting an image preserves an attached file without sending until the pers
     ),
   ).toEqual([]);
 
-  await userEvent.click(screen.getByRole("button", { name: "Send", exact: true }));
+  await userEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => {
     const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(thread.id) });
     if (!view || !("items" in view)) throw new Error("Missing transcript");
@@ -485,4 +485,28 @@ test("removing a chip before upload completion releases the eventual attachment"
     release.resolve();
     unsubscribe();
   }
+});
+
+test("an opaque image stays attached as a file with a clear preview type explanation", () => {
+  render(
+    <AttachmentChips
+      items={[
+        {
+          key: 1,
+          name: "photo.heic",
+          mimeType: "image/heic",
+          kind: "binary",
+          bytes: 100,
+          state: "ready",
+          progress: 1,
+        },
+      ]}
+      onRemove={() => {}}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "Preview photo.heic" })).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toBe(
+    "photo.heic is attached as a file. Image previews support PNG, JPEG, GIF and WebP.",
+  );
+  expect(screen.queryByRole("img")).toBeNull();
 });

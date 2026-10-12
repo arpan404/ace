@@ -1,4 +1,6 @@
 import { ClientError } from "@ace/client";
+import { useConnectionState } from "@ace/client-react";
+import type { Attachment } from "@ace/protocol";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { ChipAttachment } from "@/components/attachment-chips.tsx";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
@@ -90,6 +92,35 @@ export function useAttachments(
       restored.map((file, index) => [-1 - index, { bytes: 0, id: `${file.sha256}\0${file.name}` }]),
     ),
   );
+  const [restoredFiles] = useState(restored);
+  const [metadata, setMetadata] = useState<readonly Attachment[]>([]);
+  const connection = useConnectionState();
+  const ownerId = thread.id;
+  const draftScope = thread.draft;
+  useEffect(() => {
+    if (draftScope || !restoredFiles.length || connection !== "ready") return;
+    const controller = new AbortController();
+    void sources.context.list({ id: ownerId, workspaceId: "", title: "" }, controller.signal).then(
+      (loaded) => {
+        if (controller.signal.aborted) return;
+        setMetadata(loaded);
+        const byHash = new Map(loaded.map((file) => [file.sha256, file]));
+        for (const [key, held] of known.current) {
+          const file = byHash.get(held.id?.split("\0")[0] ?? "");
+          if (file) known.current.set(key, { ...held, bytes: file.bytes });
+        }
+      },
+      () => {
+        // Restored files stay attached while offline; metadata is read on reconnect.
+      },
+    );
+    return () => controller.abort();
+  }, [sources, ownerId, draftScope, restoredFiles, connection]);
+  const metadataByHash = new Map(metadata.map((file) => [file.sha256, file]));
+  const displayed = items.map((item) => {
+    const file = metadataByHash.get(item.sha256 ?? "");
+    return file ? { ...item, mimeType: file.mimeType, kind: file.kind, bytes: file.bytes } : item;
+  });
   useEffect(() => {
     // The chips' code, warmed while the composer is up so the first file shows at once.
     void ChipRow.preload();
@@ -328,7 +359,7 @@ export function useAttachments(
     const held = items.map((item) => files.current.get(item.key));
     const urls = items.flatMap((item) => (item.preview ? [item.preview] : []));
     for (const url of urls) previews.current.delete(url);
-    const local = items.map((item) => ({
+    const local = displayed.map((item) => ({
       name: item.name,
       mimeType: item.mimeType ?? "application/octet-stream",
       bytes: item.bytes ?? 0,
@@ -374,7 +405,7 @@ export function useAttachments(
     item.state === "ready" && item.sha256 ? [{ sha256: item.sha256, name: item.name }] : [],
   );
   return {
-    items,
+    items: displayed,
     add,
     remove,
     retry,
