@@ -36,7 +36,13 @@ import { AttachmentChips, maxAttachmentsPerMessage, useAttachments } from "./att
 import { ComposerCompact } from "./composer-compact.ts";
 import { accept, insertAt, triggerAt, type Draft, type Trigger } from "./draft.ts";
 import { composerContent, matchesSubmittedDraft, type SubmittedDraft } from "./submitted-draft.ts";
-import { readDraft, recentFiles, rememberFile, writeDraft } from "./draft-store.ts";
+import {
+  draftSaveFailed,
+  readDraft,
+  recentFiles,
+  rememberFile,
+  writeDraft,
+} from "./draft-store.ts";
 import { PrimaryAction } from "./primary-action.tsx";
 import {
   DeferredCommandArguments,
@@ -284,7 +290,11 @@ function ComposerBody({
     (next) => {
       // Another window changed this draft: an idle composer takes it, a focused one offers it.
       const draft = next ?? emptyDraft;
-      if (document.activeElement === input.current) return void setTheirs(draft);
+      if (
+        document.activeElement === input.current ||
+        (props.draftKey && draftSaveFailed(storage, props.draftKey))
+      )
+        return void setTheirs(draft);
       if (!otherFiles(draft)) return void takeText(draft);
       props.onReplaced(draft);
       return "replace";

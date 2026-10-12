@@ -68,6 +68,14 @@ export function readDraft(
 ): ComposerDraft | undefined {
   const held = recovery(storage);
   if (held?.has(key)) return held.get(key);
+  return readDurableDraft(storage, key);
+}
+
+/** External change detection must see the other tab's saved version, not this page's recovery. */
+export function readDurableDraft(
+  storage: KeyValueStorage | undefined,
+  key: string,
+): ComposerDraft | undefined {
   return findDraft(readJson(storage, draftsKey, Entries, []), key);
 }
 

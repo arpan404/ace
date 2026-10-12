@@ -29,6 +29,45 @@ test("an unsent draft is still there after visiting another thread", async () =>
   expect((await message()).textContent).toBe("Half a thought about nested routes");
 });
 
+test.each(["focused", "unfocused"])(
+  "a %s retained draft exposes another tab's durable version without replacing local recovery",
+  async (focus) => {
+    const storage = memoryKeyValue();
+    const setItem = storage.setItem.bind(storage);
+    storage.setItem = (key, value) => {
+      if (key === "ace.composer.drafts") throw new Error("QuotaExceededError");
+      setItem(key, value);
+    };
+    await app(storage).open("/t/thread-router");
+    const editor = await message();
+    await userEvent.type(editor, "My unsaved version");
+    fireEvent(window, new Event("pagehide"));
+    await screen.findByText("Draft not saved: storage full");
+    if (focus === "unfocused") editor.blur();
+    // Another browser tab's accepted write goes through the shared durable storage boundary.
+    const newer = JSON.stringify([
+      [
+        "thread:thread-router",
+        { text: "Other tab's saved version", mentions: [], attachments: [] },
+      ],
+    ]);
+    setItem("ace.composer.drafts", newer);
+    fireEvent(window, new StorageEvent("storage", { key: "ace.composer.drafts", newValue: newer }));
+    await screen.findByText(/Edited in another window/);
+    expect(editor.textContent).toBe("My unsaved version");
+    await screen.findByText("Draft not saved: storage full");
+    // Another refused flush must preserve both the visible copy and the competing durable copy.
+    fireEvent(window, new Event("pagehide"));
+    expect(storage.getItem("ace.composer.drafts")).toBe(newer);
+    await userEvent.click(screen.getByRole("button", { name: "Use that version" }));
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+        "Other tab's saved version",
+      ),
+    );
+  },
+);
+
 test("a full draft store warns and retains the latest text across navigation until it can save", async () => {
   const storage = memoryKeyValue();
   const setItem = storage.setItem.bind(storage);

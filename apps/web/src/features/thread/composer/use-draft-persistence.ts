@@ -13,6 +13,7 @@ import {
   draftSaveFailed,
   onDraftDiscard,
   readDraft,
+  readDurableDraft,
   writeDraft,
   writeDraftJson,
 } from "./draft-store.ts";
@@ -94,7 +95,7 @@ export function useDraftPersistence(
   // Another window changed this draft: the browser says so with a `storage` event.
   const external = useEffectEvent((event: StorageEvent) => {
     if (!key || event.key !== draftsKey) return;
-    const theirs = readDraft(storage, key);
+    const theirs = readDurableDraft(storage, key);
     if (JSON.stringify(theirs ?? empty) === serial) return;
     if (onExternal?.(theirs) === "replace") pending.current = undefined;
   });
