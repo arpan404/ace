@@ -88,7 +88,7 @@ export async function startDaemonMcp(
   });
   return {
     url: server.url,
-    toolNames: () => registry.names(),
+    toolNames: () => ["ace_status", ...registry.names()],
     toolsChanged: server.toolsChanged,
     action: (name: string, input: unknown) => registry.action(name, input),
     providers: new McpProviderSessions(),

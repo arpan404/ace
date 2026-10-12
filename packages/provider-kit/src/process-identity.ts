@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import koffi from "koffi";
 export interface ProcessIdentity {
+  pid: number;
   start: string;
   uid: number;
   group: number;
@@ -20,7 +21,9 @@ export function processIdentity(pid: number): ProcessIdentity | undefined {
       const group = Number(fields[2]);
       if (!start || !uid || !Number.isSafeInteger(group))
         throw new Error("Unverifiable process identity");
-      return { start: `${boot}:${start}`, uid: Number(uid), group };
+      const actualPid = Number(stat.slice(0, stat.indexOf(" ")));
+      if (actualPid !== pid) throw new Error("Process identity mismatch");
+      return { pid: actualPid, start: `${boot}:${start}`, uid: Number(uid), group };
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
       throw error;
@@ -36,6 +39,7 @@ export function processIdentity(pid: number): ProcessIdentity | undefined {
       const buffer = Buffer.alloc(136);
       if (info(pid, 3, 0, buffer, buffer.length) !== buffer.length) return undefined;
       return {
+        pid: buffer.readUInt32LE(12),
         start: `${buffer.readBigUInt64LE(120)}:${buffer.readBigUInt64LE(128)}`,
         uid: buffer.readUInt32LE(20),
         group: buffer.readUInt32LE(100),

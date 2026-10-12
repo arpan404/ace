@@ -65,12 +65,19 @@ export class ProcessInventory implements ProcessJournal {
   add(pid: number, metadata: { name: string; cwd?: string }): void {
     const identity = this.runtime.identity(pid);
     const owner = this.runtime.identity(this.runtime.ownerPid);
-    if (!identity || !owner || identity.group !== pid || identity.uid !== owner.uid)
+    if (!identity && !this.runtime.alive(pid)) return;
+    if (
+      !identity ||
+      !owner ||
+      identity.pid !== pid ||
+      owner.pid !== this.runtime.ownerPid ||
+      identity.group !== pid ||
+      identity.uid !== owner.uid
+    )
       throw new Error("Cannot record owned process identity");
     if (Number(this.db.prepare("SELECT COUNT(*) AS n FROM processes").get()?.n) >= 4096)
       throw new Error("Process inventory capacity");
     const entry = Entry.parse({
-      pid,
       ...identity,
       ownerPid: this.runtime.ownerPid,
       ownerStart: owner.start,
@@ -92,7 +99,12 @@ export class ProcessInventory implements ProcessJournal {
     let killed = 0;
     for (const entry of this.list()) {
       const owner = this.runtime.identity(entry.ownerPid);
-      if (owner?.start === entry.ownerStart) continue;
+      if (
+        owner?.pid === entry.ownerPid &&
+        owner.start === entry.ownerStart &&
+        owner.uid === entry.uid
+      )
+        continue;
       const current = this.runtime.identity(entry.pid);
       if (!this.runtime.alive(entry.group)) {
         this.remove(entry.pid);
@@ -101,6 +113,7 @@ export class ProcessInventory implements ProcessJournal {
       }
       if (
         !current ||
+        current.pid !== entry.pid ||
         current.start !== entry.start ||
         current.uid !== entry.uid ||
         current.group !== entry.group

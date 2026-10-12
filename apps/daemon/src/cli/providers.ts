@@ -4,6 +4,7 @@ import { option, validateArgs, type Args } from "./args.ts";
 import { print, result } from "./io.ts";
 import { CliFailure } from "./output.ts";
 import { setTimeout as delay } from "node:timers/promises";
+import { manualLogin } from "../provider-login-driver.ts";
 export async function providersCommand(args: Args, client: Client, signal: AbortSignal) {
   validateArgs(args, [], args.words[0] === "providers" ? 2 : 1);
   if (args.words[0] === "providers" && args.words[1] !== "status")
@@ -47,6 +48,25 @@ export async function loginCommand(args: Args, client: Client, signal: AbortSign
   );
   let previous = -1;
   let session: string | undefined;
+  let released = false;
+  const cancel = async () => {
+    if (!session || released) return;
+    const cancelled = await client
+      .request({ type: "provider.login.cancel", session }, { signal: AbortSignal.timeout(5000) })
+      .catch(() => {
+        throw new CliFailure("uncertain", "Login cleanup acknowledgement unavailable", { session });
+      });
+    if (
+      !cancelled.result.ok ||
+      !["cancelled", "failed", "succeeded"].includes(cancelled.result.progress.state)
+    )
+      throw new CliFailure(
+        "uncertain",
+        "Login cleanup is unconfirmed. Retry cancellation before logging in again.",
+        { session },
+      );
+    released = true;
+  };
   try {
     while (response.result.ok) {
       const progress = response.result.progress;
@@ -57,13 +77,24 @@ export async function loginCommand(args: Args, client: Client, signal: AbortSign
         else if (progress.url || progress.userCode)
           process.stderr.write(`${progress.url ?? ""}\n${progress.userCode ?? ""}\n`);
       }
-      if (progress.state === "succeeded") return result(args, { provider, status: "ok" });
-      if (["failed", "cancelled", "awaiting_input", "awaiting_api_key"].includes(progress.state))
+      if (progress.state === "succeeded") {
+        released = true;
+        return result(args, { provider, status: "ok" });
+      }
+      if (["failed", "cancelled", "awaiting_input", "awaiting_api_key"].includes(progress.state)) {
+        await cancel();
         return result(
           args,
-          progress,
-          progress.manual || progress.state === "awaiting_input" ? "needs-human" : "failed",
+          {
+            ...progress,
+            manual: progress.manual ?? manualLogin(provider, "login", option(args, "instance")),
+            sessionReleased: true,
+          },
+          progress.manual || ["awaiting_input", "awaiting_api_key"].includes(progress.state)
+            ? "needs-human"
+            : "failed",
         );
+      }
       await delay(250, undefined, { signal });
       response = await client.request(
         { type: "provider.login.poll", session: progress.session },
@@ -72,7 +103,6 @@ export async function loginCommand(args: Args, client: Client, signal: AbortSign
     }
     throw new CliFailure("refused", response.result.error);
   } finally {
-    if (session && signal.aborted && client.state === "ready")
-      await client.request({ type: "provider.login.cancel", session }).catch(() => {});
+    await cancel();
   }
 }

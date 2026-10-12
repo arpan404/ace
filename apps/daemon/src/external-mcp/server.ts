@@ -3,9 +3,27 @@ import { WorkspaceId, type CliOperation, type AgentControlResult } from "@ace/pr
 import type { ServiceContext } from "../services/types.ts";
 import { Enrollments } from "./enrollments.ts";
 import { externalTools } from "./tools.ts";
+import { join } from "node:path";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { z } from "zod";
+import { secureDataDir } from "../local-files.ts";
+import { nodeScheduler } from "@ace/mcp-server";
+const enrollmentId = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
 export type ExternalMcp = Awaited<ReturnType<typeof externalMcp>>;
 export async function externalMcp(context: ServiceContext) {
-  const enrollments = new Enrollments(context.now, context.id);
+  const directory = join(context.config.dataDir, "mcp-enrollments");
+  secureDataDir(directory);
+  const tokenPath = (id: string) => join(directory, `${enrollmentId.parse(id)}.token`);
+  const enrollments = new Enrollments(context.now, context.id, nodeScheduler.after, (id) => {
+    try {
+      unlinkSync(tokenPath(id));
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
+  });
   let admit: (() => boolean) | undefined;
   context.onListen.push((server) => {
     admit = () => server.maintenance.admit();
@@ -47,13 +65,22 @@ export async function externalMcp(context: ServiceContext) {
           )
             return { ok: false, code: "not_found" };
           const entry = enrollments.enroll(operation.scope, operation.ttlMs, operation.project);
+          const credentialFile = tokenPath(entry.id);
+          try {
+            writeFileSync(credentialFile, entry.bearer, { mode: 0o600, flag: "wx" });
+          } catch (error) {
+            enrollments.revoke(entry.id);
+            throw error;
+          }
           return {
             ok: true,
             data: {
               ...entry,
               url: server.url,
-              claude: `claude mcp add --transport http ace ${server.url} --header 'Authorization: Bearer ${entry.bearer}'`,
-              codex: `[mcp_servers.ace]\nurl = "${server.url}"\nhttp_headers = { Authorization = "Bearer ${entry.bearer}" }`,
+              credentialFile,
+              setup: `export ACE_MCP_TOKEN="$(cat ${shellQuote(credentialFile)})"`,
+              claude: `claude mcp add-json ace '${JSON.stringify({ type: "http", url: server.url, headers: { Authorization: "Bearer ${ACE_MCP_TOKEN}" } })}'`,
+              codex: `[mcp_servers.ace]\nurl = "${server.url}"\nbearer_token_env_var = "ACE_MCP_TOKEN"`,
             },
           };
         }

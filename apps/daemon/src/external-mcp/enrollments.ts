@@ -13,10 +13,17 @@ export class Enrollments {
   private now: () => number;
   private id: () => string;
   private after: typeof nodeScheduler.after;
-  constructor(now: () => number, id: () => string = randomUUID, after = nodeScheduler.after) {
+  private onRevoke: (id: string) => void;
+  constructor(
+    now: () => number,
+    id: () => string = randomUUID,
+    after = nodeScheduler.after,
+    onRevoke: (id: string) => void = () => {},
+  ) {
     this.now = now;
     this.id = id;
     this.after = after;
+    this.onRevoke = onRevoke;
   }
   enroll(scope: "read" | "operate", ttlMs: number, project?: WorkspaceId) {
     const id = this.id();
@@ -56,6 +63,7 @@ export class Enrollments {
     this.entries.delete(id);
     entry.cancel();
     entry.end();
+    this.onRevoke(id);
     return true;
   }
   close(): void {
