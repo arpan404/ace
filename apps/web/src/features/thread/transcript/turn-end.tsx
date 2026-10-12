@@ -2,9 +2,9 @@ import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useThreadMeta } from "@ace/client-react";
 import type { Run } from "@ace/protocol";
 import { formatElapsed, pauseLabel, providerNames } from "@ace/ui-core";
-import { HourglassMediumIcon } from "@phosphor-icons/react";
 import { Suspense, useCallback, useMemo } from "react";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
+import { DeferredWorkLogSteps } from "../items/deferred-steps.ts";
 import { DeferredFailedTurn } from "../items/deferred-review.ts";
 import type { Block } from "./blocks.ts";
 import type { Failure } from "./failure.ts";
@@ -104,12 +104,22 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
   if (block.ending === "paused") {
     const text = pauseLabel(provider ? providerNames[provider] : undefined, undefined);
     return (
-      <Marker role="note" aria-label={text} variant="separator" className="text-xs">
-        <MarkerContent className="flex items-center gap-1.5">
-          <HourglassMediumIcon aria-hidden size={12} />
+      <details
+        role="note"
+        aria-label={text}
+        className="border-t border-border pt-2 text-xs text-muted-foreground"
+      >
+        <summary role="button" className="cursor-pointer py-1 focus-ring">
           {text}
-        </MarkerContent>
-      </Marker>
+        </summary>
+        <Suspense fallback={null}>
+          <DeferredWorkLogSteps.Component
+            threadId={props.threadId}
+            itemIds={block.itemIds ?? []}
+            panel={block.key}
+          />
+        </Suspense>
+      </details>
     );
   }
   if (block.ending === "interrupted") {

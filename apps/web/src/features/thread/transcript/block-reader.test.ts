@@ -201,7 +201,7 @@ test.each(["agent", "spawn"] as const)(
     );
     expect(source.store.order).toBe(order);
     const after = read(source.store);
-    expect(work(after.value)).toEqual([["second-before"], ["child-output"], ["second-after"]]);
+    expect(work(after.value)).toEqual([["second-before", "second-after"], ["child-output"]]);
     expect(before.watch).toContain("agent:child");
     if (link === "spawn") expect(before.watch).toContain("item:spawn");
     expect(after.value).toEqual(createBlockReader()(source.store).value);

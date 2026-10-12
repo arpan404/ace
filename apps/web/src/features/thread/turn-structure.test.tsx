@@ -93,36 +93,19 @@ function stuckCommand(): Scenario {
   };
 }
 
-test("a turn is one quiet work log with a note between steps", async () => {
+test("a running turn keeps interim notes in its log and one working line after its answer", async () => {
   const app = harness();
   const script = app.play(stuckCommand());
   script.runThrough("second-step");
   await app.open("/t/thread-stuck");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const logs = await within(feed).findAllByRole("button", { name: /^Work so far/ });
-  expect(logs).toHaveLength(1);
-  expect(logs[0]!.textContent).toMatch(/^Work so far/);
-  // Actual steps remain in the expandable log, without a transient working header.
-  expect(screen.queryByRole("status", { name: /Work/ })).toBeNull();
-  // The note the agent wrote between the two steps is in the log, between them.
+  expect(within(feed).queryByText("Work so far")).toBeNull();
+  expect(screen.getByRole("status", { name: "Working" }).textContent).toContain("src/config");
   expect(within(feed).queryByText("Installing; reading the config meanwhile.")).toBeNull();
-  await userEvent.click(logs[0]!);
-  const steps = await within(feed).findByRole("list", { name: "Steps" });
-  const note = await within(steps).findByText("Installing; reading the config meanwhile.");
-  expect(follows(within(steps).getByRole("button", { name: /^Running bun install/ }), note)).toBe(
-    true,
-  );
-  expect(follows(note, within(steps).getByRole("button", { name: /^Reading src\/config/ }))).toBe(
-    true,
-  );
-
-  // An answer reads below the log; ongoing tool work remains available without a working line.
   act(() => script.runThrough("answered"));
-  const answer = await within(feed).findByText("The config reads the lockfile path.");
-  expect(within(feed).queryByRole("button", { name: /^Working for/ })).toBeNull();
-  expect(follows(within(feed).getByRole("button", { name: /^Work so far/ }), answer)).toBe(true);
+  expect(await within(feed).findByText("The config reads the lockfile path.")).toBeTruthy();
   expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
-  expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
+  expect(screen.getByRole("status", { name: "Working" })).toBeTruthy();
 });
 
 test("an approval is explained by its request card without repeated waiting statuses", async () => {
@@ -132,7 +115,7 @@ test("an approval is explained by its request card without repeated waiting stat
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const approval = await screen.findByRole("region", { name: "Waiting for you" });
   expect(within(approval).getByRole("button", { name: "Allow once" })).toBeTruthy();
-  expect(within(feed).queryByText("Waiting for your approval", { exact: true })).toBeNull();
+  expect(within(feed).getByRole("link", { name: "Waiting for your approval" })).toBeTruthy();
   expect(within(feed).queryByRole("button", { name: /^Working for/ })).toBeNull();
 });
 
@@ -243,13 +226,14 @@ function stopped(withWork: boolean): Scenario {
   };
 }
 
-test("a stopped turn says so under what it got done", async () => {
+test("a stopped turn keeps its partial answer and stopped summary", async () => {
   const app = harness();
   app.play(stopped(true)).runUntilBlocked();
   await app.open("/t/thread-stopped");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const note = await within(feed).findByRole("note", { name: /^Stopped/ });
-  expect(follows(within(feed).getByText("Building the web bundle first"), note)).toBe(true);
+  const note = await within(feed).findByRole("button", { name: /^Stopped/ });
+  expect(note.textContent).toMatch(/^Stopped after/);
+  expect(within(feed).getByText("Building the web bundle first")).toBeTruthy();
   // What it had written stays, but no longer looks like it is still being written.
   expect(within(feed).queryByRole("status", { name: "Streaming" })).toBeNull();
 });
@@ -259,7 +243,7 @@ test("a turn stopped before any reply keeps saying so under its ask after the ne
   app.play(stopped(false)).runUntilBlocked();
   await app.open("/t/thread-stopped");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const note = await within(feed).findByRole("note", { name: /^Stopped/ });
+  const note = await within(feed).findByRole("button", { name: /^Stopped/ });
   expect(follows(within(feed).getByText("Build the release bundle."), note)).toBe(true);
 
   act(() =>
@@ -269,7 +253,7 @@ test("a turn stopped before any reply keeps saying so under its ask after the ne
     ]),
   );
   const next = await within(feed).findByText("Build only the web bundle.");
-  const kept = within(feed).getByRole("note", { name: /^Stopped/ });
+  const kept = within(feed).getByRole("button", { name: /^Stopped/ });
   expect(follows(within(feed).getByText("Build the release bundle."), kept)).toBe(true);
   expect(follows(kept, next)).toBe(true);
 });
@@ -381,7 +365,7 @@ test("the changed-files card waits until the subagents a turn started have finis
   expect(await within(feed).findByRole("button", { name: /^Changed 3 files/ })).toBeTruthy();
 });
 
-test("the expanded tool step follows its own updates without a body working line", async () => {
+test("the live line follows command refinements without rebuilding the transcript", async () => {
   const app = harness();
   app
     .play({
@@ -409,9 +393,10 @@ test("the expanded tool step follows its own updates without a body working line
     })
     .runUntilBlocked();
   await app.open("/t/thread-run");
-  const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Work so far/ }));
-  await within(feed).findByRole("button", { name: /^Running bun run build/ });
+  await screen.findByRole("feed", { name: "Transcript" });
+  expect(screen.getByRole("status", { name: "Working" }).textContent).toContain(
+    "Running bun run build",
+  );
 
   // The provider refines the command; the agent's own status doesn't change.
   act(() =>
@@ -427,9 +412,11 @@ test("the expanded tool step follows its own updates without a body working line
       },
     ]),
   );
-  expect(
-    await within(feed).findByRole("button", { name: /^Running bun run build apps\/web/ }),
-  ).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.getByRole("status", { name: "Working" }).textContent).toContain(
+      "Running bun run build apps/web",
+    ),
+  );
 });
 
 test("an open turn has a quiet work log that becomes timed history when the turn settles", async () => {
@@ -465,7 +452,7 @@ test("an open turn has a quiet work log that becomes timed history when the turn
   script.runThrough("spoke");
   await app.open("/t/thread-frozen");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  expect(await within(feed).findByRole("button", { name: /^Work so far/ })).toBeTruthy();
+  expect(screen.getByRole("status", { name: "Working" })).toBeTruthy();
   expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
   expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
   expect(within(feed).queryByText(/^Working for/)).toBeNull();
@@ -477,7 +464,7 @@ test("an open turn has a quiet work log that becomes timed history when the turn
       within(feed).getByRole("button", { name: /Ran bun run build|^Worked for/ }),
     ).toBeTruthy(),
   );
-  expect(within(feed).getByRole("button", { name: /^Worked for 10s/ })).toBeTruthy();
+  expect(within(feed).getByRole("button", { name: /^Worked for 1m 40s/ })).toBeTruthy();
 });
 
 test("a question still waiting in an old turn keeps that turn open in a long thread", async () => {
@@ -587,7 +574,7 @@ test("a finished child with no spawn link does not claim the active parent's tur
   script.runThrough("child-finished");
   await app.open("/t/thread-unlinked");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  expect(await within(feed).findByRole("button", { name: /^Work so far/ })).toBeTruthy();
+  expect(screen.getByRole("status", { name: "Working" })).toBeTruthy();
   expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
   expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
   act(() => app.daemon.apply("thread-unlinked", [endTurn("root")]));

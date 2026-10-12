@@ -128,3 +128,10 @@ export function currentStepSince(reader: PlanReader, step: PlanStep): number | u
 
 const toolDetail = (item: Item | undefined) =>
   item?.type === "tool_call" ? item.call.detail : undefined;
+
+/** A current operational step, quiet enough to share the transcript's live line. */
+export function livePlanStep(progress: PlanProgress): string | undefined {
+  const current = progress.current;
+  if (!current) return undefined;
+  return `Step ${progress.todos.indexOf(current) + 1} of ${progress.total} · ${current.content}`;
+}

@@ -1,4 +1,4 @@
-import type { ThreadReader } from "@ace/client";
+import type { ThreadReader, ThreadSource } from "@ace/client";
 import type { Interaction, Item, Run } from "@ace/protocol";
 import { rootRunOf } from "./turn-ordinals.ts";
 
@@ -36,13 +36,14 @@ export interface InlineQuestion {
   id: string;
   toolCallId: string | undefined;
   createdAt: number;
+  kind?: Interaction["request"]["kind"] | undefined;
 }
 
 const inFlightStatus = new Set(["pending", "running", "awaiting_approval"]);
 const runningStatus = new Set(["pending", "running"]);
 
 /** Interactions shown as their own transcript block where they were asked. */
-const inlineKinds = new Set<Interaction["request"]["kind"]>(["question"]);
+const inlineKinds = new Set<Interaction["request"]["kind"]>(["question", "approval"]);
 
 export function isInlineInteraction(interaction: Pick<Interaction, "request">): boolean {
   return inlineKinds.has(interaction.request.kind);
@@ -94,6 +95,7 @@ interface Stretch {
   run: string | undefined;
   /** Its earliest steps by start, at most `earliestKept`, oldest first. */
   earliest: { id: string; start: number }[];
+  origin?: number | undefined;
   start: number | undefined;
   /** Its steps that were in flight when they arrived (pruned as they settle). */
   flying: Set<string>;
@@ -140,11 +142,45 @@ export class ThreadLedger {
   private readonly flying = new Map<string, Item>();
   private stretch = newStretch(undefined);
 
+  private observed = false;
+  private interactionsDirty = true;
+  private tasksDirty = true;
+
+  /** The source owns the change feed; no history lists are enumerated on running-step deltas. */
+  observe(source: Pick<ThreadSource, "observe">): void {
+    this.observed = true;
+    source.observe((keys) => {
+      if (keys === "all") {
+        this.resetInteractions();
+        this.interactionsVersion++;
+        this.taskCount = 0;
+        this.background.clear();
+        this.backgroundCalls.clear();
+        this.tasksVersion++;
+        this.resetOrder();
+        this.interactionsDirty = this.tasksDirty = true;
+        return;
+      }
+      for (const key of keys) {
+        if (key === "interactions" || key.startsWith("interaction:")) this.interactionsDirty = true;
+        if (key === "tasks" || key.startsWith("task:")) this.tasksDirty = true;
+      }
+    });
+  }
+
   /** Bring the ledger up to date with the reader. Costs what changed since the last call. */
   sync(reader: LedgerReader): this {
-    this.syncInteractions(reader);
-    this.syncTasks(reader);
+    if (!this.observed || this.interactionsDirty) {
+      this.syncInteractions(reader);
+      this.interactionsDirty = false;
+    }
+    if (!this.observed || this.tasksDirty) {
+      this.syncTasks(reader);
+      this.tasksDirty = false;
+    }
     this.syncOrder(reader);
+    const liveRun = reader.thread?.live?.rootRunId;
+    if (liveRun) this.followRun(reader, liveRun);
     return this;
   }
 
@@ -186,6 +222,7 @@ export class ThreadLedger {
         id: interaction.id,
         toolCallId: interaction.toolCallId,
         createdAt: interaction.createdAt,
+        kind: interaction.request.kind,
       });
     if (interaction.state === "pending") this.openRequests.set(interaction.id, interaction);
     if (waitsOnPerson(interaction)) {
@@ -339,21 +376,24 @@ export class ThreadLedger {
     const item = id === undefined ? undefined : reader.item(id);
     if (!item) return;
     this.track(reader, id);
+    const incoming = rootRunOf(reader, item.runId);
     if (closesStretch(item)) {
-      this.stretch = newStretch(undefined);
+      const state = reader.thread?.status;
+      if (
+        !incoming &&
+        this.stretch.run !== undefined &&
+        (state?.state === "working" ||
+          state?.state === "needs_you" ||
+          (state?.state === "waiting" && state.on === "background_task"))
+      )
+        return;
+      // A steer belongs to the active turn; it must not restart that turn's timer.
+      if (!incoming || incoming.id !== this.stretch.run || incoming.state !== "active")
+        this.stretch = { ...newStretch(incoming?.id), origin: incoming?.startedAt };
       return;
     }
     const run = rootRunOf(reader, item.runId)?.id;
-    const before = this.stretch.run;
-    if (run !== undefined && before !== undefined && run !== before) {
-      const next = reader.run(run);
-      if (carriesOnStretch(next?.trigger)) {
-        const ended = reader.run(before)?.endedAt;
-        if (ended !== undefined && next && next.startedAt > ended)
-          this.stretch.idle += next.startedAt - ended;
-        this.stretch.run = run;
-      } else this.stretch = newStretch(run);
-    } else if (run !== undefined) this.stretch.run = run;
+    if (run !== undefined) this.followRun(reader, run);
     if (!isWork(item)) return;
     const stretch = this.stretch;
     const start = startOf(item);
@@ -367,6 +407,24 @@ export class ThreadLedger {
     if (!this.backgroundCalls.has(item.id))
       stretch.start = Math.min(stretch.start ?? Number.POSITIVE_INFINITY, start);
     if (this.flying.has(item.id)) stretch.flying.add(item.id);
+  }
+
+  private followRun(reader: LedgerReader, id: string) {
+    const next = reader.run(id);
+    if (!next) return;
+    const before = this.stretch.run ? reader.run(this.stretch.run) : undefined;
+    if (id === this.stretch.run) {
+      this.stretch.origin ??= next.startedAt;
+      return;
+    }
+    // A late child output from an older turn cannot take over the current server clock.
+    if (before && next.startedAt < before.startedAt) return;
+    if (before && carriesOnStretch(next.trigger)) {
+      this.stretch.origin ??= before.startedAt;
+      if (before.endedAt !== undefined && next.startedAt > before.endedAt)
+        this.stretch.idle += next.startedAt - before.endedAt;
+      this.stretch.run = id;
+    } else this.stretch = { ...newStretch(id), origin: next.startedAt };
   }
 
   private recheckFlying(reader: LedgerReader) {
@@ -391,6 +449,8 @@ export class ThreadLedger {
    */
   currentStretch(reader: LedgerReader): {
     start: number | undefined;
+    runId: string | undefined;
+    origin: number | undefined;
     /** Time the agent sat idle between runs that carried the stretch on. */
     idle: number;
     current: Item | undefined;
@@ -418,7 +478,14 @@ export class ThreadLedger {
       const item = reader.item(id);
       if (item?.type === "tool_call" && runningStatus.has(item.call.status)) current = item;
     }
-    return { start: stretch.start, idle: stretch.idle, current, watch };
+    return {
+      start: stretch.start,
+      runId: stretch.run,
+      origin: stretch.origin,
+      idle: stretch.idle,
+      current,
+      watch,
+    };
   }
 }
 
@@ -427,6 +494,11 @@ const ledgers = new WeakMap<object, ThreadLedger>();
 /** The reader's shared ledger, brought up to date. */
 export function ledgerOf(reader: LedgerReader): ThreadLedger {
   let ledger = ledgers.get(reader);
-  if (!ledger) ledgers.set(reader, (ledger = new ThreadLedger()));
+  if (!ledger) {
+    ledger = new ThreadLedger();
+    ledgers.set(reader, ledger);
+    if ("observe" in reader && typeof reader.observe === "function")
+      ledger.observe(reader as LedgerReader & Pick<ThreadSource, "observe">);
+  }
   return ledger.sync(reader);
 }

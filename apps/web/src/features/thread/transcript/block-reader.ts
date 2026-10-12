@@ -1,6 +1,13 @@
 import type { ThreadReader } from "@ace/client";
-import type { Agent, Run } from "@ace/protocol";
-import { ledgerOf, limitHoldShown, rootRunOf, type TurnReader } from "@ace/ui-core";
+import type { Run } from "@ace/protocol";
+import {
+  ledgerOf,
+  limitHoldShown,
+  rootRunOf,
+  turnTreeOf,
+  isRunning,
+  type TurnReader,
+} from "@ace/ui-core";
 import type { Watched } from "@/lib/use-watched.ts";
 import { buildBlocks, blocksEqual, sameBlock, type Block, type RunFacts } from "./blocks.ts";
 
@@ -9,8 +16,11 @@ const noKeys: readonly string[] = [];
 
 /** Full identities include late ancestry links on settled entities, not only active status. */
 function watchedEntity(reader: ThreadReader, key: string): unknown {
+  if (key === "thread") return reader.thread;
   if (key.startsWith("run:")) return reader.run(key.slice(4));
   if (key.startsWith("item:")) return reader.item(key.slice(5));
+  if (key.startsWith("task:")) return reader.task(key.slice(5));
+  if (key.startsWith("interaction:")) return reader.interaction(key.slice(12));
   return reader.agent(key.slice(6));
 }
 
@@ -20,14 +30,6 @@ function failedOn(run: Run): string | undefined {
   return typeof error === "object" && error !== null && "kind" in error
     ? String(error.kind)
     : undefined;
-}
-
-/** A spawned agent has finished its part: it isn't starting, working or blocked on work. */
-function agentSettled(agent: Agent | undefined): boolean {
-  const status = agent?.status;
-  if (!status) return true;
-  if (status.state === "starting" || status.state === "working") return false;
-  return status.state !== "blocked" || status.on === "background_task";
 }
 
 /** The newest loaded turn of the root agent (walks back to the first item with a run). */
@@ -56,20 +58,26 @@ export function createBlockReader(
   const paused = new Set<string>();
   return (reader) => {
     const ledger = ledgerOf(reader);
+    const tree = turnTreeOf(reader);
     const ownerId = agentId ?? reader.thread?.rootAgentId;
     const owner = ownerId ? reader.agent(ownerId) : undefined;
     const status = owner?.status;
     const state = reader.thread?.status.state;
     const unsettledTail =
       agentId === undefined
-        ? state !== undefined && state !== "done" && state !== "failed" && state !== "new"
-        : !agentSettled(owner);
+        ? state !== undefined &&
+          state !== "done" &&
+          state !== "failed" &&
+          state !== "new" &&
+          !(reader.thread?.status.state === "waiting" && reader.thread.status.on === "queue")
+        : !!owner && isRunning(owner);
     const limited =
       agentId === undefined &&
       status?.state === "blocked" &&
       status.on === "rate_limit" &&
       limitHoldShown(reader.thread?.status, reader.queue);
-    const heldTurn = limited ? newestTurn(reader) : undefined;
+    const newest = limited ? newestTurn(reader) : undefined;
+    const heldTurn = newest ? tree.turnId(newest) : undefined;
     if (heldTurn) paused.add(heldTurn);
     if (agentId !== undefined && ownOrder?.from !== reader.order)
       ownOrder = {
@@ -82,6 +90,7 @@ export function createBlockReader(
       ownerId,
       ledger.interactionsVersion,
       ledger.tasksVersion,
+      tree.version,
       status,
       unsettledTail,
       limited,
@@ -112,6 +121,29 @@ export function createBlockReader(
       },
     };
     const built = buildBlocks({
+      task: (id) => reader.task(id),
+      pending: [...ledger.pending()].length > 0,
+      turnSettled: agentId === undefined ? (id) => tree.settled(id) : undefined,
+      turnEndedAt: (id) => tree.endedAt(id),
+      turnIdle: (id) => tree.clock(id)?.idle,
+      turnStartedAt: (id) => ancestry.run(tree.turnId(id))?.startedAt,
+      turnEnding:
+        agentId === undefined
+          ? (id) => {
+              const runId = tree.endingRun(id);
+              const run = ancestry.run(runId);
+              return run
+                ? {
+                    runId,
+                    state: run.state,
+                    trigger: run.trigger,
+                    startedAt: run.startedAt,
+                    endedAt: run.endedAt,
+                    failedOn: failedOn(run),
+                  }
+                : undefined;
+            }
+          : undefined,
       order,
       item: (id) => reader.item(id),
       background: ledger.background,
@@ -135,7 +167,10 @@ export function createBlockReader(
           }
         );
       },
-      agentSettled: (id) => agentSettled(reader.agent(id)),
+      agentSettled: (id) => {
+        const agent = reader.agent(id);
+        return !agent || !isRunning(agent);
+      },
       reviewedCall: (interactionId) => reader.interaction(interactionId)?.toolCallId,
       heldTurn,
       pausedTurns: paused,
@@ -154,6 +189,7 @@ export function createBlockReader(
       return old && sameBlock(old, block) ? old : block;
     });
     const keys = [
+      ...tree.watch(),
       ...[...watch.runs].map((id) => `run:${id}`),
       ...[...watch.agents].map((id) => `agent:${id}`),
       ...[...spawnItems].map((id) => `item:${id}`),

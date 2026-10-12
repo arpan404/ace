@@ -56,6 +56,7 @@ export function AnsweredQuestionCard(props: {
   const title = rows.length === 1 ? rows[0]?.text : `${rows.length} questions`;
   return (
     <article
+      tabIndex={-1}
       aria-label={`Question: ${title ?? ""}`}
       className={props.className ?? "rounded-lg px-4 py-3 shadow-[inset_0_0_0_1px_var(--border)]"}
     >

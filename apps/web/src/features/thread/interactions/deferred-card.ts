@@ -11,3 +11,8 @@ export const DeferredInteractionCard = deferredComponent(() =>
 export const DeferredQuestionRecord = deferredComponent(() =>
   import("./question-record.tsx").then((module) => module.QuestionRecord),
 );
+
+/** Approval markers and decisions in the transcript; buttons stay on the composer. */
+export const DeferredApprovalRecord = deferredComponent(() =>
+  import("./approval-record.tsx").then((module) => module.ApprovalRecord),
+);

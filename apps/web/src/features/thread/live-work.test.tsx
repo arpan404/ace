@@ -5,19 +5,19 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
-test("between steps an open turn shows Work so far without a body Working line", async () => {
+test("between steps an open turn keeps its log and the transcript live line", async () => {
   const app = harness();
   const script = app.play(replayCursor());
   script.runThrough("worked");
   await app.open("/t/thread-replay-cursor");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
 
-  expect(await within(feed).findByRole("button", { name: /^Work so far/ })).toBeTruthy();
-  expect(screen.queryByRole("status", { name: "Working" })).toBeNull();
+  expect(within(feed).queryByText("Work so far")).toBeNull();
+  expect(screen.getByRole("status", { name: "Working" }).textContent).toMatch(/^Working for/);
 
   // An answer alone does not close the open turn.
   act(() => script.runThrough("answered"));
-  expect(await within(feed).findByRole("button", { name: /^Work so far/ })).toBeTruthy();
+  expect(within(feed).queryByText("Work so far")).toBeNull();
   act(() => app.daemon.apply("thread-replay-cursor", [facts.endTurn("root")]));
   expect(await within(feed).findByRole("button", { name: /^Worked for/ })).toBeTruthy();
 });
@@ -30,14 +30,10 @@ test("one turn's work reads as one Worked line and one subagent card, though sub
   const second = await within(feed).findByText(/Send coldStart with the ack/);
   await within(feed).findByRole("button", { name: "2 subagents" });
 
-  // After the second ask: the parent's edit, the audit's edit and the test run are one log,
-  // still open while the root waits on its subagents.
-  const after = (element: Element) =>
-    second.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING;
-  const work = within(feed)
-    .getAllByRole("button", { name: /^(?:Work(ed|ing) for|Work so far)/ })
-    .filter(after);
-  expect(work).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "Open work and agents" }).textContent).toContain(
+    "subagents",
+  );
   expect(within(feed).getAllByRole("button", { name: /^\d subagents?$/ })).toHaveLength(1);
   expect(within(feed).queryByRole("button", { name: "1 subagent" })).toBeNull();
+  expect(second).toBeTruthy();
 });

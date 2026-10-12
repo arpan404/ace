@@ -70,6 +70,9 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   agentIds(): readonly string[] {
     return this.#view ? Object.keys(this.#view.agents) : emptyOrder;
   }
+  runIds(): readonly string[] {
+    return this.#view ? Object.keys(this.#view.runs) : emptyOrder;
+  }
   children(agentId: string): readonly string[] {
     // Projection appends children in place, so never hand out its array.
     return [...(this.#own(this.#view?.agentChildren, agentId) ?? emptyOrder)];

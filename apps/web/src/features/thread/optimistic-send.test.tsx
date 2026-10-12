@@ -220,9 +220,8 @@ test("Stop reads Stopping… on its disabled button until the turn ends", async 
     expect(screen.getByRole("button", { name: "Stopping…" }).getAttribute("aria-disabled")).toBe(
       "true",
     );
-    // The surviving composer status keeps naming the work; stopping is on the button.
-    expect(screen.getByText("3 agents working").closest('[role="status"]')).toBeTruthy();
-    expect(screen.queryByRole("status", { name: "Stopping…" })).toBeNull();
+    expect(screen.getByRole("status", { name: "Stopping…" })).toBeTruthy();
+    expect(screen.queryByText("3 agents working")).toBeNull();
 
     hold = false;
     saved.resolve();
