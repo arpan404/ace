@@ -33,7 +33,7 @@ export function DraftRows() {
         {rows.map(([key, row]) => (
           <li
             key={key}
-            className="group/draft relative border-b border-sidebar-border hover:bg-foreground/3"
+            className="group/draft relative mb-1 rounded-md transition-colors duration-(--motion-fast) hover:bg-accent"
           >
             <Link
               data-row-focus=""
@@ -45,7 +45,7 @@ export function DraftRows() {
                 pullRequest: row.pullRequest,
               }}
               aria-label={`${row.title}. Draft, Project ${directory.name(row.project)}`}
-              className="flex h-21 min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-3 text-ui focus-ring-inset"
+              className="flex h-20 min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-md px-2.5 py-3 text-ui focus-ring-inset"
             >
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <ProjectMark
@@ -66,7 +66,7 @@ export function DraftRows() {
             <button
               type="button"
               aria-label={`Discard draft in ${directory.name(row.project)}`}
-              className="absolute right-2 bottom-2 bg-sidebar px-2 py-1 text-xs text-muted-foreground opacity-0 focus-ring group-hover/draft:opacity-100 group-focus-within/draft:opacity-100 hover:text-foreground pointer-coarse:opacity-100"
+              className="absolute right-2 bottom-2 rounded-sm bg-sidebar px-2 py-1 text-xs text-muted-foreground opacity-0 focus-ring group-hover/draft:opacity-100 group-focus-within/draft:opacity-100 hover:text-foreground pointer-coarse:opacity-100"
               onClick={() => {
                 setError(undefined);
                 if (!discardPreparation(storage, host, key)) {

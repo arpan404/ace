@@ -37,6 +37,7 @@ import {
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
+/** A thread row is 80px tall and keeps 4px below it: rows are apart by spacing, not rules. */
 const estimates: Record<HomeRow["kind"], number> = {
   "pinned-header": 33,
   pinned: 84,
@@ -58,9 +59,9 @@ const loadDrag = () => import("./list-drag.ts");
 const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) => module.BulkBar));
 
 const header =
-  "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-2 text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--motion-fast)";
+  "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-2.5 text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--motion-fast)";
 
-/** A section's quiet heading: its name and how many. No rule: the rows' hairlines divide. */
+/** A section's quiet heading: its name and how many. No rule: spacing sets the sections apart. */
 function HeadingText(props: { label: string; count?: number | undefined }) {
   return (
     <>
@@ -346,8 +347,9 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                 ref={virtualizer.measureElement}
                 data-index={item.index}
                 className={cn(
-                  "absolute inset-x-0 top-0",
-                  !("id" in row) && row.kind !== "unsent" && "pb-px",
+                  // The list sits a little in from the sidebar's edges, so a row's fill is a card.
+                  "absolute inset-x-2 top-0",
+                  "id" in row ? "pb-1" : row.kind !== "unsent" && "pb-px",
                   // While rows slide past each other each is opaque, and the one moving up
                   // passes over the others: a swap never shows two rows through each other.
                   sliding && "bg-sidebar",
