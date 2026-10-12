@@ -92,6 +92,7 @@ export function TurnWork(props: {
           itemIds={fetched.ids}
           surfaces={fetched.surfaces}
           id={props.panel}
+          rail
         />
         {entry?.more && (
           <Button variant="ghost" size="sm" disabled={entry.state === "loading"} onClick={loadMore}>
@@ -101,5 +102,5 @@ export function TurnWork(props: {
       </StepItems>
     );
   }
-  return <GroupedSteps threadId={props.threadId} itemIds={loaded} id={props.panel} />;
+  return <GroupedSteps threadId={props.threadId} itemIds={loaded} id={props.panel} rail />;
 }

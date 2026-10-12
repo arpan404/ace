@@ -10,6 +10,7 @@ import { MessageAttachments } from "@/components/attachment-message.tsx";
 import { StepDetail } from "./step-detail.tsx";
 import { StepImages } from "./ace-steps.tsx";
 import { StepGlyph } from "./step-glyph.tsx";
+import { RailMark } from "./step-rail.tsx";
 import { StepProse } from "./step-prose.tsx";
 import { useStepDisplay } from "./use-step-display.ts";
 
@@ -77,7 +78,8 @@ function StepLine(props: {
   if (!data || data.awaiting) return null;
   const expandable = hasStepDetail(data.item);
   return (
-    <li>
+    <li className="relative">
+      <RailMark state={!data.step.settled ? "running" : data.step.failed ? "failed" : "done"} />
       <StepRow
         threadId={props.threadId}
         step={data.step}
@@ -147,7 +149,7 @@ export function StepRow(props: {
         {step.verb}
       </span>
       {step.target && (
-        <code className="min-w-0 truncate font-mono text-[12px] text-foreground">
+        <code className="min-w-0 truncate rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
           {step.target}
         </code>
       )}

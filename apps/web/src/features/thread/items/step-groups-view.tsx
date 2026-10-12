@@ -31,6 +31,7 @@ import { cn } from "@/lib/cn.ts";
 import { useAceLog } from "./ace-steps.tsx";
 import { useStepItem, useStepItemsSelect } from "./step-items.ts";
 import { ToolStep } from "./work-log-steps.tsx";
+import { RailMark, StepRail } from "./step-rail.tsx";
 
 /*
  * A work log as one quiet flow: consecutive calls by one agent read as one sentence row with a
@@ -130,6 +131,8 @@ export function GroupedSteps(props: {
   live?: boolean | undefined;
   /** Surfaces the daemon resolved with the steps (their icon hashes), by item. */
   surfaces?: ReadonlyMap<string, ToolSurface> | undefined;
+  /** Shown on the step rail (an opened "Worked for"), not in the plain flow. */
+  rail?: boolean | undefined;
   id?: string | undefined;
 }) {
   const ace = useAceLog(props.threadId, props.itemIds);
@@ -140,20 +143,25 @@ export function GroupedSteps(props: {
   );
   const log = useStepItemsSelect(props.threadId, shown, readLog, sameReading) ?? nothing;
   const groups = useGroups(log.facts);
-  return (
+  const rows = groups.map((group, index) => (
+    <GroupView
+      key={group.key}
+      threadId={props.threadId}
+      group={group}
+      live={!!props.live && index === groups.length - 1}
+      contexts={ace.contexts}
+      surfaces={props.surfaces}
+      carried={log.surfaces}
+      retried={log.retried}
+    />
+  ));
+  return props.rail ? (
+    <StepRail id={props.id} label="Steps">
+      {rows}
+    </StepRail>
+  ) : (
     <ul id={props.id} aria-label="Steps" className="flex flex-col">
-      {groups.map((group, index) => (
-        <GroupView
-          key={group.key}
-          threadId={props.threadId}
-          group={group}
-          live={!!props.live && index === groups.length - 1}
-          contexts={ace.contexts}
-          surfaces={props.surfaces}
-          carried={log.surfaces}
-          retried={log.retried}
-        />
-      ))}
+      {rows}
     </ul>
   );
 }
@@ -196,7 +204,8 @@ function ThoughtRow(props: { threadId: string; itemId: string }) {
   if (item?.type !== "reasoning") return null;
   const text = item.text.trim();
   return (
-    <li className="flex min-h-8 min-w-0 items-start gap-2.5 py-1.5 text-ui text-muted-foreground">
+    <li className="relative flex min-h-8 min-w-0 items-start gap-2.5 py-1.5 text-ui text-muted-foreground">
+      <RailMark state={item.complete ? "done" : "running"} />
       <Icon icon={BrainIcon} size={16} className="mt-0.5 text-subtle-foreground" />
       {!item.complete && !text ? (
         <span className="step-shimmer">Thinking</span>
@@ -245,7 +254,8 @@ const GroupView = memo(function GroupView(props: {
   if (group.single) return step(group.key);
   const [sentence, failed] = group.summary.split(" · ");
   return (
-    <li>
+    <li className="relative">
+      <RailMark state={group.running ? "running" : group.failed ? "failed" : "done"} />
       <button
         type="button"
         aria-expanded={open}
@@ -264,9 +274,9 @@ const GroupView = memo(function GroupView(props: {
         </span>
       </button>
       {open ? (
-        <ul id={panel} aria-label={group.summary} className="fx-rise-in flex flex-col pl-6.5">
+        <StepRail id={panel} label={group.summary}>
           {group.ids.map(step)}
-        </ul>
+        </StepRail>
       ) : (
         props.live &&
         group.running && (
