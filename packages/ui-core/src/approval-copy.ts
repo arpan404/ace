@@ -313,7 +313,7 @@ const mediumRisk: readonly RegExp[] = [
  */
 export function commandRisk(command: string): ApprovalCopy["risk"] {
   if (highRisk.some((pattern) => pattern.test(command)))
-    return { level: "high", text: "Hard to undo. Read the command before you allow it." };
+    return { level: "high", text: "Hard to undo." };
   if (mediumRisk.some((pattern) => pattern.test(command)))
     return { level: "medium", text: "It reaches the network or changes what's installed." };
   return undefined;
