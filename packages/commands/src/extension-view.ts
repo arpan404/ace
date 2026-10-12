@@ -49,11 +49,7 @@ function addActions(provider: ProviderKind): CatalogEntry[] {
     ["goal", "Goal", "Set a goal for this thread"],
   ]
     .filter(([id]) =>
-      id === "plan"
-        ? ["claude", "codex"].includes(provider)
-        : id === "goal"
-          ? provider === "codex"
-          : true,
+      id === "plan" ? provider === "claude" : id === "goal" ? provider === "codex" : true,
     )
     .map(([id = "", name = "", description = ""]) => ({
       id: `ace:add:${id}`,

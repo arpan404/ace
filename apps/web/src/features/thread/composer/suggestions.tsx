@@ -144,6 +144,11 @@ export function useSuggestions(
       (entry) =>
         entry.description.trim() &&
         entry.invocation.type !== "unavailable" &&
+        !(
+          entry.invocation.type === "action" &&
+          entry.invocation.action === "plan" &&
+          provider !== "claude"
+        ) &&
         (adding ? entry.kind === "builtin" : entry.kind !== "builtin" || !!query.trim()),
     );
     const named = available.filter(
