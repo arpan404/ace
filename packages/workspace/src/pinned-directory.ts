@@ -93,6 +93,17 @@ export class PinnedDirectory {
       throw error;
     }
   }
+  /** Regular-file identity through a no-follow descriptor, including change timestamps. */
+  fileMetadata(name: string): Stats {
+    const file = openAt(this.fd, name, constants.O_RDONLY);
+    try {
+      const info = fstatSync(file.fd);
+      if (!info.isFile()) throw new Error("Expected a regular file");
+      return info;
+    } finally {
+      closeSync(file.fd);
+    }
+  }
   metadata(name: string) {
     return statAt(this.fd, name);
   }

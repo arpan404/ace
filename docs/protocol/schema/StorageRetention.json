@@ -1,0 +1,85 @@
+{
+  "$id": "https://ace.local/protocol/v1/StorageRetention.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifacts": {
+      "anyOf": [
+        {
+          "maximum": 36500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": 30
+    },
+    "attachments": {
+      "anyOf": [
+        {
+          "maximum": 36500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": 30
+    },
+    "caches": {
+      "anyOf": [
+        {
+          "maximum": 36500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": 7
+    },
+    "logs": {
+      "anyOf": [
+        {
+          "maximum": 36500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": 14
+    },
+    "threads": {
+      "anyOf": [
+        {
+          "maximum": 36500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": 90
+    },
+    "worktrees": {
+      "anyOf": [
+        {
+          "maximum": 36500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": 30
+    }
+  },
+  "type": "object"
+}

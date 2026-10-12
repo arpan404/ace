@@ -17,6 +17,12 @@ export interface SettingEntry {
 
 const entries = [
   {
+    id: "storage",
+    page: "/settings/storage",
+    title: "Storage retention and cleanup",
+    keywords: ["disk", "space", "clean", "worktrees", "attachments", "recordings", "logs", "cache"],
+  },
+  {
     id: "source-control",
     page: "/settings/source-control",
     title: "Source control",

@@ -1,3 +1,11 @@
+export { WorktreeRemovalRefused } from "./worktree-cleanup.ts";
+import {
+  inspectWorktreeCleanup,
+  worktreeMetadata,
+  cleanupWorktree,
+  type WorktreeCleanupInput,
+} from "./worktree-cleanup.ts";
+export type { WorktreeCleanupInput, WorktreeCleanupState } from "./worktree-cleanup.ts";
 import { writingContext } from "./writing-context.ts";
 import { SourceControlContext, type SourceControlSelection } from "@ace/protocol";
 import {
@@ -272,6 +280,16 @@ export class GitService {
   async listWorktrees(repo: string) {
     const root = await this.repository.root(repo);
     return this.repository.serial(root, () => this.repository.worktrees(root));
+  }
+
+  worktreeMetadata(repo: string, path: string) {
+    return worktreeMetadata(this.repository, repo, path);
+  }
+  inspectWorktreeCleanup(repo: string, path: string) {
+    return inspectWorktreeCleanup(this.repository, repo, path);
+  }
+  cleanupWorktree(input: WorktreeCleanupInput, beforeRemove?: () => void) {
+    return cleanupWorktree(this.repository, input, beforeRemove);
   }
 
   removeWorktree(options: { repo: string; path: string; force?: boolean }) {
