@@ -1,7 +1,8 @@
+import type { ForgePrStatus } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
+import { PrStackGroups } from "@/features/forge/index.ts";
 import { PrUnlinkDialog } from "./pr-unlink-dialog.tsx";
 import { PullRequestGlyph, pullRequestTone as prTone } from "@/components/pull-request-state.tsx";
-import type { ForgePrStatus } from "@ace/protocol";
 import { prOverview, pullRequestUrl, type CheckoutPr } from "@ace/ui-core";
 import {
   ArrowClockwiseIcon,
@@ -39,6 +40,7 @@ export function PullRequestsSection(props: {
   onLinkClose(): void;
 }) {
   const { git } = props;
+  const navigate = useNavigate();
   const checkout = git.checkout;
 
   const [confirm, setConfirm] = useState(false);
@@ -47,6 +49,23 @@ export function PullRequestsSection(props: {
   const links = git.linkedPrs?.length ? git.linkedPrs : checkout?.pr ? [checkout.pr] : [];
   return (
     <section aria-label="Pull requests">
+      <PrStackGroups
+        workspaceId={props.workspaceId}
+        refs={links.flatMap((pr) => {
+          const repository = pr.repo ?? checkout?.repository;
+          return repository ? [{ repository, number: pr.number }] : [];
+        })}
+        onOpen={(ref) =>
+          void navigate({
+            to: "/pull-requests",
+            search: {
+              project: props.workspaceId,
+              repo: `${ref.repository.host}/${ref.repository.owner}/${ref.repository.name}`,
+              number: ref.number,
+            },
+          })
+        }
+      />
       {(expanded ? links : links.slice(0, 1)).map((pr) => (
         <PrDisclosure
           key={`${pr.repo?.host}/${pr.repo?.owner}/${pr.repo?.name}/${pr.number}`}
@@ -281,6 +300,8 @@ function PrDisclosure(props: {
             <PrDetails
               git={git}
               status={current}
+              workspaceId={props.workspaceId}
+              onRefresh={refresh}
               base={props.base}
               onRequestReview={
                 primary

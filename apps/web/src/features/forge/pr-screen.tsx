@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ForgePrSearch } from "@ace/protocol";
 import { prFromUrl, prRepository } from "@ace/forge/pr-reference";
 import { useRegisteredProjects } from "@/lib/projects.ts";
@@ -6,33 +6,50 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { Input } from "@/components/ui/input.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { PrWorkspaceExtensionProvider } from "./pr-extension-context.tsx";
+import type { PrWorkspaceExtensions, PrListExtensions } from "./pr-extensions.ts";
 import { PrList } from "./pr-list.tsx";
-import { PrDetail } from "./pr-detail.tsx";
+import { prWorkspace } from "./pr-workspace.ts";
+import { prPanelId } from "./pr-panel-data.ts";
+import { useWorkspaceActions, useWorkspaceStore } from "@/lib/workspace/index.ts";
 import { QueryState } from "./query-state.tsx";
 import { readForge } from "./source.ts";
+import { PrStackGroups } from "./pr-stack-groups.tsx";
 
 export interface PrLocation extends ForgePrSearch {
   project: string;
   repo: string;
   number?: number | undefined;
-  tab: "conversation" | "commits" | "checks" | "files";
+  tab: "summary" | "timeline" | "code" | "conversation" | "commits" | "checks" | "files";
 }
-export function PrScreen(props: { location: PrLocation; onLocation(location: PrLocation): void }) {
+export function PrScreen(props: {
+  location: PrLocation;
+  onLocation(location: PrLocation): void;
+  extensions?: PrWorkspaceExtensions;
+  listExtensions?: PrListExtensions;
+}) {
   const projects = useRegisteredProjects();
   const location = props.location;
   const workspaceId = location.project || projects.ids[0] || "";
+  const scope = `forge:${workspaceId}`;
+  const store = useWorkspaceStore();
+  store.define(scope, prWorkspace);
+  const actions = useWorkspaceActions(scope);
   const [address, setAddress] = useState("");
   const [error, setError] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
-  const listScroll = useRef(0);
-  const repository = location.repo
-    ? prRepository(location.repo, {
-        forge: "github",
-        host: "github.com",
-        owner: "unused",
-        name: "unused",
-      })
-    : undefined;
+  const repository = useMemo(
+    () =>
+      location.repo
+        ? prRepository(location.repo, {
+            forge: "github",
+            host: "github.com",
+            owner: "unused",
+            name: "unused",
+          })
+        : undefined,
+    [location.repo],
+  );
   const query = useDaemonQuery({
     queryKey: [
       "forge",
@@ -47,7 +64,7 @@ export function PrScreen(props: { location: PrLocation; onLocation(location: PrL
       location.order,
       location.page,
     ],
-    enabled: Boolean(workspaceId) && !location.number,
+    enabled: Boolean(workspaceId),
     retry: false,
     staleTime: 30_000,
     refetchOnReconnect: "always",
@@ -74,9 +91,28 @@ export function PrScreen(props: { location: PrLocation; onLocation(location: PrL
       return result.value;
     },
   });
-  useLayoutEffect(() => {
-    if (scroller.current) scroller.current.scrollTop = location.number ? 0 : listScroll.current;
-  }, [location.number]);
+  useEffect(() => {
+    if (!workspaceId || !location.number) return;
+    const id = prPanelId({ workspaceId, repository, number: location.number });
+    actions.open({
+      kind: "pull-request",
+      id,
+      title: `#${location.number}`,
+      data: { workspaceId, repository, number: location.number },
+    });
+    actions.updateUi(`pull-request:${id}`, { selected: location.tab });
+  }, [workspaceId, location.number, location.tab, actions, repository]);
+  // A fresh launcher inherits the selected repository, but does not copy provider data.
+  useEffect(
+    () =>
+      store.subscribe(scope, () => {
+        const workspace = store.get(scope);
+        const active = workspace.tabs.find((tab) => tab.key === workspace.active);
+        if (active?.kind === "pr-new" && active.data === undefined)
+          actions.update(active.key, { data: { workspaceId, repository, number: 1 } });
+      }),
+    [store, scope, actions, workspaceId, repository],
+  );
   const open = () => {
     setError("");
     try {
@@ -84,7 +120,6 @@ export function PrScreen(props: { location: PrLocation; onLocation(location: PrL
       const number = parsed?.number ?? Number(address.replace(/^#/, "").trim());
       if (!Number.isSafeInteger(number) || number < 1)
         throw new Error("Enter a GitHub PR URL or a positive PR number.");
-      if (scroller.current) listScroll.current = scroller.current.scrollTop;
       props.onLocation({
         ...location,
         project: workspaceId,
@@ -92,112 +127,102 @@ export function PrScreen(props: { location: PrLocation; onLocation(location: PrL
           ? `${parsed.repository.host}/${parsed.repository.owner}/${parsed.repository.name}`
           : location.repo,
         number,
-        tab: "conversation",
+        tab: "summary",
       });
     } catch {
       setError("Enter a GitHub PR URL or a positive PR number.");
     }
   };
   return (
-    <Screen title="Pull requests">
-      <div ref={scroller} className="h-full overflow-auto">
-        <div className="mx-auto max-w-[1040px] space-y-6 px-4 py-6 sm:px-8">
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="text-sm">
-              Project{" "}
-              <select
-                aria-label="Repository project"
-                value={workspaceId}
-                className="bg-input p-1 focus-ring"
-                onChange={(e) => {
-                  listScroll.current = 0;
-                  props.onLocation({
-                    ...location,
-                    project: e.target.value,
-                    repo: "",
-                    number: undefined,
-                    page: 1,
-                  });
+    <PrWorkspaceExtensionProvider value={props.extensions}>
+      <Screen title="Pull requests" workspace={{ scope, definition: prWorkspace }}>
+        <div ref={scroller} className="h-full overflow-auto">
+          <div className="mx-auto max-w-[1040px] space-y-4 px-4 py-4 sm:px-6">
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="text-sm">
+                Project{" "}
+                <select
+                  aria-label="Repository project"
+                  value={workspaceId}
+                  className="bg-input p-1 focus-ring"
+                  onChange={(e) => {
+                    if (scroller.current) scroller.current.scrollTop = 0;
+                    props.onLocation({
+                      ...location,
+                      project: e.target.value,
+                      repo: "",
+                      number: undefined,
+                      page: 1,
+                    });
+                  }}
+                >
+                  {projects.ids.map((id) => (
+                    <option key={id} value={id}>
+                      {projects.name(id)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <form
+                className="flex min-w-0 flex-1 gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  open();
                 }}
               >
-                {projects.ids.map((id) => (
-                  <option key={id} value={id}>
-                    {projects.name(id)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <form
-              className="flex min-w-0 flex-1 gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                open();
-              }}
-            >
-              <Input
-                aria-label="PR URL or number"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="GitHub PR URL or #number"
-              />
-              <Button type="submit" disabled={!workspaceId || !address.trim()}>
-                Open PR
-              </Button>
-            </form>
-          </div>
-          {error && <p role="alert">{error}</p>}
-          {projects.loaded && !projects.ids.length && (
-            <p>Add a GitHub project to browse its pull requests.</p>
-          )}
-          {workspaceId &&
-            (location.number ? (
-              <>
-                <Button onClick={() => props.onLocation({ ...location, number: undefined })}>
-                  Back to pull requests
-                </Button>
-                <PrDetail
-                  key={`${workspaceId}/${location.repo}/${location.number}`}
-                  workspaceId={workspaceId}
-                  repository={repository}
-                  number={location.number}
-                  tab={location.tab}
-                  onTab={(tab) => {
-                    if (
-                      tab === "conversation" ||
-                      tab === "commits" ||
-                      tab === "checks" ||
-                      tab === "files"
-                    )
-                      props.onLocation({ ...location, tab });
-                  }}
+                <Input
+                  aria-label="PR URL or number"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="GitHub PR URL or #number"
                 />
-              </>
-            ) : (
+                <Button type="submit" disabled={!workspaceId || !address.trim()}>
+                  Open PR
+                </Button>
+              </form>
+            </div>
+            {error && <p role="alert">{error}</p>}
+            {projects.loaded && !projects.ids.length && (
+              <p>Add a GitHub project to browse its pull requests.</p>
+            )}
+            {workspaceId && (
               <>
                 <QueryState query={query} />
+                {query.data && (
+                  <PrStackGroups
+                    workspaceId={workspaceId}
+                    refs={query.data.items.map((pr) => pr.ref)}
+                    onOpen={(ref) =>
+                      props.onLocation({
+                        ...location,
+                        project: workspaceId,
+                        repo: `${ref.repository.host}/${ref.repository.owner}/${ref.repository.name}`,
+                        number: ref.number,
+                        tab: "summary",
+                      })
+                    }
+                  />
+                )}
                 <PrList
                   workspaceId={workspaceId}
                   key={`${workspaceId}/${location.repo}/${location.search}/${location.author}/${location.reviewer}`}
                   value={query.data}
+                  extensions={props.listExtensions}
                   query={location}
+                  selected={location.number}
                   onQuery={(next) => {
-                    listScroll.current = 0;
+                    if (scroller.current) scroller.current.scrollTop = 0;
                     props.onLocation({ ...location, ...next, project: workspaceId });
                   }}
                   onOpen={(number) => {
-                    if (scroller.current) listScroll.current = scroller.current.scrollTop;
-                    props.onLocation({
-                      ...location,
-                      project: workspaceId,
-                      number,
-                      tab: "conversation",
-                    });
+                    props.onLocation({ ...location, project: workspaceId, number, tab: "summary" });
                   }}
                 />
               </>
-            ))}
+            )}
+          </div>
         </div>
-      </div>
-    </Screen>
+      </Screen>
+    </PrWorkspaceExtensionProvider>
   );
 }

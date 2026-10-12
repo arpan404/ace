@@ -5,7 +5,11 @@ const signal = () => new AbortController().signal;
 const richPr = {
   ...pr,
   body: "## Hosted description\n\nReview the actual head.",
-  user: { login: "octo" },
+  user: { login: "octo", avatar_url: "https://github.com/octo.png" },
+  updated_at: "2026-10-11T12:00:00Z",
+  created_at: "2026-10-10T12:00:00Z",
+  additions: 62,
+  deletions: 9,
   labels: [{ name: "bug" }],
   base: { ref: "main", sha: nextSha },
   head: { ...pr.head, repo: { name: "fork", owner: { login: "contributor" } } },
@@ -68,13 +72,40 @@ test("repository search keeps literal words scoped and returns counts, draft row
     [`search/issues?${params}`]: [
       { body: { total_count: 1020, incomplete_results: true, items: [row] } },
     ],
-    graphql: [{ body: counts }],
+    graphql: [
+      {
+        body: {
+          data: {
+            ...counts.data,
+            repository: {
+              p0: {
+                comments: { totalCount: 3 },
+                reviews: { totalCount: 2 },
+                statusCheckRollup: { state: "FAILURE" },
+                unknown: "kept",
+              },
+            },
+          },
+        },
+      },
+    ],
   });
   try {
     const result = await f.forge.listPrs(query, signal());
     expect(result).toMatchObject({
       repository,
-      items: [{ ref: { repository, number: 7 }, state: "draft", author: "octo", labels: ["bug"] }],
+      items: [
+        {
+          ref: { repository, number: 7 },
+          state: "draft",
+          author: "octo",
+          labels: ["bug"],
+          commentCount: 3,
+          reviewCount: 2,
+          ci: "failure",
+          raw: { indicators: { unknown: "kept" } },
+        },
+      ],
       nextPage: 3,
       total: 1020,
       counts: { open: 2, draft: 1, closed: 3, merged: 4 },
@@ -104,6 +135,10 @@ test("full PR detail includes hosted branch identities, description, reviews and
     expect(await f.forge.prDetail(7, signal())).toMatchObject({
       status: { ref: { repository, number: 7 }, headSha: sha },
       body: richPr.body,
+      authorAvatarUrl: "https://github.com/octo.png",
+      updatedAt: "2026-10-11T12:00:00Z",
+      additions: 62,
+      deletions: 9,
       baseBranch: "main",
       headBranch: "feat/fix",
       baseSha: nextSha,
@@ -252,6 +287,9 @@ test("a push during a commit-list read cannot label the new commits with the pre
       { body: { ...richPr, head: { ...richPr.head, sha: nextSha } } },
     ],
     "repos/octo/ace/pulls/7/commits?per_page=25&page=1": [{ body: [{ ...commit, sha: nextSha }] }],
+    graphql: [
+      { body: { data: { repository: { c0: { oid: nextSha, additions: 8, deletions: 3 } } } } },
+    ],
   });
   try {
     await expect(f.forge.prCommits(7, 1, sha, signal())).rejects.toMatchObject({
@@ -262,10 +300,11 @@ test("a push during a commit-list read cannot label the new commits with the pre
   }
 });
 
-test("unchanged commit pages retain their authors and next-page navigation", async () => {
+test("commit pages expose per-commit statistics and preserve authors and next-page navigation", async () => {
   const path = "repos/octo/ace/pulls/7/commits?per_page=25&page=1";
   const f = await fakeGh({
     "repos/octo/ace/pulls/7": [{ body: richPr }],
+    graphql: [{ body: { data: { repository: { c0: { oid: sha, additions: 8, deletions: 3 } } } } }],
     [path]: [
       {
         body: [commit],
@@ -277,7 +316,9 @@ test("unchanged commit pages retain their authors and next-page navigation", asy
   });
   try {
     expect(await f.forge.prCommits(7, 1, sha, signal())).toMatchObject({
-      commits: [{ sha, author: "contributor", message: "Handle empty input" }],
+      commits: [
+        { sha, author: "contributor", message: "Handle empty input", additions: 8, deletions: 3 },
+      ],
       nextPage: 2,
       truncated: false,
     });
@@ -352,5 +393,45 @@ test("checkout metadata resolves a fork head and refuses a moved or deleted sour
     } finally {
       await gh.cleanup();
     }
+  }
+});
+
+test("timeline events preserve unknown kinds and fields while exposing actor, label and commit identities", async () => {
+  const future = {
+    id: 91,
+    event: "future_provider_event",
+    created_at: "2026-10-11T12:05:00Z",
+    actor: { login: "octo", avatar_url: "https://github.com/octo.png", future: true },
+    extra: { retained: true },
+  };
+  const f = await fakeGh({
+    "repos/octo/ace/issues/7/timeline?per_page=25&page=1": [
+      {
+        body: [
+          future,
+          { id: 92, event: "labeled", actor: null, label: { name: "bug" }, created_at: null },
+          { id: 93, event: "committed", sha, actor: { login: "contributor" } },
+        ],
+      },
+    ],
+  });
+  try {
+    expect(await f.forge.prActivity(7, 1, signal())).toMatchObject({
+      events: [
+        {
+          id: "91",
+          event: "future_provider_event",
+          actor: "octo",
+          actorAvatarUrl: "https://github.com/octo.png",
+          at: future.created_at,
+          raw: future,
+        },
+        { id: "92", event: "labeled", actor: "GitHub", subject: "bug", at: null },
+        { id: "93", event: "committed", commitSha: sha, at: null },
+      ],
+      truncated: false,
+    });
+  } finally {
+    await f.cleanup();
   }
 });

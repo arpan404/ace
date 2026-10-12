@@ -14,15 +14,41 @@ const args = process.argv.slice(2);
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const body = input ? JSON.parse(input) : undefined;
-const path = args[0] === "api" ? args[1] : "auto-merge";
-const count = state.counters[path] ?? 0;
-const records = config[path];
+const path =
+  args[0] === "api"
+    ? args[1] === "graphql" &&
+      config["merge-state-write"] &&
+      body?.query?.trimStart().startsWith("mutation")
+      ? "merge-state-write"
+      : args[1] === "graphql" &&
+          config["merge-state-read"] &&
+          body?.query?.includes("autoMergeRequest")
+        ? "merge-state-read"
+        : args[1] === "graphql" && body?.query?.includes("query StackChecks(")
+          ? "stack-checks"
+          : args[1] === "graphql" && body?.query?.includes("query StackMergeScope(")
+            ? "stack-scope"
+            : args[1]
+    : args[0] === "stack"
+      ? `stack-${args[1]}${args.includes("--continue") ? "-continue" : args.includes("--abort") ? "-abort" : ""}`
+      : "auto-merge";
+const fixturePath =
+  path === "graphql"
+    ? (Object.keys(config).find(
+        (key) =>
+          key.startsWith("graphql:") &&
+          typeof body?.query === "string" &&
+          body.query.includes(key.slice(8)),
+      ) ?? path)
+    : path;
+const count = state.counters[fixturePath] ?? 0;
+const records = config[fixturePath];
 if (!records) {
   process.stderr.write("Unexpected request");
   process.exit(1);
 }
 const response = records[Math.min(count, records.length - 1)];
-state.counters[path] = count + 1;
+state.counters[fixturePath] = count + 1;
 state.requests.push({ path, args, ...(body === undefined ? {} : { body }) });
 writeFileSync(statePath, JSON.stringify(state));
 if (response.barrier) {

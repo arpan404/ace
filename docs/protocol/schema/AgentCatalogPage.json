@@ -1,0 +1,58 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentCatalogPage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "caller": {
+      "properties": {
+        "permissionMode": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "threadId",
+        "permissionMode"
+      ],
+      "type": "object"
+    },
+    "instances": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/AgentCatalogInstance.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "models": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/AgentCatalogModel.json"
+      },
+      "maxItems": 20,
+      "type": "array"
+    },
+    "nextInstanceOffset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "nextOffset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "models",
+    "instances",
+    "caller"
+  ],
+  "type": "object"
+}

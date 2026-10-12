@@ -10,11 +10,12 @@ import { OpenFolderScreen } from "@/features/projects/index.ts";
  * project, or finds it, and opens New thread in it.
  */
 const NewThreadSearch = z.object({
-  pullRequest: z.catch(z.optional(z.string().check(z.maxLength(4096))), undefined),
+  discard: z.catch(z.optional(z.number().check(z.int(), z.minimum(0))), undefined),
   skill: z.catch(
     z.optional(z.string().check(z.maxLength(64), z.regex(/^[a-z0-9][a-z0-9.-]*$/))),
     undefined,
   ),
+  pullRequest: z.catch(z.optional(z.string().check(z.maxLength(4096))), undefined),
   project: z.catch(z.optional(z.string().check(z.minLength(1))), undefined),
   base: z.catch(z.optional(z.string().check(z.minLength(1))), undefined),
   folder: z.catch(
@@ -36,7 +37,7 @@ function NewThreadRoute() {
   if (search.folder) return <OpenFolderScreen key={search.folder} folder={search.folder} />;
   return (
     <NewThreadPage
-      key={`${search.project ?? ""}:${search.base ?? ""}:${search.skill ?? ""}:${search.pullRequest ?? ""}`}
+      key={`${search.project ?? ""}:${search.base ?? ""}:${search.skill ?? ""}:${search.discard ?? ""}:${search.pullRequest ?? ""}`}
       project={search.project}
       base={search.base}
       skill={search.skill}

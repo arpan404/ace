@@ -44,6 +44,8 @@ export function forgeError(code: string): string {
     pr_checkout_changed:
       "This task checkout has moved. Choose another task or refresh before preparing again.",
     pr_requires_worktree: "Working on a PR requires its own isolated worktree.",
+    action_outcome_uncertain:
+      "GitHub may have accepted this action. Reconcile the write before retrying; your draft is retained.",
     forge_cli: "GitHub is unavailable. Check your connection and installed gh CLI, then refresh.",
     forge_forbidden:
       "This account cannot access the repository. Check gh login and repository permissions.",
@@ -52,7 +54,8 @@ export function forgeError(code: string): string {
     forge_limit:
       "GitHub returned more data than ace can safely display. Open GitHub for the complete resource.",
     forge_conflict: "The pull request changed while reading. Refresh before continuing.",
-    forge_unsupported: "This repository's forge is not supported yet. Choose a GitHub project.",
+    forge_unsupported:
+      "This host or GitHub capability is not supported. Open GitHub for this action.",
     forge_invalid_data: "GitHub returned an unreadable response. Refresh to try again.",
   };
   return messages[code] ?? actionErrorText(code);

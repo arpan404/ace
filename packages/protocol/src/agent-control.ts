@@ -9,6 +9,7 @@ import { InteractionResolution } from "./interactions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
 import { AccountInstanceId } from "./account-ids.ts";
 import { AutomationRequest } from "./automations.ts";
+import { AgentCatalogInput, AgentWorkspace, ThreadListInput } from "./agent-orchestration.ts";
 
 const key = z
   .string()
@@ -35,6 +36,8 @@ export const DelegationRequest = z.strictObject({
   role: z.string().min(1).max(1024),
   ...AgentSelection.shape,
   wait: z.boolean().default(false),
+  waitMs: z.number().int().min(1).max(240000).optional(),
+  workspace: AgentWorkspace.optional(),
   estimatedLoad: z.number().min(0).max(100).default(0),
 });
 export type DelegationRequest = z.infer<typeof DelegationRequest>;
@@ -99,8 +102,46 @@ export const RemoteAgentOperation = z.discriminatedUnion("op", [
   }),
 ]);
 export type RemoteAgentOperation = z.infer<typeof RemoteAgentOperation>;
+export const ThreadStartOperation = z.strictObject({
+  op: z.literal("thread.start"),
+  requestId: key,
+  title: z.string().min(1).max(256),
+  text: z.string().min(1).max(16384),
+  workspace: AgentWorkspace,
+  ...AgentSelection.shape,
+});
+export type ThreadStartOperation = z.infer<typeof ThreadStartOperation>;
+export const AgentConversationRecord = z.object({
+  threadId: ThreadId,
+  ownerThreadId: ThreadId,
+  ownerAgentId: AgentId,
+  rootId: ThreadId,
+  createdAt: Timestamp,
+  request: ThreadStartOperation,
+});
+export type AgentConversationRecord = z.infer<typeof AgentConversationRecord>;
 export const AgentControlOperation = z.discriminatedUnion("op", [
   ...RemoteAgentOperation.options,
+  z.strictObject({ op: z.literal("threads.list"), ...ThreadListInput.shape }),
+  ThreadStartOperation,
+  z.strictObject({
+    op: z.literal("thread.configure"),
+    threadId: ThreadId,
+    requestId: key,
+    model: z.string().min(1).max(256),
+    options: AgentLaunchOptions.optional(),
+  }),
+  z.strictObject({ op: z.literal("agents.catalog"), ...AgentCatalogInput.shape }),
+  z.strictObject({ op: z.literal("agent.status"), threadId: ThreadId }),
+  z.strictObject({ op: z.literal("agent.result"), threadId: ThreadId }),
+  z.strictObject({ op: z.literal("agent.cancel"), threadId: ThreadId, requestId: key }),
+  z.strictObject({
+    op: z.literal("agent.message"),
+    threadId: ThreadId,
+    requestId: key,
+    text: z.string().min(1).max(16384),
+    delivery: z.enum(["queue", "steer"]).default("queue"),
+  }),
   z.strictObject({ op: z.literal("delegate_task"), ...DelegationRequest.shape }),
   z.strictObject({
     op: z.literal("thread.create"),
@@ -119,7 +160,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     threadId: ThreadId,
     requestId: key,
     text: z.string().min(1).max(16384),
-    delivery: z.enum(["queue", "steer"]).default("queue"),
+    delivery: z.enum(["queue", "steer", "restart"]).default("queue"),
   }),
   z.strictObject({ op: z.literal("thread.wait"), threadId: ThreadId }),
   z.strictObject({

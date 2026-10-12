@@ -1,5 +1,5 @@
 import { prFromUrl } from "@ace/forge/pr-reference";
-import type { ForgeCheck, ForgePrStatus, ForgeRepository } from "@ace/protocol";
+import type { ForgeCheck, ForgePrStatus, ForgeRepository, ForgeMergeState } from "@ace/protocol";
 
 /*
  * A linked pull request as the work card's PR popover reads it: its checks in a line, whether
@@ -55,13 +55,22 @@ function mergeLine(status: ForgePrStatus, base: string): PrOverview["merge"] {
   return { tone: "unknown", text: "GitHub is still checking for conflicts" };
 }
 
-/** Reasons that stop both Merge and Auto-merge. */
+/** Reasons that stop an immediate merge. */
 function blocked(status: ForgePrStatus, base: string, ci: PrTone): string | undefined {
   if (status.state === "merged") return "Already merged";
   if (status.state === "closed") return "The pull request is closed";
   if (status.state === "draft") return "A draft can't merge: mark it ready for review on GitHub";
   if (status.mergeability === "conflicting") return `Resolve the conflicts with ${base} first`;
   if (ci === "failure") return "Fix the failing checks first";
+  return undefined;
+}
+
+/** Only the host's capability establishes whether auto-merge can be enabled. */
+export function autoMergeBlocker(state: ForgeMergeState | undefined): string | undefined {
+  if (!state) return "Refresh GitHub merge state before enabling auto-merge";
+  if (state.autoMerge) return "Auto-merge is already enabled";
+  if (state.queue) return "Already in the merge queue";
+  if (!state.canEnable) return "GitHub does not permit enabling auto-merge";
   return undefined;
 }
 
@@ -76,11 +85,7 @@ export function prOverview(status: ForgePrStatus, base: string): PrOverview {
     merge: mergeLine(status, base),
     unresolved: status.reviewThreads.filter((thread) => !thread.resolved).length,
     mergeBlocked: reason,
-    autoMergeBlocked:
-      reason ??
-      (ci.tone === "pending" || status.mergeability === "unknown"
-        ? undefined
-        : "Nothing to wait for: merge it now"),
+    autoMergeBlocked: autoMergeBlocker(status.mergeState),
   };
 }
 

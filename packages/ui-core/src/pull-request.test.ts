@@ -1,4 +1,4 @@
-import { ForgePrStatus } from "@ace/protocol";
+import { ForgeMergeState, ForgePrStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { parsePrReference, parseReviewers, prOverview } from "./pull-request.ts";
 
@@ -12,6 +12,22 @@ const check = (name: string, status: "success" | "failure" | "pending") => ({
   jobId: null,
   url: `https://github.com/acme/api/actions/runs/${name}`,
 });
+const mergeState = (patch: Partial<ForgeMergeState> = {}) =>
+  ForgeMergeState.parse({
+    headSha: "c".repeat(40),
+    state: "OPEN",
+    mergeState: "BLOCKED",
+    reviewDecision: "REVIEW_REQUIRED",
+    checksState: "SUCCESS",
+    autoMerge: null,
+    queue: null,
+    canEnable: true,
+    canDisable: false,
+    canDequeue: false,
+    blockers: ["Required reviews are outstanding."],
+    raw: {},
+    ...patch,
+  });
 const status = (patch: Partial<ForgePrStatus> = {}) =>
   ForgePrStatus.parse({
     ref: { repository, number: 42 },
@@ -28,12 +44,12 @@ const status = (patch: Partial<ForgePrStatus> = {}) =>
     ...patch,
   });
 
-test("a passing, clean PR can merge now and has nothing for auto-merge to wait on", () => {
-  const view = prOverview(status(), "main");
+test("green CI with outstanding reviews allows auto-merge when GitHub grants the capability", () => {
+  const view = prOverview(status({ mergeState: mergeState() }), "main");
   expect(view.ci).toEqual({ tone: "success", text: "2 checks passed" });
   expect(view.merge).toEqual({ tone: "clean", text: "No conflicts with main" });
   expect(view.mergeBlocked).toBeUndefined();
-  expect(view.autoMergeBlocked).toMatch(/merge it now/);
+  expect(view.autoMergeBlocked).toBeUndefined();
 });
 
 test("failing checks block merging, are counted, and list first", () => {
@@ -47,7 +63,7 @@ test("failing checks block merging, are counted, and list first", () => {
   expect(view.ci).toEqual({ tone: "failure", text: "1 of 3 checks failed" });
   expect(view.checks.map((each) => each.name)).toEqual(["test (pdf)", "e2e", "lint"]);
   expect(view.mergeBlocked).toBe("Fix the failing checks first");
-  expect(view.autoMergeBlocked).toBe("Fix the failing checks first");
+  expect(view.autoMergeBlocked).toMatch(/Refresh GitHub merge state/);
 });
 
 test("conflicts block merging and name the base branch", () => {
@@ -56,20 +72,20 @@ test("conflicts block merging and name the base branch", () => {
   expect(view.mergeBlocked).toBe("Resolve the conflicts with develop first");
 });
 
-test("running checks leave Merge open and let auto-merge wait for them", () => {
+test("running checks do not establish auto-merge capability", () => {
   const view = prOverview(
     status({ ci: "pending", checks: [check("lint", "success"), check("test", "pending")] }),
     "main",
   );
   expect(view.ci).toEqual({ tone: "pending", text: "Checks running · 1 of 2 done" });
   expect(view.mergeBlocked).toBeUndefined();
-  expect(view.autoMergeBlocked).toBeUndefined();
+  expect(view.autoMergeBlocked).toMatch(/Refresh GitHub merge state/);
 });
 
 test("a draft, merged or closed PR can't merge, and says why", () => {
   expect(prOverview(status({ state: "draft" }), "main").mergeBlocked).toMatch(/ready for review/);
   expect(prOverview(status({ state: "merged" }), "main").mergeBlocked).toBe("Already merged");
-  expect(prOverview(status({ state: "closed" }), "main").autoMergeBlocked).toMatch(/closed/);
+  expect(prOverview(status({ state: "closed" }), "main").mergeBlocked).toMatch(/closed/);
 });
 
 const thread = (id: string, resolved: boolean) => ({
@@ -116,6 +132,23 @@ test("reviewers are GitHub usernames, with or without @, separated by commas or 
   expect(parseReviewers("mira, acme/core")).toEqual({
     error: "“acme/core” isn't a GitHub username",
   });
+});
+
+test("GitHub denial and queue membership block auto-merge independently of CI", () => {
+  expect(
+    prOverview(status({ ci: "pending", mergeState: mergeState({ canEnable: false }) }), "main")
+      .autoMergeBlocked,
+  ).toMatch(/does not permit/);
+  expect(
+    prOverview(
+      status({
+        mergeState: mergeState({
+          queue: { id: "QUEUE", state: "QUEUED", position: 1, enqueuedAt: "2026-10-11" },
+        }),
+      }),
+      "main",
+    ).autoMergeBlocked,
+  ).toBe("Already in the merge queue");
 });
 
 test("configured Enterprise PR addresses are accepted and other hosts stay rejected", () => {

@@ -28,8 +28,14 @@ import { OutcomeWaiters } from "./waiters.ts";
 import { DelegationAdmission } from "./admission.ts";
 import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
+import { readAgentCatalog } from "./catalog.ts";
 import { incomingRemoteRoot } from "./incoming-root.ts";
+import { recoverLocalUsage } from "./local-usage-recovery.ts";
 import { recoverIncomingUsage } from "./incoming-usage-recovery.ts";
+import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
+import { delegationModel } from "./models.ts";
+import { ConversationJournal } from "./conversation-journal.ts";
+import { matchesModel, isDefaultSelection, selectionModelFilter } from "@ace/models";
 
 export interface DelegationDependencies {
   store: Store;
@@ -56,6 +62,7 @@ export interface DelegationDependencies {
 export class DelegationService {
   readonly journal: DelegationJournal;
   readonly policy: DelegationPolicy;
+  readonly conversations: ConversationJournal;
   private admission: DelegationAdmission;
   private deps: DelegationDependencies;
   private unsubscribe: () => void;
@@ -70,8 +77,28 @@ export class DelegationService {
     this.policy = DelegationPolicy.parse(deps.policy ?? {});
     this.journal = new DelegationJournal(deps.store, deps.journalCapacity);
     recoverIncomingUsage(deps.store, this.journal, deps.clock.now());
+    this.conversations = new ConversationJournal(deps.store);
+    // Upgrade old ownership metadata once without decoding prompts or transcripts.
+    for (const conversation of this.conversations.unenrolledMembers()) {
+      this.journal.enroll(conversation.thread_id, conversation.root_id);
+      this.journal.activity(conversation.thread_id, conversation.active);
+    }
+    recoverLocalUsage(deps.store, this.journal);
+    const external = deps.externalCapacity;
+    this.deps = {
+      ...deps,
+      externalCapacity: (parent, root) => {
+        const remote = external?.(parent, root);
+        const conversations = this.conversations.capacity(parent, root);
+        return {
+          concurrent: (remote?.concurrent ?? 0) + conversations.concurrent,
+          children: (remote?.children ?? 0) + conversations.children,
+          usage: remote?.usage ?? { tokens: 0, cost: 0 },
+        };
+      },
+    };
     this.admission = new DelegationAdmission(
-      deps,
+      this.deps,
       this.journal,
       this.policy,
       () => !this.closed && deps.admitsWork?.() !== false,
@@ -88,11 +115,32 @@ export class DelegationService {
         cancel: (thread, request) => this.cancelDescendants(thread, request),
         changed: () => this.arm(),
         suspending: (thread) => this.suspending.has(thread),
+        capacity: (parent) => this.admission.capacity(parent, deps.clock.now()),
+        conversationAccepted: (thread) => {
+          this.journal.activity(thread, 1);
+        },
+        conversationAdmission: (thread) => {
+          const owner = this.conversations.get(thread);
+          if (!owner) return undefined;
+          if (this.closed || deps.admitsWork?.() === false) return "admission_closed";
+          const capacity = this.admission.capacity(owner.ownerThreadId, deps.clock.now());
+          const rejected = delegationBudget(capacity, this.policy, deps.clock.now());
+          if (rejected) return rejected;
+          return !this.journal.participant(thread)?.active &&
+            (capacity.concurrent >= this.policy.maxConcurrent || this.journal.activeCount() >= 64)
+            ? "concurrency_limit"
+            : undefined;
+        },
       }),
     );
     this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
-    // Recovery visits current work only, never transcript history or old receipts.
-    for (const edge of [...this.journal.active(), ...this.journal.revived()]) this.reconcile(edge);
+    // Recovery visits indexed current work, never transcript history or old receipts.
+    for (const participant of this.journal.activeParticipants()) {
+      this.reconcileConversation(participant.thread_id);
+    }
+    for (const edge of [...this.journal.active(), ...this.journal.revived()]) {
+      this.reconcile(edge);
+    }
     this.arm();
   }
   authorize(caller: McpAttribution, target: ThreadId, write: boolean): boolean {
@@ -103,8 +151,56 @@ export class DelegationService {
       (thread.workspaceId === source.workspaceId ||
         (this.journal.get(target)?.rootId ?? target) ===
           (this.journal.get(caller.threadId)?.rootId ?? caller.threadId)) &&
-      (!write || target === caller.threadId || this.journal.isDescendant(target, caller.threadId))
+      (!write ||
+        target === caller.threadId ||
+        this.journal.isDescendant(target, caller.threadId) ||
+        this.ownsConversationTree(caller, target))
     );
+  }
+  private ownsConversationTree(caller: McpAttribution, target: ThreadId): boolean {
+    let thread = target;
+    for (let depth = 0; depth <= 8; depth++) {
+      if (this.conversations.owns(caller, thread)) return true;
+      const edge = this.journal.get(thread);
+      if (!edge) return false;
+      thread = edge.parentId;
+    }
+    return false;
+  }
+  private reconcileConversation(threadId: ThreadId): void {
+    const thread = this.deps.store.getThread(threadId);
+    this.journal.activity(
+      threadId,
+      thread &&
+        thread.deletedAt === undefined &&
+        !["done", "failed", "new"].includes(thread.status.state)
+        ? 1
+        : 0,
+    );
+  }
+  /** Cancel every budget participant through its existing cancellation owner. */
+  private cancelBudget(root: ThreadId): void {
+    this.deps.store.atomic(() => {
+      for (const thread of this.journal.participants(root)) {
+        this.cancelDescendants(thread);
+        if (!this.journal.participant(thread)?.active) continue;
+        this.deps.engine.cancelDelegatedInputs(thread);
+        const result = this.command(this.deps.id(), {
+          type: "thread.interrupt",
+          threadId: thread,
+          cascade: true,
+        });
+        if (!result.ok) throw controlAdmissionError(result.error ?? "Budget interrupt failed");
+      }
+      this.cancelDescendants(root);
+      this.journal.endBudget(root);
+    });
+  }
+  catalog(
+    caller: McpAttribution,
+    input: import("zod").z.infer<typeof import("@ace/protocol").AgentCatalogInput>,
+  ) {
+    return readAgentCatalog(this.deps, caller, input);
   }
   canFork(threadId: ThreadId) {
     const thread = this.deps.store.getThread(threadId);
@@ -236,8 +332,161 @@ export class DelegationService {
       resultDelivery: "owner";
       handoffFrom?: ThreadId;
     },
+    prepared?: Pick<import("../commands.ts").CommandContext, "preparedWorkspace">,
   ) {
-    return this.admission.commit(caller, reservation, workspace, ownership);
+    return this.admission.commit(caller, reservation, workspace, ownership, prepared);
+  }
+  /** Reuse selection/admission and permission ancestry without attaching a child edge. */
+  prepareConversation(
+    caller: McpAttribution,
+    reservation: DelegationReservation,
+    workspace: WorkspaceId,
+    prepared?: Pick<import("../commands.ts").CommandContext, "preparedWorkspace">,
+  ) {
+    return this.deps.store.atomic(() => {
+      const { child } = this.admission.createThread(
+        caller,
+        reservation,
+        workspace,
+        undefined,
+        prepared,
+      );
+      this.journal.release(reservation);
+      this.journal.enroll(child.id, reservation.record.rootId);
+      return child;
+    });
+  }
+  restartMessage(caller: McpAttribution, requestId: string, threadId: ThreadId, text: string) {
+    if (
+      !this.authorize(caller, threadId, true) ||
+      this.closed ||
+      this.deps.admitsWork?.() === false
+    )
+      throw new Error("Forbidden restart");
+    const id = controlCommandId(caller.threadId, requestId, "thread.restart_message");
+    return this.deps.store.recordCommand(CommandId.parse(id), DeviceId.parse("ace-agent"), () => {
+      const participant = this.journal.participant(threadId);
+      if (participant) {
+        const capacity = this.admission.capacity(threadId, this.deps.clock.now());
+        const rejection = delegationBudget(capacity, this.policy, this.deps.clock.now());
+        if (rejection) return { commandId: CommandId.parse(id), ok: false, error: rejection };
+      }
+      this.cancelPreparations(threadId);
+      const tree = this.journal.tree(threadId, this.deps.clock.now());
+      for (const child of this.journal
+        .family(tree.root)
+        .filter((edge) => edge.parentId === threadId && edge.phase !== "settled")) {
+        this.cancelDescendants(child.childId, id);
+        const cancelled = this.command(
+          controlCommandId(child.childId, requestId, "restart.child_interrupt"),
+          { type: "thread.interrupt", threadId: child.childId, cascade: true },
+        );
+        if (!cancelled.ok) throw controlAdmissionError(cancelled.error ?? "Child interrupt failed");
+      }
+      this.onRemoteCancel?.(threadId);
+      this.suspending.add(threadId);
+      try {
+        const stopped = this.command(
+          controlCommandId(caller.threadId, requestId, "restart.interrupt"),
+          { type: "thread.interrupt", threadId, cascade: true },
+        );
+        if (!stopped.ok) throw controlAdmissionError(stopped.error ?? "Restart interrupt failed");
+      } finally {
+        this.suspending.delete(threadId);
+      }
+      // Explicit replacement clears obsolete recovery/limit holds. Ordinary Stop
+      // still retains its queue; restart moves this new message before retained input.
+      this.deps.engine.discardRecovery(threadId);
+      const sent = this.message(caller, requestId, threadId, text, "queue");
+      if (!sent.ok) throw controlAdmissionError(sent.error ?? "Restart send failed");
+      const queue = this.deps.engine.queue(threadId);
+      if (queue.messages.length > 1) {
+        const moved = this.command(controlCommandId(caller.threadId, requestId, "restart.first"), {
+          type: "queue.move",
+          threadId,
+          messageId: sent.commandId,
+          after: null,
+          expectedRevision: queue.revision,
+        });
+        if (!moved.ok) throw controlAdmissionError(moved.error ?? "Restart input unavailable");
+      }
+      return { ...sent, commandId: CommandId.parse(id) };
+    });
+  }
+  async configure(
+    caller: McpAttribution,
+    operation: Extract<import("@ace/protocol").AgentControlOperation, { op: "thread.configure" }>,
+    signal: AbortSignal,
+  ) {
+    if (!this.authorize(caller, operation.threadId, true))
+      throw new Error("Forbidden configuration");
+    const thread = this.deps.store.getThread(operation.threadId);
+    if (!thread) throw new Error("Thread missing");
+    const identity = thread.provider === "acp" ? importAcpIdentitySchema.parse(thread) : undefined;
+    const request = DelegationRequest.parse({
+      requestId: operation.requestId,
+      provider: thread.provider,
+      ...identity,
+      instanceId: thread.execution?.instanceId ?? identity?.instanceId,
+      permissionMode: this.deps.engine.permissionMode(thread.id) ?? undefined,
+      model: operation.model,
+      options: operation.options,
+      role: "configuration",
+      task: "configure",
+    });
+    await this.prepareModels(caller, request);
+    signal.throwIfAborted();
+    const filter = selectionModelFilter(thread.provider, thread.execution?.instanceId, identity);
+    const selected =
+      filter &&
+      this.deps.models.resolve({ role: "configuration", ...filter, model: operation.model });
+    if (
+      !selected?.ok ||
+      (!isDefaultSelection(operation.model) && !matchesModel(selected.model, operation.model))
+    )
+      throw new AgentControlError(
+        "model_unavailable",
+        "Requested configuration model is unavailable",
+      );
+    const model = delegationModel(this.deps.models, request, thread, thread.execution?.instanceId);
+    const command = Command.parse({
+      id: controlCommandId(caller.threadId, operation.requestId, operation.op),
+      deviceId: "ace-agent",
+      payload: {
+        type: "thread.switch",
+        threadId: thread.id,
+        selection: {
+          provider: thread.provider,
+          model,
+          ...(thread.execution?.instanceId ? { instanceId: thread.execution.instanceId } : {}),
+          ...(operation.options ? { options: operation.options } : {}),
+        },
+      },
+    });
+    await this.deps.engine.prepareCommand(command);
+    signal.throwIfAborted();
+    if (!this.authorize(caller, thread.id, true)) throw new Error("Forbidden configuration");
+    return this.command(command.id, command.payload);
+  }
+  /** Observation timeout releases the waiter so the existing durable wake can deliver. */
+  async waitBounded(
+    caller: McpAttribution,
+    child: ThreadId,
+    signal: AbortSignal,
+    milliseconds: number,
+  ) {
+    const deadline = new AbortController();
+    const cancel = this.deps.clock.setTimer(() => deadline.abort(), milliseconds);
+    try {
+      return await this.wait(caller, child, AbortSignal.any([signal, deadline.signal]));
+    } catch (error) {
+      signal.throwIfAborted();
+      if (!deadline.signal.aborted) throw error;
+      return undefined;
+    } finally {
+      cancel();
+      this.arm();
+    }
   }
   watchReservation(reservation: DelegationReservation): ReturnType<ReservationLifetimes["watch"]> {
     return this.reservationLifetimes.watch(reservation);
@@ -295,15 +544,24 @@ export class DelegationService {
     }
   }
   onRemoteCancel: ((thread: ThreadId) => void) | undefined;
+  private cancelPreparations(thread: ThreadId): void {
+    this.reservationLifetimes.cancel(thread, (target, ancestor) =>
+      this.journal.isDescendant(target, ancestor),
+    );
+    for (const reservation of this.journal.reservations())
+      if (
+        reservation.record.parentId === thread ||
+        this.journal.isDescendant(reservation.record.parentId, thread)
+      )
+        this.journal.release(reservation);
+  }
   cancelDescendants(thread: ThreadId, request = this.deps.id()) {
     this.deps.store.atomic(() => {
       this.onRemoteCancel?.(thread);
       const tree = this.journal.tree(thread, this.deps.clock.now());
       this.journal.cancel(thread);
       if (this.deps.store.getThread(thread)) this.deps.engine.discardRecovery(thread);
-      this.reservationLifetimes.cancel(thread, (target, ancestor) =>
-        this.journal.isDescendant(target, ancestor),
-      );
+      this.cancelPreparations(thread);
       const own = this.journal.get(thread);
       if (own && own.phase !== "settled") {
         own.phase = "cancelling";
@@ -362,7 +620,8 @@ export class DelegationService {
         }
       }
       const edge = this.journal.get(event.threadId);
-      if (!edge) {
+      const participant = this.journal.participant(event.threadId);
+      if (!edge && !participant) {
         // Incoming roots have no local parent edge. Reuse the durable counter owner
         // so terminal snapshots never depend on asynchronous analytics catch-up.
         if (
@@ -376,16 +635,30 @@ export class DelegationService {
           });
         continue;
       }
+      const root = edge?.rootId ?? participant?.root_id;
+      if (!root) continue;
       changed = true;
       if (event.payload.type === "run.started") {
-        if (edge) this.deps.store.atomic(() => this.journal.started(event));
-        this.reconcile(edge);
-      } else if (event.payload.type === "usage.updated" && edge) {
-        this.deps.store.atomic(() => this.journal.usage(edge.rootId, event));
-        const tree = this.admission.capacity(edge.rootId, this.deps.clock.now());
-        if (delegationBudget(tree, this.policy, this.deps.clock.now()))
-          this.cancelDescendants(edge.rootId);
-      } else if (edge) this.reconcile(edge);
+        this.deps.store.atomic(() => {
+          this.journal.account(root, event);
+          if (participant) this.journal.activity(event.threadId, 1);
+        });
+        if (edge) this.reconcile(edge);
+      } else if (event.payload.type === "usage.updated") {
+        this.journal.account(root, event);
+        const tree = this.admission.capacity(root, this.deps.clock.now());
+        if (delegationBudget(tree, this.policy, this.deps.clock.now())) {
+          try {
+            this.cancelBudget(root);
+          } catch (error) {
+            this.journal.deferExpiry(root, this.deps.clock.now() + 1000);
+            this.report(error);
+          }
+        }
+      } else {
+        if (participant) this.reconcileConversation(event.threadId);
+        if (edge) this.reconcile(edge);
+      }
     }
     if (changed) this.arm();
   }
@@ -442,6 +715,7 @@ export class DelegationService {
     const outcome = ["done", "failed"].includes(thread.status.state)
       ? (this.journal.get(threadId)?.outcome ?? threadOutcome(this.deps.store, thread))
       : await this.waiters.wait(threadId, signal, caller.threadId);
+    signal.throwIfAborted();
     const edge = this.journal.get(threadId);
     if (edge && edge.parentId === caller.threadId && edge.resultDelivery !== "owner") {
       this.deps.store.atomic(() => {
@@ -465,7 +739,7 @@ export class DelegationService {
     let expiry: ReturnType<DelegationJournal["nextExpiry"]>;
     try {
       next = this.journal.nextWake();
-      expiry = this.journal.nextExpiry(this.policy.durationMs);
+      expiry = this.journal.nextExpiry(this.policy, this.deps.clock.now());
     } catch (error) {
       this.report(error);
       this.cancelTimer = this.deps.clock.setTimer(() => this.timer(), 1000);
@@ -501,10 +775,10 @@ export class DelegationService {
   drain() {
     if (this.closed) return;
     for (let limit = 0; limit < 64; limit++) {
-      const expiry = this.journal.nextExpiry(this.policy.durationMs);
+      const expiry = this.journal.nextExpiry(this.policy, this.deps.clock.now());
       if (!expiry || expiry.due > this.deps.clock.now()) break;
       try {
-        this.cancelDescendants(expiry.root_id);
+        this.cancelBudget(expiry.root_id);
       } catch (error) {
         this.deps.store.atomic(() =>
           this.journal.deferExpiry(

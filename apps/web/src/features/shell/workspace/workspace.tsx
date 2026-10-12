@@ -33,19 +33,22 @@ export function WhenKindsReady(props: {
   children: ReactNode;
   visible?: boolean;
 }) {
-  const [ready, setReady] = useState(props.definition.loaded());
-  const [error, setError] = useState(false);
+  const definition = props.definition;
+  const ready = definition.loaded();
+  const [, invalidate] = useState(0);
+  const [failed, setFailed] = useState<WorkspaceDefinition>();
+  const error = failed === definition;
   useEffect(() => {
     if (ready) return;
     let live = true;
-    props.definition.load().then(
-      () => live && setReady(true),
-      () => live && setError(true),
+    definition.load().then(
+      () => live && invalidate((value) => value + 1),
+      () => live && setFailed(definition),
     );
     return () => {
       live = false;
     };
-  }, [ready, props.definition]);
+  }, [ready, definition]);
   if (ready) return props.children;
   if (!props.visible) return null;
   return (
@@ -59,10 +62,10 @@ export function WhenKindsReady(props: {
           size="sm"
           variant="outline"
           onClick={() => {
-            setError(false);
-            void props.definition.load().then(
-              () => setReady(true),
-              () => setError(true),
+            setFailed(undefined);
+            void definition.load().then(
+              () => invalidate((value) => value + 1),
+              () => setFailed(definition),
             );
           }}
         >
@@ -126,7 +129,8 @@ export function Workspace(props: {
   const size = useElementSize(outer);
   // At crowded desktop widths the sidebar yields to tools. Account for that before its
   // measurement changes so opening/closing never reparents tab views into a modal portal.
-  const overlay = panelFloats(size.width, viewportOverlay, crowded);
+  const bottom = workspace.dock === "bottom" && !sheet;
+  const overlay = !bottom && panelFloats(size.width, viewportOverlay, crowded);
   // Warm the kinds and the panel's code once the screen has painted.
   useEffect(
     () => whenIdle(() => void Promise.all([definition.load(), loadPanel()]).catch(() => {})),
@@ -146,7 +150,20 @@ export function Workspace(props: {
   // While the panel shows beside the column, its strip holds the panel's controls.
   const inline = workspace.open && !overlay && !sheet;
   const controls = (placement: "header" | "panel") => (
-    <PanelControls workspace={workspace} actions={actions} placement={placement} />
+    <PanelControls
+      workspace={workspace}
+      actions={actions}
+      placement={placement}
+      dockable={definition.dockable}
+      mobileAction={{
+        label: definition.mobileAction?.label ?? definition.label,
+        onClick: () => {
+          const kind = definition.mobileAction?.kind;
+          if (kind) actions.open({ kind });
+          else actions.setOpen(true);
+        },
+      }}
+    />
   );
   const leading = expanded && (
     <>
@@ -175,11 +192,17 @@ export function Workspace(props: {
           </Suspense>
         </LocalBoundary>
       )}
-      <div className="relative flex min-h-0 flex-1">
+      <div
+        className={
+          bottom && !expanded
+            ? "relative flex min-h-0 flex-1 flex-col"
+            : "relative flex min-h-0 flex-1"
+        }
+      >
         {/* In full view the column steps aside but stays mounted: the transcript keeps its place. */}
         <div
           hidden={expanded}
-          className="@container/work-body relative flex min-w-0 flex-1 flex-col"
+          className="@container/work-body relative flex min-h-0 min-w-0 flex-1 flex-col"
         >
           {props.header(inline ? undefined : controls("header"))}
           {props.notice}
@@ -203,8 +226,11 @@ export function Workspace(props: {
                 layout={{
                   overlay: overlay && !expanded,
                   sheet,
-                  bounds: panelBounds(size.width, overlay),
-                  size: workspace.size ?? preferred,
+                  dock: bottom ? "bottom" : "side",
+                  bounds: bottom
+                    ? { min: 180, max: Math.max(180, size.height * 0.75) }
+                    : panelBounds(size.width, overlay),
+                  size: bottom ? (workspace.bottomSize ?? 360) : (workspace.size ?? preferred),
                 }}
                 leading={leading}
                 controls={controls("panel")}

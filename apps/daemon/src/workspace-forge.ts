@@ -1,3 +1,5 @@
+import { ForgeResourceOwner } from "./forge-resource-owner.ts";
+import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
 import {
@@ -21,19 +23,23 @@ import {
 } from "@ace/protocol";
 import type { GitService } from "@ace/git";
 import type { Store } from "./store.ts";
+import { WorkspaceForgeStacks } from "./workspace-forge-stacks.ts";
 import { WorkspacePrLinks } from "./workspace-pr-links.ts";
 import { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
 import type { PrOwnerOperation } from "./agent-control/tools.ts";
 
 export class WorkspaceForge {
+  private owner = new ForgeResourceOwner();
   private store: Store;
   private replyReceipts: ForgeReplyReceipts;
   private git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>;
+  private reviews: WorkspaceForgeReviews;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
   private projection: WorkspacePrLinks;
   private links: WorkspacePrLinks["links"];
   private actions: WorkspaceForgeActions;
+  private stacks: WorkspaceForgeStacks;
   private backends = new Map<string, GitHubForge>();
   private lifetime = new AbortController();
   private stopPreferences: (() => void) | undefined;
@@ -46,6 +52,8 @@ export class WorkspaceForge {
     sourceControl?: import("./source-control.ts").SourceControl,
   ) {
     this.store = store;
+    this.stacks = new WorkspaceForgeStacks(store, now);
+    this.reviews = new WorkspaceForgeReviews(store, this.owner);
     this.replyReceipts = new ForgeReplyReceipts(store);
     this.git = git;
     this.now = now;
@@ -54,7 +62,7 @@ export class WorkspaceForge {
     this.stopPreferences = sourceControl?.listen(() => this.backends.clear());
     this.projection = new WorkspacePrLinks(store, now);
     this.links = this.projection.links;
-    this.actions = new WorkspaceForgeActions(store);
+    this.actions = new WorkspaceForgeActions(store, this.owner);
   }
   async repository(cwd: string): Promise<ForgeRepository> {
     const info = await this.git.repositoryInfo(cwd);
@@ -96,6 +104,28 @@ export class WorkspaceForge {
     const repository = operation.repository ?? (await this.repository(cwd));
     signal.throwIfAborted();
     const backend = await this.backend(cwd, repository);
+    if (operation.op === "forge.pr.merge-state") {
+      const { value, writeState } = await this.actions.readMergeState(
+        { repository, number: operation.number },
+        () => backend.prMergeState(operation.number, signal),
+      );
+      return { resource: "prMergeState", value: { ...value, writeState } };
+    }
+    if (operation.op === "forge.pr.stack")
+      return {
+        resource: "prStack",
+        value: await this.stacks.read(cwd, backend, operation.number, signal),
+      };
+    if (operation.op === "forge.pr.stack-memberships")
+      return {
+        resource: "prStackMemberships",
+        value: await backend.stackMemberships(operation.numbers, signal),
+      };
+    if (operation.op === "forge.pr.review-state")
+      return {
+        resource: "prReviewState",
+        value: await this.reviews.state({ repository, number: operation.number }, backend, signal),
+      };
     if (operation.op === "forge.pr.activity")
       return {
         resource: "prActivity",
@@ -488,9 +518,42 @@ export class WorkspaceForge {
     if (!allowed()) throw new Error("forbidden");
     const generation = this.links.getLinkState(id, p.link.pr)?.generation;
     const backend = await this.backend(cwd, p.link.pr.repository);
+    if (
+      (p.type === "forge.pr.merge-state.change" || p.type === "forge.pr.auto-merge") &&
+      generation === undefined
+    )
+      return { ok: false, error: "forge_not_found" };
+    if (p.type === "forge.pr.stack.change") {
+      if (generation === undefined) return { ok: false, error: "forge_not_found" };
+      if (
+        p.action !== "merge" &&
+        repositoryKey(p.link.pr.repository) !== repositoryKey(await this.repository(cwd))
+      )
+        throw new ForgeError("conflict");
+      const operation = await this.stacks.change(
+        cwd,
+        backend,
+        p.link.pr.number,
+        p.expected,
+        p.action,
+        p.method,
+        this.lifetime.signal,
+        () => allowed() && this.links.getLinkState(id, p.link.pr)?.generation === generation,
+      );
+      return {
+        ok: operation.state !== "failed",
+        ...(operation.state === "failed" ? { error: "forge_conflict" } : {}),
+        pr: p.link.pr,
+        stackOperation: operation,
+      };
+    }
     if (p.type !== "forge.pr.status")
-      return this.actions.execute(p, backend, this.lifetime.signal, allowed, (status) =>
-        this.projection.update(id, status, generation),
+      return this.actions.execute(
+        p,
+        backend,
+        this.lifetime.signal,
+        () => allowed() && this.links.getLinkState(id, p.link.pr)?.generation === generation,
+        (status) => this.projection.update(id, status, generation),
       );
     const { value } = await this.actions.readDetail(p.link.pr, async () => ({
       status: await backend.status(p.link.pr.number, this.lifetime.signal),
@@ -498,6 +561,23 @@ export class WorkspaceForge {
     const status = value.status;
     this.projection.update(id, status, generation);
     return { ok: true, pr: status.ref, prStatus: status };
+  }
+  async hostedReview(
+    input: import("@ace/protocol").Command & {
+      payload: import("zod").z.infer<typeof import("@ace/protocol").ForgeHostedReviewCommand>;
+    },
+    cwd: string,
+    allowed: () => boolean,
+  ) {
+    const p = input.payload;
+    await this.reviews.execute(
+      p,
+      input.id,
+      await this.backend(cwd, p.pr.repository),
+      this.lifetime.signal,
+      allowed,
+    );
+    return { ok: true };
   }
 
   close(): void {

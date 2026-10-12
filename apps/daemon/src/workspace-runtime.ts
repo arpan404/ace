@@ -135,8 +135,11 @@ export class WorkspaceRuntime {
     await this.git.assertMutationAvailable(root);
     return root;
   }
-  prepareCreation(command: Command, progress?: CreationProgress) {
-    return this.roots.prepareCreation(command, progress);
+  prepareAgentCreation(command: Command, signal: AbortSignal) {
+    return this.roots.prepareAgentCreation(command, signal);
+  }
+  prepareCreation(command: Command, progress?: CreationProgress, signal?: AbortSignal) {
+    return this.roots.prepareCreation(command, progress, signal);
   }
   localCreation(command: Command) {
     return this.roots.localCreation(command);
@@ -221,13 +224,26 @@ export class WorkspaceRuntime {
       result,
     });
     if (
+      op.op === "forge.pr.merge-state" ||
+      op.op === "forge.pr.stack" ||
+      op.op === "forge.pr.stack-memberships" ||
+      op.op === "forge.pr.review-state" ||
       op.op === "forge.pr.activity" ||
       op.op === "forge.pr.list" ||
       op.op === "forge.pr.detail" ||
       op.op === "forge.pr.commits" ||
       op.op === "forge.pr.files"
     ) {
-      const root = this.store.getWorkspacePath(op.workspaceId);
+      if (
+        op.op === "forge.pr.stack" &&
+        op.threadId &&
+        this.store.getThread(op.threadId)?.workspaceId !== op.workspaceId
+      )
+        throw new Error("workspace_not_found");
+      const root =
+        op.op === "forge.pr.stack" && op.threadId
+          ? this.root(op.threadId)
+          : this.store.getWorkspacePath(op.workspaceId);
       if (!root) throw new Error("workspace_not_found");
       return wrap({ kind: "forge", data: await this.forge.browse(root, op, signal) });
     }
@@ -364,6 +380,11 @@ export class WorkspaceRuntime {
     return this.commands.run(command, async () => {
       if (!allowed()) return { ok: false, error: "forbidden" };
       const p = command.payload;
+      if (p.type === "forge.hosted.review") {
+        const cwd = this.store.getWorkspacePath(p.workspaceId);
+        if (!cwd) return { ok: false, error: "workspace_not_found" };
+        return this.forge.hostedReview({ ...command, payload: p }, cwd, allowed);
+      }
       const id = "threadId" in p ? p.threadId : "link" in p ? p.link.threadId : undefined;
       if (!id) throw new Error("invalid_command");
       const threadId = ThreadId.parse(id);

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { createCommandRunner, GitHubForge } from "../index.ts";
-import type { ForgeRepository } from "@ace/protocol/forge";
+import { repository, sha } from "./identities.ts";
 
 // A completion safeguard, not a performance assertion. Allow the real runner's
 // 30-second command deadline to finish before Vitest aborts the enclosing test.
@@ -14,14 +14,7 @@ if (process.env.VITEST === "true") {
   vi.setConfig({ testTimeout: 60_000 });
 }
 
-export const repository: ForgeRepository = {
-  forge: "github",
-  host: "github.com",
-  owner: "octo",
-  name: "ace",
-};
-export const sha = "a".repeat(40);
-export const nextSha = "b".repeat(40);
+export { repository, sha, nextSha } from "./identities.ts";
 export const pr = {
   number: 7,
   node_id: "PR_7",
@@ -153,6 +146,9 @@ export async function fakeGh(
         observer.close();
       }
     },
+    async replace(records: Fixtures) {
+      await writeFile(config, JSON.stringify(records));
+    },
     async requests() {
       return z
         .object({
@@ -165,5 +161,100 @@ export async function fakeGh(
     async cleanup() {
       await rm(dir, { recursive: true, force: true });
     },
+  };
+}
+
+/** Authoritative merge-state facts shared by process fixtures. */
+export function mergeStateResponse(overrides: Record<string, unknown> = {}): Response {
+  return {
+    body: {
+      data: {
+        repository: {
+          viewerPermission: "WRITE",
+          pullRequest: {
+            id: "PR_7",
+            number: 7,
+            headRefOid: sha,
+            state: "OPEN",
+            isDraft: false,
+            mergeStateStatus: "BLOCKED",
+            reviewDecision: "REVIEW_REQUIRED",
+            statusCheckRollup: { state: "SUCCESS" },
+            autoMergeRequest: null,
+            mergeQueueEntry: null,
+            viewerCanEnableAutoMerge: true,
+            viewerCanDisableAutoMerge: true,
+            ...overrides,
+          },
+        },
+      },
+    },
+  };
+}
+
+export {
+  stackChecksFixture,
+  stackUuid,
+  thirdSha,
+  stackLayers,
+  stackResponse,
+  localStack,
+  expectedStack,
+} from "./stack-fixtures.ts";
+const reviewPr = {
+  id: "PR_7",
+  headRefOid: sha,
+  state: "OPEN",
+  viewerDidAuthor: false,
+  locked: false,
+  viewerCanUpdate: false,
+  reviewThreads: {
+    nodes: [{ id: "T_7", isResolved: false, viewerCanResolve: true, viewerCanUnresolve: true }],
+    pageInfo: { hasNextPage: false, endCursor: null },
+  },
+};
+export function reviewHost(overrides: Partial<typeof reviewPr> = {}) {
+  return {
+    data: {
+      viewer: { login: "reviewer" },
+      repository: { pullRequest: { ...reviewPr, ...overrides } },
+    },
+  };
+}
+export function reviewViewed(state = "UNVIEWED") {
+  return {
+    data: {
+      repository: {
+        pullRequest: {
+          headRefOid: sha,
+          files: {
+            nodes: [{ path: "src/main.ts", viewerViewedState: state }],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      },
+    },
+  };
+}
+export const reviewed = {
+  id: 77,
+  body: "Reviewed",
+  commit_id: sha,
+  state: "COMMENTED",
+  user: { login: "reviewer" },
+};
+export const inlineDraft = {
+  id: "draft",
+  body: "Keep this finding",
+  anchor: { commit: sha, path: "src/main.ts", line: 1, side: "RIGHT" },
+} as const;
+export function reviewFixtures(): Fixtures {
+  return {
+    "graphql:viewer { login }": [{ body: reviewHost() }],
+    "graphql:files(first:": [{ body: reviewViewed() }],
+    "repos/octo/ace/pulls/7/files?per_page=100": [
+      { body: [{ filename: "src/main.ts", patch: "@@ -1 +1 @@\n-old\n+new" }] },
+    ],
+    "repos/octo/ace/pulls/7/reviews": [{ body: reviewed }],
   };
 }

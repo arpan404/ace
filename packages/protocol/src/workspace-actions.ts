@@ -5,6 +5,7 @@ import {
   SourceControlDraftInput,
 } from "./source-control-draft.ts";
 import { ForgePrWorktree } from "./forge-worktree.ts";
+import { ForgeHostedReviewCommand } from "./forge-review.ts";
 import { Project } from "./projects.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
@@ -148,6 +149,7 @@ export const WorkspaceCommands = [
     threadId: ThreadId,
     pullRequest: ForgePrWorktree,
   }),
+  ForgeHostedReviewCommand,
   z.object({ type: z.literal("thread.move"), threadId: ThreadId, workspaceId: WorkspaceId }),
   z.object({
     type: z.literal("thread.workspace.set"),

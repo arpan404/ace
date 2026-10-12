@@ -15,6 +15,9 @@ export function delegationCommandPolicy(deps: {
   cancel(thread: ThreadId, request: string): void;
   changed(): void;
   suspending?(thread: ThreadId): boolean;
+  capacity?(parent: ThreadId): ReturnType<DelegationJournal["tree"]> & { concurrent: number };
+  conversationAccepted?(thread: ThreadId): void;
+  conversationAdmission?(thread: ThreadId): string | undefined;
 }) {
   return (command: Command, accept: () => CommandResult): CommandResult => {
     const p = command.payload;
@@ -34,6 +37,7 @@ export function delegationCommandPolicy(deps: {
       p.type !== "thread.send" &&
       p.type !== "thread.resume" &&
       p.type !== "queue.resume" &&
+      p.type !== "thread.switch" &&
       p.type !== "thread.limit"
     )
       return accept();
@@ -41,28 +45,36 @@ export function delegationCommandPolicy(deps: {
     const explicit =
       p.type === "thread.resume" ||
       p.type === "queue.resume" ||
+      p.type === "thread.switch" ||
       (p.type === "thread.send" &&
         (p.trigger === undefined || p.trigger === "user" || p.trigger === "parent_agent"));
     if (!edge) {
-      if (!deps.journal.stopped(p.threadId)) return accept();
-      if (!explicit) return fail("cancelled");
+      const rejected = deps.conversationAdmission?.(p.threadId);
+      if (rejected) return fail(rejected);
+      if (deps.journal.stopped(p.threadId) && !explicit) return fail("cancelled");
       const accepted = accept();
-      if (accepted.ok) deps.journal.resumeRoot(p.threadId);
+      if (accepted.ok) {
+        if (deps.journal.stopped(p.threadId)) deps.journal.resumeRoot(p.threadId);
+        deps.conversationAccepted?.(p.threadId);
+        deps.changed();
+      }
       return accepted;
     }
     if (!deps.admits()) return fail("Admission closed");
     if (!explicit && deps.journal.stopped(p.threadId)) return fail("cancelled");
     if (edge.phase === "cancelling" || deps.journal.ancestorStopped(p.threadId))
       return fail("cancelled");
-    const tree = deps.journal.tree(edge.parentId, deps.now());
+    const tree = deps.capacity?.(edge.parentId) ?? {
+      ...deps.journal.tree(edge.parentId, deps.now()),
+      concurrent: deps.journal.concurrent(edge.parentId),
+    };
     const rejection = tree.cancelled
       ? "cancelled"
       : delegationBudget(tree, deps.policy, deps.now());
     if (rejection) return fail(rejection);
     if (
       edge.phase === "settled" &&
-      (deps.journal.concurrent(edge.parentId) >= deps.policy.maxConcurrent ||
-        deps.journal.activeCount() >= 64)
+      (tree.concurrent >= deps.policy.maxConcurrent || deps.journal.activeCount() >= 64)
     )
       return fail("concurrency_limit");
     const accepted = accept();

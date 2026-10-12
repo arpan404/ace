@@ -15,6 +15,10 @@ export interface WorkspaceDefinitionOptions {
   launcher: string;
   /** The tabs a scope starts with, the first one showing. */
   initial: readonly OpenRequest[];
+  /** Offer side/bottom docking in the panel strip. */
+  dockable?: boolean;
+  /** The phone header's labelled panel action. Omit kind to reopen the active tab or launcher. */
+  mobileAction?: { label: string; kind?: string };
   /** Tools' shortcuts (kind → keymap id): bound from first paint, shown on launcher cards. */
   shortcuts?: Readonly<Record<string, KeymapId>>;
   /** The tab kinds, as a lazy module's default export. */
@@ -56,6 +60,8 @@ export function defineWorkspace(options: WorkspaceDefinitionOptions): WorkspaceD
     label: options.label,
     launcher: options.launcher,
     initial: options.initial,
+    ...(options.dockable !== undefined ? { dockable: options.dockable } : {}),
+    ...(options.mobileAction ? { mobileAction: options.mobileAction } : {}),
     ...(options.shortcuts ? { shortcuts: options.shortcuts } : {}),
     load,
     loaded: () => ready,

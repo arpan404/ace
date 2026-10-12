@@ -13,8 +13,14 @@ import type { WorkspaceGit } from "./workspace-roots.ts";
 import type { Store } from "./store.ts";
 import type { CommandContext } from "./commands.ts";
 import { requestedBase, requestedBaseKey, type RequestedBase } from "./worktree-base.ts";
-import { resolveWorktreeBase } from "./worktree-base-resolution.ts";
+import { resolveAgentWorktreeBase, resolveWorktreeBase } from "./worktree-base-resolution.ts";
 
+type Setup = (
+  path: string,
+  signal: AbortSignal | undefined,
+  progress: CreationProgress | undefined,
+  started: () => void,
+) => Promise<void>;
 type Prepared = NonNullable<CommandContext["preparedWorkspace"]>;
 export interface CreationWorkspace {
   workspace: Prepared;
@@ -58,9 +64,23 @@ export class WorkspaceCreations {
     this.recovery = this.recover();
     void this.recovery.catch(() => {});
   }
-  async prepare(
+  prepare(
     command: Command,
     progress?: CreationProgress,
+    signal?: AbortSignal,
+  ): Promise<CreationWorkspace | undefined> {
+    return this.prepareQueued(command, progress, signal, (path, lifetime, feedback, started) =>
+      this.setupScripts(path, lifetime, feedback, started),
+    );
+  }
+  prepareAgent(command: Command, signal: AbortSignal): Promise<CreationWorkspace | undefined> {
+    return this.git.nonExecuting(() => this.prepareQueued(command, undefined, signal));
+  }
+  private async prepareQueued(
+    command: Command,
+    progress?: CreationProgress,
+    signal?: AbortSignal,
+    setup?: Setup,
   ): Promise<CreationWorkspace | undefined> {
     const p = command.payload;
     if ((p.type !== "thread.create" && p.type !== "thread.prepare") || p.mode !== "worktree")
@@ -75,8 +95,13 @@ export class WorkspaceCreations {
     const requested = requestedBase(p);
     const task =
       requested.kind === "pull-request"
-        ? this.git.nonExecuting(() => this.create(id, project, requested, progress))
-        : this.create(id, project, requested, progress);
+        ? this.git.nonExecuting(() =>
+            this.create(id, project, requested, progress, {
+              signal,
+              preparePr: setup ? this.preparePr : undefined,
+            }),
+          )
+        : this.create(id, project, requested, progress, { signal, setup });
     this.pending.set(id, task);
     try {
       return await task;
@@ -99,7 +124,10 @@ export class WorkspaceCreations {
     if (this.closing || this.pending.size >= 16 || this.pending.has(id))
       throw new Error("workspace_busy");
     const task = this.git.nonExecuting(() =>
-      this.create(id, project, requested, progress, p.threadId),
+      this.create(id, project, requested, progress, {
+        ownerId: p.threadId,
+        preparePr: this.preparePr,
+      }),
     );
     this.pending.set(id, task);
     try {
@@ -114,8 +142,20 @@ export class WorkspaceCreations {
     root: string,
     requested: RequestedBase,
     progress?: CreationProgress,
-    ownerId: ThreadId = id,
+    context: {
+      signal?: AbortSignal | undefined;
+      setup?: Setup | undefined;
+      preparePr?: PreparePrBase | undefined;
+      ownerId?: ThreadId;
+    } = {},
   ): Promise<CreationWorkspace> {
+    const { signal: callerSignal, setup } = context;
+    const ownerId = context.ownerId ?? id;
+    const signal =
+      progress && callerSignal
+        ? AbortSignal.any([progress.controller.signal, callerSignal])
+        : (progress?.controller.signal ?? callerSignal);
+    signal?.throwIfAborted();
     const project = await realpath(root);
     const key = createHash("sha256").update(id).digest("hex");
     const parent = join(this.directory, "worktrees");
@@ -131,22 +171,29 @@ export class WorkspaceCreations {
     } catch (error) {
       if (!(error instanceof GitError && error.code === "invalid_ref")) throw error;
     }
-    // A remote base is fetched here, before any physical work; only its remote-tracking ref moves.
-    progress?.controller.signal.throwIfAborted();
-    if (requested.kind === "branch" && requested.remote) progress?.update("fetching");
-    if (requested.kind === "pull-request") progress?.update("fetching");
-    const io = progress ? { signal: progress.controller.signal, stderr: progress.stderr } : {};
+    // Only host-authorized preparation may fetch. Agents resolve existing local refs.
+    signal?.throwIfAborted();
+    const io = {
+      ...(signal ? { signal } : {}),
+      ...(progress ? { stderr: progress.stderr } : {}),
+    };
+    if (
+      requested.kind === "pull-request" ||
+      (setup && requested.kind === "branch" && requested.remote)
+    )
+      progress?.update("fetching");
     const preparedPr =
       requested.kind === "pull-request"
-        ? await this.preparePr?.(project, requested.selection, io)
+        ? await context.preparePr?.(project, requested.selection, io)
         : undefined;
     if (requested.kind === "pull-request" && !preparedPr)
       throw new Error("forge_recovery_unavailable");
-    const resolved =
+    const { head, record } =
       requested.kind === "pull-request"
         ? { head: preparedPr?.head ?? "", record: undefined }
-        : await resolveWorktreeBase(this.git, project, requested, this.fetchTimeoutMs, io);
-    const { head, record } = resolved;
+        : setup
+          ? await resolveWorktreeBase(this.git, project, requested, this.fetchTimeoutMs, io)
+          : await resolveAgentWorktreeBase(this.git, project, requested);
     const resource: CreationResource = {
       id,
       owner_id: ownerId,
@@ -157,7 +204,7 @@ export class WorkspaceCreations {
       cleanup_head: null,
       uncertain: 1,
       ran_setup: 0,
-      non_executing: requested.kind === "pull-request" ? 1 : 0,
+      non_executing: setup ? 0 : 1,
     };
     this.journal.acquire(resource);
     if (resource.non_executing) this.git.protectWorktree(path);
@@ -168,9 +215,9 @@ export class WorkspaceCreations {
         path,
         branch,
         baseRef: head,
+        ...(signal ? { signal } : {}),
         ...(progress
           ? {
-              signal: progress.controller.signal,
               stderr: progress.stderr,
               onProgress: (value) => progress.update(value.step, value.percent),
             }
@@ -179,25 +226,13 @@ export class WorkspaceCreations {
       this.journal.head(id, head);
       resource.cleanup_head = head;
       resource.uncertain = 0;
-      // PR contents are untrusted. Preparation never executes repository-defined setup.
-      const scripts =
-        requested.kind === "pull-request"
-          ? []
-          : (await listScripts(path)).filter((script) => script.name === "setup");
-      for (const script of scripts) {
-        progress?.controller.signal.throwIfAborted();
-        progress?.update("setup");
+      await setup?.(path, signal, progress, () => {
         ranSetup = true;
         this.journal.setup(id);
         resource.ran_setup = 1;
-        await this.git.setupWorktree({
-          worktree: path,
-          command: script.command,
-          ...(progress ? { stderr: progress.stderr, signal: progress.controller.signal } : {}),
-        });
-      }
+      });
       await preparedPr?.verify(path);
-      progress?.controller.signal.throwIfAborted();
+      signal?.throwIfAborted();
     } catch (error) {
       if (
         error instanceof GitError &&
@@ -245,6 +280,25 @@ export class WorkspaceCreations {
     }
     progress?.update("done");
     return lease;
+  }
+  private async setupScripts(
+    path: string,
+    signal: AbortSignal | undefined,
+    progress: CreationProgress | undefined,
+    started: () => void,
+  ): Promise<void> {
+    const scripts = (await listScripts(path)).filter((script) => script.name === "setup");
+    for (const script of scripts) {
+      signal?.throwIfAborted();
+      progress?.update("setup");
+      started();
+      await this.git.setupWorktree({
+        worktree: path,
+        command: script.command,
+        ...(signal ? { signal } : {}),
+        ...(progress ? { stderr: progress.stderr } : {}),
+      });
+    }
   }
   private cleanup(resource: CreationResource, options: { force?: boolean } = {}): Promise<void> {
     const existing = this.cleanups.get(resource.id);

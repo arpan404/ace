@@ -30,9 +30,7 @@ export class CreationWorkspaceJournal {
     )`),
     );
     store.atomic((db) =>
-      db.exec(`CREATE TABLE IF NOT EXISTS workspace_non_executing_roots (
-      path TEXT PRIMARY KEY
-    )`),
+      db.exec("CREATE TABLE IF NOT EXISTS workspace_non_executing_roots(path TEXT PRIMARY KEY)"),
     );
     const columns = store.atomic((db) =>
       db.prepare("PRAGMA table_info(workspace_creation_resources)").all(),
@@ -58,7 +56,7 @@ export class CreationWorkspaceJournal {
   protectedRoots(): string[] {
     return this.store
       .atomic((db) => db.prepare("SELECT path FROM workspace_non_executing_roots").all())
-      .map((row) => z.string().min(1).max(4096).parse(row.path));
+      .map((row) => Resource.shape.path.parse(row.path));
   }
   remember(path: string): void {
     const root = Resource.shape.path.parse(path);

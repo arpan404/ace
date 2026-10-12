@@ -1,4 +1,6 @@
 import { SourceControlContext } from "./source-control-draft.ts";
+import { ForgeMergeState } from "./forge-merge-state.ts";
+import { ForgeStackExpected } from "./forge-stacks.ts";
 import { z } from "zod";
 
 const text = z.string().max(65_536);
@@ -55,6 +57,7 @@ export const ForgeComment = z.object({
   id: z.number().int().positive(),
   body: text,
   author: text,
+  authorAvatarUrl: text.optional(),
   file: text.nullable(),
   line: z.number().int().nullable(),
   updatedAt: z.string(),
@@ -82,6 +85,7 @@ export const ForgePrStatus = z.object({
   checks: z.array(ForgeCheck).max(2_000),
   comments: z.array(ForgeComment).max(2_000),
   reviewThreads: z.array(ForgeReviewThread).max(2_000),
+  mergeState: ForgeMergeState.optional(),
   raw: z.unknown(),
 });
 export type ForgePrStatus = z.infer<typeof ForgePrStatus>;
@@ -124,6 +128,20 @@ export const ForgeCreatePrInput = z.object({
 });
 export type ForgeCreatePrInput = z.infer<typeof ForgeCreatePrInput>;
 export const ForgeCommand = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("forge.pr.merge-state.change"),
+    link: ForgeThreadLink,
+    headSha: z.string().regex(/^[a-fA-F0-9]{40,64}$/),
+    action: z.enum(["enable", "disable", "dequeue"]),
+    method: z.enum(["merge", "squash", "rebase"]),
+  }),
+  z.object({
+    type: z.literal("forge.pr.stack.change"),
+    link: ForgeThreadLink,
+    expected: ForgeStackExpected,
+    action: z.enum(["merge", "rebase", "continue", "abort", "push"]),
+    method: z.enum(["merge", "squash", "rebase"]),
+  }),
   z.object({ type: z.literal("forge.pr.status"), link: ForgeThreadLink }),
   z.object({
     type: z.literal("forge.pr.create"),

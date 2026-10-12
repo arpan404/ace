@@ -30,11 +30,11 @@ test("a protected partial-clone checkout never launches a promisor SSH command f
   await rm(join(repo, ".git", "objects", blob.slice(0, 2), blob.slice(2)));
   const service = new GitService({
     processRuntime: {
-      spawn(command, args, options) {
+      spawn(executable, args, options) {
         // Exercise the backstop on Git versions which ignore GIT_NO_LAZY_FETCH.
         const env = { ...options.env };
         delete env.GIT_NO_LAZY_FETCH;
-        return spawnGitProcess(command, args, { ...options, env });
+        return spawnGitProcess(executable, args, { ...options, env });
       },
     },
   });

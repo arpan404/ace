@@ -1,5 +1,11 @@
 import { facts, workbench, type Scenario } from "@ace/fake-daemon";
-import { ForgePrStatus, ThreadId, type CommandPayload } from "@ace/protocol";
+import {
+  ForgePrStatus,
+  ForgeMergeState,
+  ThreadId,
+  WorkspaceId,
+  type CommandPayload,
+} from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
@@ -59,6 +65,22 @@ const check = (name: string, status: "success" | "failure" | "pending") => ({
   jobId: null,
   url: `https://github.com/acme/api/actions/runs/${name.length}`,
 });
+const mergeState = (patch: Partial<ForgeMergeState> = {}) =>
+  ForgeMergeState.parse({
+    headSha: "c".repeat(40),
+    state: "OPEN",
+    mergeState: "BLOCKED",
+    reviewDecision: "REVIEW_REQUIRED",
+    checksState: "SUCCESS",
+    autoMerge: null,
+    queue: null,
+    canEnable: false,
+    canDisable: false,
+    canDequeue: false,
+    blockers: ["Required reviews are outstanding."],
+    raw: {},
+    ...patch,
+  });
 const pr = (patch: Partial<ForgePrStatus> = {}) =>
   ForgePrStatus.parse({
     ref: { repository, number: 42 },
@@ -71,6 +93,7 @@ const pr = (patch: Partial<ForgePrStatus> = {}) =>
     checks: [check("lint", "success"), check("test", "success")],
     comments: [],
     reviewThreads: [],
+    mergeState: mergeState(),
     raw: {},
     ...patch,
   });
@@ -79,7 +102,18 @@ const pr = (patch: Partial<ForgePrStatus> = {}) =>
 async function withPr(status: ForgePrStatus | undefined, details: Partial<Details> = {}) {
   const app = harness();
   app.play(idle("thread-pr", { ...checkout, ...details })).runUntilBlocked();
-  if (status) app.daemon.seedServices({ pullRequests: { "thread-pr": status } });
+  if (status) {
+    app.daemon.seedServices({ pullRequests: { "thread-pr": status } });
+    app.daemon.workspace.setForgeRead(
+      {
+        op: "forge.pr.stack-memberships",
+        workspaceId: WorkspaceId.parse("api"),
+        repository: status.ref.repository,
+        numbers: [status.ref.number],
+      },
+      { resource: "prStackMemberships", value: [{ number: status.ref.number, stack: null }] },
+    );
+  }
   await app.open("/t/thread-pr");
   await screen.findByRole("feed", { name: "Transcript" });
   return app;
@@ -99,7 +133,16 @@ async function openPr(number = 42) {
   await userEvent.click(
     await within(prs).findByRole("button", { name: new RegExp(`^Pull request #${number}`) }),
   );
-  return screen.findByRole("region", { name: `Pull request #${number}` });
+  const popover = await screen.findByRole("region", { name: `Pull request #${number}` });
+  // Wait for the host membership read before inspecting independent-PR action availability.
+  await waitFor(() =>
+    expect(
+      within(popover)
+        .queryByRole("button", { name: "Squash and merge" })
+        ?.getAttribute("aria-description"),
+    ).not.toBe("Open the full PR workspace to inspect native stack merge rules."),
+  );
+  return popover;
 }
 
 async function linkField(card: HTMLElement) {
@@ -152,9 +195,10 @@ test("a conflicting PR can't merge or auto-merge, and names the base it conflict
   expect(within(popover).getByText("1 unresolved review thread")).toBeTruthy();
   const merge = within(popover).getByRole("button", { name: "Squash and merge" });
   expect(merge.getAttribute("aria-description")).toBe("Resolve the conflicts with main first");
-  await userEvent.click(within(popover).getByRole("button", { name: "Merge options" }));
-  const auto = await screen.findByRole("menuitem", { name: /Auto-merge when checks pass/ });
-  expect(auto.getAttribute("aria-disabled")).toBe("true");
+  const auto = await within(popover).findByRole<HTMLButtonElement>("button", {
+    name: "Enable auto-merge",
+  });
+  expect(auto.disabled).toBe(true);
 });
 
 test("a passing PR merges with the method picked, and the thread's PR reads merged", async () => {
@@ -171,34 +215,43 @@ test("a passing PR merges with the method picked, and the thread's PR reads merg
   await waitFor(() => expect(linked(app)).toMatchObject({ number: 42, state: "merged" }));
 });
 
-test("auto-merge waits for running checks, then the PR merges once they pass", async () => {
-  const app = await withPr(
-    pr({ ci: "pending", checks: [check("lint", "success"), check("test", "pending")] }),
-  );
+test("linked thread controls enable auto-merge with green CI and outstanding reviews when GitHub permits it", async () => {
+  const app = await withPr(pr({ mergeState: mergeState({ canEnable: true }) }));
   const popover = await openPr();
-  expect(await within(popover).findByText("Checks running · 1 of 2 done")).toBeTruthy();
-  await userEvent.click(within(popover).getByRole("button", { name: "Merge options" }));
-  await userEvent.click(
-    await screen.findByRole("menuitem", { name: /Auto-merge when checks pass/ }),
-  );
-  await userEvent.click(
-    within(await screen.findByRole("dialog", { name: "Enable auto-merge PR #42?" })).getByRole(
-      "button",
-      { name: "Enable auto-merge" },
-    ),
-  );
-  expect(
-    await screen.findByText("Auto-merge on: #42 will squash and merge once checks pass"),
-  ).toBeTruthy();
+  expect(await within(popover).findByText("2 checks passed")).toBeTruthy();
+  const auto = await within(popover).findByRole<HTMLButtonElement>("button", {
+    name: "Enable auto-merge",
+  });
+  await waitFor(() => expect(auto.disabled).toBe(false));
+  expect(within(popover).getByText("Required reviews are outstanding.")).toBeTruthy();
+  await userEvent.click(auto);
+  expect(await within(popover).findByText(/Auto-merge enabled: squash by person/)).toBeTruthy();
   expect(linked(app)).toMatchObject({ state: "open" });
-
-  // The checks pass on the forge: GitHub merges it, and the card follows.
-  app.daemon.seedServices({ pullRequests: { "thread-pr": pr() } });
+  // The host reports merging only after all required rules are satisfied.
+  app.daemon.seedServices({
+    pullRequests: {
+      "thread-pr": pr({ state: "merged", mergeState: mergeState({ state: "MERGED" }) }),
+    },
+  });
   await waitFor(() => expect(linked(app)).toMatchObject({ state: "merged" }));
-  const card = screen.getByRole("complementary", { name: /^Work card/ });
+});
+
+test("linked thread controls show a classified host refusal and require a fresh read before another action", async () => {
+  const app = await withPr(pr({ mergeState: mergeState({ canEnable: true }) }));
+  const popover = await openPr();
+  const auto = await within(popover).findByRole<HTMLButtonElement>("button", {
+    name: "Enable auto-merge",
+  });
+  await waitFor(() => expect(auto.disabled).toBe(false));
+  app.daemon.refuseCommands("forge_forbidden", "forge.pr.merge-state.change");
+  await userEvent.click(auto);
   expect(
-    await within(card).findByRole("button", { name: /^Pull request #42.*, merged/ }),
+    await within(popover).findByText(/This account cannot access the repository/),
   ).toBeTruthy();
+  expect(auto.disabled).toBe(true);
+  app.daemon.restoreRequests();
+  await userEvent.click(within(popover).getByRole("button", { name: "Refresh merge state" }));
+  await waitFor(() => expect(auto.disabled).toBe(false));
 });
 
 test("Request review asks the GitHub users typed, and refuses a name that can't be one", async () => {
@@ -549,4 +602,36 @@ test("an inline merge confirms the selected repository and leaves another linked
     ]),
   );
   expect(await screen.findByText("Merged #283")).toBeTruthy();
+});
+
+test("a host-confirmed native layer is grouped in linked controls and sends merge actions to the full workspace", async () => {
+  const app = await withPr(pr({ mergeState: mergeState({ canEnable: true }) }));
+  app.daemon.workspace.setForgeRead(
+    {
+      op: "forge.pr.stack-memberships",
+      workspaceId: WorkspaceId.parse("api"),
+      repository,
+      numbers: [42],
+    },
+    {
+      resource: "prStackMemberships",
+      value: [
+        { number: 42, stack: { id: "STACK_9", number: 9, trunk: "main", size: 3, position: 2 } },
+      ],
+    },
+  );
+  const card = await openCard();
+  expect(await within(card).findByRole("button", { name: "#42 · layer 2" })).toBeTruthy();
+  await userEvent.click(within(card).getByRole("button", { name: /^Pull request #42/ }));
+  const popover = await screen.findByRole("region", { name: "Pull request #42" });
+  const merge = await within(popover).findByRole("button", { name: "Squash and merge" });
+  expect(merge.getAttribute("aria-disabled")).toBe("true");
+  expect(merge.getAttribute("aria-description")).toBe(
+    "Open the full PR workspace to inspect native stack merge rules.",
+  );
+  await within(popover).findByText("Required reviews are outstanding.");
+  const auto = await within(popover).findByRole<HTMLButtonElement>("button", {
+    name: "Enable auto-merge",
+  });
+  expect(auto.disabled).toBe(true);
 });

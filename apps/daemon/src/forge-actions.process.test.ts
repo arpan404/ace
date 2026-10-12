@@ -1,3 +1,4 @@
+import { createCommandRunner, type CommandRunner, type CommandRequest } from "@ace/forge";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, rm, rename } from "node:fs/promises";
@@ -8,6 +9,7 @@ import { z } from "zod";
 import { Command, Thread, type CommandPayload } from "@ace/protocol";
 import {
   fakeGh,
+  mergeStateResponse,
   standard,
   pr,
   repository,
@@ -16,6 +18,7 @@ import {
   threads,
   type Fixtures,
 } from "@ace/forge/testing";
+import { ForgeStore } from "@ace/forge";
 import { Store } from "./store.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 
@@ -39,6 +42,7 @@ const merged = { ...hosted, state: "closed", merged: true, merged_at: "2026-10-1
 function fixtures(): Fixtures {
   const value = standard();
   value[path] = [{ body: hosted }];
+  value["merge-state-read"] = [mergeStateResponse()];
   value.graphql = [
     {
       body: {
@@ -59,6 +63,7 @@ function fixtures(): Fixtures {
 async function environment(
   records: Fixtures,
   options: { timeoutMs?: number; maxBytes?: number } = {},
+  transform?: (request: CommandRequest, run: CommandRunner) => ReturnType<CommandRunner>,
 ) {
   const gh = await fakeGh(records, options);
   const root = await mkdtemp(join(tmpdir(), "ace-forge-actions-"));
@@ -77,9 +82,13 @@ async function environment(
     updatedAt: 1,
   });
   store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
+  store.atomic((db) => new ForgeStore(db).link(link));
   const create = () =>
     new WorkspaceRuntime(store, root, () => 1000, {
-      forgeRunner: () => (request) => gh.runner({ ...request, command: gh.executable }),
+      forgeRunner: () => (request) =>
+        transform
+          ? transform(request, (next) => gh.runner({ ...next, command: gh.executable }))
+          : gh.runner({ ...request, command: gh.executable }),
     });
   let runtime = create();
   return {
@@ -116,7 +125,7 @@ async function environment(
 async function writes(gh: Awaited<ReturnType<typeof fakeGh>>) {
   return (await gh.requests()).filter(
     (request) =>
-      (request.path !== "graphql" ||
+      ((request.path !== "graphql" && request.path !== "merge-state-read") ||
         z
           .object({ query: z.string() })
           .safeParse(request.body)
@@ -265,11 +274,8 @@ test("an uncertain reply cannot be retried with another body or reconciled by an
   }
 });
 
-test("uncertain review requests and auto-merge intents are resolved by their hosted state without another write", async () => {
-  const actions: CommandPayload[] = [
-    { type: "forge.review.request", link, reviewers: ["octo"] },
-    { type: "forge.pr.auto-merge", link, headSha: sha, method: "squash" },
-  ];
+test("uncertain review requests are resolved by their hosted state without another write", async () => {
+  const actions: CommandPayload[] = [{ type: "forge.review.request", link, reviewers: ["octo"] }];
   for (const action of actions) {
     const records = fixtures();
     const request =
@@ -365,14 +371,13 @@ for (const [type, message, error] of [
 ]) {
   test(`a definite auto-merge refusal (${message}) releases later actions after restart`, async () => {
     const records = fixtures();
-    records.graphql = [
+    records["merge-state-write"] = [
       {
         code: 1,
         body: { data: { enablePullRequestAutoMerge: null }, errors: [{ type, message }] },
       },
-      ...(records.graphql ?? []),
     ];
-    records[path] = [{ body: hosted }, { body: merged }];
+    records[path] = [{ body: merged }];
     records[mergePath] = [{ body: { merged: true } }];
     const app = await environment(records);
     try {
@@ -389,7 +394,7 @@ for (const [type, message, error] of [
       });
       expect(await writes(app.gh)).toEqual([
         expect.objectContaining({
-          path: "graphql",
+          path: "merge-state-write",
           body: expect.objectContaining({
             variables: {
               input: { pullRequestId: "PR_7", expectedHeadOid: sha, mergeMethod: "SQUASH" },
@@ -407,9 +412,8 @@ for (const [type, message, error] of [
 for (const failure of ["timeout", "output limit"] as const) {
   test(`auto-merge ${failure} after spawn remains fenced across restart`, async () => {
     const records = fixtures();
-    records.graphql = [
+    records["merge-state-write"] = [
       failure === "timeout" ? { wait: true } : { repeat: 16, text: "x".repeat(1024) },
-      ...(records.graphql ?? []),
     ];
     const app = await environment(
       records,
@@ -426,7 +430,7 @@ for (const failure of ["timeout", "output limit"] as const) {
       });
       expect(await writes(app.gh)).toEqual([
         expect.objectContaining({
-          path: "graphql",
+          path: "merge-state-write",
           body: expect.objectContaining({
             variables: {
               input: { pullRequestId: "PR_7", expectedHeadOid: sha, mergeMethod: "SQUASH" },
@@ -444,11 +448,34 @@ for (const action of [merge, { ...merge, type: "forge.pr.auto-merge" } as const]
   test(`a missing gh executable does not strand ${action.type} behind a permanent fence`, async () => {
     const records = fixtures();
     records[mergePath] = [{ body: { merged: true } }];
-    records.graphql = [
-      ...(records.graphql ?? []),
-      { body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
-      ...(records.graphql ?? []),
-    ];
+    if (action.type === "forge.pr.auto-merge") {
+      const source = {
+        id: "PR_7",
+        number: 7,
+        headRefOid: sha,
+        state: "OPEN",
+        isDraft: false,
+        mergeStateStatus: "BLOCKED",
+        reviewDecision: "REVIEW_REQUIRED",
+        statusCheckRollup: { state: "SUCCESS" },
+        mergeQueueEntry: null,
+        viewerCanEnableAutoMerge: true,
+        viewerCanDisableAutoMerge: true,
+      };
+      records["merge-state-read"] = [
+        null,
+        { mergeMethod: "SQUASH", enabledAt: "2026-10-11", enabledBy: { login: "octo" } },
+      ].map((autoMergeRequest) => ({
+        body: {
+          data: {
+            repository: { viewerPermission: "WRITE", pullRequest: { ...source, autoMergeRequest } },
+          },
+        },
+      }));
+      records["merge-state-write"] = [
+        { body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
+      ];
+    }
     records[path] = [{ body: hosted }, { body: merged }];
     const app = await environment(records);
     const backup = `${app.gh.executable}.saved`;
@@ -557,7 +584,8 @@ test("a pre-existing identical reply cannot reconcile a later reply whose acknow
 
 test("revoking permission during auto-merge metadata reads prevents mutation dispatch", async () => {
   const records = fixtures();
-  records[path] = [{ body: hosted, barrier: "auto-preflight" }, { body: merged }];
+  records["merge-state-read"] = [{ ...mergeStateResponse(), barrier: "auto-preflight" }];
+  records[path] = [{ body: merged }];
   records[mergePath] = [{ body: { merged: true } }];
   const app = await environment(records);
   let allowed = true;
@@ -567,7 +595,7 @@ test("revoking permission during auto-merge metadata reads prevents mutation dis
       { ...merge, type: "forge.pr.auto-merge" },
       () => allowed,
     );
-    await app.gh.waitForRequest(path);
+    await app.gh.waitForRequest("merge-state-read");
     allowed = false;
     await app.gh.release("auto-preflight");
     expect(await action).toMatchObject({ ok: false, error: "forge_forbidden" });
@@ -577,6 +605,48 @@ test("revoking permission during auto-merge metadata reads prevents mutation dis
       ok: true,
       prStatus: { state: "merged" },
     });
+  } finally {
+    await app.close();
+  }
+});
+
+test("a merge that cannot launch gh settles as failed and permits a new command after restart", async () => {
+  const records = fixtures();
+  records[mergePath] = [{ body: { merged: true } }];
+  records[path] = [{ body: merged }];
+  let missing = true;
+  const app = await environment(records, {}, (request, run) =>
+    missing && request.args[1] === mergePath
+      ? createCommandRunner({ cwd: "/" })({ ...request, command: "/ace-missing-gh" })
+      : run(request),
+  );
+  try {
+    expect(await app.command("not-dispatched")).toMatchObject({ ok: false, error: "forge_cli" });
+    await app.restart();
+    missing = false;
+    expect(await app.command("new-intent")).toMatchObject({
+      ok: true,
+      prStatus: { state: "merged" },
+    });
+    expect(await app.command("not-dispatched")).toMatchObject({ ok: false, error: "forge_cli" });
+  } finally {
+    await app.close();
+  }
+});
+
+test("an explicit merged-false acknowledgement releases the merge fence", async () => {
+  const records = fixtures();
+  records[mergePath] = [{ body: { merged: false } }, { body: { merged: true } }];
+  records[path] = [{ body: merged }];
+  const app = await environment(records);
+  try {
+    expect(await app.command("refused-ack")).toMatchObject({ ok: false, error: "forge_conflict" });
+    await app.restart();
+    expect(await app.command("explicit-retry")).toMatchObject({
+      ok: true,
+      prStatus: { state: "merged" },
+    });
+    expect(await app.command("refused-ack")).toMatchObject({ ok: false, error: "forge_conflict" });
   } finally {
     await app.close();
   }

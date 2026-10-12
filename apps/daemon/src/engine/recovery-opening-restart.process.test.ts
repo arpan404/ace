@@ -1,5 +1,5 @@
-import { CommandPayload } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
+import { CommandPayload } from "@ace/protocol";
 import {
   fixture,
   cleanupRecovery,

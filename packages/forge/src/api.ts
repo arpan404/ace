@@ -1,3 +1,4 @@
+import type { WriteDispatch } from "./write-dispatch.ts";
 import type {
   ForgeCreatePrInput,
   ForgePrRef,
@@ -28,6 +29,20 @@ export interface Forge {
     method: MergeMethod,
     signal: AbortSignal,
   ): Promise<void>;
+  prMergeState?(
+    number: number,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol/forge-merge-state").ForgeMergeState>;
+  /** Acknowledgement may omit host state; persist it before reading state again. */
+  changeMergeState?(
+    number: number,
+    headSha: string,
+    action: "enable" | "disable" | "dequeue",
+    method: MergeMethod,
+    signal: AbortSignal,
+    allowed?: () => boolean,
+    dispatch?: WriteDispatch,
+  ): Promise<import("@ace/protocol/forge-merge-state").ForgeMergeState | undefined>;
   logTail(jobId: number, signal: AbortSignal): Promise<{ text: string; truncated: boolean }>;
 }
 
