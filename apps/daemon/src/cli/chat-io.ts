@@ -16,6 +16,7 @@ export interface ChatIO {
   id(): string;
   delay(ms: number, signal: AbortSignal): Promise<void>;
   write(record: ChatRecord): Promise<void>;
+  onLine(listener: (line: string) => void): () => void;
   close(): void;
 }
 /** Readline and stdout are the only terminal-specific pieces of a chat session. */
@@ -52,6 +53,12 @@ export function chatIO(args: Args, signal: AbortSignal): ChatIO {
   return {
     input: { [Symbol.asyncIterator]: () => input },
     id: randomUUID,
+    onLine(listener) {
+      lines.on("line", listener);
+      return () => {
+        lines.off("line", listener);
+      };
+    },
     delay: (ms, cancellation) => delay(ms, undefined, { signal: cancellation }),
     async write(record) {
       if (machine) {

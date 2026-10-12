@@ -153,6 +153,9 @@ preview above the input prompt, then print the completed message. Terminal contr
 sequences in provider text are stripped. Piped human output streams text directly.
 `--json` and `--stream jsonl` emit one typed chat record per line, with admitted IDs
 and retry keys when an action becomes uncertain.
+Credential revocation stops chat input and returns uncertain with the latest
+thread and retry key. `/quit` also interrupts receipt observation immediately;
+an unacknowledged command remains in the durable outbox for a later retry.
 
 ## Server and remote profiles
 
@@ -186,6 +189,8 @@ cloud wrappers and local log files are local operations. Use a registered worksp
 id when starting work on a remote profile. Each connection exchanges its device
 token for a fresh ticket before pinned WSS hello. No provider credentials enter a
 profile or the SDK outbox.
+Temporary ticket transport failures, rate limits and server outages retry through
+the SDK. Rejected credentials and changed public-key pins remain fatal.
 
 ## Cloud, logs, browser and automations
 

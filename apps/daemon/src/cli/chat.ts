@@ -38,7 +38,8 @@ export async function chatCommand(
   let model = option(args, "model");
   let root: ThreadSubscription | undefined;
   let attention: { id: string; lease: ThreadSubscription } | undefined;
-  let lastMutation: unknown;
+  let lastMutation: { threadId: string | undefined; idempotencyKey: string } | undefined;
+  let admitting = false;
   let failure: unknown;
   let queuedBytes = 0;
   let output = Promise.resolve();
@@ -196,13 +197,41 @@ export async function chatCommand(
     }
   };
   let observing: Promise<void> | undefined;
+  const connection = session.client.connectionState();
+  const fatal = () => {
+    if (connection.getSnapshot() === "fatal" && !signal.aborted)
+      lifetime.abort(
+        new CliFailure(
+          "uncertain",
+          "Chat connection lost its authority; work admission is unconfirmed.",
+          lastMutation ?? { threadId },
+        ),
+      );
+  };
+  const stopConnection = connection.subscribe(fatal);
+  const stopInput = io.onLine((line) => {
+    if (admitting && line.trim() === "/quit")
+      lifetime.abort(
+        new CliFailure(
+          "uncertain",
+          "Detached before the command acknowledgement. Check the thread or retry with its key.",
+          lastMutation,
+        ),
+      );
+  });
   const mutate = async (payload: unknown) => {
     const id = io.id();
     lastMutation = { threadId, idempotencyKey: id };
-    const receipt = await command(session.client, payload, id, signal);
-    emit({ type: "receipt", receipt });
+    admitting = true;
+    try {
+      const receipt = await command(session.client, payload, id, signal);
+      emit({ type: "receipt", receipt });
+    } finally {
+      admitting = false;
+    }
   };
   try {
+    fatal();
     emit({ type: "ready" });
     if (threadId) await attach(ThreadId.parse(threadId));
     observing = observe();
@@ -239,6 +268,7 @@ export async function chatCommand(
             throw new CliFailure("refused", "Remote chat creation requires --project WORKSPACE_ID");
           const id = option(args, "idempotency-key") ? key(args) : io.id();
           lastMutation = { threadId: runThreadId(id), idempotencyKey: id };
+          admitting = true;
           const admission = await admitWork(
             {
               text: action.text,
@@ -252,6 +282,7 @@ export async function chatCommand(
             session.client,
             signal,
           );
+          admitting = false;
           threadId = admission.threadId;
           await attach(threadId, id);
           continue;
@@ -301,6 +332,7 @@ export async function chatCommand(
           });
         }
       } catch (error) {
+        admitting = false;
         const status =
           error instanceof CliFailure
             ? error.outcome
@@ -343,6 +375,8 @@ export async function chatCommand(
     if (failure) throw failure;
   } finally {
     lifetime.abort();
+    stopConnection();
+    stopInput();
     stopMessages();
     io.close();
     await observing;

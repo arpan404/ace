@@ -10,10 +10,12 @@ export async function daemonFixture(
     import("../services/options.ts").DaemonOptions,
     "accounts" | "workspaceActions" | "browser"
   > = {},
+  environment: NodeJS.ProcessEnv = {},
 ) {
   const h = setup();
   const daemon = await startDaemon({
     config: readConfig({
+      ...environment,
       ACE_HOME: join(h.home, "daemon"),
       ACE_PORT: "0",
       ACE_LOG_LEVEL: "silent",
