@@ -14,6 +14,7 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 import type { PendingQueued } from "./queued-pending.ts";
 import { QueuedAttachments } from "./queued-attachments.tsx";
 import { queuedText, type QueueControls } from "./use-queue.ts";
+import { useComposerCompact } from "./composer-compact.ts";
 
 const Edit = deferredComponent(() =>
   import("./queued-edit.tsx").then((module) => module.QueuedEdit),
@@ -46,6 +47,7 @@ export function QueuedTray(props: {
   indicators?: ReactNode;
 }) {
   const { queue } = props;
+  const compact = useComposerCompact();
   const [editing, setEditing] = useState<QueuedMessage>();
   const [announcement, announce] = useState("");
   const restoreFocus = useRef<{ id: string; handle: HTMLButtonElement } | undefined>(undefined);
@@ -246,7 +248,8 @@ export function QueuedTray(props: {
                       }}
                     >
                       <Icon icon={ArrowBendUpRightIcon} size={14} />
-                      Steer
+                      {/* A phone keeps the room for the message: the arrow alone, still named. */}
+                      <span className={compact ? "sr-only" : undefined}>Steer</span>
                     </Button>
                   )}
                   <IconButton
