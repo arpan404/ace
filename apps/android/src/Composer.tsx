@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect, useLayoutEffect } from "react";
+import { useMemo, useRef, useEffect, useLayoutEffect, useState } from "react";
 import { TextInput, View, Text, findNodeHandle } from "react-native";
 import type { ClientApi } from "@ace/client";
 import { ThreadId } from "@ace/protocol";
@@ -30,6 +30,7 @@ export function Composer({
     [],
   );
   const theme = useTheme();
+  const [inputHeight, setInputHeight] = useState<number>(tokens.dimensions.touchTarget);
   const model = useMemo(
     () =>
       new ComposerDraft((text) =>
@@ -74,6 +75,17 @@ export function Composer({
           if (tag !== null)
             void watchInput(tag).catch(() => notify("Input measurement is unavailable"));
         }}
+        onContentSizeChange={(event) =>
+          setInputHeight(
+            Math.max(
+              tokens.dimensions.touchTarget,
+              Math.min(
+                tokens.typography.typeScale.body.lineHeight * 6,
+                event.nativeEvent.contentSize.height,
+              ),
+            ),
+          )
+        }
         accessibilityLabel="Message"
         placeholder="Steer the agent…"
         placeholderTextColor={theme.colours.mutedForeground}
@@ -84,7 +96,8 @@ export function Composer({
           ...textStyle("body"),
           color: theme.colours.foreground,
           minHeight: tokens.dimensions.touchTarget,
-          maxHeight: 160,
+          height: inputHeight,
+          textAlignVertical: "top",
           padding: 0,
         }}
       />

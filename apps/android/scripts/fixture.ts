@@ -63,6 +63,16 @@ daemon.apply("stream-thread", [
 ]);
 let ticks = 0;
 const stream = setInterval(() => {
+  if (ticks > 0 && ticks % 50 === 0)
+    daemon.apply("stream-thread", [
+      facts.message(
+        "root",
+        "live",
+        "assistant",
+        "The streaming review is checking process ownership",
+        false,
+      ),
+    ]);
   daemon.apply("stream-thread", [
     facts.stream(
       "root",

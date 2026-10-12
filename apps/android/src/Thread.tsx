@@ -78,6 +78,10 @@ export function ThreadScreen({
     [lease],
   );
   const pendingSelection = useMemo(() => client.pendingSends(id), [client, id]);
+  const scopedError = useSelection(
+    useMemo(() => lease.store.select(["error"], (r) => r.error), [lease]),
+  );
+  const connection = useSelection(useMemo(() => client.connectionState(), [client]));
   const ids = useSelection(orderSelection);
   const thread = useSelection(threadSelection);
   const interactions = useSelection(interactionsSelection);
@@ -89,6 +93,7 @@ export function ThreadScreen({
     try {
       for (let page = 0; page < 10 && lease.store.itemsBefore !== null; page++)
         await client.loadOlder(id, 200);
+      console.info("AceSpikeHistory", JSON.stringify({ items: lease.store.order.length }));
       notify(`${lease.store.order.length} loaded entries`);
     } catch {
       notify("History could not be loaded");
@@ -106,7 +111,23 @@ export function ThreadScreen({
       <View style={{ paddingHorizontal: tokens.spacing.lg, paddingVertical: tokens.spacing.sm }}>
         <AceHost style={{ width: "100%" }}>
           <Row horizontalArrangement="spaceBetween">
-            {status ? <StatusPill {...status} /> : <AceText>Loading…</AceText>}
+            {status ? (
+              <StatusPill {...status} />
+            ) : (
+              <AceText>
+                {scopedError
+                  ? `Transcript unavailable (${scopedError.code})`
+                  : `Loading · ${connection}`}
+              </AceText>
+            )}
+            {__DEV__ ? (
+              <AceButton
+                label="Load 2,000"
+                enabled={!!thread}
+                onPress={() => void stressHistory()}
+                kind="secondary"
+              />
+            ) : null}
             <AceButton label="Agents" onPress={() => setAgents(true)} kind="secondary" />
           </Row>
         </AceHost>

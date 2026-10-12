@@ -20,7 +20,7 @@ export function AceHost({
   const scheme = useContext(ThemeContext);
   return (
     <Host
-      matchContents={{ vertical: true }}
+      matchContents={style ? { vertical: true } : true}
       style={style}
       colorScheme={scheme}
       seedColor={tokens.schemes[scheme].colours.accent}
