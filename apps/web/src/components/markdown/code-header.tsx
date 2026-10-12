@@ -48,7 +48,7 @@ export function CodeHeader(props: {
 }) {
   const Icon = props.diff ? GitDiffIcon : props.file ? FileCodeIcon : undefined;
   return (
-    <figcaption className="flex h-8 min-w-0 items-center gap-2 pr-1.5 pl-3 text-xs text-subtle-foreground shadow-[inset_0_-1px_0_color-mix(in_oklab,var(--border)_60%,transparent)]">
+    <figcaption className="flex h-8 min-w-0 items-center gap-2 pr-1.5 pl-3 text-xs text-subtle-foreground border-b border-border">
       {Icon && <Icon aria-hidden size={13} className="shrink-0" />}
       {props.file ? (
         <span

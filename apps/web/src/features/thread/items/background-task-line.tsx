@@ -12,7 +12,7 @@ export const DeferredBackgroundTask = deferredComponent(() =>
 /** A background task's one line; its height is held while its code loads. */
 export function BackgroundTaskLine(props: { threadId: string; itemId: string; taskId: string }) {
   return (
-    <Suspense fallback={<div aria-hidden className="h-8" />}>
+    <Suspense fallback={<div aria-hidden className="min-h-7" />}>
       <DeferredBackgroundTask.Component {...props} />
     </Suspense>
   );

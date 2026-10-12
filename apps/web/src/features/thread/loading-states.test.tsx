@@ -98,3 +98,20 @@ test("a reconnect that catches up promptly never flashes Syncing…", async () =
   expect(app.client.state).toBe("ready");
   expect(syncing.seen()).toBe(false);
 });
+
+test("while the connection is still coming back, Syncing… stays hidden: the connection notice speaks", async () => {
+  const app = harness({ throughWorker: true });
+  app.play(longHistory(6, threadId)).runUntilBlocked();
+  await app.open(`/t/${threadId}`);
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await within(feed).findByText(latest);
+  const syncing = watchFor("Syncing…");
+  watchers.push(syncing);
+  // The daemon refuses every connection: the thread is behind, but nothing is catching it up.
+  act(() => app.daemon.refuseConnections(true));
+  await act(() => new Promise((resolve) => setTimeout(resolve, 1_200)));
+  expect(app.client.state).not.toBe("ready");
+  expect(syncing.seen()).toBe(false);
+  expect(within(feed).getByText(latest)).toBeTruthy();
+  act(() => app.daemon.refuseConnections(false));
+});

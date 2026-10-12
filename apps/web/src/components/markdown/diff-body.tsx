@@ -7,11 +7,11 @@ import type { DiffText, DiffTextLine } from "@ace/ui-core";
  * are `<ins>` and `<del>` too, so assistive tech says which is which.
  */
 const tint: Record<DiffTextLine["kind"], string> = {
-  add: "bg-status-done/10 shadow-[inset_2px_0_0_var(--status-done)]",
-  del: "bg-status-failed/10 shadow-[inset_2px_0_0_var(--status-failed)]",
-  hunk: "bg-accent/60 text-muted-foreground",
-  meta: "text-subtle-foreground",
-  context: "",
+  add: "border-status-done bg-status-done/10",
+  del: "border-status-failed bg-status-failed/10",
+  hunk: "border-transparent bg-accent/60 text-muted-foreground",
+  meta: "border-transparent text-subtle-foreground",
+  context: "border-transparent",
 };
 
 // On a phone the tint and the +/− carry the diff; two number columns would take a quarter of it.
@@ -21,7 +21,7 @@ const gutter =
 function Row(props: { line: DiffTextLine; numbered: boolean }) {
   const { line } = props;
   return (
-    <div className={`flex min-h-[1.6em] ${tint[line.kind]}`}>
+    <div className={`flex min-h-[1.6em] border-l-2 ${tint[line.kind]}`}>
       {props.numbered && (
         <>
           <span aria-hidden className={gutter}>
