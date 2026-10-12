@@ -396,11 +396,16 @@ export class DelegationJournal {
     this.consume(thread);
   }
   usageOffset(thread: ThreadId): number {
-    return Number(this.sql("SELECT seq FROM delegation_usage_offsets WHERE thread_id=?").get(thread)?.seq ?? 0);
+    return Number(
+      this.sql("SELECT seq FROM delegation_usage_offsets WHERE thread_id=?").get(thread)?.seq ?? 0,
+    );
   }
   usageThreads(after: string) {
-    return this.sql("SELECT child_id AS thread_id,root_id FROM delegated_threads WHERE child_id>? ORDER BY child_id LIMIT 64")
-      .all(after).map(row => z.object({ thread_id: ThreadId, root_id: ThreadId }).parse(row));
+    return this.sql(
+      "SELECT child_id AS thread_id,root_id FROM delegated_threads WHERE child_id>? ORDER BY child_id LIMIT 64",
+    )
+      .all(after)
+      .map((row) => z.object({ thread_id: ThreadId, root_id: ThreadId }).parse(row));
   }
   /** Counters and the replay position share one commit, including incremental samples. */
   account(root: ThreadId, event: Event): void {
@@ -409,8 +414,9 @@ export class DelegationJournal {
       if (event.seq <= this.usageOffset(event.threadId)) return;
       this.started(event);
       this.usage(root, event);
-      this.sql("INSERT INTO delegation_usage_offsets VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET seq=excluded.seq")
-        .run(event.threadId, event.seq);
+      this.sql(
+        "INSERT INTO delegation_usage_offsets VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET seq=excluded.seq",
+      ).run(event.threadId, event.seq);
     });
   }
   started(event: Event) {
