@@ -181,6 +181,44 @@ test("a merge method picked from More git actions merges after confirmation", as
   await waitFor(() => expect(linked(app)).toMatchObject({ number: 42, state: "merged" }));
 });
 
+test("a merge cancelled at its confirmation leaves the default merge method as it was", async () => {
+  await withPr(pr());
+  await gitAction("Rebase and merge");
+  const picked = await screen.findByRole("dialog", { name: "Merge PR #42?" });
+  expect(picked.textContent).toContain("Use rebase to merge");
+  await userEvent.click(within(picked).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Merge PR #42?" })).toBeNull());
+  await merge();
+  const line = await screen.findByRole("dialog", { name: "Merge PR #42?" });
+  expect(line.textContent).toContain("Use squash to merge");
+});
+
+test("a merge the forge blocks leaves the default merge method as it was", async () => {
+  await withPr(pr({ ci: "failure", checks: [check("test", "failure")] }));
+  await gitAction("Rebase and merge");
+  expect(await screen.findByText("Fix the failing checks first")).toBeTruthy();
+  const card = await openWorkCard();
+  expect(
+    (await within(card).findByRole("button", { name: "Merge pull request #42" })).getAttribute(
+      "title",
+    ),
+  ).toBe("Squash and merge");
+});
+
+test("Request review from More git actions asks the GitHub users typed, and refuses a name that can't be one", async () => {
+  await withPr(pr());
+  await gitAction("Request review…");
+  const dialog = await screen.findByRole("dialog", { name: "Request a review" });
+  const field = within(dialog).getByRole("textbox", { name: "Reviewers" });
+  await userEvent.type(field, "mira, acme/core{Enter}");
+  expect((await within(dialog).findByRole("alert")).textContent).toBe(
+    "“acme/core” isn't a GitHub username",
+  );
+  await userEvent.clear(field);
+  await userEvent.type(field, "@mira sam{Enter}");
+  expect(await screen.findByText("Asked mira, sam to review")).toBeTruthy();
+});
+
 test("a draft PR can't merge from its line", async () => {
   await withPr(pr({ state: "draft" }));
   const card = await openWorkCard();

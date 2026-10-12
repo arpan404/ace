@@ -1,6 +1,6 @@
 import type { CheckoutPr } from "@ace/ui-core";
 import { mergeMethods, prOverview, type MergeMethod } from "@ace/ui-core";
-import { rememberMergeMethod, useMergeMethod } from "./merge-method.ts";
+import { useMergeMethod } from "./merge-method.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
@@ -82,7 +82,8 @@ export function PrLine(props: { git: GitFlow; workspaceId: string; onClose(): vo
 
 /**
  * Merging the thread's pull request with `method`: read the PR again, say why when it can't be
- * merged, else ask before merging, as every merge does. The method is remembered for next time.
+ * merged, else ask before merging, as every merge does. A merge that goes through makes its
+ * method the next one's default (`useGitFlow`); a blocked or cancelled one leaves it.
  */
 export function useMergePr(git: GitFlow): {
   merge(method: MergeMethod): Promise<void>;
@@ -95,7 +96,6 @@ export function useMergePr(git: GitFlow): {
   const base = git.checkout?.baseBranch ?? "main";
   const merge = async (method: MergeMethod) => {
     if (!pr || !repository || checking || git.pending) return;
-    rememberMergeMethod(method);
     setChecking(true);
     try {
       const status = await git.refreshPr({ repository, number: pr.number });

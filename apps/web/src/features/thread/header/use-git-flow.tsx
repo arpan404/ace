@@ -9,6 +9,7 @@ import type { ThreadRef } from "../sources/index.ts";
 import { gitFailureText } from "../lib/git-failure.ts";
 import type { GitDialogKind } from "./git-dialog.tsx";
 import { GitWriteConfirm } from "./git-write-confirm.tsx";
+import { rememberMergeMethod } from "./merge-method.ts";
 
 // Loaded on first open: the thread route's first paint doesn't need the commit or PR form.
 const GitDialog = lazy(() => import("./git-dialog.tsx").then((m) => ({ default: m.GitDialog })));
@@ -98,7 +99,10 @@ export function useGitFlow(thread: ThreadRef): {
   const toast = useToast();
   const workspace = useWorkspaceActions(thread.id);
   const submit = async (next: GitChange) => {
-    toast.add({ title: confirmation(next, await change(next)) });
+    const answered = await change(next);
+    // Only a merge that went through makes its method the next one's default.
+    if (next.kind === "merge") rememberMergeMethod(next.method);
+    toast.add({ title: confirmation(next, answered) });
   };
   const run = (next: GitChange) => {
     if (next.kind === "push") return setConfirm(next);
