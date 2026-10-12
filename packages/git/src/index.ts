@@ -1,3 +1,9 @@
+import {
+  inspectWorktreeCleanup,
+  cleanupWorktree,
+  type WorktreeCleanupInput,
+} from "./worktree-cleanup.ts";
+export type { WorktreeCleanupInput, WorktreeCleanupState } from "./worktree-cleanup.ts";
 import { writingContext } from "./writing-context.ts";
 import { SourceControlContext, type SourceControlSelection } from "@ace/protocol";
 import {
@@ -260,6 +266,13 @@ export class GitService {
   async listWorktrees(repo: string) {
     const root = await this.repository.root(repo);
     return this.repository.serial(root, () => this.repository.worktrees(root));
+  }
+
+  inspectWorktreeCleanup(repo: string, path: string) {
+    return inspectWorktreeCleanup(this.repository, repo, path);
+  }
+  cleanupWorktree(input: WorktreeCleanupInput) {
+    return cleanupWorktree(this.repository, input);
   }
 
   removeWorktree(options: { repo: string; path: string; force?: boolean }) {
