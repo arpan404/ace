@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from "vitest";
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import { createMemoryHistory } from "@tanstack/react-router";
 import userEvent from "@testing-library/user-event";
 import { ForgeIssueDetail, ForgeIssueSearch, WorkspaceId } from "@ace/protocol";
@@ -174,4 +174,30 @@ test("an unsent issue comment survives leaving and returning while another repos
   expect(
     (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Issue comment" })).value,
   ).toBe("Keep my unsent draft");
+});
+
+test("an issue task preparation keeps its source and text when reopened from the saved draft row", async () => {
+  const first = harness();
+  seed(first);
+  first.daemon.workspace.setForgeRead(
+    { op: "forge.issue.detail", workspaceId: WorkspaceId.parse("api"), repository, number: 42 },
+    { resource: "issueDetail", value: detail },
+  );
+  await first.open(`/new?project=api&issue=${encodeURIComponent(detail.url)}`);
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  await waitFor(() => expect(message.textContent).toContain("Original context"));
+  await userEvent.clear(message);
+  await userEvent.type(message, "Resume issue work");
+  await screen.findByRole("link", { name: /^Resume issue work\. Draft/ });
+  cleanup();
+  await first.client.close();
+  const second = harness({ daemon: first.daemon, storage: first.storage });
+  await second.open("/");
+  const resume = await screen.findByRole("link", { name: /^Resume issue work\. Draft/ });
+  expect(resume.getAttribute("href")).toContain("issue=");
+  await userEvent.click(resume);
+  expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
+    "Resume issue work",
+  );
+  expect(await screen.findByRole("button", { name: "Send" })).toBeTruthy();
 });

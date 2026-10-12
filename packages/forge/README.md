@@ -56,3 +56,9 @@ finds the marked issue/comment or confirms the requested edit/state. The recover
 at 1,000 records; absence never permits replaying a POST. Unsent editor content is stored per device,
 project, repository, issue and action. Issue links have their own indexed owner and never change PR
 associations. Thread admission records the source issue in the same transaction as creation.
+
+## Hosted reviews
+
+`GitHubForge.reviews` reads the logged-in viewer, review-thread permissions and GitHub file-viewed marks. It submits commit-bound reviews, replies and conversation comments, edits/deletes the viewer's own comments, and resolves/unresolves hosted threads through the bounded `gh` transport. Hosted inline anchors use `@ace/forge/review-anchor`; they never use a local Changes session.
+
+The daemon stores unsent drafts and a write journal independently of task associations. Accepted submissions remove only unchanged selected drafts. Transport failures retain drafts and a visible uncertain operation; reconciliation reads the original write marker or resulting host state without repeating the mutation. A changed head or a missing hosted diff coordinate refuses submission. Browser summary/composer text survives navigation in local storage.

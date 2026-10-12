@@ -470,3 +470,47 @@ test("one caller's waits cannot consume other callers' outcome slots", async () 
     result: "still running after wait cancellation",
   });
 });
+
+test("committed child usage missed by a stopped subscriber is recovered before follow-up admission after SQLite reopen", async () => {
+  const h = setup({ tokens: 100 });
+  const parent = await h.parent();
+  const child = h.delegate(parent, "crash-gap");
+  await h.engine.flush();
+  await h.complete(child.childId, "Saved result");
+  const agentId = h.caller(child.childId).agentId;
+  h.service.close();
+  h.store.appendEvents(child.childId, [
+    {
+      type: "usage.updated",
+      agentId,
+      inputTokens: 100,
+      outputTokens: 0,
+      counterMode: "incremental",
+      counterKey: "committed-before-crash",
+    },
+  ]);
+  await h.close();
+  const reopened = setup({ tokens: 100 }, h.dbPath);
+  expect(
+    reopened.service.message(
+      reopened.caller(parent.threadId),
+      "after-crash",
+      child.childId,
+      "More work",
+      "queue",
+    ).ok,
+  ).toBe(false);
+  await reopened.engine.flush();
+  expect(reopened.inputs.get(child.childId)).toBeUndefined();
+  // Recovery never charges the same incremental event twice on a second startup.
+  reopened.restartOwner();
+  expect(
+    reopened.service.message(
+      reopened.caller(parent.threadId),
+      "after-second-restart",
+      child.childId,
+      "More work",
+      "queue",
+    ).ok,
+  ).toBe(false);
+});

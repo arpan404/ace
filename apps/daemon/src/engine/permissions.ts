@@ -7,6 +7,8 @@ import {
 import {
   Command,
   PermissionMode,
+  PermissionPolicyIdentity,
+  AcpIdentity,
   type PermissionState,
   type ThreadId,
   type CommandResult,
@@ -24,11 +26,17 @@ import {
 import { z } from "zod";
 import type { EngineRepository } from "./repository.ts";
 import { permissionPaths, permissionShells, permissionCommands } from "./permission-paths.ts";
+import { permissionWithinCeiling, inheritedPermissionMode } from "./permission-ceiling.ts";
 
 const Record = z.object({
   override: PermissionMode.nullable(),
   effective: PermissionMode.nullable(),
   parent: z.string().nullable(),
+  ceiling_provider: z
+    .enum(["claude", "codex", "opencode", "cursor", "pi", "acp", "antigravity"])
+    .nullable(),
+  ceiling_mode: PermissionMode.nullable(),
+  ceiling_identity: z.string().nullable(),
 });
 type Record = z.infer<typeof Record>;
 export type PermissionSettings = (id: ThreadId) => Promise<PermissionMode | null>;
@@ -56,6 +64,17 @@ export class Permissions {
         CREATE TABLE engine_permissions(thread_id TEXT PRIMARY KEY, override TEXT, effective TEXT, parent TEXT);
         INSERT INTO engine_permissions SELECT * FROM engine_permissions_legacy;
         DROP TABLE engine_permissions_legacy;`);
+      if (!columns.some((column) => column.name === "ceiling_provider")) {
+        db.exec(
+          "ALTER TABLE engine_permissions ADD COLUMN ceiling_provider TEXT; ALTER TABLE engine_permissions ADD COLUMN ceiling_mode TEXT;",
+        );
+        db.exec(`UPDATE engine_permissions SET
+          ceiling_provider=(SELECT provider FROM threads WHERE id=parent),
+          ceiling_mode=(SELECT effective FROM engine_permissions p WHERE p.thread_id=engine_permissions.parent)
+          WHERE parent IS NOT NULL;`);
+      }
+      if (!columns.some((column) => column.name === "ceiling_identity"))
+        db.exec("ALTER TABLE engine_permissions ADD COLUMN ceiling_identity TEXT");
       for (const value of db.prepare("SELECT thread_id FROM engine_permissions").iterate()) {
         const row = z.object({ thread_id: z.string() }).parse(value);
         const id = importThreadId.parse(row.thread_id);
@@ -111,10 +130,21 @@ export class Permissions {
   private read(id: ThreadId): Record {
     const row = this.repo.store.atomic((db) =>
       db
-        .prepare("SELECT override,effective,parent FROM engine_permissions WHERE thread_id=?")
+        .prepare(
+          "SELECT override,effective,parent,ceiling_provider,ceiling_mode,ceiling_identity FROM engine_permissions WHERE thread_id=?",
+        )
         .get(id),
     );
-    const record = row ? Record.parse(row) : { override: null, effective: null, parent: null };
+    const record = row
+      ? Record.parse(row)
+      : {
+          override: null,
+          effective: null,
+          parent: null,
+          ceiling_provider: null,
+          ceiling_mode: null,
+          ceiling_identity: null,
+        };
     const provider =
       this.repo.store.getThread(id)?.provider ?? this.repo.state(id)?.config.provider;
     if (!provider) return record;
@@ -141,7 +171,9 @@ export class Permissions {
       : (override ?? null);
     this.repo.store.atomic((db) =>
       db
-        .prepare("INSERT OR IGNORE INTO engine_permissions VALUES (?,?,?,NULL)")
+        .prepare(
+          "INSERT OR IGNORE INTO engine_permissions(thread_id,override,effective,parent) VALUES (?,?,?,NULL)",
+        )
         .run(id, native, native),
     );
     return this.state(id);
@@ -164,9 +196,80 @@ export class Permissions {
   parent(child: ThreadId, parent: ThreadId, _at: number): void {
     if (child === parent) throw new Error("Permission ancestry cycle");
     this.ensure(child);
-    this.repo.store.atomic((db) =>
-      db.prepare("UPDATE engine_permissions SET parent=? WHERE thread_id=?").run(parent, child),
-    );
+    const provider = this.repo.store.getThread(parent)?.provider;
+    if (!provider) throw new Error("permission_parent_not_found");
+    const mode = this.effective(parent);
+    const identity = this.identity(parent, provider);
+    this.repo.store.atomic((db) => {
+      const existing = this.read(child);
+      if (existing.parent && existing.parent !== parent)
+        throw new Error("Permission owner conflict");
+      if (!existing.parent)
+        db.prepare(
+          "UPDATE engine_permissions SET parent=?,ceiling_provider=?,ceiling_mode=?,ceiling_identity=? WHERE thread_id=?",
+        ).run(parent, provider, mode, JSON.stringify(identity), child);
+    });
+  }
+  private contained(
+    id: ThreadId,
+    provider: import("@ace/protocol").ProviderKind,
+    selected: PermissionMode | null,
+    depth = 0,
+  ): PermissionMode | null {
+    const record = this.read(id);
+    if (!record.parent) return selected;
+    if (depth >= 64) throw new Error("Permission ancestry exceeds capacity");
+    const identity = this.identity(id, provider);
+    const mode = this.narrow(importThreadId.parse(record.parent), identity, selected, depth + 1);
+    if (
+      !record.ceiling_identity ||
+      !permissionWithinCeiling(
+        {
+          ...PermissionPolicyIdentity.parse(JSON.parse(record.ceiling_identity)),
+          mode: record.ceiling_mode,
+        },
+        { ...identity, mode },
+      )
+    )
+      throw new Error("permission_ceiling_unverifiable");
+    return mode;
+  }
+  private identity(
+    id: ThreadId,
+    provider: import("@ace/protocol").ProviderKind,
+  ): PermissionPolicyIdentity {
+    const thread = this.repo.store.getThread(id);
+    if (!thread) throw new Error("permission_thread_not_found");
+    return PermissionPolicyIdentity.parse({
+      provider,
+      backend: this.repo.backend(id),
+      ...(provider === "acp"
+        ? {
+            ...AcpIdentity.parse(thread),
+            instanceId: this.repo.session(id).instanceId ?? thread.instanceId,
+          }
+        : {
+            instanceId: this.repo.session(id).instanceId ?? `${provider}-cli-default`,
+          }),
+    });
+  }
+  /** Shared by spawn, native session resolution and policy changes. */
+  narrow(
+    parentId: ThreadId,
+    identity: PermissionPolicyIdentity,
+    requested?: PermissionMode | null,
+    depth = 0,
+  ): PermissionMode | null {
+    const parent = this.repo.store.getThread(parentId);
+    if (!parent) throw new Error("permission_parent_not_found");
+    const ceiling = {
+      ...this.identity(parentId, parent.provider),
+      mode: this.contained(parentId, parent.provider, this.effective(parentId), depth),
+    };
+    const mode = requested === undefined ? inheritedPermissionMode(ceiling, identity) : requested;
+    if (!permissionWithinCeiling(ceiling, { ...identity, mode }))
+      throw new Error("permission_ceiling_unverifiable");
+    return mode;
   }
   set(
     id: ThreadId,
@@ -181,6 +284,14 @@ export class Permissions {
     );
     if (mode && !supportsPermissionMode(capabilities.permissions, mode))
       return "permission_mode_unsupported";
+    const parent = this.read(id).parent;
+    if (parent) {
+      try {
+        mode = this.contained(id, this.repo.requireState(id).config.provider, mode);
+      } catch {
+        return "permission_ceiling_unverifiable";
+      }
+    }
     this.ensure(id);
     this.repo.store.atomic((db) =>
       db.prepare("UPDATE engine_permissions SET override=? WHERE thread_id=?").run(mode, id),
@@ -248,9 +359,11 @@ export class Permissions {
       this.repo.store.atomic((db) =>
         db.prepare("UPDATE engine_permissions SET override=NULL WHERE thread_id=?").run(id),
       );
-    return selected;
+    return this.contained(id, provider, selected);
   }
   applied(id: ThreadId, mode: PermissionMode | null, at: number): void {
+    const provider = this.repo.requireState(id).config.provider;
+    mode = this.contained(id, provider, mode);
     this.ensure(id);
     this.repo.store.atomic(() => {
       this.repo.store.atomic((db) =>
@@ -262,6 +375,9 @@ export class Permissions {
         at,
       );
     });
+  }
+  validateIdentity(id: ThreadId, mode: PermissionMode | null): void {
+    this.contained(id, this.repo.requireState(id).config.provider, mode);
   }
   observe(state: ThreadState, events: EventPayload[], at: number, wake: () => void): void {
     const notices: Fact[] = [];

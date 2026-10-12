@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeHostedReviewCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "$ref": "https://ace.local/protocol/v1/ForgeReviewAction.json"
+    },
+    "pr": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+    },
+    "type": {
+      "const": "forge.hosted.review",
+      "type": "string"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "type",
+    "workspaceId",
+    "pr",
+    "action"
+  ],
+  "type": "object"
+}

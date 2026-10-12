@@ -21,6 +21,8 @@ export function actionErrorCode(error: unknown): string {
       "draft_guard_unavailable",
       "repository_mismatch",
       "issue_reconciliation_required",
+      "action_outcome_uncertain",
+      "forge_write_pending",
       "workspace_not_found",
       "pr_link_changed",
       "forge_recovery_unavailable",

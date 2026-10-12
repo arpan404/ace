@@ -85,6 +85,22 @@
     },
     {
       "properties": {
+        "resource": {
+          "const": "prReviewState",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeReviewState.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "events": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/ForgeActivity.json"

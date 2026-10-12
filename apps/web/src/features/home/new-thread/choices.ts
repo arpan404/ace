@@ -111,3 +111,29 @@ export function pickProject(
     if (candidate && projects.includes(candidate)) return candidate;
   return requested ?? projects[0];
 }
+
+/** Fill only settings that were unresolved when a preparation was first saved. */
+export function completePreparationChoices(saved: Choices, resolved: Resolved): Choices {
+  return {
+    ...saved,
+    model: resolved.upgradedModel ?? saved.model ?? resolved.model?.key,
+    account: saved.account ?? resolved.account?.id,
+    effort: saved.effort ?? resolved.effort,
+    fast: saved.fast ?? (resolved.model ? resolved.fast : undefined),
+    mode: saved.mode ?? resolved.mode,
+  };
+}
+
+/** Before discovery, last-used global choices are hints. Pin the settings actually shown. */
+export function shownPreparationChoices(saved: Choices, resolved: Resolved): Choices {
+  return completePreparationChoices(
+    {
+      ...saved,
+      model: resolved.model?.key ?? saved.model,
+      account: resolved.account?.id ?? saved.account,
+      effort: resolved.effort ?? saved.effort,
+      fast: resolved.model ? resolved.fast : saved.fast,
+    },
+    resolved,
+  );
+}

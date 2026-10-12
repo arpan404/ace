@@ -11,6 +11,7 @@ import { OpenFolderScreen } from "@/features/projects/index.ts";
  */
 const NewThreadSearch = z.object({
   issue: z.catch(z.optional(z.string().check(z.maxLength(4096))), undefined),
+  discard: z.catch(z.optional(z.number().check(z.int(), z.minimum(0))), undefined),
   skill: z.catch(
     z.optional(z.string().check(z.maxLength(64), z.regex(/^[a-z0-9][a-z0-9.-]*$/))),
     undefined,
@@ -36,7 +37,7 @@ function NewThreadRoute() {
   if (search.folder) return <OpenFolderScreen key={search.folder} folder={search.folder} />;
   return (
     <NewThreadPage
-      key={`${search.project ?? ""}:${search.base ?? ""}:${search.skill ?? ""}:${search.issue ?? ""}`}
+      key={`${search.project ?? ""}:${search.base ?? ""}:${search.skill ?? ""}:${search.issue ?? ""}:${search.discard ?? ""}`}
       project={search.project}
       base={search.base}
       skill={search.skill}

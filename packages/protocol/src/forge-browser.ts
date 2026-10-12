@@ -1,4 +1,5 @@
 import { ForgeIssueOperations, ForgeIssueResults } from "./forge-issues.ts";
+import { ForgeReviewState } from "./forge-review.ts";
 import { z } from "zod";
 import { ForgePrRef, ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { WorkspaceId, ThreadId } from "./ids.ts";
@@ -110,6 +111,11 @@ const scope = { workspaceId: WorkspaceId, repository: ForgeRepository.optional()
 export const ForgeBrowserOperations = [
   ...ForgeIssueOperations,
   z.object({
+    op: z.literal("forge.pr.review-state"),
+    ...scope,
+    number: z.number().int().positive(),
+  }),
+  z.object({
     op: z.literal("forge.pr.activity"),
     ...scope,
     number: z.number().int().positive(),
@@ -136,6 +142,7 @@ export const ForgeBrowserOperations = [
 ] as const;
 export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   ...ForgeIssueResults,
+  z.object({ resource: z.literal("prReviewState"), value: ForgeReviewState }),
   z.object({
     resource: z.literal("prActivity"),
     events: z.array(ForgeActivity).max(25),

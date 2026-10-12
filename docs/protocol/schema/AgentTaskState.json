@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentTaskState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "working",
+    "waiting_on_human",
+    "waiting_on_children",
+    "result_available",
+    "failed",
+    "cancelled"
+  ],
+  "type": "string"
+}

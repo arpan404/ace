@@ -118,8 +118,11 @@ export class WorkspaceRuntime {
     await this.git.assertMutationAvailable(root);
     return root;
   }
-  prepareCreation(command: Command, progress?: CreationProgress) {
-    return this.roots.prepareCreation(command, progress);
+  prepareAgentCreation(command: Command, signal: AbortSignal) {
+    return this.roots.prepareAgentCreation(command, signal);
+  }
+  prepareCreation(command: Command, progress?: CreationProgress, signal?: AbortSignal) {
+    return this.roots.prepareCreation(command, progress, signal);
   }
   localCreation(command: Command) {
     return this.roots.localCreation(command);
@@ -208,6 +211,7 @@ export class WorkspaceRuntime {
       op.op === "forge.issue.detail" ||
       op.op === "forge.issue.timeline" ||
       op.op === "forge.issue.actions" ||
+      op.op === "forge.pr.review-state" ||
       op.op === "forge.pr.activity" ||
       op.op === "forge.pr.list" ||
       op.op === "forge.pr.detail" ||
@@ -351,6 +355,11 @@ export class WorkspaceRuntime {
         const cwd = this.store.getWorkspacePath(p.workspaceId);
         if (!cwd) return commandNotDispatched(command, "workspace_not_found");
         return this.forge.issueCommand(command, cwd, allowed);
+      }
+      if (p.type === "forge.hosted.review") {
+        const cwd = this.store.getWorkspacePath(p.workspaceId);
+        if (!cwd) return { ok: false, error: "workspace_not_found" };
+        return this.forge.hostedReview({ ...command, payload: p }, cwd, allowed);
       }
       const id = "threadId" in p ? p.threadId : "link" in p ? p.link.threadId : undefined;
       if (!id) throw new Error("invalid_command");
