@@ -8,6 +8,8 @@ const cases = [
   String.raw`before \" {":token\"":"OPAQUE_CREDENTIAL"} after`,
   'before "note": " {"token":"OPAQUE_CREDENTIAL"} after',
   String.raw`before "note": " {"api\u005fkey":"OPAQUE_CREDENTIAL"} after`,
+  String.raw`before \"token":"OPAQUE_CREDENTIAL" after`,
+  String.raw`before "token\": "OPAQUE_CREDENTIAL" after`,
 ];
 
 it.each(cases)("ambiguous prose cannot hide a sensitive assignment: %s", (input) => {
@@ -20,6 +22,25 @@ it.each(cases)("ambiguous prose cannot hide a sensitive assignment: %s", (input)
     const prefix = "A".repeat(4080) + " ";
     expect([...createStreamingRedactor({})(prefix + evidence)].join("")).toBe(prefix + expected);
   }
+});
+
+it.each([
+  String.raw`before \"token":"OPAQUE_CREDENTIAL" after`,
+  String.raw`before "token\": "OPAQUE_CREDENTIAL" after`,
+])("mixed key delimiters stay scrubbed when a streaming boundary splits the key: %s", (input) => {
+  const prefix = "A".repeat(4096 - input.indexOf("token") - 2);
+  const expected = prefix + input.replace("OPAQUE_CREDENTIAL", "<SECRET>");
+  expect([...createStreamingRedactor({})(prefix + input)].join("")).toBe(expected);
+  expect(createTextRedactor({})(prefix + input)).toBe(expected);
+  expect(createDiagnosticRedactor({})(prefix + input)).not.toContain("OPAQUE_CREDENTIAL");
+});
+
+it.each([
+  String.raw`before \"note":"ordinary" after`,
+  String.raw`before "note\": "ordinary" after`,
+])("mixed prose delimiters preserve an ordinary value: %s", (input) => {
+  expect(createTextRedactor({})(input)).toBe(input);
+  expect([...createStreamingRedactor({})(input)].join("")).toBe(input);
 });
 
 it.each(['" '.repeat(200000), '"note": " {"token":"private"} '.repeat(40000)])(

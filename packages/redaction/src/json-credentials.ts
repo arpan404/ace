@@ -35,6 +35,7 @@ function decodedEncodedKey(source: string): string | undefined {
 export function* jsonCredentialSpans(text: string): Generator<CredentialSpan, undefined> {
   let raw = -1,
     encoded = -1,
+    prose = -1,
     slashes = 0;
   let rawEnd = -1,
     encodedEnd = -1,
@@ -76,19 +77,33 @@ export function* jsonCredentialSpans(text: string): Generator<CredentialSpan, un
     if (char !== '"') continue;
     const escaped = run % 2 === 1;
     const opener = escaped ? encoded : raw;
+    // Prose backslashes need not share JSON's delimiter encoding. Keep every
+    // quote as a separate opener candidate rather than trusting parity alone.
+    const proseOpener = prose;
+    prose = at;
     if (run % 2 === 0) raw = at;
     if (run % 4 === 1) encoded = at;
     let value = at + 1;
     while (whitespace(text[value])) value++;
-    if (text[value] !== ":" || opener < 0) continue;
+    if (text[value] !== ":" || (opener < 0 && proseOpener < 0)) continue;
     const start = opener - (escaped ? 1 : 0);
-    const key =
-      at + 1 - start <= KEY_UNITS
+    const proseEnd = at - (escaped ? 1 : 0);
+    const oversized =
+      (opener >= 0 && at + 1 - start > KEY_UNITS) ||
+      (proseOpener >= 0 && proseEnd - proseOpener + 1 > KEY_UNITS);
+    const canonicalKey =
+      opener >= 0 && at + 1 - start <= KEY_UNITS
         ? escaped
           ? decodedEncodedKey(text.slice(start, at + 1))
           : decodedKey(text.slice(start, at + 1))
         : undefined;
-    if (key !== undefined && !isSecretKey(key)) continue;
+    const proseKey =
+      proseOpener >= 0 && proseEnd - proseOpener + 1 <= KEY_UNITS
+        ? decodedKey('"' + text.slice(proseOpener + 1, proseEnd) + '"')
+        : undefined;
+    const key =
+      proseKey !== undefined && isSecretKey(proseKey) ? proseKey : (canonicalKey ?? proseKey);
+    if (!oversized && key !== undefined && !isSecretKey(key)) continue;
     value++;
     while (whitespace(text[value])) value++;
     if (text[value] === '"') {
@@ -106,7 +121,7 @@ export function* jsonCredentialSpans(text: string): Generator<CredentialSpan, un
         while (scalarEnd < text.length && !delimiter(text[scalarEnd] ?? "")) scalarEnd++;
       }
       if (value >= scalarEnd) continue;
-      if (key !== undefined && scalarEnd - value <= KEY_UNITS) {
+      if (!oversized && key !== undefined && scalarEnd - value <= KEY_UNITS) {
         try {
           const scalar: unknown = JSON.parse(text.slice(value, scalarEnd));
           if (accountingCounter(key, scalar)) continue;
