@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/HtmlHeightMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "height": {
+      "maximum": 10000,
+      "minimum": 1,
+      "type": "number"
+    },
+    "type": {
+      "const": "ace.html.height",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "height"
+  ],
+  "type": "object"
+}

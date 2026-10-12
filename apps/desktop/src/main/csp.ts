@@ -60,8 +60,8 @@ export function contentSecurityPolicy(options: {
       ...(dev && devSocket ? [dev, devSocket] : []),
     ],
     "media-src": ["'self'", "blob:", "data:"],
-    // `blob:` frames hold attachment previews this page typed as PDFs (the built-in viewer).
-    "frame-src": ["http://127.0.0.1:*", "http://localhost:*", previews, "blob:"],
+    // `blob:` holds typed attachment previews; opaque `data:` frames hold offline visualizations.
+    "frame-src": ["http://127.0.0.1:*", "http://localhost:*", previews, "blob:", "data:"],
     "worker-src": ["'self'", "blob:"],
     "object-src": ["'none'"],
     "base-uri": ["'none'"],

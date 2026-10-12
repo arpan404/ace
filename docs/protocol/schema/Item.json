@@ -7,6 +7,55 @@
         "agentId": {
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
+        "complete": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "nativeId": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "raw": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+          },
+          "type": "array"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "type": {
+          "const": "html",
+          "type": "string"
+        },
+        "visualization": {
+          "$ref": "https://ace.local/protocol/v1/HtmlVisualization.json"
+        }
+      },
+      "required": [
+        "id",
+        "agentId",
+        "createdAt",
+        "complete",
+        "type",
+        "visualization"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
         "attachments": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/Attachment.json"

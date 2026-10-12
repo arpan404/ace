@@ -37,7 +37,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     writer.close(error);
     options.input.destroy();
   };
-  const gate = outputGate(64 * 1024, () => true, fail);
+  const gate = outputGate(2 * 1024 * 1024, () => true, fail);
   const write = async (value: unknown, writeSignal = signal) => {
     const line = `${JSON.stringify(value)}\n`;
     const bytes = Buffer.byteLength(line);
