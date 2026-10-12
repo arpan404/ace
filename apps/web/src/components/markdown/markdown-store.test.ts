@@ -300,3 +300,15 @@ test("the same finished text read through two mounts renders the same document f
   expect(jobs).toHaveLength(1);
   second();
 });
+
+test("a message that finishes while its first streamed update is with the worker waits for the worker", async () => {
+  const { store, reply, jobs, text } = harness(80, undefined, cold);
+  store.want("m", "Para one", false);
+  // Finished before the worker first answered: building it here would be overwritten.
+  expect(store.readOrBuild("m", "Para one.\n\nPara two.")).toBeUndefined();
+  store.want("m", "Para one.\n\nPara two.", true);
+  await reply();
+  await reply();
+  expect(jobs.at(-1)).toMatchObject({ final: true });
+  expect(text()).toBe("Para one. | Para two.");
+});

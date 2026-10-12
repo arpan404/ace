@@ -138,6 +138,9 @@ export class MarkdownStore {
     const { backend, cold } = this.options;
     if (shown || this.warm || !backend.parallel || !cold || !text) return shown;
     if (text.length > cold.each || text.length > this.coldLeft) return undefined;
+    // A stream with a job on its way is the worker's: its reply would replace this document.
+    const known = this.live.get(key) ?? this.parked.get(key);
+    if (known?.sent || known?.busy) return undefined;
     const reply = backend.local({ stream: key, at: 0, append: text, final: true });
     if ("resync" in reply) return undefined;
     this.coldLeft -= text.length;
@@ -145,7 +148,7 @@ export class MarkdownStore {
       this.started = true;
       backend.warm?.();
     }
-    const stream = this.live.get(key) ?? this.parked.get(key) ?? this.fresh(key);
+    const stream = known ?? this.fresh(key);
     stream.settled = reply.settled.slice();
     stream.doc = { blocks: reply.settled, settled: reply.settled.length };
     // The worker never held this stream, and a final job leaves nothing to release.
