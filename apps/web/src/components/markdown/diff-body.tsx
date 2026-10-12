@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 import { LongRows } from "@/components/virtual-rows.tsx";
-import type { FenceDiff, FenceDiffLine } from "./diff-fence.ts";
+import type { DiffText, DiffTextLine } from "@ace/ui-core";
 
 /**
  * Added and removed lines are tinted across the block's width, with a bar at their edge; they
  * are `<ins>` and `<del>` too, so assistive tech says which is which.
  */
-const tint: Record<FenceDiffLine["kind"], string> = {
+const tint: Record<DiffTextLine["kind"], string> = {
   add: "bg-status-done/10 shadow-[inset_2px_0_0_var(--status-done)]",
   del: "bg-status-failed/10 shadow-[inset_2px_0_0_var(--status-failed)]",
   hunk: "bg-accent/60 text-muted-foreground",
@@ -18,10 +18,10 @@ const tint: Record<FenceDiffLine["kind"], string> = {
 const gutter =
   "w-9 shrink-0 pr-2 text-right tabular-nums text-subtle-foreground select-none max-sm:hidden";
 
-function Row(props: { line: FenceDiffLine; numbered: boolean }) {
+function Row(props: { line: DiffTextLine; numbered: boolean }) {
   const { line } = props;
   return (
-    <div className={`flex min-h-[1.55em] ${tint[line.kind]}`}>
+    <div className={`flex min-h-[1.6em] ${tint[line.kind]}`}>
       {props.numbered && (
         <>
           <span aria-hidden className={gutter}>
@@ -49,13 +49,13 @@ function Row(props: { line: FenceDiffLine; numbered: boolean }) {
  * A ```diff fence as a unified diff: every line as written, added and removed ones tinted, old
  * and new line numbers where hunk headers give them. Long diffs mount the rows in view only.
  */
-export function DiffBody(props: { diff: FenceDiff; tail?: ReactNode }) {
+export function DiffBody(props: { diff: DiffText; tail?: ReactNode }) {
   const { diff } = props;
   const long = diff.lines.length > 400;
   return (
     <div
       {...(long ? { role: "region", "aria-label": "Scrollable code", tabIndex: 0 } : {})}
-      className={`overflow-x-auto pt-1 pb-2 font-mono text-[12.5px] leading-[1.55] text-foreground ${long ? "max-h-80 overflow-y-auto" : ""}`}
+      className={`overflow-x-auto pt-1 pb-2 font-mono text-xs leading-[1.6] text-foreground ${long ? "max-h-80 overflow-y-auto" : ""}`}
     >
       <div className="inline-block min-w-full">
         <LongRows

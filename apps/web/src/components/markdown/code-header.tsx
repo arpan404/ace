@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 const copyClass = [
   "relative inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-xs text-muted-foreground",
-  "transition-[opacity,color,background-color] duration-(--dur-1) hover:bg-accent hover:text-foreground",
+  "transition-[opacity,color,background-color] duration-(--motion-fast) hover:bg-accent hover:text-foreground",
   "focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-ring data-copied:opacity-100",
   "pointer-fine:opacity-0 pointer-fine:group-hover/code:opacity-100",
   "touch-hit pointer-coarse:h-8 pointer-coarse:px-2.5",

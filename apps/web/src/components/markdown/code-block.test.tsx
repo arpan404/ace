@@ -102,3 +102,12 @@ test("a short block has no line numbers and names its language", () => {
   expect(figure.querySelector("pre[aria-hidden]")).toBeNull();
   expect(figure.querySelector("figcaption")?.textContent).toContain("sh");
 });
+
+test("Copy on a fence still being written copies everything that has arrived", async () => {
+  const writeText = vi.fn(async () => {});
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const view = render(<CodeBlock code={"const a = 1;"} lang="ts" plain />);
+  view.rerender(<CodeBlock code={"const a = 1;\nconst b = 2;"} lang="ts" plain />);
+  fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith("const a = 1;\nconst b = 2;"));
+});

@@ -9,7 +9,8 @@ import { LongRows } from "@/components/virtual-rows.tsx";
 import { CodeHeader } from "./code-header.tsx";
 import { CodeTokens } from "./code-tokens.tsx";
 import { DiffBody } from "./diff-body.tsx";
-import { fenceDiffCached, parseFenceDiff } from "./diff-fence.ts";
+import { readDiffText } from "@ace/ui-core";
+import { fenceDiffCached } from "./diff-fence.ts";
 import { fenceInfo } from "./fence-info.ts";
 export { tokenTone } from "./code-tokens.tsx";
 
@@ -52,7 +53,7 @@ export function CodeBlock(props: {
     () =>
       info.diff
         ? props.plain
-          ? parseFenceDiff(props.code)
+          ? readDiffText(props.code)
           : fenceDiffCached(props.code)
         : undefined,
     [info.diff, props.plain, props.code],
@@ -88,7 +89,7 @@ export function CodeBlock(props: {
   return (
     <figure className="group/code my-3 overflow-hidden rounded-card bg-code shadow-[inset_0_0_0_1px_var(--border)]">
       <CodeHeader
-        file={info.file ?? diff?.file}
+        file={info.file ?? (diff?.files.length === 1 ? diff.files[0] : undefined)}
         lang={info.lang}
         diff={diff}
         copied={copied}
@@ -142,7 +143,7 @@ export function CodeBlock(props: {
                     colored.lines[index].length <= 512 ? (
                       <CodeTokens tokens={colored.lines[index]} />
                     ) : (
-                      line || " "
+                      line || "\u00a0"
                     )}
                   </code>
                 </div>
@@ -152,7 +153,7 @@ export function CodeBlock(props: {
           </div>
         )
       ) : (
-        <div className="flex font-mono text-[12.5px] leading-[1.55]">
+        <div className="flex font-mono text-xs leading-[1.6]">
           {numbered && <Gutter lines={lines.length} className="pt-2 pb-3" />}
           <pre
             className={`min-w-0 flex-1 overflow-x-auto pt-2 pr-3 pb-3 text-foreground ${numbered ? "" : "pl-3"}`}

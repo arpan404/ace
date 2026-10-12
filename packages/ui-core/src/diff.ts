@@ -175,6 +175,100 @@ export function countChanges(rows: readonly DiffRow[]): { additions: number; del
   return { additions, deletions };
 }
 
+/** One line of a diff as written, for showing a diff someone wrote rather than one computed. */
+export interface DiffTextLine {
+  kind: "add" | "del" | "context" | "hunk" | "meta";
+  text: string;
+  /** Line numbers, where a hunk header gave them. */
+  old?: number | undefined;
+  new?: number | undefined;
+}
+export interface DiffText {
+  lines: DiffTextLine[];
+  additions: number;
+  deletions: number;
+  /** The files it changes, from their `+++`/`---` headers, in order. */
+  files: string[];
+  /** Whether any hunk header numbered its lines. */
+  numbered: boolean;
+}
+
+const gitHeader =
+  /^(?:diff --git |index |new file mode |deleted file mode |similarity index |rename (?:from|to) |old mode |new mode |\\ )/;
+const headerFile = (line: string) => {
+  const path = line.slice(4).trim().split("\t")[0] ?? "";
+  return path === "/dev/null" ? undefined : path.replace(/^[ab]\//, "");
+};
+
+/**
+ * Every line of a unified diff exactly as written, classified, with hunk numbering where the
+ * headers give it. Unlike `parseUnifiedDiff` it drops nothing: a diff an agent wrote may lack
+ * hunk headers or have counts that don't add up, and a reader must still see all of it.
+ */
+export function readDiffText(text: string): DiffText {
+  const raw = text.split("\n");
+  const lines: DiffTextLine[] = [];
+  let additions = 0;
+  let deletions = 0;
+  const files: string[] = [];
+  let numbered = false;
+  let oldLine: number | undefined;
+  let newLine: number | undefined;
+  // After `diff --git`, until its first hunk, `---`/`+++` name files.
+  let inHeader = false;
+  raw.forEach((line, index) => {
+    const hunk = hunkHeader.exec(line);
+    if (hunk) {
+      numbered = true;
+      inHeader = false;
+      oldLine = Number(hunk[1]);
+      newLine = Number(hunk[3]);
+      lines.push({ kind: "hunk", text: line });
+      return;
+    }
+    if (gitHeader.test(line)) {
+      if (line.startsWith("diff --git ")) inHeader = true;
+      lines.push({ kind: "meta", text: line });
+      return;
+    }
+    // Outside a git header, `---`/`+++` name files only as a pair; alone they're changes.
+    const pairedOld = line.startsWith("--- ") && raw[index + 1]?.startsWith("+++ ");
+    const pairedNew = line.startsWith("+++ ") && raw[index - 1]?.startsWith("--- ");
+    const outsideHunk = oldLine === undefined || inHeader;
+    // A pair a hunk header follows starts the next file, even after earlier hunks.
+    const startsFile =
+      (pairedOld && hunkHeader.test(raw[index + 2] ?? "")) ||
+      (pairedNew && hunkHeader.test(raw[index + 1] ?? ""));
+    const isFileHeader = outsideHunk
+      ? inHeader
+        ? /^(?:---|\+\+\+) /.test(line)
+        : pairedOld || pairedNew
+      : startsFile;
+    if (isFileHeader) {
+      // A new file is named by `+++`, a deleted one only by `---`.
+      const named = headerFile(line);
+      const other = headerFile(raw[line.startsWith("---") ? index + 1 : index - 1] ?? "    ");
+      if (named && (line.startsWith("+++ ") || !other) && !files.includes(named)) files.push(named);
+      lines.push({ kind: "meta", text: line });
+      return;
+    }
+    if (line.startsWith("+")) {
+      additions++;
+      lines.push({ kind: "add", text: line, new: newLine });
+      if (newLine !== undefined) newLine++;
+    } else if (line.startsWith("-")) {
+      deletions++;
+      lines.push({ kind: "del", text: line, old: oldLine });
+      if (oldLine !== undefined) oldLine++;
+    } else {
+      lines.push({ kind: "context", text: line, old: oldLine, new: newLine });
+      if (oldLine !== undefined) oldLine++;
+      if (newLine !== undefined) newLine++;
+    }
+  });
+  return { lines, additions, deletions, files, numbered };
+}
+
 /** Side-by-side pairs: deletions and additions of one change line up row by row. */
 export type SplitRow =
   | { kind: "fold"; row: Extract<DiffRow, { kind: "fold" }> }
