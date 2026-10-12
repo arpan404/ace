@@ -31,21 +31,18 @@ Example:
 ```json
 {
   "concurrency": 5,
-  "enabled": true,
+  "enabled": false,
   "id": "example",
-  "jitterMs": 6,
-  "missedRun": "skip",
+  "jitterMs": 1,
+  "missedRun": "run_once",
   "prompt": "example",
-  "provider": "opencode",
+  "provider": "cursor",
   "title": "example",
   "trigger": {
-    "kind": "schedule",
-    "schedule": {
-      "expression": "example",
-      "kind": "rrule",
-      "startAt": 0,
-      "timezone": "example"
-    }
+    "kind": "file",
+    "paths": [
+      "example"
+    ]
   },
   "workspace": "example",
   "worktree": true
@@ -101,7 +98,7 @@ Example:
 
 ```json
 {
-  "at": 4,
+  "at": 6,
   "message": "example"
 }
 ```
@@ -123,19 +120,19 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 5,
+    "concurrency": 4,
     "enabled": true,
     "id": "example",
-    "jitterMs": 7,
-    "missedRun": "run_once",
+    "jitterMs": 0,
+    "missedRun": "skip",
     "prompt": "example",
-    "provider": "codex",
+    "provider": "pi",
     "title": "example",
     "trigger": {
-      "event": "pr_changed",
-      "kind": "github",
-      "pollIntervalMs": 60004,
-      "repository": "OzX3s/yoQxmf"
+      "kind": "file",
+      "paths": [
+        "example"
+      ]
     },
     "workspace": "example",
     "worktree": true
@@ -213,7 +210,8 @@ Example:
 
 ```json
 {
-  "limit": 3,
+  "before": 6,
+  "limit": 1,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -238,19 +236,9 @@ Example:
 
 ```json
 {
-  "automations": [],
   "error": "example",
   "ok": true,
   "requestId": "example",
-  "run": {
-    "automationId": "example",
-    "eventKey": "example",
-    "id": "example",
-    "startedAt": 4,
-    "status": "running",
-    "title": "example",
-    "trigger": "github"
-  },
   "type": "automation.result"
 }
 ```

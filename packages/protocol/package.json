@@ -11,6 +11,7 @@
     "./history": "./src/history.ts",
     "./forge": "./src/forge.ts",
     "./forge-issues": "./src/forge-issues.ts",
+    "./forge-stacks": "./src/forge-stacks.ts",
     "./forge-review": "./src/forge-review.ts",
     "./forge-browser": "./src/forge-browser.ts",
     "./queue": "./src/queue.ts",

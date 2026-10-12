@@ -1,4 +1,5 @@
 import { SourceControlContext } from "./source-control-draft.ts";
+import { ForgeStackExpected } from "./forge-stacks.ts";
 import { z } from "zod";
 
 const text = z.string().max(65_536);
@@ -124,6 +125,13 @@ export const ForgeCreatePrInput = z.object({
 });
 export type ForgeCreatePrInput = z.infer<typeof ForgeCreatePrInput>;
 export const ForgeCommand = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("forge.pr.stack.change"),
+    link: ForgeThreadLink,
+    expected: ForgeStackExpected,
+    action: z.enum(["merge", "rebase", "continue", "abort", "push"]),
+    method: z.enum(["merge", "squash", "rebase"]),
+  }),
   z.object({ type: z.literal("forge.pr.status"), link: ForgeThreadLink }),
   z.object({
     type: z.literal("forge.pr.create"),

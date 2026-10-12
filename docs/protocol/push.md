@@ -2577,6 +2577,7 @@ Example:
 | review | no | [ReviewData.json](schema/ReviewData.json) |  |
 | pr | no | [ForgePrRef.json](schema/ForgePrRef.json) |  |
 | prStatus | no | [ForgePrStatus.json](schema/ForgePrStatus.json) |  |
+| stackOperation | no | [ForgeStackOperation.json](schema/ForgeStackOperation.json) |  |
 | editor | no | [EditorLaunch.json](schema/EditorLaunch.json) |  |
 | terminalId | no | string | {"minLength":1,"maxLength":128} |
 | commit | no | string | {"pattern":"^[a-f0-9]{40,64}$"} |
@@ -2592,16 +2593,7 @@ Example:
     "terminalsOpen": 2
   },
   "commandId": "example",
-  "commit": "645c9ad803854840822ca6c7e821dab3a4b3a96bfdf6918677927131d0de16",
   "detail": "example",
-  "editor": {
-    "editor": {
-      "command": "example",
-      "id": "example",
-      "name": "example"
-    },
-    "path": "example"
-  },
   "ok": true,
   "pr": {
     "number": 5,
@@ -2637,6 +2629,11 @@ Example:
       "status": "open"
     }
   },
+  "stackOperation": {
+    "action": "merge",
+    "message": "example",
+    "state": "pending"
+  },
   "terminalId": "example",
   "title": "example",
   "type": "commandResult",
@@ -2667,6 +2664,8 @@ Example:
 {
   "code": "example",
   "message": "example",
+  "requestId": "example",
+  "subscriptionId": "example",
   "type": "error"
 }
 ```
@@ -2689,8 +2688,8 @@ Example:
 {
   "bytes": "example",
   "eof": false,
-  "nextOffset": 1,
-  "offset": 3,
+  "nextOffset": 9,
+  "offset": 5,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -2716,7 +2715,7 @@ Example:
   "items": [],
   "itemsBefore": null,
   "requestId": "example",
-  "seq": 8,
+  "seq": 6,
   "threadId": "example",
   "type": "items.page"
 }
