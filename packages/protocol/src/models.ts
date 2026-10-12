@@ -4,11 +4,17 @@ import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
 
 const label = z.string().min(1).max(256);
+/** The service speeds ace knows, slowest first. */
+export const KnownSpeed = z.enum(["standard", "fast", "ultrafast"]);
+export type KnownSpeed = z.infer<typeof KnownSpeed>;
 export const ModelTier = z.object({
   id: label,
   name: label,
-  /** How fast the tier serves, slowest first: the speed control orders tiers by it. */
-  speed: z.enum(["standard", "fast", "ultrafast"]).optional(),
+  /**
+   * How fast the tier serves: a known speed, or a provider's newer one kept as it was sent, so a
+   * reader that doesn't know it still reads the catalog.
+   */
+  speed: z.union([KnownSpeed, label]).optional(),
   parameters: z
     .record(label, z.union([z.string().max(256), z.boolean()]))
     .default({})

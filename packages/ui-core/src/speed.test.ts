@@ -28,6 +28,11 @@ test("the speed control offers only the catalog's tiers, slowest first", () => {
   expect(onlyFast.speeds.map((entry) => entry.speed)).toEqual(["standard", "fast"]);
 });
 
+test("a speed ace doesn't know yet isn't offered, and the known ones still are", () => {
+  const model = codex([tier("priority", "fast"), tier("warp", "hyperfast")]);
+  expect(model.speeds.map((entry) => entry.speed)).toEqual(["standard", "fast"]);
+});
+
 test("a tier ace can't ask for by service tier isn't offered", () => {
   const model = codex([tier("fast", "fast", undefined)]);
   const control = speedControl({ model, current: undefined });

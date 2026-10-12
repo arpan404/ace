@@ -1,9 +1,10 @@
+import { KnownSpeed } from "@ace/protocol";
 import type { Capabilities, CatalogModel, ProviderKind } from "@ace/protocol";
 import { providerNames } from "./providers.ts";
 
 /** Service speeds, slowest first: the order the speed control cycles through. */
-export const speedOrder = ["standard", "fast", "ultrafast"] as const;
-export type Speed = (typeof speedOrder)[number];
+export const speedOrder = KnownSpeed.options;
+export type Speed = KnownSpeed;
 
 /** One speed a model can run at, and the `serviceTier` option that asks for it. */
 export interface SpeedTier {
@@ -15,6 +16,10 @@ export interface SpeedTier {
 }
 
 const speedRank = (speed: Speed) => speedOrder.indexOf(speed);
+
+/** A catalog speed ace knows; a provider's newer one isn't offered until ace learns it. */
+const knownSpeed = (speed: string | undefined): Speed | undefined =>
+  speedOrder.find((known) => known === speed);
 
 type TierSource = Pick<CatalogModel, "serviceTiers" | "defaultTier">;
 type ModelTier = CatalogModel["serviceTiers"][number];
@@ -37,15 +42,16 @@ export function speedTiers(model: TierSource): readonly SpeedTier[] {
   let standard: SpeedTier | undefined;
   for (const tier of model.serviceTiers) {
     const value = requestable(tier);
-    if (value === undefined) continue;
-    if (tier.speed === "standard") standard ??= { speed: "standard", name: tier.name, value };
-    else if (tier.speed && !faster.has(tier.speed))
-      faster.set(tier.speed, { speed: tier.speed, name: tier.name, value });
+    const speed = knownSpeed(tier.speed);
+    if (value === undefined || speed === undefined) continue;
+    if (speed === "standard") standard ??= { speed, name: tier.name, value };
+    else if (!faster.has(speed)) faster.set(speed, { speed, name: tier.name, value });
   }
   if (!faster.size) return [];
-  const fasterByDefault = model.serviceTiers.some(
-    (tier) => tier.id === model.defaultTier && tier.speed !== "standard" && requestable(tier),
-  );
+  const fasterByDefault = model.serviceTiers.some((tier) => {
+    const speed = knownSpeed(tier.speed);
+    return tier.id === model.defaultTier && speed && speed !== "standard" && requestable(tier);
+  });
   return [
     standard ?? {
       speed: "standard",
@@ -59,7 +65,8 @@ export function speedTiers(model: TierSource): readonly SpeedTier[] {
 /** The speed the catalog runs a model at when the selection asks for none. */
 export function defaultSpeed(model: TierSource): Speed {
   const tier = model.serviceTiers.find((entry) => entry.id === model.defaultTier);
-  return tier?.speed && requestable(tier) ? tier.speed : "standard";
+  const speed = knownSpeed(tier?.speed);
+  return tier && speed && requestable(tier) ? speed : "standard";
 }
 
 /** The speed a selection's `serviceTier` asks for, given the model's tiers. */
