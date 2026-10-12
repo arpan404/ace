@@ -1,0 +1,34 @@
+{
+  "measuredRevision": "57aad529e plus measurement and navigation review fixes",
+  "simulator": "iPhone 17 Pro, iOS 26.5",
+  "xcode": "26.6",
+  "streamDeltasPerSecond": 20,
+  "input": {
+    "samples": 92,
+    "p95Ms": 41.92541667725891,
+    "maxMs": 51.85770837124437,
+    "boundary": "UITextView edit acceptance callback to next CADisplayLink callback"
+  },
+  "typingWindowCadence": {
+    "callbacksPerSecond": 34.29494521428906,
+    "p95GapMs": 69.19708335772157,
+    "includesStartupAndAutomation": true
+  },
+  "idleStreamingCadence": {
+    "callbacksPerSecond": 41.53846004294717,
+    "p95GapMs": 50.00137502793223,
+    "excludesFirst30Seconds": true
+  },
+  "memory": {
+    "durationSeconds": 125.00204641663004,
+    "steadyMinFootprintMiB": 160.97122192382812,
+    "steadyMaxFootprintMiB": 176.39311981201172,
+    "finalFootprintMiB": 173.59622192382812,
+    "retainedItems": 2000,
+    "sampleCount": 25
+  },
+  "maxBridgeFrameBytes": 16486,
+  "renderGate": "not passed: no GPU presentation or hitch measurements",
+  "instrumentsError": "Hitches is not supported on this platform.",
+  "offlineReplay": "passed: process terminated, relaunched, one canonical input"
+}

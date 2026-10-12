@@ -1,1 +1,1 @@
-export { PastSessions } from "./lazy-past-sessions.tsx";
+export { PastSessions, ProjectPastSessions } from "./lazy-past-sessions.tsx";

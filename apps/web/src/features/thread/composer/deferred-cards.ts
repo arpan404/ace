@@ -11,9 +11,6 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 export const DeferredRequestStack = deferredComponent(() =>
   import("./request-stack.tsx").then((module) => module.RequestStack),
 );
-export const DeferredEnvironmentStrip = deferredComponent(() =>
-  import("./environment-strip.tsx").then((module) => module.EnvironmentStrip),
-);
 export function preloadComposerCards(): Promise<unknown> {
-  return Promise.all([DeferredRequestStack.preload(), DeferredEnvironmentStrip.preload()]);
+  return DeferredRequestStack.preload();
 }

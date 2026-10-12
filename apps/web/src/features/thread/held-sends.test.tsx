@@ -2,7 +2,7 @@ import { longHistory } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { resetDismissed } from "./composer/dismissed-sends.ts";
 import { resetSendStore } from "./composer/send-store.ts";
@@ -21,10 +21,6 @@ beforeEach(() => {
   resetDismissed();
   resetStaged();
 });
-afterEach(() => {
-  Reflect.deleteProperty(navigator, "locks");
-});
-
 const png = () =>
   new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], "screen.png", {
     type: "image/png",
@@ -100,11 +96,6 @@ test("Edit on a failed held message gives back its text, beside what the compose
 });
 
 test("a message held for its uploads survives a reload, as a failed bubble saying why", async () => {
-  // Pages hold a lock while their uploads run; after the reload nobody holds the old one.
-  Object.defineProperty(navigator, "locks", {
-    configurable: true,
-    value: { request: () => new Promise(() => {}), query: async () => ({ held: [] }) },
-  });
   const first = await open();
   await sendWhileUploading(first.app, first.message);
   expect(await within(first.feed).findByText("Uploading an image…")).toBeTruthy();
@@ -113,13 +104,12 @@ test("a message held for its uploads survives a reload, as a failed bubble sayin
   reloadPage();
   const again = await open(first.storage);
   const alert = await within(again.feed).findByRole("alert");
-  expect(
-    within(alert).getByText(/The page closed before screen\.png finished uploading/),
-  ).toBeTruthy();
+  expect(within(alert).getByText(/Upload interrupted$/)).toBeTruthy();
   expect(within(again.feed).getByText("Why is this banner orange?")).toBeTruthy();
-  // The file didn't reach the daemon and this page doesn't have it: Edit, not Retry.
+  // Reload never offers to reconstruct or resend an unfinished upload.
   expect(within(alert).queryByRole("button", { name: "Retry" })).toBeNull();
-  expect(within(alert).getByRole("button", { name: "Edit" })).toBeTruthy();
+  expect(within(alert).queryByRole("button", { name: "Edit" })).toBeNull();
+  expect(within(alert).getByRole("button", { name: "Remove" })).toBeTruthy();
 });
 
 test("a staged storage refusal keeps the text and uploading file in the composer", async () => {

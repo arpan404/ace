@@ -10,7 +10,9 @@ import {
   resolveEffort,
   type AttachmentReader,
 } from "@ace/ui-core";
-import { Suspense, useEffect, useRef, useState, type Ref } from "react";
+import { Suspense, useContext, useEffect, useRef, useState, type Ref } from "react";
+import { TimeContext } from "@/lib/time.ts";
+import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 // The catalog alone: the models feature is also loaded lazily, so importing its index would bring
 // its pickers into this route.
@@ -31,9 +33,15 @@ import {
   DeferredQueueArea,
   DeferredQueuedMessages,
 } from "./deferred-parts.tsx";
-import { DeferredEnvironmentStrip, DeferredRequestStack } from "./deferred-cards.ts";
+import { DeferredRequestStack } from "./deferred-cards.ts";
 import { UsageNotice } from "./usage-notice.tsx";
-import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
+import {
+  runsOn,
+  runsNow,
+  changedTurnOptions,
+  selectionIdentity,
+  type PendingTurn,
+} from "./execution.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
 
 /** The send pipeline's code: fetched when a composer mounts, so the first Enter never waits on it. */
@@ -54,10 +62,10 @@ export function isBusy(status: ThreadStatus | undefined): boolean {
  * bubble at once and goes through the client's outbox under its own command id. While the agent
  * works a message follows up the way the daemon's `threads.followUpBehavior` says (queue by
  * default), and ⌘↵ / Ctrl+↵ does the opposite where the provider can steer. Queued messages
- * wait as pills above it, with the reason when the queue is held. Its footer shows how actions
+ * wait in its queue tray, with the reason above when the queue is held. Its footer shows how actions
  * are approved and the model, both changeable from the next turn. One tab is attached to its top
  * edge for the agent's open requests (a deck of cards answered there, a picked answer
- * sent with the send button). The environment strip sits below the box. Stop is in the send slot while the composer is empty, and never
+ * sent with the send button). Stop is in the send slot while the composer is empty, and never
  * while a request waits. The unsent draft is kept per thread.
  */
 export function ThreadComposer({
@@ -71,6 +79,7 @@ export function ThreadComposer({
 }) {
   const client = useClient();
   const { storage } = useLayout();
+  const time = useContext(TimeContext);
   const toast = useToast();
   const meta = useThreadMeta(props.thread.id);
   const modelChoices = useModelChoices();
@@ -104,14 +113,47 @@ export function ThreadComposer({
       setPicked(turn && { threadId: props.thread.id, ...turn }),
   };
 
+  const sent = pending?.identity === selectionIdentity(runsOn(meta)) ? pending : undefined;
+  const activeSelection = meta && runsNow(meta);
+  const activeModel = currentModelChoice(modelChoices, activeSelection);
+  const activeEffort = resolveEffort(
+    activeModel?.efforts ?? [],
+    typeof activeSelection?.options?.["effort"] === "string"
+      ? activeSelection.options["effort"]
+      : undefined,
+    activeModel?.defaultEffort,
+  );
+  const pendingModel = currentModelChoice(modelChoices, runsOn(meta));
+  const pendingEffort =
+    sent &&
+    resolveEffort(
+      pendingModel?.efforts ?? [],
+      typeof sent.options["effort"] === "string" ? sent.options["effort"] : undefined,
+      pendingModel?.defaultEffort,
+    );
+  const pendingOptions = sent && {
+    ...sent.options,
+    ...(pendingEffort !== undefined ? { effort: pendingEffort } : {}),
+  };
+  const followUpOptions = changedTurnOptions(pendingOptions, {
+    ...activeSelection?.options,
+    ...(activeEffort !== undefined ? { effort: activeEffort } : {}),
+  });
+  const selectionWaiting = busy && (!!followUpOptions || meta?.switch?.state === "queued");
+
   const submit = async (draft: Draft) => {
     // Never send options picked for another selection; the controls are re-checking them.
-    const sent = pending?.identity === selectionIdentity(runsOn(meta)) ? pending : undefined;
     const commandId = crypto.randomUUID();
     // While the agent works the delivery is said outright, so this window knows at once
     // whether the message is a bubble (steered in) or a pill (queued).
     const other = followUp === "steer" ? "queue" : "steer";
-    const delivery = busy ? (draft.opposite ? other : (followUp ?? "queue")) : undefined;
+    const delivery = busy
+      ? selectionWaiting
+        ? "queue"
+        : draft.opposite
+          ? other
+          : (followUp ?? "queue")
+      : undefined;
     const selection = runsOn(meta);
     const model = currentModelChoice(modelChoices, selection);
     const explicit = sent?.options ?? selection?.options;
@@ -121,16 +163,19 @@ export function ThreadComposer({
       model?.defaultEffort,
     );
     // Steering leaves the running turn intact; its next admission resolves the same default.
-    const options =
-      delivery !== "steer" &&
-      effort !== undefined &&
-      (explicit?.["effort"] === undefined || model?.efforts.includes(String(explicit["effort"])))
+    const options = busy
+      ? followUpOptions
+      : delivery !== "steer" &&
+          effort !== undefined &&
+          (explicit?.["effort"] === undefined ||
+            model?.efforts.includes(String(explicit["effort"])))
         ? { ...(sent?.options ?? selection?.options), effort }
         : sent?.options;
     const { sendMessage } = await loadSender();
     const ok = await sendMessage({
       client,
       storage,
+      clock: uploadClock(time.read),
       threadId: props.thread.id,
       commandId,
       draft,
@@ -176,7 +221,7 @@ export function ThreadComposer({
   const open = useInteractions(props.thread.id);
   const asking = !!open?.length;
   const answer = useComposerAnswer(props.thread.id);
-  const tab = asking ? "requests" : "environment";
+  const tab = asking ? "requests" : undefined;
   const toMessage = () =>
     box.current
       ?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')
@@ -229,8 +274,8 @@ export function ThreadComposer({
         draftKey={`thread:${props.thread.id}`}
         keepsAttachments
         busy={busy}
-        followUp={followUp}
-        canSteer={canSteer}
+        followUp={selectionWaiting ? "queue" : followUp}
+        canSteer={canSteer && !selectionWaiting}
         onSubmit={submit}
         onStop={activityState.canStop ? stop : undefined}
         stopping={stopping}
@@ -258,11 +303,6 @@ export function ThreadComposer({
                 onLeave={toMessage}
               />
             ) : null}
-          </Suspense>
-        }
-        environment={
-          <Suspense fallback={null}>
-            <DeferredEnvironmentStrip.Component thread={props.thread} />
           </Suspense>
         }
         answer={tab === "requests" ? answer : undefined}

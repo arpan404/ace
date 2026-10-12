@@ -54,7 +54,12 @@ export function ProviderAccountIcon(
         decorative
       />
       {multiple && account && (
-        <AccountBadge account={account} tooltip={props.tooltip} className="size-3" decorative />
+        <AccountBadge
+          account={account}
+          tooltip={props.tooltip}
+          className="h-2.5 w-auto min-w-2.5 px-0.5 leading-none"
+          decorative
+        />
       )}
     </span>
   );

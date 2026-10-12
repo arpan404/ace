@@ -18,6 +18,8 @@ export const QueuedMessage = z.object({
   input: z.array(ContentPart).min(1),
   context: MessageContext.optional(),
   delivery: FollowUpBehavior,
+  /** Explicit model/options changes must wait for the next settled turn. */
+  requiresNextTurn: z.boolean().optional(),
   state: z.enum(["queued", "uncertain"]),
 });
 export type QueuedMessage = z.infer<typeof QueuedMessage>;

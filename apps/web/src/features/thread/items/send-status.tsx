@@ -20,7 +20,8 @@ const isImage = (mimeType: string) => mimeType.startsWith("image/");
 
 /** "Uploading 2 images…", "Uploading a file…". */
 function uploadingLabel(staged: StagedSend): string {
-  if (staged.attachments.every((file) => !!file.sha256)) return "Sending…";
+  if (staged.attachments.every((file) => !!file.sha256))
+    return staged.waitingForEarlier ? "Waiting for an earlier message…" : "Sending…";
   const files = staged.attachments.length;
   const images = staged.attachments.every((file) => isImage(file.mimeType));
   const noun = images
@@ -66,7 +67,8 @@ export function SendStatus(props: {
       : undefined;
   const worktree = useWorktreeCreation(creating).state?.progress;
   if (worktree) return props.otherwise;
-  if (staged?.failed) return <FailedHeld threadId={props.threadId} staged={staged} />;
+  if (staged?.failed || staged?.uploadInterrupted)
+    return <FailedHeld threadId={props.threadId} staged={staged} />;
   if (staged)
     return (
       <Line>

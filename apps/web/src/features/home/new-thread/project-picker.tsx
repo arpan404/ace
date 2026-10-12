@@ -15,7 +15,7 @@ const DeferredChoices = deferredComponent(() =>
 );
 const warm = () => void DeferredChoices.preload();
 
-/** One searchable registered-project picker shared by the heading and setup strip. */
+/** The new-thread heading's searchable registered-project picker. */
 export function ProjectPicker(props: {
   variant?: "inline";
   labelPrefix?: string;
