@@ -54,7 +54,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
               aria-label={`Show output of ${command}`}
               // The workspace's agent-shell tab (features/panels/terminal/tabs.ts); it names itself.
               onClick={() => workspace.open({ kind: "shell", id: task.id })}
-              className="min-w-0 truncate rounded-[5px] bg-secondary px-1.5 py-px font-mono text-[12.5px] text-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+              className="min-w-0 truncate rounded-[5px] bg-secondary px-1.5 py-px font-mono text-[12.5px] text-foreground outline-none transition-colors duration-(--motion-fast) hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]"
             >
               {command}
             </button>

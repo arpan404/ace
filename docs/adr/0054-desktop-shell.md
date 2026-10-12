@@ -175,9 +175,7 @@ human lease checks and scripted agent approval flow for that work.
 ## Consequences
 
 - The desktop app and the standalone archive share one daemon bundle and one pinned Node runtime. The doctor's node-pty check covers both.
-- Two web hooks are injected as CSS by the main process; the web app may later replace them with platform tokens:
-  - the macOS title bar inset: the traffic lights sit over the top of the rail and the sidebar's top row, and the header clears them while the sidebar is hidden or a sheet;
-  - the transparent wallpaper under vibrancy and Mica.
+- One web hook is injected as CSS by the main process; the web app may later replace it with platform tokens: the macOS title bar inset (the traffic lights sit over the top of the rail and the sidebar's top row, and the header clears them while the sidebar is hidden or a sheet). The window no longer uses vibrancy or Mica: the page is opaque and glass lives only on floating layers ([ADR 0075](0075-themes-mode-surfaces-motion.md)).
 - Playwright cannot attach to a packaged build, because the inspect fuse is off. The smoke test therefore runs the unpackaged bundles against the fake daemon.
 - Windows packages build, but the daemon needs `descriptor.node`, which supports only macOS and Linux. Until it gains a Windows backend, the Windows app defaults to a remote-only target: its status is `unavailable` and the page asks for a daemon on another machine (`wss:` only).
 - Desktop auto-update currently stops at a verified "update available": it checks the signed release feed and opens the release. Installing in place (Squirrel.Mac, NSIS) and drain-before-install are still to build.

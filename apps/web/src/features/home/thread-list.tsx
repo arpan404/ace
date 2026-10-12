@@ -57,7 +57,7 @@ const loadDrag = () => import("./list-drag.ts");
 const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) => module.BulkBar));
 
 const header =
-  "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-2 text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--dur-1)";
+  "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-2 text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--motion-fast)";
 
 /** A section's quiet heading: its name, how many, a thin rule, and whatever closes the line. */
 function HeadingText(props: { label: string; count?: number | undefined }) {
@@ -349,7 +349,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                   !("id" in row) && row.kind !== "unsent" && "pb-px",
                   // While rows slide past each other each is opaque, and the one moving up
                   // passes over the others: a swap never shows two rows through each other.
-                  sliding && "bg-[rgb(var(--sidebar-rgb))]",
+                  sliding && "bg-sidebar",
                   sliding && entry.rising && "z-[1]",
                 )}
                 style={{
@@ -407,7 +407,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                         aria-hidden
                         size={12}
                         className={cn(
-                          "transition-transform duration-(--dur-2) ease-spring",
+                          "transition-transform duration-(--motion-base) ease-spring",
                           !settledOpen && "-rotate-90",
                         )}
                       />

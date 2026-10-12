@@ -3,8 +3,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { createCapture, expectReady } from "./component-polish-capture.ts";
 import { captureThreadExtras } from "./component-polish-extra-shots.ts";
 import { captureDialogExtras } from "./component-polish-dialog-shots.ts";
+import { screenThemes } from "./appearance.ts";
 const out = "/tmp/ace-orch/shots/ui-polish-components";
-const themes = ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"];
+const themes = screenThemes;
 const browser = await chromium.launch();
 const errors: string[] = [];
 await mkdir(out, { recursive: true });
@@ -20,10 +21,9 @@ try {
           localStorage.setItem(
             "ace.appearance",
             JSON.stringify({
-              theme: appearance,
-              accent: "theme",
-              customAccent: "#7AA2F7",
-              glass: 1,
+              ...(appearance.includes("-")
+                ? { theme: appearance.split("-")[0], mode: appearance.split("-")[1] }
+                : { mode: appearance }),
               density: "comfortable",
               transcriptSize: "default",
             }),

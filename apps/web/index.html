@@ -1,5 +1,11 @@
 <!doctype html>
-<html lang="en" data-theme="dark" data-scheme="dark" data-accent="blue" data-density="comfortable">
+<html
+  lang="en"
+  data-theme="graphite"
+  data-scheme="dark"
+  data-surface="translucent"
+  data-density="comfortable"
+>
   <head>
     <meta charset="UTF-8" />
     <!-- resizes-content: the layout (h-dvh) shrinks with the on-screen keyboard on Chrome/Android. -->
@@ -11,30 +17,29 @@
     <title>ace</title>
     <style>
       /*
-       * First visit only (no theme to replay): the OS scheme until the theme stylesheet loads,
-       * so a light OS never sees a dark first frame. The script below sets data-first-visit.
+       * First visit only (no theme to replay): Graphite in the OS scheme until the theme stylesheet
+       * loads, so a light OS never sees a dark first frame. The script below sets data-first-visit.
        */
       html {
-        background: #0a0a0a;
+        background: #161616;
         color-scheme: dark;
       }
       @media (prefers-color-scheme: light) {
         html[data-first-visit] {
-          background: #f6f6f7;
+          background: #fdfdfd;
           color-scheme: light;
         }
         html[data-first-visit] #boot {
-          --wall: #f6f6f7;
-          --foreground: #1d1d20;
-          --sidebar-rgb: 242 242 245;
-          --reading-rgb: 250 250 251;
-          --sidebar-border: rgb(0 0 0 / 0.07);
+          --background: #fdfdfd;
+          --foreground: #191919;
+          --sidebar: #f6f6f6;
+          --border: #e2e2e2;
         }
       }
       /*
        * The boot shell: sidebar rows and header painted before the app's script runs,
-       * in the theme replayed below (Dark defaults on a first visit). The app fades it out over
-       * --dur-2 once the real shell has painted (src/lib/boot-splash.ts).
+       * in the theme replayed below (Graphite in the OS scheme on a first visit). The app fades it out over
+       * --motion-base once the real shell has painted (src/lib/boot-splash.ts).
        */
       /* Tailwind's preflight isn't loaded yet: size like the real shell, borders and padding in. */
       #boot,
@@ -47,8 +52,8 @@
         z-index: 140;
         display: flex;
         pointer-events: none;
-        background: var(--wall, #0a0a0a);
-        transition: opacity var(--dur-2, 200ms) var(--ease, ease);
+        background: var(--background, #161616);
+        transition: opacity var(--motion-base, 200ms) var(--ease-out, ease);
       }
       #boot[data-leaving] {
         opacity: 0;
@@ -57,7 +62,7 @@
         display: block;
         flex: none;
         border-radius: 6px;
-        background: color-mix(in oklab, var(--foreground, #ededed) 6%, transparent);
+        background: color-mix(in oklab, var(--foreground, #f0f0f0) 6%, transparent);
         animation: boot-breathe 1.6s ease-in-out infinite;
       }
       /* Mirrors the shell: sidebar 280px, header 50px (src/features/shell). */
@@ -66,8 +71,8 @@
         flex: none;
         display: flex;
         flex-direction: column;
-        background: rgb(var(--sidebar-rgb, 19 19 21) / 0.92);
-        border-right: 1px solid var(--sidebar-border, rgb(255 255 255 / 0.06));
+        background: var(--sidebar, #111111);
+        border-right: 1px solid var(--border, #303030);
       }
       #boot .top {
         height: 50px;
@@ -129,7 +134,7 @@
       #boot .main {
         flex: 1;
         min-width: 0;
-        background: rgb(var(--reading-rgb, 14 14 15));
+        background: var(--background, #161616);
       }
       #boot .head {
         height: 50px;
@@ -154,12 +159,12 @@
         font:
           13px/1.45 system-ui,
           sans-serif;
-        color: color-mix(in oklab, var(--foreground, #ededed) 70%, transparent);
+        color: color-mix(in oklab, var(--foreground, #f0f0f0) 70%, transparent);
       }
       #boot .stuck button {
         pointer-events: auto;
         font: inherit;
-        color: var(--foreground, #ededed);
+        color: var(--foreground, #f0f0f0);
         background: none;
         border: 0;
         padding: 0;
@@ -181,12 +186,8 @@
           opacity: 0.45;
         }
       }
-      @media (prefers-reduced-motion: reduce) {
-        #boot,
-        #boot i {
-          transition: none;
-          animation: none;
-        }
+      :root[data-reduce-motion] #boot i {
+        animation: none;
       }
     </style>
     <script>
@@ -196,37 +197,47 @@
         if (typeof platform === "string")
           document.documentElement.setAttribute("data-platform", platform);
       } catch {}
-      // Replay the theme the app last applied (src/theme/theme-provider.tsx) before first paint.
-      let replayed = false;
-      try {
-        const boot = JSON.parse(localStorage.getItem("ace.boot-theme") || "null");
+      // Replay the appearance the app last applied (src/theme/theme-provider.tsx) before first
+      // paint. Resolving "system" against the OS mirrors resolveAppearance (src/theme/appearance.ts).
+      {
+        const root = document.documentElement;
+        const prefers = (query) => matchMedia("(" + query + ")").matches;
+        let boot = null;
+        try {
+          boot = JSON.parse(localStorage.getItem("ace.boot-appearance") || "null");
+        } catch {}
         if (boot && typeof boot.css === "string") {
-          replayed = true;
-          const root = document.documentElement;
           const sheet = document.createElement("style");
           sheet.id = "ace-themes";
           sheet.textContent = boot.css;
           document.head.append(sheet);
-          for (const [name, value] of Object.entries(boot.attributes || {}))
-            root.setAttribute(name, String(value));
-          for (const [name, value] of Object.entries(boot.style || {}))
-            root.style.setProperty(name, String(value));
-          if (boot.system) {
-            const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-            root.setAttribute("data-theme", dark ? "dark" : "light");
-            root.setAttribute("data-scheme", dark ? "dark" : "light");
-          }
-          root.style.background = "var(--wall)";
+          root.setAttribute("data-theme", String(boot.theme));
+          if (boot.density) root.setAttribute("data-density", String(boot.density));
+          if (typeof boot.transcriptPx === "number")
+            root.style.setProperty("--transcript-size", boot.transcriptPx + "px");
+          root.style.background = "var(--background)";
+        } else {
+          // Nothing to replay (a first visit, or storage denied): Graphite following the OS, as the
+          // defaults will once the app loads.
+          boot = {};
+          root.setAttribute("data-first-visit", "");
         }
-      } catch {}
-      // Nothing to replay (a first visit, or storage denied): follow the OS, as the default
-      // "system" theme will once the app loads.
-      if (!replayed) {
-        const root = document.documentElement;
-        const scheme = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-        root.setAttribute("data-first-visit", "");
-        root.setAttribute("data-theme", scheme);
-        root.setAttribute("data-scheme", scheme);
+        const mode = boot.mode === "light" || boot.mode === "dark" ? boot.mode : "system";
+        root.setAttribute(
+          "data-scheme",
+          mode === "system" ? (prefers("prefers-color-scheme: dark") ? "dark" : "light") : mode,
+        );
+        root.setAttribute(
+          "data-surface",
+          boot.surface === "solid" || prefers("prefers-reduced-transparency: reduce")
+            ? "solid"
+            : "translucent",
+        );
+        if (
+          boot.reduceMotion === "on" ||
+          (boot.reduceMotion !== "off" && prefers("prefers-reduced-motion: reduce"))
+        )
+          root.setAttribute("data-reduce-motion", "");
       }
       // A boot that fails outright (an entry script that can't load or throws while loading)
       // says so on the splash at once; the app replaces the splash when it gets going.

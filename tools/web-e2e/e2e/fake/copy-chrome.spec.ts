@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
+import { screenThemes } from "../../src/appearance.ts";
 
-for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"]) {
+for (const theme of screenThemes) {
   test(`notifications stay above the mobile composer and can be dismissed in ${theme}`, async ({
     page,
   }) => {
@@ -9,9 +10,9 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       localStorage.setItem(
         "ace.appearance",
         JSON.stringify({
-          theme: preset,
-          accent: "theme",
-          glass: 1,
+          ...(preset.includes("-")
+            ? { theme: preset.split("-")[0], mode: preset.split("-")[1] }
+            : { mode: preset }),
           density: "comfortable",
           transcriptSize: "default",
         }),

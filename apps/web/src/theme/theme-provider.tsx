@@ -11,133 +11,124 @@ import { flushSync } from "react-dom";
 import type { ReactNode } from "react";
 import { writeJson, type KeyValueStorage } from "@ace/ui-core";
 import {
-  bootThemeKey,
+  bootAppearanceKey,
   loadAppearance,
+  resolveAppearance,
   saveAppearance,
   transcriptSizes,
   type Appearance,
-  type BootTheme,
+  type BootAppearance,
+  type ResolvedAppearance,
+  type SystemPreferences,
 } from "./appearance.ts";
-import { accentColours } from "./accent.ts";
-import { themeStylesheet } from "./css.ts";
-import { loadCustomThemes, saveCustomThemes } from "./custom-themes.ts";
-import { basePreset, presetThemes, type Theme } from "./presets.ts";
+import { allThemesStylesheet, themeStylesheet } from "./css.ts";
+import type { GlassEngine } from "./glass.ts";
+import { startLiquidGlass } from "./liquid-glass.ts";
+import { themes } from "./palettes.ts";
 import { withViewTransition } from "@/lib/motion.ts";
 
 export interface Environment {
   storage?: KeyValueStorage | undefined;
   matchMedia?: ((query: string) => MediaQueryList) | undefined;
   root?: HTMLElement | undefined;
+  /** Which glass this browser can render (`glassEngine`); blur when unknown. */
+  glassEngine?: GlassEngine | undefined;
 }
 
 interface ThemeValue {
   appearance: Appearance;
   update(next: Partial<Appearance>): void;
-  /** The theme on screen, with "system" resolved. */
-  theme: Theme;
-  /** Presets followed by the user's custom themes. */
-  themes: readonly Theme[];
-  customThemes: readonly Theme[];
-  /** Insert or replace a custom theme by id. */
-  saveTheme(theme: Theme): void;
-  deleteTheme(id: string): void;
+  /** What's on screen, with "system" and the OS's accessibility settings applied. */
+  resolved: ResolvedAppearance;
+  /** The OS asks for less transparency, so Translucent shows as solid. */
+  systemReducesTransparency: boolean;
 }
 const ThemeContext = createContext<ThemeValue | undefined>(undefined);
-const darkQuery = "(prefers-color-scheme: dark)";
 
-/** The OS's light or dark, read before the first render; a change cross-fades like a pick. */
-function useSystemDark(matchMedia: Environment["matchMedia"]): boolean {
-  const [dark, setDark] = useState(() => matchMedia?.(darkQuery).matches ?? true);
+const queries = {
+  dark: "(prefers-color-scheme: dark)",
+  reducedMotion: "(prefers-reduced-motion: reduce)",
+  reducedTransparency: "(prefers-reduced-transparency: reduce)",
+} as const;
+
+/** The OS preferences, read before the first render; a light/dark change cross-fades. */
+function useSystemPreferences(matchMedia: Environment["matchMedia"]): SystemPreferences {
+  const read = useCallback(
+    (): SystemPreferences => ({
+      dark: matchMedia?.(queries.dark).matches ?? true,
+      reducedMotion: matchMedia?.(queries.reducedMotion).matches ?? false,
+      reducedTransparency: matchMedia?.(queries.reducedTransparency).matches ?? false,
+    }),
+    [matchMedia],
+  );
+  const [system, setSystem] = useState(read);
   useEffect(() => {
-    const query = matchMedia?.(darkQuery);
-    if (!query) return;
-    const changed = () => withViewTransition(() => flushSync(() => setDark(query.matches)));
-    query.addEventListener("change", changed);
-    return () => query.removeEventListener("change", changed);
-  }, [matchMedia]);
-  return dark;
-}
-
-/** How long theme edits settle before they are written to storage (every keystroke applies). */
-const persistAfterMs = 300;
-
-/**
- * Coalesces writes: `schedule(key, write)` runs the latest write for a key after a pause, and
- * at once when the page is hidden or unloads, so a reload never loses the last edit.
- */
-function useCoalescedWrites() {
-  const [writer] = useState(() => {
-    const pending = new Map<string, () => void>();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const flush = () => {
-      clearTimeout(timer);
-      timer = undefined;
-      for (const write of pending.values()) write();
-      pending.clear();
+    if (!matchMedia) return;
+    const lists = Object.values(queries).map((query) => matchMedia(query));
+    let dark = read().dark;
+    const changed = () => {
+      const next = read();
+      const flipped = next.dark !== dark;
+      dark = next.dark;
+      if (flipped) withViewTransition(() => flushSync(() => setSystem(next)));
+      else setSystem(next);
     };
-    return {
-      flush,
-      schedule(key: string, write: () => void) {
-        pending.set(key, write);
-        clearTimeout(timer);
-        timer = setTimeout(flush, persistAfterMs);
-      },
-    };
-  });
-  useEffect(() => {
-    globalThis.addEventListener?.("pagehide", writer.flush);
+    for (const list of lists) list.addEventListener?.("change", changed);
     return () => {
-      globalThis.removeEventListener?.("pagehide", writer.flush);
-      writer.flush();
+      for (const list of lists) list.removeEventListener?.("change", changed);
     };
-  }, [writer]);
-  return writer;
+  }, [matchMedia, read]);
+  return system;
 }
 
 /**
- * Theme, accent, glass, density and transcript size, applied as attributes and variables on
- * <html>. Every theme's tokens are injected as one stylesheet, so switching is an attribute flip.
+ * Mode, theme, surfaces, reduced motion, density and transcript size, applied as attributes and
+ * one variable on <html>. Every theme is injected as one stylesheet, so switching is an
+ * attribute flip; `index.html` replays the boot record so the first frame is already right.
  */
 export function ThemeProvider(props: { environment: Environment; children: ReactNode }) {
-  const { storage, matchMedia, root } = props.environment;
+  const { storage, matchMedia, root, glassEngine = "blur" } = props.environment;
   const [appearance, setAppearance] = useState(() => loadAppearance(storage));
-  const [customThemes, setCustomThemes] = useState(() => loadCustomThemes(storage));
-  const systemDark = useSystemDark(matchMedia);
-  const themes = useMemo(() => [...presetThemes, ...customThemes], [customThemes]);
+  const system = useSystemPreferences(matchMedia);
+  const resolved = useMemo(() => resolveAppearance(appearance, system), [appearance, system]);
 
-  const wanted = appearance.theme === "system" ? (systemDark ? "dark" : "light") : appearance.theme;
-  const theme = themes.find((candidate) => candidate.id === wanted) ?? basePreset("dark");
-  const background = theme.tokens["--background"];
-
-  const css = useMemo(() => themeStylesheet(themes), [themes]);
-  const writes = useCoalescedWrites();
   // Layout effect, so a theme switch inside a view transition lands before the new snapshot.
   useLayoutEffect(() => {
     if (!root) return;
-    const attributes: Record<string, string> = {
-      "data-theme": theme.id,
-      "data-scheme": theme.scheme,
-      "data-accent": appearance.accent,
+    applyTheme(root, {
+      "data-theme": resolved.theme,
+      "data-scheme": resolved.scheme,
+      "data-surface": resolved.surface,
+      "data-reduce-motion": resolved.reduceMotion ? "" : undefined,
       "data-density": appearance.density,
+      "data-glass-engine": glassEngine,
+    });
+    root.style.setProperty(
+      "--transcript-size",
+      `${transcriptSizes[appearance.transcriptSize].px}px`,
+    );
+    setThemeColour(root.ownerDocument, themes[resolved.theme][resolved.scheme].s0);
+  }, [root, resolved, appearance.density, appearance.transcriptSize, glassEngine]);
+
+  // Per-layer liquid glass filters, only while they can show.
+  const liquid = glassEngine === "liquid" && resolved.surface === "translucent";
+  useEffect(() => {
+    if (!root || !liquid) return;
+    return startLiquidGlass(root.ownerDocument);
+  }, [root, liquid]);
+
+  useEffect(() => {
+    const boot: BootAppearance = {
+      theme: appearance.theme,
+      mode: appearance.mode,
+      surface: appearance.surface,
+      reduceMotion: appearance.reduceMotion,
+      density: appearance.density,
+      transcriptPx: transcriptSizes[appearance.transcriptSize].px,
+      css: themeStylesheet(appearance.theme),
     };
-    const accent = accentColours(theme, appearance);
-    const style: Record<string, string> = {
-      "--ring": accent.ring,
-      "--ring-foreground": accent.foreground,
-      "--ring-text": accent.text,
-      "--glass": String(appearance.glass),
-      "--transcript-size": `${transcriptSizes[appearance.transcriptSize].px}px`,
-    };
-    applyTheme(root, css, attributes, style, background);
-    const boot: BootTheme = {
-      system: appearance.theme === "system",
-      theme: theme.id,
-      attributes,
-      style,
-      css,
-    };
-    writes.schedule(bootThemeKey, () => writeJson(storage, bootThemeKey, boot));
-  }, [root, storage, css, theme, background, appearance, writes]);
+    writeJson(storage, bootAppearanceKey, boot);
+  }, [storage, appearance]);
 
   const update = useCallback(
     (next: Partial<Appearance>) => {
@@ -147,66 +138,48 @@ export function ThemeProvider(props: { environment: Environment; children: React
           saveAppearance(storage, merged);
           return merged;
         });
-      // A new theme or accent cross-fades the window; sliders and toggles apply directly.
-      if (next.theme !== undefined || next.accent !== undefined)
+      // A new palette cross-fades the window; the other settings apply directly.
+      if (next.theme !== undefined || next.mode !== undefined)
         withViewTransition(() => flushSync(apply));
       else apply();
     },
     [storage],
   );
-  const saveTheme = useCallback(
-    (next: Theme) =>
-      setCustomThemes((previous) => {
-        const index = previous.findIndex((candidate) => candidate.id === next.id);
-        const list =
-          index === -1 ? [...previous, next] : previous.map((t, i) => (i === index ? next : t));
-        // Typing in the theme editor applies every keystroke; storage gets the settled theme.
-        writes.schedule("ace.themes", () => saveCustomThemes(storage, list));
-        return list;
-      }),
-    [storage, writes],
-  );
-  const deleteTheme = useCallback(
-    (id: string) =>
-      setCustomThemes((previous) => {
-        const list = previous.filter((candidate) => candidate.id !== id);
-        writes.schedule("ace.themes", () => saveCustomThemes(storage, list));
-        return list;
-      }),
-    [storage, writes],
-  );
   const value = useMemo(
-    () => ({ appearance, update, theme, themes, customThemes, saveTheme, deleteTheme }),
-    [appearance, update, theme, themes, customThemes, saveTheme, deleteTheme],
+    () => ({
+      appearance,
+      update,
+      resolved,
+      systemReducesTransparency: system.reducedTransparency,
+    }),
+    [appearance, update, resolved, system.reducedTransparency],
   );
   return <ThemeContext.Provider value={value}>{props.children}</ThemeContext.Provider>;
 }
 
-function applyTheme(
-  root: HTMLElement,
-  css: string,
-  attributes: Record<string, string>,
-  style: Record<string, string>,
-  background: string,
-) {
+function applyTheme(root: HTMLElement, attributes: Record<string, string | undefined>) {
   const document = root.ownerDocument;
-  // The browser's own bar (mobile Safari, Chrome on Android, installed apps) matches the page.
-  let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-  if (!meta) {
-    meta = document.createElement("meta");
-    meta.name = "theme-color";
-    document.head.append(meta);
-  }
-  if (meta.content !== background) meta.content = background;
   let sheet = document.getElementById("ace-themes");
   if (!sheet) {
     sheet = document.createElement("style");
     sheet.id = "ace-themes";
     document.head.append(sheet);
   }
-  if (sheet.textContent !== css) sheet.textContent = css;
-  for (const [name, value] of Object.entries(attributes)) root.setAttribute(name, value);
-  for (const [name, value] of Object.entries(style)) root.style.setProperty(name, value);
+  if (sheet.textContent !== allThemesStylesheet) sheet.textContent = allThemesStylesheet;
+  for (const [name, value] of Object.entries(attributes))
+    if (value === undefined) root.removeAttribute(name);
+    else if (root.getAttribute(name) !== value) root.setAttribute(name, value);
+}
+
+/** The browser's own bar (mobile Safari, Chrome on Android, installed apps) matches the page. */
+function setThemeColour(document: Document, colour: string) {
+  let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (!meta) {
+    meta = document.createElement("meta");
+    meta.name = "theme-color";
+    document.head.append(meta);
+  }
+  if (meta.content !== colour) meta.content = colour;
 }
 
 export function useTheme(): ThemeValue {

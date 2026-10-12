@@ -142,7 +142,7 @@ export function ModelRow(props: {
           tabIndex={props.highlighted ? 0 : -1}
           onClick={props.onStar}
           className={cn(
-            "absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-subtle-foreground transition-colors duration-(--dur-1) motion-reduce:transition-none hover:text-foreground focus-ring-inset aria-pressed:text-link",
+            "absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-sm text-subtle-foreground transition-colors duration-(--motion-fast) motion-reduce:transition-none hover:text-foreground focus-ring-inset aria-pressed:text-link",
           )}
         >
           <StarIcon aria-hidden size={14} weight={props.starred ? "fill" : "regular"} />
@@ -186,7 +186,10 @@ export function LegacyToggle(props: {
         aria-hidden
         size={12}
         weight="bold"
-        className={cn("transition-transform duration-(--dur-1)", props.expanded && "rotate-90")}
+        className={cn(
+          "transition-transform duration-(--motion-fast)",
+          props.expanded && "rotate-90",
+        )}
       />
       <span className="flex-1">Legacy models</span>
       <span className="text-xs text-subtle-foreground tabular-nums">{props.count}</span>
@@ -197,19 +200,33 @@ export function LegacyToggle(props: {
 /** Discovery problems that signing in fixes: not set up or signed out. */
 const fixedBySignIn = new Set<ModelProblem["code"]>(["not_configured", "auth_expired"]);
 
+/** Whether signing in is the fix, so the account's own row can offer it instead. */
+export function isSignInProblem(problem: ModelProblem): boolean {
+  return problem.actionId === "provider.sign_in" || fixedBySignIn.has(problem.code);
+}
+
 /**
  * Why a group's list may be out of date, in the daemon's words, with what to do: "OpenRouter
  * could not be reached. Check your network and refresh models." Its last models still list.
  * Where signing in fixes it, Sign in starts that provider's (or upstream's) own sign-in.
  */
-export function GroupProblem(props: { problem: ModelProblem; id: string; provider: ProviderKind }) {
+export function GroupProblem(props: {
+  problem: ModelProblem;
+  id: string;
+  provider: ProviderKind;
+  /** Where it sits decides its inset: the picker's rows, or a settings row's own. */
+  className?: string;
+}) {
   const { problem } = props;
   const refresh = useRefreshModels();
   return (
     <p
       id={props.id}
       role="presentation"
-      className="flex gap-1.5 px-2.5 py-1 text-xs leading-4 text-muted-foreground"
+      className={cn(
+        "flex gap-1.5 px-2.5 py-1 text-xs leading-4 text-muted-foreground",
+        props.className,
+      )}
     >
       {problem.severity !== "info" && (
         <WarningCircleIcon aria-hidden size={14} className="mt-px shrink-0 text-status-failed" />
@@ -227,7 +244,7 @@ export function GroupProblem(props: { problem: ModelProblem; id: string; provide
           Refresh
         </Button>
       ) : (
-        (problem.actionId === "provider.sign_in" || fixedBySignIn.has(problem.code)) && (
+        isSignInProblem(problem) && (
           <SignInButton
             className="-my-0.5 shrink-0"
             target={{

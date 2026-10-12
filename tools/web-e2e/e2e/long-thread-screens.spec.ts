@@ -118,7 +118,12 @@ for (const theme of ["dark", "light"] as const)
     test(`${name} in ${theme}`, async ({ page }) => {
       await page.addInitScript((id) => {
         if (!localStorage.getItem("ace.appearance"))
-          localStorage.setItem("ace.appearance", JSON.stringify({ theme: id }));
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              id.includes("-") ? { theme: id.split("-")[0], mode: id.split("-")[1] } : { mode: id },
+            ),
+          );
       }, theme);
       await setup(page);
       await page.waitForTimeout(600);

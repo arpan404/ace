@@ -6,16 +6,22 @@
 
 /** Durations in ms. `fast` hover and press, `base` popovers, `slow` panels and list moves. */
 export const motionMs = {
-  fast: 150,
+  fast: 120,
   base: 200,
-  slow: 240,
-  sheet: 320,
+  slow: 320,
   exit: 140,
+  /** Old name for `slow`; remove once the parallel UI streams have landed. */
+  sheet: 320,
 } as const;
 
-/** Cubic-bézier control points, for platforms that take them as numbers. */
+/**
+ * Cubic-bézier control points, for platforms that take them as numbers. The web's spring is a
+ * `linear()` curve with a light overshoot; `spring` here is its nearest cubic.
+ */
 export const motionCurves = {
-  ease: [0.2, 0.7, 0.2, 1],
+  out: [0.2, 0.8, 0.2, 1],
+  /** Old name for `out`; remove once the parallel UI streams have landed. */
+  ease: [0.2, 0.8, 0.2, 1],
   spring: [0.3, 1.25, 0.5, 1],
   sheet: [0.32, 0.72, 0, 1],
   exit: [0.4, 0, 1, 1],

@@ -14,7 +14,7 @@ export function RowButton({ className, ...props }: ComponentProps<"button">) {
       type="button"
       className={cn(
         row,
-        "focus-ring-inset transition-colors duration-(--dur-1) hover:bg-accent disabled:text-muted-foreground disabled:hover:bg-transparent",
+        "focus-ring-inset transition-colors duration-(--motion-fast) hover:bg-accent disabled:text-muted-foreground disabled:hover:bg-transparent",
         className,
       )}
       {...props}

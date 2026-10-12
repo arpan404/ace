@@ -160,7 +160,15 @@ for (const theme of ["light", "dark"])
     test(`reasoning picker uses supported choices in ${theme} at ${width}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 800 });
       await page.addInitScript(
-        (chosen) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosen })),
+        (chosen) =>
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              chosen.includes("-")
+                ? { theme: chosen.split("-")[0], mode: chosen.split("-")[1] }
+                : { mode: chosen },
+            ),
+          ),
         theme,
       );
       await page.goto("/new");
@@ -235,10 +243,7 @@ for (const theme of ["light", "dark"])
       await page.setViewportSize({ width, height: 800 });
       await page.addInitScript(
         (chosen) =>
-          localStorage.setItem(
-            "ace.appearance",
-            JSON.stringify({ theme: chosen, accent: "custom", customAccent: "#06b6d4" }),
-          ),
+          localStorage.setItem("ace.appearance", JSON.stringify({ mode: chosen, theme: "tide" })),
         theme,
       );
       await page.goto("/t/thread-ultra-reasoning-preview?fakeWorld=thread-activity");
@@ -394,7 +399,15 @@ for (const theme of ["light", "dark"])
     }) => {
       await page.setViewportSize({ width, height: 800 });
       await page.addInitScript(
-        (chosen) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosen })),
+        (chosen) =>
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              chosen.includes("-")
+                ? { theme: chosen.split("-")[0], mode: chosen.split("-")[1] }
+                : { mode: chosen },
+            ),
+          ),
         theme,
       );
       await page.goto("/new?project=relay");
@@ -481,7 +494,13 @@ for (const theme of ["light", "dark"]) {
   for (const route of ["/new?project=relay", "/t/thread-dedupe?fakeWorld=thread-activity"]) {
     test(`empty caret starts before its placeholder in ${theme} on ${route}`, async ({ page }) => {
       await page.addInitScript(
-        (t) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: t })),
+        (t) =>
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              t.includes("-") ? { theme: t.split("-")[0], mode: t.split("-")[1] } : { mode: t },
+            ),
+          ),
         theme,
       );
       await page.goto(route);

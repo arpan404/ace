@@ -1,11 +1,12 @@
 import { chromium } from "@playwright/test";
 import { readFile, readdir, writeFile } from "node:fs/promises";
+import { screenThemes } from "./appearance.ts";
 
 const before =
   process.env.ACE_PROVIDER_SHOTS_BEFORE ?? "/tmp/ace-orch/shots/ui-providers-clean/followup";
 const out =
   process.env.ACE_PROVIDER_SHOTS_OUT ?? "/tmp/ace-orch/shots/ui-providers-clean/followup2";
-const themes = ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"];
+const themes = screenThemes;
 const files = (await readdir(out)).filter(
   (file) =>
     file.endsWith(".png") &&

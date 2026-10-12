@@ -20,7 +20,7 @@ test("walkthrough of a long thread", async ({ page }) => {
   test.setTimeout(150_000);
   await page.addInitScript(() => {
     if (!localStorage.getItem("ace.appearance"))
-      localStorage.setItem("ace.appearance", JSON.stringify({ theme: "dark" }));
+      localStorage.setItem("ace.appearance", JSON.stringify({ mode: "dark" }));
   });
 
   // Back after a day away: the transcript opens without an automatic summary.

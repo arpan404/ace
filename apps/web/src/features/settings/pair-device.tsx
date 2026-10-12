@@ -1,3 +1,4 @@
+import { SettingAction, SettingDisclosure } from "@/components/setting-row.tsx";
 import { useNavigate } from "@tanstack/react-router";
 import { SettingsBody } from "./settings-body.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
@@ -111,8 +112,7 @@ function PairingFlow(props: { close(): void }) {
             options={deviceAccessOptions}
             onValueChange={setAccess}
           />
-          <details>
-            <summary className="text-sm text-muted-foreground">Advanced access</summary>
+          <SettingDisclosure title="Advanced access">
             <p className="py-2 text-sm text-muted-foreground">
               Projects allows changing registered folders. Accounts allows managing provider
               accounts. These are separate from administrator access.
@@ -130,7 +130,7 @@ function PairingFlow(props: { close(): void }) {
                 />
               </label>
             ))}
-          </details>
+          </SettingDisclosure>
           {access === "admin" && (
             <p className="text-sm text-muted-foreground">
               Can change settings, pair or revoke devices, and use computer controls.
@@ -164,9 +164,9 @@ export function PairDevice() {
   const [open, setOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+      <SettingAction id="remote.pair" onClick={() => setOpen(true)}>
         + Pair a device
-      </Button>
+      </SettingAction>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Pair a device</DialogTitle>

@@ -3,7 +3,14 @@ import { expect, test } from "@playwright/test";
 for (const theme of ["light", "dark"])
   test(`every provider mark fits its box and follows ${theme} ink`, async ({ page }) => {
     await page.addInitScript((chosen) => {
-      localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosen }));
+      localStorage.setItem(
+        "ace.appearance",
+        JSON.stringify(
+          chosen.includes("-")
+            ? { theme: chosen.split("-")[0], mode: chosen.split("-")[1] }
+            : { mode: chosen },
+        ),
+      );
       Object.assign(globalThis, { aceFakeWorld: "empty" });
     }, theme);
     await page.goto("/new");

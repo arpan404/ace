@@ -98,122 +98,125 @@ export function ProviderSetupRow({
           : undefined;
   return (
     <div className="flex min-w-0 flex-col">
-      <div className="flex h-9 min-w-0 items-center gap-2 text-sm">
+      <div className="flex min-h-9 min-w-0 items-center gap-2 text-sm">
         {!props.heading && (
           <ProviderIcon provider={provider} acpAgentId={props.acpAgentId} size={16} />
         )}
-        {!props.heading && (
-          <span className="min-w-0 flex-1 truncate font-medium">{props.title ?? name}</span>
-        )}
-        {status ? (
-          <span role={failed ? "alert" : "status"}>
-            <StatusLabel
-              tone={
-                failed
-                  ? "failed"
-                  : busy
-                    ? "working"
-                    : progress?.state === "succeeded"
-                      ? "done"
-                      : "idle"
-              }
-              label={status}
-            />
-          </span>
-        ) : missing ? null : updateAvailable && (!props.view || props.view.ready) ? (
-          !props.heading && <StatusLabel tone="needs-you" label="Update available" />
-        ) : props.view && !props.view.ready ? (
-          <StatusLine
-            tone={props.view.tone}
-            text={props.view.primary === "sign_in" ? "Signed out" : props.view.summary}
-          />
-        ) : null}
-        {busy ? (
-          <IconButton
-            size="sm"
-            icon={XIcon}
-            label={`Cancel ${name} installation`}
-            onClick={() => void controller.cancel()}
-          />
-        ) : unsupported && plan.action !== "uninstall" && plan.status === "manual" ? (
-          <a
-            href={plan.sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className={buttonVariants({ size: "sm", variant: "secondary" })}
-          >
-            {plan.downloadOnly ? `Get ${name}` : "Manage installation"}
-          </a>
-        ) : unsupported && plan.prerequisite && plan.action !== "uninstall" ? (
-          <a
-            href={plan.prerequisite.sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className={buttonVariants({ size: "sm", variant: "secondary" })}
-          >
-            Get {plan.prerequisite.name}
-          </a>
-        ) : failed ||
-          progress?.state === "cancelled" ||
-          (missing && provider !== "cursor" && plan?.status !== "sign_in") ||
-          updateAvailable ? (
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              setDetails(false);
-              void controller.install(action);
-            }}
-          >
-            {failed ? "Retry" : action === "install" ? "Install" : "Update"}
-          </Button>
-        ) : needsSignIn ? (
-          <SignInButton
-            variant="secondary"
-            label={`Sign in to ${name}`}
-            target={{ provider, instance: props.instance, name }}
-          >
-            Sign in
-          </SignInButton>
-        ) : null}
-        {(plan || progress || view.kind === "error") && !busy && (
-          <IconButton
-            size="sm"
-            icon={InfoIcon}
-            label={`${name} installation details`}
-            aria-expanded={details}
-            onClick={() => setDetails(!details)}
-          />
-        )}
-        {unsupported && plan.prerequisite && plan.action !== "uninstall" && (
-          <IconButton
-            icon={ArrowClockwiseIcon}
-            size="sm"
-            label={`Retry ${name} installation after installing prerequisites`}
-            onClick={() => void controller.install(action)}
-          />
-        )}
-        {props.manage && !missing && !busy && (
-          <Menu>
-            <MenuTrigger
-              render={<IconButton size="sm" icon={DotsThreeIcon} label={`Manage ${name}`} />}
-            />
-            <MenuContent align="end">
-              <MenuItem
-                onClick={() =>
-                  void preferences.update((row) => ({ ...row, enabled: row.enabled === false }))
+        {/* On a narrow screen the status and actions wrap under the name, not under the icon. */}
+        <div className="flex min-h-9 min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          {!props.heading && (
+            <span className="min-w-[8rem] flex-1 truncate font-medium">{props.title ?? name}</span>
+          )}
+          {status ? (
+            <span role={failed ? "alert" : "status"}>
+              <StatusLabel
+                tone={
+                  failed
+                    ? "failed"
+                    : busy
+                      ? "working"
+                      : progress?.state === "succeeded"
+                        ? "done"
+                        : "idle"
                 }
-              >
-                {preferences.value?.enabled === false ? "Turn on" : "Turn off"}
-              </MenuItem>
-              {provider !== "cursor" && provider !== "acp" && (
-                <MenuItem onClick={requestRemoval}>Remove…</MenuItem>
-              )}
-              {props.menuItems}
-            </MenuContent>
-          </Menu>
-        )}
-        {props.secondary}
+                label={status}
+              />
+            </span>
+          ) : missing ? null : updateAvailable && (!props.view || props.view.ready) ? (
+            !props.heading && <StatusLabel tone="needs-you" label="Update available" />
+          ) : props.view && !props.view.ready ? (
+            <StatusLine
+              tone={props.view.tone}
+              text={props.view.primary === "sign_in" ? "Signed out" : props.view.summary}
+            />
+          ) : null}
+          {busy ? (
+            <IconButton
+              size="sm"
+              icon={XIcon}
+              label={`Cancel ${name} installation`}
+              onClick={() => void controller.cancel()}
+            />
+          ) : unsupported && plan.action !== "uninstall" && plan.status === "manual" ? (
+            <a
+              href={plan.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={buttonVariants({ size: "sm", variant: "secondary" })}
+            >
+              {plan.downloadOnly ? `Get ${name}` : "Manage installation"}
+            </a>
+          ) : unsupported && plan.prerequisite && plan.action !== "uninstall" ? (
+            <a
+              href={plan.prerequisite.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={buttonVariants({ size: "sm", variant: "secondary" })}
+            >
+              Get {plan.prerequisite.name}
+            </a>
+          ) : failed ||
+            progress?.state === "cancelled" ||
+            (missing && provider !== "cursor" && plan?.status !== "sign_in") ||
+            updateAvailable ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setDetails(false);
+                void controller.install(action);
+              }}
+            >
+              {failed ? "Retry" : action === "install" ? "Install" : "Update"}
+            </Button>
+          ) : needsSignIn ? (
+            <SignInButton
+              variant="secondary"
+              label={`Sign in to ${name}`}
+              target={{ provider, instance: props.instance, name }}
+            >
+              Sign in
+            </SignInButton>
+          ) : null}
+          {(plan || progress || view.kind === "error") && !busy && (
+            <IconButton
+              size="sm"
+              icon={InfoIcon}
+              label={`${name} installation details`}
+              aria-expanded={details}
+              onClick={() => setDetails(!details)}
+            />
+          )}
+          {unsupported && plan.prerequisite && plan.action !== "uninstall" && (
+            <IconButton
+              icon={ArrowClockwiseIcon}
+              size="sm"
+              label={`Retry ${name} installation after installing prerequisites`}
+              onClick={() => void controller.install(action)}
+            />
+          )}
+          {props.manage && !missing && !busy && (
+            <Menu>
+              <MenuTrigger
+                render={<IconButton size="sm" icon={DotsThreeIcon} label={`Manage ${name}`} />}
+              />
+              <MenuContent align="end">
+                <MenuItem
+                  onClick={() =>
+                    void preferences.update((row) => ({ ...row, enabled: row.enabled === false }))
+                  }
+                >
+                  {preferences.value?.enabled === false ? "Turn on" : "Turn off"}
+                </MenuItem>
+                {provider !== "cursor" && provider !== "acp" && (
+                  <MenuItem onClick={requestRemoval}>Remove…</MenuItem>
+                )}
+                {props.menuItems}
+              </MenuContent>
+            </Menu>
+          )}
+          {props.secondary}
+        </div>
       </div>
       {busy && (
         <ProgressBar label={`${name} installation progress`} value={undefined} valueText={status} />

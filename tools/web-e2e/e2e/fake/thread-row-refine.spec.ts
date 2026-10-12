@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { stageSidebarTasks } from "./sidebar-tasks.fixture.ts";
 import { scrollToRow } from "./thread-list.ts";
+import { screenThemes } from "../../src/appearance.ts";
 
 const out = "/tmp/ace-orch/shots/ui-thread-row-refine";
 
-for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"])
+for (const theme of screenThemes)
   for (const width of [1440, 390])
     test(`meta line and account chip in ${theme} at ${width}`, async ({ page }) => {
       await page.emulateMedia({ reducedMotion: "reduce" });

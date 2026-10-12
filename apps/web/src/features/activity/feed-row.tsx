@@ -85,7 +85,7 @@ export function FeedRow(props: {
   return (
     <li
       className={cn(
-        "relative rounded-sm transition-colors duration-(--dur-1) hover:bg-sidebar-accent",
+        "relative rounded-sm transition-colors duration-(--motion-fast) hover:bg-sidebar-accent",
         arrival,
         props.selected && "bg-foreground/8 hover:bg-foreground/8",
       )}

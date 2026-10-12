@@ -1,5 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
+import { screenThemes } from "../src/appearance.ts";
 
 const output = "/tmp/ace-orch/shots/fix-one-click-install-signin";
 mkdirSync(output, { recursive: true });
@@ -11,7 +12,14 @@ async function prepare(page: Page, theme: string, width: number, scenario = "fai
   await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
   await page.addInitScript(
     ({ theme: selectedTheme, scenario: selectedScenario }) => {
-      localStorage.setItem("ace.appearance", JSON.stringify({ theme: selectedTheme }));
+      localStorage.setItem(
+        "ace.appearance",
+        JSON.stringify(
+          selectedTheme.includes("-")
+            ? { theme: selectedTheme.split("-")[0], mode: selectedTheme.split("-")[1] }
+            : { mode: selectedTheme },
+        ),
+      );
       Object.assign(globalThis, {
         aceFakeWorld: "empty",
         aceFakeSetup: new Function(
@@ -91,7 +99,7 @@ for (const theme of ["light", "dark"])
         await capture(page, `${prefix}-ready`);
       });
 
-for (const theme of ["midnight", "graphite", "paper", "slate", "contrast"])
+for (const theme of screenThemes.slice(2))
   test(`provider Install uses the ${theme} theme at phone width`, async ({ page }) => {
     await prepare(page, theme, 390);
     await page.goto("/settings/providers/antigravity");

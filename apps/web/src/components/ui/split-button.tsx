@@ -28,7 +28,7 @@ function SplitButton(props: {
 }) {
   const outline = (props.variant ?? "outline") === "outline";
   const region =
-    "inline-flex h-full items-center outline-none transition-colors duration-(--dur-1) hover:bg-accent focus-visible:bg-accent disabled:opacity-50";
+    "inline-flex h-full items-center outline-none transition-colors duration-(--motion-fast) hover:bg-accent focus-visible:bg-accent disabled:opacity-50";
   return (
     <div
       data-slot="split-button"

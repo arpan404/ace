@@ -1,11 +1,12 @@
 import { mkdirSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { screenThemes } from "../src/appearance.ts";
 
 const output =
   process.env.ACE_PROVIDER_SHOTS_OUT ?? "/tmp/ace-orch/shots/ui-providers-clean/followup2";
 mkdirSync(output, { recursive: true });
 
-for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"])
+for (const theme of screenThemes)
   for (const width of [1440, 390])
     for (const surface of ["providers", "provider", "usage"])
       test(`${surface} loading, error recovery and empty accounts in ${theme} at ${width}`, async ({
@@ -23,7 +24,14 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
           surface === "providers" ? "providers" : surface === "provider" ? "accounts" : "usage";
         await page.addInitScript(
           ({ theme: selectedTheme, request: selectedRequest }) => {
-            localStorage.setItem("ace.appearance", JSON.stringify({ theme: selectedTheme }));
+            localStorage.setItem(
+              "ace.appearance",
+              JSON.stringify(
+                selectedTheme.includes("-")
+                  ? { theme: selectedTheme.split("-")[0], mode: selectedTheme.split("-")[1] }
+                  : { mode: selectedTheme },
+              ),
+            );
             Object.assign(globalThis, {
               aceFakeWorld: "idle",
               aceFakeSetup: new Function(

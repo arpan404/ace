@@ -1,240 +1,169 @@
-/**
- * Every themeable CSS variable, in the groups the Theme editor shows. A theme stores a value for
- * each of these; everything else (foreground aliases, materials, the accent ring) is derived in
- * CSS from them, so editing one token keeps the whole theme coherent.
+import { oklchToHex } from "./colour.ts";
+import { rampSteps, sharedStatus, syntax, type Palette, type Scheme } from "./palettes.ts";
+
+/*
+ * One palette as every themed CSS variable. Components read these names only (through the
+ * Tailwind utilities in styles/index.css); docs/design/visual-language.md lists what each is for.
+ * Status `-text` colours for waiting and not-responding are added in `css.ts`, where they are
+ * made readable across the theme's surfaces.
  */
-export const tokenGroups = [
-  {
-    name: "Surfaces",
-    tokens: [
-      "--background",
-      "--reading-rgb",
-      "--sidebar-rgb",
-      "--popover",
-      "--card",
-      "--secondary",
-      "--muted",
-      "--accent",
-      "--border",
-      "--input",
-      "--code",
-      "--bubble",
-    ],
-  },
-  {
-    name: "Text",
-    tokens: [
-      "--foreground",
-      "--muted-foreground",
-      "--subtle-foreground",
-      "--primary",
-      "--primary-foreground",
-      "--destructive",
-    ],
-  },
-  { name: "Sidebar", tokens: ["--sidebar-foreground", "--sidebar-accent", "--sidebar-border"] },
-  {
-    name: "Status",
-    tokens: [
-      "--status-needs-you",
-      "--status-working",
-      "--status-waiting",
-      "--status-unresponsive",
-      "--status-failed",
-      "--status-done",
-    ],
-  },
-  {
-    name: "Accent",
-    tokens: [
-      "--accent-theme",
-      "--accent-blue",
-      "--accent-violet",
-      "--accent-teal",
-      "--accent-amber",
-      "--accent-rose",
-      "--accent-graphite",
-    ],
-  },
-  {
-    name: "Glass",
-    tokens: [
-      "--glass-rgb",
-      "--glass-a",
-      "--glass-blur",
-      "--glass-border",
-      "--glass-edge",
-      "--glass-highlight",
-      "--glass-shadow",
-    ],
-  },
-  { name: "Diff", tokens: ["--diff-add", "--diff-del"] },
-  {
-    name: "Project badges",
-    tokens: [
-      "--project-1",
-      "--project-2",
-      "--project-3",
-      "--project-4",
-      "--project-5",
-      "--project-6",
-      "--project-7",
-      "--project-8",
-      "--project-9",
-      "--project-10",
-      "--project-11",
-      "--project-12",
-    ],
-  },
-  { name: "Wallpaper", tokens: ["--wall", "--w1", "--w2", "--w3", "--w4"] },
-  { name: "Shape", tokens: ["--radius-sm", "--radius", "--radius-lg", "--radius-xl"] },
-] as const;
 
-export type TokenName = (typeof tokenGroups)[number]["tokens"][number];
-export type ThemeTokens = Record<TokenName, string>;
+/** "#RRGGBB" as "r g b", for the old `rgb(var(--x-rgb))` names. */
+const rgbTriple = (hex: string) =>
+  [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16)).join(" ");
 
-export const tokenNames: readonly TokenName[] = tokenGroups.flatMap((group) => group.tokens);
+/** `colour` at `percent` over transparent. */
+const wash = (colour: string, percent: number) =>
+  `color-mix(in srgb, ${colour} ${percent}%, transparent)`;
 
-/** Labels shared by theme controls; variables remain available as secondary text. */
-export const tokenLabels: Record<TokenName, string> = {
-  "--background": "Window background",
-  "--reading-rgb": "Main column background",
-  "--sidebar-rgb": "Sidebar background",
-  "--popover": "Menu background",
-  "--card": "Summary background",
-  "--secondary": "Control background",
-  "--muted": "Muted background",
-  "--accent": "Hover background",
-  "--border": "Dividers",
-  "--input": "Input borders",
-  "--code": "Code background",
-  "--bubble": "Your message background",
-  "--foreground": "Main text",
-  "--muted-foreground": "Secondary text",
-  "--subtle-foreground": "Quiet text",
-  "--primary": "Tooltip background",
-  "--primary-foreground": "Tooltip text",
-  "--destructive": "Error text",
-  "--sidebar-foreground": "Sidebar text",
-  "--sidebar-accent": "Sidebar selection",
-  "--sidebar-border": "Sidebar dividers",
-  "--accent-theme": "Theme accent",
-  "--glass-rgb": "Floating background",
-  "--glass-a": "Floating opacity",
-  "--glass-blur": "Background blur",
-  "--glass-border": "Floating border",
-  "--glass-edge": "Floating edge",
-  "--glass-highlight": "Floating highlight",
-  "--glass-shadow": "Floating shadow",
-  "--diff-add": "Added lines",
-  "--diff-del": "Removed lines",
-  "--wall": "Wallpaper base",
-  "--w1": "Wallpaper colour 1",
-  "--w2": "Wallpaper colour 2",
-  "--w3": "Wallpaper colour 3",
-  "--w4": "Wallpaper colour 4",
-  "--radius-sm": "Small corner radius",
-  "--radius": "Corner radius",
-  "--radius-lg": "Large corner radius",
-  "--radius-xl": "Extra large corner radius",
-  "--status-needs-you": "Needs you",
-  "--status-working": "Working",
-  "--status-waiting": "Waiting",
-  "--status-unresponsive": "Not responding",
-  "--status-failed": "Failed",
-  "--status-done": "Done",
-  "--accent-blue": "Blue accent",
-  "--accent-violet": "Violet accent",
-  "--accent-teal": "Teal accent",
-  "--accent-amber": "Amber accent",
-  "--accent-rose": "Rose accent",
-  "--accent-graphite": "Graphite accent",
-  "--project-1": "Project colour 1",
-  "--project-2": "Project colour 2",
-  "--project-3": "Project colour 3",
-  "--project-4": "Project colour 4",
-  "--project-5": "Project colour 5",
-  "--project-6": "Project colour 6",
-  "--project-7": "Project colour 7",
-  "--project-8": "Project colour 8",
-  "--project-9": "Project colour 9",
-  "--project-10": "Project colour 10",
-  "--project-11": "Project colour 11",
-  "--project-12": "Project colour 12",
+/**
+ * Project badge tints: twelve hues around the wheel at one perceptual lightness per scheme, so
+ * no project looks louder than another. Each reads as text on the theme's surfaces (AA).
+ */
+const projectHues = [25, 55, 85, 125, 150, 178, 205, 240, 268, 295, 325, 355] as const;
+const projectLightness: Record<Scheme, { l: number; c: number }> = {
+  dark: { l: 0.85, c: 0.12 },
+  light: { l: 0.41, c: 0.14 },
+};
+const projectTints = (scheme: Scheme): Record<`--project-${number}`, string> => {
+  const { l, c } = projectLightness[scheme];
+  return Object.fromEntries(
+    projectHues.map((hue, index) => [`--project-${index + 1}`, oklchToHex(l, c, hue)]),
+  );
+};
+const projectSets: Record<Scheme, Record<`--project-${number}`, string>> = {
+  light: projectTints("light"),
+  dark: projectTints("dark"),
 };
 
-/** What a token's value is, so the editor can refuse what CSS would drop. */
-export type TokenKind = "color" | "rgbTriple" | "alpha" | "length" | "shadow";
-
-const tokenKinds: Partial<Record<TokenName, TokenKind>> = {
-  "--reading-rgb": "rgbTriple",
-  "--sidebar-rgb": "rgbTriple",
-  "--glass-rgb": "rgbTriple",
-  "--glass-a": "alpha",
-  "--glass-blur": "length",
-  "--glass-highlight": "shadow",
-  "--glass-shadow": "shadow",
-  "--radius-sm": "length",
-  "--radius": "length",
-  "--radius-lg": "length",
-  "--radius-xl": "length",
-};
-
-/** A token's kind; anything not listed is a colour. */
-export function tokenKind(token: TokenName): TokenKind {
-  return tokenKinds[token] ?? "color";
+/** `--neutral-1` … `--neutral-12`, in ramp order (palettes.ts `rampSteps`). */
+function neutralRamp(p: Palette): Record<`--neutral-${number}`, string> {
+  return Object.fromEntries(rampSteps.map((step, index) => [`--neutral-${index + 1}`, p[step]]));
 }
 
-const hexColour = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
-const colourFunction = /^(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color|color-mix)\(.+\)$/i;
-const tripleValue = /^(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})$/;
-const lengthValue = /^(?:0|\d*\.?\d+(?:px|rem|em|%))$/;
+export function themeTokens(p: Palette, scheme: Scheme) {
+  const light = scheme === "light";
+  const sx = syntax[scheme];
+  const status = sharedStatus[scheme];
+  const fill = wash(p.t1, light ? 4 : 5);
+  const fillStrong = wash(p.t1, light ? 7 : 8);
+  const floatShadow = light
+    ? `0 1px 2px rgb(${p.shadow} / 0.05), 0 6px 16px -4px rgb(${p.shadow} / 0.1), 0 22px 48px -18px rgb(${p.shadow} / 0.2)`
+    : "0 1px 2px rgb(0 0 0 / 0.4), 0 8px 20px -6px rgb(0 0 0 / 0.45), 0 28px 56px -20px rgb(0 0 0 / 0.6)";
+  const glassInner = light ? "rgb(255 255 255 / 0.85)" : "rgb(255 255 255 / 0.1)";
+  return {
+    // The neutral ramp, by step (`--neutral-1` canvas … `--neutral-12` text).
+    ...neutralRamp(p),
 
-type Supports = (property: string, value: string) => boolean;
+    // Surfaces.
+    "--surface-0": p.s0,
+    "--surface-1": p.s1,
+    "--surface-2": p.s2,
+    "--background": p.s0,
+    "--reading": p.s0,
+    "--sidebar": p.sidebar,
+    "--panel": p.sidebar,
+    "--popover": p.s2,
+    "--card": p.s1,
+    "--bubble": p.s1,
+    "--code": p.code,
+    "--fill": fill,
+    "--fill-strong": fillStrong,
+    "--secondary": wash(p.t1, light ? 6 : 8),
+    "--muted": fill,
+    "--accent": fill,
+    "--hover": p.hover,
+    "--active": p.active,
+    "--border": p.border,
+    "--border-soft": `color-mix(in srgb, ${p.border} 70%, transparent)`,
+    "--border-strong": p.borderStrong,
+    "--input": p.borderStrong,
+    // Text fields: white with a hairline in light, a quiet lift in dark; same on any surface.
+    "--field": light ? p.raised : wash(p.t1, 6),
+    "--faint-foreground": p.faint,
+    // Modal backdrops: a light neutral scrim when solid, a barely-there tint over blur when glass.
+    "--scrim": light ? `rgb(${p.shadow} / 0.14)` : "rgb(0 0 0 / 0.36)",
+    "--scrim-glass": light ? "rgb(255 255 255 / 0.16)" : "rgb(0 0 0 / 0.18)",
+    "--skel": wash(p.t1, light ? 6 : 8),
+    "--skel-hi": wash(p.s0, light ? 70 : 12),
 
-/** The browser's own check when it has one (`CSS.supports`); none in a test DOM. */
-function browserSupports(): Supports | undefined {
-  const css: unknown = Reflect.get(globalThis, "CSS");
-  const supports: unknown =
-    css && typeof css === "object" ? Reflect.get(css, "supports") : undefined;
-  return typeof supports === "function"
-    ? (property, value) => Boolean(Reflect.apply(supports, css, [property, value]))
-    : undefined;
+    // Text.
+    "--foreground": p.t1,
+    "--muted-foreground": p.t2,
+    "--subtle-foreground": p.t3,
+    "--primary": p.t1,
+    "--primary-foreground": p.s0,
+    "--destructive": p.failedText,
+    "--sidebar-foreground": p.t1,
+    "--sidebar-accent": fillStrong,
+    "--sidebar-border": p.border,
+
+    // The accent: focus, selection, primary actions, checked controls, links.
+    "--ring": p.accent,
+    "--ring-hover": p.accentHover,
+    "--ring-pressed": p.accentPressed,
+    "--ring-foreground": p.accentFg,
+    "--ring-text": p.accentText,
+    "--focus": `color-mix(in srgb, ${p.accent} 60%, transparent)`,
+
+    // Status hues (dots, rings) and the same hue as readable words.
+    "--status-working": p.working,
+    "--status-working-text": p.workingText,
+    "--status-needs-you": p.needs,
+    "--status-needs-you-text": p.needsText,
+    "--status-failed": p.failed,
+    "--status-failed-text": p.failedText,
+    "--status-done": p.done,
+    "--status-done-text": p.doneText,
+    "--status-waiting": status.waiting,
+    "--status-unresponsive": status.unresponsive,
+
+    // Diffs and code.
+    "--diff-add": wash(p.done, light ? 11 : 14),
+    "--diff-del": wash(p.failed, light ? 10 : 14),
+    "--syn-kw": sx.kw,
+    "--syn-str": sx.str,
+    "--syn-num": sx.num,
+    "--syn-fn": sx.fn,
+    "--syn-type": sx.type,
+    "--syn-com": sx.com,
+
+    // Controls.
+    "--seg-bg": wash(p.t1, light ? 6 : 8),
+    "--seg-thumb": light ? p.s2 : `color-mix(in srgb, ${p.s2}, #fff 9%)`,
+    "--seg-thumb-shadow": light
+      ? `0 0 0 0.5px rgb(${p.shadow} / 0.14), 0 1px 3px rgb(${p.shadow} / 0.12)`
+      : "inset 0 1px 0 rgb(255 255 255 / 0.06), 0 1px 3px rgb(0 0 0 / 0.4)",
+    "--switch-off": wash(p.t1, light ? 16 : 22),
+
+    // Floating layers: solid edge and shadow, and the glass material (styles/glass.css).
+    "--float-edge": light ? `color-mix(in srgb, ${p.border}, ${p.t1} 4%)` : p.border,
+    "--float-shadow": floatShadow,
+    "--glass-tint": `color-mix(in srgb, ${p.s2} ${light ? 64 : 68}%, transparent)`,
+    // Dialogs and the palette: glass dense enough that nothing behind reads through.
+    "--glass-tint-modal": `color-mix(in srgb, ${p.s2} ${light ? 90 : 92}%, transparent)`,
+    "--glass-tint-liquid": `color-mix(in srgb, ${p.s2} ${light ? 56 : 62}%, transparent)`,
+    "--glass-edge": light ? `rgb(${p.shadow} / 0.1)` : "rgb(255 255 255 / 0.09)",
+    "--glass-inner": glassInner,
+    "--glass-sheen": light ? "rgb(255 255 255 / 0.35)" : "rgb(255 255 255 / 0.045)",
+    "--glass-shadow": floatShadow,
+    "--glass-border": light ? `rgb(${p.shadow} / 0.1)` : "rgb(255 255 255 / 0.09)",
+    "--glass-highlight": `inset 0 1px 0 ${glassInner}`,
+    "--sliver": light
+      ? `color-mix(in srgb, ${p.s2} 80%, ${p.s1})`
+      : `color-mix(in srgb, ${p.s2}, ${p.s1} 30%)`,
+
+    ...projectSets[scheme],
+
+    // Old names (styles/legacy-aliases.css explains when they go).
+    "--accent-theme": p.accent,
+    "--reading-rgb": rgbTriple(p.s0),
+    "--sidebar-rgb": rgbTriple(p.sidebar),
+    "--glass-rgb": rgbTriple(p.s2),
+  };
 }
 
-/** Whether `value` is a usable value for a token of `kind`. */
-export function isValidTokenValue(
-  kind: TokenKind,
-  value: string,
-  supports: Supports | undefined = browserSupports(),
-): boolean {
-  const text = value.trim();
-  if (!text || /[{};]/.test(text)) return false;
-  switch (kind) {
-    case "rgbTriple": {
-      const match = tripleValue.exec(text);
-      return match !== null && match.slice(1).every((part) => Number(part) <= 255);
-    }
-    case "alpha": {
-      const number = Number(text);
-      return /^\d*\.?\d+$/.test(text) && number >= 0 && number <= 1;
-    }
-    case "length":
-      return lengthValue.test(text) && (supports?.("width", text) ?? true);
-    case "shadow":
-      return supports ? supports("box-shadow", text) : text === "none" || /\d/.test(text);
-    case "color":
-      return supports
-        ? supports("color", text)
-        : hexColour.test(text) || colourFunction.test(text) || /^[a-z]+$/i.test(text);
-  }
-}
+export type ThemeTokens = ReturnType<typeof themeTokens>;
 
-/** What to tell someone whose value was refused. */
-export const tokenKindHints: Record<TokenKind, string> = {
-  color: "Not a colour",
-  rgbTriple: "Use three numbers from 0 to 255, like 24 24 27",
-  alpha: "Use a number from 0 to 1",
-  length: "Use a length, like 10px",
-  shadow: "Not a shadow",
-};
+/** How many project tints a theme has; `--project-1` to `--project-${projectTintCount}`. */
+export const projectTintCount = projectHues.length;

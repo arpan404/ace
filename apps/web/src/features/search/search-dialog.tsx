@@ -1,4 +1,4 @@
-import { ClockCounterClockwiseIcon, MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
+import { FunnelSimpleIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { formatAge, resultCountLabel } from "@ace/ui-core";
 import { useNavigate, useRouter } from "@tanstack/react-router";
@@ -7,7 +7,6 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { CommandDialog, commandField, CommandSearchRow } from "@/components/ui/command.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -20,6 +19,7 @@ import { WorkspaceId } from "@ace/protocol";
 import { useProjectChoices } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { useRecentSearches } from "./search-recent.ts";
+import { SearchStart } from "./search-start.tsx";
 import {
   hitSeq,
   SearchError,
@@ -205,15 +205,17 @@ function SearchBody(props: { initial: string; onClose(): void }) {
         ) : results.updating && query ? (
           <Spinner label="Updating results" />
         ) : null}
+        <button
+          type="button"
+          className="focus-ring relative flex h-6 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground touch-hit hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
+          aria-expanded={showFilters}
+          aria-label={activeFilters.length ? `Filters (${activeFilters.length})` : "Filters"}
+          onClick={() => setShowFilters(!showFilters)}
+        >
+          <Icon icon={FunnelSimpleIcon} size={13} />
+          Filters{activeFilters.length > 0 && ` · ${activeFilters.length}`}
+        </button>
       </CommandSearchRow>
-      <button
-        type="button"
-        className="self-end px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
-        aria-expanded={showFilters}
-        onClick={() => setShowFilters(!showFilters)}
-      >
-        Filters{activeFilters.length > 0 && ` (${activeFilters.length})`}
-      </button>
       {activeFilters.length > 0 && (
         <div
           role="status"
@@ -285,16 +287,12 @@ function SearchBody(props: { initial: string; onClose(): void }) {
             className="py-6"
           />
         ) : !query ? (
-          recent.recent.length ? (
-            <RecentSearches recent={recent.recent} onPick={change} onForget={recent.forget} />
-          ) : (
-            <EmptyState
-              variant="inline"
-              title="Search your threads"
-              description="Find a message, command or file. Filters narrow the results by project, kind and date."
-              className="py-6"
-            />
-          )
+          <SearchStart
+            recent={recent.recent}
+            onPick={change}
+            onForget={recent.forget}
+            onClose={props.onClose}
+          />
         ) : results.isError ? (
           <EmptyState
             icon={MagnifyingGlassIcon}
@@ -316,14 +314,8 @@ function SearchBody(props: { initial: string; onClose(): void }) {
         ) : !hits.length ? (
           <EmptyState
             variant="inline"
-            title={results.hasMore ? "More results to check" : "No matches yet"}
-            description={
-              indexing
-                ? "Some threads are still being indexed. Results will update as they become available."
-                : results.hasMore
-                  ? "Keep looking through the remaining results."
-                  : "Try fewer words or broaden the project and date filters."
-            }
+            title={results.hasMore ? "More results to check" : "No matches"}
+            {...(indexing ? { description: "Some threads are still being indexed." } : {})}
             className="py-6"
           />
         ) : (
@@ -333,7 +325,7 @@ function SearchBody(props: { initial: string; onClose(): void }) {
               role="listbox"
               aria-label="Results"
               className={cn(
-                "transition-opacity duration-(--dur-1)",
+                "transition-opacity duration-(--motion-fast)",
                 results.updating && "opacity-60",
               )}
             >
@@ -348,7 +340,7 @@ function SearchBody(props: { initial: string; onClose(): void }) {
                   onClick={(event) => onHitClick(event, hit)}
                   onAuxClick={(event) => event.button === 1 && onHitClick(event, hit)}
                   className={cn(
-                    "flex min-h-9 cursor-pointer items-start gap-2 py-2 rounded-md px-2.5 transition-colors duration-(--dur-1)",
+                    "flex min-h-9 cursor-pointer items-start gap-2 py-2 rounded-md px-2.5 transition-colors duration-(--motion-fast)",
                     index === active && "bg-accent",
                   )}
                 >
@@ -381,43 +373,5 @@ function SearchBody(props: { initial: string; onClose(): void }) {
         )}
       </div>
     </>
-  );
-}
-
-function RecentSearches(props: {
-  recent: readonly string[];
-  onPick(query: string): void;
-  onForget(query: string): void;
-}) {
-  return (
-    <section aria-labelledby="search-recent">
-      <h2
-        id="search-recent"
-        className="px-2.5 pt-1 pb-1.5 text-sm font-medium text-muted-foreground"
-      >
-        Recent
-      </h2>
-      <ul className="flex flex-col gap-px">
-        {props.recent.map((query) => (
-          <li key={query} className="group flex items-center gap-1 rounded-md hover:bg-accent">
-            <button
-              type="button"
-              onClick={() => props.onPick(query)}
-              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-ui focus-ring-inset"
-            >
-              <Icon icon={ClockCounterClockwiseIcon} className="text-muted-foreground" />
-              <span className="truncate">{query}</span>
-            </button>
-            <IconButton
-              icon={XIcon}
-              size="sm"
-              label={`Forget "${query}"`}
-              className="mr-1.5"
-              onClick={() => props.onForget(query)}
-            />
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }

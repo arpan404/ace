@@ -7,7 +7,6 @@ import { harness } from "@/test/harness.tsx";
 await Promise.all([
   import("./general-page.tsx"),
   import("./pair-device.tsx"),
-  import("./theme-editor/theme-editor-page.tsx"),
   import("./prompts-page.tsx"),
 ]);
 beforeEach(() => localStorage.clear());
@@ -68,25 +67,6 @@ test("computer use off shows access controls without an inactive emergency stop"
   expect(screen.queryByRole("button", { name: "Stop all computer use" })).toBeNull();
   expect(screen.queryByText(/^Stops every session at once/)).toBeNull();
   expect(screen.queryByText("Granted", { exact: true })).toBeNull();
-});
-
-test("theme editing keeps raw values behind Advanced and actions reachable by keyboard", async () => {
-  await harness().open("/settings/theme-editor");
-  expect(await screen.findByRole("combobox", { name: "Theme to edit" })).toBeTruthy();
-  expect(screen.queryByRole("textbox", { name: "Window background" })).toBeNull();
-  const menu = screen.getByRole("button", { name: "Theme actions" });
-  await waitFor(() =>
-    expect(document.activeElement).toBe(
-      screen.getByRole("heading", { level: 1, name: "Settings" }),
-    ),
-  );
-  menu.focus();
-  await userEvent.keyboard("{Enter}");
-  await screen.findByRole("menuitem", { name: "Duplicate" });
-  await userEvent.keyboard("{Escape}");
-  expect(document.activeElement).toBe(menu);
-  await userEvent.click(within(screen.getByRole("main")).getByText("Advanced", { exact: true }));
-  expect(await screen.findByRole("textbox", { name: "Window background" })).toBeTruthy();
 });
 
 test("prompt errors have a short label and clicking the title opens the editor", async () => {

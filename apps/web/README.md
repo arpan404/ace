@@ -15,18 +15,18 @@ Import `cn` from `@/lib/cn.ts`, never from `cn` directly: the local one knows th
 
 ## Layout of `src/`
 
-| Path                | Owner      | What lives there                                                                                                                    |
-| ------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `theme/`            | foundation | Theme engine: presets from seeds, token list, CSS generation, contrast checks, custom theme files, `ThemeProvider` / `useTheme()`   |
-| `styles/`           | foundation | Static tokens (`tokens.css`), Tailwind mapping and base styles (`index.css`), vendored shadcn variants                              |
-| `components/ui/`    | foundation | Owned primitives restyled to the design. Slices use them, never fork them                                                           |
-| `components/`       | foundation | `Icon`, `SettingRow` / `SettingSection`, `StatusLabel`, `DataTable`                                                                 |
-| `lib/`              | foundation | `keymap.ts` (every shortcut), `hotkeys.ts` (`useHotkey`), `layout.tsx` (sidebar and panels), `history-nav.ts`, `time.ts` (`useNow`) |
-| `boot/`             | foundation | Client construction, daemon URL and token handling, fake boot, the fake backend for features without protocol (`fake-backend.ts`)   |
-| `features/shell/`   | foundation | `Rail`, `AppSidebar`, `SidebarFrame`, `ViewFrame`, `ViewSidebar`, `AppHeader`, `Screen`, panels, connection notice                  |
-| `features/<slice>/` | the slice  | Everything for one slice: components, hooks, adapters, tests. Its `index.ts` is the only door in                                    |
-| `app/`              | app        | Composition of several slices: `AppShell` (rail, sidebar, palette, notifier), `ConnectionGate`                                      |
-| `routes/`           | per route  | TanStack file routes: route definition, search schema and params only. Screens live in the slice                                    |
+| Path                | Owner      | What lives there                                                                                                                           |
+| ------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `theme/`            | foundation | Themes and mode: eight themes on one neutral ramp, token and CSS generation, contrast checks, liquid glass, `ThemeProvider` / `useTheme()` |
+| `styles/`           | foundation | Static tokens (`tokens.css`), Tailwind mapping and base styles (`index.css`), vendored shadcn variants                                     |
+| `components/ui/`    | foundation | Owned primitives restyled to the design. Slices use them, never fork them                                                                  |
+| `components/`       | foundation | `Icon`, `SettingRow` / `SettingSection`, `StatusLabel`, `DataTable`                                                                        |
+| `lib/`              | foundation | `keymap.ts` (every shortcut), `hotkeys.ts` (`useHotkey`), `layout.tsx` (sidebar and panels), `history-nav.ts`, `time.ts` (`useNow`)        |
+| `boot/`             | foundation | Client construction, daemon URL and token handling, fake boot, the fake backend for features without protocol (`fake-backend.ts`)          |
+| `features/shell/`   | foundation | `Rail`, `AppSidebar`, `SidebarFrame`, `ViewFrame`, `ViewSidebar`, `AppHeader`, `Screen`, panels, connection notice                         |
+| `features/<slice>/` | the slice  | Everything for one slice: components, hooks, adapters, tests. Its `index.ts` is the only door in                                           |
+| `app/`              | app        | Composition of several slices: `AppShell` (rail, sidebar, palette, notifier), `ConnectionGate`                                             |
+| `routes/`           | per route  | TanStack file routes: route definition, search schema and params only. Screens live in the slice                                           |
 
 Headless view logic (status wording, Home ordering and settling, thread cards, work-log and diff
 summaries, relative time) lives in `packages/ui-core` (`@ace/ui-core`) so the Expo
@@ -34,10 +34,10 @@ app shares it. Put a pure rule there, with its tests, rather than in a slice.
 
 ## Motion and states
 
-One motion system, in `styles/motion.css` (tokens `--dur-1..4`, `--dur-exit`, curves `--ease`,
-`--spring`, `--sheet`, `--leave`, distances `--rise`, `--slide`, all zeroed under
-`prefers-reduced-motion`) and `lib/motion.ts` (when things enter, leave or move). Animate
-transform and opacity only.
+One motion system, in `styles/motion.css` (tokens `--motion-fast/base/slow/exit`, curves
+`--ease-out`, `--ease-spring`, `--ease-sheet`, `--ease-exit`, distances `--rise`, `--slide`, which
+go to zero under `[data-reduce-motion]`) and `lib/motion.ts` (when things enter, leave or move).
+Animate transform and opacity only. See `docs/design/visual-language.md`.
 
 - Popovers, menus, selects and tooltips use `popupMotion` from `components/ui/menu-styles.ts`.
 - Panels and the sidebar: `usePresence(open)` keeps them mounted for their exit;
@@ -163,14 +163,13 @@ Rules:
   They draw in brand colour (gradients included); black-and-white brands draw in the text colour
   at full strength. `variant="mono"` is for a tiny inline mark in the surrounding text colour.
 - Colour has jobs, never decoration:
-  - **Accent** (`--ring`): `bg-tint text-tint-foreground` as a fill (labels are black or white,
-    always AA), `text-link` as text (links, the current rail view: the accent nudged until it
-    reads at AA on every surface, so any custom colour stays legible), `bg-ring/10` for its soft
-    wash and `bg-ring/45` for drawn lines. Each theme has its own (`--accent-theme`);
-    Appearance can pin another.
+  - **Accent** (`--ring`): `bg-tint text-tint-foreground` as a fill (`--ring-foreground`, AA on
+    the fill and its hover and pressed states), `text-link` as text (`--ring-text`: links, the
+    current rail view, AA on every surface), `bg-ring/10` for its soft wash and `bg-ring/45` for
+    drawn lines. Each theme has its own, tuned with its palette.
   - **Status** through `data-tone="working | needs-you | waiting | failed | done | idle"`, which
     sets `--tone` (`styles/index.css`) for dots, rings and the spinner (working blue), and
-    `--tone-text` for words: the hue made AA on every surface (`theme/status-text.ts`). A status
+    `--tone-text` for words, AA on every surface (`theme/palettes.ts`, `theme/css.ts`). A status
     is coloured words (`StatusLabel`) with a dot or icon, never a fill, border or tinted row.
     Words always carry the status too. Waiting and limited share the violet: a thread held at a
     usage limit waits on its provider, not on you, so its row dot is a hollow violet ring beside a

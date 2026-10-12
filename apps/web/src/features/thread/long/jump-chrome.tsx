@@ -33,7 +33,7 @@ export function JumpBar(props: {
       role="status"
       aria-label="Jumped"
       style={{ pointerEvents: "auto" }}
-      className="glass fx-rise-in flex h-8 items-center gap-2 rounded-full pr-1 pl-3 text-sm text-muted-foreground shadow-[var(--glass-shadow)]"
+      className="ace-floating fx-rise-in flex h-8 items-center gap-2 rounded-full pr-1 pl-3 text-sm text-muted-foreground"
     >
       <ClockCounterClockwiseIcon aria-hidden size={14} className="shrink-0" />
       <span className="font-medium text-foreground">{where}</span>
@@ -98,7 +98,7 @@ export function JumpFailed(props: { message: string; onDismiss(): void }) {
     <p
       role="alert"
       style={{ pointerEvents: "auto" }}
-      className="glass flex h-8 items-center gap-2 rounded-full pr-1 pl-3 text-sm text-status-failed"
+      className="ace-floating flex h-8 items-center gap-2 rounded-full pr-1 pl-3 text-sm text-status-failed"
     >
       {props.message}
       <Button variant="ghost" size="sm" onClick={props.onDismiss}>

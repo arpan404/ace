@@ -13,7 +13,7 @@ test("daemon diagnostics and the development daemon stay off General, under Adva
   view.unmount();
 
   await app.open("/settings/advanced");
-  await userEvent.click(await screen.findByText("Advanced", { selector: "summary" }));
+  await userEvent.click(await screen.findByText("Development connection", { selector: "summary" }));
   const daemon = await screen.findByRole("region", { name: "Connection" });
   expect(within(daemon).getByText("Computer connection")).toBeTruthy();
   expect(within(daemon).queryByRole("button", { name: "Disconnect" })).toBeNull();

@@ -8,7 +8,7 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import type { PickerEntry } from "./picker-entries.ts";
 
 const tabButton =
-  "relative grid size-9 shrink-0 place-items-center rounded-sm text-muted-foreground transition-colors duration-(--dur-1) motion-reduce:transition-none hover:bg-accent hover:text-foreground focus-ring-inset aria-selected:text-foreground data-disabled:opacity-40 after:absolute after:-right-1 after:h-5 after:w-0.5 after:rounded-full aria-selected:after:bg-ring";
+  "relative grid size-9 shrink-0 place-items-center rounded-sm text-muted-foreground transition-colors duration-(--motion-fast) motion-reduce:transition-none hover:bg-accent hover:text-foreground focus-ring-inset aria-selected:text-foreground data-disabled:opacity-40 after:absolute after:-right-1 after:h-5 after:w-0.5 after:rounded-full aria-selected:after:bg-ring";
 
 /** One tab per provider account, with roving keyboard focus. */
 export function PickerRail({

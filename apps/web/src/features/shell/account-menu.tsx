@@ -33,7 +33,7 @@ export function AccountMenu() {
         <button
           type="button"
           aria-label={label}
-          className="flex h-10 min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 text-left transition-colors duration-(--dur-1) focus-ring hover:bg-sidebar-accent aria-expanded:bg-sidebar-accent pointer-coarse:h-11"
+          className="flex h-10 min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 text-left transition-colors duration-(--motion-fast) focus-ring hover:bg-sidebar-accent aria-expanded:bg-sidebar-accent pointer-coarse:h-11"
         >
           <span className="relative grid size-7 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]">
             {letters ? (

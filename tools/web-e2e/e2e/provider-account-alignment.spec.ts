@@ -3,15 +3,23 @@ import {
   expectProviderAccountGeometry,
   providerActionEdge,
 } from "../src/provider-account-geometry.ts";
+import { screenThemes } from "../src/appearance.ts";
 
-for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"])
+for (const theme of screenThemes)
   for (const width of [1440, 390])
     test(`account readings and hover actions end at Update in ${theme} at ${width}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript((selected) => {
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: selected }));
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            selected.includes("-")
+              ? { theme: selected.split("-")[0], mode: selected.split("-")[1] }
+              : { mode: selected },
+          ),
+        );
         Object.assign(globalThis, { aceFakeWorld: "idle" });
       }, theme);
       await page.goto("/settings/providers/codex");

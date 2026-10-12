@@ -26,7 +26,7 @@ export function ProgressBar(props: {
       className={cn("h-1 overflow-hidden rounded-full bg-input", props.className)}
     >
       <div
-        className="h-full origin-left bg-ring transition-transform duration-(--dur-1) ease-smooth"
+        className="h-full origin-left bg-ring transition-transform duration-(--motion-fast) ease-smooth"
         style={{ transform: `scaleX(${(props.value ?? 4) / 100})` }}
       />
     </div>

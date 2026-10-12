@@ -1,9 +1,10 @@
 import { chromium, expect as playwrightExpect } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
+import { screenThemes } from "./appearance.ts";
 
 const out = "/tmp/ace-orch/shots/fix-cold-start-state";
 const base = process.env.ACE_COLD_STATE_URL ?? "http://127.0.0.1:5246";
-const themes = ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"];
+const themes = screenThemes;
 const routes = [
   "cold-unsent",
   "cold-uncertain",
@@ -42,7 +43,14 @@ try {
         const page = await context.newPage();
         await page.addInitScript(
           ({ theme: appearance, route: screenName }) => {
-            localStorage.setItem("ace.appearance", JSON.stringify({ theme: appearance }));
+            localStorage.setItem(
+              "ace.appearance",
+              JSON.stringify(
+                appearance.includes("-")
+                  ? { theme: appearance.split("-")[0], mode: appearance.split("-")[1] }
+                  : { mode: appearance },
+              ),
+            );
             Object.assign(globalThis, {
               aceFakeSetup: (daemon: {
                 createThread(value: object): void;

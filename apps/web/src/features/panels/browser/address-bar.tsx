@@ -78,7 +78,7 @@ export function AddressBar(props: {
     <div className={cn("relative min-w-0", props.className)}>
       <div
         className={cn(
-          "flex h-8 min-w-0 items-center rounded-full transition-[background-color,box-shadow] duration-(--dur-1)",
+          "flex h-8 min-w-0 items-center rounded-full transition-[background-color,box-shadow] duration-(--motion-fast)",
           props.lead ? "gap-1 px-1" : "gap-2 px-3",
           props.tone === "private"
             ? "bg-status-needs-you/9"

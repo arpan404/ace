@@ -145,7 +145,7 @@ export function TabItem(props: {
                 }}
                 className={cn(
                   "focus-ring flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pl-2 text-sm font-medium whitespace-nowrap text-muted-foreground",
-                  "transition-[color,background-color,box-shadow] duration-(--dur-1)",
+                  "transition-[color,background-color,box-shadow] duration-(--motion-fast)",
                   "hover:text-foreground hover:not-aria-selected:bg-foreground/5",
                   "focus-visible:text-foreground",
                   "aria-selected:bg-foreground/8 aria-selected:text-foreground",
@@ -220,7 +220,7 @@ export function TabItem(props: {
               onClick={() => void actions.close(tab.key)}
               className={cn(
                 "absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-xs text-subtle-foreground outline-none",
-                "opacity-0 transition-[opacity,background-color,color] duration-(--dur-1) group-hover/tab:opacity-100 pointer-coarse:opacity-100 hover:bg-accent hover:text-foreground",
+                "opacity-0 transition-[opacity,background-color,color] duration-(--motion-fast) group-hover/tab:opacity-100 pointer-coarse:opacity-100 hover:bg-accent hover:text-foreground",
                 props.active && "opacity-100",
               )}
             >

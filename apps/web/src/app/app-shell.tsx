@@ -42,7 +42,6 @@ export function AppShell() {
               "[&:not([data-connection=ready])_:is([data-slot=spinner],[data-live])]:opacity-60",
             )}
           >
-            <div className="wallpaper" />
             <a
               href="#main"
               // The desktop's macOS traffic lights cover the window's top-left corner.

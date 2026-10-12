@@ -60,7 +60,7 @@ export function StepGroup(props: {
         aria-controls={panel}
         aria-label={groupLine(group)}
         onClick={() => setOpen(!open)}
-        className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent"
+        className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent"
       >
         {group.running ? <LiveWorkMark className="mx-px" /> : <ToolMarkIcon mark={group.mark} />}
         <span className="min-w-0 truncate">{label}</span>
@@ -76,7 +76,7 @@ export function StepGroup(props: {
           aria-hidden
           size={14}
           className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
+            "shrink-0 text-subtle-foreground transition-transform duration-(--motion-base) ease-spring",
             open && "rotate-90",
           )}
         />

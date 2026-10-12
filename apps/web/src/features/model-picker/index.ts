@@ -10,4 +10,4 @@ export type { ModelFieldProps } from "./model-field.tsx";
 export { useRefreshModels, type RefreshModels } from "./use-refresh-models.ts";
 
 export { useFavoriteModels } from "./favorites.ts";
-export { GroupProblem } from "./model-picker-rows.tsx";
+export { GroupProblem, isSignInProblem } from "./model-picker-rows.tsx";

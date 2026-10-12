@@ -11,10 +11,10 @@ import { useViewFrame } from "./sidebar-frame.tsx";
 import { activeView } from "./views.ts";
 
 const quick =
-  "relative grid size-7 place-items-center rounded-md text-muted-foreground transition-colors duration-(--dur-1) focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-foreground";
+  "relative grid size-7 place-items-center rounded-md text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-foreground";
 /** Back to app uses the thread list's row density. */
 const row =
-  "flex h-8 items-center gap-2 rounded-md px-2 text-ui text-sidebar-foreground transition-colors duration-(--dur-1) focus-ring hover:bg-sidebar-accent pointer-coarse:h-11 [&_svg]:text-muted-foreground";
+  "flex h-8 items-center gap-2 rounded-md px-2 text-ui text-sidebar-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-sidebar-accent pointer-coarse:h-11 [&_svg]:text-muted-foreground";
 /**
  * Whether the person has no project yet, once the daemon's list is in: then the way forward
  * is adding one, not a new thread.

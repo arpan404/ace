@@ -3,7 +3,15 @@ for (const theme of ["light", "dark"])
   test(`rich thread preview keeps clean quick actions visible in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 800 });
     await page.addInitScript(
-      (chosen) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosen })),
+      (chosen) =>
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            chosen.includes("-")
+              ? { theme: chosen.split("-")[0], mode: chosen.split("-")[1] }
+              : { mode: chosen },
+          ),
+        ),
       theme,
     );
     await page.goto("/?fakeWorld=thread-activity");

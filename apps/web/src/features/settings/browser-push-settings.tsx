@@ -3,7 +3,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useClient } from "@ace/client-react";
 import { useEffect, useState } from "react";
 import { WebPushSubscription } from "@ace/protocol/notifications";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { browserPermission, requestBrowserPermission } from "@/lib/browser-notify.ts";
 
@@ -126,14 +126,14 @@ export default function BrowserPushSettings() {
         </Button>
       </SettingRow>
       {blocked && (
-        <p className="text-sm text-muted-foreground">
+        <SettingNote>
           Allow notifications in this browser’s site settings, then try again.
-        </p>
+        </SettingNote>
       )}
       {error && (
-        <p role="alert" className="text-ui text-destructive">
+        <SettingNote role="alert" className="text-destructive">
           {error}
-        </p>
+        </SettingNote>
       )}
     </SettingSection>
   );

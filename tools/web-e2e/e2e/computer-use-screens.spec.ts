@@ -115,7 +115,12 @@ for (const theme of themes)
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.addInitScript((id) => {
         Object.assign(globalThis, { aceFakeWorld: "computer-use" });
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: id }));
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            id.includes("-") ? { theme: id.split("-")[0], mode: id.split("-")[1] } : { mode: id },
+          ),
+        );
       }, theme);
       await setup(page);
       await page.waitForTimeout(500);

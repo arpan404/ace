@@ -1,10 +1,23 @@
 import { expect, test } from "vitest";
 import { contrastRatio, parseOpaqueColor } from "@/theme/contrast.ts";
-import { presetThemes, type Theme } from "@/theme/presets.ts";
-import type { TokenName } from "@/theme/tokens.ts";
+import { themeDeclarations } from "@/theme/css.ts";
+import { themeIds } from "@/theme/palettes.ts";
 import { ansiNames, minimumTextContrast, terminalPalette, type Rgb } from "./palette.ts";
 
-const rgb = (theme: Theme, token: TokenName): Rgb => {
+interface Theme {
+  id: string;
+  name: string;
+  tokens: Record<string, string>;
+}
+const presetThemes: Theme[] = themeIds.flatMap((id) =>
+  (["light", "dark"] as const).map((scheme) => ({
+    id: `${id}-${scheme}`,
+    name: `${id} ${scheme}`,
+    tokens: themeDeclarations(id, scheme),
+  })),
+);
+
+const rgb = (theme: Theme, token: string): Rgb => {
   const parsed = parseOpaqueColor(theme.tokens[token]);
   if (!parsed) throw new Error(`${theme.id} ${token} is not opaque`);
   return parsed;
@@ -25,8 +38,8 @@ const paletteOf = (theme: Theme) =>
     yellow: rgb(theme, "--status-needs-you"),
     blue: rgb(theme, "--status-working"),
     magenta: rgb(theme, "--status-waiting"),
-    cyan: rgb(theme, "--accent-teal"),
-    ring: rgb(theme, "--accent-blue"),
+    cyan: rgb(theme, "--syn-type"),
+    ring: rgb(theme, "--ring"),
   });
 
 const textColours = ansiNames.filter(

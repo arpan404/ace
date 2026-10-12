@@ -70,7 +70,7 @@ export function MeasurementStep(props: { threadId: string; data: StepDisplay; pl
           .filter(Boolean)
           .join(" ")}
         onClick={() => setOpen(!open)}
-        className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent"
+        className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent"
       >
         <Glyph aria-hidden size={14} data-tone={verdict.tone} className="shrink-0 text-(--tone)" />
         <span className="shrink-0">Measured smoothness</span>

@@ -46,7 +46,7 @@ export function themeFor(element: Element): XtermColours {
     yellow: color("--status-needs-you", "#f0a35e"),
     blue: color("--status-working", "#7aa2f7"),
     magenta: color("--status-waiting", "#b49cf5"),
-    cyan: color("--accent-teal", "#5fc7b3"),
+    cyan: color("--syn-type", "#6ccfd8"),
     ring: color("--ring", "#7aa2f7"),
   });
   const ink = (alpha: number) =>

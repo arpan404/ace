@@ -112,7 +112,7 @@ export function ErrorRow(props: {
               <CaretRightIcon
                 aria-hidden
                 size={12}
-                className={cn("transition-transform duration-(--dur-2)", open && "rotate-90")}
+                className={cn("transition-transform duration-(--motion-base)", open && "rotate-90")}
               />
             </Button>
           )}

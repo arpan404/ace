@@ -1,5 +1,6 @@
 import { chromium, expect } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
+import { screenThemes } from "./appearance.ts";
 const out = process.env.ACE_SHOTS_DIR ?? "/tmp/ace-orch/shots/feat-diagnostics-plugin-edit";
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch();
@@ -12,7 +13,14 @@ try {
       });
       await context.addInitScript(
         (selectedTheme) =>
-          localStorage.setItem("ace.appearance", JSON.stringify({ theme: selectedTheme })),
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              selectedTheme.includes("-")
+                ? { theme: selectedTheme.split("-")[0], mode: selectedTheme.split("-")[1] }
+                : { mode: selectedTheme },
+            ),
+          ),
         theme,
       );
       const page = await context.newPage();
@@ -64,14 +72,21 @@ try {
       await shot("logs");
       await context.close();
     }
-  for (const theme of ["midnight", "graphite", "paper", "slate", "contrast"]) {
+  for (const theme of screenThemes.slice(2)) {
     const context = await browser.newContext({
       viewport: { width: 390, height: 1000 },
       reducedMotion: "reduce",
     });
     await context.addInitScript(
       (selectedTheme) =>
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: selectedTheme })),
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            selectedTheme.includes("-")
+              ? { theme: selectedTheme.split("-")[0], mode: selectedTheme.split("-")[1] }
+              : { mode: selectedTheme },
+          ),
+        ),
       theme,
     );
     const page = await context.newPage();

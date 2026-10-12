@@ -2,7 +2,13 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import type { McpSources, ProviderKind } from "@ace/protocol";
 import { ArrowsClockwiseIcon, PlusIcon, PowerIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { SettingSection } from "@/components/setting-row.tsx";
+import {
+  SettingAction,
+  SettingList,
+  SettingListItem,
+  SettingNote,
+  SettingSection,
+} from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { providerMcpSource } from "./provider-mcp-source.ts";
@@ -93,19 +99,19 @@ function McpServerList(props: { provider: ProviderKind; name: string }) {
       }
     >
       {failed && (
-        <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+        <SettingNote role="status" className="flex items-center gap-2">
           Couldn't read the MCP servers.
           <Button size="sm" variant="ghost" onClick={retry}>
             Try again
           </Button>
-        </p>
+        </SettingNote>
       )}
-      <ul aria-label={`${props.name} MCP servers`} className="divide-y">
+      <SettingList aria-label={`${props.name} MCP servers`}>
         {servers.map((server) => {
           const word = words[server.status];
           const off = server.status === "disabled";
           return (
-            <li key={server.name} className="flex min-h-9 items-center gap-2 py-1">
+            <SettingListItem key={server.name}>
               <span className="min-w-0 flex-1 truncate font-medium">{server.name}</span>
               {word && <span className="shrink-0 text-sm text-muted-foreground">{word}</span>}
               {!off && (
@@ -130,27 +136,19 @@ function McpServerList(props: { provider: ProviderKind; name: string }) {
                     : control("mcp.provider.disable", server.name, "turn off"))
                 }
               />
-            </li>
+            </SettingListItem>
           );
         })}
         {data?.canAdd && (
           <li>
-            <button
-              type="button"
-              onClick={() => setAdding(true)}
-              className="flex min-h-9 w-full items-center gap-2 py-1 text-left text-muted-foreground focus-ring hover:text-foreground"
-            >
+            <SettingAction onClick={() => setAdding(true)}>
               <PlusIcon aria-hidden size={14} />
-              <span className="font-medium">Add MCP server</span>
-            </button>
+              Add MCP server
+            </SettingAction>
           </li>
         )}
-      </ul>
-      {note && (
-        <p role="status" className="mt-2 text-sm text-muted-foreground">
-          {note}
-        </p>
-      )}
+      </SettingList>
+      {note && <SettingNote role="status">{note}</SettingNote>}
       {adding && (
         <Suspense fallback={null}>
           <AddMcpServer

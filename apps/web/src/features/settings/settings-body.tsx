@@ -3,7 +3,8 @@ import { Screen } from "@/features/shell/index.ts";
 
 /**
  * One settings page: the header says "Settings"; the page title (22/600) and its lede head a
- * centred 760px column, so every control sits within reach of its label.
+ * centred column that grows with the window (`--settings-column`), so cards fill the space they
+ * have and every control stays within reach of its label.
  */
 export function SettingsBody(props: {
   page: string;
@@ -20,7 +21,7 @@ export function SettingsBody(props: {
   return (
     <Screen title="Settings" actions={props.actions}>
       <div className="h-full overflow-auto">
-        <div className="@container mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
+        <div className="@container mx-auto w-full max-w-(--settings-column) px-4 pt-6 pb-20 sm:px-8 sm:pt-10">
           {props.back}
           <div className="flex items-center gap-4">
             {props.icon}

@@ -59,7 +59,7 @@ function DownloadBar(props: { download: BrowserDownload }) {
           <span className="fx-indeterminate absolute inset-y-0 w-1/3 rounded-full bg-foreground/70" />
         ) : (
           <span
-            className="absolute inset-0 origin-left rounded-full bg-foreground/70 transition-transform duration-(--dur-2) ease-smooth"
+            className="absolute inset-0 origin-left rounded-full bg-foreground/70 transition-transform duration-(--motion-base) ease-smooth"
             style={{ transform: `scaleX(${percent / 100})` }}
           />
         )}
@@ -122,7 +122,7 @@ export function StartPage(props: {
                   disabled={props.disabled !== undefined}
                   title={props.disabled ?? displayAddress(suggestion.url)}
                   onClick={() => props.onGo(suggestion.url)}
-                  className="flex h-[92px] w-full min-w-0 flex-col items-center justify-center gap-2 rounded-lg px-3 text-center outline-none transition-colors duration-(--dur-1) bg-foreground/3 hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)] disabled:opacity-50"
+                  className="flex h-[92px] w-full min-w-0 flex-col items-center justify-center gap-2 rounded-lg px-3 text-center outline-none transition-colors duration-(--motion-fast) bg-foreground/3 hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)] disabled:opacity-50"
                 >
                   <span className="grid size-8 place-items-center rounded-full bg-foreground/5">
                     <Icon

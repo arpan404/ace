@@ -238,7 +238,7 @@ export function FolderSearchBox(props: {
                   type="button"
                   aria-current={at === all.length - 1 ? "location" : undefined}
                   onClick={() => browse(crumb.path)}
-                  className="inline-flex h-[22px] min-w-0 items-center gap-1 rounded-sm px-1.5 focus-ring transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:bg-accent aria-[current]:text-foreground"
+                  className="inline-flex h-[22px] min-w-0 items-center gap-1 rounded-sm px-1.5 focus-ring transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-visible:bg-accent aria-[current]:text-foreground"
                 >
                   {crumb.home && <Icon icon={HouseSimpleIcon} size={13} />}
                   <span className="truncate">{crumb.label}</span>

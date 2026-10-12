@@ -2,14 +2,13 @@ import { chromium, expect as playwrightExpect, type Page } from "@playwright/tes
 import { expectBrandMark } from "./brand-mark-check.ts";
 import { expectProviderAccountGeometry, providerActionEdge } from "./provider-account-geometry.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { screenThemes } from "./appearance.ts";
 
 const expect = playwrightExpect.configure({ timeout: 30_000 });
 const out = process.env.ACE_PROVIDER_SHOTS_OUT ?? "/tmp/ace-orch/shots/ui-providers-clean";
 const base = process.env.ACE_PROVIDER_SHOTS_URL ?? "http://127.0.0.1:5228";
 const selectedThemes = process.env.ACE_PROVIDER_SHOTS_THEMES?.split(",");
-const themes = ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"].filter(
-  (theme) => !selectedThemes || selectedThemes.includes(theme),
-);
+const themes = screenThemes.filter((theme) => !selectedThemes || selectedThemes.includes(theme));
 const browser = await chromium.launch();
 await mkdir(out, { recursive: true });
 const files: string[] = [];
@@ -86,7 +85,14 @@ try {
         reducedMotion: "reduce",
       });
       await page.addInitScript((selected) => {
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: selected }));
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            selected.includes("-")
+              ? { theme: selected.split("-")[0], mode: selected.split("-")[1] }
+              : { mode: selected },
+          ),
+        );
         Object.assign(globalThis, { aceFakeWorld: "idle" });
       }, theme);
       const mode = ["light", "paper"].includes(theme) ? "light" : "dark";

@@ -30,7 +30,15 @@ try {
     const page = await context.newPage();
     page.on("pageerror", (error) => errors.push(error.message));
     await page.addInitScript(
-      (appearance) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: appearance })),
+      (appearance) =>
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            appearance.includes("-")
+              ? { theme: appearance.split("-")[0], mode: appearance.split("-")[1] }
+              : { mode: appearance },
+          ),
+        ),
       theme,
     );
     const shot = async (name: string) => {
@@ -162,7 +170,14 @@ try {
     nestedPage.on("pageerror", (error) => errors.push(error.message));
     await nestedPage.addInitScript(
       ({ appearance, scenario, end }) => {
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: appearance }));
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            appearance.includes("-")
+              ? { theme: appearance.split("-")[0], mode: appearance.split("-")[1] }
+              : { mode: appearance },
+          ),
+        );
         Object.assign(globalThis, {
           aceFakeSetup: (daemon: FakeDaemon) => {
             daemon.createThread(scenario.thread);
@@ -274,7 +289,15 @@ try {
     const alignedPage = await alignment.newPage();
     alignedPage.on("pageerror", (error) => errors.push(error.message));
     await alignedPage.addInitScript(
-      (appearance) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: appearance })),
+      (appearance) =>
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            appearance.includes("-")
+              ? { theme: appearance.split("-")[0], mode: appearance.split("-")[1] }
+              : { mode: appearance },
+          ),
+        ),
       theme,
     );
     await installSplitAlignmentFixture(alignedPage);

@@ -119,28 +119,28 @@ const entries = [
   { id: "app.attention", page: "/settings/general", title: "Bounce dock icon for attention" },
   // Appearance
   {
+    id: "appearance.mode",
+    page: "/settings/appearance",
+    title: "Mode",
+    keywords: ["dark", "light", "system", "night"],
+  },
+  {
     id: "appearance.theme",
     page: "/settings/appearance",
     title: "Theme",
-    keywords: ["dark", "light", "mode", "colour", "color"],
+    keywords: ["colour", "color", "palette", "accent"],
   },
   {
-    id: "appearance.themeEditor",
+    id: "appearance.surfaces",
     page: "/settings/appearance",
-    title: "Theme editor",
-    keywords: ["tokens", "custom theme", "import", "export"],
+    title: "Surfaces",
+    keywords: ["glass", "translucent", "transparency", "solid", "blur"],
   },
   {
-    id: "appearance.glass",
+    id: "appearance.reduceMotion",
     page: "/settings/appearance",
-    title: "Glass intensity",
-    keywords: ["transparency", "frosted", "solid"],
-  },
-  {
-    id: "appearance.accent",
-    page: "/settings/appearance",
-    title: "Accent colour",
-    keywords: ["color", "highlight", "focus"],
+    title: "Reduce motion",
+    keywords: ["animation", "motion", "accessibility"],
   },
   {
     id: "appearance.density",

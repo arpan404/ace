@@ -2,6 +2,8 @@
 @import "./shadcn.css";
 @import "./tokens.css";
 @import "./motion.css";
+@import "./glass.css";
+@import "./legacy-aliases.css";
 
 /*
  * Scan only web runtime source. Tailwind turns class-like strings into CSS; generated
@@ -18,6 +20,9 @@
 
 @custom-variant dark (&:where([data-scheme="dark"], [data-scheme="dark"] *));
 @custom-variant compact (&:where([data-density="compact"], [data-density="compact"] *));
+/* Reduced motion follows the app's setting (`[data-reduce-motion]`), not only the OS query. */
+@custom-variant motion-reduce (&:where([data-reduce-motion], [data-reduce-motion] *));
+@custom-variant motion-safe (&:where(:root:not([data-reduce-motion]), :root:not([data-reduce-motion]) *));
 
 /* Tailwind utilities resolve to token variables, so a theme swap needs no component edits. */
 @theme inline {
@@ -25,6 +30,12 @@
   --font-mono: var(--font-mono);
 
   --color-background: var(--background);
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-fill: var(--fill);
+  --color-fill-strong: var(--fill-strong);
+  --color-scrim: var(--scrim);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -41,10 +52,17 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
+  --color-border-soft: var(--border-soft);
+  --color-border-strong: var(--border-strong);
+  --color-hover: var(--hover);
+  --color-active: var(--active);
+  --color-faint-foreground: var(--faint-foreground);
   --color-input: var(--input);
   --color-ring: var(--ring);
   /* The accent as a fill (primary actions, checked controls) and the text on it. */
   --color-tint: var(--ring);
+  --color-tint-hover: var(--ring-hover);
+  --color-tint-pressed: var(--ring-pressed);
   --color-tint-foreground: var(--ring-foreground);
   /* The accent as text: links and the current view, AA on every surface (theme/accent.ts). */
   --color-link: var(--ring-text);
@@ -57,6 +75,7 @@
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
+  /* Old names for the floating background and edge (legacy-aliases.css). */
   --color-glass: var(--glass-bg);
   --color-glass-border: var(--glass-border);
   --color-diff-add: var(--diff-add);
@@ -75,24 +94,25 @@
   --color-status-done: var(--status-done);
 
   /*
-   * 4 tags · 8 buttons, dense rows and inputs · 10 general rows · 12 popups ·
-   * 14 cards · 16 dialogs · 22 the composer and bubbles.
+   * 4 tags · 8 buttons, dense rows, inputs and code · 10 general rows · 14 popups, cards,
+   * dialogs and bubbles · 22 the composer.
    */
   --radius-xs: 4px;
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius);
   --radius-card: 14px;
-  --radius-popup: 12px;
+  --radius-popup: 14px;
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
 
-  --shadow-glass: var(--glass-highlight), 0 0 0 0.5px var(--glass-edge), var(--glass-shadow);
-  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.12), var(--glass-highlight);
+  --shadow-glass: 0 0 0 1px var(--float-edge), var(--float-shadow);
+  --shadow-raised: var(--seg-thumb-shadow);
 
-  --ease-smooth: var(--ease);
-  --ease-spring: var(--spring);
-  --ease-sheet: var(--sheet);
-  --ease-exit: var(--leave);
+  --ease-smooth: var(--ease-out);
+  --ease-out: var(--ease-out);
+  --ease-spring: var(--ease-spring);
+  --ease-sheet: var(--ease-sheet);
+  --ease-exit: var(--ease-exit);
 
   --text-prose: var(--transcript-size);
   --text-prose--line-height: 1.6;
@@ -135,7 +155,7 @@
     overflow: hidden;
     font: 13px/1.45 var(--font-sans);
     color: var(--foreground);
-    background: var(--wall, var(--background));
+    background: var(--background);
     -webkit-font-smoothing: antialiased;
     font-feature-settings:
       "tnum" 1,
@@ -171,14 +191,6 @@
   ::-webkit-scrollbar-thumb:hover {
     background: color-mix(in oklab, var(--foreground) 24%, transparent);
     background-clip: padding-box;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation: none !important;
-      transition: none !important;
-    }
   }
 }
 
@@ -235,63 +247,6 @@
     .usage-limit-row {
       grid-template-columns: minmax(0, 224px) 152px 152px 128px 128px;
     }
-  }
-  /* One fixed blur avoids Tailwind's full backdrop-filter property set for sheet scrims. */
-  .sheet-scrim {
-    -webkit-backdrop-filter: blur(4px);
-    backdrop-filter: blur(4px);
-  }
-  /* Floating surfaces and the sidebar share the same blur. */
-  .glass,
-  .vibrancy,
-  .search-glass {
-    -webkit-backdrop-filter: blur(var(--material-blur, var(--glass-blur)))
-      saturate(var(--material-saturation, 120%));
-    backdrop-filter: blur(var(--material-blur, var(--glass-blur)))
-      saturate(var(--material-saturation, 120%));
-  }
-  /* Floating glass: popovers, menus, palette, composer, toasts. */
-  .glass {
-    background: var(--glass-bg);
-    border: 1px solid var(--glass-border);
-    box-shadow:
-      var(--glass-highlight),
-      0 0 0 0.5px var(--glass-edge),
-      var(--glass-shadow);
-  }
-  /* Search keeps the screen's colours behind it, without a heavy modal dimmer. The same
-     Appearance intensity and OS preference still make the surface fully opaque when needed. */
-  .search-glass {
-    background: rgb(var(--glass-rgb) / calc(1 - (1 - var(--glass-a)) * 1.16 * var(--glass-k)));
-    --material-blur: calc(var(--glass-blur) * var(--glass-k));
-    --material-saturation: calc(100% + 50% * var(--glass-k));
-  }
-  /* A card attached behind the composer's top edge: one step back from the composer's glass. */
-  .glass-behind {
-    background: color-mix(in oklab, var(--glass-bg) 80%, var(--background));
-    box-shadow:
-      var(--glass-highlight),
-      0 0 0 0.5px var(--glass-edge),
-      0 -12px 32px -20px rgb(0 0 0 / 0.5);
-  }
-  @media (prefers-reduced-transparency: reduce) {
-    .glass,
-    .search-glass,
-    .vibrancy {
-      -webkit-backdrop-filter: none;
-      backdrop-filter: none;
-    }
-  }
-  /* Neutral wallpaper with faint tonal washes, so blur reads as material, not colour. */
-  .wallpaper {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    background:
-      radial-gradient(55% 60% at 8% 12%, var(--w1), transparent 70%),
-      radial-gradient(45% 50% at 90% 18%, var(--w2), transparent 70%),
-      radial-gradient(50% 55% at 76% 90%, var(--w3), transparent 70%),
-      radial-gradient(40% 45% at 16% 92%, var(--w4), transparent 70%), var(--wall);
   }
   /* Spinner ring in the current colour: the working blue unless a caller sets another. */
   .spin-ring {

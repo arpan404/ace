@@ -1,12 +1,20 @@
 import { expect, test } from "@playwright/test";
 import type { FakeDaemon } from "@ace/fake-daemon";
+import { screenThemes } from "../../src/appearance.ts";
 
-for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"]) {
+for (const theme of screenThemes) {
   for (const width of [1440, 390])
     test(`machine rows and editor in ${theme} at ${width}`, async ({ page }) => {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
       await page.addInitScript((preset) => {
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: preset }));
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            preset.includes("-")
+              ? { theme: preset.split("-")[0], mode: preset.split("-")[1] }
+              : { mode: preset },
+          ),
+        );
         Object.assign(globalThis, {
           aceFakeWorld: "empty",
           aceFakeSetup: (daemon: FakeDaemon) => {

@@ -63,7 +63,7 @@ export function AttachmentTiles(props: Shown & { className?: string | undefined 
                 aria-label={`Show ${more} more images`}
                 onClick={(event) => show(shown, event.currentTarget)}
                 style={{ width: 160, height: 120 }}
-                className="grid place-items-center rounded-[10px] bg-secondary text-lg font-medium text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground"
+                className="grid place-items-center rounded-[10px] bg-secondary text-lg font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground"
               >
                 <span aria-hidden>+{more}</span>
               </button>
@@ -127,7 +127,7 @@ function Tile(props: TileProps & { url: ImageState }) {
           onLoad={() => setPainted(image.url)}
           onError={() => setFailed(image.url)}
           className={cn(
-            "size-full transition-opacity duration-(--dur-1)",
+            "size-full transition-opacity duration-(--motion-fast)",
             props.fit !== "contain" && "object-cover",
             !ready && "opacity-0",
           )}
@@ -171,7 +171,10 @@ export function FileChip(props: {
           type="button"
           aria-label={`${file.name}, ${meta}`}
           onClick={(event) => onOpen(file, event.currentTarget)}
-          className={cn(chip, "focus-ring transition-colors duration-(--dur-1) hover:bg-accent")}
+          className={cn(
+            chip,
+            "focus-ring transition-colors duration-(--motion-fast) hover:bg-accent",
+          )}
         >
           {face}
         </button>

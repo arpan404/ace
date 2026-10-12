@@ -1,11 +1,20 @@
 import { expect, test } from "@playwright/test";
-for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"])
+import { screenThemes } from "../../src/appearance.ts";
+for (const theme of screenThemes)
   test(`inline references keep the caret through newlines and argument forms in ${theme}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await page.addInitScript(
-      (preset) => localStorage.setItem("ace.appearance", JSON.stringify({ theme: preset })),
+      (preset) =>
+        localStorage.setItem(
+          "ace.appearance",
+          JSON.stringify(
+            preset.includes("-")
+              ? { theme: preset.split("-")[0], mode: preset.split("-")[1] }
+              : { mode: preset },
+          ),
+        ),
       theme,
     );
     await page.addInitScript(() => {

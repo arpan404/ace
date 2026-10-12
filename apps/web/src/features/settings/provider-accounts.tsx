@@ -3,14 +3,18 @@ import { AccountLabelEditor } from "./account-label-editor.tsx";
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
 import { accountStatus, type AccountView } from "@ace/ui-core";
 import { DotsThreeIcon } from "@phosphor-icons/react";
-import { useLocation } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { CompactWindow, formatResets } from "@/features/accounts/index.ts";
 import { accountLimit } from "@ace/ui-core";
 import { StatusLine } from "@/components/provider-tile.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { SettingSection } from "@/components/setting-row.tsx";
+import {
+  SettingList,
+  SettingListItem,
+  SettingNote,
+  SettingSection,
+} from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -27,7 +31,7 @@ import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { useNow } from "@/lib/time.ts";
 import { useAccountViews } from "@/features/accounts/index.ts";
 import { preloadSignIn, useInlineSignIn, useSignIn } from "@/features/sign-in/index.ts";
-import { AddAccountButton, AccountKeyMark } from "@/features/account-management/index.ts";
+import { AddAccountRow, AccountKeyMark } from "@/features/account-management/index.ts";
 import {
   apiKeyUpstreamLabel,
   canAddAccounts,
@@ -60,18 +64,18 @@ export function ProviderAccounts(props: {
       actions={<span className="text-xs text-subtle-foreground">New threads use the default</span>}
     >
       {accounts.isError && (
-        <p role="alert" className="text-sm text-status-failed">
+        <SettingNote role="alert" className="text-status-failed">
           {describeDaemonError(daemonErrorCode(accounts.error))}{" "}
           <Button size="sm" variant="ghost" onClick={() => void accounts.refetch()}>
             Retry
           </Button>
-        </p>
+        </SettingNote>
       )}
       {accounts.isPending ? <ListSkeleton label="accounts" shape="row" rows={3} /> : null}
       {!accounts.isPending && !accounts.isError && !own.length && (
-        <p className="py-2 text-sm text-muted-foreground">No accounts yet. Add an account below.</p>
+        <SettingNote>No accounts yet. Add an account below.</SettingNote>
       )}
-      <ul aria-label={`${props.name} accounts`}>
+      <SettingList aria-label={`${props.name} accounts`}>
         {own.map((account) => (
           <AccountItem
             key={account.id}
@@ -83,10 +87,10 @@ export function ProviderAccounts(props: {
         ))}
         {manageable && (
           <li>
-            <AddAccountButton provider={props.provider} label="+ Add account" />
+            <AddAccountRow provider={props.provider} label="+ Add account" />
           </li>
         )}
-      </ul>
+      </SettingList>
     </SettingSection>
   );
 }
@@ -98,8 +102,6 @@ function AccountItem(props: {
   manageable: boolean;
 }) {
   const { account } = props;
-  const highlighted =
-    useLocation({ select: (location) => location.hash }) === `account-${account.id}`;
   const now = useNow();
   const signIn = useSignIn();
   const keyLogin = useInlineSignIn();
@@ -127,13 +129,13 @@ function AccountItem(props: {
       void actions.setDefault(native, account.id).catch(fail(`Couldn't make ${label} the default`));
   };
   return (
-    <li
+    // A new account's link (#account-<id>) scrolls to its row and flashes it.
+    <SettingListItem
       id={`account-${account.id}`}
       tabIndex={-1}
-      style={highlighted ? { background: "var(--accent)" } : undefined}
-      className="group rounded-md focus-ring hover:bg-accent"
+      className="group focus-ring-inset hover:bg-accent"
     >
-      <div className="flex min-h-9 flex-col gap-2 sm:flex-row sm:items-center">
+      <div className="flex min-h-9 min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
         <div className="flex min-w-0 flex-1 flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
           <span className="flex min-w-0 items-center gap-2">
             <AccountBadge account={account} tooltip={false} />
@@ -315,7 +317,7 @@ function AccountItem(props: {
             actions.remove(native, account.id).catch(fail(`Couldn't remove ${account.label}`));
         }}
       />
-    </li>
+    </SettingListItem>
   );
 }
 

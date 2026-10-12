@@ -7,7 +7,7 @@ import { StepSlider } from "@/components/ui/step-slider.tsx";
 import { isDeepReasoning, reasoningDescription } from "./reasoning-level.ts";
 
 const iconButton =
-  "grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground focus-ring-inset transition-colors duration-(--dur-1) motion-reduce:transition-none hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground aria-pressed:bg-accent aria-pressed:text-foreground data-disabled:opacity-40";
+  "grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground focus-ring-inset transition-colors duration-(--motion-fast) motion-reduce:transition-none hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground aria-pressed:bg-accent aria-pressed:text-foreground data-disabled:opacity-40";
 
 export function EffortPopover(props: {
   view: ModelControlView;

@@ -84,7 +84,7 @@ export function ChangedFiles(props: {
           <CaretRightIcon
             aria-hidden
             size={12}
-            className={cn("transition-transform duration-(--dur-1)", open && "rotate-90")}
+            className={cn("transition-transform duration-(--motion-fast)", open && "rotate-90")}
           />
           {count}
         </button>

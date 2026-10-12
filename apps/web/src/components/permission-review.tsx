@@ -88,7 +88,7 @@ export function PermissionReviewNote(props: {
         aria-expanded={open}
         aria-controls={details}
         onClick={() => setOpen(!open)}
-        className="-mx-1.5 flex min-h-7 w-[calc(100%+12px)] min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+        className="-mx-1.5 flex min-h-7 w-[calc(100%+12px)] min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-muted-foreground outline-none transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
       >
         <Icon icon={glyphs[view.tone]} size={16} className="text-subtle-foreground" />
         <span className="shrink-0 font-medium text-foreground">{view.verdict}</span>
@@ -102,7 +102,7 @@ export function PermissionReviewNote(props: {
           aria-hidden
           size={12}
           className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
+            "shrink-0 text-subtle-foreground transition-transform duration-(--motion-base) ease-spring",
             open && "rotate-90",
           )}
         />

@@ -14,19 +14,47 @@ import {
 import { EyeIcon, EyeSlashIcon, StarIcon } from "@phosphor-icons/react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.tsx";
 import { useState } from "react";
-import { SettingRow } from "@/components/setting-row.tsx";
+import { SettingList, SettingListItem, SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import {
   GroupProblem,
+  isSignInProblem,
   ModelField,
   useFavoriteModels,
   useRefreshModels,
 } from "@/features/model-picker/index.ts";
 import { useModelCatalog, useModelInstances } from "@/lib/model-catalog.ts";
 import { useProviderConfiguration } from "@/lib/provider-configuration.ts";
+import { useAccountViews } from "@/features/accounts/index.ts";
+
+type PickerGroup = ReturnType<typeof pickerGroups>[number];
+
+/**
+ * The problems a provider's model groups report, each said once: two accounts that can't reach
+ * the same service share one line. OpenCode and Pi list "no models" per service, so it is left to
+ * their Services card; and when the Accounts card lists the provider's accounts, a problem that
+ * signing in fixes is left to the account's own row, which already offers the one action.
+ */
+function uniqueProblems(
+  groups: readonly PickerGroup[],
+  provider: ProviderKind,
+  accountsListed: boolean,
+): { problem: PickerGroup["problems"][number]; id: string }[] {
+  const seen = new Set<string>();
+  return groups.flatMap((group) =>
+    group.problems.flatMap((problem, index) => {
+      if (problem.code === "no_models" && ["opencode", "pi"].includes(provider)) return [];
+      if (accountsListed && isSignInProblem(problem)) return [];
+      const key = [problem.code, problem.source ?? "", problem.message].join("\u0000");
+      if (seen.has(key)) return [];
+      seen.add(key);
+      return [{ problem, id: `${group.id}-${index}` }];
+    }),
+  );
+}
 
 export function ProviderModels(props: { provider: ProviderKind }) {
   const catalog = useModelCatalog();
@@ -47,22 +75,25 @@ export function ProviderModels(props: { provider: ProviderKind }) {
   ).models.map((option) => pickerModel(option, option.label, option.account));
   const groups = pickerGroups(listed, instances, props.provider);
   const byKey = new Map(unique.map((model) => [modelKey(model.provider, model.id), model]));
+  // One line per problem: two accounts that can't reach the same service say it once.
+  const accounts = useAccountViews();
+  const accountsListed = !!accounts.data?.some((account) => account.provider === props.provider);
+  const problems = uniqueProblems(groups, props.provider, accountsListed);
   return (
     <>
-      {groups.flatMap((group) =>
-        group.problems
-          .filter(
-            (problem) =>
-              problem.code !== "no_models" || !["opencode", "pi"].includes(props.provider),
-          )
-          .map((problem, index) => (
-            <GroupProblem
-              key={`${group.id}-${problem.code}-${problem.message}`}
-              id={`${group.id}-${index}`}
-              provider={props.provider}
-              problem={problem}
-            />
-          )),
+      {problems.length > 0 && (
+        <SettingList aria-label="Model problems">
+          {problems.map(({ problem, id }) => (
+            <SettingListItem key={id} className="min-h-0">
+              <GroupProblem
+                id={id}
+                provider={props.provider}
+                problem={problem}
+                className="flex-1 px-0"
+              />
+            </SettingListItem>
+          ))}
+        </SettingList>
       )}
       <DefaultModel
         provider={props.provider}
@@ -303,8 +334,7 @@ function DefaultModel(props: {
   if (!models.length) return null;
   const choose = (id: string | null) => preferences.update((row) => ({ ...row, defaultModel: id }));
   return (
-    <div className="flex min-h-9 items-center gap-2 py-1 text-ui">
-      <span className="min-w-0 flex-1">Default model</span>
+    <SettingRow title="Default model" inline>
       <ModelField
         label="Default model"
         provider={props.provider}
@@ -327,6 +357,6 @@ function DefaultModel(props: {
           Reset
         </Button>
       )}
-    </div>
+    </SettingRow>
   );
 }

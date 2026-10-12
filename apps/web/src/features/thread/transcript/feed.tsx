@@ -139,7 +139,7 @@ const rowKey = (row: Row) => row.key;
 const highlight = {
   boxShadow: "0 0 0 2px color-mix(in oklab, var(--ring) 45%, transparent)",
   borderRadius: 12,
-  transition: "box-shadow var(--dur-3) var(--ease)",
+  transition: "box-shadow var(--motion-slow) var(--ease-out)",
 };
 
 export interface FeedProps {

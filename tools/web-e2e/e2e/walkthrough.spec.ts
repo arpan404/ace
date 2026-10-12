@@ -19,7 +19,7 @@ test("walkthrough of the core journeys", async ({ page }) => {
   test.setTimeout(120_000);
   await page.addInitScript(() => {
     if (!localStorage.getItem("ace.appearance"))
-      localStorage.setItem("ace.appearance", JSON.stringify({ theme: "dark" }));
+      localStorage.setItem("ace.appearance", JSON.stringify({ mode: "dark" }));
   });
 
   // Home opens on the top thread; then another from the list.
@@ -154,7 +154,7 @@ test("walkthrough of the core journeys", async ({ page }) => {
     await beat(1200);
   }
   await page.evaluate(() =>
-    localStorage.setItem("ace.appearance", JSON.stringify({ theme: "light" })),
+    localStorage.setItem("ace.appearance", JSON.stringify({ mode: "light" })),
   );
   await page.goto("/");
   await page.getByRole("feed", { name: "Transcript" }).waitFor();
@@ -179,7 +179,7 @@ test("walkthrough of the workspace and composer", async ({ page }) => {
   test.setTimeout(180_000);
   await page.addInitScript(() => {
     if (!localStorage.getItem("ace.appearance"))
-      localStorage.setItem("ace.appearance", JSON.stringify({ theme: "dark" }));
+      localStorage.setItem("ace.appearance", JSON.stringify({ mode: "dark" }));
   });
   const panel = page.getByRole("region", { name: "Thread panel" });
   const launch = async (tool: string) => {

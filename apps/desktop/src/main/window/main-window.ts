@@ -4,8 +4,7 @@ import { app, BrowserWindow, nativeTheme, screen, shell } from "electron";
 import type { WindowState } from "../../shared/contract.ts";
 import { isAppUrl, isExternalUrl } from "../csp.ts";
 import { restoreBounds, SavedWindow } from "./bounds.ts";
-import { macTitleBarCss, titleBarSymbolColor, windowOptions } from "./options.ts";
-import { WindowMaterial } from "./transparency.ts";
+import { macTitleBarCss, solidBackground, titleBarSymbolColor, windowOptions } from "./options.ts";
 
 export interface MainWindowOptions {
   url: string;
@@ -16,7 +15,7 @@ export interface MainWindowOptions {
   onState(state: WindowState): void;
 }
 
-/** Reduce transparency (macOS) turns the glass solid, as `prefers-reduced-transparency` does. */
+/** Reduce transparency (macOS), reported to the page with the rest of the native appearance. */
 export function reducedTransparency(): boolean {
   return process.platform === "darwin" && nativeTheme.prefersReducedTransparency;
 }
@@ -30,7 +29,7 @@ export function windowState(window: BrowserWindow): WindowState {
 }
 
 /**
- * The app window: translucent per platform, size and position persisted, and locked to its
+ * The app window: chrome per platform, size and position persisted, and locked to its
  * own origin. Links to other sites open in the system browser; nothing opens new windows.
  */
 export function createMainWindow(options: MainWindowOptions): BrowserWindow {
@@ -39,7 +38,6 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     (display) => display.workArea,
   );
   const bounds = restoreBounds(saved, areas);
-  const reduced = reducedTransparency();
   const window = new BrowserWindow(
     windowOptions({
       platform: process.platform,
@@ -47,7 +45,6 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
       preload: options.preload,
       info: options.info,
       dark: nativeTheme.shouldUseDarkColors,
-      reducedTransparency: reduced,
     }),
   );
   if (bounds.maximized) window.maximize();
@@ -84,23 +81,16 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   contents.on("will-attach-webview", (event) => event.preventDefault());
   contents.on("did-navigate-in-page", (_event, url) => options.onRoute(new URL(url).pathname));
   contents.on("did-navigate", (_event, url) => options.onRoute(new URL(url).pathname));
-  const material = new WindowMaterial({
-    platform: process.platform,
-    window,
-    page: contents,
-    reducedTransparency: reduced,
-  });
   contents.on("dom-ready", () => {
-    material.pageLoaded();
     if (process.platform === "darwin") void contents.insertCSS(macTitleBarCss).catch(() => {});
   });
-  // Appearance and Reduce Transparency can change while ace runs.
+  // Light and dark can change while ace runs; the window behind the page follows.
   const themeChanged = () => {
     if (window.isDestroyed()) return;
     const dark = nativeTheme.shouldUseDarkColors;
     if (process.platform === "win32")
       window.setTitleBarOverlay({ symbolColor: titleBarSymbolColor(dark) });
-    material.update(reducedTransparency(), dark);
+    window.setBackgroundColor(solidBackground(dark));
   };
   nativeTheme.on("updated", themeChanged);
   window.once("closed", () => nativeTheme.off("updated", themeChanged));

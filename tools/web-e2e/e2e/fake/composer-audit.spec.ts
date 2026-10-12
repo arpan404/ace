@@ -1,9 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { scrollToRow } from "./thread-list.ts";
 import { mkdir } from "node:fs/promises";
+import { screenThemes } from "../../src/appearance.ts";
 
 const shots = "/tmp/ace-orch/shots/fix-audit-composer-lifecycle";
-const themes = ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"];
+const themes = screenThemes;
 
 for (const theme of themes)
   for (const width of [1440, 390]) {
@@ -16,10 +17,9 @@ for (const theme of themes)
         localStorage.setItem(
           "ace.appearance",
           JSON.stringify({
-            theme: appearance,
-            accent: "theme",
-            customAccent: "#7AA2F7",
-            glass: 1,
+            ...(appearance.includes("-")
+              ? { theme: appearance.split("-")[0], mode: appearance.split("-")[1] }
+              : { mode: appearance }),
             density: "comfortable",
             transcriptSize: "default",
           }),

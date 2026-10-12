@@ -186,7 +186,7 @@ export function ApprovalRequest(props: {
                 aria-hidden
                 size={12}
                 className={cn(
-                  "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
+                  "shrink-0 text-subtle-foreground transition-transform duration-(--motion-base) ease-spring",
                   open && "rotate-90",
                 )}
               />

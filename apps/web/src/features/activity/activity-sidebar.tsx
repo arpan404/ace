@@ -88,7 +88,7 @@ function FeedTabs(props: { id: string }) {
           tabIndex={tab === entry.id ? 0 : -1}
           onClick={() => setTab(entry.id)}
           className={cn(
-            "h-[26px] rounded-sm px-1.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors duration-(--dur-1) focus-ring hover:bg-sidebar-accent hover:text-foreground",
+            "h-[26px] rounded-sm px-1.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-sidebar-accent hover:text-foreground",
             tab === entry.id && "text-foreground font-semibold",
           )}
         >

@@ -272,7 +272,7 @@ function Thumb(props: { item: ChipAttachment }) {
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={circumference * (1 - item.progress)}
-          className="stroke-foreground transition-[stroke-dashoffset] duration-(--dur-1)"
+          className="stroke-foreground transition-[stroke-dashoffset] duration-(--motion-fast)"
         />
       </svg>
     </span>

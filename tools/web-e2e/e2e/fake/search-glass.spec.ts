@@ -1,59 +1,75 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 
-for (const theme of ["light", "dark"])
-  test(`Search keeps a coloured underlay visible and honors transparency preferences in ${theme}`, async ({
+/** The alpha of a computed colour: `rgba(…, a)`, `color(srgb … / a)`, or 1 when opaque. */
+const alphaOf = (colour: string) => {
+  const match = /(?:,|\/)\s*([\d.]+)\s*\)$/.exec(colour);
+  return match ? Number(match[1]) : 1;
+};
+
+async function glassOf(element: Locator) {
+  return element.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { background: style.backgroundColor, filter: style.backdropFilter };
+  });
+}
+
+/*
+ * Modal panels (search, the palette, dialogs) must read as a solid surface on every engine:
+ * Chromium is the liquid-glass engine, whose thinner floating tint must never win over the modal
+ * tint. The blur belongs to the backdrop behind them, once.
+ */
+for (const mode of ["light", "dark"])
+  test(`search and the palette are dense glass over a blurred page on the liquid engine in ${mode}`, async ({
     page,
   }) => {
     await page.addInitScript((chosen) => {
-      localStorage.setItem("ace.appearance", JSON.stringify({ theme: chosen }));
-    }, theme);
+      localStorage.setItem("ace.appearance", JSON.stringify({ mode: chosen }));
+    }, mode);
     await page.goto("/t/thread-refund-tax");
     await expect(page.getByRole("combobox", { name: "Message", exact: true })).toBeVisible();
-    // A controlled optical underlay makes colour diffusion visible in the screenshot.
+    await expect(page.locator("html")).toHaveAttribute("data-glass-engine", "liquid");
+    // A busy underlay: if the panel let it through, its colours would read behind the text.
     await page.locator("[data-thread-column]").evaluate((element) => {
       element.style.backgroundImage =
-        "linear-gradient(110deg, transparent 15%, #4777cb 40%, #ca7d53 65%, transparent 85%)";
+        "repeating-linear-gradient(45deg, #4777cb 0 6px, #ca7d53 6px 14px)";
     });
-    await page.keyboard.press("Meta+Shift+K");
+    const overlay = page.locator('[data-slot="dialog-overlay"]');
+
+    await page.keyboard.press("ControlOrMeta+Shift+K");
     const search = page.getByRole("dialog", { name: "Search", exact: true });
     await expect(page.getByRole("combobox", { name: "Search every thread" })).toBeFocused();
     await expect(async () => {
-      const style = await search.evaluate((element) => {
-        const current = getComputedStyle(element);
-        return { background: current.backgroundColor, filter: current.backdropFilter };
-      });
-      expect(style.background).toMatch(/rgba\(.+, 0\.\d+\)/);
-      expect(style.filter).toContain("blur(24px)");
-      expect(style.filter).toContain("saturate(1.5)");
-      const dimmer = await page
-        .locator('[data-slot="dialog-overlay"]')
-        .evaluate((element) => getComputedStyle(element).backgroundColor);
-      expect(dimmer).toBe("rgba(0, 0, 0, 0.15)");
+      const panel = await glassOf(search);
+      expect(panel.filter).toBe("none");
+      expect(alphaOf(panel.background)).toBeGreaterThanOrEqual(0.9);
+      const behind = await glassOf(overlay);
+      expect(behind.filter).toContain("blur(16px)");
+      expect(alphaOf(behind.background)).toBeLessThanOrEqual(0.2);
     }).toPass();
-    await page.screenshot({
-      animations: "disabled",
-      path: `/tmp/ace-search-glass-underlay-${theme}.png`,
-    });
+    await page.screenshot({ animations: "disabled", path: `/tmp/ace-search-glass-${mode}.png` });
+    await page.keyboard.press("Escape");
+    await expect(search).toBeHidden();
+
+    await page.keyboard.press("ControlOrMeta+K");
+    const palette = page.getByRole("dialog", { name: "Command palette", exact: true });
+    await expect(async () => {
+      const panel = await glassOf(palette);
+      expect(panel.filter).toBe("none");
+      expect(alphaOf(panel.background)).toBeGreaterThanOrEqual(0.9);
+    }).toPass();
+    await page.keyboard.press("Escape");
+
+    // The OS asking for less transparency turns the backdrop into a plain scrim.
     const session = await page.context().newCDPSession(page);
     await session.send("Emulation.setEmulatedMedia", {
       features: [{ name: "prefers-reduced-transparency", value: "reduce" }],
     });
+    await expect(page.locator("html")).toHaveAttribute("data-surface", "solid");
+    await page.keyboard.press("ControlOrMeta+Shift+K");
     await expect(async () => {
-      const style = await search.evaluate((element) => {
-        const current = getComputedStyle(element);
-        return { background: current.backgroundColor, filter: current.backdropFilter };
-      });
-      expect(style.background).toMatch(/^rgb\(/);
-      expect(style.filter).toBe("none");
-    }).toPass();
-    await session.send("Emulation.setEmulatedMedia", { features: [] });
-    await page.evaluate(() => document.documentElement.style.setProperty("--glass", "0"));
-    await expect(async () => {
-      expect(await search.evaluate((element) => getComputedStyle(element).backgroundColor)).toMatch(
-        /^rgb\(/,
-      );
-      expect(
-        await search.evaluate((element) => getComputedStyle(element).backdropFilter),
-      ).toContain("blur(0px)");
+      const panel = await glassOf(search);
+      expect(panel.filter).toBe("none");
+      expect(alphaOf(panel.background)).toBe(1);
+      expect((await glassOf(overlay)).filter).toBe("none");
     }).toPass();
   });

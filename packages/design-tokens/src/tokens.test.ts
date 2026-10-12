@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import rawTokens from "../tokens.json" with { type: "json" };
-import { basePreset } from "../../../apps/web/src/theme/presets.ts";
+import { themeDeclarations } from "../../../apps/web/src/theme/css.ts";
+import { defaultThemeId } from "../../../apps/web/src/theme/palettes.ts";
 import { DesignTokensSchema, designTokens } from "./index.ts";
 
 const schemes = ["light", "dark"] as const;
@@ -36,8 +37,8 @@ describe("native theme data", () => {
   });
 
   for (const scheme of schemes) {
-    it(`${scheme} status markers stay identical to the colours rendered by the web preset`, () => {
-      const web = basePreset(scheme).tokens;
+    it(`${scheme} status markers stay identical to the colours the web renders in Ace`, () => {
+      const web = themeDeclarations(defaultThemeId, scheme);
       expect(designTokens.schemes[scheme].status).toEqual({
         needsYou: web["--status-needs-you"],
         working: web["--status-working"],

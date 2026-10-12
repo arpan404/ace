@@ -1,15 +1,23 @@
 import { chromium } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
+import { screenThemes } from "./src/appearance.ts";
 const output = "/tmp/ace-orch/shots/ui-devices-computer-use";
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch();
 try {
-  for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"])
+  for (const theme of screenThemes)
     for (const width of [1440, 390]) {
       const context = await browser.newContext({ viewport: { width, height: 900 } });
       await context.addInitScript(
         (selectedTheme) =>
-          localStorage.setItem("ace.appearance", JSON.stringify({ theme: selectedTheme })),
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              selectedTheme.includes("-")
+                ? { theme: selectedTheme.split("-")[0], mode: selectedTheme.split("-")[1] }
+                : { mode: selectedTheme },
+            ),
+          ),
         theme,
       );
       const page = await context.newPage();

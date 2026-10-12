@@ -24,7 +24,7 @@ import { useStartedTitle } from "./started-titles.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
 const row =
-  "flex w-full items-center border-b border-sidebar-border px-3 text-left text-ui outline-none transition-colors duration-(--dur-1)";
+  "flex w-full items-center border-b border-sidebar-border px-3 text-left text-ui outline-none transition-colors duration-(--motion-fast)";
 
 /** Every task shows project and status/time, title, then branch, environment and provider. */
 export function ThreadRow(props: {

@@ -1,3 +1,4 @@
+import { SettingDisclosure } from "@/components/setting-row.tsx";
 import { ArrowsClockwiseIcon, ChartBarIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { accountLimit, liveWindows, nearLimitPercent } from "@ace/ui-core";
@@ -102,16 +103,16 @@ export function AccountsPage() {
               ))
           )}
           {quiet.length > 0 && (
-            <details className="mt-7">
-              <summary className="focus-ring rounded-md text-sm text-muted-foreground">
-                {quiet.length} accounts without reported limits
-              </summary>
+            <SettingDisclosure
+              title={`${quiet.length} accounts without reported limits`}
+              className="mt-7"
+            >
               <section aria-label="Accounts without reported limits" className="mt-3">
                 {quiet.map((account) => (
                   <AccountCard key={account.id} account={account} />
                 ))}
               </section>
-            </details>
+            </SettingDisclosure>
           )}
         </div>
       </div>

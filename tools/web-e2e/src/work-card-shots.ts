@@ -1,10 +1,11 @@
 import { chromium, expect } from "@playwright/test";
 import { workCardScenario, type FakeDaemon, type WorkCardState } from "@ace/fake-daemon";
 import { mkdir, writeFile } from "node:fs/promises";
+import { screenThemes } from "./appearance.ts";
 
 const out = "/tmp/ace-orch/shots/ui-work-card-slim";
 const base = process.env.ACE_WORK_CARD_URL ?? "http://127.0.0.1:5271";
-const allThemes = ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"];
+const allThemes = screenThemes;
 const themes = process.env.ACE_WORK_CARD_THEMES?.split(",") ?? allThemes;
 const states: WorkCardState[] = [
   "changes",
@@ -30,7 +31,14 @@ try {
         const page = await context.newPage();
         await page.addInitScript(
           ({ theme: appearance, fixture: scenario }) => {
-            localStorage.setItem("ace.appearance", JSON.stringify({ theme: appearance }));
+            localStorage.setItem(
+              "ace.appearance",
+              JSON.stringify(
+                appearance.includes("-")
+                  ? { theme: appearance.split("-")[0], mode: appearance.split("-")[1] }
+                  : { mode: appearance },
+              ),
+            );
             Object.assign(globalThis, {
               aceFakeSetup: (daemon: FakeDaemon) => {
                 daemon.createThread(scenario.thread);

@@ -194,7 +194,7 @@ export function StepRow(props: {
       aria-label={[step.verb, step.target, step.note].filter(Boolean).join(" ")}
       title={step.ace?.problem?.hint}
       onClick={props.expandable === false ? undefined : props.onToggle}
-      className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent"
+      className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent"
     >
       {!step.settled ? (
         <LiveWorkMark className="mx-px" />

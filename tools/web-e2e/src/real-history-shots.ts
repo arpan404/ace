@@ -1,11 +1,12 @@
 import { chromium, expect } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
+import { screenThemes } from "./appearance.ts";
 
 const out = "/tmp/ace-orch/shots/fix-history-memory";
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch();
 try {
-  for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", "contrast"])
+  for (const theme of screenThemes)
     for (const width of [1440, 390]) {
       const context = await browser.newContext({
         viewport: { width, height: 900 },
@@ -15,7 +16,14 @@ try {
       page.setDefaultTimeout(10000);
       await page.addInitScript(
         ({ theme: appearance }) => {
-          localStorage.setItem("ace.appearance", JSON.stringify({ theme: appearance }));
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              appearance.includes("-")
+                ? { theme: appearance.split("-")[0], mode: appearance.split("-")[1] }
+                : { mode: appearance },
+            ),
+          );
           Object.assign(globalThis, {
             aceFakeSetup: new Function(
               "daemon",

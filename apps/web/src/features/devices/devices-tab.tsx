@@ -35,7 +35,7 @@ function DeviceList(props: {
           <button
             type="button"
             onClick={() => props.onOpen(row)}
-            className="flex h-11 w-full items-center gap-2.5 rounded-lg px-2.5 text-left outline-none transition-colors duration-(--dur-1) hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+            className="flex h-11 w-full items-center gap-2.5 rounded-lg px-2.5 text-left outline-none transition-colors duration-(--motion-fast) hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]"
           >
             <Icon
               icon={row.platform === "ios" ? AppleLogoIcon : AndroidLogoIcon}

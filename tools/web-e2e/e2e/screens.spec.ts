@@ -433,7 +433,6 @@ const screens: Record<string, Setup> = {
   "settings-remote": visit("/settings/remote", "Settings"),
   "settings-keyboard": visit("/settings/keyboard", "Settings"),
   "settings-advanced": visit("/settings/advanced", "Settings"),
-  "settings-theme-editor": visit("/settings/theme-editor", "Settings"),
 
   // Offline, disconnected, loading and failure states, so they can be checked for intent.
   "state-offline": async (page) => {
@@ -510,7 +509,12 @@ for (const theme of ["dark", "light"] as const)
     test(`${name} in ${theme}`, async ({ page }) => {
       await page.addInitScript((id) => {
         if (!localStorage.getItem("ace.appearance"))
-          localStorage.setItem("ace.appearance", JSON.stringify({ theme: id }));
+          localStorage.setItem(
+            "ace.appearance",
+            JSON.stringify(
+              id.includes("-") ? { theme: id.split("-")[0], mode: id.split("-")[1] } : { mode: id },
+            ),
+          );
       }, theme);
       await setup(page);
       // Let entrance transitions and live scenarios settle before the capture.
@@ -614,7 +618,7 @@ for (const [name, { width, height, setup }] of Object.entries(sized))
     await page.setViewportSize({ width, height });
     await page.addInitScript(() => {
       if (!localStorage.getItem("ace.appearance"))
-        localStorage.setItem("ace.appearance", JSON.stringify({ theme: "dark" }));
+        localStorage.setItem("ace.appearance", JSON.stringify({ mode: "dark" }));
     });
     await setup(page);
     await page.waitForTimeout(600);

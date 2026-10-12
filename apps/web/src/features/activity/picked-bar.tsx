@@ -39,7 +39,7 @@ export function PickedBar() {
     <div
       role="toolbar"
       aria-label="Picked items"
-      className="glass absolute bottom-4 left-1/2 z-[2] flex -translate-x-1/2 items-center gap-1.5 rounded-lg py-1.5 pr-1.5 pl-3.5 text-ui"
+      className="ace-floating absolute bottom-4 left-1/2 z-[2] flex -translate-x-1/2 items-center gap-1.5 rounded-lg py-1.5 pr-1.5 pl-3.5 text-ui"
     >
       <span className="mr-1.5 font-medium tabular-nums">{picked.size} picked</span>
       {readIds.length > 0 && (
