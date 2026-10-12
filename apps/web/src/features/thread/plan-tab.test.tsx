@@ -39,6 +39,11 @@ test("operational plans show the current step in the live line and their full li
   expect(await screen.findByRole("tab", { name: "Work" })).toBeTruthy();
   const list = await screen.findByRole("list", { name: "Plan" });
   expect(
+    screen.queryByText(
+      "The main agent is still working. The thread settles when it finishes its turn.",
+    ),
+  ).toBeNull();
+  expect(
     within(list)
       .getAllByRole("listitem")
       .map((row) => row.textContent),
