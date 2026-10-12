@@ -1,13 +1,7 @@
 import { killAll } from "./kill-all.ts";
-import {
-  AgentId,
-  CliTree,
-  CliTaskStatus,
-  type CliOperation,
-  type AgentControlResult,
-} from "@ace/protocol";
+import { AgentId, CliTaskStatus, type CliOperation, type AgentControlResult } from "@ace/protocol";
 import { agentTaskView } from "../agent-control/task-view.ts";
-import { threadAttention } from "@ace/projection";
+import { readThreadTree } from "../thread-tree.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
@@ -42,27 +36,10 @@ export function cliControl(context: ServiceContext) {
       .filter((edge) => journal.isDescendant(edge.childId, threadId));
     if (operation.op === "thread.tree") {
       if (!services.engine) return { ok: false, code: "unavailable" };
-      const members = [threadId, ...descendants.map((edge) => edge.childId)];
-      const data = members.map((id) => {
-        const value = store.getThread(id);
-        const edge = journal.get(id);
-        const snapshot = services.engine?.queue(id);
-        const queue = value?.queue ?? snapshot;
-        return {
-          threadId: id,
-          status: value?.status ?? { state: "unresponsive" as const },
-          pending: !!edge && edge.phase !== "settled",
-          queue: queue && {
-            ...queue,
-            uncertain: snapshot?.messages.some((message) => message.state === "uncertain") ?? false,
-          },
-          attention: threadAttention({ queue }),
-          cancelled:
-            queue?.lastFailure?.code === "cancelled" || edge?.outcome?.outcome === "cancelled",
-        };
-      });
-      return { ok: true, data: CliTree.parse(data) };
+      const data = readThreadTree(context, threadId);
+      return data ? { ok: true, data } : { ok: false, code: "unavailable" };
     }
+
     if (operation.op === "task.status") {
       if (!record) return { ok: false, code: "not_found" };
       const agent = thread.rootAgentId && store.getMcpAgent(thread.id, thread.rootAgentId);
