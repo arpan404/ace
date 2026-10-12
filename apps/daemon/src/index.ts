@@ -1,3 +1,5 @@
+export { StorageService } from "./storage/service.ts";
+export { planStorageItem, type StorageCandidate } from "./storage/planner.ts";
 import { shutdownDeadline } from "./shutdown.ts";
 import { connectedDoctorReport } from "./diagnostics-report.ts";
 import { detectToolchains } from "@ace/diagnostics";
@@ -293,6 +295,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "previewClient",
       "automations",
       "activityReads",
+      "storage",
       "devices",
     ] as const)
       Object.defineProperty(serverOptions, key, {
@@ -357,6 +360,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       get devices() {
         return services.devices;
       },
+      storage: services.storage,
       engine: services.engine,
       agentControl: services.agentControl,
       accounts: services.accounts,

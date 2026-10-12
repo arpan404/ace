@@ -13,7 +13,8 @@ export class WorkspaceReservations {
   ) {
     this.db = db;
     this.statement = statement;
-    db.exec(`CREATE TABLE IF NOT EXISTS workspace_root_reservations (
+    db.exec(`CREATE TABLE IF NOT EXISTS storage_removed_roots(root TEXT PRIMARY KEY,at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS workspace_root_reservations (
       root TEXT PRIMARY KEY, thread_id TEXT NOT NULL, command_id TEXT NOT NULL
     ); CREATE INDEX IF NOT EXISTS workspace_reservation_owner ON workspace_root_reservations(thread_id);
     CREATE TABLE IF NOT EXISTS workspace_canonical_roots (workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), root TEXT NOT NULL);
@@ -47,6 +48,8 @@ export class WorkspaceReservations {
     );
   }
   assertAvailable(root: string): void {
+    if (this.statement("SELECT 1 FROM storage_removed_roots WHERE root=?").get(root))
+      throw new Error("workspace_removed");
     if (this.statement("SELECT 1 FROM workspace_root_reservations WHERE root=?").get(root))
       throw new Error("workspace_change_in_progress");
   }
