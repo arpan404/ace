@@ -1,3 +1,4 @@
+import { PrMergeState } from "./pr-merge-state.tsx";
 import { PrStack } from "./pr-stack.tsx";
 import { PrReviewWorkspace } from "./pr-review-context.tsx";
 import {
@@ -96,6 +97,12 @@ export function PrDetail(props: {
             detail={detail}
             writeReady={!query.isError && !query.isFetching}
             onRefresh={async () => !(await query.refetch()).isError}
+          />
+          <PrMergeState
+            key={JSON.stringify(status.ref)}
+            workspaceId={props.workspaceId}
+            detail={detail}
+            onRefresh={() => void query.refetch()}
           />
           <PrStack
             key={JSON.stringify(status.ref)}

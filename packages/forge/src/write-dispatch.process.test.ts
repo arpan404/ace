@@ -2,7 +2,7 @@ import { chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { GhApi, GitHubForge, WriteDispatch, createCommandRunner, identityRunner } from "./index.ts";
-import { fakeGh, repository, sha, pr } from "./testing/fixtures.ts";
+import { mergeStateResponse, fakeGh, repository, sha, pr } from "./testing/fixtures.ts";
 
 const signal = () => new AbortController().signal;
 for (const failure of ["missing executable", "missing cwd", "permission denied"]) {
@@ -145,7 +145,11 @@ for (const failure of ["timeout", "output limit"] as const) {
     const f = await fakeGh(
       {
         "repos/octo/ace/pulls/7": [{ body: pr }],
-        graphql: [failure === "timeout" ? { wait: true } : { repeat: 16, text: "x".repeat(1024) }],
+        graphql: [
+          mergeStateResponse(),
+          failure === "timeout" ? { wait: true } : { repeat: 16, text: "x".repeat(1024) },
+          mergeStateResponse(),
+        ],
       },
       failure === "timeout" ? { timeoutMs: 5000 } : { maxBytes: 1024 },
     );
@@ -178,7 +182,7 @@ for (const failure of ["timeout", "output limit"] as const) {
 
 test("a changed head prevents auto-merge before mutation dispatch", async () => {
   const f = await fakeGh({
-    "repos/octo/ace/pulls/7": [{ body: { ...pr, head: { ...pr.head, sha: "b".repeat(40) } } }],
+    graphql: [mergeStateResponse({ headRefOid: "b".repeat(40) })],
   });
   try {
     const dispatch = new WriteDispatch();
@@ -186,7 +190,9 @@ test("a changed head prevents auto-merge before mutation dispatch", async () => 
       f.forge.enableAutoMerge(7, sha, "squash", signal(), dispatch),
     ).rejects.toMatchObject({ kind: "conflict", dispatched: false });
     expect(dispatch.definitelyFailed).toBe(true);
-    expect((await f.requests()).filter((request) => request.args.includes("POST"))).toEqual([]);
+    expect(
+      (await f.requests()).filter((request) => JSON.stringify(request.body).includes("mutation")),
+    ).toEqual([]);
   } finally {
     await f.cleanup();
   }
@@ -201,7 +207,10 @@ test("structured auto-merge keeps its admitted outcome when the identity probe c
       { body: { login: "alice" } },
       { body: { login: "bob" } },
     ],
-    graphql: [{ body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } }],
+    graphql: [
+      mergeStateResponse(),
+      { body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
+    ],
   });
   const backend = new GitHubForge({
     repository,

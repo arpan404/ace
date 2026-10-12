@@ -1,7 +1,13 @@
 import { beforeEach, expect, test } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ForgePrDetail, ForgePrSearch, WorkspaceId, ThreadId } from "@ace/protocol";
+import {
+  ForgePrDetail,
+  ForgePrSearch,
+  ForgeMergeState,
+  ThreadId,
+  WorkspaceId,
+} from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;
@@ -236,6 +242,184 @@ test("changing repositories replaces the old detail with an honest inaccessible 
   await screen.findByText("This repository or pull request is missing or inaccessible.");
   await waitFor(() =>
     expect(screen.queryByRole("heading", { name: /Retry reconnects #42/ })).toBeNull(),
+  );
+});
+
+test("the PR workspace renders authoritative auto-merge and queue state and removes externally cancelled requests on refresh", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), number: 42 },
+    { resource: "prDetail", value: detail() },
+  );
+  const operation = {
+    op: "forge.pr.merge-state",
+    workspaceId: WorkspaceId.parse("api"),
+    repository,
+    number: 42,
+  } as const;
+  const state = {
+    headSha: "a".repeat(40),
+    state: "OPEN",
+    mergeState: "BLOCKED",
+    reviewDecision: "REVIEW_REQUIRED",
+    checksState: "SUCCESS",
+    autoMerge: { method: "SQUASH", actor: "octo", enabledAt: "2026-10-11" },
+    queue: { id: "QUEUE_42", state: "AWAITING_CHECKS", position: 3, enqueuedAt: "2026-10-11" },
+    canEnable: false,
+    canDisable: true,
+    canDequeue: true,
+    blockers: ["Required reviews are outstanding."],
+    raw: {},
+  };
+  app.daemon.workspace.setForgeRead(operation, { resource: "prMergeState", value: state });
+  await app.open("/pull-requests?project=api&number=42");
+  const section = within(await screen.findByRole("region", { name: "Auto-merge and merge queue" }));
+  expect(await section.findByText(/squash by octo/)).toBeTruthy();
+  expect(section.getByText(/AWAITING_CHECKS, position 3/)).toBeTruthy();
+  expect(section.getByText("Required reviews are outstanding.")).toBeTruthy();
+  expect(
+    section.getByRole<HTMLButtonElement>("button", { name: "Cancel auto-merge" }).disabled,
+  ).toBe(true);
+  app.daemon.workspace.setForgeRead(operation, {
+    resource: "prMergeState",
+    value: { ...state, autoMerge: null, queue: null, canDisable: false, canDequeue: false },
+  });
+  await userEvent.click(section.getByRole("button", { name: "Refresh merge state" }));
+  expect(await section.findByText("Auto-merge is disabled.")).toBeTruthy();
+  expect(section.getByText("Not in the merge queue.")).toBeTruthy();
+});
+
+const mergeState = (patch: Partial<ForgeMergeState> = {}) =>
+  ForgeMergeState.parse({
+    headSha: "a".repeat(40),
+    state: "OPEN",
+    mergeState: "BLOCKED",
+    reviewDecision: "REVIEW_REQUIRED",
+    checksState: "SUCCESS",
+    autoMerge: null,
+    queue: null,
+    canEnable: true,
+    canDisable: false,
+    canDequeue: false,
+    blockers: ["Required reviews are outstanding."],
+    raw: {},
+    ...patch,
+  });
+const armed = { method: "SQUASH", actor: "octo", enabledAt: "2026-10-11" };
+const queued = { id: "QUEUE_42", state: "AWAITING_CHECKS", position: 3, enqueuedAt: "2026-10-11" };
+async function linkedControls(state: ForgeMergeState) {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  const hosted = detail();
+  const seed = (value: ForgeMergeState) =>
+    app.daemon.seedServices({
+      pullRequests: { "thread-retry-budget": { ...hosted.status, mergeState: value } },
+    });
+  seed(state);
+  app.daemon.workspace.setForgeRead(
+    {
+      op: "forge.pr.stack-memberships",
+      workspaceId: WorkspaceId.parse("relay"),
+      repository,
+      numbers: [42],
+    },
+    { resource: "prStackMemberships", value: [{ number: 42, stack: null }] },
+  );
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("relay"), number: 42 },
+    {
+      resource: "prDetail",
+      value: {
+        ...hosted,
+        relatedThreads: [
+          { id: ThreadId.parse("thread-retry-budget"), title: "Retry budget", archived: false },
+        ],
+      },
+    },
+  );
+  await app.open("/pull-requests?project=relay&number=42");
+  const section = within(await screen.findByRole("region", { name: "Auto-merge and merge queue" }));
+  await section.findByText("Required reviews are outstanding.");
+  return { app, section, seed };
+}
+
+test("linked workspace controls cancel auto-merge and queue membership separately", async () => {
+  const { section } = await linkedControls(
+    mergeState({
+      autoMerge: armed,
+      queue: queued,
+      canEnable: false,
+      canDisable: true,
+      canDequeue: true,
+    }),
+  );
+  const cancel = section.getByRole<HTMLButtonElement>("button", { name: "Cancel auto-merge" });
+  await waitFor(() => expect(cancel.disabled).toBe(false));
+  await userEvent.click(cancel);
+  expect(await section.findByText("Auto-merge is disabled.")).toBeTruthy();
+  expect(section.getByText(/AWAITING_CHECKS, position 3/)).toBeTruthy();
+  const leave = section.getByRole<HTMLButtonElement>("button", { name: "Leave merge queue" });
+  await waitFor(() => expect(leave.disabled).toBe(false));
+  await userEvent.click(leave);
+  expect(await section.findByText("Not in the merge queue.")).toBeTruthy();
+  expect(section.getByText("Auto-merge is disabled.")).toBeTruthy();
+});
+
+test("an enabled workspace action submits a command and shows its classified error receipt", async () => {
+  const { app, section } = await linkedControls(mergeState());
+  const enable = section.getByRole<HTMLButtonElement>("button", { name: "Enable auto-merge" });
+  await waitFor(() => expect(enable.disabled).toBe(false));
+  app.daemon.refuseCommands("forge_rate_limit", "forge.pr.merge-state.change");
+  await userEvent.click(enable);
+  expect(
+    await section.findByText("GitHub's rate limit was reached. Wait before refreshing."),
+  ).toBeTruthy();
+  expect(enable.disabled).toBe(true);
+});
+
+test("an uncertain receipt blocks further writes until a fresh read reconciles the host state", async () => {
+  const { app, section, seed } = await linkedControls(mergeState());
+  const enable = section.getByRole<HTMLButtonElement>("button", { name: "Enable auto-merge" });
+  await waitFor(() => expect(enable.disabled).toBe(false));
+  app.daemon.refuseCommands("action_outcome_uncertain", "forge.pr.merge-state.change");
+  await userEvent.click(enable);
+  expect(await section.findByText(/The action may have reached GitHub/)).toBeTruthy();
+  expect(enable.disabled).toBe(true);
+  seed(mergeState({ autoMerge: armed, canEnable: false, canDisable: true }));
+  app.daemon.restoreRequests();
+  await userEvent.click(section.getByRole("button", { name: "Refresh merge state" }));
+  expect(await section.findByText(/squash by octo/)).toBeTruthy();
+  const cancel = section.getByRole<HTMLButtonElement>("button", { name: "Cancel auto-merge" });
+  await waitFor(() => expect(cancel.disabled).toBe(false));
+  await userEvent.click(cancel);
+  expect(await section.findByText("Auto-merge is disabled.")).toBeTruthy();
+});
+
+test("reconnecting reads external cancellation before re-enabling controls", async () => {
+  const { app, section, seed } = await linkedControls(
+    mergeState({
+      autoMerge: armed,
+      queue: queued,
+      canEnable: false,
+      canDisable: true,
+      canDequeue: true,
+    }),
+  );
+  await section.findByText(/squash by octo/);
+  act(() => app.daemon.refuseConnections(true));
+  await waitFor(() => expect(app.client.state).not.toBe("ready"));
+  expect(
+    section.getByRole<HTMLButtonElement>("button", { name: "Cancel auto-merge" }).disabled,
+  ).toBe(true);
+  seed(mergeState());
+  act(() => app.daemon.refuseConnections(false));
+  expect(await section.findByText("Auto-merge is disabled.")).toBeTruthy();
+  expect(section.getByText("Not in the merge queue.")).toBeTruthy();
+  await waitFor(() =>
+    expect(
+      section.getByRole<HTMLButtonElement>("button", { name: "Enable auto-merge" }).disabled,
+    ).toBe(false),
   );
 });
 

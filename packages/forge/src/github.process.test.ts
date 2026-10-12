@@ -167,9 +167,6 @@ describe("GitHub CLI boundary", () => {
       { body: { merged: true } },
       { body: { merged: false } },
     ];
-    fixtures.graphql = [
-      { body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
-    ];
     const { forge, requests } = await setup(fixtures);
     expect(
       await forge.createPr(
@@ -191,7 +188,6 @@ describe("GitHub CLI boundary", () => {
     await expect(forge.merge(7, sha, "squash", signal())).rejects.toMatchObject({
       kind: "conflict",
     });
-    await forge.enableAutoMerge(7, sha, "squash", signal());
     const calls = await requests();
     expect(calls.find((call) => call.path === "repos/octo/ace/pulls")?.body).toEqual({
       head: "feat/fix",
@@ -209,11 +205,6 @@ describe("GitHub CLI boundary", () => {
     expect(calls.find((call) => call.path.endsWith("/merge"))?.body).toEqual({
       sha,
       merge_method: "squash",
-    });
-    expect(calls.find((call) => call.path === "graphql")?.body).toMatchObject({
-      variables: {
-        input: { pullRequestId: "PR_7", expectedHeadOid: sha, mergeMethod: "SQUASH" },
-      },
     });
   });
   it("keeps only the latest legacy status per context and distinguishes issue and inline comments", async () => {
