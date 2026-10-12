@@ -1,4 +1,4 @@
-import { CaretLeftIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, ArrowRightIcon, CaretLeftIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { Suspense, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -6,12 +6,18 @@ import { SidebarTrigger } from "@/components/ui/sidebar.tsx";
 import { HeaderMenu } from "./sidebar-menu.tsx";
 import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useElementSize } from "@/lib/element-size.ts";
+import { useHistoryNav } from "@/lib/history-nav.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 
 export interface HeaderProps {
   /** 13px medium. Rendered as the view's h1. */
   title: ReactNode;
+  /**
+   * Where the title sits, before it and a "/": a thread's project (badge and name), or the
+   * parent thread of a child thread. Muted; dropped first when the header is narrow.
+   */
+  crumb?: ReactNode;
   /** Muted beside the title: the project on a thread, the page in Settings. */
   subtitle?: ReactNode;
   breadcrumb?: ReactNode;
@@ -29,33 +35,66 @@ export interface HeaderProps {
 }
 
 /**
- * The sidebar toggle, also available in full view. On a phone it returns to the thread list.
+ * Back, forward and the sidebar's toggle, as the Codex app places them: at the top of the
+ * sidebar while it shows beside the content, at the header's far left while it doesn't.
+ * ⌘[ and ⌘] go back and forward; ⌘\ shows or hides the sidebar.
+ */
+export function NavButtons() {
+  const nav = useHistoryNav();
+  const frame = useViewFrame();
+  return (
+    <>
+      <IconButton
+        icon={ArrowLeftIcon}
+        label="Back"
+        shortcut="back"
+        disabled={!nav.canGoBack}
+        onClick={nav.back}
+      />
+      <IconButton
+        icon={ArrowRightIcon}
+        label="Forward"
+        shortcut="forward"
+        disabled={!nav.canGoForward}
+        onClick={nav.forward}
+      />
+      <SidebarTrigger
+        label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
+        shortcut="toggleSidebar"
+      />
+    </>
+  );
+}
+
+/**
+ * The header's far left: back, forward and the sidebar toggle while the sidebar isn't beside the
+ * content (its top row holds them otherwise). On a phone, the way back to the thread list.
  */
 export function HeaderNav() {
   const frame = useViewFrame();
   // A phone leaves history to the system.
   const phone = usePhone();
+  if (!frame.hasSidebar) return null;
+  if (!phone && frame.sidebarShown && !frame.sheet) return null;
   return (
     // `header-nav`: with no sidebar beside it, the desktop app clears the traffic lights here.
     <div
       data-slot="header-nav"
-      className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
+      className="mr-1.5 flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]"
     >
-      {frame.hasSidebar &&
-        (phone && !frame.sidebarShown ? (
-          // A phone's list is the sidebar sheet: going back to it is the header's first control.
-          <IconButton
-            icon={CaretLeftIcon}
-            label="Back to threads"
-            shortcut="toggleSidebar"
-            onClick={frame.showSidebar}
-          />
-        ) : (
-          <SidebarTrigger
-            label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
-            shortcut="toggleSidebar"
-          />
-        ))}
+      {!phone ? (
+        <NavButtons />
+      ) : frame.sidebarShown ? (
+        <SidebarTrigger label="Hide sidebar" shortcut="toggleSidebar" />
+      ) : (
+        // A phone's list is the sidebar sheet: going back to it is the header's first control.
+        <IconButton
+          icon={CaretLeftIcon}
+          label="Back to threads"
+          shortcut="toggleSidebar"
+          onClick={frame.showSidebar}
+        />
+      )}
     </div>
   );
 }
@@ -98,6 +137,15 @@ export function AppHeader(
     >
       <HeaderNav />
       <div className="ml-1.5 flex min-w-0 flex-1 items-center gap-2">
+        {props.crumb && !phone && (
+          // The title keeps the room: the crumb truncates first and leaves a narrow header.
+          <div className="flex min-w-0 shrink-[3] items-center gap-2 text-ui text-muted-foreground @max-[30rem]/header:hidden">
+            <span className="flex min-w-0 items-center gap-1.5 truncate">{props.crumb}</span>
+            <span aria-hidden className="text-subtle-foreground">
+              /
+            </span>
+          </div>
+        )}
         <div className="min-w-0">
           {props.breadcrumb && (
             <div className="truncate text-xs text-muted-foreground">{props.breadcrumb}</div>

@@ -7,6 +7,7 @@ import { useProjectDirectory } from "@/lib/projects.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
+import { NavButtons } from "./app-header.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 import { activeView } from "./views.ts";
 
@@ -25,7 +26,8 @@ export function useNoProjects(): boolean {
 }
 
 /**
- * The one sidebar. At the top, the ace label and Search (a dialog over any screen);
+ * The one sidebar. At the top, the ace label, Search (a dialog over any screen), back, forward
+ * and the sidebar's toggle;
  * then the thread list (or the selected section's list) as its only
  * scrolling part; and at the foot the profile with the Settings gear. Settings, Automations
  * and Skills hide app navigation and the profile, with Back to app above their lists.
@@ -56,7 +58,7 @@ export function AppSidebar(props: {
           )}
         >
           {section ? (
-            <Link to="/new" className={cn(row, "flex-1")} onClick={leaveSheet}>
+            <Link to="/new" className={cn(row, "min-w-0 flex-1 truncate")} onClick={leaveSheet}>
               <Icon icon={ArrowLeftIcon} />
               Back to app
             </Link>
@@ -82,6 +84,8 @@ export function AppSidebar(props: {
               </Tip>
             </>
           )}
+          {/* Beside the content, the sidebar's top row holds back, forward and its toggle. */}
+          {!sheet && <NavButtons />}
         </div>
       </nav>
       {/* The thread list, or a view's own (`ViewFrame`): the only part that scrolls. */}

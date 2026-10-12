@@ -24,7 +24,6 @@ import { useFileDrop } from "./composer/file-drop.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import type { ThreadRef } from "./sources/index.ts";
-import { ThreadLink } from "./transitions/thread-link.tsx";
 import { ForkOpener } from "./transitions/fork-opener.ts";
 import { ThreadLoadError } from "./thread-load-error.tsx";
 import { useLatestForkPoint } from "./transitions/use-fork-point.ts";
@@ -67,6 +66,7 @@ import { UserMessage } from "./items/user-message.tsx";
 import { ActivityLine } from "./transcript/live-footer.tsx";
 import { LongThreadHotkeys } from "./long/nav-keys.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
+import { ThreadCrumb } from "./header/thread-crumb.tsx";
 import { WorkButton } from "./header/work-button.tsx";
 import { createWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
 import { WorkSide } from "./header/work-side.tsx";
@@ -200,14 +200,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
     <ThreadPartsProvider value={parts}>
       <WorkCardContext value={workCard}>
         <Screen
-          breadcrumb={
-            meta?.lineage && (
-              <>
-                Forked from{" "}
-                <ThreadLink threadId={meta.lineage.parentThreadId} fallback="parent thread" />
-              </>
-            )
-          }
+          crumb={meta && <ThreadCrumb threadId={id} />}
           title={
             renaming && thread ? (
               <Suspense fallback={null}>
