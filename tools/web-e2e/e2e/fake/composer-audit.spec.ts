@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { scrollToRow } from "./thread-list.ts";
 import { mkdir } from "node:fs/promises";
 
 const shots = "/tmp/ace-orch/shots/fix-audit-composer-lifecycle";
@@ -90,7 +91,9 @@ test("failed starts retain three-line row height and recovery text", async ({ pa
   const first = page
     .getByRole("navigation", { name: "Threads", exact: true })
     .getByRole("link", { name: /^Partial refunds/ });
+  await expect(first).toBeVisible();
   const firstHeight = (await first.boundingBox())?.height;
+  if (firstHeight === undefined) throw new Error("Missing admitted task height");
   await page
     .getByRole("combobox", { name: "Message", exact: true })
     .fill("Recover this failed start");

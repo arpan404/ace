@@ -1,6 +1,5 @@
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
-import { useConnectionState } from "@ace/client-react";
 import {
   useRefusedTitle,
   useSelected,
@@ -34,7 +33,6 @@ export function ThreadRow(props: {
   leaving?: boolean | undefined;
 }) {
   const { settled } = props;
-  const online = useConnectionState() === "ready";
   const data = useThreadCard(props.threadId, settled, props.leaving);
   const selection = useHomeSelection();
   const editing = useRenameTitle(props.threadId);
@@ -101,7 +99,7 @@ export function ThreadRow(props: {
             onClick={() => hover.change(false)}
             onContextMenu={() => hover.change(false)}
             render={<div />}
-            className={cn("group/row relative", !online && "opacity-60")}
+            className="group/row relative"
             data-attention={quiet ? "quiet" : "attention"}
             // Settled rows stay out of picking and dragging, as they always have.
             {...(settled ? {} : { "data-thread-row": entry.id })}
