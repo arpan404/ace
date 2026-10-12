@@ -129,7 +129,8 @@ test("attached files upload before sending and can be removed", async () => {
   expect(within(chips).getByText("replay.png")).toBeTruthy();
 
   await userEvent.click(send);
-  expect(await within(feed).findByText("See the attached files.")).toBeTruthy();
+  expect(await within(feed).findByRole("img", { name: "replay.png" })).toBeTruthy();
+  expect(within(feed).queryByText("See the attached files.")).toBeNull();
   expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull();
 });
 

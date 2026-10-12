@@ -210,7 +210,7 @@ export async function enqueueStaged(client: ClientApi, commandId: string): Promi
   const payload: CommandPayload = {
     type: "thread.send",
     threadId: ThreadId.parse(send.threadId),
-    input: send.input ?? [{ type: "text", text: send.text || "See the attached files." }],
+    input: send.input ?? [{ type: "text", text: send.text }],
     context: {
       ...send.context,
       mentions: send.context?.mentions ?? send.mentions.map((path) => ({ path })),

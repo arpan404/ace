@@ -62,7 +62,7 @@ export async function sendMessage(request: SendRequest): Promise<boolean> {
       {
         type: "thread.send",
         threadId: ThreadId.parse(threadId),
-        input: draft.input ?? [{ type: "text", text: draft.text || "See the attached files." }],
+        input: draft.input ?? [{ type: "text", text: draft.text }],
         context: {
           items: draft.threadRefs,
           mentions: draft.mentions,

@@ -3,6 +3,7 @@ import { fixtureImage, longHistory } from "@ace/fake-daemon";
 import {
   configure,
   act,
+  fireEvent,
   render,
   renderHook,
   screen,
@@ -57,6 +58,39 @@ async function openComposer() {
   const message = await screen.findByRole("combobox", { name: "Message" });
   return { app, feed, message };
 }
+
+test("pasting an image preserves an attached file without sending until the person presses Send", async () => {
+  const { app, message } = await openComposer();
+  await userEvent.upload(
+    screen.getByLabelText("Files to attach"),
+    new File(["keep this file"], "notes.txt", { type: "text/plain" }),
+  );
+  fireEvent.paste(message, { clipboardData: { files: [screenshot()], items: [] } });
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
+  expect(within(chips).getByRole("button", { name: "Remove notes.txt" })).toBeTruthy();
+  expect(within(chips).getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
+  expect(message.textContent).toBe("");
+  const before = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(thread.id) });
+  if (!before || !("items" in before)) throw new Error("Missing transcript");
+  expect(
+    Object.values(before.items).filter(
+      (item) => item.type === "message" && item.attachments?.length,
+    ),
+  ).toEqual([]);
+
+  await userEvent.click(screen.getByRole("button", { name: "Send", exact: true }));
+  await waitFor(() => {
+    const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(thread.id) });
+    if (!view || !("items" in view)) throw new Error("Missing transcript");
+    const sent = Object.values(view.items).find(
+      (item) => item.type === "message" && item.role === "user" && item.attachments?.length,
+    );
+    if (sent?.type !== "message") throw new Error("Attachment message not admitted");
+    expect(sent.parts).toEqual([{ type: "text", text: "" }]);
+    expect(sent.attachments?.map((file) => file.name)).toEqual(["notes.txt", "screen.png"]);
+  });
+});
 
 test("an image chip shows its preview at once, and the sent message shows the image", async () => {
   const user = userEvent.setup();

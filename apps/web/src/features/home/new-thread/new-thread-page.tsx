@@ -541,7 +541,7 @@ function PreparationPage(props: {
       serviceTier: resolved.fast ? resolved.model.fastTier : speedOffTier(resolved.model),
       permission: chosen,
       input: draft.input,
-      text: draft.text.trim() || "See the attached files.",
+      text: draft.text,
       context: {
         ...(draftId ? { draftId } : {}),
         items: draft.threadRefs,
