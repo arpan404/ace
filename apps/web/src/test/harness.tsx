@@ -1,3 +1,4 @@
+import { createTimeSource, TimeContext } from "@/lib/time.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { type ClientApi } from "@ace/client";
 import { ClientHost, RemoteClient } from "@ace/client-worker";
@@ -42,6 +43,10 @@ export function memoryKeyValue(): KeyValueStorage & { data: Map<string, string> 
   const data = new Map<string, string>();
   return {
     data,
+    get length() {
+      return data.size;
+    },
+    key: (index) => [...data.keys()][index] ?? null,
     getItem: (key) => data.get(key) ?? null,
     setItem: (key, value) => void data.set(key, value),
     removeItem: (key) => void data.delete(key),
@@ -63,6 +68,8 @@ export function harness(
     throughWorker?: boolean;
     /** The daemon's clock; by default a counter from 1,000 ms. */
     clock?: () => number;
+    /** The rendered UI wall clock; injected separately from event admission time. */
+    uiClock?: () => number;
     /** When each stage of a project clone runs, on every machine (tests step clones by hand). */
     projectScheduler?: (callback: () => void) => void;
     /** Where the client keeps its outbox (tests hold a save to catch work done meanwhile). */
@@ -84,6 +91,7 @@ export function harness(
     worktreeSchedule?: (callback: () => void, delay: number) => () => void;
   } = {},
 ) {
+  const time = createTimeSource(options.uiClock ?? (() => Date.now()));
   let now = 1_000;
   const clock = options.clock ?? (() => (now += 1));
   const others = (options.machines ?? []).map(
@@ -145,19 +153,25 @@ export function harness(
       if (machines) running.push(machines);
       const connection = options.connection ?? fakeConnection(daemon);
       return render(
-        <AppFrame
-          environment={{ storage, root: document.documentElement, matchMedia: options.matchMedia }}
-        >
-          <DaemonConnectionContext.Provider value={connection}>
-            <App
-              client={client}
-              queryClient={createQueryClient()}
-              storage={storage}
-              history={options.history ?? createMemoryHistory({ initialEntries: [path] })}
-              machines={machines}
-            />
-          </DaemonConnectionContext.Provider>
-        </AppFrame>,
+        <TimeContext.Provider value={time}>
+          <AppFrame
+            environment={{
+              storage,
+              root: document.documentElement,
+              matchMedia: options.matchMedia,
+            }}
+          >
+            <DaemonConnectionContext.Provider value={connection}>
+              <App
+                client={client}
+                queryClient={createQueryClient()}
+                storage={storage}
+                history={options.history ?? createMemoryHistory({ initialEntries: [path] })}
+                machines={machines}
+              />
+            </DaemonConnectionContext.Provider>
+          </AppFrame>
+        </TimeContext.Provider>,
       );
     },
   };

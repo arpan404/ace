@@ -1,10 +1,14 @@
 import { expect, test, vi } from "vitest";
+import { ThreadId } from "@ace/protocol";
 import { McpProviderSessions } from "./mcp-provider-sessions.ts";
 import { setup } from "./remote-test-support.ts";
 
 test("native MCP controls require thread authority and stop working after the provider exits", async () => {
   const providers = new McpProviderSessions();
-  const f = await setup({ mcp: { providers } });
+  const f = await setup({
+    mcp: { providers },
+    canReadThread: (_device, thread) => thread !== ThreadId.parse("denied"),
+  });
   const lifetime = new AbortController();
   let dynamic: Record<string, unknown> = {};
   let projectStatus = "failed";
@@ -42,7 +46,13 @@ test("native MCP controls require thread authority and stop working after the pr
   reader.send({ type: "mcp.status", threadId: f.thread.id, requestId: "status" });
   expect(await reader.next()).toMatchObject({
     type: "mcp.result",
-    result: [{ name: "project", extension: 42 }],
+    result: [{ name: "project", status: "failed" }],
+  });
+  reader.send({ type: "mcp.status", threadId: ThreadId.parse("denied"), requestId: "unreadable" });
+  expect(await reader.next()).toMatchObject({
+    type: "error",
+    code: "forbidden",
+    requestId: "unreadable",
   });
   reader.send({
     type: "mcp.replace",
@@ -85,7 +95,10 @@ test("native MCP controls require thread authority and stop working after the pr
   host.send({ type: "mcp.status", threadId: f.thread.id, requestId: "updated" });
   expect(await host.next()).toMatchObject({
     type: "mcp.result",
-    result: [{ source: "project" }, { name: "tools" }],
+    result: [
+      { name: "project", status: "failed" },
+      { name: "tools", status: "unknown" },
+    ],
   });
   for (const [type, status] of [
     ["mcp.reconnect", "connected"],

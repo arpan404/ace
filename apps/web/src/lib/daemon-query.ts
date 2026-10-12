@@ -28,6 +28,7 @@ export function useDaemonQuery<T>(
   const cache = useQueryClient();
   const query = useQuery({
     ...rest,
+    meta: { ...rest.meta, daemonClient: client },
     queryFn: ({ signal }) => read(client, signal),
     enabled: ready && (enabled ?? true),
   });

@@ -34,6 +34,7 @@ export async function startWorkspaceActions({
   );
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     ...options.workspaceActions,
+    ...(services.sourceControl ? { sourceControl: services.sourceControl } : {}),
     writingCli:
       options.workspaceActions?.writingCli ??
       createWritingCli({

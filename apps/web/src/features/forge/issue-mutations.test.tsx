@@ -1,7 +1,16 @@
 import { beforeEach, expect, test } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ForgeIssueDetail, ForgeIssueSearch, WorkspaceId } from "@ace/protocol";
+import { Client, type Limits } from "@ace/client";
+import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
+import {
+  DeviceId,
+  ThreadId,
+  ServerMessage,
+  ForgeIssueDetail,
+  ForgeIssueSearch,
+  WorkspaceId,
+} from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
 import { memoryStorage } from "@/boot/client.ts";
@@ -299,4 +308,138 @@ test("closing an issue updates cached membership and counts before returning to 
   expect(screen.queryByRole("button", { name: "Original issue #42" })).toBeNull();
   expect(screen.getByRole("button", { name: "Open 0" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Closed 1" })).toBeTruthy();
+});
+
+function interceptedClient(
+  daemon: FakeDaemon,
+  receive: (message: ServerMessage, deliver: () => void) => void,
+  limits?: Partial<Limits>,
+) {
+  let ids = 0;
+  let disconnect: (() => void) | undefined;
+  const client = new Client({
+    deviceId: DeviceId.parse("test-device"),
+    credential: async () => daemon.token,
+    storage: memoryStorage(),
+    random: () => 0.5,
+    id: () => `admission-${++ids}`,
+    limits: { retryBaseMs: 2, retryCapMs: 10, ...limits },
+    scheduler: {
+      set(ms, run) {
+        const timer = setTimeout(run, ms);
+        return () => clearTimeout(timer);
+      },
+    },
+    transport: () => {
+      const inner = fakeTransport(daemon);
+      return {
+        ...inner,
+        open(events) {
+          disconnect = () => {
+            inner.close();
+            events.close(1006);
+          };
+          inner.open({
+            ...events,
+            message(text) {
+              receive(ServerMessage.parse(JSON.parse(text)), () => events.message(text));
+            },
+          });
+        },
+      };
+    },
+  });
+  return { client, disconnect: () => disconnect?.() };
+}
+
+test("client capacity releases an unsent comment association across remount and permits retry with its preserved text", async () => {
+  const holding = Promise.withResolvers<void>();
+  let release: (() => void) | undefined;
+  const app = harness({
+    client: (daemon) =>
+      interceptedClient(
+        daemon,
+        (message, deliver) => {
+          if (message.type === "commandResult" && message.commandId === "capacity-hold") {
+            release = deliver;
+            holding.resolve();
+          } else deliver();
+        },
+        { requests: 1 },
+      ).client,
+  });
+  seed(app);
+  await app.open("/issues?project=api&number=42");
+  const comment = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Issue comment",
+  });
+  await userEvent.type(comment, "Never sent at capacity");
+  await waitFor(() =>
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Post issue comment" }).disabled,
+    ).toBe(false),
+  );
+  const pending = app.client.command(
+    { type: "workspace.editor.open", threadId: ThreadId.parse("held-task"), editorId: "code" },
+    {},
+    "capacity-hold",
+  );
+  await holding.promise;
+  try {
+    await userEvent.click(screen.getByRole("button", { name: "Post issue comment" }));
+    await screen.findByText("This device couldn't save the action. Your draft is preserved.");
+    expect(comment.value).toBe("Never sent at capacity");
+    expect(screen.queryByRole("button", { name: "Check submission" })).toBeNull();
+  } finally {
+    release?.();
+    await pending;
+  }
+  await userEvent.click(screen.getByRole("button", { name: "Back to issues" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Original issue #42" }));
+  const restored = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Issue comment",
+  });
+  expect(restored.value).toBe("Never sent at capacity");
+  expect(screen.queryByRole("button", { name: "Check submission" })).toBeNull();
+  await submit("Post issue comment");
+  await screen.findByText("Saved on GitHub.");
+  expect(restored.value).toBe("");
+  expect(await screen.findAllByText("Never sent at capacity")).toHaveLength(1);
+});
+
+test("an admitted comment's lost response is replayed through an admission pause without leaving a duplicate-ready draft", async () => {
+  const acknowledged = Promise.withResolvers<void>();
+  let edge: ReturnType<typeof interceptedClient> | undefined;
+  let loseResponse = true;
+  const app = harness({
+    client: (daemon) => {
+      edge = interceptedClient(daemon, (message, deliver) => {
+        if (loseResponse && message.type === "commandResult" && message.issue)
+          acknowledged.resolve();
+        else deliver();
+      });
+      return edge.client;
+    },
+  });
+  seed(app);
+  await app.open("/issues?project=api&number=42");
+  const comment = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Issue comment",
+  });
+  await userEvent.type(comment, "Posted before the pause");
+  await submit("Post issue comment");
+  await acknowledged.promise;
+  app.daemon.workspace.setIssueOutcome("unsent");
+  loseResponse = false;
+  if (!edge) throw new Error("Client boundary not opened");
+  edge.disconnect();
+  await screen.findByText("Saved on GitHub.");
+  expect(comment.value).toBe("");
+  expect(screen.queryByRole("button", { name: "Check submission" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Back to issues" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Original issue #42" }));
+  expect(
+    (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "Issue comment" })).value,
+  ).toBe("");
+  expect(await screen.findAllByText("Posted before the pause")).toHaveLength(1);
 });

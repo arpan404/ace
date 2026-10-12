@@ -589,9 +589,30 @@ export async function startServer(options: ServerOptions): Promise<{
               ...(retryable ? { retryable } : {}),
             });
           const refuseBeforeAccept = (code: string, text: string, retryable = false) => {
-            if (message.command.payload.type === "forge.issue.write")
-              send({ type: "commandResult", ...commandNotDispatched(message.command, code) });
-            else refuse(code, text, retryable);
+            if (message.command.payload.type !== "forge.issue.write") {
+              refuse(code, text, retryable);
+              return;
+            }
+            // An admission refusal says nothing about an earlier attempt with this ID.
+            // Look up only the authenticated device's receipt, never the payload's owner.
+            const uncertain = {
+              commandId: message.command.id,
+              ok: false,
+              error: "action_outcome_uncertain",
+            };
+            try {
+              const previous = device && options.store.commandReceipt(message.command.id, device);
+              send({
+                type: "commandResult",
+                ...(previous
+                  ? previous.error === "client_action_pending"
+                    ? uncertain
+                    : previous
+                  : commandNotDispatched(message.command, code)),
+              });
+            } catch {
+              send({ type: "commandResult", ...uncertain });
+            }
           };
           if (!authorize(scope)) {
             refuseBeforeAccept("forbidden", `${scope} scope required`);
@@ -616,11 +637,7 @@ export async function startServer(options: ServerOptions): Promise<{
           }
           try {
             if (route) await route.accept(message.command, device);
-            else
-              send({
-                type: "commandResult",
-                ...commandNotDispatched(message.command, "not_implemented"),
-              });
+            else refuseBeforeAccept("not_implemented", "Command is not supported");
           } catch (error) {
             options.log?.(error);
             refuse("command_failed", "Command transaction rolled back", true);

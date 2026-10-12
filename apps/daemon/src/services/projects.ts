@@ -6,6 +6,7 @@ import type { SocketContext, SocketService } from "./socket.ts";
 export function startProjects({ store, services, options, now, resources }: ServiceContext): void {
   const projects = new Projects(store, now, {
     ...options.projects,
+    ...(services.sourceControl ? { sourceControl: services.sourceControl } : {}),
     roots:
       options.projects?.roots ??
       (async () => {

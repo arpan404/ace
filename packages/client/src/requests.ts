@@ -41,12 +41,15 @@ export class Requests {
     send: () => void,
     durable: boolean,
   ): Promise<T> {
+    // Only fresh admission is provably unsent. A duplicate waiter may already be enqueued.
+    if (this.#waiters.has(id)) return Promise.reject(new ClientError("limit"));
+    const refusal = durable ? "not_dispatched" : "limit";
     const timeout = options.timeoutMs ?? this.#timeout;
     if (!Number.isSafeInteger(timeout) || timeout <= 0)
-      return Promise.reject(new ClientError("limit"));
-    if (options.signal?.aborted) return Promise.reject(new ClientError("aborted"));
-    if (this.#waiters.size >= this.#limit || this.#waiters.has(id))
-      return Promise.reject(new ClientError("limit"));
+      return Promise.reject(new ClientError(refusal));
+    if (options.signal?.aborted)
+      return Promise.reject(new ClientError(durable ? "not_dispatched" : "aborted"));
+    if (this.#waiters.size >= this.#limit) return Promise.reject(new ClientError(refusal));
     return new Promise<T>((resolve, reject) => {
       const fail = (error: ClientError) => {
         this.#remove(id)?.reject(error);

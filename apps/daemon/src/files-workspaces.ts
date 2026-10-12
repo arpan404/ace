@@ -6,14 +6,17 @@ import { join } from "node:path";
 import { realpath } from "node:fs/promises";
 import type { ServiceContext } from "./services/types.ts";
 
+type Context = Pick<ServiceContext, "store" | "config" | "options" | "now" | "id"> &
+  Partial<Pick<ServiceContext, "log">>;
+
 /** Shared persistent upload/mutation owner per execution root, independent of ACE_WORKSPACE_ROOT. */
 export class FilesWorkspaces {
   private pinned = new Set<string>();
   readonly browserArtifacts: BrowserArtifactFiles;
   private services = new Map<string, Promise<FilesService>>();
-  private context: Pick<ServiceContext, "store" | "config" | "options" | "now" | "id">;
+  private context: Context;
   private closed = false;
-  constructor(context: Pick<ServiceContext, "store" | "config" | "options" | "now" | "id">) {
+  constructor(context: Context) {
     this.context = context;
     this.browserArtifacts = new BrowserArtifactFiles(context);
   }
@@ -75,7 +78,7 @@ export class FilesWorkspaces {
     const thread = this.context.store.getThread(threadId);
     if (!thread) return Promise.reject(new Error("Thread unavailable"));
     const key = createHash("sha256").update(root).digest("hex");
-    const { config, options, now, id, store } = this.context;
+    const { config, options, now, id, store, log } = this.context;
     const service = FilesService.create({
       ...options.files,
       workspace: root,
@@ -84,6 +87,8 @@ export class FilesWorkspaces {
       id,
       authorize: () => !store.workspaceReservations.reserved(root),
       onChange: (change) => store.recordWorkspaceFileChange(thread.workspaceId, change),
+      onUploadRecovery: (notice) =>
+        log?.log("warn", "Upload receipt settled after destination changed", notice),
     }).catch((error: unknown) => {
       this.services.delete(root);
       throw error;

@@ -1,3 +1,4 @@
+import { ForgeMutationOutcome } from "./mutation.ts";
 import type { WriteDispatch } from "./write-dispatch.ts";
 import { z } from "zod";
 import type { ForgeRepository } from "@ace/protocol/forge";
@@ -74,6 +75,11 @@ export class GitHubIssues {
       raw: record,
     };
   }
+  async #request(...args: Parameters<GhApi["request"]>) {
+    const response = await this.#api.request(...args);
+    if (response.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
+    return response;
+  }
   async list(input: ForgeIssueSearch, signal: AbortSignal): Promise<ForgeIssueList> {
     const query = ForgeIssueSearch.parse(input);
     const params = new URLSearchParams({
@@ -89,7 +95,7 @@ export class GitHubIssues {
         incomplete_results: z.boolean(),
         items: z.array(GitHubIssueRecord).max(25),
       }),
-      (await this.#api.request(`search/issues?${params}`, signal)).body,
+      (await this.#request(`search/issues?${params}`, signal)).body,
     );
     const fields = ["open", "closed"].map(
       (state) =>
@@ -97,11 +103,11 @@ export class GitHubIssues {
     );
     const counts = decode(
       z.object({ data: z.object({ open: count, closed: count }) }),
-      (await this.#api.request("graphql", signal, { query: `query { ${fields.join(" ")} }` })).body,
+      (await this.#request("graphql", signal, { query: `query { ${fields.join(" ")} }` })).body,
     ).data;
     const repository = decode(
       z.looseObject({ archived: z.boolean(), has_issues: z.boolean() }),
-      (await this.#api.request(this.#root, signal)).body,
+      (await this.#request(this.#root, signal)).body,
     );
     const canCreate = !repository.archived && repository.has_issues;
     return {
@@ -120,11 +126,11 @@ export class GitHubIssues {
     z.number().int().positive().parse(number);
     const record = decode(
       GitHubIssueRecord,
-      (await this.#api.request(`${this.#root}/issues/${number}`, signal)).body,
+      (await this.#request(`${this.#root}/issues/${number}`, signal)).body,
     );
     if (record.number !== number) throw new ForgeError("invalid_data");
     const { owner, name } = this.#repo;
-    const response = await this.#api.request("graphql", signal, {
+    const response = await this.#request("graphql", signal, {
       query: `query($owner:String!,$name:String!,$number:Int!) { repository(owner:$owner,name:$name) { isArchived viewerPermission issue(number:$number) { updatedAt viewerCanUpdate viewerCanClose viewerCanReopen } } }`,
       variables: { owner, name, number },
     });
@@ -173,7 +179,7 @@ export class GitHubIssues {
     z.number().int().positive().parse(number);
     z.number().int().min(1).max(120).parse(page);
     const path = `${this.#root}/issues/${number}/timeline?per_page=25&page=${page}`;
-    const response = await this.#api.request(path, signal);
+    const response = await this.#request(path, signal);
     const events = decode(
       z
         .array(
@@ -231,14 +237,14 @@ export class GitHubIssues {
     if (value.action === "create") {
       const repo = decode(
         z.looseObject({ archived: z.boolean(), has_issues: z.boolean() }),
-        (await this.#api.request(this.#root, signal)).body,
+        (await this.#request(this.#root, signal)).body,
       );
       if (repo.archived || !repo.has_issues) throw new ForgeError("forbidden");
       signal.throwIfAborted();
       const record = decode(
         GitHubIssueRecord,
         (
-          await this.#api.request(
+          await this.#request(
             `${this.#root}/issues`,
             signal,
             {
@@ -259,7 +265,7 @@ export class GitHubIssues {
       decode(
         z.looseObject({ id: z.number().int().positive() }),
         (
-          await this.#api.request(
+          await this.#request(
             `${this.#root}/issues/${value.number}/comments`,
             signal,
             {
@@ -286,7 +292,7 @@ export class GitHubIssues {
       const record = decode(
         GitHubIssueRecord,
         (
-          await this.#api.request(
+          await this.#request(
             `${this.#root}/issues/${value.number}`,
             signal,
             body,
@@ -316,7 +322,7 @@ export class GitHubIssues {
         value.action === "create"
           ? `${this.#root}/issues?state=all&sort=created&direction=desc&per_page=100&page=${page}`
           : `${this.#root}/issues/${value.number}/comments?per_page=100&page=${page}`;
-      const response = await this.#api.request(path, signal);
+      const response = await this.#request(path, signal);
       const records = decode(
         z
           .array(

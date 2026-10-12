@@ -105,3 +105,29 @@ test("with no provider CLI installed, New thread says so instead of loading fore
 
   expect(await screen.findByRole("button", { name: "Model: no provider installed" })).toBeTruthy();
 });
+
+test("a settled empty catalog exposes refresh and recovers without replacing the drafted message", async () => {
+  const made = app();
+  const models = made.daemon.services.models;
+  made.daemon.services.models = [];
+  await made.open("/new?project=relay");
+  const chip = await screen.findByRole("button", { name: "Model: no models available" });
+  expect(screen.queryByText("Checking provider settings…")).toBeNull();
+  expect(chip.hasAttribute("disabled")).toBe(false);
+  await userEvent.type(
+    screen.getByRole("combobox", { name: "Message" }),
+    "Keep this draft while models recover",
+  );
+  await userEvent.click(chip);
+  const refresh = await screen.findByRole("button", { name: "Refresh models" });
+  made.daemon.services.models = models;
+  await userEvent.click(refresh);
+  await closeModelControl();
+  await waitFor(() => expect(screen.getByRole("button", { name: /^Model: Opus/ })).toBeTruthy());
+  expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+    "Keep this draft while models recover",
+  );
+  expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
+    "true",
+  );
+});

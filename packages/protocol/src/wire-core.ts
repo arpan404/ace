@@ -1,4 +1,5 @@
 import { ForgeIssueAction, ForgeIssueRef } from "./forge-issues.ts";
+import { RepositoryPublication } from "./hosted-repositories.ts";
 import { Project, ProjectInspection } from "./projects.ts";
 import { z } from "zod";
 import { Agent } from "./agent.ts";
@@ -134,6 +135,7 @@ export type EntitiesPage = z.infer<typeof EntitiesPage>;
 export const CommandResult = z.object({
   issue: ForgeIssueRef.optional(),
   issueAction: ForgeIssueAction.optional(),
+  publication: RepositoryPublication.optional(),
   workspace: Project.optional(),
   inspection: ProjectInspection.optional(),
   threadId: ThreadId.optional(),

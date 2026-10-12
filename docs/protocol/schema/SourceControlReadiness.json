@@ -1,0 +1,94 @@
+{
+  "$id": "https://ace.local/protocol/v1/SourceControlReadiness.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "account": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/GitHubAccount.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "accounts": {
+      "items": {
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "login": {
+            "$ref": "https://ace.local/protocol/v1/GitHubAccount.json"
+          }
+        },
+        "required": [
+          "login",
+          "active"
+        ],
+        "type": "object"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "api": {
+      "enum": [
+        "ready",
+        "login_required",
+        "account_mismatch",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "cli": {
+      "enum": [
+        "available",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "instructions": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "preferences": {
+      "$ref": "https://ace.local/protocol/v1/SourceControlPreferences.json"
+    },
+    "transport": {
+      "enum": [
+        "unchecked",
+        "ready",
+        "failed",
+        "no_remote"
+      ],
+      "type": "string"
+    },
+    "transportInstructions": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "version": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "preferences",
+    "cli",
+    "version",
+    "accounts",
+    "account",
+    "api",
+    "instructions",
+    "transport",
+    "transportInstructions"
+  ],
+  "type": "object"
+}

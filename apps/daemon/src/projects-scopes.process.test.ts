@@ -1,7 +1,13 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { Command, ProjectsRequest, SocketTicket, PairingResponse } from "@ace/protocol";
+import {
+  Command,
+  ProjectsRequest,
+  HostedRepositoriesRequest,
+  SocketTicket,
+  PairingResponse,
+} from "@ace/protocol";
 import { projectFixture, projectServer, until } from "./projects-test-support.ts";
 import { accessRequest, redeemPairing } from "./client-access.ts";
 import { loadIdentity } from "./tls-identity.ts";
@@ -49,6 +55,28 @@ test("paired read operate and admin devices need explicit projects scope for pat
         result: scopes.includes("projects")
           ? { kind: "directories" }
           : { kind: "error", code: "forbidden" },
+      });
+      client.send(
+        HostedRepositoriesRequest.parse({
+          type: "repositories.request",
+          requestId: "hosted-scope",
+          operation: {
+            op: "list",
+            input: {
+              host: "github.com",
+              account: "octo",
+              query: "",
+              visibility: "all",
+              archived: "all",
+              fork: "all",
+            },
+          },
+        }),
+      );
+      expect(
+        await until(client, (message) => message.type === "repositories.result"),
+      ).toMatchObject({
+        result: { kind: "error", code: scopes.includes("projects") ? "unavailable" : "forbidden" },
       });
       for (const operation of [
         { op: "fs.search", query: "project" },

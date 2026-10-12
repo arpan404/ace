@@ -3,10 +3,11 @@ import { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
 import { actionErrorCode } from "./action-errors.ts";
 import { IssueActions } from "./issue-actions.ts";
 import type { Command } from "@ace/protocol";
+import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
+import { workspaceRepository } from "./workspace-repository.ts";
 import {
   GitHubForge,
   ForgeError,
-  repositoryFromRemote,
   repositoryKey,
   prFromUrl,
   prUrl,
@@ -23,7 +24,7 @@ import {
   type ForgeRepository,
   type AgentControlResult,
 } from "@ace/protocol";
-import { publicationRemote, type GitService } from "@ace/git";
+import type { GitService } from "@ace/git";
 import type { Store } from "./store.ts";
 import { WorkspacePrLinks } from "./workspace-pr-links.ts";
 import { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
@@ -31,6 +32,7 @@ import type { PrOwnerOperation } from "./agent-control/tools.ts";
 
 export class WorkspaceForge {
   private store: Store;
+  private replyReceipts: ForgeReplyReceipts;
   private git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>;
   private issueLinks: WorkspaceIssueLinks;
   private issueActions: IssueActions;
@@ -41,32 +43,52 @@ export class WorkspaceForge {
   private actions: WorkspaceForgeActions;
   private backends = new Map<string, GitHubForge>();
   private lifetime = new AbortController();
+  private stopPreferences: (() => void) | undefined;
+  private sourceControl: import("./source-control.ts").SourceControl | undefined;
   constructor(
     store: Store,
     git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>,
     now: () => number,
     runner: (cwd: string) => CommandRunner,
+    sourceControl?: import("./source-control.ts").SourceControl,
   ) {
     this.store = store;
     this.issueLinks = new WorkspaceIssueLinks(store);
     this.issueActions = new IssueActions(store);
+    this.replyReceipts = new ForgeReplyReceipts(store);
     this.git = git;
     this.now = now;
     this.runner = runner;
+    this.sourceControl = sourceControl;
+    this.stopPreferences = sourceControl?.listen(() => this.backends.clear());
     this.projection = new WorkspacePrLinks(store, now);
     this.links = this.projection.links;
     this.actions = new WorkspaceForgeActions(store);
   }
   async repository(cwd: string): Promise<ForgeRepository> {
     const info = await this.git.repositoryInfo(cwd);
-    const remote = publicationRemote(info.remotes)?.fetchUrls[0];
-    return repositoryFromRemote(remote);
+    const preferences = await this.sourceControl?.preferences();
+    const repository = workspaceRepository(info.remotes, preferences);
+    if (!repository) throw new ForgeError("unsupported");
+    return repository;
   }
-  private backend(cwd: string, repository: ForgeRepository): GitHubForge {
-    const key = JSON.stringify({ repository, cwd });
+
+  private async backend(cwd: string, repository: ForgeRepository): Promise<GitHubForge> {
+    const identity = await this.sourceControl?.identity(cwd, repository.host, this.lifetime.signal);
+    const key = JSON.stringify({
+      repository: repositoryKey(repository),
+      cwd,
+      account: identity?.account,
+      revision: identity?.revision,
+    });
     let backend = this.backends.get(key);
     if (!backend)
-      backend = new GitHubForge({ repository, runner: this.runner(cwd), now: this.now });
+      backend = new GitHubForge({
+        repository,
+        runner: identity?.runner ?? this.runner(cwd),
+        now: this.now,
+        replyReceipts: this.replyReceipts.scope(cwd, repository, identity?.account ?? ""),
+      });
     this.backends.delete(key);
     this.backends.set(key, backend);
     if (this.backends.size > 32) {
@@ -82,7 +104,7 @@ export class WorkspaceForge {
   ): Promise<import("@ace/protocol").ForgeBrowserResult> {
     const repository = operation.repository ?? (await this.repository(cwd));
     signal.throwIfAborted();
-    const backend = this.backend(cwd, repository);
+    const backend = await this.backend(cwd, repository);
     if (operation.op === "forge.issue.list")
       return { resource: "issueList", value: await backend.listIssues(operation.query, signal) };
     if (operation.op === "forge.issue.timeline")
@@ -149,7 +171,9 @@ export class WorkspaceForge {
   async issueCommand(command: Command, cwd: string, allowed: () => boolean) {
     const p = command.payload;
     if (p.type === "forge.issue.link") {
-      await this.backend(cwd, p.issue.repository).issueDetail(p.issue.number, this.lifetime.signal);
+      await (
+        await this.backend(cwd, p.issue.repository)
+      ).issueDetail(p.issue.number, this.lifetime.signal);
       if (!allowed()) throw new Error("forbidden");
       this.issueLinks.link(p.threadId, p.issue, this.now());
       return { ok: true, threadId: p.threadId, issue: p.issue };
@@ -158,7 +182,7 @@ export class WorkspaceForge {
       throw new Error("invalid_command");
     let backend: GitHubForge;
     try {
-      backend = this.backend(cwd, p.repository);
+      backend = await this.backend(cwd, p.repository);
     } catch (error) {
       return commandNotDispatched(command, actionErrorCode(error));
     }
@@ -169,16 +193,21 @@ export class WorkspaceForge {
     id: ThreadId,
     cwd: string,
     input: ForgePrRef,
-    allowed: () => boolean = () => true,
-    signal = this.lifetime.signal,
+    permitted: () => boolean = () => true,
+    signal: AbortSignal = this.lifetime.signal,
   ): Promise<ForgePrStatus> {
+    const check = await this.sourceControl?.guard();
+    const allowed = () => {
+      check?.();
+      return permitted();
+    };
     const pr = ForgePrRef.parse(input);
     signal.throwIfAborted();
     if (!allowed()) throw new Error("forbidden");
     const existing = this.links.getLinkState(id, pr);
     if (existing) {
       try {
-        const status = await this.backend(cwd, pr.repository).status(pr.number, signal);
+        const status = await (await this.backend(cwd, pr.repository)).status(pr.number, signal);
         signal.throwIfAborted();
         if (!allowed()) throw new Error("forbidden");
         this.projection.update(id, status, existing.generation);
@@ -207,7 +236,7 @@ export class WorkspaceForge {
     }
     let status: ForgePrStatus;
     try {
-      status = await this.backend(cwd, pr.repository).status(pr.number, signal);
+      status = await (await this.backend(cwd, pr.repository)).status(pr.number, signal);
     } catch (error) {
       signal.throwIfAborted();
       if (error instanceof ForgeError && !["cli", "forbidden", "rate_limit"].includes(error.kind))
@@ -272,7 +301,10 @@ export class WorkspaceForge {
             })
           : await this.repository(cwd);
       const pr = operation.url
-        ? prFromUrl(operation.url)
+        ? prFromUrl(
+            operation.url,
+            (await this.sourceControl?.preferences())?.hosts.map((entry) => entry.host),
+          )
         : ForgePrRef.parse({
             number: operation.number,
             repository:
@@ -297,17 +329,19 @@ export class WorkspaceForge {
     }
   }
   async status(id: ThreadId, cwd: string): Promise<ForgePrStatus | null> {
+    const check = await this.sourceControl?.guard();
     const state = this.links.getLinkState(id);
     if (!state) return null;
     const { link, generation } = state;
     try {
-      const status = await this.backend(cwd, link.pr.repository).status(
-        link.pr.number,
-        this.lifetime.signal,
-      );
+      const status = await (
+        await this.backend(cwd, link.pr.repository)
+      ).status(link.pr.number, this.lifetime.signal);
+      check?.();
       this.projection.update(id, status, generation);
       return status;
     } catch (error) {
+      check?.();
       if (error instanceof ForgeError && error.kind === "not_found") {
         this.projection.deleted(id, link.pr, generation);
         return this.projection.fallback(
@@ -341,12 +375,14 @@ export class WorkspaceForge {
     let failure: unknown;
     for (const group of groups.values()) {
       try {
-        const backend = this.backend(group.cwd, group.repo);
+        const check = await this.sourceControl?.guard();
+        const backend = await this.backend(group.cwd, group.repo);
         const numbers = [...new Set(group.entries.map((entry) => entry.pr.number))];
         if (!backend.states) continue;
         for (let offset = 0; offset < numbers.length; offset += 100) {
           const batch = numbers.slice(offset, offset + 100);
           const summaries = await backend.states(batch, this.lifetime.signal);
+          check?.();
           for (const entry of group.entries) {
             if (!batch.includes(entry.pr.number)) continue;
             const summary = summaries.get(entry.pr.number);
@@ -371,14 +407,28 @@ export class WorkspaceForge {
     id: ThreadId,
     cwd: string,
     input: ForgeCreatePrInput,
-    allowed: () => boolean,
+    permitted: () => boolean,
     guard?: { fingerprint: string; baseRef?: string | undefined },
   ): Promise<ForgePrStatus> {
+    const check = await this.sourceControl?.guard();
+    const allowed = () => {
+      check?.();
+      return permitted();
+    };
     const value = ForgeCreatePrInput.parse(input);
-    const backend = this.backend(cwd, await this.repository(cwd));
+    const backend = await this.backend(cwd, await this.repository(cwd));
     if (!allowed()) throw new Error("forbidden");
     if (!backend.findPr) throw new Error("forge_recovery_unavailable");
+    const verifyHead = async () => {
+      if (value.expectedHead === undefined) return;
+      const info = await this.git.repositoryInfo(cwd);
+      if (!allowed()) throw new Error("forbidden");
+      if (info.branch !== value.branch || info.head !== value.expectedHead)
+        throw new Error("git_head_moved");
+    };
+    await verifyHead();
     const found = await backend.findPr(value.branch, value.base, this.lifetime.signal);
+    await verifyHead();
     if (!allowed()) throw new Error("forbidden");
     const publish = async () => {
       this.lifetime.signal.throwIfAborted();
@@ -408,14 +458,20 @@ export class WorkspaceForge {
     this.projection.publish(id);
     const generation = this.links.getLinkState(id, pr)?.generation;
     const status = await backend.status(pr.number, this.lifetime.signal);
+    if (!allowed()) throw new Error("forbidden");
     this.projection.update(id, status, generation);
     return status;
   }
   async execute(
     input: unknown,
     cwd: string,
-    allowed: () => boolean,
+    permitted: () => boolean,
   ): Promise<Omit<CommandResult, "commandId">> {
+    const check = await this.sourceControl?.guard();
+    const allowed = () => {
+      check?.();
+      return permitted();
+    };
     const p = ForgeCommand.parse(input);
     const id = ThreadId.parse("threadId" in p ? p.threadId : p.link.threadId);
     if (!allowed()) return { ok: false, error: "forbidden" };
@@ -446,8 +502,10 @@ export class WorkspaceForge {
       const status = await this.link(id, cwd, p.link.pr, allowed);
       return { ok: true, pr: p.link.pr, prStatus: status };
     }
+    this.lifetime.signal.throwIfAborted();
+    if (!allowed()) throw new Error("forbidden");
     const generation = this.links.getLinkState(id, p.link.pr)?.generation;
-    const backend = this.backend(cwd, p.link.pr.repository);
+    const backend = await this.backend(cwd, p.link.pr.repository);
     if (p.type !== "forge.pr.status")
       return this.actions.execute(p, backend, this.lifetime.signal, allowed, (status) =>
         this.projection.update(id, status, generation),
@@ -459,7 +517,9 @@ export class WorkspaceForge {
     this.projection.update(id, status, generation);
     return { ok: true, pr: status.ref, prStatus: status };
   }
+
   close(): void {
+    this.stopPreferences?.();
     this.lifetime.abort();
     this.backends.clear();
   }

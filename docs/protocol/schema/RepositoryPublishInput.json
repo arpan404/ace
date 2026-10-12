@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/RepositoryPublishInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "account": {
+      "$ref": "https://ace.local/protocol/v1/GitHubAccount.json"
+    },
+    "description": {
+      "maxLength": 350,
+      "type": "string"
+    },
+    "host": {
+      "$ref": "https://ace.local/protocol/v1/GitHubHost.json"
+    },
+    "name": {
+      "maxLength": 100,
+      "pattern": "^[\\w.-]+$",
+      "type": "string",
+      "x-ace-constraint": "Repository name differs from . and .."
+    },
+    "owner": {
+      "$ref": "https://ace.local/protocol/v1/GitHubAccount.json"
+    },
+    "visibility": {
+      "enum": [
+        "public",
+        "private"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "host",
+    "account",
+    "owner",
+    "name",
+    "description",
+    "visibility"
+  ],
+  "type": "object"
+}

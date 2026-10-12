@@ -1,3 +1,4 @@
+import { GitHubForge, WriteDispatch } from "./index.ts";
 import { expect, test } from "vitest";
 import { ForgeIssueSearch } from "@ace/protocol/forge-issues";
 import { fakeGh, repository, issueRecord, issuePermissions } from "./testing/fixtures.ts";
@@ -156,7 +157,7 @@ test("a lost issue creation can be recovered from its marker without another POS
   try {
     const input = { action: "create", title: "Handle retries", body: "Draft" } as const;
     await expect(gh.forge.writeIssue(input, "create-once", signal())).rejects.toMatchObject({
-      kind: "cli",
+      kind: "outcome_uncertain",
     });
     expect(await gh.forge.reconcileIssue(input, "create-once", signal())).toEqual({
       repository,
@@ -168,5 +169,34 @@ test("a lost issue creation can be recovered from its marker without another POS
     ]);
   } finally {
     await gh.cleanup();
+  }
+});
+
+test("an acknowledged issue creation cannot report success after its CLI identity changes", async () => {
+  const f = await fakeGh({
+    "repos/octo/ace": [{ body: { archived: false, has_issues: true } }],
+    "repos/octo/ace/issues": [{ body: issueRecord }],
+  });
+  const backend = new GitHubForge({
+    repository,
+    now: () => 1000,
+    runner: async (request) => {
+      const result = await f.runner({ ...request, command: f.executable });
+      return request.args.includes("POST") ? { ...result, identityChanged: true } : result;
+    },
+  });
+  const dispatch = new WriteDispatch();
+  try {
+    await expect(
+      backend.writeIssue(
+        { action: "create", title: "Original", body: "Description" },
+        "identity-write",
+        signal(),
+        dispatch,
+      ),
+    ).rejects.toMatchObject({ kind: "outcome_uncertain" });
+    expect(dispatch.definitelyFailed).toBe(false);
+  } finally {
+    await f.cleanup();
   }
 });

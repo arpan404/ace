@@ -1,3 +1,4 @@
+import { CommandPayload } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import {
   fixture,
@@ -64,7 +65,7 @@ test.each(["thread.resume", "queue.resume", "thread.limit"] as const)(
             action: "resume_now" as const,
           }
         : { type, threadId: id, expectedRevision: h.engine.queue(id).revision };
-    expect(dispatch(h.store, h.engine, payload).ok).toBe(true);
+    expect(dispatch(h.store, h.engine, CommandPayload.parse(payload)).ok).toBe(true);
     const opening = h.engine.flush();
     try {
       await entered.promise;

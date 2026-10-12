@@ -16,6 +16,7 @@ const codes = new Set<string>([
   "timeout",
   "aborted",
   "limit",
+  "not_dispatched",
   "busy",
   "protocol",
   "auth",

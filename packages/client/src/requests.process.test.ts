@@ -226,3 +226,51 @@ test("output read byte limits preserve Unicode characters across chunks", async 
     eof: true,
   });
 });
+
+test("durable command capacity supplies unsent evidence without reserving an intent and permits retry", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const { client, faults } = h.make({ limits: { requests: 1 } });
+  await ready(client);
+  const controller = new AbortController();
+  faults.incoming = (event, frame, deliver) => {
+    if (event.type !== "items.page") deliver(frame);
+  };
+  const read = client.itemsPage({ threadId: h.thread.id, limit: 1 }, { signal: controller.signal });
+  const aborted = expect(read).rejects.toMatchObject({ code: "aborted" });
+  await faults.wait((event) => event.type === "items.page");
+  const payload = { type: "thread.archive", threadId: h.thread.id } as const;
+  await expect(client.command(payload, {}, "capacity-refused")).rejects.toMatchObject({
+    code: "not_dispatched",
+  });
+  expect(client.intent("capacity-refused").getSnapshot()).toBeUndefined();
+  expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeUndefined();
+  controller.abort();
+  await aborted;
+  expect(await client.command(payload, {}, "capacity-refused")).toMatchObject({ ok: true });
+  expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeDefined();
+});
+
+test("a duplicate durable waiter at capacity keeps the admitted command uncertain until its original receipt arrives", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const { client, faults } = h.make({ limits: { requests: 1 } });
+  await ready(client);
+  const receipt = Promise.withResolvers<void>();
+  let release: (() => void) | undefined;
+  faults.incoming = (event, frame, deliver) => {
+    if (event.type === "commandResult" && event.commandId === "already-admitted") {
+      release = () => deliver(frame);
+      receipt.resolve();
+    } else deliver(frame);
+  };
+  const payload = { type: "thread.archive", threadId: h.thread.id } as const;
+  const original = client.command(payload, {}, "already-admitted");
+  await receipt.promise;
+  await expect(client.command(payload, {}, "already-admitted")).rejects.toMatchObject({
+    code: "limit",
+  });
+  expect(client.intent("already-admitted").getSnapshot()?.state).toBe("pending");
+  release?.();
+  expect(await original).toMatchObject({ ok: true });
+});

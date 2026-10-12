@@ -9,7 +9,7 @@
     "./models": "./src/model-discovery.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
     "@ace/core": "workspace:*",

@@ -1,3 +1,4 @@
+import { ClientError } from "@ace/client";
 import { useState, useRef } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import {
@@ -157,8 +158,12 @@ export function IssueEditor(props: {
             : forgeError(result.error ?? "action_failed"),
         );
       }
-    } catch {
-      if (client.intent(id).getSnapshot()?.localFailure) releaseUnsent(id);
+    } catch (error) {
+      if (
+        (error instanceof ClientError && error.code === "not_dispatched") ||
+        client.intent(id).getSnapshot()?.localFailure
+      )
+        releaseUnsent(id);
       setMessage("This device couldn't save the action. Your draft is preserved.");
     } finally {
       submitting.current = false;

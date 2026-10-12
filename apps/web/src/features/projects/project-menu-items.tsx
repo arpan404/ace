@@ -69,6 +69,13 @@ export function ManageProjectItems(props: { projectId: string; name: string }) {
       </MenuSub>
       <MenuSeparator />
       <MenuItem
+        icon={<Icon icon={ArrowSquareOutIcon} />}
+        onClick={() => projects.open({ kind: "publish", projectId: props.projectId })}
+        onPointerEnter={projects.preload}
+      >
+        Publish repository…
+      </MenuItem>
+      <MenuItem
         icon={<Icon icon={ShieldIcon} />}
         onClick={() => projects.open({ kind: "permissions", projectId: props.projectId })}
         onPointerEnter={projects.preload}
