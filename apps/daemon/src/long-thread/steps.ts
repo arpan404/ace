@@ -23,6 +23,11 @@ export interface TurnStepsSource {
   data: LongThreadDatabase;
   /** The item at its step weight (text previews, tool bodies whole). */
   item(threadId: ThreadId, itemId: string): Item | undefined;
+  /**
+   * Sites already worked out for "the site an agent was on before this step", misses included:
+   * earlier steps don't change, so a lookup is done once. Bounded by `readTurnSteps`.
+   */
+  sites?: Map<string, string | null> | undefined;
   /** The icon already resolved for a site or app, if any; never resolves here. */
   cachedIcon?: ((icon: ToolIcon) => IconRef | undefined) | undefined;
 }
@@ -58,18 +63,33 @@ function siteBefore(
   agentId: string | null,
   seq: number,
 ): string | undefined {
+  const key = `${threadId}\u0000${ordinal}\u0000${agentId ?? ""}\u0000${seq}`;
+  const known = source.sites?.get(key);
+  if (known !== undefined) return known ?? undefined;
+  // Only the agent's tool calls, newest first, and only a few: a site is set by a recent step.
   const rows = source.data
     .sql(
-      "SELECT item_id FROM long_items WHERE thread_id=? AND ordinal=? AND agent_id IS ? AND created_seq<? ORDER BY created_seq DESC LIMIT 64",
+      "SELECT i.item_id FROM long_items i JOIN item_heads h ON h.id=i.item_id AND h.thread_id=i.thread_id WHERE i.thread_id=? AND i.ordinal=? AND i.agent_id IS ? AND i.created_seq<? AND h.item_type='tool_call' ORDER BY i.created_seq DESC LIMIT 16",
     )
     .all(threadId, ordinal, agentId, seq);
+  let origin: string | undefined;
   for (const row of rows) {
     const item = source.item(threadId, String(row.item_id));
     if (item?.type !== "tool_call") continue;
     const icon = toolSurface(item.call)?.icon;
-    if (icon?.kind === "site") return icon.origin;
+    if (icon?.kind === "site") {
+      origin = icon.origin;
+      break;
+    }
   }
-  return undefined;
+  if (source.sites) {
+    source.sites.set(key, origin ?? null);
+    for (const oldest of source.sites.keys()) {
+      if (source.sites.size <= 1024) break;
+      source.sites.delete(oldest);
+    }
+  }
+  return origin;
 }
 
 /**

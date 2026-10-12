@@ -99,6 +99,8 @@ export class Store {
   private readonly history: HistoryIndex;
   private readonly status: StatusStore;
   private readonly longThreads: LongThreadIndex;
+  /** The site each agent was on before a step, as `turn.steps` and icons work it out. */
+  private readonly stepSites = new Map<string, string | null>();
   private readonly nextId: () => string;
   private readonly now: () => number;
   private readonly mcp: McpData;
@@ -1091,6 +1093,7 @@ export class Store {
       {
         data: this.longThreads.data,
         item: (threadId, itemId) => this.payloads.stepItem(threadId, itemId),
+        sites: this.stepSites,
         cachedIcon,
       },
       query,
@@ -1104,6 +1107,7 @@ export class Store {
       {
         data: this.longThreads.data,
         item: (thread, id) => this.payloads.stepItem(thread, id),
+        sites: this.stepSites,
       },
       threadId,
       itemId,

@@ -165,3 +165,29 @@ test("only a thread's own recorded steps name a surface to resolve", () => {
   expect(f.store.stepSurface(f.thread.id, "read")).toBeUndefined();
   expect(f.store.stepSurface(f.thread.id, "no-such-step")).toBeUndefined();
 });
+
+// Mutation: returning the person's words sent mid-turn as one of the turn's steps.
+test("a steer sent mid-turn stays in the transcript, never among the turn's steps", () => {
+  const f = storeFixture();
+  f.store.appendEvents(f.thread.id, [{ type: "item.created", item: userMessage("ask") }], 20);
+  start(f.store, f.thread, "only", 30);
+  f.store.appendEvents(
+    f.thread.id,
+    [
+      {
+        type: "item.created",
+        item: tool("before", "succeeded", { kind: "shell", command: "bun run test" }, "only"),
+      },
+      { type: "item.created", item: userMessage("steer", "Also check the mobile client") },
+      {
+        type: "item.created",
+        item: tool("after", "succeeded", { kind: "shell", command: "bun run lint" }, "only"),
+      },
+    ],
+    40,
+  );
+  const page = f.store.turnSteps({ threadId: f.thread.id, turnOrdinal: 1 });
+  const ids = page.steps.map((step) => step.item.id);
+  expect(ids).toContain("before");
+  expect(ids).not.toContain("steer");
+});
