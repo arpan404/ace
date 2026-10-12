@@ -1,0 +1,44 @@
+{
+  "$id": "https://ace.local/protocol/v1/ToolIcon.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "site",
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "https://ace.local/protocol/v1/SiteOrigin.json"
+        }
+      },
+      "required": [
+        "kind",
+        "origin"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "identity": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "app",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "identity"
+      ],
+      "type": "object"
+    }
+  ]
+}

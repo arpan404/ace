@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/IconsResolveResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "icons": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/IconResult.json"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "icons.resolve",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId",
+    "icons"
+  ],
+  "type": "object"
+}

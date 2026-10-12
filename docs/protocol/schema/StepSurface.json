@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/StepSurface.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "icon": {
+      "additionalProperties": {},
+      "properties": {
+        "kind": {
+          "maxLength": 32,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "iconRef": {
+      "$ref": "https://ace.local/protocol/v1/IconRef.json"
+    },
+    "kind": {
+      "maxLength": 32,
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "type": "object"
+}

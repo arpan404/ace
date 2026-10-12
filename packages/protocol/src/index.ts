@@ -98,6 +98,7 @@ export * from "./projects.ts";
 export * from "./project-commands.ts";
 export * from "./project-requests.ts";
 export * from "./long-thread.ts";
+export * from "./turn-steps.ts";
 
 export * from "./provider-status.ts";
 

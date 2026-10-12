@@ -8,6 +8,7 @@ export function createLongThreadSession(context: SocketContext): SocketService {
       if (
         message.type !== "turns.page" &&
         message.type !== "items.window" &&
+        message.type !== "turn.steps" &&
         message.type !== "thread.search" &&
         message.type !== "thread.catchUp" &&
         message.type !== "thread.readState"
@@ -37,6 +38,11 @@ export function createLongThreadSession(context: SocketContext): SocketService {
           case "items.window":
             context.send(store.itemsWindow(message));
             break;
+          case "turn.steps": {
+            const icons = context.options.icons;
+            context.send(store.turnSteps(message, icons && ((icon) => icons.cached(icon))));
+            break;
+          }
           case "thread.search":
             context.send(store.threadSearch(message, context.canReadThread));
             break;

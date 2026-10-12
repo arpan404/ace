@@ -17,7 +17,9 @@
     "./worktree-creations": "./src/worktree-creations.ts",
     "./access": "./src/access.ts",
     "./remote-context-relay": "./src/remote-context-relay.ts",
-    "./access-ticket": "./src/access-ticket.ts"
+    "./access-ticket": "./src/access-ticket.ts",
+    "./turn-steps": "./src/turn-steps.ts",
+    "./tool-icons": "./src/tool-icons.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

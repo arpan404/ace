@@ -14,6 +14,7 @@ import { defaultTicketLimits } from "./ticket-pool.ts";
 import { createServer as httpServer, type Server } from "node:http";
 import { createServer as httpsServer } from "node:https";
 import { attachmentsHttp } from "./attachments-http.ts";
+import { iconsHttp } from "./icons-http.ts";
 import { accessHttp } from "./access-http.ts";
 import { webOriginAllowlist } from "./web-origins.ts";
 import { PreAuthAdmission } from "./socket-admission.ts";
@@ -111,14 +112,19 @@ export async function startServer(options: ServerOptions): Promise<{
         options,
         auth,
         false,
-        previewHttp(
-          () => preview,
-          accessHttp({
-            ...access,
-            authenticate: auth.localBearer.bind(auth),
-            maintenance,
-            ...(options.shutdown ? { shutdown: options.shutdown } : {}),
-          }),
+        iconsHttp(
+          options,
+          auth,
+          false,
+          previewHttp(
+            () => preview,
+            accessHttp({
+              ...access,
+              authenticate: auth.localBearer.bind(auth),
+              maintenance,
+              ...(options.shutdown ? { shutdown: options.shutdown } : {}),
+            }),
+          ),
         ),
       ),
     ),
@@ -132,9 +138,14 @@ export async function startServer(options: ServerOptions): Promise<{
             options,
             auth,
             true,
-            previewHttp(
-              () => preview,
-              accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+            iconsHttp(
+              options,
+              auth,
+              true,
+              previewHttp(
+                () => preview,
+                accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+              ),
             ),
           ),
         ),
@@ -686,9 +697,14 @@ export async function startServer(options: ServerOptions): Promise<{
             options,
             auth,
             true,
-            previewHttp(
-              () => preview,
-              accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+            iconsHttp(
+              options,
+              auth,
+              true,
+              previewHttp(
+                () => preview,
+                accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+              ),
             ),
           ),
         ),

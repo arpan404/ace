@@ -41,6 +41,7 @@ export interface Services {
   previewClient?: import("../preview-client.ts").PreviewClient;
   automations?: import("@ace/automations").AutomationService;
   activityReads?: import("../activity-reads.ts").ActivityReads;
+  icons?: import("../icons/icon-service.ts").IconService;
   projects?: import("../projects.ts").Projects;
   workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntime;
   canReadThread?: NonNullable<import("../server-options.ts").ServerOptions["canReadThread"]>;

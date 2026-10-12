@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/IconsReadRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ref": {
+      "$ref": "https://ace.local/protocol/v1/IconRef.json"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "icons.read",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "ref"
+  ],
+  "type": "object"
+}

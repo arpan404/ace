@@ -46,6 +46,8 @@ export interface ServerOptions {
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;
   /** The Activity read cursor (`activity.reads`). */
   activityReads?: import("./activity-reads.ts").ActivityReads;
+  /** Site and app icons for browser and computer-use steps. */
+  icons?: import("./icons/icon-service.ts").IconService;
   projects?: import("./projects.ts").Projects;
   threadLifecycle?: import("./thread-lifecycle.ts").ThreadLifecycle;
   workspaceActions?: import("./workspace-runtime.ts").WorkspaceRuntime;

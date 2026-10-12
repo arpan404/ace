@@ -4,6 +4,7 @@ export {
   visibleHistoryOrder,
 } from "./history-visibility.ts";
 export { threadAttention } from "./thread-attention.ts";
+export { siteOrigin, toolSurface, toolSurfaces } from "./tool-surface.ts";
 export { withoutPortableHandoff } from "./portable-input.ts";
 import { usageSnapshotKey } from "./usage.ts";
 export {

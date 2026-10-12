@@ -312,6 +312,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "previewClient",
       "automations",
       "activityReads",
+      "icons",
       "storage",
       "devices",
     ] as const)

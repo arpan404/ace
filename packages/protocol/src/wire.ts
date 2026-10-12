@@ -50,6 +50,14 @@ import {
   ThreadReadStateResponse,
 } from "./long-thread.ts";
 import {
+  TurnStepsRequest,
+  TurnStepsResponse,
+  IconsResolveRequest,
+  IconsResolveResponse,
+  IconsReadRequest,
+  IconsReadResponse,
+} from "./turn-steps.ts";
+import {
   HostIdentityRequest,
   HostIdentityResult,
   MachinesRequest,
@@ -178,6 +186,9 @@ export const ClientMessage = z.discriminatedUnion("type", [
   WorktreeCreationRequest,
   TurnsPageRequest,
   ItemsWindowRequest,
+  TurnStepsRequest,
+  IconsResolveRequest,
+  IconsReadRequest,
   ThreadSearchRequest,
   ThreadCatchUpRequest,
   ThreadReadStateRequest,
@@ -252,6 +263,9 @@ export const ServerMessage = z.discriminatedUnion("type", [
   WorktreeCreationResult,
   TurnsPageResponse,
   ItemsWindowResponse,
+  TurnStepsResponse,
+  IconsResolveResponse,
+  IconsReadResponse,
   ThreadSearchResponse,
   ThreadCatchUpResponse,
   ThreadReadStateResponse,

@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/ToolSurface.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "icon": {
+      "$ref": "https://ace.local/protocol/v1/ToolIcon.json"
+    },
+    "iconRef": {
+      "$ref": "https://ace.local/protocol/v1/IconRef.json"
+    },
+    "kind": {
+      "enum": [
+        "browser",
+        "computer"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "type": "object"
+}

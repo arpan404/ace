@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/TurnStep.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "item": {
+      "$ref": "https://ace.local/protocol/v1/Item.json"
+    },
+    "seq": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "surface": {
+      "$ref": "https://ace.local/protocol/v1/StepSurface.json"
+    }
+  },
+  "required": [
+    "seq",
+    "item"
+  ],
+  "type": "object"
+}

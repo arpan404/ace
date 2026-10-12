@@ -10,12 +10,15 @@ import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
 import { migrateProjects, decodeProjectRow } from "./project-storage.ts";
 import { LongThreadIndex } from "./long-thread/index.ts";
+import { readTurnSteps, stepSurface, type TurnStepsSource } from "./long-thread/steps.ts";
 import {
   TurnsPageRequest,
   ItemsWindowRequest,
   ItemsWindowResponse,
   ThreadSearchRequest,
   ThreadCatchUpRequest,
+  TurnStepsRequest,
+  type TurnStepsRequest as StepsQuery,
   type TurnsPageRequest as TurnsQuery,
   type ItemsWindowRequest as WindowQuery,
   type ThreadSearchRequest as ThreadSearchQuery,
@@ -96,6 +99,8 @@ export class Store {
   private readonly history: HistoryIndex;
   private readonly status: StatusStore;
   private readonly longThreads: LongThreadIndex;
+  /** The site each agent was on before a step, as `turn.steps` and icons work it out. */
+  private readonly stepSites = new Map<string, string | null>();
   private readonly nextId: () => string;
   private readonly now: () => number;
   private readonly mcp: McpData;
@@ -1074,6 +1079,39 @@ export class Store {
     const query = TurnsPageRequest.parse({ type: "turns.page", requestId: "turns", ...input });
     this.readableThread(query.threadId);
     return this.longThreads.reader.page(query, this.headSeq());
+  }
+  turnSteps(
+    input: Omit<StepsQuery, "type" | "requestId" | "limit"> & {
+      requestId?: string;
+      limit?: number;
+    },
+    cachedIcon?: TurnStepsSource["cachedIcon"],
+  ) {
+    const query = TurnStepsRequest.parse({ type: "turn.steps", requestId: "steps", ...input });
+    this.readableThread(query.threadId);
+    return readTurnSteps(
+      {
+        data: this.longThreads.data,
+        item: (threadId, itemId) => this.payloads.stepItem(threadId, itemId),
+        sites: this.stepSites,
+        cachedIcon,
+      },
+      query,
+      this.headSeq(),
+    );
+  }
+  /** A recorded step's site or app, worked out by the daemon (`icons.resolve`). */
+  stepSurface(threadId: ThreadId, itemId: string) {
+    this.readableThread(threadId);
+    return stepSurface(
+      {
+        data: this.longThreads.data,
+        item: (thread, id) => this.payloads.stepItem(thread, id),
+        sites: this.stepSites,
+      },
+      threadId,
+      itemId,
+    );
   }
   itemsWindow(input: Omit<WindowQuery, "type" | "requestId"> & { requestId?: string }) {
     const query = ItemsWindowRequest.parse({ type: "items.window", requestId: "window", ...input });

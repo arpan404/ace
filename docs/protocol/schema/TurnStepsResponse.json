@@ -1,0 +1,63 @@
+{
+  "$id": "https://ace.local/protocol/v1/TurnStepsResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "after": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "endSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "steps": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/TurnStep.json"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "turnOrdinal": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "type": {
+      "const": "turn.steps",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId",
+    "turnOrdinal",
+    "seq",
+    "endSeq",
+    "steps",
+    "after"
+  ],
+  "type": "object"
+}

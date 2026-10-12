@@ -216,6 +216,25 @@ export class ItemStore {
       itemsBefore: rows.length > items.length ? (cursors.at(-1)?.[1] ?? before) : null,
     };
   }
+  /** One item as a step list shows it: text cut to its bounded preview, tool bodies whole. */
+  stepItem(threadId: ThreadId, itemId: string): Item | undefined {
+    const head = this.statement("SELECT item_type FROM item_heads WHERE thread_id=? AND id=?").get(
+      threadId,
+      itemId,
+    );
+    if (!head) return undefined;
+    if (
+      head.item_type === "message" ||
+      head.item_type === "notice" ||
+      head.item_type === "reasoning"
+    )
+      return this.texts.read(itemId);
+    const row = this.statement("SELECT item FROM items WHERE id = ? AND thread_id = ?").get(
+      itemId,
+      threadId,
+    );
+    return row ? this.materialize(itemId, row.item) : undefined;
+  }
   createdSeq(threadId: ThreadId, itemId: string): number | undefined {
     const row = this.statement("SELECT created_seq FROM item_heads WHERE thread_id=? AND id=?").get(
       threadId,

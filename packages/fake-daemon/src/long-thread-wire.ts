@@ -12,6 +12,8 @@ import type {
 } from "@ace/protocol";
 import type { ThreadHost } from "./thread-host.ts";
 import { FakeTurnIndex } from "./long-thread-index.ts";
+import { FakeIcons } from "./icons-wire.ts";
+import { fakeTurnSteps } from "./turn-steps-wire.ts";
 
 interface LongThreadHost {
   head(): number;
@@ -23,6 +25,7 @@ interface LongThreadHost {
 /** Request owner shared by fake connections; read cursors survive their reconnects. */
 export class FakeLongThreadWire {
   readonly index = new FakeTurnIndex();
+  readonly icons = new FakeIcons();
   private reads = new Map<string, { lastSeenSeq: number; updatedAt: number }>();
   constructor(privateHost: LongThreadHost) {
     this.host = privateHost;
@@ -55,10 +58,12 @@ export class FakeLongThreadWire {
     deviceId: string,
     send: (message: ServerMessage) => void,
   ): boolean {
+    if (this.icons.handle(message, send, (id) => this.visible(id))) return true;
     if (
       ![
         "turns.page",
         "items.window",
+        "turn.steps",
         "thread.search",
         "thread.catchUp",
         "thread.readState",
@@ -82,6 +87,9 @@ export class FakeLongThreadWire {
         ? this.index.summaries(message.threadId)
         : [];
     switch (message.type) {
+      case "turn.steps":
+        send(fakeTurnSteps(host, this.index, this.icons, message, seq));
+        return true;
       case "turns.page": {
         const selected = turns.filter(
           (turn) =>
