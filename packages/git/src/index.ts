@@ -73,8 +73,8 @@ export class GitService {
     this.repository.cli.forgetWorktree(path);
   }
 
-  /** Nested Git calls suppress hooks, fsmonitor and every configured filter driver.
-   * The user's installed Git transport retains its global authentication configuration. */
+  /** Nested local Git calls suppress hooks, fsmonitor, filters and all transports.
+   * Explicit user-authorized push/fetch separately restore the user's trusted helpers. */
   nonExecuting<T>(operation: () => Promise<T>): Promise<T> {
     return this.repository.cli.nonExecuting(operation);
   }

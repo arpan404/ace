@@ -67,5 +67,7 @@ export function nonExecutingTransportEnv(
     ...nonExecutingEnv(keys),
     GIT_ALLOW_PROTOCOL: allowed.join(":"),
     GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
+    GIT_ASKPASS: "",
+    GIT_TERMINAL_PROMPT: "0",
   };
 }

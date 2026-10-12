@@ -16,6 +16,8 @@ export interface GitProcessRuntime {
 }
 
 export interface GitOptions {
+  /** Reads helper names only from the user's system/global files, never repository config. */
+  credentialHelperLookup?: GitCredentialHelperLookup;
   /** Tests may inject file transport for local remotes; production uses http/https/ssh. */
   transportProtocols?: readonly ("http" | "https" | "ssh" | "file")[];
   leaseId?: () => string;
@@ -28,6 +30,16 @@ export interface GitOptions {
   /** Per-service LRU entry limit across all root/thread pairs, 1..4096; default 128. */
   checkpointCounterCacheSize?: number;
 }
+
+export type GitCredentialScope = "system" | "global";
+export interface GitCredentialHelper {
+  key: string;
+  value: string;
+}
+export type GitCredentialHelperLookup = (
+  scope: GitCredentialScope,
+  signal?: AbortSignal,
+) => Promise<readonly GitCredentialHelper[]>;
 
 export type GitErrorCode =
   | "sensitive_publication"

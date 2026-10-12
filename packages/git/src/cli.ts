@@ -11,6 +11,7 @@ import { isUtf8 } from "node:buffer";
 import { dirname, resolve as resolvePath } from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { filterKeyQuery, nonExecutingEnv, nonExecutingTransportEnv } from "./non-executing.ts";
+import { credentialHelperArgs, readCredentialHelpers } from "./credential-helpers.ts";
 import { Readable, type Writable } from "node:stream";
 import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
@@ -18,7 +19,14 @@ import { stat } from "node:fs/promises";
 import { GitDiagnostics } from "./diagnostics.ts";
 import { spawnPinned } from "./pinned-process.ts";
 import { count, decode } from "./decode.ts";
-import { GitError, toGitError, type GitOptions, type GitProcessRuntime } from "./types.ts";
+import {
+  GitError,
+  toGitError,
+  type GitOptions,
+  type GitProcessRuntime,
+  type GitCredentialHelperLookup,
+  type GitCredentialHelper,
+} from "./types.ts";
 
 interface CallOptions {
   directoryFd?: number | undefined;
@@ -49,6 +57,7 @@ export class GitCli {
     "non-executing" | { protocols: readonly string[] }
   >();
   private readonly transportProtocols: readonly string[];
+  private readonly credentialHelperLookup: GitCredentialHelperLookup | undefined;
   readonly leaseId: () => string;
   readonly leaseSchedule: GitProcessRuntime["scheduleTimeout"];
   readonly binary: string;
@@ -63,6 +72,7 @@ export class GitCli {
 
   constructor(options: GitOptions) {
     this.transportProtocols = options.transportProtocols ?? ["http", "https", "ssh"];
+    this.credentialHelperLookup = options.credentialHelperLookup;
     this.runtime = processRuntime(options.processRuntime);
     this.leaseId = options.leaseId ?? mutationLeaseId;
     this.leaseSchedule = this.runtime.scheduleTimeout;
@@ -239,15 +249,47 @@ export class GitCli {
       throw new GitError("git_failed", "Could not inspect filter configuration safely");
     if (!isUtf8(filters.stdout))
       throw new GitError("malformed_output", "Invalid filter configuration encoding");
-    return this.executeRaw(cwd, ["-c", "protocol.allow=never", ...args], {
-      ...options,
-      env: {
-        ...options.env,
-        ...(transport
-          ? nonExecutingTransportEnv(filters.stdout.toString("utf8"), transport.protocols)
-          : nonExecutingEnv(filters.stdout.toString("utf8"))),
+    const helpers =
+      transport && (args[0] === "push" || args[0] === "fetch")
+        ? await this.authorizedCredentialHelpers(cwd, options)
+        : [];
+    return this.executeRaw(
+      cwd,
+      ["-c", "protocol.allow=never", ...(transport ? credentialHelperArgs(helpers) : []), ...args],
+      {
+        ...options,
+        env: {
+          ...options.env,
+          ...(transport
+            ? nonExecutingTransportEnv(filters.stdout.toString("utf8"), transport.protocols)
+            : nonExecutingEnv(filters.stdout.toString("utf8"))),
+        },
       },
-    });
+    );
+  }
+
+  private async authorizedCredentialHelpers(
+    cwd: string,
+    options: CallOptions,
+  ): Promise<GitCredentialHelper[]> {
+    const helpers: GitCredentialHelper[] = [];
+    for (const scope of ["system", "global"] as const) {
+      options.signal?.throwIfAborted();
+      const selected = this.credentialHelperLookup
+        ? await this.credentialHelperLookup(scope, options.signal)
+        : await readCredentialHelpers(scope, (query) =>
+            this.executeRaw(cwd, ["-c", "protocol.allow=never", ...query], {
+              env: nonExecutingEnv(),
+              allowFailure: true,
+              captureBytes: 1_048_576,
+              signal: options.signal,
+              directoryFd: options.directoryFd,
+              ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+            }),
+          );
+      helpers.push(...selected);
+    }
+    return helpers;
   }
 
   private executeRaw(cwd: string, args: string[], options: CallOptions): Promise<Output> {
@@ -262,6 +304,12 @@ export class GitCli {
       ...(options.write ? {} : { GIT_OPTIONAL_LOCKS: "0" }),
       ...options.env,
     });
+    if (typeof this.executionPolicy.getStore() === "object") {
+      // Git can fall back from core.askPass to SSH_ASKPASS, even with terminal prompts off.
+      delete env.SSH_ASKPASS;
+      env.GIT_ASKPASS = "";
+      env.GIT_TERMINAL_PROMPT = "0";
+    }
     return new Promise((resolve, reject) => {
       const spawnOptions: Parameters<GitProcessRuntime["spawn"]>[2] = {
         cwd,
