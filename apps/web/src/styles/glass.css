@@ -35,7 +35,10 @@
     backdrop-filter: blur(var(--glass-blur, 20px)) saturate(180%);
   }
 
-  :root[data-surface="translucent"][data-glass-engine="liquid"] :is(.ace-floating, .glass) {
+  /* `.ace-glass-flat` keeps blur glass without displacement: a layer that resizes as you work
+     (the composer grows with each line) would otherwise need a new filter at every size. */
+  :root[data-surface="translucent"][data-glass-engine="liquid"]
+    :is(.ace-floating, .glass):not(.ace-glass-flat) {
     background:
       radial-gradient(120% 60% at 22% 0%, var(--glass-sheen), transparent 60%),
       var(--glass-tint-liquid);
@@ -46,7 +49,7 @@
   /* A layer announces itself to liquid-glass.ts when it appears: a 1ms marker animation on a
      zero-size ::before, whose animationstart bubbles to the document. */
   :root[data-surface="translucent"][data-glass-engine="liquid"]
-    :is(.ace-floating, .glass):not(.ace-modal)::before {
+    :is(.ace-floating, .glass):not(.ace-modal, .ace-glass-flat)::before {
     content: "";
     position: absolute;
     width: 0;

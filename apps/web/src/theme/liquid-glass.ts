@@ -13,6 +13,8 @@ import { edgeMap, glassGeometry, type GlassGeometry } from "./glass.ts";
 const svgNs = "http://www.w3.org/2000/svg";
 const containerId = "ace-liquid-glass";
 const markerAnimation = "ace-glass-mount";
+/** How long a layer's size must hold before it gets a filter for that size. */
+const settleMs = 160;
 /** Unused filters beyond this many are dropped, oldest first. */
 const maxCachedFilters = 24;
 
@@ -98,6 +100,8 @@ export function startLiquidGlass(document: Document): () => void {
     }
   };
   const forget = (layer: HTMLElement) => {
+    clearTimeout(pending.get(layer));
+    pending.delete(layer);
     release(layers.get(layer));
     layers.delete(layer);
     resize.unobserve(layer);
@@ -125,6 +129,9 @@ export function startLiquidGlass(document: Document): () => void {
     layer.style.setProperty("--liquid-filter", `url(#${filter.element.id})`);
     prune();
   };
+  // A layer is fitted once its size holds still, so a list filtering as you type or a popover
+  // settling its height builds one filter for where it lands, not one for every size on the way.
+  const pending = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
   const resize = new view.ResizeObserver((entries) => {
     for (const entry of entries) {
       const layer = entry.target;
@@ -134,7 +141,21 @@ export function startLiquidGlass(document: Document): () => void {
         continue;
       }
       const box = entry.borderBoxSize[0];
-      fit(layer, box?.inlineSize ?? layer.offsetWidth, box?.blockSize ?? layer.offsetHeight);
+      const width = box?.inlineSize ?? layer.offsetWidth;
+      const height = box?.blockSize ?? layer.offsetHeight;
+      // The first measure fits at once, so a layer opens with its rim.
+      if (!layers.get(layer)) {
+        fit(layer, width, height);
+        continue;
+      }
+      clearTimeout(pending.get(layer));
+      pending.set(
+        layer,
+        setTimeout(() => {
+          pending.delete(layer);
+          fit(layer, width, height);
+        }, settleMs),
+      );
     }
   });
   const mounted = (event: AnimationEvent) => {
@@ -149,6 +170,8 @@ export function startLiquidGlass(document: Document): () => void {
   document.addEventListener("animationstart", mounted, true);
 
   return () => {
+    for (const timer of pending.values()) clearTimeout(timer);
+    pending.clear();
     document.removeEventListener("animationstart", mounted, true);
     resize.disconnect();
     for (const layer of layers.keys()) layer.style.removeProperty("--liquid-filter");

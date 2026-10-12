@@ -28,8 +28,12 @@ export const pillControl = `${control} shrink-0 gap-1 pr-2.5 pl-3.5`;
  */
 export const chipControl = `${control} min-w-(--composer-control) shrink px-2.5`;
 
-/** One material for the input and its attached panels. Cast shadows would tint the footer. */
-export const composerSurface = "ace-floating border border-sidebar-border shadow-none outline-none";
+/**
+ * One material for the input and its attached panels. Cast shadows would tint the footer. Flat
+ * glass: it grows as you type, so it never takes a size-bound displacement filter.
+ */
+export const composerSurface =
+  "ace-floating ace-glass-flat border border-sidebar-border shadow-none outline-none";
 
 /** The top card's inset, overlap and lower padding share the surface spacing tokens. */
 export const attachedInset = "mx-[calc(var(--surface-gap)*2)]";
