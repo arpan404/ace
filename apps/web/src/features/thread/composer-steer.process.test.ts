@@ -25,8 +25,13 @@ test("an ordinary effort-capable follow-up promotes into the same running provid
       imageInput: true,
       rewindFiles: false,
     }),
-    createTranslator: () => ({ translate: () => [], tick: () => [] }),
-    steps: [],
+    createTranslator: () => ({
+      translate: () => [{ type: "turn.started", agent: "root", trigger: "user" }],
+      tick: () => [],
+    }),
+    steps: [
+      { on: "send", frames: [{ seq: 1, t: 1000, dir: "recv", channel: "scripted", data: {} }] },
+    ],
   });
   const registry = new AdapterRegistry();
   registry.register(adapter, { installed: true, auth: "logged_in", loginHint: "scripted" });
@@ -56,6 +61,7 @@ test("an ordinary effort-capable follow-up promotes into the same running provid
     await engine.flush();
     const thread = store.listThreads()[0];
     if (!thread) throw new Error("Missing thread");
+    expect(store.snapshotThread(thread.id).thread.status.state).toBe("working");
     const options = changedTurnOptions({ effort: "medium" }, { effort: "medium" });
     const followUp = command({
       type: "thread.send",
