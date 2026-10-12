@@ -7,13 +7,13 @@
  * `[data-reduce-motion]` nothing moves and the label and glow stay lit.
  */
 /*
- * The model popover is a dense list over the transcript: under Translucent its glass is tinted
- * nearly solid, so text behind it never reads through the rows or the search field.
+ * The model popover is a dense list over the transcript: it stays solid even under Translucent,
+ * so text behind it never reads through the rows or the search field.
  */
 :root[data-surface="translucent"] .model-popover {
-  background: color-mix(in oklab, var(--surface-2) 94%, transparent);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
-  backdrop-filter: blur(28px) saturate(160%);
+  background: var(--surface-2);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .model-effort-deep {
