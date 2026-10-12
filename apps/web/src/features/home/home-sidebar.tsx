@@ -16,13 +16,12 @@ import { ThreadPagination } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 
-/** Threads started here that the list doesn't show yet; its code loads after first paint. */
-const DeferredStartedRows = deferredComponent(() =>
-  import("./started-rows.tsx").then((module) => module.StartedRows),
+/** Publish provisional titles even while the Unsent section is outside the virtual window. */
+const StartedTitlePublisher = deferredComponent(() =>
+  import("./started-rows.tsx").then((module) => module.StartedTitlePublisher),
 );
-
-const DeferredDraftRows = deferredComponent(() =>
-  import("./new-thread/draft-rows.tsx").then((module) => module.DraftRows),
+const UnsentRows = deferredComponent(() =>
+  import("./unsent-rows.tsx").then((module) => module.UnsentRows),
 );
 
 /**
@@ -58,15 +57,9 @@ export function HomeSidebar() {
       </div>
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
-          <div className="hidden max-h-[35%] shrink-0 overflow-y-auto has-[ul]:block">
-            <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-              Unsent <span aria-hidden className="h-px flex-1 bg-sidebar-border" />
-            </div>
-            <Suspense fallback={null}>
-              <DeferredDraftRows.Component />
-              <DeferredStartedRows.Component />
-            </Suspense>
-          </div>
+          <Suspense fallback={null}>
+            <StartedTitlePublisher.Component />
+          </Suspense>
         )}
         {!loaded ? (
           <ListSkeleton label="threads" shape="thread" className="px-2" />
@@ -95,6 +88,9 @@ export function HomeSidebar() {
                 ) : undefined
               }
             />
+            <Suspense fallback={null}>
+              <UnsentRows.Component />
+            </Suspense>
           </>
         ) : (
           <ThreadList list={list} settledTotal={settledTotal} />

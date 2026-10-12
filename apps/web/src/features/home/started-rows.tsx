@@ -36,7 +36,7 @@ function titleOf(send: PendingSend): string {
  * the title published here while the daemon's still says "New thread". Successful receipts
  * must never become provisional rows again when a thread leaves the list.
  */
-export function StartedRows() {
+function useCreates() {
   const { storage } = useLayout();
   loadDismissed(storage);
   const dismissed = useSyncExternalStore(dismissedSends.subscribe, dismissedSends.get);
@@ -49,6 +49,11 @@ export function StartedRows() {
       ),
     [pending, dismissed],
   );
+  return { creates, listed };
+}
+
+export function StartedTitlePublisher() {
+  const { creates } = useCreates();
   useEffect(() => {
     const titles = new Map<string, string>();
     for (const send of creates) {
@@ -57,6 +62,11 @@ export function StartedRows() {
     }
     publishStartedTitles(titles);
   }, [creates]);
+  return null;
+}
+
+export function StartedRows() {
+  const { creates, listed } = useCreates();
   const waiting = creates.filter((send) => {
     const id = realId(send);
     return (

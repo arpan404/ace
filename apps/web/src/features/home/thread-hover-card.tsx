@@ -29,7 +29,7 @@ export function ThreadHoverContent(props: {
       align="start"
       collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
       aria-label={`Details for ${card.title}`}
-      className="w-(--anchor-width) max-w-[calc(100vw-24px)] max-h-[min(var(--available-height),400px,calc(100dvh-24px))] space-y-2 overflow-y-auto px-3 py-2.5 break-words"
+      className="w-[calc(var(--anchor-width)-16px)] max-w-[calc(100vw-24px)] max-h-[min(var(--available-height),400px,calc(100dvh-24px))] space-y-2 overflow-y-auto px-3 py-2.5 break-words"
     >
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
         <span

@@ -39,6 +39,7 @@ const estimates: Record<HomeRow["kind"], number> = {
   pinned: 84,
   "pinned-end": 9,
   thread: 84,
+  unsent: 0,
   "settled-header": 37,
   settled: 84,
 };
@@ -50,6 +51,10 @@ const steps: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, j: 1, k: -1 }
 const loadDrag = () => import("./list-drag.ts");
 /** The bar for the picked threads, loaded once something is picked. */
 const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) => module.BulkBar));
+
+const UnsentRows = deferredComponent(() =>
+  import("./unsent-rows.tsx").then((module) => module.UnsentRows),
+);
 
 const header =
   "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-2 text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--dur-1)";
@@ -91,6 +96,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
       { pinned, active, recent, settled },
       {
         settledOpen,
+        includeUnsent: true,
         pinZone: moving !== undefined,
       },
     );
@@ -186,7 +192,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
   /** Focus the row at `index` (or the next one that isn't leaving), mounting it first if needed. */
   const focusRow = (from: number, step: number): string | undefined => {
     let index = from + step;
-    while (drawn[index]?.phase === "exit") index += step;
+    while (drawn[index]?.phase === "exit" || drawn[index]?.item.kind === "unsent") index += step;
     if (index < 0 || index >= drawn.length) return undefined;
     const target = () =>
       viewport.current?.querySelector<HTMLElement>(
@@ -335,14 +341,18 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
             return (
               <div
                 key={item.key}
-                role={leaving || row.kind === "pinned-end" ? "presentation" : "listitem"}
+                role={
+                  leaving || row.kind === "pinned-end" || row.kind === "unsent"
+                    ? "presentation"
+                    : "listitem"
+                }
                 aria-hidden={leaving || undefined}
                 inert={leaving}
                 ref={virtualizer.measureElement}
                 data-index={item.index}
                 className={cn(
                   "absolute inset-x-0 top-0",
-                  !("id" in row) && "pb-px",
+                  !("id" in row) && row.kind !== "unsent" && "pb-px",
                   // While rows slide past each other each is opaque, and the one moving up
                   // passes over the others: a swap never shows two rows through each other.
                   sliding && "bg-[rgb(var(--sidebar-rgb))]",
@@ -359,6 +369,11 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                   )}
                   {row.kind === "settled" && (
                     <ThreadRow threadId={row.id} settled leaving={leaving} />
+                  )}
+                  {row.kind === "unsent" && (
+                    <Suspense fallback={null}>
+                      <UnsentRows.Component />
+                    </Suspense>
                   )}
                   {row.kind === "pinned-end" && (
                     <div className="mx-2 my-1 h-px bg-sidebar-border" />
