@@ -30,6 +30,7 @@ export function actionErrorCode(error: unknown): string {
       "thread_tree_is_live",
       "terminal_owned",
       "workspace_change_in_progress",
+      "repository_transfer_in_progress",
       "workspace_preparing",
       "workspace_root_changed",
       "thread_not_found",
