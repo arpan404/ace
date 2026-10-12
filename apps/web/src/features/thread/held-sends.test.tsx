@@ -121,3 +121,109 @@ test("a message held for its uploads survives a reload, as a failed bubble sayin
   expect(within(alert).queryByRole("button", { name: "Retry" })).toBeNull();
   expect(within(alert).getByRole("button", { name: "Edit" })).toBeTruthy();
 });
+
+test("a staged storage refusal keeps the text and uploading file in the composer", async () => {
+  const backing = memoryKeyValue();
+  const storage = {
+    ...backing,
+    setItem(key: string, value: string) {
+      if (key.startsWith("ace.sends.staged")) throw new Error("quota");
+      backing.setItem(key, value);
+    },
+  };
+  const { app, message } = await open(storage);
+  await sendWhileUploading(app, message);
+  await screen.findByRole("heading", { name: "Message not sent" });
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+      "Why is this banner orange?",
+    ),
+  );
+  expect(screen.getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
+});
+
+test("a completion storage refusal exposes Retry and Edit, and Retry sends the already uploaded file", async () => {
+  const backing = memoryKeyValue();
+  let full = false;
+  const storage = {
+    ...backing,
+    get length() {
+      return backing.data.size;
+    },
+    setItem(key: string, value: string) {
+      if (full && key.startsWith("ace.sends.staged")) throw new Error("quota");
+      backing.setItem(key, value);
+    },
+  };
+  const { app, feed, message } = await open(storage);
+  await sendWhileUploading(app, message);
+  expect(await within(feed).findByText("Uploading an image…")).toBeTruthy();
+  full = true;
+  act(() => app.daemon.restoreRequests());
+  const alert = await within(feed).findByRole("alert");
+  expect(within(alert).getByText(/This device couldn't save the upload results/)).toBeTruthy();
+  expect(within(alert).getByRole("button", { name: "Retry" })).toBeTruthy();
+  expect(within(alert).getByRole("button", { name: "Edit" })).toBeTruthy();
+  expect(within(feed).queryByText("Uploading an image…")).toBeNull();
+  expect(delivered(app)).toBeUndefined();
+
+  // A second refusal stays actionable. No new context requests may finish: Retry must reuse
+  // the daemon's completed upload, rather than trying to upload the original File again.
+  app.daemon.holdRequests("context.request");
+  await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+  await screen.findByRole("heading", { name: "It still didn't go" });
+  expect(within(feed).queryByText("Uploading an image…")).toBeNull();
+  expect(within(feed).getByRole("button", { name: "Edit" })).toBeTruthy();
+  full = false;
+  await userEvent.click(within(feed).getByRole("button", { name: "Retry" }));
+  await waitFor(() =>
+    expect(delivered(app)).toMatchObject({ attachments: [{ name: "screen.png" }] }),
+  );
+  expect(within(feed).queryByRole("alert")).toBeNull();
+});
+
+test.each([false, true])(
+  "Edit keeps the recovery bubble and full draft when deletion is refused, including draft write refusal: %s",
+  async (refuseDraft) => {
+    const backing = memoryKeyValue();
+    let full = false;
+    const storage = {
+      ...backing,
+      get length() {
+        return backing.data.size;
+      },
+      setItem(key: string, value: string) {
+        if (
+          full &&
+          (key.startsWith("ace.sends.staged") || (refuseDraft && key === "ace.composer.drafts"))
+        )
+          throw new Error("quota");
+        backing.setItem(key, value);
+      },
+    };
+    const { app, feed, message } = await open(storage);
+    await sendWhileUploading(app, message);
+    full = true;
+    act(() => app.daemon.restoreRequests());
+    const alert = await within(feed).findByRole("alert");
+    await userEvent.type(screen.getByRole("combobox", { name: "Message" }), "Newer work");
+    await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));
+    const field = await screen.findByRole("combobox", { name: "Message" });
+    await waitFor(() => expect(field.textContent).toBe("Newer work\n\nWhy is this banner orange?"));
+    expect(screen.getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
+    expect(within(feed).getByRole("button", { name: "Save edit" })).toBeTruthy();
+    expect(delivered(app)).toBeUndefined();
+    await userEvent.click(within(feed).getByRole("button", { name: "Save edit" }));
+    expect(field.textContent).toBe("Newer work\n\nWhy is this banner orange?");
+    expect(within(feed).getByRole("button", { name: "Save edit" })).toBeTruthy();
+    full = false;
+    await userEvent.click(within(feed).getByRole("button", { name: "Save edit" }));
+    await waitFor(() => expect(within(feed).queryByRole("alert")).toBeNull());
+    cleanup();
+    await app.open("/t/thread-router");
+    expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
+      "Newer work\n\nWhy is this banner orange?",
+    );
+    expect(screen.getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
+  },
+);

@@ -49,9 +49,15 @@ export function writeDraft(
   storage: KeyValueStorage | undefined,
   key: string,
   draft: ComposerDraft | undefined,
-): void {
+): boolean {
   const entries: DraftEntries = readJson(storage, draftsKey, Entries, []);
-  writeJson(storage, draftsKey, putDraft(entries, key, draft));
+  if (!storage || storage.durable === false) return false;
+  try {
+    storage.setItem(draftsKey, JSON.stringify(putDraft(entries, key, draft)));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** `writeDraft` for a draft held as JSON (the composer serialises it to notice changes). */

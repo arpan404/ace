@@ -160,10 +160,34 @@ export function daemonContextSource(client: ClientApi): ContextSource {
  * before the first send, and `thread.create` adopts it through `context.draftId`. Released when
  * the project changes or the page closes, unless a thread adopted it.
  */
+const retiredScopes = new WeakMap<ClientApi, Set<string>>();
+export class ConsumedDraftScope extends Error {}
 export function draftScopes(client: ClientApi) {
   const ask = async (operation: ContextOperation) =>
     (await client.request({ type: "context.request", operation })).result;
   return {
+    retire(draftId: string): void {
+      let retired = retiredScopes.get(client);
+      if (!retired) {
+        retired = new Set();
+        retiredScopes.set(client, retired);
+      }
+      retired.add(draftId);
+    },
+    async resume(draftId: string): Promise<string> {
+      // Local admission can precede daemon adoption, particularly while offline.
+      if (retiredScopes.get(client)?.has(draftId))
+        throw new ConsumedDraftScope("Draft already handed off");
+      const reply = await ask({ op: "draft.mention.complete", draftId, query: "", limit: 1 });
+      if (
+        reply.kind === "error" &&
+        reply.code === "forbidden" &&
+        reply.message === "Draft already adopted"
+      )
+        throw new ConsumedDraftScope(reply.message);
+      expect(reply, "completion");
+      return draftId;
+    },
     async create(workspaceId: string): Promise<string> {
       return expect(
         await ask({ op: "draft.create", workspaceId: WorkspaceId.parse(workspaceId) }),

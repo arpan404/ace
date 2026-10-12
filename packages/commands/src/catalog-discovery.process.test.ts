@@ -495,3 +495,23 @@ test.each(["claude", "pi"] as const)(
       ]);
   },
 );
+
+test("Plan actions are available only to a provider whose plan permission can be applied", async () => {
+  const codex = await fixture("codex");
+  const claude = await fixture("claude");
+  const codexEntries = await waitFor(codex.library, (entries) =>
+    entries.some((entry) => entry.name === "Attach files"),
+  );
+  expect(
+    codexEntries.some(
+      (entry) => entry.invocation.type === "action" && entry.invocation.action === "plan",
+    ),
+  ).toBe(false);
+  const claudeEntries = await waitFor(claude.library, (entries) =>
+    entries.some((entry) => entry.name === "Plan mode"),
+  );
+  expect(claudeEntries.find((entry) => entry.name === "Plan mode")?.invocation).toEqual({
+    type: "action",
+    action: "plan",
+  });
+});
