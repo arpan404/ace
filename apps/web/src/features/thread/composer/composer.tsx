@@ -818,6 +818,11 @@ function ComposerBody({
               onStop={() => props.onStop?.()}
             />
           </div>
+          {saved.saveFailed && (
+            <p role="status" className="px-4 pb-2 text-xs text-muted-foreground">
+              Draft not saved: storage full
+            </p>
+          )}
           {props.queued}
         </div>
         {props.environment}

@@ -1,5 +1,5 @@
 import { fixtureImage, longHistory, replayCursor } from "@ace/fake-daemon";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
@@ -27,6 +27,40 @@ test("an unsent draft is still there after visiting another thread", async () =>
   await userEvent.click(within(threads()).getByRole("link", { name: /Document the router/ }));
   await screen.findByRole("heading", { level: 1, name: "Document the router" });
   expect((await message()).textContent).toBe("Half a thought about nested routes");
+});
+
+test("a full draft store warns and retains the latest text across navigation until it can save", async () => {
+  const storage = memoryKeyValue();
+  const setItem = storage.setItem.bind(storage);
+  let full = false;
+  storage.setItem = (key, value) => {
+    if (full && key === "ace.composer.drafts") throw new Error("QuotaExceededError");
+    setItem(key, value);
+  };
+  await app(storage).open("/t/thread-router");
+  await userEvent.type(await message(), "Previously saved");
+  fireEvent(window, new Event("pagehide"));
+  full = true;
+  await userEvent.clear(await message());
+  await userEvent.type(await message(), "Latest unsaved version");
+  fireEvent(window, new Event("pagehide"));
+  await screen.findByText("Draft not saved: storage full");
+  expect(storage.getItem("ace.composer.drafts")).toContain("Previously saved");
+  expect(storage.getItem("ace.composer.drafts")).not.toContain("Latest unsaved version");
+  await userEvent.click(within(threads()).getByRole("link", { name: /Replay cursor resets/ }));
+  await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
+  expect((await message()).textContent).toBe("");
+  await userEvent.click(within(threads()).getByRole("link", { name: /Document the router/ }));
+  await screen.findByRole("heading", { level: 1, name: "Document the router" });
+  expect((await message()).textContent).toBe("Latest unsaved version");
+  await screen.findByText("Draft not saved: storage full");
+  full = false;
+  fireEvent(window, new Event("pagehide"));
+  await waitFor(() => expect(screen.queryByText("Draft not saved: storage full")).toBeNull());
+  expect(storage.getItem("ace.composer.drafts")).toContain("Latest unsaved version");
+  cleanup();
+  await app(storage).open("/t/thread-router");
+  expect((await message()).textContent).toBe("Latest unsaved version");
 });
 
 test("a draft and its uploaded files survive a reload, and go once the message is sent", async () => {

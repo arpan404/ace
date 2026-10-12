@@ -1,7 +1,21 @@
 import { findDraft, putDraft, type ComposerDraft, type KeyValueStorage } from "@ace/ui-core";
-import { useEffect, useEffectEvent, useLayoutEffect, useRef, type RefObject } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { useLayout } from "@/lib/layout.tsx";
-import { draftsKey, onDraftDiscard, readDraft, writeDraft, writeDraftJson } from "./draft-store.ts";
+import {
+  draftsKey,
+  draftSaveFailed,
+  onDraftDiscard,
+  readDraft,
+  writeDraft,
+  writeDraftJson,
+} from "./draft-store.ts";
 
 /** How long typing may pause before the draft is written; a leave or reload writes at once. */
 const settleMs = 300;
@@ -9,7 +23,8 @@ const settleMs = 300;
 /**
  * Keep the composer's unsent draft under `key` on this device: written once typing settles, and
  * at once when the composer goes away or the page is hidden (`visibilitychange`, `pagehide`), so
- * navigating, switching apps or reloading never loses it. An empty draft removes the key;
+ * a successful write survives navigation and reload. Refused writes retain the latest copy in
+ * this page and expose an inline warning. An empty draft removes the key;
  * `discard()` removes it at once, for a message just sent; `drop()` lets a newer stored one win. When another window writes the same
  * key, `onExternal` gets that draft (UX audit SY-12); drafts stay per device.
  */
@@ -20,8 +35,9 @@ export function useDraftPersistence(
   onExternal?: (draft: ComposerDraft | undefined) => "replace" | void,
   onChange?: ((draft: ComposerDraft) => void) | undefined,
   ownsDraft?: (() => boolean) | undefined,
-): { discard(): void; drop(): void; hold(): void; finish(): boolean } {
+): { saveFailed: boolean; discard(): void; drop(): void; hold(): void; finish(): boolean } {
   const { storage } = useLayout();
+  const [saveFailed, setSaveFailed] = useState(() => !!key && draftSaveFailed(storage, key));
   const pending = useRef<string | undefined>(undefined);
   const serial = JSON.stringify(draft);
   const latest = useRef(serial);
@@ -40,6 +56,10 @@ export function useDraftPersistence(
     };
   }, []);
   const holding = useRef(false);
+  const flush = useEffectEvent((store: KeyValueStorage | undefined, draftKey: string) => {
+    const saved = flushDraft(pending, store, draftKey);
+    if (saved !== undefined && mounted.current) setSaveFailed(!saved);
+  });
   const emptyNow = !draft.text.trim() && !draft.attachments.length;
   const notifyDraft = useEffectEvent(() => onChange?.(draft));
   useEffect(() => {
@@ -48,18 +68,19 @@ export function useDraftPersistence(
       if (owner !== storage || discarded !== key) return;
       pending.current = undefined;
       holding.current = false;
+      setSaveFailed(false);
     });
-    const flush = () => flushDraft(pending, storage, key);
+    const save = () => flush(storage, key);
     const hidden = () => {
-      if (document.visibilityState === "hidden") flush();
+      if (document.visibilityState === "hidden") save();
     };
-    addEventListener("pagehide", flush);
+    addEventListener("pagehide", save);
     document.addEventListener("visibilitychange", hidden);
     return () => {
       stopDiscarded();
-      removeEventListener("pagehide", flush);
+      removeEventListener("pagehide", save);
       document.removeEventListener("visibilitychange", hidden);
-      flush();
+      save();
     };
   }, [key, storage]);
   useEffect(() => {
@@ -67,7 +88,7 @@ export function useDraftPersistence(
     notifyDraft();
     if (holding.current && emptyNow) return;
     pending.current = serial;
-    const timer = setTimeout(() => flushDraft(pending, storage, key), settleMs);
+    const timer = setTimeout(() => flush(storage, key), settleMs);
     return () => clearTimeout(timer);
   }, [key, serial, storage, emptyNow]);
   // Another window changed this draft: the browser says so with a `storage` event.
@@ -84,12 +105,13 @@ export function useDraftPersistence(
     return () => removeEventListener("storage", listen);
   }, [key]);
   return {
+    saveFailed,
     // Keep a reload-safe copy until the outbox accepts it, even though the editor clears.
     hold() {
       holding.current = true;
-      pending.current = undefined;
+      pending.current = latest.current;
       if (key) {
-        writeDraftJson(storage, key, latest.current);
+        flush(storage, key);
         submitted.current = version(readDraft(storage, key));
       }
     },
@@ -103,13 +125,17 @@ export function useDraftPersistence(
       }
       holding.current = false;
       pending.current = latest.current;
-      if (key) flushDraft(pending, storage, key);
+      if (key) flush(storage, key);
       return true;
     },
     discard() {
       holding.current = false;
       pending.current = undefined;
-      if (key) writeDraft(storage, key, undefined);
+      if (key) {
+        const saved = writeDraft(storage, key, undefined);
+        setSaveFailed(!saved);
+        if (!saved) pending.current = JSON.stringify(empty);
+      }
     },
     /** Forget this composer's unsaved copy without writing it: the stored draft wins. */
     drop() {
@@ -124,11 +150,12 @@ function flushDraft(
   pending: RefObject<string | undefined>,
   storage: KeyValueStorage | undefined,
   key: string,
-) {
+): boolean | undefined {
   const next = pending.current;
   if (next === undefined) return;
+  if (!writeDraftJson(storage, key, next)) return false;
   pending.current = undefined;
-  writeDraftJson(storage, key, next);
+  return true;
 }
 
 function version(draft: ComposerDraft | undefined): string {
