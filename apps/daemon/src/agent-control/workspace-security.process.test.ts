@@ -8,7 +8,7 @@ import { repository, git } from "../thread-creation-test-support.ts";
 import { shellQuote } from "../workspace-scripts.ts";
 import { createWorkspaceDelegations } from "./workspaces.ts";
 import { setup } from "./test-support.ts";
-import { hostileWorkspace } from "./workspace-security-test-support.ts";
+import { hostileWorkspace, partialCloneWorkspace } from "./workspace-security-test-support.ts";
 
 test("a plan-mode delegation's selected ref cannot execute Git filters, LFS, hooks, fsmonitor or setup scripts, including after owner restart", async () => {
   const { h, markers, caller } = await hostileWorkspace();
@@ -131,4 +131,28 @@ test("agent remote bases use local tracking refs and never execute a configured 
   } finally {
     await runtime.close();
   }
+});
+
+
+test("plan-mode delegation from a cached partial-clone base fails on missing objects without executing its promisor transport", async () => {
+  const { h, caller, marker } = await partialCloneWorkspace();
+  const runtime = new WorkspaceRuntime(h.store, join(h.home, "owned"), h.clock.now);
+  try {
+    const port = createAgentControlPort(h.store, h.service, { delegateWorkspace: createWorkspaceDelegations(
+      { store: h.store, services: { workspaceActions: runtime }, signal: new AbortController().signal }, h.service,
+    ) });
+    await expect(port.execute(caller, AgentControlOperation.parse({
+      op: "delegate_task", requestId: "missing-blob", role: "Inspect", task: "Inspect locally", provider: "claude",
+      permissionMode: "plan", workspace: { kind: "new_worktree", base: { ref: "main" } },
+    }), new AbortController().signal)).rejects.toThrow(/objects not available locally/i);
+    await h.engine.flush();
+    expect(h.store.listThreads()).toHaveLength(1);
+    await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await runtime.git.nonExecuting(() => runtime.git.listWorktrees(h.home))).map(tree => tree.path)).toEqual([h.home]);
+    // Failed preparation must release admission as well as its physical worktree.
+    const child = h.delegate(caller, "after-failure");
+    await h.engine.flush();
+    expect(h.inputs.get(child.childId)).toBeDefined();
+    await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally { await runtime.close(); }
 });

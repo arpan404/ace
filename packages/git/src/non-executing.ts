@@ -40,6 +40,7 @@ export function nonExecutingEnv(keys: string = ""): Record<string, string> {
   const env: Record<string, string> = {
     GIT_CONFIG_COUNT: String(pairs.length),
     GIT_ATTR_NOSYSTEM: "1",
+    GIT_NO_LAZY_FETCH: "1",
     GIT_OPTIONAL_LOCKS: "0",
   };
   for (const [index, pair] of pairs.entries()) {

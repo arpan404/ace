@@ -200,7 +200,7 @@ export class GitCli {
     if (!this.executionDisabledAt(cwd)) return this.executeRaw(cwd, args, options);
     // Inspect effective driver names only, never commands or credential values. Every nested
     // call is guarded here, including temporary-index writes, status and branch cleanup.
-    const filters = await this.executeRaw(cwd, filterKeyQuery, {
+    const filters = await this.executeRaw(cwd, ["-c", "protocol.allow=never", ...filterKeyQuery], {
       env: { ...options.env, ...nonExecutingEnv() },
       allowFailure: true,
       captureBytes: 1_048_576,
@@ -214,7 +214,7 @@ export class GitCli {
       throw new GitError("git_failed", "Could not inspect filter configuration safely");
     if (!isUtf8(filters.stdout))
       throw new GitError("malformed_output", "Invalid filter configuration encoding");
-    return this.executeRaw(cwd, args, {
+    return this.executeRaw(cwd, ["-c", "protocol.allow=never", ...args], {
       ...options,
       env: { ...options.env, ...nonExecutingEnv(filters.stdout.toString("utf8")) },
     });
@@ -402,7 +402,11 @@ export class GitCli {
         const stderr = Buffer.concat(errors).toString("utf8");
         if (failure) return reject(failure);
         if (code !== 0 && !options.allowFailure) {
-          return reject(new GitError(diagnostics.finish(), "Git command failed", { code }));
+          const unavailable = options.env?.GIT_NO_LAZY_FETCH === "1" &&
+            /unable to read (?:sha1 file|tree|object)|could not fetch .* from promisor remote|missing (?:blob|tree|object)|transport '[^']+' not allowed/i.test(stderr);
+          return reject(new GitError(diagnostics.finish(), unavailable
+            ? "Objects not available locally. Fetch the required objects in ace first."
+            : "Git command failed", { code }));
         }
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
       };
