@@ -343,6 +343,15 @@ export class ThreadLedger {
     this.track(reader, id);
     const incoming = rootRunOf(reader, item.runId);
     if (closesStretch(item)) {
+      const state = reader.thread?.status;
+      if (
+        !incoming &&
+        this.stretch.run !== undefined &&
+        (state?.state === "working" ||
+          state?.state === "needs_you" ||
+          (state?.state === "waiting" && state.on === "background_task"))
+      )
+        return;
       // A steer belongs to the active turn; it must not restart that turn's timer.
       if (!incoming || incoming.id !== this.stretch.run || incoming.state !== "active")
         this.stretch = newStretch(incoming?.id);

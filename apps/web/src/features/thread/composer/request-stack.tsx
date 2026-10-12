@@ -39,7 +39,11 @@ export function RequestStack(props: {
   const at = Math.max(0, picked === undefined ? 0 : props.ids.indexOf(picked));
   const id = props.ids[at];
   if (!id) return null;
-  const go = (step: number) => setPicked(props.ids[(at + step + count) % count]);
+  const go = (step: number) => {
+    setPicked(props.ids[(at + step + count) % count]);
+    // The old card's focused button unmounts when paging; keep subsequent [ / ] reachable.
+    frame.current?.focus({ preventScroll: true });
+  };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
       event.preventDefault();

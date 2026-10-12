@@ -600,7 +600,11 @@ export function buildBlocks(source: BlockSource): Block[] {
         end.errorId = turn.failure.itemId;
       }
       place(turn.lastBlock, end);
-    } else if (facts?.state === "interrupted" && !turn.paused && facts.endedAt === undefined)
+    } else if (
+      facts?.state === "interrupted" &&
+      !turn.paused &&
+      (facts.endedAt === undefined || facts.startedAt === undefined)
+    )
       place(turn.lastBlock, endBlock(turn, "interrupted", newest === turn));
   }
   const result =

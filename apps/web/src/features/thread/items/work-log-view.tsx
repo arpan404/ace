@@ -16,7 +16,7 @@ export function WorkLogHeader(props: {
 }) {
   const { headline, open } = props;
   return (
-    <div className="border-t border-border pt-1">
+    <div className="border-b border-border pb-1">
       <button
         type="button"
         aria-expanded={open}

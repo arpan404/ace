@@ -40,7 +40,7 @@ export function WorkLog(props: {
   const panel = useId();
   // Rows load after first paint, ready before the log is opened.
   useEffect(() => void DeferredWorkLogSteps.preload(), []);
-  if (!headline) return null;
+  if (!headline || (props.ongoing && !open)) return null;
   return (
     <div>
       <WorkLogHeader
@@ -57,11 +57,6 @@ export function WorkLog(props: {
         props.itemIds.map((itemId) => (
           <WorkLogImage key={itemId} threadId={props.threadId} itemId={itemId} />
         ))}
-      {open && props.itemIds.length === 0 && (
-        <p id={panel} className="px-1.5 py-2 text-xs text-muted-foreground">
-          No tool steps in this turn.
-        </p>
-      )}
       {open && props.itemIds.length > 0 && (
         <Suspense fallback={null}>
           <Steps threadId={props.threadId} itemIds={props.itemIds} panel={panel} />

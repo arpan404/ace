@@ -49,8 +49,8 @@ export function useWorkLog(
   // Frozen: from the first step to the moment the stretch closed, whatever settles later.
   const to = until ?? summary?.endedAt ?? 0;
   const waited = useWaited(threadId, from, to);
-  const activity = useTurnActivity(threadId, live);
-  const now = useTicker(activity?.tone !== "working" && activity?.elapsedFrom !== undefined);
+  const activity = useTurnActivity(threadId, live || !!options.ongoing);
+  const now = useTicker(activity?.elapsedFrom !== undefined);
   if (!summary && options.outcome === undefined) return undefined;
   const counts = summary ? workCounts(summary) : "";
   if (activity && activity.tone !== "working" && !activity.label.startsWith("Watching"))
@@ -64,7 +64,9 @@ export function useWorkLog(
   return {
     label:
       options.ongoing || until === undefined
-        ? "Work so far"
+        ? activity
+          ? activityText(activity, now)
+          : "Working"
         : options.outcome === "paused"
           ? "Paused · Usage limit"
           : `${options.outcome === "interrupted" ? "Stopped after" : options.outcome === "failed" ? "Failed after" : "Worked for"} ${formatElapsed(Math.max(1000, to - from - waited - idle))}`,

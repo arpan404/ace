@@ -13,7 +13,6 @@ import {
   useState,
 } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useTopFade } from "@/lib/edge-fade.ts";
@@ -45,7 +44,6 @@ import { useRunOrdinals } from "./run-ordinals.ts";
 import { useBlocks } from "./use-blocks.ts";
 import { useTurnActivity } from "./use-turn-activity.ts";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
-import { useNewActivity } from "./use-new-activity.ts";
 import { useReadMarker } from "./seen.ts";
 
 const none: readonly string[] = [];
@@ -216,7 +214,6 @@ export function Feed(props: FeedProps) {
     [blocks, ordinalOf, open, openFrom, keep],
   );
   const keys = useMemo(() => rows.map(rowKey), [rows]);
-  const divider = useNewActivity(threadId, blocks, order, props.liveNewest);
   const { rows: motionRows } = useListMotion(blocks, (block: Block) => block.key);
   const entering = useMemo(
     () => new Set(motionRows.flatMap((row) => (row.phase === "enter" ? [row.key] : []))),
@@ -474,7 +471,6 @@ export function Feed(props: FeedProps) {
 
   const lastWindowOrdinal = window ? ordinalOf(window.items.at(-1)?.id ?? "") : undefined;
   const fadeTop = useTopFade(viewport);
-  const dividerRow = divider && rows.find((row) => row.key === divider)?.key;
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       {/* The rows and the bars that float over their top (search, the jump bar). */}
@@ -502,23 +498,18 @@ export function Feed(props: FeedProps) {
           }}
         >
           <div className={`${readingColumn} pt-6 pb-[calc(var(--composer-clearance,0px)+4rem)]`}>
-            <div className="flex justify-center pb-4">
-              {hasOlder ? (
+            {hasOlder && (
+              <div className="flex justify-center pb-4">
                 <Button
                   variant="ghost"
                   size="sm"
                   disabled={loading}
                   onClick={() => void loadOlder()}
                 >
-                  {loading && <Spinner />}
-                  Load earlier messages
+                  {loading && <Spinner />} Load earlier messages
                 </Button>
-              ) : (
-                <Marker variant="separator" className="text-xs text-subtle-foreground">
-                  <MarkerContent>Beginning of thread</MarkerContent>
-                </Marker>
-              )}
-            </div>
+              </div>
+            )}
             {pager.error && (
               <p role="alert" className="pb-3 text-center text-xs text-status-failed">
                 Couldn't load earlier messages. Try again.
@@ -553,7 +544,6 @@ export function Feed(props: FeedProps) {
                         className={entering.has(row.key) ? "fx-rise-in" : undefined}
                         style={lit ? highlight : undefined}
                       >
-                        {dividerRow === row.key && <NewActivity />}
                         <RowView
                           threadId={threadId}
                           row={row}
@@ -709,17 +699,5 @@ function TurnLine(props: { ordinal: number }) {
     <p className="flex h-8 items-center font-mono text-xs tabular-nums text-subtle-foreground">
       Turn {props.ordinal}
     </p>
-  );
-}
-
-function NewActivity() {
-  return (
-    <div
-      role="separator"
-      aria-label="New activity"
-      className="mt-2 mb-6 flex items-center gap-3 text-xs font-medium tracking-[0.01em] text-[color-mix(in_oklab,var(--ring)_80%,var(--foreground))] before:h-px before:flex-1 before:bg-ring/28 after:h-px after:flex-1 after:bg-ring/28"
-    >
-      New activity
-    </div>
   );
 }
