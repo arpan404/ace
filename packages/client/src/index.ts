@@ -2,6 +2,7 @@ export type { RegistryQuery } from "./api.ts";
 export type { CursorAuthQuery } from "./client.ts";
 export { Client } from "./client.ts";
 export { ClientCore } from "./client-core.ts";
+export { commandAdmissionError, type CommandAdmissionEvidence } from "./command-admission.ts";
 export { ClientError, defaultLimits } from "./types.ts";
 export type {
   ClientOptions,

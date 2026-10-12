@@ -157,6 +157,9 @@ export async function executeIntent(
       }
       if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");
       actor.lifetime?.signal.throwIfAborted();
+      await sessions.assertWorkspaceAvailable(repo.session(actor.id).cwd);
+      if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");
+      actor.lifetime?.signal.throwIfAborted();
       const input = [
         ...transitions.input(actor.id).map((text) => ({ type: "text" as const, text })),
         ...(prepared?.input ??
