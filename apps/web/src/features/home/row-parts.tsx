@@ -5,6 +5,7 @@ import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
+import { useMachines } from "@/lib/machines.ts";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -96,9 +97,14 @@ export function RowTime(props: { card: ThreadCard }) {
   );
 }
 
-/** Branch and environment share the last line; the provider keeps the trailing slot. */
+/**
+ * Branch and pull request lead the last line; the provider keeps the trailing slot. A row never
+ * names its machine: with more than one device connected, the machine's icon sits beside the
+ * provider's, its name in the tooltip and the row's spoken details.
+ */
 export function RowContext(props: { card: ThreadCard }) {
   const { card } = props;
+  const devices = useConnectedDevices() > 1;
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
       {card.branch && (
@@ -111,24 +117,31 @@ export function RowContext(props: { card: ThreadCard }) {
           <PullRequest card={card} />
         </span>
       )}
-      {card.branch && <span aria-hidden>·</span>}
-      <span
-        className="flex min-w-0 max-w-[45%] items-center gap-1 truncate"
-        title={card.machine ?? "This machine"}
-      >
-        <MachineMark icon={card.machineIcon} />
-        <span className="truncate">{card.machine ?? "This machine"}</span>
-      </span>
-      <span
-        role="img"
-        aria-label={card.providerLabel}
-        className="ml-auto flex shrink-0 items-center gap-1"
-      >
-        {card.subagents > 0 && <span className="tabular-nums">{card.subagents}</span>}
-        <ProviderIcon provider={card.provider} acpAgentId={card.acpAgentId} size={14} decorative />
+      <span className="ml-auto flex shrink-0 items-center gap-1.5">
+        {devices && (
+          <Tip label={card.machine ?? "This machine"}>
+            <span className="inline-flex">
+              <MachineMark icon={card.machineIcon} />
+            </span>
+          </Tip>
+        )}
+        <span role="img" aria-label={card.providerLabel} className="flex items-center gap-1">
+          {card.subagents > 0 && <span className="tabular-nums">{card.subagents}</span>}
+          <ProviderIcon
+            provider={card.provider}
+            acpAgentId={card.acpAgentId}
+            size={14}
+            decorative
+          />
+        </span>
       </span>
     </div>
   );
+}
+
+/** How many of the person's machines are connected now. */
+function useConnectedDevices(): number {
+  return useMachines().filter((machine) => machine.status === "online").length;
 }
 
 /** Unread results and requests take priority over the canonical dimmed flag. */

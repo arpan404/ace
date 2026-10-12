@@ -150,12 +150,7 @@ export function WorkspacePanel(props: {
             Done
           </Button>
         ) : (
-          props.controls && (
-            <>
-              <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
-              {props.controls}
-            </>
-          )
+          props.controls && <span className="ml-1 flex items-center">{props.controls}</span>
         )}
       </div>
       {props.notice}

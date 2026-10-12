@@ -59,7 +59,7 @@ const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) =
 const header =
   "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-2 text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--motion-fast)";
 
-/** A section's quiet heading: its name, how many, a thin rule, and whatever closes the line. */
+/** A section's quiet heading: its name and how many. No rule: the rows' hairlines divide. */
 function HeadingText(props: { label: string; count?: number | undefined }) {
   return (
     <>
@@ -67,7 +67,6 @@ function HeadingText(props: { label: string; count?: number | undefined }) {
       {/* A flex gap draws the space; the text keeps it for the heading's name. */}
       {props.count !== undefined && " "}
       {props.count !== undefined && <span className="font-normal tabular-nums">{props.count}</span>}
-      <span aria-hidden className="h-px flex-1 bg-sidebar-border" />
     </>
   );
 }
@@ -365,9 +364,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                     <ThreadRow threadId={row.id} settled leaving={leaving} />
                   )}
                   {row.kind === "unsent" && <UnsentRows />}
-                  {row.kind === "pinned-end" && (
-                    <div className="mx-2 my-1 h-px bg-sidebar-border" />
-                  )}
+                  {row.kind === "pinned-end" && <div aria-hidden className="h-2" />}
                   {row.kind === "pinned-header" && (
                     <div data-pin-zone="" className={cn(header, "mt-0")}>
                       {row.count ? (
@@ -386,11 +383,13 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                       className={cn(header, "hover:text-muted-foreground")}
                     >
                       <span>Snoozed ({row.count})</span>
-                      <span aria-hidden className="h-px flex-1 bg-sidebar-border" />
                       <CaretDownIcon
                         aria-hidden
                         size={12}
-                        className={cn(!snoozedOpen && "-rotate-90")}
+                        className={cn(
+                          "ml-auto transition-transform duration-(--motion-base) ease-spring",
+                          !snoozedOpen && "-rotate-90",
+                        )}
                       />
                     </button>
                   )}
@@ -407,7 +406,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                         aria-hidden
                         size={12}
                         className={cn(
-                          "transition-transform duration-(--motion-base) ease-spring",
+                          "ml-auto transition-transform duration-(--motion-base) ease-spring",
                           !settledOpen && "-rotate-90",
                         )}
                       />

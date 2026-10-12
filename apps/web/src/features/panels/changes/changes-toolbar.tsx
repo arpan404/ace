@@ -101,7 +101,7 @@ export function ChangesToolbar(props: {
     <div
       role="toolbar"
       aria-label="Changes"
-      className="flex h-10 shrink-0 items-center gap-1 border-b bg-panel pr-2 pl-1.5"
+      className="flex h-10 shrink-0 items-center gap-1 bg-panel pr-2 pl-1.5"
     >
       <ScopeMenu scope={props.scope} turns={props.turns} onScope={props.onScope} />
       <DiffStat {...props.stat} className="ml-1 shrink-0 text-sm" />
