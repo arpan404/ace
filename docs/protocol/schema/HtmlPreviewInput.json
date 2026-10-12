@@ -1,0 +1,15 @@
+{
+  "$id": "https://ace.local/protocol/v1/HtmlPreviewInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "html": {
+      "maxLength": 1048576,
+      "type": "string"
+    }
+  },
+  "required": [
+    "html"
+  ],
+  "type": "object"
+}

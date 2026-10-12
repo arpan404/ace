@@ -24,6 +24,7 @@ import * as forgeBrowser from "@ace/protocol/forge-browser";
 import * as forgeStacks from "@ace/protocol/forge-stacks";
 import * as forge from "@ace/protocol/forge";
 import {
+  htmlToolCatalog,
   builtinToolCatalog,
   agentControlToolCatalog,
   handoffToolCatalog,
@@ -76,6 +77,7 @@ export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] 
     }
   const entries: SchemaEntry[] = [...exported].map(([name, schema]) => ({ name, schema }));
   const tools = [
+    ...htmlToolCatalog,
     ...builtinToolCatalog,
     ...agentControlToolCatalog,
     ...handoffToolCatalog,

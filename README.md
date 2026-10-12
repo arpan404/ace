@@ -42,6 +42,8 @@ The [source-control draft workflow](docs/daemon/source-control-drafts.md) docume
 editable commit and PR text generated through the user's own CLI, source revisions
 and cancellation.
 
+Agents can publish [HTML visualizations](docs/daemon/html-visualizations.md) through dedicated MCP tools. Pages replay with the thread and run in an offline sandbox. Claude Code and Codex sessions receive the bundled `visualize` skill.
+
 The generated [protocol reference](docs/protocol/README.md) covers WebSocket messages, canonical events and built-in MCP tools. Regenerate it with `bun run docs:protocol`.
 
 ## Development

@@ -444,10 +444,20 @@ Example:
     "agentId": "example",
     "complete": false,
     "createdAt": 7,
+    "delivery": "tool",
     "id": "example",
+    "origin": "ace",
+    "results": [
+      {
+        "before": 0,
+        "outcome": "failed",
+        "result": "example",
+        "threadId": "example",
+        "truncated": false
+      }
+    ],
     "runId": "example",
-    "text": "example",
-    "type": "reasoning"
+    "type": "delegation.settled"
   },
   "type": "item.created"
 }
@@ -469,7 +479,7 @@ Example:
 {
   "agentId": "example",
   "append": "example",
-  "field": "text",
+  "field": "reasoning",
   "itemId": "example",
   "type": "item.delta"
 }
@@ -489,8 +499,9 @@ Example:
   "item": {
     "agentId": "example",
     "complete": false,
-    "createdAt": 6,
+    "createdAt": 8,
     "id": "example",
+    "summary": true,
     "text": "example",
     "type": "reasoning"
   },
@@ -527,27 +538,29 @@ Example:
 {
   "interaction": {
     "agentId": "example",
+    "autoReviewed": false,
     "blocking": true,
-    "createdAt": 1,
-    "expirationReason": "provider_disconnected",
+    "createdAt": 5,
     "id": "example",
     "request": {
-      "defaultToNo": true,
       "kind": "approval",
       "mcpServer": {
         "name": "example",
         "source": "example"
       },
       "options": [],
-      "suppressAlwaysAllowRule": true,
+      "suppressAlwaysAllowRule": false,
+      "target": {
+        "access": "read",
+        "cwd": "example",
+        "description": "example",
+        "origin": "ace",
+        "paths": [],
+        "tool": "example"
+      },
       "title": "example"
     },
-    "resolution": {
-      "decision": "reject",
-      "kind": "plan_review"
-    },
-    "resolvedBy": "example",
-    "state": "pending",
+    "state": "resolved",
     "threadId": "example"
   },
   "type": "interaction.opened"
@@ -571,9 +584,13 @@ Example:
 
 ```json
 {
-  "autoReviewed": false,
+  "autoReviewed": true,
   "closedAt": 5,
   "interactionId": "example",
+  "resolution": {
+    "action": "cancel",
+    "kind": "elicitation"
+  },
   "state": "cancelled",
   "type": "interaction.closed"
 }
@@ -592,12 +609,11 @@ Example:
 {
   "task": {
     "agentId": "example",
-    "endedAt": 2,
     "id": "example",
     "kind": "subagent",
-    "outputPath": "example",
-    "startedAt": 7,
-    "status": "failed",
+    "raw": [],
+    "startedAt": 5,
+    "status": "running",
     "stoppable": false,
     "title": "example"
   },
@@ -640,11 +656,14 @@ Example:
 
 ```json
 {
-  "paused": false,
-  "pendingCount": 7,
+  "lastFailure": {
+    "code": "example",
+    "title": "example"
+  },
+  "paused": true,
   "reason": null,
-  "resumeAt": null,
-  "revision": 5,
+  "resumeAt": 6,
+  "revision": 7,
   "type": "queue.updated"
 }
 ```
@@ -662,9 +681,9 @@ Example:
 {
   "meter": {
     "agentId": "example",
-    "epoch": 4,
-    "source": "unknown",
-    "usedTokens": 2,
+    "epoch": 1,
+    "source": "provider",
+    "usedTokens": null,
     "windowTokens": null
   },
   "type": "context_meter.updated"
@@ -687,9 +706,10 @@ Example:
 ```json
 {
   "agentId": "example",
+  "sessionId": "example",
   "type": "context.sampled",
-  "usedTokens": 4,
-  "windowTokens": 2
+  "usedTokens": 2,
+  "windowTokens": 4
 }
 ```
 
@@ -723,15 +743,14 @@ Example:
 ```json
 {
   "agentId": "example",
-  "billingMode": "api",
-  "cacheWrite1hTokens": 3,
-  "cacheWriteTokens": 2,
-  "cachedInputTokens": 8,
-  "counterKey": "example",
-  "inputTokens": 2,
+  "contextSessionId": "example",
+  "contextTokens": 3,
+  "contextWindow": 4,
+  "inputTokens": 1,
   "model": "example",
-  "outputTokens": 3,
-  "type": "usage.updated"
+  "outputTokens": 1,
+  "type": "usage.updated",
+  "usageScope": "agent"
 }
 ```
 
