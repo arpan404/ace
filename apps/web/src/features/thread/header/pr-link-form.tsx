@@ -1,3 +1,4 @@
+import { gitFailureText } from "../lib/git-failure.ts";
 import { usePrReference } from "../lib/use-pr-reference.ts";
 import type { ForgeRepository } from "@ace/protocol";
 import { useState } from "react";
@@ -5,7 +6,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { InlineMarkdown } from "@/components/inline-markdown.tsx";
 
-/** The same validated field for the work card and the row's link dialog. */
+/** The same validated field for Work and the row's link dialog. */
 export function PrLinkForm(props: {
   repository: ForgeRepository | undefined;
   pending: boolean;
@@ -30,9 +31,7 @@ export function PrLinkForm(props: {
           setValue("");
           props.onDone?.();
         } catch (reason: unknown) {
-          setError(
-            reason instanceof Error ? reason.message : "Couldn't link the pull request. Try again.",
-          );
+          setError(gitFailureText(reason));
         } finally {
           setValidating(false);
         }

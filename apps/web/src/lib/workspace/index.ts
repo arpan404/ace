@@ -8,7 +8,6 @@ export {
   type OpenRequest,
   type ScopeWorkspace,
   type WorkspaceTab,
-  type WorkCardState,
   type TabUiState,
 } from "./model.ts";
 export {
@@ -35,3 +34,5 @@ export {
 export { defaultSize, WorkspaceStore, type ClosedTab } from "./store.ts";
 
 export { fileTab, fileTabId } from "./file-tab.ts";
+
+export { attachWorkspaceScroll } from "./scroll.ts";

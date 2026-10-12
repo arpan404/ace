@@ -1,5 +1,3 @@
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { ListBulletsIcon } from "@phosphor-icons/react";
 import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
 import {
@@ -57,9 +55,8 @@ import {
   DeferredAgentComposer,
   DeferredThreadHotkeys,
   DeferredThreadMenu,
+  DeferredWorkEnvironment,
   DeferredTurnsPanel,
-  DeferredWorkCard,
-  DeferredWorkCardToggle,
   preloadDeferred,
 } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
@@ -71,7 +68,7 @@ import { UserMessage } from "./items/user-message.tsx";
 import { ActivityLine } from "./transcript/live-footer.tsx";
 import { LongThreadHotkeys } from "./long/nav-keys.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
-import { useWorkspaceActions, useScopeWorkspace } from "@/lib/workspace/index.ts";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 
 /**
  * A thread New thread started a moment ago, until the daemon names it: its view's code loads
@@ -119,8 +116,8 @@ export interface ThreadTarget {
 
 /**
  * A thread: the transcript and composer in the main column; in the header only its title, the ⋯
- * menu, the work card's button (project, git, actions, editors, sources) and the side panel's
- * toggle; and its side panel of tabs (Changes, Agents, terminals, Files, Browser, …). A long
+ * menu and the side panel toggle; its panel tabs include Work, Changes, terminals, Files
+ * and Browser. A long
  * thread adds its turns and search.
  */
 export function ThreadView(props: { threadId: string; target?: ThreadTarget | undefined }) {
@@ -160,6 +157,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
     () => ({
       ...outer,
       AgentTranscript,
+      WorkEnvironment: DeferredWorkEnvironment.Component,
       SideChatComposer,
       AgentComposer,
       fork: forkPoint && (() => setForking(forkPoint)),
@@ -189,7 +187,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const composer = useRef<ComposerHandle>(null);
   // Files dropped anywhere on the thread, or pasted outside a field, go to its composer.
   const drop = useFileDrop(composer);
-  const card = useWorkCard(id);
+  useWorkShortcut(id);
   const thread = useMemo<ThreadRef | undefined>(
     () =>
       meta && title !== undefined
@@ -232,39 +230,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
             </Suspense>
           )
         }
-        tools={
-          thread && (
-            <Suspense
-              fallback={
-                <IconButton
-                  icon={ListBulletsIcon}
-                  label="Work card · Reading work"
-                  shortcut="workCard"
-                  pressed={card.open}
-                  data-work-card-toggle
-                  onClick={card.toggle}
-                />
-              }
-            >
-              <DeferredWorkCardToggle.Component
-                thread={thread}
-                open={card.open}
-                onClick={card.toggle}
-              />
-            </Suspense>
-          )
-        }
-        workspace={{
-          scope: id,
-          definition: threadWorkspace,
-          contextPanel: thread && (
-            <Suspense fallback={null}>
-              {card.mounted && (
-                <DeferredWorkCard.Component thread={thread} open={card.open} onClose={card.close} />
-              )}
-            </Suspense>
-          ),
-        }}
+        workspace={{ scope: id, definition: threadWorkspace }}
       >
         {error ? (
           <ThreadLoadError error={error} />
@@ -349,33 +315,8 @@ function TargetJump(props: { target: ThreadTarget | undefined; pending: readonly
   return null;
 }
 
-/**
- * The work card retains each thread's view state and is mounted from
- * its first opening (so a commit form it opened outlives it). ⌥⌘O toggles it; closing with
- * Escape hands focus back to the header's button.
- */
-function useWorkCard(threadId: string) {
-  const workspace = useScopeWorkspace(threadId);
+/** The former Work-card shortcut now opens the shared Work tab. */
+function useWorkShortcut(threadId: string) {
   const actions = useWorkspaceActions(threadId);
-  const open = workspace.workCard?.open ?? false;
-  const toggle = () => {
-    const showing = open && !workspace.open;
-    if (!showing) actions.setOpen(false);
-    actions.setWorkCard({ open: !showing });
-  };
-  useHotkey(keymap.workCard.keys, toggle, { id: "workCard" });
-  const close = (returnFocus: boolean) => {
-    actions.setWorkCard({ open: false });
-    if (returnFocus)
-      (
-        document.querySelector<HTMLElement>("header [data-work-card-toggle]") ??
-        document.querySelector<HTMLElement>('header button[aria-label="More actions"]')
-      )?.focus();
-  };
-  return {
-    open: open && !workspace.open,
-    mounted: workspace.workCard !== undefined,
-    toggle,
-    close,
-  };
+  useHotkey(keymap.workCard.keys, () => actions.toggleKind("work"), { id: "workCard" });
 }

@@ -16,13 +16,9 @@ import { ThreadPagination } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 
-/** Threads started here that the list doesn't show yet; its code loads after first paint. */
-const DeferredStartedRows = deferredComponent(() =>
-  import("./started-rows.tsx").then((module) => module.StartedRows),
-);
-
-const DeferredDraftRows = deferredComponent(() =>
-  import("./new-thread/draft-rows.tsx").then((module) => module.DraftRows),
+/** Publish provisional titles even while the Unsent section is outside the virtual window. */
+const StartedTitlePublisher = deferredComponent(() =>
+  import("./started-rows.tsx").then((module) => module.StartedTitlePublisher),
 );
 
 /**
@@ -36,7 +32,9 @@ export function HomeSidebar() {
   const { project, settledOpen } = useOrganizerState();
   const organizer = useOrganizer();
   const loaded = useSidebarLoaded();
-  const empty = [list.pinned, list.active, list.recent, list.settled].every((ids) => !ids.length);
+  const empty = [list.pinned, list.active, list.recent, list.snoozed, list.settled].every(
+    (ids) => !ids.length,
+  );
   const directory = useProjectDirectory();
   const keys = useResolvedKeymap();
   const noProjects = directory.loaded && directory.projects.length === 0;
@@ -59,12 +57,11 @@ export function HomeSidebar() {
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
           <Suspense fallback={null}>
-            <DeferredDraftRows.Component />
-            <DeferredStartedRows.Component />
+            <StartedTitlePublisher.Component />
           </Suspense>
         )}
         {!loaded ? (
-          <ListSkeleton label="threads" shape="thread" className="px-2" />
+          <ListSkeleton label="threads" shape="thread" />
         ) : empty ? (
           <>
             <EmptyState
@@ -90,6 +87,7 @@ export function HomeSidebar() {
                 ) : undefined
               }
             />
+            <ThreadList list={list} />
           </>
         ) : (
           <ThreadList list={list} settledTotal={settledTotal} />

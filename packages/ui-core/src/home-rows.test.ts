@@ -4,18 +4,21 @@ import { homeRowKey, homeRows, type HomeGroups } from "./home-rows.ts";
 /** The rows as short words, to read the list top to bottom. */
 const words = (rows: ReturnType<typeof homeRows>) =>
   rows.map((row) =>
-    row.kind === "settled-header"
-      ? `settled ${row.count}`
+    row.kind === "settled-header" || row.kind === "snoozed-header"
+      ? `${row.kind === "settled-header" ? "settled" : "snoozed"} ${row.count}`
       : row.kind === "pinned-header"
         ? `pinned ${row.count}`
         : row.kind === "pinned-end"
           ? "—"
-          : row.id,
+          : "id" in row
+            ? row.id
+            : "unsent",
   );
 const groups = (patch: Partial<HomeGroups>): HomeGroups => ({
   pinned: [],
   active: [],
   recent: [],
+  snoozed: [],
   settled: [],
   ...patch,
 });
@@ -74,4 +77,32 @@ test("a thread keeps its key when pinned, unpinned or settled, so each move slid
 
 test("an empty Settled group stays out of the list even when expanded", () => {
   expect(words(homeRows(groups({ active: ["a"] }), { settledOpen: true }))).toEqual(["a"]);
+});
+
+test("unsent work follows admitted tasks and precedes settled work", () => {
+  expect(
+    words(
+      homeRows(
+        groups({ pinned: ["pin"], active: ["active"], recent: ["recent"], settled: ["settled"] }),
+        { settledOpen: true, includeUnsent: true },
+      ),
+    ),
+  ).toEqual(["pinned 1", "pin", "—", "active", "recent", "unsent", "settled 1", "settled"]);
+});
+
+test("Snoozed follows Unsent and precedes Settled, exposing its tasks only when open", () => {
+  const list = groups({ active: ["asks"], snoozed: ["later"], settled: ["done"] });
+  expect(words(homeRows(list, { settledOpen: false, includeUnsent: true }))).toEqual([
+    "asks",
+    "unsent",
+    "snoozed 1",
+    "settled 1",
+  ]);
+  expect(words(homeRows(list, { snoozedOpen: true, settledOpen: true }))).toEqual([
+    "asks",
+    "snoozed 1",
+    "later",
+    "settled 1",
+    "done",
+  ]);
 });

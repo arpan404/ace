@@ -1,4 +1,5 @@
 import type { ThreadListEntry } from "@ace/protocol";
+import { threadAttention } from "@ace/projection";
 import type { OrganizerState } from "./organizer.ts";
 import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
 
@@ -23,10 +24,9 @@ function isDraft(entry: ThreadListEntry): boolean {
 }
 
 /**
- * Requests first, working next, then everything else by recency. Snoozed work stays last.
+ * Requests first, working next, then everything else by recency.
  */
-export function rank(entry: ThreadListEntry, now: number): number {
-  if (isSnoozed(entry, now)) return 4;
+export function rank(entry: ThreadListEntry): number {
   switch (entry.status.state) {
     case "needs_you":
       return 0;
@@ -45,8 +45,9 @@ export interface Arrangement {
   pinned: string[];
   /** Requests and working threads. */
   active: string[];
-  /** Other threads by recency, with snoozed work last. */
+  /** Other threads by recency. */
   recent: string[];
+  snoozed: string[];
   settled: string[];
 }
 
@@ -55,7 +56,8 @@ export const pinOrderOf = (entry: ThreadListEntry): number => entry.pinOrder ?? 
 
 /**
  * Home order: pinned threads first in their own order; then by rank, most recent first within
- * a rank, split into the work in hand and the Recent threads at rest; Settled by recency.
+ * a rank, split into the work in hand and the Recent threads at rest; Snoozed and Settled
+ * apart by recency. Pinned tasks stay in the person's order; snoozed requests stay exposed.
  */
 export function arrange(
   entries: readonly ThreadListEntry[],
@@ -64,6 +66,7 @@ export function arrange(
 ): Arrangement {
   const pinned: ThreadListEntry[] = [];
   const active: { entry: ThreadListEntry; rank: number }[] = [];
+  const snoozed: ThreadListEntry[] = [];
   const settled: ThreadListEntry[] = [];
   for (const entry of entries) {
     if (isRemoved(entry)) continue;
@@ -71,8 +74,10 @@ export function arrange(
     if (isDraft(entry)) continue;
     if (state.project !== null && entry.workspaceId !== state.project) continue;
     if (entry.pinned === true) pinned.push(entry);
+    else if (entry.status.state !== "needs_you" && !threadAttention(entry) && isSnoozed(entry, now))
+      snoozed.push(entry);
     else if (isSettled(entry)) settled.push(entry);
-    else active.push({ entry, rank: rank(entry, now) });
+    else active.push({ entry, rank: rank(entry) });
   }
   pinned.sort(
     (a, b) =>
@@ -81,6 +86,7 @@ export function arrange(
       (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
   active.sort((a, b) => a.rank - b.rank || activityOf(b.entry) - activityOf(a.entry));
+  snoozed.sort((a, b) => activityOf(b) - activityOf(a));
   settled.sort((a, b) => activityOf(b) - activityOf(a));
   const resting = active.findIndex((row) => row.rank >= restingRank);
   const split = resting < 0 ? active.length : resting;
@@ -88,6 +94,7 @@ export function arrange(
     pinned: pinned.map((entry) => entry.id),
     active: active.slice(0, split).map((row) => row.entry.id),
     recent: active.slice(split).map((row) => row.entry.id),
+    snoozed: snoozed.map((entry) => entry.id),
     settled: settled.map((entry) => entry.id),
   };
 }

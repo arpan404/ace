@@ -1,6 +1,7 @@
 import type { Fact } from "@ace/core";
 import { ItemId, type ProviderKind, type ToolResult } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
+import { providerDisplayName } from "@ace/ui-core";
 import { fixtureImage } from "../attachment-fixture.ts";
 import { rootAgent, turn, endTurn, message } from "./facts.ts";
 
@@ -132,7 +133,7 @@ export function aceToolRows(): Scenario[] {
       thread: {
         id: `thread-ace-tools-${provider}`,
         workspaceId: "acme",
-        title: `Capture the document window · ${provider}`,
+        title: `${providerDisplayName(provider)} · Capture the document window`,
         provider,
       },
       steps: [

@@ -84,66 +84,26 @@ test("tabs, the showing tab and the width come back after a reload", () => {
   expect(restored.size).toBe(610);
 });
 
-test("thread view preferences and WorkCard folds are isolated, merged and restored", () => {
+test("Work folds, selection and scroll are isolated and restored in the current tab state", () => {
   const first = open();
   const a = first.scope("a");
-  const b = first.scope("b");
-  a.open({ kind: "preview", data: { query: "replay", find: { query: "cap", index: 2 } } });
-  a.updateUi("changes", { query: "socket", collapsed: ["src"] });
-  a.setWorkCard({ open: true, sections: { changes: false }, search: "test" });
-  a.setWorkCard({ sections: { actions: false } });
-  b.setOpen(false);
-  expect(first.store.get("b").tabs[0]?.ui).toBeUndefined();
-  expect(first.store.get("b").workCard).toBeUndefined();
+  a.open({ kind: "work" });
+  a.updateUi("work", {
+    collapsed: ["root"],
+    selected: "child",
+    sections: { "pull-requests": true },
+  });
+  a.updateUi("work", { scrollTop: 240 });
+  first.scope("b").open({ kind: "work" });
+  expect(first.store.get("b").tabs.find((tab) => tab.key === "work")?.ui).toBeUndefined();
   const again = open(first.storage);
-  expect(again.store.get("a").active).toBe("preview");
-  expect(again.store.get("a").open).toBe(true);
-  expect(again.store.get("a").tabs[0]?.ui).toEqual({ query: "socket", collapsed: ["src"] });
-  expect(again.store.get("a").tabs[1]?.data).toEqual({
-    query: "replay",
-    find: { query: "cap", index: 2 },
+  expect(shownTab(again.store.get("a"))?.key).toBe("work");
+  expect(again.store.get("a").tabs.find((tab) => tab.key === "work")?.ui).toEqual({
+    collapsed: ["root"],
+    selected: "child",
+    sections: { "pull-requests": true },
+    scrollTop: 240,
   });
-  expect(again.store.get("a").workCard).toEqual({
-    open: true,
-    sections: { changes: false, actions: false },
-    search: "test",
-  });
-});
-
-/** A panel as an older build stored it. */
-const storedDock = (tabs: string[], shown: boolean) => ({
-  tabs: tabs.map((key) => ({ key, kind: key, id: key, pinned: key === "changes" })),
-  active: tabs[0],
-  open: shown,
-});
-
-test("a thread saved with a bottom panel comes back with its terminal in the side panel", () => {
-  const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.workspace",
-    JSON.stringify({
-      preferred: { right: 560, bottom: 280 },
-      scopes: [
-        [
-          "a",
-          {
-            right: storedDock(["changes"], false),
-            bottom: storedDock(["terminal", "logs"], true),
-            expanded: false,
-            bottomMaximized: true,
-            summaryPinned: true,
-          },
-        ],
-      ],
-    }),
-  );
-  const { store } = open(storage);
-  store.define("a", definition);
-  const restored = store.get("a");
-  expect(restored.tabs.map((tab) => tab.key)).toEqual(["changes", "terminal", "logs"]);
-  expect(restored.open).toBe(true);
-  expect(shownTab(restored)?.key).toBe("terminal");
-  expect(store.preferred).toBe(560);
 });
 
 test("a resize becomes the width threads without one of their own start at", () => {
@@ -163,16 +123,6 @@ test("a resize still moving is written once it ends", () => {
   expect(storage.data.get("ace.workspace")).toBe(before);
   a.setSize(720, true);
   expect(storage.data.get("ace.workspace")).toContain("720");
-});
-
-test("the panel width an older build kept carries over once", () => {
-  const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.layout",
-    JSON.stringify({ sidebarOpen: true, right: { open: true, tab: "agents", size: 640 } }),
-  );
-  const { store } = open(storage);
-  expect(store.preferred).toBe(640);
 });
 
 test("only the most recently changed threads are kept", () => {
@@ -237,5 +187,19 @@ test("a tool asked for before the kinds have loaded opens once they have", async
   arrive({ default: kinds });
   await late.load();
   expect(store.get("a").tabs.map((tab) => tab.key)).toEqual(["terminal"]);
+  expect(store.get("a").open).toBe(true);
+});
+
+test.each([
+  "invalid JSON",
+  JSON.stringify({ preferred: { right: 900 }, scopes: [["a", { tabs: "invalid", open: true }]] }),
+])("an unparseable stored workspace opens the default layout (%s)", (saved) => {
+  const storage = memoryKeyValue();
+  storage.setItem("ace.workspace", saved);
+  const { store, scope } = open(storage);
+  scope("a").setOpen(true);
+  expect(store.preferred).toBe(520);
+  expect(store.get("a").tabs.map((tab) => tab.key)).toEqual(["changes"]);
+  expect(shownTab(store.get("a"))?.key).toBe("changes");
   expect(store.get("a").open).toBe(true);
 });

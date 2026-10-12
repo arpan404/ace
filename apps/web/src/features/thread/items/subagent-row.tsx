@@ -124,7 +124,7 @@ export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fre
             workspace.open(
               entry.agentId
                 ? { kind: "agent", id: entry.agentId, title: entry.title }
-                : { kind: "agents" },
+                : { kind: "work" },
             )
           }
         >

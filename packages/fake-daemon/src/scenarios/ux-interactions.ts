@@ -8,7 +8,7 @@ const questionId = "choice";
 export function question(answered: boolean): Scenario {
   return scenario(
     answered ? "question-steer-answered" : "question-steer",
-    "Codex asks Tabs or Spaces",
+    answered ? "Codex uses Tabs after your answer" : "Codex asks Tabs or Spaces",
     [
       // Codex 0.159.1 question.jsonl asks in agentMessage and echoes the selected label as userMessage.
       tool(root, "ask", {

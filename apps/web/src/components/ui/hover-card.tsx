@@ -10,8 +10,10 @@ function HoverCardContent({
   side = "right",
   align = "center",
   sideOffset = 10,
+  collisionAvoidance,
   ...props
-}: PreviewCard.Popup.Props & Pick<PreviewCard.Positioner.Props, "side" | "align" | "sideOffset">) {
+}: PreviewCard.Popup.Props &
+  Pick<PreviewCard.Positioner.Props, "side" | "align" | "sideOffset" | "collisionAvoidance">) {
   return (
     <PreviewCard.Portal>
       <PreviewCard.Positioner
@@ -19,6 +21,7 @@ function HoverCardContent({
         align={align}
         sideOffset={sideOffset}
         collisionPadding={8}
+        collisionAvoidance={collisionAvoidance}
         className={layers.popup}
       >
         <PreviewCard.Popup

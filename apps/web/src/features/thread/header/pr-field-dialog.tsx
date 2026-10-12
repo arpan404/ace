@@ -1,3 +1,4 @@
+import { gitFailureText } from "../lib/git-failure.ts";
 import { usePrReference } from "../lib/use-pr-reference.ts";
 import { parseReviewers, type Checkout } from "@ace/ui-core";
 import { useState } from "react";
@@ -75,7 +76,7 @@ export function PrFieldDialog(props: {
       await props.onSubmit(change);
       props.onClose();
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "That didn't work.");
+      setError(gitFailureText(failure));
     } finally {
       setPending(false);
     }

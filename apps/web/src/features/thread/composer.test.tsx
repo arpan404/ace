@@ -1,3 +1,4 @@
+import { openWorkPanel } from "@/test/open-work.ts";
 import { chooseAccount } from "@/test/model-control.ts";
 import { fixtureImage, longHistory, replayCursor } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
@@ -154,19 +155,20 @@ test("the account row moves the thread to another account and blocks one at its 
   expect(screen.getByRole("button", { name: /^Model: GPT-5 Codex, Personal/ })).toBeTruthy();
 });
 
-test("the work card carries checkout details and refreshes them after a commit", async () => {
+test("Work carries checkout details and refreshes them after a commit", async () => {
   const { app } = await open("busy");
   // While the agent works the tab says so; Stop ends the turn and the background relay.
   await userEvent.click(await screen.findByRole("button", { name: "Stop the agent" }));
   app.daemon.apply("thread-replay-cursor", [
     { type: "background.ended", task: "relay", status: "stopped" },
   ]);
-  const strip = await screen.findByRole("button", {
-    name: /^Work card/,
-  });
-  await userEvent.click(strip);
-  let card = await screen.findByRole("complementary", { name: "Work card" });
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("Local");
+  let card = await openWorkPanel();
+  expect(
+    within(card).getByRole("heading", {
+      level: 2,
+      name: /Fake machine|Build server|This Mac|Local/,
+    }).textContent,
+  ).toContain("Local");
   expect(within(card).getByText("fix/replay-cursor")).toBeTruthy();
   expect(within(card).queryByText(/ahead/)).toBeNull();
 
@@ -177,18 +179,15 @@ test("the work card carries checkout details and refreshes them after a commit",
   await userEvent.click(within(dialog).getByRole("checkbox", { name: "Push after committing" }));
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: /^Commit to / })).toBeNull());
-  await userEvent.click(screen.getByRole("button", { name: /^Work card/ }));
-  card = await screen.findByRole("complementary", { name: "Work card" });
+  await openWorkPanel();
+  card = await screen.findByRole("tabpanel", { name: "Work" });
   expect(await within(card).findByText("↑1")).toBeTruthy();
 
-  // Escape folds the details back to the strip and puts the caret in the message.
-  card.focus();
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() =>
-    expect(screen.queryByRole("complementary", { name: "Work card" })).toBeNull(),
-  );
-  expect(screen.getByRole("button", { name: /^Work card/ })).toBeTruthy();
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Work card/ }));
+  // Work leaves the draft usable while the panel stays open.
+  const input = screen.getByRole("combobox", { name: "Message" });
+  await userEvent.type(input, "Keep this draft");
+  expect(input.textContent).toBe("Keep this draft");
+  expect(screen.getByRole("tabpanel", { name: "Work" })).toBe(card);
 });
 
 test("the composer carries no context or usage meter, whatever the provider reports", async () => {

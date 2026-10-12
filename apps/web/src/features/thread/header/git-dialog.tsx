@@ -1,3 +1,4 @@
+import { gitFailureText } from "../lib/git-failure.ts";
 import { DraftWriter } from "./draft-writer.tsx";
 import type { SourceControlSelection } from "@ace/protocol";
 import { useId, useState } from "react";
@@ -110,9 +111,7 @@ export function GitDialog(props: {
         };
     props
       .onSubmit(change)
-      .then(props.onClose, (failure: unknown) =>
-        setError(failure instanceof Error ? failure.message : "Git couldn't finish that."),
-      );
+      .then(props.onClose, (failure: unknown) => setError(gitFailureText(failure)));
   };
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>

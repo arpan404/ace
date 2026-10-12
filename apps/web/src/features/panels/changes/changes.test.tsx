@@ -76,6 +76,24 @@ test("Changes shows the latest turn's edits by default and the whole thread unde
   );
 });
 
+test("an untouched local diff stays quiet and saving a comment reveals review actions", async () => {
+  const { panel } = await openChanges();
+  expect(within(panel).queryByRole("region", { name: "Review" })).toBeNull();
+  expect(within(panel).queryByText(/No comments.*pick lines/)).toBeNull();
+  const replay = file(panel, "apps/server/src/replay.ts");
+  const commentButton = within(replay).getAllByRole("button", { name: /^Comment on line/ })[0];
+  if (!commentButton) throw new Error("No changed line to comment on");
+  await userEvent.click(commentButton);
+  await userEvent.type(
+    await within(replay).findByRole("textbox", { name: /Comment on line/ }),
+    "Check this boundary",
+  );
+  await userEvent.click(within(replay).getByRole("button", { name: "Comment" }));
+  const bar = await within(panel).findByRole("region", { name: "Review" });
+  expect(within(bar).getByRole("button", { name: "Approve" })).toBeTruthy();
+  expect(within(bar).getByRole("button", { name: "Request changes" })).toBeTruthy();
+});
+
 test("folded unchanged lines expand, and a file collapses from its header", async () => {
   const { panel } = await openChanges();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
@@ -102,7 +120,7 @@ test("the selected diff layout survives switching tabs", async () => {
   expect(within(replay).getByText(/const \{ events, coldStart \} = replayFrom/)).toBeTruthy();
   await expectLayout(panel, "Split");
 
-  await userEvent.click(within(panel).getByRole("tab", { name: "Agents" }));
+  await userEvent.click(within(panel).getByRole("tab", { name: "Work" }));
   await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
   await expectLayout(panel, "Split");
 });
@@ -207,7 +225,7 @@ test("a collapsed file stays collapsed after looking at another tab and coming b
   const { panel } = await openChanges();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   await userEvent.click(within(replay).getByRole("button", { name: /replay\.ts/, expanded: true }));
-  await userEvent.click(within(panel).getByRole("tab", { name: /Agents/ }));
+  await userEvent.click(within(panel).getByRole("tab", { name: /Work/ }));
   await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
   const again = within(panel).getByRole("region", { name: "apps/server/src/replay.ts" });
   expect(

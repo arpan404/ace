@@ -1,32 +1,21 @@
+import { useStopIntent } from "./use-stop-intent.ts";
+import { agentName, backgroundCommand, agentWorkState, formatSpan, taskState } from "@ace/ui-core";
 import {
-  agentName,
-  agentStatusLabel,
-  describeActivity,
-  formatSpan,
-  isRunning,
-  taskState,
-  whyNotDone,
-} from "@ace/ui-core";
-import type { ThreadKey, ThreadReader } from "@ace/client";
-import {
-  arrayEqual,
   useAgent,
   useAgentTree,
-  useInteractions,
-  useIntentSender,
   useItem,
   useTask,
-  useTaskIds,
-  useThread,
   useThreadMeta,
   type AgentTreeNode,
 } from "@ace/client-react";
-import type { Agent, BackgroundTask } from "@ace/protocol";
 import { ClockIcon, RobotIcon, TerminalIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { createContext, use, useCallback, useId, useMemo, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { useLiveConnection } from "@/lib/live-connection.ts";
+import { useTreeWork } from "./use-tree-work.ts";
+import { TreeWorkContext } from "./tree-work-context.ts";
 import { useNow } from "@/lib/time.ts";
 import { ArrivalScope, useArrival } from "@/lib/arrival.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
@@ -109,69 +98,46 @@ function treeKeys(tree: TreeState) {
   };
 }
 
-/** Background work still running (helpers that never hold the thread open left out). */
-const readRunning = (reader: ThreadReader) =>
-  reader.taskIds().filter((id) => {
-    const task = reader.task(id);
-    return task?.status === "running" && !task.ambient;
-  });
-
 /**
- * The thread's background work still running, oldest first. Finished work is not kept here:
- * its transcript row ("Finished `bun run build`") opens its output.
- */
-function useRunningTasks(threadId: string): readonly string[] {
-  const ids = useTaskIds(threadId) ?? none;
-  const keys = useMemo<ThreadKey[]>(
-    () => ["tasks", ...ids.map((id): ThreadKey => `task:${id}`)],
-    [ids],
-  );
-  return useThread(threadId, keys, readRunning, arrayEqual) ?? none;
-}
-
-/**
- * Agents tab: the whole agent tree with what each agent is doing and for how long (a row opens
+ * Work's Agents section: the whole agent tree with what each agent is doing and for how long (a row opens
  * that agent as its own tab), the background work still running with Stop, queued input,
- * and a plain answer to "why isn't this done?". Every row subscribes to its own entity.
+ * and queued input. Every row subscribes to its own entity.
  */
 export function AgentsTab(props: { threadId: string }) {
   const tree = useAgentTree(props.threadId) ?? [];
-  const tasks = useRunningTasks(props.threadId);
+  const facts = useTreeWork(props.threadId);
+  const tasks = facts.tasks.filter(
+    (task) => task.status === "running" || task.status === "unknown",
+  );
   const thread = useThreadMeta(props.threadId);
   const queuedCount = useServerQueue(props.threadId).page?.total ?? 0;
   const queueWaiting = thread?.status.state === "waiting" && thread.status.on === "queue";
-  if (!tree.length)
-    return (
-      <div className="flex h-full flex-col">
-        <EmptyState
-          icon={RobotIcon}
-          title="No agents yet"
-          description="The thread's agent and any subagents it starts appear here."
-          className="h-auto flex-none pt-16 pb-4"
-        />
-      </div>
-    );
   return (
-    <ArrivalScope>
-      <div className="px-2.5 pt-2 pb-5">
-        <AgentCounts threadId={props.threadId} />
-        <AgentTree threadId={props.threadId} nodes={tree} />
-        {(tasks.length > 0 || queuedCount > 0 || queueWaiting) && (
-          <section aria-labelledby="agents-background">
-            <h3 id="agents-background" className={heading}>
-              Background
-            </h3>
-            <ul>
-              {tasks.map((id) => (
-                <TaskRow key={id} threadId={props.threadId} taskId={id} />
-              ))}
-              {(queuedCount > 0 || queueWaiting) && <QueueRow count={queuedCount} />}
-            </ul>
-          </section>
-        )}
-        <Why threadId={props.threadId} queued={queuedCount} />
-      </div>
-    </ArrivalScope>
+    <TreeWorkContext value={facts.work}>
+      <ArrivalScope>
+        <div className="px-2.5 pt-2 pb-5">
+          <AgentCounts agents={facts.agents} work={facts.work} />
+          {tree.length ? (
+            <AgentTree threadId={props.threadId} nodes={tree} />
+          ) : (
+            <EmptyState icon={RobotIcon} title="No agents yet" className="h-auto py-4" />
+          )}
+          {(tasks.length > 0 || queuedCount > 0 || queueWaiting) && (
+            <section aria-labelledby="agents-background">
+              <h3 id="agents-background" className={heading}>
+                Background
+              </h3>
+              <ul>
+                {tasks.map((task) => (
+                  <TaskRow key={task.id} threadId={props.threadId} taskId={task.id} />
+                ))}
+                {(queuedCount > 0 || queueWaiting) && <QueueRow count={queuedCount} />}
+              </ul>
+            </section>
+          )}
+        </div>
+      </ArrivalScope>
+    </TreeWorkContext>
   );
 }
 
@@ -202,10 +168,10 @@ function QueueRow(props: { count: number }) {
 function AgentTree(props: { threadId: string; nodes: readonly AgentTreeNode[] }) {
   const workspace = useScopeWorkspace(props.threadId);
   const actions = useWorkspaceActions(props.threadId);
-  const ui = workspace.tabs.find((tab) => tab.key === "agents")?.ui;
+  const ui = workspace.tabs.find((tab) => tab.key === "work")?.ui;
   const active = ui?.selected;
   const setActive = useCallback(
-    (selected: string | undefined) => actions.updateUi("agents", { selected }),
+    (selected: string | undefined) => actions.updateUi("work", { selected }),
     [actions],
   );
   const collapsed = useMemo(() => new Set(ui?.collapsed), [ui?.collapsed]);
@@ -224,7 +190,7 @@ function AgentTree(props: { threadId: string; nodes: readonly AgentTreeNode[] })
         const next = new Set(collapsed);
         if (open) next.delete(id);
         else next.add(id);
-        actions.updateUi("agents", { collapsed: [...next] });
+        actions.updateUi("work", { collapsed: [...next] });
       },
     }),
     [treeId, subagents, active, first, collapsed, setActive, actions],
@@ -285,6 +251,8 @@ function AgentRow(props: {
   const agent = useAgent(props.threadId, props.agentId);
   const thread = useThreadMeta(props.threadId);
   const workspace = useWorkspaceActions(props.threadId);
+  const work = use(TreeWorkContext);
+  const live = useLiveConnection();
   const status = agent?.status;
   const tool = useItem(
     props.threadId,
@@ -294,12 +262,10 @@ function AgentRow(props: {
   if (!agent || !status) return null;
   const root = agent.origin === "root";
   const name = agentName(agent);
-  const label = agentStatusLabel(status).label;
-  const activity = describeActivity(
-    status,
-    tool?.type === "tool_call" ? tool.call.title : undefined,
-  );
-  const running = isRunning(agent);
+  const { running, needsYou, label, activity } = agentWorkState(agent, work, {
+    fresh: live.fresh,
+    toolTitle: tool?.type === "tool_call" ? tool.call.title : undefined,
+  });
   const end = agent.endedAt ?? (running ? Math.max(now, agent.createdAt) : agent.createdAt);
   const body = (
     <>
@@ -310,7 +276,7 @@ function AgentRow(props: {
           className="absolute -top-1.5 bottom-1/2 w-2.5 rounded-bl-md border-b-[1.5px] border-l-[1.5px]"
         />
       )}
-      <AgentStatusMark status={status} />
+      <AgentStatusMark status={status} pending={running} needsYou={needsYou} />
       <span className="shrink-0 font-medium whitespace-nowrap">{name}</span>
       <span
         className={cn(
@@ -321,7 +287,7 @@ function AgentRow(props: {
         {activity}
       </span>
       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-        {formatSpan(agent.createdAt, end)}
+        {end - agent.createdAt >= 1000 ? formatSpan(agent.createdAt, end) : ""}
       </span>
       <ProviderIconTip
         provider={agent.native.provider}
@@ -334,7 +300,7 @@ function AgentRow(props: {
     if (!root) workspace.open({ kind: "agent", id: agent.id, title: name });
   };
   return (
-    <div className="group/agent flex items-center gap-1 rounded-lg hover:bg-accent">
+    <div className="group/agent flex flex-wrap items-center gap-1 rounded-lg hover:bg-accent">
       {/* The row is the tree item: Enter or a click opens the agent as its own tab. */}
       <div
         role="treeitem"
@@ -360,6 +326,7 @@ function AgentRow(props: {
           threadId={props.threadId}
           agent={agent}
           subagents={props.subagents}
+          pending={running}
           inTree
           className="mr-1 hidden group-focus-within/agent:inline-flex group-hover/agent:inline-flex pointer-coarse:inline-flex"
           onKeyDown={(event) => {
@@ -382,26 +349,32 @@ function TaskRow(props: { threadId: string; taskId: string }) {
   const task = useTask(props.threadId, props.taskId);
   const arrival = useArrival();
   const now = useNow();
-  const stop = useIntentSender();
-  if (!task || task.ambient || task.status !== "running") return null;
-  const stopping = stop.intent?.state === "pending";
+  const stop = useStopIntent();
+  const workspace = useWorkspaceActions(props.threadId);
+  const item = useItem(props.threadId, task?.toolCallId ?? "");
+  if (!task || (task.status !== "running" && task.status !== "unknown")) return null;
+  const stopping = stop.busy;
   const end = Math.max(now, task.startedAt);
   return (
     <li
       aria-label={`${task.title}: ${taskState(task)}`}
-      className={cn("flex h-8 items-center gap-2 rounded-lg px-2 text-ui hover:bg-accent", arrival)}
+      className={cn(
+        "flex min-h-8 flex-wrap items-center gap-2 rounded-lg px-2 text-ui hover:bg-accent",
+        arrival,
+      )}
     >
       <TerminalIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
-      <span
-        className={cn(
-          "min-w-0 shrink truncate",
-          task.kind === "shell" ? "font-mono text-sm" : "font-medium",
-        )}
+      <button
+        type="button"
+        className="focus-ring min-w-0 shrink truncate rounded-sm font-mono text-sm"
+        onClick={() => workspace.open({ kind: "shell", id: task.id })}
+        aria-label={`Show ${backgroundCommand(task, item)} output`}
       >
-        {task.title}
-      </span>
+        {backgroundCommand(task, item)}
+      </button>
       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-        {formatSpan(task.startedAt, end)} · {taskState(task)}
+        {end - task.startedAt >= 1000 ? `${formatSpan(task.startedAt, end)} · ` : ""}
+        {taskState(task)}
       </span>
       {task.stoppable && (
         <Button
@@ -413,61 +386,11 @@ function TaskRow(props: { threadId: string; taskId: string }) {
           {stopping ? "Stopping…" : "Stop"}
         </Button>
       )}
-      {stop.intent?.state === "failed" && (
-        <span role="alert" className="text-xs text-status-failed">
-          Couldn't stop: {stop.intent.error ?? "refused"}
+      {stop.failed && (
+        <span role="alert" className="w-full text-xs text-status-failed">
+          Couldn't stop this command. Try again.
         </span>
       )}
     </li>
-  );
-}
-
-interface Facts {
-  agents: Agent[];
-  tasks: BackgroundTask[];
-}
-const factsEqual = (a: Facts, b: Facts) =>
-  a.agents.length === b.agents.length &&
-  a.tasks.length === b.tasks.length &&
-  a.agents.every((agent, i) => agent === b.agents[i]) &&
-  a.tasks.every((task, i) => task === b.tasks[i]);
-const readFacts = (reader: ThreadReader): Facts => ({
-  agents: reader.agentIds().flatMap((id) => reader.agent(id) ?? []),
-  tasks: reader.taskIds().flatMap((id) => reader.task(id) ?? []),
-});
-const readAgentIds = (reader: ThreadReader) => reader.agentIds();
-const none: readonly string[] = [];
-
-function Why(props: { threadId: string; queued: number }) {
-  const thread = useThreadMeta(props.threadId);
-  const agentIds = useThread(props.threadId, ["agents"], readAgentIds, arrayEqual) ?? none;
-  const taskIds = useTaskIds(props.threadId) ?? none;
-  const keys = useMemo<ThreadKey[]>(
-    () => [
-      "agents",
-      "tasks",
-      ...agentIds.map((id): ThreadKey => `agent:${id}`),
-      ...taskIds.map((id): ThreadKey => `task:${id}`),
-    ],
-    [agentIds, taskIds],
-  );
-  const facts = useThread(props.threadId, keys, readFacts, factsEqual);
-  const waitingOnYou = useInteractions(props.threadId)?.length ?? 0;
-  if (!thread || !facts) return null;
-  const why = whyNotDone({
-    status: thread.status,
-    rootAgentId: thread.rootAgentId,
-    agents: facts.agents,
-    tasks: facts.tasks,
-    waitingOnYou,
-    queued: props.queued,
-  });
-  return (
-    <section
-      aria-label={why.title}
-      className="mx-0.5 mt-2 px-3 py-2 text-ui leading-normal text-muted-foreground"
-    >
-      {why.body}
-    </section>
   );
 }

@@ -282,7 +282,9 @@ test("text that isn't an address is refused instead of searched", async () => {
 
 test("a thread's first page downloads the browser with progress, then opens the address", async () => {
   const { panel, browser } = await openBrowser(failingSubagent(), "/t/thread-settings");
-  expect(await within(panel).findByRole("heading", { name: "Open a page" })).toBeTruthy();
+  expect(await within(panel).findByRole("combobox", { name: "Address" })).toBeTruthy();
+  expect(within(panel).queryByRole("heading", { name: "Open a page" })).toBeNull();
+  expect(within(panel).queryByText(/Type an address above|watch them or take over/)).toBeNull();
   browser.requireDownload(150_000_000);
   await goTo(panel, "localhost:5173");
 
