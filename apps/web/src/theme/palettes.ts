@@ -118,8 +118,11 @@ export interface ThemeDefinition {
   dark: Palette;
 }
 
-/** Statuses every theme uses unless it retunes one to sit apart from its accent. */
-const baseStatus: Record<Scheme, StatusSet> = {
+/**
+ * Status colours, the same in every theme: one status vocabulary means green is always done and
+ * blue always working, whatever the accent. Only the accent changes between themes.
+ */
+const status: Record<Scheme, StatusSet> = {
   light: {
     working: "#2A62E3",
     workingText: "#2458CC",
@@ -142,12 +145,7 @@ const baseStatus: Record<Scheme, StatusSet> = {
   },
 };
 
-function palette(
-  scheme: Scheme,
-  neutral: Neutral,
-  accent: Accent,
-  status: Partial<StatusSet> = {},
-): Palette {
+function palette(scheme: Scheme, neutral: Neutral, accent: Accent): Palette {
   const greys = ramp(scheme, neutral);
   const light = scheme === "light";
   return {
@@ -161,8 +159,7 @@ function palette(
     code: oklchToHex(light ? 0.968 : 0.152, neutral.chroma, neutral.hue),
     shadow: light ? "20 20 22" : "0 0 0",
     ...accent,
-    ...baseStatus[scheme],
-    ...status,
+    ...status[scheme],
   };
 }
 
@@ -171,15 +168,13 @@ interface ThemeSpec {
   neutral: Neutral;
   light: Accent;
   dark: Accent;
-  lightStatus?: Partial<StatusSet>;
-  darkStatus?: Partial<StatusSet>;
 }
 
 function theme(spec: ThemeSpec): ThemeDefinition {
   return {
     name: spec.name,
-    light: palette("light", spec.neutral, spec.light, spec.lightStatus),
-    dark: palette("dark", spec.neutral, spec.dark, spec.darkStatus),
+    light: palette("light", spec.neutral, spec.light),
+    dark: palette("dark", spec.neutral, spec.dark),
   };
 }
 
@@ -271,19 +266,6 @@ export const themes: Record<ThemeId, ThemeDefinition> = {
       accentFg: "#0B2318",
       accentText: "#86CBA9",
     },
-    // Green is the accent here, so done steps back to slate.
-    lightStatus: {
-      working: "#1E6A4E",
-      workingText: "#1E6A4E",
-      done: "#5A6A7B",
-      doneText: "#4E5D6D",
-    },
-    darkStatus: {
-      working: "#6FBF98",
-      workingText: "#86CBA9",
-      done: "#95A7BB",
-      doneText: "#A9B8C8",
-    },
   }),
   dusk: theme({
     name: "Dusk",
@@ -302,8 +284,6 @@ export const themes: Record<ThemeId, ThemeDefinition> = {
       accentFg: "#15132D",
       accentText: "#ABA8F5",
     },
-    lightStatus: { working: "#5753C4", workingText: "#504CBA" },
-    darkStatus: { working: "#9693F0", workingText: "#ABA8F5" },
   }),
   tide: theme({
     name: "Tide",
@@ -322,8 +302,6 @@ export const themes: Record<ThemeId, ThemeDefinition> = {
       accentFg: "#052629",
       accentText: "#5DC5CE",
     },
-    lightStatus: { working: "#0D6B75", workingText: "#0D6B75" },
-    darkStatus: { working: "#3FB6C0", workingText: "#5DC5CE" },
   }),
   ember: theme({
     name: "Ember",
@@ -342,19 +320,6 @@ export const themes: Record<ThemeId, ThemeDefinition> = {
       accentFg: "#2A1206",
       accentText: "#E99A6F",
     },
-    // Orange is the accent here, so working is a quiet blue and needs-you a deeper amber.
-    lightStatus: {
-      working: "#3C6C96",
-      workingText: "#355F85",
-      needs: "#A86B00",
-      needsText: "#885700",
-    },
-    darkStatus: {
-      working: "#7FA9D2",
-      workingText: "#95B9DC",
-      needs: "#E8B24A",
-      needsText: "#EDC066",
-    },
   }),
   moss: theme({
     name: "Moss",
@@ -372,18 +337,6 @@ export const themes: Record<ThemeId, ThemeDefinition> = {
       accentPressed: "#8EB075",
       accentFg: "#17210F",
       accentText: "#AFCB99",
-    },
-    lightStatus: {
-      working: "#486A38",
-      workingText: "#456635",
-      done: "#56667A",
-      doneText: "#4A596C",
-    },
-    darkStatus: {
-      working: "#9DBE84",
-      workingText: "#AFCB99",
-      done: "#8FA6C0",
-      doneText: "#A4B7CD",
     },
   }),
 };

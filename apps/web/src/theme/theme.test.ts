@@ -22,6 +22,19 @@ test("every theme passes WCAG AA in light and dark, highlighted rows and glass i
       expect([id, scheme, contrastWarnings(themes[id][scheme], scheme)]).toEqual([id, scheme, []]);
 });
 
+test("a status looks the same in every theme; only the accent changes", () => {
+  const statusOf = (id: (typeof themeIds)[number], scheme: "light" | "dark") => {
+    const declarations = themeDeclarations(id, scheme);
+    return Object.fromEntries(
+      Object.entries(declarations).filter(([name]) => name.startsWith("--status-")),
+    );
+  };
+  for (const scheme of schemes) {
+    const reference = statusOf("graphite", scheme);
+    for (const id of themeIds) expect([id, statusOf(id, scheme)]).toEqual([id, reference]);
+  }
+});
+
 test("quiet text that reads on the page but not on a highlighted menu row is flagged", () => {
   // 5.1:1 on Graphite's dark page, but under 4.5:1 on a highlighted row of a solid menu.
   const palette = { ...themes.graphite.dark, t3: "#888888" };
