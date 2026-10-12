@@ -1,14 +1,21 @@
 import { useThreadMeta } from "@ace/client-react";
-import { baseRecordText, checkoutNote, nextGitStep, type Checkout } from "@ace/ui-core";
+import {
+  baseRecordText,
+  checkoutNote,
+  mergeMethods,
+  nextGitStep,
+  type Checkout,
+} from "@ace/ui-core";
 import {
   CaretDownIcon,
   CloudArrowUpIcon,
-  DownloadSimpleIcon,
   GitBranchIcon,
   GitCommitIcon,
   GitDiffIcon,
+  GitMergeIcon,
   GitPullRequestIcon,
   LinkSimpleIcon,
+  UserPlusIcon,
   UploadSimpleIcon,
 } from "@phosphor-icons/react";
 import { DiffStat } from "@/components/diff-stat.tsx";
@@ -21,7 +28,8 @@ import type { Move } from "./checkout-move.tsx";
 import type { useGitFlow } from "./use-git-flow.tsx";
 import { BranchItems } from "./work-card-branches.tsx";
 import { Group, RowButton, RowCaret, RowLabel, RowStatic, rowIcon } from "./work-card-parts.tsx";
-import { PrLine } from "./work-card-pr.tsx";
+import { useMergeMethod } from "./merge-method.ts";
+import { PrLine, useMergePr } from "./work-card-pr.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
 
@@ -119,6 +127,43 @@ function BranchRow(props: { thread: ThreadRef; git: GitFlow; move(move: Move): v
 }
 
 /**
+ * An open PR's actions: merge by any of the forge's methods (the one picked becomes Merge's
+ * default) and ask for a review.
+ */
+function PrMenuItems(props: { git: GitFlow; draft: boolean }) {
+  const { git } = props;
+  const current = useMergeMethod();
+  const { merge, checking } = useMergePr(git);
+  const blocked = props.draft ? "Mark this PR ready on GitHub before merging" : undefined;
+  return (
+    <>
+      {mergeMethods.map((each) => (
+        <MenuItem
+          key={each.method}
+          icon={glyph(GitMergeIcon)}
+          disabled={git.pending || checking || !!blocked}
+          reason={each.method === current ? blocked : undefined}
+          onClick={() => void merge(each.method)}
+        >
+          {each.label}
+          {each.method === current && (
+            <span className="ml-auto pl-3 text-xs text-subtle-foreground">default</span>
+          )}
+        </MenuItem>
+      ))}
+      <MenuItem
+        icon={glyph(UserPlusIcon)}
+        disabled={git.pending}
+        onClick={() => git.open("request-review")}
+      >
+        Request review…
+      </MenuItem>
+      <MenuSeparator />
+    </>
+  );
+}
+
+/**
  * One adaptive git action: the next step (Commit & push, Push, Create PR) as the primary, and
  * every step behind its chevron.
  */
@@ -206,17 +251,6 @@ function GitMenuItems(props: { git: GitFlow; checkout: Checkout }) {
       >
         Push
       </MenuItem>
-      <MenuItem
-        icon={glyph(DownloadSimpleIcon)}
-        disabled
-        reason={
-          checkout.behind > 0
-            ? `${checkout.behind} to pull: run git pull in a terminal for now`
-            : "ace can't pull yet: run git pull in a terminal"
-        }
-      >
-        Pull
-      </MenuItem>
       <MenuSeparator />
       {!live && (
         <>
@@ -237,6 +271,7 @@ function GitMenuItems(props: { git: GitFlow; checkout: Checkout }) {
           </MenuItem>
         </>
       )}
+      {live && pr && <PrMenuItems git={git} draft={pr.state === "draft"} />}
       {checkout.repository?.forge !== "gitlab" && (
         <MenuItem
           icon={glyph(LinkSimpleIcon)}

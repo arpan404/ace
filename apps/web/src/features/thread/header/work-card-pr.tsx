@@ -1,5 +1,6 @@
 import type { CheckoutPr } from "@ace/ui-core";
-import { prOverview } from "@ace/ui-core";
+import { mergeMethods, prOverview, type MergeMethod } from "@ace/ui-core";
+import { rememberMergeMethod, useMergeMethod } from "./merge-method.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
@@ -29,33 +30,11 @@ export function PrLine(props: { git: GitFlow; workspaceId: string; onClose(): vo
   const { git } = props;
   const pr = git.checkout?.pr;
   const navigate = useNavigate();
-  const toast = useToast();
-  const [checking, setChecking] = useState(false);
+  const method = useMergeMethod();
+  const { merge, checking } = useMergePr(git);
   if (!pr) return null;
   const repository = pr.repo ?? git.checkout?.repository;
-  const base = git.checkout?.baseBranch ?? "main";
   const live = pr.state === "open" || pr.state === "draft";
-  const merge = async () => {
-    if (!repository || checking || git.pending) return;
-    setChecking(true);
-    try {
-      const status = await git.refreshPr({ repository, number: pr.number });
-      if (!status) throw new Error("Couldn't read the pull request");
-      const blocked = prOverview(status, base).mergeBlocked;
-      if (blocked) return void toast.error({ title: blocked });
-      git.run({
-        kind: "merge",
-        method: "squash",
-        auto: false,
-        headSha: status.headSha,
-        pr: status.ref,
-      });
-    } catch (error) {
-      toast.error({ title: "Couldn't merge", description: failure(error) });
-    } finally {
-      setChecking(false);
-    }
-  };
   return (
     <RowStatic label={`Pull request #${pr.number}`} className="hover:bg-accent">
       <PullRequestGlyph state={pr.state} size={16} />
@@ -87,12 +66,48 @@ export function PrLine(props: { git: GitFlow; workspaceId: string; onClose(): vo
         <RowAction
           disabled={git.pending || checking || pr.state === "draft" || !repository}
           aria-label={`Merge pull request #${pr.number}`}
-          title={pr.state === "draft" ? "Mark this PR ready on GitHub before merging" : undefined}
-          onClick={() => void merge()}
+          title={
+            pr.state === "draft"
+              ? "Mark this PR ready on GitHub before merging"
+              : mergeMethods.find((each) => each.method === method)?.label
+          }
+          onClick={() => void merge(method)}
         >
           Merge
         </RowAction>
       )}
     </RowStatic>
   );
+}
+
+/**
+ * Merging the thread's pull request with `method`: read the PR again, say why when it can't be
+ * merged, else ask before merging, as every merge does. The method is remembered for next time.
+ */
+export function useMergePr(git: GitFlow): {
+  merge(method: MergeMethod): Promise<void>;
+  checking: boolean;
+} {
+  const toast = useToast();
+  const [checking, setChecking] = useState(false);
+  const pr = git.checkout?.pr;
+  const repository = pr?.repo ?? git.checkout?.repository;
+  const base = git.checkout?.baseBranch ?? "main";
+  const merge = async (method: MergeMethod) => {
+    if (!pr || !repository || checking || git.pending) return;
+    rememberMergeMethod(method);
+    setChecking(true);
+    try {
+      const status = await git.refreshPr({ repository, number: pr.number });
+      if (!status) throw new Error("Couldn't read the pull request");
+      const blocked = prOverview(status, base).mergeBlocked;
+      if (blocked) return void toast.error({ title: blocked });
+      git.run({ kind: "merge", method, auto: false, headSha: status.headSha, pr: status.ref });
+    } catch (error) {
+      toast.error({ title: "Couldn't merge", description: failure(error) });
+    } finally {
+      setChecking(false);
+    }
+  };
+  return { merge, checking };
 }
