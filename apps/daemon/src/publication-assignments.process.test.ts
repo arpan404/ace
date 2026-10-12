@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { setup } from "./publication-project-test-support.ts";
+import { input, setup } from "./publication-project-test-support.ts";
 import { configure, commit } from "./publication-safety-test-support.ts";
 
 const samples = [
@@ -32,6 +32,14 @@ const samples = [
     label: "registry-scoped npm auth",
     path: "config/runtime.conf",
     text: "//registry.example.invalid/:_auth=opaque-value\n",
+  },
+  { label: "API token", path: "config/runtime.conf", text: "api_token=opaque-value\n" },
+  { label: "opaque auth", path: "config/runtime.conf", text: "auth=opaque-value\n" },
+  { label: "opaque private key", path: "config/runtime.conf", text: "private_key=opaque-value\n" },
+  {
+    label: "password following an unfinished endpoint value",
+    path: "config/runtime.conf",
+    text: 'token_url = "unfinished\nDB_PASSWORD=opaque-value\n',
   },
 ];
 for (const sample of samples) {
@@ -73,3 +81,75 @@ test("ordinary configuration assignments still publish the pinned revision", asy
     await f.cleanup();
   }
 });
+
+const ordinary = [
+  {
+    label: "password policy and token endpoint settings",
+    path: "config/runtime.conf",
+    text: 'password_min_length = 8\ntoken_url = "https://example.invalid"\n',
+  },
+  {
+    label: "credential location and lifetime settings",
+    path: "config/runtime.conf",
+    text: 'api_token_endpoint = "https://example.invalid"\nprivate_key_path = "local/key"\npassword_file = "local/pass"\ntoken_expiry = 120\ntoken_ttl = 60\npassword_max_length = 100\npasswordMinLength = 8\n',
+  },
+  {
+    label: "quoted and dotted TOML policy settings",
+    path: "config/settings.toml",
+    text: '[settings]\n"password_min_length" = 8\n"token_url" = "https://example.invalid"\nauth.token_endpoint = "https://example.invalid"\n',
+  },
+  {
+    label: "many short unfinished dotted expressions",
+    path: "config/runtime.conf",
+    text: "a . a\n".repeat(10000),
+  },
+  {
+    label: "long non-credential scalar values",
+    path: "config/runtime.conf",
+    text: 'banner = "' + "a".repeat(20000) + '"\nexample = ' + "a".repeat(20000) + "\n",
+  },
+];
+for (const sample of ordinary) {
+  test(`public publication accepts ${sample.label}`, async () => {
+    const f = await setup();
+    try {
+      const remote = await configure(f);
+      await commit(f, sample.path, sample.text);
+      const head = (await f.git(f.path, ["rev-parse", "HEAD"])).stdout;
+      expect(
+        await f.command({
+          type: "workspace.publish",
+          workspaceId: f.id,
+          input: { ...input, visibility: "public" },
+        }),
+      ).toMatchObject({
+        ok: true,
+        publication: { phase: "pushed", remote: { visibility: "public" } },
+      });
+      expect((await f.git(remote, ["rev-parse", "HEAD"])).stdout).toBe(head);
+      expect((await f.git(f.path, ["rev-parse", "HEAD"])).stdout).toBe(head);
+    } finally {
+      await f.cleanup();
+    }
+  });
+}
+
+for (const sample of [
+  { label: "long unfinished dotted key", text: "a . ".repeat(50000) },
+  { label: "oversized bare key without a separator", text: "a".repeat(16385) },
+  { label: "oversized quoted key without a separator", text: '"' + "a".repeat(16385) },
+]) {
+  test(`publication stops at the scan budget for a ${sample.label}`, async () => {
+    const f = await setup();
+    try {
+      const remote = await configure(f);
+      await commit(f, "config/runtime.conf", sample.text);
+      const head = (await f.git(f.path, ["rev-parse", "HEAD"])).stdout;
+      expect(await f.publish()).toMatchObject({ ok: false, error: "publication_scan_incomplete" });
+      await expect(f.git(remote, ["rev-parse", "--verify", "HEAD"])).rejects.toThrow();
+      expect((await f.git(f.path, ["rev-parse", "HEAD"])).stdout).toBe(head);
+    } finally {
+      await f.cleanup();
+    }
+  });
+}
