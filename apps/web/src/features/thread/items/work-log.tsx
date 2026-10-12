@@ -11,7 +11,8 @@ const Steps = DeferredWorkLogSteps.Component;
 /**
  * "Worked for 4m 12s › Explored 6 files · Ran 3 commands · Edited 2 files". The whole tool log
  * at rest; expanding shows each step as a quiet row, and what the agent said between steps.
- * Opens by itself when a step needs approval, or when a jump or a search hit lands inside it.
+ * A jump or search hit opens its steps. Live turns keep only their images here; the footer
+ * owns their activity, and the composer owns pending approvals.
  */
 export function WorkLog(props: {
   threadId: string;
@@ -40,7 +41,11 @@ export function WorkLog(props: {
   const panel = useId();
   // Rows load after first paint, ready before the log is opened.
   useEffect(() => void DeferredWorkLogSteps.preload(), []);
-  if (!headline || (props.ongoing && !open)) return null;
+  if (!headline) return null;
+  if (props.ongoing && !open)
+    return props.itemIds.map((itemId) => (
+      <WorkLogImage key={itemId} threadId={props.threadId} itemId={itemId} />
+    ));
   return (
     <div>
       <WorkLogHeader

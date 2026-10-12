@@ -1,5 +1,5 @@
-import { flakyCheckout, workbench, type Scenario } from "@ace/fake-daemon";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { facts, flakyCheckout, workbench, type Scenario } from "@ace/fake-daemon";
+import { act, configure, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -343,3 +343,24 @@ for (const [decision, outcome] of [
     expect(within(feed).queryByRole("link", { name: "Waiting for your approval" })).toBeNull();
   });
 }
+
+test("an approved command keeps its execution output in the finished work log", async () => {
+  const app = harness();
+  app.play(flakyCheckout()).runThrough("approval-requested");
+  await app.open("/t/thread-checkout");
+  await userEvent.click(await screen.findByRole("button", { name: "Allow once" }));
+  act(() =>
+    app.daemon.apply("thread-checkout", [
+      facts.output("root", "clear-cache", "Cache cleared.\n"),
+      facts.toolDone("root", "clear-cache"),
+      { type: "background.ended", task: "watcher", status: "stopped" },
+      facts.toolDone("root", "watch"),
+      facts.endTurn("root"),
+    ]),
+  );
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  await userEvent.click(await within(feed).findByRole("button", { name: /^Ran rm -rf/ }));
+  expect((await within(feed).findByLabelText("Output")).textContent).toContain("Cache cleared.");
+  expect(within(feed).getByRole("note").textContent).toContain("Allowed once:");
+});

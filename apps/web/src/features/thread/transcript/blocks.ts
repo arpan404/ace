@@ -428,7 +428,10 @@ export function buildBlocks(source: BlockSource): Block[] {
     // A question's own step: the question block stands in for it.
     const approval = approvalCalls.has(id);
     const replaced =
-      !!asked && item.type === "tool_call" && (item.call.detail.kind === "ask_user" || approval)
+      !!asked &&
+      item.type === "tool_call" &&
+      (item.call.detail.kind === "ask_user" ||
+        (approval && (item.call.status === "awaiting_approval" || item.call.status === "pending")))
         ? id
         : undefined;
     if (!replaced)
