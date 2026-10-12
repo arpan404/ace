@@ -11,7 +11,10 @@ test("retained protected worktrees can fetch and push through injected local tra
   const path = join(home, "protected");
   const marker = join(home, "executed");
   const script = join(repo, "a-hostile.cjs");
-  await writeFile(script, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed');\n`);
+  await writeFile(
+    script,
+    `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed');\n`,
+  );
   await writeFile(join(repo, ".gitattributes"), "tracked.txt filter=review\n");
   await git(repo, "add", ".");
   await git(repo, "commit", "-m", "Untrusted checkout programs");
@@ -21,7 +24,10 @@ test("retained protected worktrees can fetch and push through injected local tra
   await mkdir(hooks);
   for (const name of ["post-index-change", "pre-push"]) {
     const hook = join(hooks, name);
-    await writeFile(hook, `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'hook');\n`);
+    await writeFile(
+      hook,
+      `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'hook');\n`,
+    );
     await chmod(hook, 0o755);
   }
   const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`;
@@ -58,7 +64,10 @@ test("production transfer admission refuses file and ext even when repository co
   const remote = join(home, "remote.git");
   const marker = join(home, "ext-executed");
   const script = join(home, "remote.cjs");
-  await writeFile(script, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed');\n`);
+  await writeFile(
+    script,
+    `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed');\n`,
+  );
   await git(home, "clone", "--bare", "--", repo, remote);
   await git(repo, "remote", "add", "origin", remote);
   await git(repo, "remote", "add", "hostile", `ext::${process.execPath} ${script}`);

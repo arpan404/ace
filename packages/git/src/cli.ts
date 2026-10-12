@@ -45,7 +45,9 @@ export interface Output {
 
 export class GitCli {
   private readonly protectedWorktrees = new Set<string>();
-  private readonly executionPolicy = new AsyncLocalStorage<"non-executing" | { protocols: readonly string[] }>();
+  private readonly executionPolicy = new AsyncLocalStorage<
+    "non-executing" | { protocols: readonly string[] }
+  >();
   private readonly transportProtocols: readonly string[];
   readonly leaseId: () => string;
   readonly leaseSchedule: GitProcessRuntime["scheduleTimeout"];
