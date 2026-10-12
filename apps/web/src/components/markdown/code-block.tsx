@@ -1,51 +1,44 @@
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
 import { useCopy } from "../use-copy.ts";
 export { useCopy } from "../use-copy.ts";
-import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { useMemo, useState, type ReactNode } from "react";
 import type { CodeToken } from "./highlight.ts";
 
 import { useCodeLines } from "./use-code-lines.ts";
 import { LongRows } from "@/components/virtual-rows.tsx";
+import { CodeHeader } from "./code-header.tsx";
 import { CodeTokens } from "./code-tokens.tsx";
+import { DiffBody } from "./diff-body.tsx";
+import { fenceDiffCached, parseFenceDiff } from "./diff-fence.ts";
+import { fenceInfo } from "./fence-info.ts";
 export { tokenTone } from "./code-tokens.tsx";
 
-/**
- * Copy for a fence. With a mouse it shows while the block is hovered or the button has focus,
- * so a transcript of code isn't a column of buttons; on touch it always shows, at tap size.
- * "Copied" holds it visible and is announced.
- */
-const copyClass = [
-  "relative ml-auto inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-xs text-muted-foreground",
-  "transition-[opacity,color,background-color] duration-(--motion-fast) hover:bg-accent hover:text-foreground",
-  "focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-ring data-copied:opacity-100",
-  "pointer-fine:opacity-0 pointer-fine:group-hover/code:opacity-100",
-  "touch-hit pointer-coarse:h-8 pointer-coarse:px-2.5",
-].join(" ");
+/** Blocks this long get line numbers; shorter ones read fine without. */
+export const numberedFrom = 10;
 
-function CopyCode(props: { copied: boolean; onCopy(): void }) {
+/** The line numbers beside a fence: one text node, so a long block costs one element. */
+function Gutter(props: { lines: number; className: string }) {
+  const numbers = useMemo(
+    () => Array.from({ length: props.lines }, (_, index) => index + 1).join("\n"),
+    [props.lines],
+  );
   return (
-    <>
-      <button
-        type="button"
-        onClick={props.onCopy}
-        aria-label={props.copied ? "Copied" : "Copy code"}
-        data-copied={props.copied ? "" : undefined}
-        className={copyClass}
-      >
-        {props.copied ? <CheckIcon aria-hidden size={13} /> : <CopyIcon aria-hidden size={13} />}
-        {props.copied ? "Copied" : "Copy"}
-      </button>
-      <span role="status" className="sr-only">
-        {props.copied ? "Copied to clipboard" : ""}
-      </span>
-    </>
+    <pre
+      aria-hidden
+      className={`shrink-0 pr-3 pl-3 text-right tabular-nums text-subtle-foreground select-none ${props.className}`}
+    >
+      {numbers}
+    </pre>
   );
 }
 
-/** A fenced code block: language and Copy in a quiet header, syntax highlighting below. */
+/**
+ * A fenced code block: a header with the file it shows (or its language) and Copy, syntax
+ * highlighting below, line numbers once it's long, and a unified-diff view for ```diff fences.
+ */
 export function CodeBlock(props: {
   code: string;
+  /** The fence's info string: a language, a file name, or both. */
   lang?: string | undefined;
   /** Tokens highlighted in the markdown worker; nested blocks highlight here. */
   tokens?: CodeToken[];
@@ -53,6 +46,17 @@ export function CodeBlock(props: {
   plain?: boolean;
   tail?: ReactNode;
 }) {
+  const info = useMemo(() => fenceInfo(props.lang), [props.lang]);
+  // A settled diff is parsed once per text; one still being written isn't cached.
+  const diff = useMemo(
+    () =>
+      info.diff
+        ? props.plain
+          ? parseFenceDiff(props.code)
+          : fenceDiffCached(props.code)
+        : undefined,
+    [info.diff, props.plain, props.code],
+  );
   // The first render must not tokenize the whole fence while its worker job is pending.
   const local = useMemo(() => [{ kind: "plain" as const, text: props.code }], [props.code]);
   const lines = useMemo(() => props.code.split("\n"), [props.code]);
@@ -61,7 +65,7 @@ export function CodeBlock(props: {
     props.code.length > 128 * 1024 ||
     lines.some((line) => line.length > 8192);
   const [source, setSource] = useState(false);
-  const colored = useCodeLines(props.plain ? undefined : props.code, props.lang);
+  const colored = useCodeLines(props.plain || diff ? undefined : props.code, info.lang);
   const tokens = useMemo(
     () =>
       colored && !large && colored.lines.reduce((count, line) => count + line.length, 0) <= 4096
@@ -74,36 +78,43 @@ export function CodeBlock(props: {
     [colored, props.tokens, local, large],
   );
   const { copied, copy } = useCopy();
+  const numbered = lines.length >= numberedFrom;
   return (
     <figure className="group/code my-3 overflow-hidden rounded-card bg-code shadow-[inset_0_0_0_1px_var(--border)]">
-      <figcaption className="flex h-8 items-center gap-2 pr-1.5 pl-3 text-xs text-subtle-foreground">
-        <span className="font-mono">{props.lang || "text"}</span>
-        {large && (
+      <CodeHeader
+        file={info.file ?? diff?.file}
+        lang={info.lang}
+        diff={diff}
+        copied={copied}
+        onCopy={() => copy(props.code)}
+      >
+        {large && !diff && (
           <button
             type="button"
             onClick={() => setSource(!source)}
-            className="ml-auto rounded-sm px-1.5 hover:bg-accent"
+            className="rounded-sm px-1.5 hover:bg-accent"
           >
             {source ? "Highlighted view" : "Full source"}
           </button>
         )}
-        <CopyCode copied={copied} onCopy={() => copy(props.code)} />
-      </figcaption>
-      {large ? (
+      </CodeHeader>
+      {diff ? (
+        <DiffBody diff={diff} tail={props.tail} />
+      ) : large ? (
         source ? (
           <textarea
             aria-label="Full code source"
             readOnly
             value={props.code}
             spellCheck={false}
-            className="block h-80 w-full resize-y overflow-auto bg-transparent px-3 pb-3 font-mono text-xs whitespace-pre"
+            className="block h-80 w-full resize-y overflow-auto bg-transparent px-3 py-2 font-mono text-xs whitespace-pre"
           />
         ) : (
           <div
             role="region"
             aria-label="Scrollable code"
             tabIndex={0}
-            className="max-h-80 overflow-auto px-3 pb-3 font-mono text-xs leading-5"
+            className="max-h-80 overflow-auto pt-2 pr-3 pb-3 font-mono text-xs leading-5"
           >
             <LongRows
               virtualAbove={400}
@@ -112,14 +123,20 @@ export function CodeBlock(props: {
               estimate={20}
               overscan={8}
               render={(line, index) => (
-                <div className="min-h-5 whitespace-pre">
-                  <code>
+                <div className="flex min-h-5">
+                  <span
+                    aria-hidden
+                    className="w-12 shrink-0 pr-3 text-right tabular-nums text-subtle-foreground select-none"
+                  >
+                    {index + 1}
+                  </span>
+                  <code className="whitespace-pre">
                     {line.length <= 8192 &&
                     colored?.lines[index] &&
                     colored.lines[index].length <= 512 ? (
                       <CodeTokens tokens={colored.lines[index]} />
                     ) : (
-                      line || "\u00a0"
+                      line || " "
                     )}
                   </code>
                 </div>
@@ -129,12 +146,17 @@ export function CodeBlock(props: {
           </div>
         )
       ) : (
-        <pre className="overflow-x-auto px-3 pt-0.5 pb-3 font-mono text-[12.5px] leading-[1.55] text-foreground">
-          <code>
-            <CodeTokens tokens={tokens} />
-            {props.tail}
-          </code>
-        </pre>
+        <div className="flex font-mono text-[12.5px] leading-[1.55]">
+          {numbered && <Gutter lines={lines.length} className="pt-2 pb-3" />}
+          <pre
+            className={`min-w-0 flex-1 overflow-x-auto pt-2 pr-3 pb-3 text-foreground ${numbered ? "" : "pl-3"}`}
+          >
+            <code>
+              <CodeTokens tokens={tokens} />
+              {props.tail}
+            </code>
+          </pre>
+        </div>
       )}
     </figure>
   );
