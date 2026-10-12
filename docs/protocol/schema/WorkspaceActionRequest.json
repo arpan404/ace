@@ -12,6 +12,63 @@
               "type": "integer"
             },
             "op": {
+              "const": "forge.pr.stack",
+              "type": "string"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId",
+            "number"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "numbers": {
+              "items": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "op": {
+              "const": "forge.pr.stack-memberships",
+              "type": "string"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId",
+            "numbers"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "number": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "op": {
               "const": "forge.pr.review-state",
               "type": "string"
             },

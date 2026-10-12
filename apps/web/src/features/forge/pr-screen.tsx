@@ -14,6 +14,7 @@ import { prPanelId } from "./pr-panel-data.ts";
 import { useWorkspaceActions, useWorkspaceStore } from "@/lib/workspace/index.ts";
 import { QueryState } from "./query-state.tsx";
 import { readForge } from "./source.ts";
+import { PrStackGroups } from "./pr-stack-groups.tsx";
 
 export interface PrLocation extends ForgePrSearch {
   project: string;
@@ -187,6 +188,21 @@ export function PrScreen(props: {
             {workspaceId && (
               <>
                 <QueryState query={query} />
+                {query.data && (
+                  <PrStackGroups
+                    workspaceId={workspaceId}
+                    refs={query.data.items.map((pr) => pr.ref)}
+                    onOpen={(ref) =>
+                      props.onLocation({
+                        ...location,
+                        project: workspaceId,
+                        repo: `${ref.repository.host}/${ref.repository.owner}/${ref.repository.name}`,
+                        number: ref.number,
+                        tab: "summary",
+                      })
+                    }
+                  />
+                )}
                 <PrList
                   key={`${workspaceId}/${location.repo}/${location.search}/${location.author}/${location.reviewer}`}
                   value={query.data}

@@ -101,6 +101,7 @@ export function PrHeader(props: {
               </div>
               {props.extensions?.overflow?.(props.context)}
               <PrActions
+                workspaceId={props.context.workspaceId}
                 key={JSON.stringify(status.ref)}
                 detail={detail}
                 writeReady={!disabled}

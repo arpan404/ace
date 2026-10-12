@@ -4,11 +4,13 @@ import { ThreadId } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Link } from "@tanstack/react-router";
+import { useStackMemberships } from "./pr-stack-groups.tsx";
 import { useState } from "react";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { forgeError } from "./source.ts";
 
 export function PrActions(props: {
+  workspaceId: string;
   detail: ForgePrDetail;
   writeReady: boolean;
   onRefresh(): Promise<boolean>;
@@ -68,6 +70,9 @@ export function PrActions(props: {
   const link = { threadId, pr: ref };
   const associated = props.detail.relatedThreads.some((thread) => thread.id === threadId);
   const active = props.detail.status.state === "open";
+  const membership = useStackMemberships(props.workspaceId, ref.repository, [ref.number]);
+  const nativeStackOrUnknown =
+    !membership.data || membership.isError || !!membership.data[0]?.stack;
   return (
     <section
       aria-label="Linked tasks and pull request actions"
@@ -144,6 +149,7 @@ export function PrActions(props: {
               pending ||
               blocked ||
               !active ||
+              nativeStackOrUnknown ||
               props.detail.status.mergeability !== "mergeable" ||
               props.detail.status.ci === "failure" ||
               props.detail.status.ci === "pending" ||
@@ -161,7 +167,7 @@ export function PrActions(props: {
             Merge PR
           </Button>
           <Button
-            disabled={!ready || pending || blocked || !active}
+            disabled={!ready || pending || blocked || !active || nativeStackOrUnknown}
             onClick={() =>
               void run({
                 type: "forge.pr.auto-merge",

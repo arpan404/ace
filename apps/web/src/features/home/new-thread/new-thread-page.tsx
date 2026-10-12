@@ -275,8 +275,8 @@ function PreparationPage(props: {
       permission:
         permissionChoice?.provider === provider
           ? permission
-          : previous?.provider === provider
-            ? previous?.permission
+          : previous && previous.provider === provider
+            ? previous.permission
             : undefined,
       base: baseChoice ?? base,
       scopeEpoch: previous?.scopeEpoch,

@@ -10,3 +10,4 @@ export type {
 } from "./pr-extensions.ts";
 export { PrDetail } from "./pr-detail.tsx";
 export { PrWorkspaceExtensionProvider } from "./pr-extension-context.tsx";
+export { PrStackGroups, useStackMemberships } from "./pr-stack-groups.tsx";

@@ -17,6 +17,7 @@ import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { usePrReview } from "./pr-review-context.tsx";
 import { PrOwnComment, PrReviewSubmission, PrThreadControls } from "./pr-review-forms.tsx";
+import { PrStack } from "./pr-stack.tsx";
 
 export function PrSection(props: { title: string; children: ReactNode; action?: ReactNode }) {
   const [open, setOpen] = useState(true);
@@ -122,6 +123,13 @@ export function PrSummary(props: {
         />
       </PrSection>
       {props.extensions?.summary?.(props.context)}
+      <PrStack
+        key={prKey}
+        workspaceId={props.context.workspaceId}
+        detail={detail}
+        onRefresh={() => void props.context.refresh()}
+        onOpen={props.onOpen}
+      />
       {review?.state &&
         (review.state.canReview || review.state.canComment || review.state.drafts.length > 0) && (
           <PrSection title="Review">

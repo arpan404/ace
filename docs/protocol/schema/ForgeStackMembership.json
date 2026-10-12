@@ -1,0 +1,59 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeStackMembership.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "number": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "raw": {},
+    "stack": {
+      "anyOf": [
+        {
+          "properties": {
+            "id": {
+              "maxLength": 65536,
+              "type": "string"
+            },
+            "number": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "position": {
+              "exclusiveMinimum": 0,
+              "maximum": 100,
+              "type": "integer"
+            },
+            "size": {
+              "exclusiveMinimum": 0,
+              "maximum": 100,
+              "type": "integer"
+            },
+            "trunk": {
+              "maxLength": 65536,
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "number",
+            "trunk",
+            "size",
+            "position"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "number",
+    "stack"
+  ],
+  "type": "object"
+}

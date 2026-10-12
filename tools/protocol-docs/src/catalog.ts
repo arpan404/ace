@@ -18,6 +18,7 @@ import * as contextMeter from "@ace/protocol/context-meter";
 import * as protocol from "@ace/protocol";
 import * as forgeReview from "@ace/protocol/forge-review";
 import * as forgeBrowser from "@ace/protocol/forge-browser";
+import * as forgeStacks from "@ace/protocol/forge-stacks";
 import * as forge from "@ace/protocol/forge";
 import {
   builtinToolCatalog,
@@ -44,6 +45,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./context-meter", contextMeter],
   ["./forge", forge],
   ["./forge-browser", forgeBrowser],
+  ["./forge-stacks", forgeStacks],
   ["./forge-review", forgeReview],
   ["./plugins", plugins],
   ["./preview", preview],
