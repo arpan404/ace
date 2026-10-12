@@ -4,6 +4,7 @@ import { act, configure, fireEvent, screen, waitFor, within } from "@testing-lib
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { answerStore } from "@/features/thread/interactions/answers.ts";
+import { requestIdentity } from "@ace/ui-core";
 import { memoryStorage } from "@/boot/client.ts";
 import { harness } from "@/test/harness.tsx";
 
@@ -494,4 +495,34 @@ test("a refused decision keeps the request and keyboard focus and can be retried
   await waitFor(() =>
     expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" })),
   );
+});
+
+test("reopening a remembered approval keeps its decision controls reachable by keyboard", async () => {
+  const app = harness();
+  app
+    .play(asking("thread-answer-again", [{ id: "again", title: "Answer this approval again?" }]))
+    .runUntilBlocked();
+  await app.open("/t/thread-answer-again");
+  await stack();
+  const lease = app.client.thread("thread-answer-again");
+  const request = lease.store.interaction(lease.store.interactionIds()[0] ?? "");
+  if (!request) throw new Error("Missing replayed approval");
+  act(() =>
+    answerStore.remember(
+      request.id,
+      { kind: "approval", optionId: "deny" },
+      requestIdentity(request),
+    ),
+  );
+  lease.release();
+  await userEvent.click(await screen.findByRole("button", { name: "Answer again" }));
+  expect((await stack()).parentElement?.contains(document.activeElement)).toBe(true);
+  await userEvent.keyboard("2");
+  await waitFor(() =>
+    expect(app.daemon.resolution("thread-answer-again", "again")).toEqual({
+      kind: "approval",
+      optionId: "deny",
+    }),
+  );
+  expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" }));
 });

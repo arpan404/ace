@@ -125,7 +125,7 @@ export function InteractionCard(props: {
   frame?: InteractionFrame | undefined;
   aside?: ReactNode;
   /** Keep a stable focus target while the decision controls are replaced. */
-  onSubmit?(): void;
+  onControlsChange?(): void;
 }) {
   const frame = frames[props.frame ?? "card"];
   const interaction = useInteraction(props.threadId, props.interactionId);
@@ -137,7 +137,7 @@ export function InteractionCard(props: {
   const sender = useAnswerSender(props.interactionId, identity);
   const { failed } = sender;
   const answer: Answer = (resolution) => {
-    props.onSubmit?.();
+    props.onControlsChange?.();
     setReopened(false);
     sender.answer(resolution);
   };
@@ -171,6 +171,7 @@ export function InteractionCard(props: {
           onAnswerAgain={
             local.state === "sent"
               ? () => {
+                  props.onControlsChange?.();
                   answerStore.forget(interaction.id);
                   setReopened(true);
                 }
@@ -186,7 +187,10 @@ export function InteractionCard(props: {
           questions={request.questions}
           resolution={earlier.resolution}
           meta={{ kind: "earlier", at: earlier.closedAt }}
-          onAnswerAgain={() => setReopened(true)}
+          onAnswerAgain={() => {
+            props.onControlsChange?.();
+            setReopened(true);
+          }}
         />
       );
   }
@@ -203,6 +207,7 @@ export function InteractionCard(props: {
       failed={failed}
       local={reopened ? undefined : (local ?? earlierAsLocal(earlier))}
       onAnswerAgain={() => {
+        props.onControlsChange?.();
         answerStore.forget(interaction.id);
         setReopened(true);
       }}

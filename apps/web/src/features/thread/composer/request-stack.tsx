@@ -109,7 +109,7 @@ export function RequestStack(props: {
         interactionId={id}
         frame="attached"
         aside={pager}
-        onSubmit={() => {
+        onControlsChange={() => {
           if (frame.current?.contains(document.activeElement))
             (frame.current.querySelector<HTMLElement>("article") ?? frame.current).focus({
               preventScroll: true,
@@ -132,7 +132,11 @@ export function RequestStack(props: {
       }}
       onBlurCapture={(event) => {
         // Removed decision controls have no related target; submission moves to this frame.
-        if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget))
+        if (
+          event.relatedTarget &&
+          event.relatedTarget !== document.body &&
+          !event.currentTarget.contains(event.relatedTarget)
+        )
           ownsFocus.current = false;
       }}
       onKeyDownCapture={onKeyDown}
