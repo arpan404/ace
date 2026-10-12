@@ -53,7 +53,7 @@ export function SettingRow(props: {
     >
       <div
         className={cn(
-          "flex min-h-(--row-height) items-center gap-3 py-(--setting-row-padding)",
+          "flex min-h-(--setting-row-height) items-center gap-4 py-(--setting-row-y)",
           !props.inline && "@max-[440px]:flex-col @max-[440px]:items-stretch",
         )}
       >
@@ -89,7 +89,7 @@ export function SettingRow(props: {
             <p
               id={hintId}
               title={typeof props.description === "string" ? props.description : undefined}
-              className="text-xs text-muted-foreground"
+              className="mt-0.5 text-xs text-muted-foreground"
             >
               {props.description}
             </p>
@@ -146,7 +146,8 @@ function useHashFlash(id: string | undefined, ref: RefObject<HTMLElement | null>
 export type SettingScope = "daemon" | "device" | "computer";
 
 /**
- * A labelled group of rows, with dividers between rows and a quiet heading.
+ * A titled group of rows on a subtle card, hairlines between rows (docs/design/visual-language.md,
+ * "Settings").
  */
 export function SettingSection(props: {
   label: string;
@@ -161,17 +162,35 @@ export function SettingSection(props: {
 }) {
   const id = useId();
   return (
-    <section id={props.anchor} className="mt-7" aria-labelledby={id}>
-      <div className="mb-2 flex items-center gap-2">
-        <h3 id={id} className="text-sm font-medium text-muted-foreground">
+    <section id={props.anchor} className="mt-8" aria-labelledby={id}>
+      <div className="mb-2 flex min-h-7 items-center gap-2 px-1">
+        <h3 id={id} className="text-ui font-medium text-foreground">
           {props.label}
         </h3>
         {props.actions && <div className="ml-auto flex items-center gap-1">{props.actions}</div>}
       </div>
-      {props.note && <p className="mb-2 text-sm text-muted-foreground">{props.note}</p>}
-      <InCard value>
-        <div className="divide-y">{props.children}</div>
-      </InCard>
+      {props.note && <p className="mb-2 px-1 text-sm text-muted-foreground">{props.note}</p>}
+      <SettingCard>{props.children}</SettingCard>
     </section>
+  );
+}
+
+/**
+ * Rows grouped on a subtle card with hairlines between them. Every direct child, a row, a note or
+ * a button, is inset alike, so text inside the card keeps one left edge. `SettingSection` adds a
+ * title; use this alone for rows that head a page without one.
+ */
+export function SettingCard(props: { children: ReactNode; className?: string }) {
+  return (
+    <InCard value>
+      <div
+        className={cn(
+          "divide-y divide-border-soft rounded-lg border border-border-soft bg-card *:px-4",
+          props.className,
+        )}
+      >
+        {props.children}
+      </div>
+    </InCard>
   );
 }

@@ -41,6 +41,7 @@ export function paletteSurfaces(palette: Palette, scheme: Scheme): Surface[] {
   add("floating", palette.s2);
   add("sidebar", palette.sidebar);
   add("code", palette.code);
+
   const glass = parseOpaqueColor(palette.s2);
   const under = solid.filter((surface) => surface.name === "page" || surface.name === "sidebar");
   const alphas = glassAlpha[scheme];
@@ -58,5 +59,10 @@ export function paletteSurfaces(palette: Palette, scheme: Scheme): Surface[] {
         rgb: over(ink, selectedInk[scheme], surface.rgb),
       }))
     : [];
-  return [...all, ...selected];
+  // Solid hover and active fills are the highlighted state themselves; no wash goes on them.
+  const states = [palette.hover, palette.active].flatMap((value, index) => {
+    const rgb = parseOpaqueColor(value);
+    return rgb ? [{ name: index === 0 ? "hover" : "active", rgb }] : [];
+  });
+  return [...all, ...selected, ...states];
 }

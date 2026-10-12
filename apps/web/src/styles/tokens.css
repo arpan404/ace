@@ -32,6 +32,10 @@
   --theme-preview-height: 88px;
   --work-details-width: 360px;
   --setting-row-padding: 14px;
+  /* Settings pages: a column that grows with the window, rows of one height on grouped cards. */
+  --settings-column: clamp(640px, 64vw, 900px);
+  --setting-row-height: 52px;
+  --setting-row-y: 10px;
   --picker-row-padding: 12px;
   --picker-row-height: 48px;
 
@@ -45,5 +49,7 @@
 :root[data-density="compact"] {
   --row-height: 32px;
   --setting-row-padding: 8px;
+  --setting-row-height: 44px;
+  --setting-row-y: 6px;
   --picker-row-padding: 10px;
 }

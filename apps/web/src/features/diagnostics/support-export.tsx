@@ -74,7 +74,7 @@ export function SupportExport() {
   };
   return (
     <>
-      <div className="flex h-9 items-center justify-between gap-3 text-ui">
+      <div className="flex min-h-(--setting-row-height) items-center justify-between gap-3 text-ui">
         <span>Support bundle</span>
         <Button
           size="sm"

@@ -13,7 +13,7 @@ import {
 import { Select } from "@/components/ui/select.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingCard, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 
 export function SourceControlSettings() {
   const machines = useMachines();
@@ -23,26 +23,28 @@ export function SourceControlSettings() {
     : machines[0];
   return (
     <>
-      <SettingRow
-        title="Machine"
-        description="Readiness and preferences belong to the selected daemon."
-      >
-        <Select
-          label="Source control machine"
-          value={machine?.id ?? chosen?.id ?? ""}
-          options={[
-            ...machines.map((entry) => ({
-              value: entry.id,
-              label: `${entry.name}${entry.status !== "online" ? " (offline)" : ""}`,
-            })),
-            ...(!machine && chosen ? [{ value: chosen.id, label: "Unavailable machine" }] : []),
-          ]}
-          onValueChange={(id) => {
-            const next = machines.find((entry) => entry.id === id);
-            if (next) setChosen({ id: next.id, primary: next.primary });
-          }}
-        />
-      </SettingRow>
+      <SettingCard className="mt-7">
+        <SettingRow
+          title="Machine"
+          description="Readiness and preferences belong to the selected daemon."
+        >
+          <Select
+            label="Source control machine"
+            value={machine?.id ?? chosen?.id ?? ""}
+            options={[
+              ...machines.map((entry) => ({
+                value: entry.id,
+                label: `${entry.name}${entry.status !== "online" ? " (offline)" : ""}`,
+              })),
+              ...(!machine && chosen ? [{ value: chosen.id, label: "Unavailable machine" }] : []),
+            ]}
+            onValueChange={(id) => {
+              const next = machines.find((entry) => entry.id === id);
+              if (next) setChosen({ id: next.id, primary: next.primary });
+            }}
+          />
+        </SettingRow>
+      </SettingCard>
       {machine?.client ? (
         <MachineSourceControl key={machine.id} client={machine.client} />
       ) : (

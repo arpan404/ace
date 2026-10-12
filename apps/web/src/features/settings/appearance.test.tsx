@@ -44,7 +44,7 @@ async function settled() {
 test("picking a theme applies it at once and the next load replays it before first paint", async () => {
   const storage = memoryKeyValue();
   const first = await harness({ storage, matchMedia: system({}) }).open("/settings/appearance");
-  expect(root.getAttribute("data-theme")).toBe("ace");
+  expect(root.getAttribute("data-theme")).toBe("graphite");
   await settled();
 
   await userEvent.click(screen.getByRole("radio", { name: "Tide" }));
@@ -68,7 +68,7 @@ test("mode is separate from theme: System follows the OS and Dark keeps the them
   expect(root.getAttribute("data-scheme")).toBe("light");
   // The browser's own bar takes the page's background.
   expect(document.querySelector('meta[name="theme-color"]')?.getAttribute("content")).toBe(
-    themes.ace.light.s0,
+    themes.graphite.light.s0,
   );
   await settled();
   await userEvent.click(screen.getByRole("radio", { name: "Moss" }));
@@ -79,13 +79,13 @@ test("mode is separate from theme: System follows the OS and Dark keeps the them
 
 test("the theme swatches can be changed by keyboard", async () => {
   await harness().open("/settings/appearance");
-  const ace = await screen.findByRole("radio", { name: "Ace" });
-  expect(ace.getAttribute("tabindex")).toBe("0");
+  const graphite = await screen.findByRole("radio", { name: "Graphite" });
+  expect(graphite.getAttribute("tabindex")).toBe("0");
   await settled();
-  ace.focus();
+  graphite.focus();
   await userEvent.keyboard("{ArrowRight}");
-  expect(root.getAttribute("data-theme")).toBe("paper");
-  expect(document.activeElement).toBe(screen.getByRole("radio", { name: "Paper" }));
+  expect(root.getAttribute("data-theme")).toBe("ace");
+  expect(document.activeElement).toBe(screen.getByRole("radio", { name: "Ace" }));
 });
 
 test("Solid surfaces turn glass off, and the OS reducing transparency does the same", async () => {

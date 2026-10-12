@@ -1,6 +1,6 @@
 import { useRemoteStatus } from "./data/use-settings.ts";
 import { useId } from "react";
-import { SettingRow } from "@/components/setting-row.tsx";
+import { SettingCard, SettingRow } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -24,7 +24,7 @@ export function RemoteAccess() {
         ? "lan"
         : transport.value;
   return (
-    <div className="mt-7">
+    <SettingCard className="mt-7">
       <SettingRow
         id="remote.enabled"
         title="Remote access"
@@ -101,6 +101,6 @@ export function RemoteAccess() {
           />
         </SettingRow>
       )}
-    </div>
+    </SettingCard>
   );
 }

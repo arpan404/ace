@@ -52,6 +52,11 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
+  --color-border-soft: var(--border-soft);
+  --color-border-strong: var(--border-strong);
+  --color-hover: var(--hover);
+  --color-active: var(--active);
+  --color-faint-foreground: var(--faint-foreground);
   --color-input: var(--input);
   --color-ring: var(--ring);
   /* The accent as a fill (primary actions, checked controls) and the text on it. */

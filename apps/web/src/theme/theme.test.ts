@@ -23,8 +23,8 @@ test("every theme passes WCAG AA in light and dark, highlighted rows and glass i
 });
 
 test("quiet text that reads on the page but not on a highlighted menu row is flagged", () => {
-  // The prototype's Ace dark grey: 5.4:1 on the page, about 3.8:1 on a highlighted solid menu row.
-  const palette = { ...themes.ace.dark, t3: "#8B8F98" };
+  // 5.1:1 on Graphite's dark page, but under 4.5:1 on a highlighted row of a solid menu.
+  const palette = { ...themes.graphite.dark, t3: "#888888" };
   expect(contrastWarnings(palette, "dark")).toEqual([
     expect.objectContaining({ label: "Quiet text", minimum: 4.5 }),
   ]);
@@ -96,7 +96,6 @@ test("a saved appearance keeps each valid choice and replaces only the unreadabl
   expect(loadAppearance(storage)).toEqual({
     ...defaultAppearance,
     mode: "dark",
-    theme: "ace",
     surface: "solid",
   });
 });

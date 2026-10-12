@@ -1,5 +1,5 @@
 import { oklchToHex } from "./colour.ts";
-import { sharedStatus, syntax, type Palette, type Scheme } from "./palettes.ts";
+import { rampSteps, sharedStatus, syntax, type Palette, type Scheme } from "./palettes.ts";
 
 /*
  * One palette as every themed CSS variable. Components read these names only (through the
@@ -36,6 +36,11 @@ const projectSets: Record<Scheme, Record<`--project-${number}`, string>> = {
   dark: projectTints("dark"),
 };
 
+/** `--neutral-1` … `--neutral-12`, in ramp order (palettes.ts `rampSteps`). */
+function neutralRamp(p: Palette): Record<`--neutral-${number}`, string> {
+  return Object.fromEntries(rampSteps.map((step, index) => [`--neutral-${index + 1}`, p[step]]));
+}
+
 export function themeTokens(p: Palette, scheme: Scheme) {
   const light = scheme === "light";
   const sx = syntax[scheme];
@@ -47,6 +52,9 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     : "0 1px 2px rgb(0 0 0 / 0.4), 0 8px 20px -6px rgb(0 0 0 / 0.45), 0 28px 56px -20px rgb(0 0 0 / 0.6)";
   const glassInner = light ? "rgb(255 255 255 / 0.85)" : "rgb(255 255 255 / 0.1)";
   return {
+    // The neutral ramp, by step (`--neutral-1` canvas … `--neutral-12` text).
+    ...neutralRamp(p),
+
     // Surfaces.
     "--surface-0": p.s0,
     "--surface-1": p.s1,
@@ -64,10 +72,15 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     "--secondary": wash(p.t1, light ? 6 : 8),
     "--muted": fill,
     "--accent": fill,
+    "--hover": p.hover,
+    "--active": p.active,
     "--border": p.border,
     "--border-soft": `color-mix(in srgb, ${p.border} 70%, transparent)`,
-    "--border-strong": `color-mix(in srgb, ${p.border}, ${p.t1} 12%)`,
-    "--input": `color-mix(in srgb, ${p.border}, ${p.t1} 12%)`,
+    "--border-strong": p.borderStrong,
+    "--input": p.borderStrong,
+    // Text fields: white with a hairline in light, a quiet lift in dark; same on any surface.
+    "--field": light ? p.raised : wash(p.t1, 6),
+    "--faint-foreground": p.faint,
     "--scrim": light ? `rgb(${p.shadow} / 0.16)` : "rgb(0 0 0 / 0.42)",
     "--skel": wash(p.t1, light ? 6 : 8),
     "--skel-hi": wash(p.s0, light ? 70 : 12),

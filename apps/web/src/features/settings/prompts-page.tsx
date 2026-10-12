@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { promptProblem } from "./prompt-copy.ts";
-import { SettingRow } from "@/components/setting-row.tsx";
+import { SettingCard, SettingRow } from "@/components/setting-row.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { SettingsBody } from "./settings-body.tsx";
@@ -120,40 +120,42 @@ export function PromptsSettingsScreen() {
       ) : !files.data.length ? (
         <p className="mt-6 text-ui text-muted-foreground">No prompts yet.</p>
       ) : (
-        <ul aria-label="Prompt files" className="mt-4 divide-y">
-          {files.data.map((file) => (
-            <li key={`${file.scope.kind}:${file.name}`}>
-              <SettingRow
-                title={
-                  <button
-                    type="button"
-                    className="block w-full rounded-sm text-left focus-ring hover:text-foreground"
-                    onClick={() => {
-                      setEditing({ file, scope: file.scope });
-                      setSaved(undefined);
-                    }}
-                  >
-                    {file.title}
-                  </button>
-                }
-                description={file.description || undefined}
-                inline
-              >
-                {!!file.diagnostics.length && (
-                  <Tip label={file.diagnostics.map((d) => promptProblem(d.message)).join(" ")}>
-                    <span
-                      tabIndex={0}
-                      role="status"
-                      className="rounded-sm text-xs text-status-failed focus-ring"
+        <SettingCard className="mt-4">
+          <ul aria-label="Prompt files" className="divide-y divide-border-soft">
+            {files.data.map((file) => (
+              <li key={`${file.scope.kind}:${file.name}`}>
+                <SettingRow
+                  title={
+                    <button
+                      type="button"
+                      className="block w-full rounded-sm text-left focus-ring hover:text-foreground"
+                      onClick={() => {
+                        setEditing({ file, scope: file.scope });
+                        setSaved(undefined);
+                      }}
                     >
-                      Invalid frontmatter
-                    </span>
-                  </Tip>
-                )}
-              </SettingRow>
-            </li>
-          ))}
-        </ul>
+                      {file.title}
+                    </button>
+                  }
+                  description={file.description || undefined}
+                  inline
+                >
+                  {!!file.diagnostics.length && (
+                    <Tip label={file.diagnostics.map((d) => promptProblem(d.message)).join(" ")}>
+                      <span
+                        tabIndex={0}
+                        role="status"
+                        className="rounded-sm text-xs text-status-failed focus-ring"
+                      >
+                        Invalid frontmatter
+                      </span>
+                    </Tip>
+                  )}
+                </SettingRow>
+              </li>
+            ))}
+          </ul>
+        </SettingCard>
       )}
     </SettingsBody>
   );

@@ -25,6 +25,7 @@ const textChecks: readonly { key: keyof Palette; label: string }[] = [
 
 /** Marks with no text of their own (dots, rings, fills) need 3:1 against the page. */
 const markChecks: readonly { key: keyof Palette; label: string }[] = [
+  { key: "faint", label: "Faint icons" },
   { key: "accent", label: "Accent" },
   { key: "working", label: "Working mark" },
   { key: "needs", label: "Needs-you mark" },

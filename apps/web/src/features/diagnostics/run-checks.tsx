@@ -68,7 +68,7 @@ export function RunChecks(props: {
   };
   return (
     <>
-      <div className="flex h-9 items-center justify-between gap-3 text-ui">
+      <div className="flex min-h-(--setting-row-height) items-center justify-between gap-3 text-ui">
         <span>Check this computer</span>
         <Button
           size="sm"
