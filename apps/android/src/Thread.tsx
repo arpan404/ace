@@ -107,7 +107,7 @@ export function ThreadScreen({
     }
   }
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior="height">
       <View style={{ paddingHorizontal: tokens.spacing.lg, paddingVertical: tokens.spacing.sm }}>
         <AceHost style={{ width: "100%" }}>
           <Row horizontalArrangement="spaceBetween">

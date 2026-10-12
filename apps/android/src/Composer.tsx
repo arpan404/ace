@@ -88,6 +88,9 @@ export function Composer({
         }
         accessibilityLabel="Message"
         placeholder="Steer the agent…"
+        selectionColor={theme.colours.accent}
+        cursorColor={theme.colours.accent}
+        underlineColorAndroid="transparent"
         placeholderTextColor={theme.colours.mutedForeground}
         multiline
         value={draft}
