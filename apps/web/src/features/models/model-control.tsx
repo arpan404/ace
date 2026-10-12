@@ -71,7 +71,8 @@ export function ModelControl(props: {
               provider={view.provider}
               instance={view.instance ?? view.account}
               size={14}
-              accountLabel
+              // A compact composer keeps the room for the model's name.
+              accountLabel={!props.compact}
             />
           )}
           {!view.label && view.catalog === "loading" && <Spinner />}
