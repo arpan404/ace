@@ -41,6 +41,12 @@ export const attachedCardPadding = "pb-[calc(var(--surface-gap)*2+var(--surface-
 /** The same glass, tucked behind the input's edge on a narrower panel. */
 export const attachedSurface = `${composerSurface} rounded-xl`;
 
+/**
+ * Notices above a composer that has no thread strip (New thread): the strip's surface, gone
+ * while none of them has anything to say.
+ */
+export const noticeSurface = `${attachedSurface} relative z-0 flex flex-col gap-2 px-3 pt-2.5 empty:hidden ${attachedInset} ${attachedOverlap} ${attachedCardPadding}`;
+
 /** Where a thread runs, in the strip's place above the input while nothing else is there. */
 export const environmentSurface = `${attachedSurface} relative z-0 ${attachedInset} ${attachedOverlap} ${attachedStripPadding}`;
 

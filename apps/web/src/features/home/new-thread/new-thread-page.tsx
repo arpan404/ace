@@ -16,6 +16,7 @@ import {
   usePermissionModes,
   type Draft,
   type ComposerHandle,
+  composerNoticeSurface,
 } from "@/features/thread/index.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { whenIdle } from "@/lib/idle.ts";
@@ -658,6 +659,10 @@ function PreparationPage(props: {
                 ?
               </h2>
             </div>
+            {/* Past sessions sit under the question, never below the composer. */}
+            <div className="w-full shrink-0 px-2 pb-4 text-left">
+              <ProjectPastSessions projectId={project} />
+            </div>
           </div>
           <div className="shrink-0">
             <Composer
@@ -716,6 +721,51 @@ function PreparationPage(props: {
               autoFocus
               placeholder="Describe the change, a bug, or a question. @ to mention a file"
               shortPlaceholder="Describe a change or a bug"
+              // Nothing renders below the composer: its notices sit in the strip's place above.
+              attached={
+                <div className={composerNoticeSurface}>
+                  {(admissionProblem || issueSource.problem || prSource.problem) && (
+                    <p id={readinessId} role="status" className="text-xs text-muted-foreground">
+                      {admissionProblem || issueSource.problem || prSource.problem}
+                    </p>
+                  )}
+                  <SignInNotice provider={provider} />
+                  {(saveFailed || preparationSaveFailed(storage, draftKey)) && (
+                    <div role="alert" className="text-ui text-status-failed">
+                      <p>
+                        Couldn't save this preparation on this device. Keep this page open and free
+                        space or discard an older draft before leaving.
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          const content = latestContent.current;
+                          if (!content || !writeDraft(storage, draftKey, content)) {
+                            contentSaveRefused.current = true;
+                            setSaveFailed(true);
+                            return;
+                          }
+                          contentSaveRefused.current = false;
+                          remember({
+                            title:
+                              content.text.trim().split("\n")[0]?.slice(0, 100) ||
+                              "New preparation",
+                          });
+                        }}
+                      >
+                        Save draft
+                      </Button>
+                    </div>
+                  )}
+                  {error && (
+                    <p role="alert" className="text-ui text-status-failed">
+                      {error}
+                    </p>
+                  )}
+                </div>
+              }
               trailing={
                 <ModelPicker
                   options={options}
@@ -787,45 +837,6 @@ function PreparationPage(props: {
                 </>
               }
             />
-            {(admissionProblem || issueSource.problem || prSource.problem) && (
-              <p id={readinessId} role="status" className="mt-2 px-4 text-xs text-muted-foreground">
-                {admissionProblem || issueSource.problem || prSource.problem}
-              </p>
-            )}
-            <SignInNotice provider={provider} />
-            <ProjectPastSessions projectId={project} />
-            {(saveFailed || preparationSaveFailed(storage, draftKey)) && (
-              <div role="alert" className="mt-3 px-2 text-ui text-status-failed">
-                <p>
-                  Couldn't save this preparation on this device. Keep this page open and free space
-                  or discard an older draft before leaving.
-                </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    const content = latestContent.current;
-                    if (!content || !writeDraft(storage, draftKey, content)) {
-                      contentSaveRefused.current = true;
-                      setSaveFailed(true);
-                      return;
-                    }
-                    contentSaveRefused.current = false;
-                    remember({
-                      title: content.text.trim().split("\n")[0]?.slice(0, 100) || "New preparation",
-                    });
-                  }}
-                >
-                  Save draft
-                </Button>
-              </div>
-            )}
-            {error && (
-              <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
-                {error}
-              </p>
-            )}
           </div>
         </div>
       </div>
