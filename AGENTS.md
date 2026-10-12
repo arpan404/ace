@@ -1,6 +1,6 @@
 # AGENTS.md
 
-ace is a multi-agent coding environment: a local daemon that drives the user's installed coding-agent CLIs, plus desktop (Electron), web and mobile (Expo) clients. Read `README.md` and `docs/adr/` before making design changes.
+ace is a multi-agent coding environment: a local daemon that drives the user's installed coding-agent CLIs, plus desktop (Electron), web and native iOS clients. For iOS architecture and its performance gate, read [ADR 0072](docs/adr/0072-native-ios-client.md). Read `README.md` and `docs/adr/` before making design changes.
 
 ## Clean-room rule
 

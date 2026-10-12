@@ -1,0 +1,59 @@
+[
+  {
+    "testIdentifier": "SpikeUITests/testScrollWhileTwoThousandItemsStream()",
+    "testIdentifierURL": "test://com.apple.xcode/Ace/AceUITests/SpikeUITests/testScrollWhileTwoThousandItemsStream",
+    "testRuns": [
+      {
+        "device": {
+          "deviceId": "0FE0D56F-958E-4360-A716-ACDC22D583EF",
+          "deviceName": "iPhone 17 Pro"
+        },
+        "metrics": [
+          {
+            "baselineAverage": 0,
+            "baselineName": "",
+            "displayName": "Memory Physical (ios)",
+            "identifier": "com.apple.dt.XCTMetric_Memory-app.ace.ios.physical",
+            "maxPercentRegression": 10,
+            "maxPercentRelativeStandardDeviation": 10,
+            "maxRegression": 0,
+            "maxStandardDeviation": 10,
+            "measurements": [4079.616, 8355.84, -163.84],
+            "polarity": "prefers smaller",
+            "unitOfMeasurement": "kB"
+          },
+          {
+            "baselineAverage": 0,
+            "baselineName": "",
+            "displayName": "Memory Peak Physical (ios)",
+            "identifier": "com.apple.dt.XCTMetric_Memory-app.ace.ios.physical_peak",
+            "maxPercentRegression": 10,
+            "maxPercentRelativeStandardDeviation": 10,
+            "maxRegression": 0,
+            "maxStandardDeviation": 10,
+            "measurements": [195742.264, 187271.736, 189696.568],
+            "polarity": "prefers smaller",
+            "unitOfMeasurement": "kB"
+          },
+          {
+            "baselineAverage": 0,
+            "baselineName": "",
+            "displayName": "Absolute Memory Physical (ios)",
+            "identifier": "com.apple.dt.XCTMetric_Memory-app.ace.ios.physical_absolute",
+            "maxPercentRegression": 10,
+            "maxPercentRelativeStandardDeviation": 10,
+            "maxRegression": 0,
+            "maxStandardDeviation": 10,
+            "measurements": [187697.72, 181701.176, 171231.8],
+            "polarity": "prefers smaller",
+            "unitOfMeasurement": "kB"
+          }
+        ],
+        "testPlanConfiguration": {
+          "configurationId": "1",
+          "configurationName": "Test Scheme Action"
+        }
+      }
+    ]
+  }
+]

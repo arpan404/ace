@@ -19,6 +19,7 @@ Each agent CLI owns its credentials. ace can start its login or hand a pasted AP
 | `apps/relay`              | Self-hosted WebSocket relay with encrypted outbound host/client streams |
 | `packages/secure-channel` | Portable Noise XX handshake, ordered transport and static identity      |
 | `apps/daemon`             | Local SQLite event store and authenticated WebSocket server             |
+| `apps/ios`                | Native SwiftUI/JavaScriptCore spike; Phase 1 held by ADR 0072           |
 | `apps/web`                | React web client; the same bundle runs in the desktop app               |
 | `apps/desktop`            | Electron shell: daemon supervision, notifications, in-app browser       |
 | `packages/projection`     | Pure shared event folds for thread and sidebar views                    |

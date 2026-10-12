@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>iOS Phase 0 visual comparison</title>
+  <style>
+    body {
+      margin: 0;
+      color: var(--foreground, #111);
+      font:
+        15px/1.5 -apple-system,
+        system-ui,
+        sans-serif;
+    }
+    h2 {
+      font-size: 17px;
+      font-weight: 600;
+      margin: 24px 0 8px;
+    }
+    p {
+      color: var(--muted-foreground, #666);
+      margin: 8px 0 16px;
+      font-size: 13px;
+    }
+    .pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      max-width: 800px;
+    }
+    figure {
+      margin: 0;
+      min-width: 0;
+    }
+    figcaption {
+      font-size: 12px;
+      color: var(--muted-foreground, #666);
+      margin-bottom: 8px;
+    }
+    img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 16px;
+      border: 1px solid var(--border, #ddd);
+    }
+    .note {
+      padding: 16px;
+      background: var(--secondary, #f5f5f7);
+      border-radius: 12px;
+      margin-bottom: 20px;
+    }
+  </style>
+  <div class="note">
+    Phase 0 is held at the smoothness gate. Native screenshots use iOS 26.5 and the shared SDK
+    through JavaScriptCore. The right column is the approved HTML reference. Native typography
+    respects Dynamic Type; status labels and markers use their separate shared tokens.
+  </div>
+  <h2>Inbox</h2>
+  <p>
+    One inbox, grouped by canonical daemon state. The stress fixture has one approval and two
+    working trees. Quick-start and the complete machine grouping remain MVP work.
+  </p>
+  <div class="pair">
+    <figure>
+      <figcaption>Native SwiftUI</figcaption>
+      <img
+        src="native-inbox.png"
+        alt="Native inbox showing Needs you, Working, and collapsed Done and Snoozed groups"
+      />
+    </figure>
+    <figure>
+      <figcaption>Approved reference</figcaption>
+      <img src="reference-inbox.png" alt="Approved mobile inbox mockup" />
+    </figure>
+  </div>
+  <h2>Thread</h2>
+  <p>
+    The native screenshot is the 2,000-item stress conversation at its streaming tail. The reference
+    uses a short turn. The floating composer uses native Liquid Glass; the debug counter belongs to
+    the spike.
+  </p>
+  <div class="pair">
+    <figure>
+      <figcaption>Native stress fixture</figcaption>
+      <img src="native-thread.png" alt="Native streaming thread and floating composer" />
+    </figure>
+    <figure>
+      <figcaption>Approved reference</figcaption>
+      <img src="reference-thread.png" alt="Approved mobile thread mockup" />
+    </figure>
+  </div>
+  <h2>Inline approval</h2>
+  <p>
+    The card stays above the composer. Deny, Always here and Allow use the daemon's offered options.
+    The SDK owns durable dispatch and first-answer-wins resolution.
+  </p>
+  <div class="pair">
+    <figure>
+      <figcaption>Native SwiftUI</figcaption>
+      <img src="native-approval.png" alt="Native inline approval card above the composer" />
+    </figure>
+    <figure>
+      <figcaption>Approved reference</figcaption>
+      <img src="reference-approval.png" alt="Approved mobile inline approval mockup" />
+    </figure>
+  </div>
+</html>
