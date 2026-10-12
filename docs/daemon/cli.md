@@ -242,5 +242,5 @@ retention JSON object without changing saved settings.
 The CLI calls #554's [retention API](storage-cleanup.md); it has no filesystem
 inventory or deletion implementation. Whole-tree protection, reviewed file
 identities and recovery remain with that owner. Plans and application require
-host administration; paired read authority can see usage. Compaction is disabled
-by the API and is not exposed as a CLI option.
+host administration; paired read authority can see usage. The API and CLI expose
+no database compaction operation.

@@ -33,7 +33,6 @@ export async function retentionCommand(args: Args, client: Client, signal: Abort
       op: "cleanup.apply",
       planId: args.words[2],
       revision: option(args, "revision"),
-      compact: false,
     });
   } else if (verb === "status") {
     validateArgs(args, [], 3);

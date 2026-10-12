@@ -37,7 +37,6 @@ test("clean previews daemon retention and applies the reviewed batch durably wit
     expect(JSON.parse(applied.stdout)).toMatchObject({
       planId: plan.id,
       state: "complete",
-      compaction: "not_requested",
     });
     await expect(access(old)).rejects.toMatchObject({ code: "ENOENT" });
     expect(await readFile(current, "utf8")).toBe("current");
