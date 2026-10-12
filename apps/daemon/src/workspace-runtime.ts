@@ -206,6 +206,7 @@ export class WorkspaceRuntime {
       result,
     });
     if (
+      op.op === "forge.pr.review-state" ||
       op.op === "forge.pr.activity" ||
       op.op === "forge.pr.list" ||
       op.op === "forge.pr.detail" ||
@@ -345,6 +346,11 @@ export class WorkspaceRuntime {
     return this.commands.run(command, async () => {
       if (!allowed()) return { ok: false, error: "forbidden" };
       const p = command.payload;
+      if (p.type === "forge.hosted.review") {
+        const cwd = this.store.getWorkspacePath(p.workspaceId);
+        if (!cwd) return { ok: false, error: "workspace_not_found" };
+        return this.forge.hostedReview({ ...command, payload: p }, cwd, allowed);
+      }
       const id = "threadId" in p ? p.threadId : "link" in p ? p.link.threadId : undefined;
       if (!id) throw new Error("invalid_command");
       const threadId = ThreadId.parse(id);

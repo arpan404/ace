@@ -44,3 +44,9 @@ The non-gating benchmark workloads cover mapping, unchanged and one-comment-edit
 The daemon routes project-scoped `forge.pr.*` reads through `workspace.request`, cancels reads on socket close and discovers at most 100 active/archived related threads through an indexed association lookup. Browsing never changes association order. `/pull-requests` is the shared web/desktop workspace; project menus and each linked PR's menu open it. URL search parameters retain filters, page, selection and tab. The hosted diff is labelled separately from the thread's local Changes panel. Existing durable forge commands still own link, merge and review actions. Follow-up actions can extend the workspace without requiring a primary thread link.
 
 The public `@ace/forge/testing` entry supplies the existing executable fake `gh` fixture to process tests. The current shared-machine policy requires writing tests without running them locally; CI must verify the final change. No provider sessions or recorder runs are involved.
+
+## Hosted reviews
+
+`GitHubForge.reviews` reads the logged-in viewer, review-thread permissions and GitHub file-viewed marks. It submits commit-bound reviews, replies and conversation comments, edits/deletes the viewer's own comments, and resolves/unresolves hosted threads through the bounded `gh` transport. Hosted inline anchors use `@ace/forge/review-anchor`; they never use a local Changes session.
+
+The daemon stores unsent drafts and a write journal independently of task associations. Accepted submissions remove only unchanged selected drafts. Transport failures retain drafts and a visible uncertain operation; reconciliation reads the original write marker or resulting host state without repeating the mutation. A changed head or a missing hosted diff coordinate refuses submission. Browser summary/composer text survives navigation in local storage.

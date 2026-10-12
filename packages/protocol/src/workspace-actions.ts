@@ -4,6 +4,7 @@ import {
   SourceControlDraft,
   SourceControlDraftInput,
 } from "./source-control-draft.ts";
+import { ForgeHostedReviewCommand } from "./forge-review.ts";
 import { Project } from "./projects.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
@@ -142,6 +143,7 @@ export const WorkspaceActionResult = z.object({
 });
 export type WorkspaceActionResult = z.infer<typeof WorkspaceActionResult>;
 export const WorkspaceCommands = [
+  ForgeHostedReviewCommand,
   z.object({ type: z.literal("thread.move"), threadId: ThreadId, workspaceId: WorkspaceId }),
   z.object({
     type: z.literal("thread.workspace.set"),
