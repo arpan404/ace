@@ -8,6 +8,7 @@ import { lstat, rm } from "node:fs/promises";
 import { z } from "zod";
 import { planService, ServiceEnvironment } from "./plan.ts";
 import { UserService } from "./service.ts";
+import { enableLinger } from "./linger.ts";
 import { runProcess } from "./process.ts";
 import { withInstallLock } from "./files.ts";
 /** OS/environment discovery belongs only in this local I/O boundary. */
@@ -30,10 +31,17 @@ export function localService(dataDir: string) {
 export async function serviceCommand(dataDir: string, args: string[]) {
   assertCompatibleHome(dataDir);
   const action = z.enum(["install", "uninstall", "start", "stop", "status"]).parse(args[0]);
-  if (args.length !== 1) throw new Error("Usage: ace service install|uninstall|start|stop|status");
+  const linger = args[1] === "--linger" && args.length === 2 && action === "install";
+  if (linger && process.platform !== "linux") throw new Error("--linger requires Linux systemd");
+  if (args.length !== 1 && !linger)
+    throw new Error("Usage: ace service install|uninstall|start|stop|status");
   if (action === "install" && !existsSync(join(dataDir, "bin/ace")))
     throw new Error("Install a daemon artifact before registering its service");
-  if (action !== "uninstall") return localService(dataDir).perform(action);
+  if (action !== "uninstall") {
+    const result = await localService(dataDir).perform(action);
+    if (linger) await enableLinger(process.platform, process.getuid?.() ?? -1, runProcess);
+    return { ...result, ...(linger ? { linger: true } : {}) };
+  }
   return withInstallLock(dataDir, async () => {
     if (existsSync(join(dataDir, "update.json")))
       throw new Error("Recover the pending update before uninstalling");

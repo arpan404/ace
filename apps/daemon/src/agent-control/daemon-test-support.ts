@@ -8,12 +8,14 @@ export async function daemonFixture(
   agentControl?: import("../services/options.ts").DaemonOptions["agentControl"],
   options: Pick<
     import("../services/options.ts").DaemonOptions,
-    "accounts" | "workspaceActions"
+    "accounts" | "workspaceActions" | "browser"
   > = {},
+  environment: NodeJS.ProcessEnv = {},
 ) {
   const h = setup();
   const daemon = await startDaemon({
     config: readConfig({
+      ...environment,
       ACE_HOME: join(h.home, "daemon"),
       ACE_PORT: "0",
       ACE_LOG_LEVEL: "silent",
@@ -22,6 +24,7 @@ export async function daemonFixture(
     ...(agentControl ? { agentControl } : {}),
     modelInstances: [],
     ...(options.accounts ? { accounts: options.accounts } : {}),
+    ...(options.browser ? { browser: options.browser } : {}),
     workspaceActions: {
       forgeRunner: () => async () => ({ code: 1, stdout: "offline", truncated: false }),
       ...options.workspaceActions,

@@ -3,6 +3,9 @@ import { Command, CommandId, ThreadId, WorkspaceId, DeviceId } from "@ace/protoc
 import type { AutomationExecutor, ExecutionResult } from "@ace/automations";
 import type { ServiceContext } from "./services/types.ts";
 import { commandContext } from "./commands.ts";
+import { readThreadTree } from "./thread-tree.ts";
+import { treeOutcome } from "./work-outcome.ts";
+import { systemClock } from "./engine/actor.ts";
 
 /** Idempotent native admission; monitors consume whole-tree status, never root completion. */
 export function automationExecutor(context: ServiceContext): AutomationExecutor {
@@ -22,26 +25,34 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
         return;
       }
       let stop = noop;
+      let cancelTimer = noop;
+      let settled = false;
+      let members = new Set<ThreadId>([id]);
       const abort = () => {
+        settled = true;
+        cancelTimer();
         stop();
         signal.removeEventListener("abort", abort);
         reject(signal.reason);
       };
       const inspect = () => {
+        if (settled) return;
         const thread = store.getThread(id);
-        if (
-          !thread ||
-          thread.deletedAt !== undefined ||
-          thread.status.state === "failed" ||
-          thread.status.state === "done"
-        ) {
+        const facts = readThreadTree(context, id);
+        if (facts) members = new Set(facts.map((member) => member.threadId));
+        const outcome = facts && treeOutcome(facts);
+        if (!thread || thread.deletedAt !== undefined || outcome === "failed" || outcome === "ok") {
+          settled = true;
+          cancelTimer();
           stop();
           signal.removeEventListener("abort", abort);
           resolve({
             threadId: id,
-            status: thread?.status.state === "done" ? "succeeded" : "failed",
+            status: outcome === "ok" ? "succeeded" : "failed",
             result:
-              thread?.status.state === "done" ? "Thread completed" : "Thread failed or unavailable",
+              outcome === "ok"
+                ? "Thread tree completed"
+                : "Thread failed, cancelled or unavailable",
           });
         }
       };
@@ -49,15 +60,21 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
         if (
           events.some(
             (event) =>
-              event.threadId === id &&
+              members.has(event.threadId) &&
               (event.payload.type === "thread.updated" ||
-                event.payload.type === "thread.client.updated"),
+                event.payload.type === "thread.client.updated" ||
+                event.payload.type === "queue.updated"),
           )
         )
           inspect();
       });
       signal.addEventListener("abort", abort, { once: true });
-      inspect();
+      const clock = context.options.engine?.clock ?? systemClock;
+      const refresh = () => {
+        inspect();
+        if (!settled) cancelTimer = clock.setTimer(refresh, 500);
+      };
+      refresh();
     });
   return {
     execute(input, signal) {

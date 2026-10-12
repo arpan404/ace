@@ -11,6 +11,53 @@
       "oneOf": [
         {
           "properties": {
+            "kind": {
+              "const": "projects",
+              "type": "string"
+            },
+            "next": {
+              "anyOf": [
+                {
+                  "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "projects": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/Project.json"
+              },
+              "maxItems": 100,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "projects",
+            "next"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "project",
+              "type": "string"
+            },
+            "project": {
+              "$ref": "https://ace.local/protocol/v1/Project.json"
+            }
+          },
+          "required": [
+            "kind",
+            "project"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "defaultIcon": {
               "anyOf": [
                 {

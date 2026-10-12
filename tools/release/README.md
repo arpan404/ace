@@ -32,6 +32,24 @@ node tools/release/src/publication.ts tools/release/dist https://github.com/arpa
 
 Builds write sorted, fixed-metadata tarballs and a file checksum manifest. Repeating a build with identical checkout, lockfile, public key and native inputs must produce identical archive hashes. Sign the exact manifest bytes, including the final newline. Publish all four archives, four manifests, four signatures, install.sh and install.sh.sha256 together. The desktop app should spawn `bin/node ace.mjs start` from this artifact and pass ACE_HOME. It must not load node-pty into Electron itself.
 
+Publication also emits four `ace-cli-VERSION-TARGET.tgz` npm packages, their SHA-256
+sidecars and `npx.json` with the matching commands. Publish them with the signed
+release artifacts. Each package contains the exact verified runtime, native
+dependencies and licenses. It adds a small `ace` bin wrapper with no install scripts,
+registry dependency or provider credentials. The wrapper forwards arguments, stdin,
+signals and exit codes to the bundled Node runtime. [npm's bin contract](https://docs.npmjs.com/cli/v11/configuring-npm/package-json/#bin)
+and [npx](https://docs.npmjs.com/cli/v11/commands/npx/) support direct tarball use:
+
+```sh
+npx --yes https://github.com/arpan404/ace/releases/download/v1.0.0/ace-cli-1.0.0-linux-x64.tgz --help
+```
+
+Select the package matching the host OS and architecture. This invokes the CLI
+without installing a service. Long-lived service installations still use the
+reviewed installer and immutable `ACE_HOME/releases` directory, so npm cache
+eviction cannot remove their runtime. The packages are ready for publication;
+building them does not upload a release or claim an npm registry name.
+
 The first public release needs a reviewed production public key and native Linux inputs. No production authority has been fabricated for development. Key rotation requires an intentional release signed by the old authority before users accept the new pinned key. A stolen signing key requires an out-of-band recovery release and installer announcement.
 
 The Cursor runtime ships as the `@cursor/sdk` 1.0.35 runtime package, its installed dependency and peer closure, and the release target's pinned helper package. The SDK and its subpaths stay external to esbuild; `cursor-sdk-host.mjs` runs in the selected account's supervised process. Staging refuses unsupported targets, conflicting dependency versions, more than 64 graph entries or manifests over 64 KiB. Staging omits TypeScript declarations and source maps, retaining runtime JS, native helpers and license notices. Archive mode normalization preserves executable helpers. Build and publication both extract every completed archive through the supported updater before producing publication metadata. The archive retains the oldest supported updater limits of 2,048 entries and 512 MiB expanded bytes. The offline artifact guard writes and reopens a local SDK checkpoint without authentication or a provider turn.

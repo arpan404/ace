@@ -5,6 +5,12 @@ import { connect, type ConnectionOptions } from "node:tls";
 import { X509Certificate } from "node:crypto";
 import { WebSocket } from "ws";
 import { publicKeyFingerprint } from "./tls-identity.ts";
+import {
+  ClientError,
+  accessResponseError,
+  webSocketTransport,
+  type TransportEvents,
+} from "@ace/client";
 
 /** Handshake pinning happens before HTTP headers or credentials are written. */
 export function pinnedAgent(fingerprint: string, now: () => number = Date.now): Agent {
@@ -29,13 +35,13 @@ export function pinnedAgent(fingerprint: string, now: () => number = Date.now): 
       try {
         const certificate = new X509Certificate(socket.getPeerCertificate().raw);
         if (publicKeyFingerprint(certificate.raw) !== fingerprint)
-          throw new Error("TLS public-key fingerprint mismatch");
+          throw new ClientError("auth", "TLS public-key fingerprint mismatch");
         const at = now();
         if (at < Date.parse(certificate.validFrom) || at >= Date.parse(certificate.validTo))
-          throw new Error("TLS certificate expired or not yet valid");
+          throw new ClientError("auth", "TLS certificate expired or not yet valid");
         finish();
       } catch (error) {
-        finish(error instanceof Error ? error : new Error("TLS pin failed"));
+        finish(error instanceof ClientError ? error : new ClientError("auth", "TLS pin failed"));
       }
     });
     return undefined;
@@ -83,20 +89,25 @@ export async function accessRequest(
           let bytes = 0;
           response.on("data", (chunk: Buffer) => {
             bytes += chunk.length;
-            if (bytes > 1024 * 1024) response.destroy(new Error("Response too large"));
+            if (bytes > 1024 * 1024)
+              response.destroy(new ClientError("limit", "Response too large"));
             else chunks.push(chunk);
           });
           response.on("error", reject);
           response.on("end", () => {
             const body = Buffer.concat(chunks).toString();
             if (response.statusCode !== 200) {
-              reject(new Error(`HTTP ${response.statusCode}: ${body}`));
+              reject(
+                response.statusCode === undefined
+                  ? new ClientError("protocol")
+                  : accessResponseError(response.statusCode),
+              );
               return;
             }
             try {
               resolve(JSON.parse(body));
             } catch {
-              reject(new Error("Invalid JSON response"));
+              reject(new ClientError("protocol", "Invalid JSON response"));
             }
           });
         },
@@ -105,6 +116,10 @@ export async function accessRequest(
       request.on("error", reject);
       request.end(data);
     });
+  } catch (error) {
+    throw error instanceof ClientError
+      ? error
+      : new ClientError("offline", "Access transport unavailable");
   } finally {
     agent?.destroy();
   }
@@ -141,4 +156,31 @@ export function ticketSocket(
   const socket = new WebSocket(url, { agent });
   socket.once("close", () => agent.destroy());
   return socket;
+}
+/** The SDK owns reconnect; pin rejection must reach it before generic socket error handling. */
+export function pinnedSocketTransport(origin: string, fingerprint: string) {
+  let observer: TransportEvents | undefined;
+  const transport = webSocketTransport(() => {
+    const current = observer;
+    const socket = ticketSocket(origin, fingerprint);
+    socket.on("error", (error) => {
+      if (observer === current && error instanceof ClientError && error.code === "auth")
+        current?.close(4001);
+    });
+    return socket;
+  });
+  return {
+    supportsBinary: true,
+    open(events: TransportEvents) {
+      observer = events;
+      transport.open(events);
+    },
+    send(text: string) {
+      transport.send(text);
+    },
+    close() {
+      observer = undefined;
+      transport.close();
+    },
+  };
 }

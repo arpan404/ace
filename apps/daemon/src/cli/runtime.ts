@@ -8,8 +8,14 @@ import { result } from "./io.ts";
 export async function runtimeCommand(args: Args, config: Config) {
   const command = args.words[0] ?? "start";
   if (command === "service") {
-    validateArgs(args, [], 2, 3);
-    await result(args, await serviceCommand(config.dataDir, args.words.slice(1)));
+    validateArgs(args, ["linger"], 2, 3);
+    await result(
+      args,
+      await serviceCommand(config.dataDir, [
+        ...args.words.slice(1),
+        ...(args.flags.linger ? ["--linger"] : []),
+      ]),
+    );
     return;
   }
   validateArgs(args, [], 0, 1);
@@ -17,6 +23,9 @@ export async function runtimeCommand(args: Args, config: Config) {
   const { startDaemon, runDaemonProcess } = await import("../index.ts");
   const daemon = await runDaemonProcess(startDaemon, {
     config,
+    ...(command === "serve"
+      ? { browser: { backendPreference: async () => "headless" as const } }
+      : {}),
     handler: development ? stubHandler({ development }) : undefined,
     preview: { host: "127.0.0.1", wildcardHost: "preview.localhost", port: 0 },
     toolkits: [],

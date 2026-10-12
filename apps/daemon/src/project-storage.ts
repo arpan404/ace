@@ -103,6 +103,21 @@ export class ProjectStorage {
         .map(decodeProjectRow),
     );
   }
+  page(after: WorkspaceId | undefined, limit: number) {
+    const rows = this.store.atomic((db) =>
+      db
+        .prepare(`SELECT w.id,w.name,w.path,
+      (SELECT icon FROM workspace_metadata WHERE workspace_id=w.id) AS icon,
+      (SELECT default_icon FROM workspace_metadata WHERE workspace_id=w.id) AS defaultIcon
+      FROM workspaces w WHERE w.id>? AND NOT EXISTS
+      (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
+      ORDER BY w.id LIMIT ?`)
+        .all(after ?? "", limit + 1)
+        .map(decodeProjectRow),
+    );
+    const projects = rows.slice(0, limit);
+    return { projects, next: rows.length > limit ? (projects.at(-1)?.id ?? null) : null };
+  }
   recentHints(limit: number) {
     return this.store.atomic((db) =>
       db
