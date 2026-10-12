@@ -4,6 +4,11 @@ import { PinnedDirectory } from "@ace/workspace";
 import { ThreadId, type StorageKind } from "@ace/protocol";
 import type { OwnedStorageCandidate, StorageOwner } from "./types.ts";
 import { storageProtections } from "./ownership.ts";
+import { inspectSkillRoot, removeSkillRoot } from "./skill-roots.ts";
+import {
+  builtinSkillSessionsDirectory as sessions,
+  isBuiltinSkillRootName,
+} from "../builtin-skill-roots.ts";
 
 export function storageId(kind: StorageKind, key: string): string {
   return `${kind}:${createHash("sha256").update(key).digest("hex")}`;
@@ -102,6 +107,55 @@ export class StorageFiles {
       directory.closeSync();
     }
   }
+  /** Built-in skill session roots are whole-directory caches, protected by their process lease. */
+  inspectSkillRoot(name: string): OwnedStorageCandidate {
+    const { directory } = this.parent(`${sessions}/${name}`);
+    try {
+      const facts = inspectSkillRoot(directory, name);
+      return {
+        id: storageId("caches", `${sessions}/${name}`),
+        kind: "caches",
+        label: `${sessions}/${name}`,
+        bytes: facts.bytes,
+        modifiedAt: facts.modifiedAt,
+        threadIds: [],
+        fingerprint: facts.fingerprint,
+        protections: facts.protections,
+        eligibleReason: "expired",
+        target: { type: "skill_root", name },
+      };
+    } finally {
+      directory.closeSync();
+    }
+  }
+  removeSkillRoot(name: string, fingerprint: string): void {
+    const current = this.inspectSkillRoot(name);
+    if (current.fingerprint !== fingerprint || current.protections.length)
+      throw new Error("storage_item_changed");
+    const { directory } = this.parent(`${sessions}/${name}`);
+    try {
+      removeSkillRoot(directory, name);
+    } finally {
+      directory.closeSync();
+    }
+  }
+  private skillRoots(candidates: OwnedStorageCandidate[]): boolean {
+    let directory: PinnedDirectory | undefined;
+    try {
+      directory = this.parent(`${sessions}/.scan`).directory;
+      for (const name of directory.names()) {
+        if (!isBuiltinSkillRootName(name)) continue;
+        if (candidates.length >= 256) return false;
+        candidates.push(this.inspectSkillRoot(name));
+      }
+      return true;
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+      return true;
+    } finally {
+      directory?.closeSync();
+    }
+  }
   inventory(): { candidates: OwnedStorageCandidate[]; complete: boolean } {
     const candidates: OwnedStorageCandidate[] = [];
     let visited = 0;
@@ -158,6 +212,7 @@ export class StorageFiles {
         directory?.closeSync();
       }
     }
+    complete = this.skillRoots(candidates) && complete;
     return { candidates, complete };
   }
   remove(path: string, kind: StorageKind, fingerprint: string): void {

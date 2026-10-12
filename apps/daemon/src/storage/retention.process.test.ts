@@ -1,7 +1,10 @@
-import { access, readFile, writeFile, rename, symlink } from "node:fs/promises";
-import { join } from "node:path";
+import { access, readdir, readFile, writeFile, rename, symlink, utimes } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { afterEach, expect, test } from "vitest";
+import { prepareBuiltinSkills } from "@ace/plugins";
 import { storageFixture } from "./test-support.ts";
+import { createBuiltinSkillRoot } from "../builtin-skill-roots.ts";
+import { builtinSkillProcessLease } from "../builtin-skill-processes.ts";
 
 const fixtures: Awaited<ReturnType<typeof storageFixture>>[] = [];
 afterEach(async () => {
@@ -191,4 +194,30 @@ test("cleanup removes reviewed bytes and leaves durable writes available", async
   expect(await f.storage.apply("owner", plan.id, plan.revision)).toEqual(
     f.storage.status("owner", plan.id),
   );
+});
+
+test("an expired skill root is removed only once its process lease is released", async () => {
+  const f = await setup();
+  const released = await createBuiltinSkillRoot(f.root);
+  await prepareBuiltinSkills("codex", released);
+  builtinSkillProcessLease(released).close();
+  const live = await createBuiltinSkillRoot(f.root);
+  builtinSkillProcessLease(live); // Owned by this still-running process.
+  for (const root of [released, live]) {
+    for (const entry of await readdir(root, { recursive: true }))
+      await utimes(join(root, entry), new Date(1), new Date(1));
+    await utimes(root, new Date(1), new Date(1));
+  }
+  const plan = await f.storage.plan("owner", {
+    op: "cleanup.plan",
+    kinds: ["caches"],
+    forceItems: [],
+  });
+  const item = (root: string) =>
+    plan.items.find((entry) => entry.label === `builtin-skill-sessions/${basename(root)}`);
+  expect(item(released)).toMatchObject({ disposition: "remove", reasons: ["expired"] });
+  expect(item(live)).toMatchObject({ disposition: "protect", reasons: ["leased"] });
+  expect((await f.storage.apply("owner", plan.id, plan.revision)).state).toBe("complete");
+  await expect(access(released)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await readFile(join(live, "skill-processes.json"), "utf8")).toContain('"closed":false');
 });

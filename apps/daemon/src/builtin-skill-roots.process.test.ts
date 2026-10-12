@@ -195,6 +195,9 @@ test("changed UID or group retains a live provider, while a recycled PID does no
   }
 });
 
+const named = (letter: string, count: number) =>
+  Array.from({ length: count }, (_, index) => `session-${letter}${String(index).padStart(5, "0")}`);
+
 test("a retained prefix cannot starve later reclaimable roots, and each restart does bounded work", async () => {
   const dataDir = await mkdtemp(join(tmpdir(), "ace-skill-rotation-"));
   const base = join(dataDir, "builtin-skill-sessions");
@@ -203,8 +206,6 @@ test("a retained prefix cannot starve later reclaimable roots, and each restart 
       () => true,
       () => false,
     );
-  const named = (letter: string, count: number) =>
-    Array.from({ length: count }, (_, index) => `session-${letter}${String(index).padStart(5, "0")}`);
   // Every recorded provider has exited, so only lease evidence decides.
   const exited = { ...skillProcessRuntime, identity: () => undefined, groupGone: () => true };
   try {

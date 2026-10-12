@@ -12,6 +12,7 @@ export const StorageTarget = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thread"), threadId: z.string() }),
   z.object({ type: z.literal("attachment"), hash: z.string().regex(/^[a-f0-9]{64}$/) }),
   z.object({ type: z.literal("file"), path: z.string().max(4096) }),
+  z.object({ type: z.literal("skill_root"), name: z.string().regex(/^session-[A-Za-z0-9]{6}$/) }),
   z.object({
     type: z.literal("worktree"),
     repo: z.string().max(4096),

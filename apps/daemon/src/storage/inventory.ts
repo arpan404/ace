@@ -179,6 +179,8 @@ export class StorageInventory {
         return this.attachment(target.hash);
       case "file":
         return this.files.inspect(target.path, kind);
+      case "skill_root":
+        return this.files.inspectSkillRoot(target.name);
       case "worktree":
         return this.worktree(target.repo, target.path);
     }
