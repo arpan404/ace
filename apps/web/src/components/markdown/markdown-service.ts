@@ -26,7 +26,7 @@ export const markdownService = new MarkdownStore({
       else localStreams.release(stream);
     },
     // Releasing a stream the worker never held starts it and costs nothing more.
-    warm: () => void markdownWorker.run({ release: "" }).catch(() => {}),
+    warm: () => markdownWorker.run({ release: "" }),
   },
   // Enough for the messages a thread opens on; a long answer waits for the worker as before.
   cold: { total: 64 * 1024, each: 16 * 1024 },

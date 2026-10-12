@@ -15,6 +15,8 @@ function harness(interval = 80, parkedWeight?: number, cold?: { total: number; e
   const released: string[] = [];
   const held: (() => Promise<StreamReply>)[] = [];
   let warmed = 0;
+  /** The worker's answer to the warm-up; held until the test lets it through. */
+  const warmUp = Promise.withResolvers<void>();
   const store = new MarkdownStore({
     backend: {
       parallel: true,
@@ -32,7 +34,10 @@ function harness(interval = 80, parkedWeight?: number, cold?: { total: number; e
         released.push(stream);
         registry.release(stream);
       },
-      warm: () => void warmed++,
+      warm() {
+        warmed++;
+        return warmUp.promise;
+      },
     },
     now: () => now,
     schedule(delayMs, run) {
@@ -55,6 +60,11 @@ function harness(interval = 80, parkedWeight?: number, cold?: { total: number; e
     unwatch,
     notified: () => notified,
     warmed: () => warmed,
+    /** The worker answers the warm-up ping. */
+    warmUpAnswered: async () => {
+      warmUp.resolve();
+      await warmUp.promise;
+    },
     /** The worker answers the oldest job; the store has handled the answer when this resolves. */
     async reply() {
       // The store's own handler was attached first, so it has run once this await resumes.
@@ -254,37 +264,75 @@ test("updates come 10 to 20 times a second: slower when they cost more, and when
 
 const cold = { total: 100, each: 60 };
 
-test("while the worker starts, a finished message is shown at once and the worker is started", () => {
+/** A view's first render and commit: build in place if it may, then keep it and ask for it. */
+function mount(store: MarkdownStore, key: string, text: string) {
+  const doc = store.read(key) ?? store.buildCold(key, text);
+  store.watch(key, () => {});
+  if (doc && !store.read(key)) store.adopt(key, text, doc);
+  store.want(key, text, true);
+  return doc;
+}
+
+test("while the worker starts, a finished message shows on its first render and the worker starts", () => {
   const { store, jobs, warmed } = harness(80, undefined, cold);
-  const doc = store.readOrBuild("x", "# Title\n\nBody");
+  const doc = store.buildCold("x", "# Title\n\nBody");
   expect(doc?.blocks.map((block) => block.token.type)).toEqual(["heading", "paragraph"]);
   expect(doc?.settled).toBe(2);
-  // Reading again during the same render returns the same document.
-  expect(store.readOrBuild("x", "# Title\n\nBody")).toBe(doc);
-  expect(warmed()).toBe(1);
-  // Asking for it once mounted sends the worker nothing: it is already built.
+  // Building changes nothing until the view keeps it.
+  expect(store.read("x")).toBeUndefined();
+  expect(warmed()).toBe(0);
+  if (!doc) throw new Error("Expected a document built in place");
   store.watch("x", () => {});
+  store.adopt("x", "# Title\n\nBody", doc);
   store.want("x", "# Title\n\nBody", true);
-  expect(jobs).toHaveLength(0);
+  // Kept as the stream's document: the worker is started, but never asked for this text.
   expect(store.read("x")).toBe(doc);
+  expect(warmed()).toBe(1);
+  expect(jobs).toHaveLength(0);
 });
 
 test("finished messages build in place only within the cold budget, each and in all", () => {
   const { store } = harness(80, undefined, cold);
-  expect(store.readOrBuild("long", "x".repeat(61))).toBeUndefined();
-  expect(store.readOrBuild("a", "a".repeat(60))).toBeDefined();
-  expect(store.readOrBuild("b", "b".repeat(40))).toBeDefined();
-  expect(store.readOrBuild("c", "c")).toBeUndefined();
+  expect(mount(store, "long", "x".repeat(61))).toBeUndefined();
+  expect(mount(store, "a", "a".repeat(60))).toBeDefined();
+  expect(mount(store, "b", "b".repeat(40))).toBeDefined();
+  expect(mount(store, "c", "c")).toBeUndefined();
 });
 
-test("once the worker has answered, new messages are built there, not in place", async () => {
+test("once the worker has answered a job, new messages are built there, not in place", async () => {
   const { store, reply, jobs } = harness(80, undefined, cold);
   store.want("m", "Streaming", false);
   await reply();
-  expect(store.readOrBuild("later", "Done.")).toBeUndefined();
-  store.watch("later", () => {});
-  store.want("later", "Done.", true);
+  expect(mount(store, "later", "Done.")).toBeUndefined();
   expect(jobs.at(-1)).toEqual({ stream: "later", at: 0, append: "Done.", final: true });
+});
+
+test("once the worker has answered its warm-up, new messages are built there", async () => {
+  const { store, jobs, warmUpAnswered } = harness(80, undefined, cold);
+  expect(mount(store, "first", "First.")).toBeDefined();
+  expect(jobs).toHaveLength(0);
+  await warmUpAnswered();
+  expect(mount(store, "second", "Second.")).toBeUndefined();
+  expect(jobs.at(-1)).toMatchObject({ stream: "second", at: 0, final: true });
+});
+
+test("a message built in place whose text then changes is caught up by the worker", async () => {
+  const { store, reply, jobs } = harness(80, undefined, cold);
+  mount(store, "edited", "First draft.");
+  store.want("edited", "First draft.\n\nThen a second paragraph.", true);
+  // The worker never held the text built in place: it asks for the whole text, then has it.
+  expect(jobs[0]).toMatchObject({
+    stream: "edited",
+    at: 12,
+    append: "\n\nThen a second paragraph.",
+  });
+  await reply();
+  expect(jobs[1]).toMatchObject({ stream: "edited", at: 0 });
+  await reply();
+  expect(store.read("edited")?.blocks.map((block) => block.token.raw.trim())).toEqual([
+    "First draft.",
+    "Then a second paragraph.",
+  ]);
 });
 
 test("the same finished text read through two mounts renders the same document from the cache", async () => {
@@ -305,7 +353,7 @@ test("a message that finishes while its first streamed update is with the worker
   const { store, reply, jobs, text } = harness(80, undefined, cold);
   store.want("m", "Para one", false);
   // Finished before the worker first answered: building it here would be overwritten.
-  expect(store.readOrBuild("m", "Para one.\n\nPara two.")).toBeUndefined();
+  expect(store.buildCold("m", "Para one.\n\nPara two.")).toBeUndefined();
   store.want("m", "Para one.\n\nPara two.", true);
   await reply();
   await reply();

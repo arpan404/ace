@@ -21,8 +21,8 @@ export interface MarkdownBackend {
   local(job: StreamJob): StreamReply;
   /** Drop the worker's parser for a stream no view shows any more. */
   release(stream: string): void;
-  /** Start the worker now, ahead of the first job it will get. */
-  warm?(): void;
+  /** Start the worker now, ahead of the first job it will get; settles once it has answered. */
+  warm?(): Promise<unknown>;
 }
 
 export interface MarkdownStoreOptions {
@@ -79,7 +79,7 @@ export class MarkdownStore {
    * session, so a row that mounts again shows its blocks at once.
    */
   private parked: LruCache<string, Stream>;
-  /** Whether the worker has answered once; until then small finished texts build in place. */
+  /** Whether the worker has answered once (a job or the warm-up); until then small finished texts build in place. */
   private warm = false;
   /** Whether a job, or a warm-up, has gone to the worker. */
   private started = false;
@@ -129,35 +129,49 @@ export class MarkdownStore {
     return (this.live.get(key) ?? this.parked.get(key))?.doc;
   }
   /**
-   * The document to show, or, while the worker is still starting, finished `text` built here
-   * at once (within the cold budget) and kept as the stream's document. Repeated calls return
-   * the same document, so a view may call this while rendering.
+   * While the worker is still starting: finished `text` built here, within the cold budget, for
+   * a stream the worker has never been sent. It changes nothing in the store (a view may call it
+   * while rendering); `adopt` keeps it once the view has committed.
    */
-  readOrBuild(key: string, text: string): MarkdownDoc | undefined {
-    const shown = this.read(key);
+  buildCold(key: string, text: string): MarkdownDoc | undefined {
     const { backend, cold } = this.options;
-    if (shown || this.warm || !backend.parallel || !cold || !text) return shown;
+    if (this.warm || !backend.parallel || !cold || !text || this.read(key)) return undefined;
     if (text.length > cold.each || text.length > this.coldLeft) return undefined;
     // A stream with a job on its way is the worker's: its reply would replace this document.
     const known = this.live.get(key) ?? this.parked.get(key);
     if (known?.sent || known?.busy) return undefined;
     const reply = backend.local({ stream: key, at: 0, append: text, final: true });
     if ("resync" in reply) return undefined;
+    return { blocks: reply.settled, settled: reply.settled.length };
+  }
+  /**
+   * Keep a document `buildCold` made for `text` as the stream's own, so the worker is never
+   * asked for it, and start the worker for what comes next.
+   */
+  adopt(key: string, text: string, doc: MarkdownDoc): void {
+    const known = this.live.get(key) ?? this.parked.get(key);
+    if (known?.doc || known?.sent || known?.busy) return;
     this.coldLeft -= text.length;
     if (!this.started) {
       this.started = true;
-      backend.warm?.();
+      this.options.backend.warm?.().then(
+        () => {
+          this.warm = true;
+        },
+        () => {},
+      );
     }
     const stream = known ?? this.fresh(key);
-    stream.settled = reply.settled.slice();
-    stream.doc = { blocks: reply.settled, settled: reply.settled.length };
+    stream.settled = doc.blocks.slice();
+    stream.doc = doc;
     // The worker never held this stream, and a final job leaves nothing to release.
     stream.sent = { text, final: true };
-    if (!this.live.has(key)) {
+    if (this.live.has(key)) {
+      for (const listener of stream.listeners) listener();
+    } else {
       stream.weight = text.length * 4 + 256;
       this.parked.set(key, stream);
     }
-    return stream.doc;
   }
   /** Ask for `text`'s document in this stream; `final` once no more text will come. */
   want(key: string, text: string, final: boolean): void {

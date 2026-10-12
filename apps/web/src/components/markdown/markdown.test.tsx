@@ -142,7 +142,7 @@ test("a streamed answer, once finished, has the same readable content as its who
   }
 });
 
-test("a message never shows its markdown source, whether or not the renderer has loaded", async () => {
+test("a message shows its rendered text and never its markdown source", async () => {
   const view = render(<Prose text="**New thread message**" />);
   expect(view.container.textContent).not.toContain("**New thread message**");
   expect(await screen.findByText("New thread message")).toBeTruthy();

@@ -17,14 +17,17 @@ export function useMarkdown(text: string, stream?: string, final = true): Markdo
     (changed: () => void) => markdownService.watch(key, changed),
     [key],
   );
-  // A finished message reads at once even while the worker starts (`readOrBuild`).
-  const read = useCallback(
-    () => (final ? markdownService.readOrBuild(key, text) : markdownService.read(key)),
-    [key, text, final],
+  const read = useCallback(() => markdownService.read(key), [key]);
+  const stored = useSyncExternalStore(subscribe, read, read);
+  // While the worker starts, a finished message is built here so it shows on this render; the
+  // store keeps it once the view has committed.
+  const cold = useMemo(
+    () => (stored || !final ? undefined : markdownService.buildCold(key, text)),
+    [stored, final, key, text],
   );
-  const doc = useSyncExternalStore(subscribe, read, read);
   useEffect(() => {
+    if (cold) markdownService.adopt(key, text, cold);
     markdownService.want(key, text, final);
-  }, [key, text, final]);
-  return doc;
+  }, [cold, key, text, final]);
+  return stored ?? cold;
 }
