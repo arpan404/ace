@@ -1,4 +1,4 @@
-import type { QueuedMessage } from "@ace/protocol";
+import type { Attachment, QueuedMessage } from "@ace/protocol";
 import { readJson, writeJson } from "@ace/ui-core";
 import {
   ArrowBendUpRightIcon,
@@ -17,6 +17,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import type { PendingQueued } from "./queued-pending.ts";
+import { QueuedAttachments } from "./queued-attachments.tsx";
 import { queuedText, type QueueControls } from "./use-queue.ts";
 
 const Edit = deferredComponent(() =>
@@ -26,11 +27,12 @@ const collapsedSchema = z.boolean();
 const handleStyle =
   "focus-ring size-6 shrink-0 cursor-grab rounded-sm text-subtle-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing aria-disabled:cursor-default aria-disabled:opacity-40";
 
-/** A compact, bounded tray sharing the composer's width and top edge. */
+/** A bounded queue unfolding from the bottom of the composer. */
 export function QueuedTray(props: {
   threadId: string;
   queue: QueueControls;
   pending: readonly PendingQueued[];
+  attachments?: readonly Attachment[];
   steerReason?: string | undefined;
 }) {
   const { queue } = props;
@@ -95,7 +97,7 @@ export function QueuedTray(props: {
       {(count > 0 || queue.failed) && (
         <section
           aria-label="Message queue"
-          className="glass relative z-10 -mb-4 w-full rounded-t-xl border border-sidebar-border pb-4 text-ui text-muted-foreground"
+          className="fx-queue-in w-full rounded-b-xl border-t border-sidebar-border pb-1 text-ui text-muted-foreground"
         >
           <button
             type="button"
@@ -107,7 +109,7 @@ export function QueuedTray(props: {
               setCollapsed(next);
               writeJson(storage, key, next);
             }}
-            className="focus-ring-inset flex h-(--row-height) w-full items-center gap-2 rounded-t-xl px-3 hover:bg-accent/50"
+            className="focus-ring-inset flex h-(--row-height) w-full items-center gap-2 px-3 hover:bg-accent/50"
           >
             <Icon icon={ListNumbersIcon} size={14} />
             <span>Queued</span>
@@ -201,9 +203,16 @@ export function QueuedTray(props: {
                     >
                       <Icon icon={DotsSixVerticalIcon} size={14} />
                     </button>
-                    <span className="min-w-0 flex-1 truncate px-1" title={text}>
-                      {text}
-                    </span>
+                    <div className="min-w-0 flex-1 px-1">
+                      <p className="truncate" title={text}>
+                        {text}
+                      </p>
+                      <QueuedAttachments
+                        threadId={props.threadId}
+                        context={message.context}
+                        metadata={props.attachments ?? []}
+                      />
+                    </div>
                     {saving && <span className="text-xs">Saving…</span>}
                     {ambiguous && <span className="text-xs">May have been sent</span>}
                     <IconButton

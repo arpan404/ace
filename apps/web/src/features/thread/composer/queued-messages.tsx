@@ -1,3 +1,5 @@
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { useThreadSources } from "../sources/index.ts";
 import { QueuedTray } from "./queued.tsx";
 import { useThread } from "@ace/client-react";
 import type { ThreadReader } from "@ace/client";
@@ -11,6 +13,22 @@ const queueOf = (reader: ThreadReader) => reader.queue;
 export function QueuedMessages(props: { threadId: string }) {
   const queue = useQueue(props.threadId);
   const pending = useQueuedPending(props.threadId, queue.page, queue.retained);
+  const sources = useThreadSources();
+  const hashes = [
+    ...new Set(
+      [...queue.retained, ...pending].flatMap(
+        (message) => message.context?.attachments.map((file) => file.sha256) ?? [],
+      ),
+    ),
+  ]
+    .toSorted()
+    .join();
+  const attachments = useDaemonQuery({
+    queryKey: ["thread", "queued-attachments", props.threadId, hashes],
+    enabled: !!hashes,
+    read: (_client, signal) =>
+      sources.context.list({ id: props.threadId, workspaceId: "", title: "" }, signal),
+  });
   const hold = useThread(props.threadId, ["queue"], queueOf);
   const active = !!useActiveRootRun(props.threadId);
   const stopping = useStopping(props.threadId);
@@ -30,6 +48,7 @@ export function QueuedMessages(props: { threadId: string }) {
       threadId={props.threadId}
       queue={queue}
       pending={pending}
+      attachments={attachments.data ?? []}
       steerReason={steerReason}
     />
   );
