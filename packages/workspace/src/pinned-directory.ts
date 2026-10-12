@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import {
   renameAt,
+  removeDirectoryAt,
   unlinkAt,
   openRoot,
   openAt,
@@ -187,6 +188,9 @@ export class PinnedDirectory {
   }
   unlink(name: string): void {
     unlinkAt(this.fd, name);
+  }
+  removeDirectory(name: string): void {
+    removeDirectoryAt(this.fd, name);
   }
   closeSync(): void {
     closeSync(this.fd);

@@ -28,6 +28,7 @@ const Binding = z.object({
     output: z.void(),
   }),
   unlinkAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
+  removeDirectoryAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
   renameAt: z.function({ input: [z.number().int(), z.string(), z.string()], output: z.void() }),
   mkdirAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
   statAt: z.function({
@@ -182,6 +183,14 @@ export function pipeDescriptors() {
 export function unlinkAt(parent: number, name: string): void {
   try {
     binding().unlinkAt(parent, name);
+  } catch (error) {
+    nativeFailure(error);
+  }
+}
+/** Removes an empty child directory; a symlink of that name is never followed. */
+export function removeDirectoryAt(parent: number, name: string): void {
+  try {
+    binding().removeDirectoryAt(parent, name);
   } catch (error) {
     nativeFailure(error);
   }
