@@ -4,17 +4,17 @@ struct ComposerView: View {
     let state: String
     let modelName: String
     let canSteer: Bool
-    let send: (String, String) -> Void
+    let send: (String, String) async -> Bool
     let stop: () -> Void
     let inputBegan: () -> Void
-    @State private var text = ""
+    @State private var draft = ComposerDraft()
     @State private var delivery = "queue"
     @State private var feedback = 0
     var body: some View {
         HStack(alignment: .bottom, spacing: AceTheme.Spacing.md) {
-            NativeTextInput(text: $text, inputBegan: inputBegan)
+            NativeTextInput(text: $draft.text, inputBegan: inputBegan)
                 .overlay(alignment: .topLeading) {
-                    if text.isEmpty { Text("Steer or follow up…").aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.subtleForeground).allowsHitTesting(false) }
+                    if draft.text.isEmpty { Text("Steer or follow up…").aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.subtleForeground).allowsHitTesting(false) }
                 }
             Menu {
                 Button("Queue follow-up", systemImage: "text.line.last.and.arrowtriangle.forward") { delivery = "queue" }
@@ -26,15 +26,15 @@ struct ComposerView: View {
             }.accessibilityLabel("Delivery: \(delivery). Model: \(modelName)")
             Button {
                 feedback += 1
-                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { stop() }
-                else { send(text, delivery); text = "" }
+                if draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { stop() }
+                else { Task { await draft.submit(delivery: delivery, persist: send) } }
             } label: {
-                Image(systemName: text.isEmpty && state == "working" ? "stop.fill" : "arrow.up")
+                Image(systemName: draft.text.isEmpty && state == "working" ? "stop.fill" : "arrow.up")
                     .aceFont(AceTheme.Typography.title, relativeTo: .body).frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
                     .foregroundStyle(AceTheme.Colours.background).background(AceTheme.Colours.foreground, in: Circle())
             }
-            .disabled(text.isEmpty && state != "working")
-            .accessibilityLabel(text.isEmpty && state == "working" ? "Stop whole agent tree" : "Send message")
+            .disabled(draft.saving || (draft.text.isEmpty && state != "working"))
+            .accessibilityLabel(draft.saving ? "Saving your message" : draft.text.isEmpty && state == "working" ? "Stop whole agent tree" : "Send message")
             .accessibilityIdentifier("composer.send")
         }
         .padding(.leading, AceTheme.Spacing.lg).padding(.trailing, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.sm)

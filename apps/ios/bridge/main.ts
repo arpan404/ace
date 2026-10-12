@@ -1,9 +1,10 @@
 import { host } from "./polyfills.ts";
 import { ClientCore, type TransportEvents, type Lease, type ThreadSource } from "@ace/client";
 import { z } from "zod";
-import { CommandPayload, DeviceId, HostId } from "@ace/protocol";
+import { DeviceId, HostId } from "@ace/protocol";
 import { call, scheduler } from "./host.ts";
 import { PatchPump, followInbox, followThread } from "./patches.ts";
+import { dispatchCommand } from "./commands.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -14,7 +15,11 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("open"), threadId: z.string().min(1) }),
   z.object({ type: z.literal("back") }),
   z.object({ type: z.literal("network"), online: z.boolean() }),
-  z.object({ type: z.literal("command"), payload: CommandPayload }),
+  z.object({
+    type: z.literal("command"),
+    payload: z.unknown(),
+    requestId: z.string().min(1).max(64),
+  }),
   z.object({ type: z.literal("retry") }),
 ]);
 let client: ClientCore | undefined;
@@ -153,7 +158,17 @@ async function hydrate(
 function action(json: string): void {
   try {
     const value = Action.parse(JSON.parse(json));
-    if (!client) throw new Error("Client not started");
+    if (!client) {
+      if (value.type === "command")
+        pump.put(`admission:${value.requestId}`, () => ({
+          type: "admission",
+          id: value.requestId,
+          ok: false,
+          message: "Client not started. Your draft is still available.",
+        }));
+      else error();
+      return;
+    }
     switch (value.type) {
       case "open":
         historyAbort?.abort();
@@ -184,17 +199,7 @@ function action(json: string): void {
         client.reconnectNow();
         break;
       case "command":
-        // The SDK owns persistence-before-send and first-answer-wins receipts.
-        void client.command(value.payload).then(
-          (result) =>
-            pump.put("receipt", () => ({
-              type: "receipt",
-              id: result.commandId,
-              ok: result.ok,
-              message: result.ok ? "" : (result.error ?? "Request refused"),
-            })),
-          error,
-        );
+        void dispatchCommand(client, value.payload, value.requestId, pump);
         break;
     }
   } catch {

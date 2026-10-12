@@ -54,6 +54,7 @@ enum BridgePatch: Decodable, Sendable {
     case pending(String, PendingRow?)
     case error(String)
     case receipt(String, Bool, String)
+    case admission(String, Bool, String)
 
     private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index }
     init(from decoder: any Decoder) throws {
@@ -81,6 +82,7 @@ enum BridgePatch: Decodable, Sendable {
         case "pending": self = .pending(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(PendingRow.self, forKey: .row))
         case "error": self = .error(try box.decode(String.self, forKey: .message))
         case "receipt": self = .receipt(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown bridge patch")
         }
     }

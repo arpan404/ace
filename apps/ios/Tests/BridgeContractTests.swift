@@ -1,9 +1,37 @@
 import Foundation
 import Testing
+import SQLite3
 @testable import Ace
 
 /// Runs against the real local socket fixture. No provider CLI is invoked.
 @Suite(.serialized) @MainActor struct BridgeContractTests {
+    @Test func sdkLimitAndSQLiteFailurePreserveTheDraftAndACommittedRetryClearsIt() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = ClientModel(now: { 0 })
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        model.connect(target: try target(), directory: root)
+        try await until { model.connection == "ready" }
+        model.open("ios-stream")
+        try await until { model.thread?.loaded == true }
+        model.network(false)
+        try await until { model.connection == "offline" }
+        let draft = ComposerDraft()
+        draft.text = String(repeating: "x", count: 1_100_000)
+        await draft.submit(delivery: "queue") { await model.send($0, delivery: $1) }
+        #expect(draft.text.count == 1_100_000)
+        #expect(model.pending.isEmpty)
+        let text = "SQLite failure draft \(UUID().uuidString)"
+        draft.text = text
+        try sql("CREATE TRIGGER reject_records BEFORE INSERT ON records BEGIN SELECT RAISE(ABORT,'contract write failure'); END;", in: root)
+        await draft.submit(delivery: "queue") { await model.send($0, delivery: $1) }
+        #expect(draft.text == text)
+        #expect(try DurableStore(url: database(in: root)).perform("storage.records", input: Data("null".utf8)) == "[]")
+        try sql("DROP TRIGGER reject_records;", in: root)
+        await draft.submit(delivery: "queue") { await model.send($0, delivery: $1) }
+        #expect(draft.text.isEmpty)
+        let records = try DurableStore(url: database(in: root)).perform("storage.records", input: Data("null".utf8))
+        #expect(records.contains(text))
+    }
     @Test func oversizedDetailsKeepCanonicalWorkingStateAndExactApprovalActions() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { 0 })
@@ -61,7 +89,7 @@ import Testing
         original.network(false)
         try await until { original.connection == "offline" }
         let text = "Offline bridge contract \(UUID().uuidString)"
-        original.send(text, delivery: "queue")
+        #expect(await original.send(text, delivery: "queue"))
         try await until { original.pending.values.contains { $0.text == text && $0.state == "sent" } }
         await original.disconnectAndWait()
         let restored = ClientModel(now: { 0 })
@@ -95,6 +123,12 @@ import Testing
     private func database(in root: URL) -> URL {
         (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).first { $0.pathExtension == "sqlite" }) ?? root
     }
+    private func sql(_ statement: String, in root: URL) throws {
+        var handle: OpaquePointer?
+        guard sqlite3_open(database(in: root).path, &handle) == SQLITE_OK else { throw ContractError.database }
+        defer { sqlite3_close(handle) }
+        guard sqlite3_exec(handle, statement, nil, nil, nil) == SQLITE_OK else { throw ContractError.database }
+    }
     private func until(_ label: String = "condition", _ condition: () -> Bool) async throws {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(25))
@@ -104,4 +138,4 @@ import Testing
         }
     }
 }
-private enum ContractError: Error { case timeout(String) }
+private enum ContractError: Error { case timeout(String), database }

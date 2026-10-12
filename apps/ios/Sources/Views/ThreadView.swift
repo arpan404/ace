@@ -41,7 +41,7 @@ struct ThreadView: View {
                         if approval.kind == "approval" { ApprovalCard(approval: approval) { model.approve(approval, option: $0) } }
                     }
                     ComposerView(state: metadata?.state ?? "new", modelName: metadata?.model ?? "", canSteer: metadata?.canSteer ?? false,
-                                 send: { model.send($0, delivery: $1) }, stop: { model.stopTree() }, inputBegan: { model.metrics?.inputBegan() })
+                                 send: { await model.send($0, delivery: $1) }, stop: { model.stopTree() }, inputBegan: { model.metrics?.inputBegan() })
                 }
             }
             .toolbar {

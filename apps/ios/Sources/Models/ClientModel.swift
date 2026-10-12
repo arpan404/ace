@@ -31,6 +31,7 @@ import CryptoKit
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: ClientRuntime?
     @ObservationIgnored private var frames = BridgeFrames()
+    @ObservationIgnored private let admissions = CommandAdmissions()
     @ObservationIgnored let now: () -> Double
     @ObservationIgnored var metrics: SpikeMetrics?
     @ObservationIgnored var largestFrame = 0
@@ -67,6 +68,9 @@ import CryptoKit
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
             case .receipt(_, let ok, let message): if !ok { error = message }
+            case .admission(let id, let ok, let message):
+                admissions.resolve(id, persisted: ok)
+                if !ok { error = message }
             case .threadReset(let id, let epoch):
                 guard let thread, thread.id == id, epoch == thread.epoch else { continue }
                 thread.epoch = epoch
@@ -108,9 +112,12 @@ import CryptoKit
     func back() { generation += 1; action(["type": "back"]); thread = nil }
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
     func retry() { action(["type": "retry"]) }
-    func send(_ text: String, delivery: String) {
-        guard let thread, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        command(["type": "thread.send", "threadId": thread.id, "input": [["type": "text", "text": text]], "delivery": delivery])
+    func send(_ text: String, delivery: String) async -> Bool {
+        guard let thread, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) {
+            command(["type": "thread.send", "threadId": thread.id, "input": [["type": "text", "text": text]], "delivery": delivery], requestId: id)
+        }
     }
     func stopTree() {
         guard let thread else { return }
@@ -121,15 +128,21 @@ import CryptoKit
     }
     func archive(_ id: String) { command(["type": "thread.archive", "threadId": id]) }
     func snooze(_ id: String) { command(["type": "thread.snooze", "threadId": id, "until": now() + 3_600_000]) }
-    private func command(_ payload: [String: Any]) { action(["type": "command", "payload": payload]) }
-    private func action(_ value: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: value) else { return }
-        runtime?.invoke("aceAction", json: String(decoding: data, as: UTF8.self))
+    @discardableResult private func command(_ payload: [String: Any], requestId: String? = nil) -> Bool {
+        let dispatched = action(["type": "command", "payload": payload, "requestId": requestId ?? admissions.nextId()])
+        if !dispatched { error = "Could not submit the request. Your draft is still available." }
+        return dispatched
+    }
+    @discardableResult private func action(_ value: [String: Any]) -> Bool {
+        guard let runtime, let data = try? JSONSerialization.data(withJSONObject: value) else { return false }
+        runtime.invoke("aceAction", json: String(decoding: data, as: UTF8.self))
+        return true
     }
     func disconnectAndWait() async {
+        admissions.cancel()
         guard let runtime else { return }
         self.runtime = nil
         await withCheckedContinuation { continuation in runtime.stop { continuation.resume() } }
     }
-    func disconnect() { runtime?.stop(); runtime = nil }
+    func disconnect() { admissions.cancel(); runtime?.stop(); runtime = nil }
 }
