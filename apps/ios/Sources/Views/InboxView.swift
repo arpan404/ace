@@ -53,7 +53,7 @@ struct InboxView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
-                    Text("ace.").aceFont(AceTheme.Typography.wordmark, relativeTo: .title3).foregroundStyle(AceTheme.Colours.foreground)
+                    Text("ace.").aceFont(AceTheme.Typography.wordmark, relativeTo: .title3).fixedSize(horizontal: true, vertical: false).foregroundStyle(AceTheme.Colours.foreground)
                     Button { showingMachines = true } label: {
                         HStack(spacing: AceTheme.Spacing.xs) {
                             Circle().fill(model.connection == "ready" ? AceTheme.Status.done : AceTheme.Colours.decoration).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
