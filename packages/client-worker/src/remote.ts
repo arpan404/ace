@@ -11,6 +11,7 @@ import {
 } from "@ace/client";
 import {
   ClientError,
+  commandAdmissionError,
   isOneWayMessage,
   Notifications,
   defaultLimits,
@@ -105,6 +106,7 @@ export interface RemoteOptions {
 interface Pending {
   resolve(value: unknown): void;
   reject(error: ClientError): void;
+  record?: (id: string) => Promise<void>;
 }
 interface Mirrored {
   refs: number;
@@ -341,14 +343,18 @@ export class RemoteClient implements ClientApi {
   threads(): Lease<SidebarSource> {
     return this.hold("threads", { kind: "threads" }, () => new MirrorSidebar(this.listeners));
   }
-  async enqueue(payload: CommandPayload, id = this.nextCommandId()): Promise<string> {
+  async enqueue(payload: CommandPayload, suppliedId?: string): Promise<string> {
+    const id = suppliedId ?? this.nextCommandId();
     this.saving(payload, id);
     let result: unknown;
     try {
       result = await this.call("enqueue", [payload, id]);
     } catch (error) {
       const previous = this.sends.get(id);
-      if (previous && !(error instanceof ClientError && error.code === "offline"))
+      if (
+        previous &&
+        !(error instanceof ClientError && (error.code === "offline" || error.code === "limit"))
+      )
         this.sends.set(id, {
           ...previous,
           state: "failed",
@@ -374,48 +380,79 @@ export class RemoteClient implements ClientApi {
   command(
     payload: CommandPayload,
     options: RequestOptions = {},
-    id = this.nextCommandId(),
+    id?: string,
   ): Promise<CommandResult> {
+    if (id === undefined) return this.command(payload, options, this.nextCommandId());
     if (options.signal?.aborted) return Promise.reject(new ClientError("aborted"));
     try {
       this.saving(payload, id);
     } catch (error) {
       return Promise.reject(error);
     }
-    return this.invoke<{ result: CommandResult; intent: Intent | undefined }>(
-      "command",
-      [payload, timeout(options), id],
+    return this.commandReceipt(
+      this.call("command", [payload, timeout(options), id], options.signal),
+      () => id,
+    );
+  }
+  submitNew(
+    payload: CommandPayload,
+    record: (id: string) => void | Promise<void>,
+    options: RequestOptions = {},
+  ): Promise<CommandResult> {
+    let id: string | undefined;
+    const operation = this.call(
+      "submitNew",
+      [payload, timeout(options)],
       options.signal,
-    )
-      .then(({ result, intent }) => {
-        this.intents.put(id, intent);
-        const previous = this.sends.get(id);
-        if (previous && previous.state !== "delivered" && previous.state !== "failed")
-          this.sends.set(id, {
-            ...previous,
-            state: result.ok ? "accepted" : "failed",
-            waiting: false,
-            ...(result.threadId ? { threadId: result.threadId } : {}),
-            ...(result.error ? { error: result.error } : {}),
-          });
-        this.notifications.emit([`intent:${id}`, "pendingSends"]);
-        return result;
-      })
-      .catch((error: unknown) => {
-        const previous = this.sends.get(id);
-        // Aborting detaches only this waiter; the durable command can still apply.
-        if (
-          previous &&
-          error instanceof ClientError &&
-          error.code !== "aborted" &&
-          error.code !== "offline"
-        ) {
-          this.sends.set(id, { ...previous, state: "failed", error: error.message });
-          this.notifications.emit(["pendingSends"]);
-        }
-        throw error;
-      })
-      .finally(() => this.localSaving.delete(id));
+      async (allocated) => {
+        id = allocated;
+        this.saving(payload, allocated);
+        await record(allocated);
+      },
+    );
+    return this.commandReceipt(operation, () => id);
+  }
+  private async commandReceipt(
+    operation: Promise<unknown>,
+    allocatedId: () => string | undefined,
+  ): Promise<CommandResult> {
+    try {
+      const { result, intent } = trusted<{ result: CommandResult; intent: Intent | undefined }>(
+        await operation,
+      );
+      const id = result.commandId;
+      this.intents.put(id, intent);
+      const previous = this.sends.get(id);
+      if (previous && previous.state !== "delivered" && previous.state !== "failed")
+        this.sends.set(id, {
+          ...previous,
+          state: result.ok ? "accepted" : "failed",
+          waiting: false,
+          ...(result.threadId ? { threadId: result.threadId } : {}),
+          ...(result.error ? { error: result.error } : {}),
+        });
+      this.notifications.emit([`intent:${id}`, "pendingSends"]);
+      return result;
+    } catch (error) {
+      const id = allocatedId();
+      const previous = id ? this.sends.get(id) : undefined;
+      // Aborting detaches only this waiter; the durable command can still apply.
+      if (
+        id &&
+        previous &&
+        error instanceof ClientError &&
+        error.code !== "aborted" &&
+        error.code !== "offline" &&
+        error.code !== "limit"
+      ) {
+        this.sends.set(id, { ...previous, state: "failed", error: error.message });
+        this.notifications.emit(["pendingSends"]);
+      }
+      throw error;
+    } finally {
+      const id = allocatedId();
+      if (id) this.localSaving.delete(id);
+    }
   }
   registry(input: RegistryQuery, options: RequestOptions = {}) {
     return this.invoke<RegistryResult>("registry", [input, timeout(options)], options.signal);
@@ -582,13 +619,18 @@ export class RemoteClient implements ClientApi {
   private async invoke<T>(method: CallMethod, args: unknown[], signal?: AbortSignal): Promise<T> {
     return trusted<T>(await this.call(method, args, signal));
   }
-  private call(method: CallMethod, args: unknown[], signal?: AbortSignal): Promise<unknown> {
+  private call(
+    method: CallMethod,
+    args: unknown[],
+    signal?: AbortSignal,
+    record?: (id: string) => Promise<void>,
+  ): Promise<unknown> {
     if (this.closed || this.workerLost) return Promise.reject(new ClientError("offline"));
     if (signal?.aborted) return Promise.reject(new ClientError("aborted"));
     const wait = replyTimeout(args, defaultLimits.requestMs);
     if (!Number.isSafeInteger(wait) || wait <= 0) return Promise.reject(new ClientError("limit"));
     if (this.pending.size >= defaultLimits.requests)
-      return Promise.reject(new ClientError("limit"));
+      return Promise.reject(commandAdmissionError(method === "submitNew" ? "fresh" : "unknown"));
     const call = ++this.sequence;
     return new Promise((resolve, reject) => {
       let cancel = noop;
@@ -599,6 +641,7 @@ export class RemoteClient implements ClientApi {
       };
       signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(call, {
+        ...(record ? { record } : {}),
         resolve: (value) => {
           cancel();
           signal?.removeEventListener("abort", abort);
@@ -610,7 +653,7 @@ export class RemoteClient implements ClientApi {
           reject(error);
         },
       });
-      if (method !== "command" && method !== "enqueue")
+      if (method !== "command" && method !== "enqueue" && method !== "submitNew")
         cancel = this.options.scheduler.set(wait, () => {
           this.post({ t: "abort", call });
           this.pending.get(call)?.reject(new ClientError("timeout"));
@@ -700,6 +743,27 @@ export class RemoteClient implements ClientApi {
     const message = parsed.data;
     this.monitor.received();
     switch (message.t) {
+      case "command.admission":
+        return;
+      case "command.allocated": {
+        const pending = this.pending.get(message.call);
+        if (!pending?.record) return;
+        const record = pending.record;
+        delete pending.record;
+        void Promise.resolve()
+          .then(() => record(message.commandId))
+          .then(
+            () => {
+              if (this.pending.get(message.call) === pending)
+                this.post({ t: "command.recorded", call: message.call, ok: true });
+            },
+            () => {
+              if (this.pending.get(message.call) === pending)
+                this.post({ t: "command.recorded", call: message.call, ok: false });
+            },
+          );
+        return;
+      }
       case "pong":
         return;
       case "attached":

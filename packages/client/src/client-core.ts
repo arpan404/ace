@@ -41,6 +41,11 @@ import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
 import { Notifications, type Selection } from "./observable.ts";
 import { Requests } from "./requests.ts";
+import {
+  commandAdmissionError,
+  CommandAdmissions,
+  type CommandAllocation,
+} from "./command-admission.ts";
 import { Sidebar } from "./sidebar.ts";
 import { Subscriptions, type ThreadSubscription } from "./subscriptions.ts";
 import { retryDelay } from "./lifecycle.ts";
@@ -117,6 +122,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #sidebar: Sidebar;
   #collections = new Set<Sidebar>();
   #intents: Intents;
+  #admissions: CommandAdmissions;
   protected notifications: Notifications;
   protected historyState: HistoryScanStatus | undefined;
   protected closed = false;
@@ -133,6 +139,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     const limits = { ...defaultLimits, ...options.limits };
     for (const value of Object.values(limits))
       if (!Number.isSafeInteger(value) || value <= 0) throw new ClientError("limit");
+    this.#admissions = new CommandAdmissions(limits.intents);
     if (limits.threads > 62)
       throw new ClientError(
         "limit",
@@ -497,6 +504,14 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     };
   }
   async enqueue(payload: CommandPayload, id = this.options.id()): Promise<string> {
+    const release = this.#admissions.startOffer(id);
+    try {
+      return await this.#enqueue(payload, id);
+    } finally {
+      release();
+    }
+  }
+  async #enqueue(payload: CommandPayload, id: string): Promise<string> {
     if (this.closed) throw new ClientError("offline");
     if (this.options.storage.hostBinding) {
       if (!this.#hostId)
@@ -528,7 +543,56 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   command(
     payload: CommandPayload,
     options: RequestOptions = {},
-    id = this.options.id(),
+    suppliedId?: string,
+  ): Promise<CommandResult> {
+    if (suppliedId === undefined) return this.submitNew(payload, () => {}, options);
+    try {
+      this.#admissions.available(suppliedId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#command(payload, options, suppliedId);
+  }
+  submitNew(
+    payload: CommandPayload,
+    record: (id: string) => void | Promise<void>,
+    options: RequestOptions = {},
+  ): Promise<CommandResult> {
+    const id = this.options.id();
+    let allocation: CommandAllocation;
+    try {
+      if (this.#intents.get(id) !== undefined) throw commandAdmissionError("unknown");
+      allocation = this.#admissions.reserve(id);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const refuse = () => {
+      const error = allocation.refusal();
+      allocation.releaseUnsent();
+      return Promise.reject(error);
+    };
+    const dispatch = () => {
+      if (this.closed || options.signal?.aborted) return refuse();
+      try {
+        return this.#command(payload, options, id, allocation);
+      } catch {
+        return refuse();
+      }
+    };
+    let recorded: void | Promise<void>;
+    try {
+      if (this.closed || options.signal?.aborted) return refuse();
+      recorded = record(id);
+    } catch {
+      return refuse();
+    }
+    return recorded === undefined ? dispatch() : Promise.resolve(recorded).then(dispatch, refuse);
+  }
+  #command(
+    payload: CommandPayload,
+    options: RequestOptions,
+    id: string,
+    allocation?: CommandAllocation,
   ): Promise<CommandResult> {
     if (payload.type === "thread.markRead")
       return this.markThreadRead(
@@ -537,20 +601,28 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           lastSeenSeq: payload.lastSeenSeq,
         },
         options,
-      );
+      ).finally(() => allocation?.release());
     if (payload.type === "diagnostics.health")
-      return this.request({ type: "diagnostics.health" }, options).then(({ ok, health, error }) =>
-        CommandResult.parse({
-          commandId: id,
-          ok,
-          ...(health ? { health } : {}),
-          ...(error ? { error } : {}),
-        }),
-      );
-    if (this.closed) return Promise.reject(new ClientError("offline"));
+      return this.request({ type: "diagnostics.health" }, options)
+        .then(({ ok, health, error }) =>
+          CommandResult.parse({
+            commandId: id,
+            ok,
+            ...(health ? { health } : {}),
+            ...(error ? { error } : {}),
+          }),
+        )
+        .finally(() => allocation?.release());
+    if (this.closed)
+      return Promise.reject(new ClientError("offline")).finally(() => allocation?.releaseUnsent());
     return this.requests
       .waitDurable(id, CommandResult.parse, options, () => {
-        void this.enqueue(payload, id).then(
+        const admit = () => {
+          if (!allocation) return this.enqueue(payload, id);
+          allocation.offer();
+          return this.#enqueue(payload, id).finally(() => allocation.release());
+        };
+        void admit().then(
           () => {
             const result = this.#intents.get(id)?.result;
             if (result) this.requests.resolve(id, result);
@@ -563,13 +635,16 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         );
       })
       .catch(async (error: unknown) => {
-        // Load persisted attempts before declaring this ID unsent, including before start().
+        // Load persisted attempts before considering freshness, including before start().
         if (error instanceof ClientError && error.code === "not_dispatched") {
           await this.#intents.initialize();
-          if (this.#intents.get(id) !== undefined) throw new ClientError("limit");
+          throw this.#intents.get(id) !== undefined
+            ? commandAdmissionError("admitted")
+            : (allocation?.refusal() ?? commandAdmissionError("unknown"));
         }
         throw error;
-      });
+      })
+      .finally(() => allocation?.releaseUnsent());
   }
   /** One-off service operation. Never persisted or replayed after a disconnect. */
   request<Q extends ServiceRequest>(

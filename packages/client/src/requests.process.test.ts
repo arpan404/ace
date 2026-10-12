@@ -240,14 +240,20 @@ test("durable command capacity supplies unsent evidence without reserving an int
   const aborted = expect(read).rejects.toMatchObject({ code: "aborted" });
   await faults.wait((event) => event.type === "items.page");
   const payload = { type: "thread.archive", threadId: h.thread.id } as const;
-  await expect(client.command(payload, {}, "capacity-refused")).rejects.toMatchObject({
+  let allocated: string | undefined;
+  await expect(
+    client.submitNew(payload, (id) => {
+      allocated = id;
+    }),
+  ).rejects.toMatchObject({
     code: "not_dispatched",
   });
-  expect(client.intent("capacity-refused").getSnapshot()).toBeUndefined();
+  if (!allocated) throw new Error("The new submission must allocate its own ID");
+  expect(client.intent(allocated).getSnapshot()).toBeUndefined();
   expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeUndefined();
   controller.abort();
   await aborted;
-  expect(await client.command(payload, {}, "capacity-refused")).toMatchObject({ ok: true });
+  expect(await client.command(payload, {}, allocated)).toMatchObject({ ok: true });
   expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeDefined();
 });
 
@@ -273,4 +279,158 @@ test("a duplicate durable waiter at capacity keeps the admitted command uncertai
   expect(client.intent("already-admitted").getSnapshot()?.state).toBe("pending");
   release?.();
   expect(await original).toMatchObject({ ok: true });
+});
+
+test("an acknowledged command replay at capacity stays uncertain after restart removes its persisted intent", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const original = h.make({ storage: h.storage }).client;
+  await ready(original);
+  const payload = { type: "thread.archive", threadId: h.thread.id } as const;
+  let commandId: string | undefined;
+  const originalOptions = { timeoutMs: 100, admission: "fresh" };
+  expect(
+    await original.submitNew(
+      payload,
+      (id) => {
+        commandId = id;
+      },
+      originalOptions,
+    ),
+  ).toMatchObject({ ok: true });
+  if (!commandId) throw new Error("The new submission must allocate its own ID");
+  await original.close();
+  expect(JSON.parse((await h.storage.load()) ?? "null")).toEqual([]);
+  const { client, faults } = h.make({ storage: h.storage, limits: { requests: 1 } });
+  await ready(client);
+  expect(client.intent(commandId).getSnapshot()).toBeUndefined();
+  faults.incoming = (event, frame, deliver) => {
+    if (event.type !== "items.page") deliver(frame);
+  };
+  const controller = new AbortController();
+  const read = client.itemsPage({ threadId: h.thread.id, limit: 1 }, { signal: controller.signal });
+  const cancelled = expect(read).rejects.toMatchObject({ code: "aborted" });
+  await faults.wait((event) => event.type === "items.page");
+  try {
+    await expect(client.command(payload, originalOptions, commandId)).rejects.toMatchObject({
+      code: "limit",
+    });
+    expect(client.intent(commandId).getSnapshot()?.localFailure).toBeUndefined();
+  } finally {
+    controller.abort();
+    await cancelled;
+  }
+});
+
+test("settled intent eviction does not turn a known-ID capacity refusal into unsent evidence", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const { client, faults } = h.make({ limits: { requests: 1, intents: 1 } });
+  await ready(client);
+  const payload = { type: "thread.archive", threadId: h.thread.id } as const;
+  expect(await client.command(payload, {}, "evicted-receipt")).toMatchObject({ ok: true });
+  await client.command(payload, {}, "later-receipt");
+  expect(client.intent("evicted-receipt").getSnapshot()).toBeUndefined();
+  faults.incoming = (event, frame, deliver) => {
+    if (event.type !== "items.page") deliver(frame);
+  };
+  const controller = new AbortController();
+  const read = client.itemsPage({ threadId: h.thread.id, limit: 1 }, { signal: controller.signal });
+  const cancelled = expect(read).rejects.toMatchObject({ code: "aborted" });
+  await faults.wait((event) => event.type === "items.page");
+  try {
+    await expect(client.command(payload, {}, "evicted-receipt")).rejects.toMatchObject({
+      code: "limit",
+    });
+  } finally {
+    controller.abort();
+    await cancelled;
+  }
+});
+
+for (const method of ["command", "enqueue"] as const) {
+  for (const recording of ["succeeds", "fails"] as const) {
+    test(`a same-ID ${method} is refused while direct recording is pending and recording ${recording} safely`, async () => {
+      const h = await setup();
+      cleanup = h.cleanup;
+      const { client } = h.make();
+      await ready(client);
+      const payload = { type: "thread.archive", threadId: h.thread.id } as const;
+      const exposed = Promise.withResolvers<string>();
+      const reentrant = Promise.withResolvers<unknown>();
+      const release = Promise.withResolvers<void>();
+      const submission = client.submitNew(payload, async (id) => {
+        exposed.resolve(id);
+        const nested =
+          method === "command" ? client.command(payload, {}, id) : client.enqueue(payload, id);
+        reentrant.resolve(await nested.catch((error: unknown) => error));
+        await release.promise;
+        if (recording === "fails") throw new Error("Recording failed");
+      });
+      const outcome = submission.then(
+        (result) => result,
+        (error: unknown) => error,
+      );
+      const id = await exposed.promise;
+      try {
+        const competing =
+          method === "command" ? client.command(payload, {}, id) : client.enqueue(payload, id);
+        await expect(competing).rejects.toMatchObject({ code: "limit" });
+        expect(await reentrant.promise).toMatchObject({ code: "limit" });
+        expect(client.intent(id).getSnapshot()).toBeUndefined();
+        expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeUndefined();
+      } finally {
+        release.resolve();
+      }
+      if (recording === "fails") {
+        expect(await outcome).toMatchObject({ code: "not_dispatched" });
+        expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeUndefined();
+        // Failure releases the reservation; an explicit retry then has real effects.
+        expect(await client.command(payload, {}, id)).toMatchObject({ ok: true });
+      } else {
+        expect(await outcome).toMatchObject({ ok: true, commandId: id });
+      }
+      expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeDefined();
+      expect(
+        await client.submitNew(
+          { type: "thread.rename", threadId: h.thread.id, title: "Admission settled" },
+          () => {},
+        ),
+      ).toMatchObject({ ok: true });
+      expect(h.daemon.store.getThread(h.thread.id)?.title).toBe("Admission settled");
+    });
+  }
+}
+
+test("an explicit enqueue awaiting host binding cannot have its offered ID reclaimed as fresh", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const reference = h.make();
+  await ready(reference.client);
+  const welcome = await reference.faults.wait((event) => event.type === "welcome");
+  if (welcome.type !== "welcome") throw new Error("Expected authenticated host identity");
+  const { client, faults } = h.make({
+    id: () => "offered-before-recording",
+    expectedHostId: welcome.hostId,
+    storage: {
+      hostBinding: { load: async () => welcome.hostId, save: async () => {} },
+      load: async () => null,
+      save: (value) => h.storage.save(value),
+    },
+  });
+  await ready(client);
+  const payload = { type: "thread.archive", threadId: h.thread.id } as const;
+  const enqueued = client.enqueue(payload, "offered-before-recording");
+  let recorded = false;
+  await expect(
+    client.submitNew(payload, () => {
+      recorded = true;
+    }),
+  ).rejects.toMatchObject({ code: "limit" });
+  expect(recorded).toBe(false);
+  expect(await enqueued).toBe("offered-before-recording");
+  await faults.wait(
+    (event) => event.type === "commandResult" && event.commandId === "offered-before-recording",
+  );
+  expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeDefined();
 });

@@ -59,6 +59,7 @@ export function world(
   const waiters: { predicate(message: Message): boolean; resolve(message: Message): void }[] = [];
   const faults = {
     incoming: (_message: Message, text: string, deliver: (text: string) => void) => deliver(text),
+    worker: (message: unknown, deliver: (message: unknown) => void) => deliver(message),
     wait(predicate: (message: Message) => boolean): Promise<Message> {
       const found = received.find(predicate);
       return found
@@ -66,7 +67,7 @@ export function world(
         : new Promise((resolve) => waiters.push({ predicate, resolve }));
     },
   };
-  const host = new ClientHost({
+  const configuration: HostOptions = {
     target(config) {
       const { daemon: key } = z.object({ daemon: z.string() }).parse(config);
       return {
@@ -115,7 +116,8 @@ export function world(
     lingerMs: 30,
     silenceMs: 300,
     ...hostOptions,
-  });
+  };
+  let host = new ClientHost(configuration);
   const tab = (target = "local", tabOptions: Partial<RemoteOptions> = {}) => {
     const { port1, port2 } = new MessageChannel();
     const left = Promise.withResolvers<void>();
@@ -127,7 +129,7 @@ export function world(
     host.attach({
       postMessage: (value) => {
         traffic.push(value);
-        port1.postMessage(value);
+        faults.worker(value, (message) => port1.postMessage(message));
       },
       start: () => port1.start(),
       close: () => port1.close(),
@@ -172,7 +174,19 @@ export function world(
     return Object.assign(remote, { show, left: left.promise, traffic });
   };
   cleanups.push(() => advance(1000));
-  return { daemon, host, sockets, tab, faults, advance };
+  return {
+    daemon,
+    get host() {
+      return host;
+    },
+    sockets,
+    tab,
+    faults,
+    advance,
+    restartWorker() {
+      host = new ClientHost(configuration);
+    },
+  };
 }
 
 export const textOf = (store: ThreadSource, id: string) => {
