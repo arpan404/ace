@@ -102,6 +102,22 @@ this effect is named in the preview. Current `ace.jsonl` is always protected.
 Cache removal is deferred while agent/browser work is active or a thread is
 pinned. Symlinks are listed as protected, never followed.
 
+Built-in skill session roots (`builtin-skill-sessions/session-XXXXXX`) are
+`caches` items with a `skill_root` target that names one root; clients still
+cannot nominate paths. Each root is one item, sized and aged over its whole
+tree. Its process lease decides protection, with the same rule as startup
+cleanup: a live owner, a pending spawn or a surviving process group gives
+`leased`, and a missing, foreign or unverifiable lease, or a root without the
+plugin writer's ownership marker, gives `owner_unavailable`. Symlinks, plain
+files and trees past 10,000 entries or 16 levels are listed as `unsafe_path`
+instead of failing the plan. Removal proves ownership again under the
+projection writer's lock and walks pinned descriptors without following links;
+the lock database, marker and lease go last, lease final, so an interrupted
+removal keeps its proof. Scans resume after `builtin-skill-sessions/.storage-cursor`,
+so roots that stay protected cannot hide later ones from the 256-item budget.
+Daemon startup reclaims the same roots independently (at most 64 removals and
+1,024 lease inspections per start, resuming from `.cursor`).
+
 ## Durability and measurement
 
 The shared pure planner lives in `@ace/core`; protocol schemas contain no I/O.
@@ -169,6 +185,7 @@ verification should include these production mutations:
 - Skip plan revision or expiry checks.
 - Delete a file whose identity changed after preview.
 - Follow a substituted directory symlink.
+- Remove a skill root whose lease is live, unreadable or unmarked.
 - Remove a blob while a provider lease owns it.
 - Bypass pushed-commit or hidden-index checks.
 - Infer cleanup ownership from a linked worktree or directory name.

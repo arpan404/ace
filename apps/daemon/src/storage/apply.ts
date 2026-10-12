@@ -84,7 +84,10 @@ export async function applyStorageItems(
           entry.state = "protected";
           entry.reason = error instanceof StorageRefusal ? error.reason : "changed";
           delete entry.error;
-        } else if (missing(error) && entry.target.type === "file") {
+        } else if (
+          missing(error) &&
+          (entry.target.type === "file" || entry.target.type === "skill_root")
+        ) {
           entry.state = "removed";
           entry.reason = "already_removed";
         } else {

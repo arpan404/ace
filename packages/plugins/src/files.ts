@@ -36,7 +36,9 @@ export async function assertTreeNoSymlinks(root: string): Promise<void> {
 export function isMissing(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
-const marker = ".ace-plugins-owned";
+/** Proof that ace created a projection root; anything else is refused. */
+export const ownershipMarker = { name: ".ace-plugins-owned", contents: "ace-plugins-v1\n" };
+const marker = ownershipMarker.name;
 export async function ownDirectory(root: string): Promise<string> {
   if (!isAbsolute(root)) throw new Error("ace root must be absolute");
   await assertNoSymlinks(root);
@@ -53,7 +55,10 @@ export async function ownDirectory(root: string): Promise<string> {
       if (!info.isFile() || info.size !== 15) throw new Error("Invalid ownership marker");
       const buffer = Buffer.alloc(16);
       const { bytesRead } = await handle.read(buffer, 0, 16, 0);
-      if (bytesRead !== 15 || buffer.subarray(0, bytesRead).toString("utf8") !== "ace-plugins-v1\n")
+      if (
+        bytesRead !== 15 ||
+        buffer.subarray(0, bytesRead).toString("utf8") !== ownershipMarker.contents
+      )
         throw new Error("Invalid ownership marker");
     } finally {
       await handle.close();
@@ -62,7 +67,7 @@ export async function ownDirectory(root: string): Promise<string> {
     if (!isMissing(error)) throw error;
     for await (const entry of await opendir(root))
       throw new Error(`Refusing to adopt a nonempty directory: ${entry.name}`, { cause: error });
-    await writeFile(markerPath, "ace-plugins-v1\n", { flag: "wx", mode: 0o600 });
+    await writeFile(markerPath, ownershipMarker.contents, { flag: "wx", mode: 0o600 });
   }
   return realpath(root);
 }

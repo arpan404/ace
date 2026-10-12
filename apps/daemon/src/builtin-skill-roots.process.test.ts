@@ -1,6 +1,6 @@
 import { fork } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -191,6 +191,63 @@ test("changed UID or group retains a live provider, while a recycled PID does no
     await expect(readFile(skillPath(root))).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await provider.stop({ graceMs: 0 });
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+/** An adopted projection whose providers have all exited. */
+async function released(root: string) {
+  await mkdir(root);
+  await prepareBuiltinSkills("codex", root);
+  builtinSkillProcessLease(root).close();
+}
+const named = (letter: string, count: number) =>
+  Array.from({ length: count }, (_, index) => `session-${letter}${String(index).padStart(5, "0")}`);
+
+test("a retained prefix cannot starve later reclaimable roots, and each restart does bounded work", async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), "ace-skill-rotation-"));
+  const base = join(dataDir, "builtin-skill-sessions");
+  const exists = (name: string) =>
+    access(join(base, name)).then(
+      () => true,
+      () => false,
+    );
+  // Every recorded provider has exited, so only lease evidence decides.
+  const exited = { ...skillProcessRuntime, identity: () => undefined, groupGone: () => true };
+  try {
+    await mkdir(base, { recursive: true });
+    // A broken cursor and a stale temporary link must neither stall rotation nor be followed.
+    await mkdir(join(base, ".cursor"));
+    const outside = join(dataDir, "outside.txt");
+    await writeFile(outside, "keep me");
+    await symlink(outside, join(base, ".cursor.pending"));
+    const retained = named("a", 1100);
+    const reclaimable = named("m", 80);
+    for (const name of retained) await mkdir(join(base, name)); // No lease: liveness unverifiable.
+    for (const name of reclaimable) await released(join(base, name));
+    const remaining = async () =>
+      (await Promise.all(reclaimable.map(exists))).filter(Boolean).length;
+    let starts = 0;
+    const restart = async () => {
+      const collect = await builtinSkillRecovery(dataDir, exited);
+      // Sorts after every snapshotted root and is eligible, but postdates this start's snapshot.
+      const fresh = `session-z${String(++starts).padStart(5, "0")}`;
+      await released(join(base, fresh));
+      await collect(Promise.resolve(), () => {});
+      return fresh;
+    };
+    const first = await restart();
+    expect(await remaining()).toBe(80); // The retained prefix exhausts 1,024 inspections.
+    expect(await exists(first)).toBe(true);
+    await restart();
+    expect(await remaining()).toBe(16); // The cursor moves past the prefix; 64 removals per start.
+    const last = await restart();
+    expect(await remaining()).toBe(0);
+    expect(await exists(first)).toBe(false); // Reclaimed once a later snapshot included it.
+    expect(await exists(last)).toBe(true);
+    expect((await Promise.all(retained.map(exists))).every(Boolean)).toBe(true);
+    expect(await readFile(outside, "utf8")).toBe("keep me");
+  } finally {
     await rm(dataDir, { recursive: true, force: true });
   }
 });

@@ -1,6 +1,7 @@
 import { ThreadId, type StorageReason } from "@ace/protocol";
 import type { StorageOwner } from "./types.ts";
 import type { Store } from "../store.ts";
+import { builtinSkillLeaseUnused, type SkillProcessRuntime } from "../builtin-skill-processes.ts";
 
 export function hasTable(store: Store, name: string): boolean {
   return Boolean(
@@ -96,4 +97,16 @@ export function storageProtections(owner: StorageOwner, ids: readonly ThreadId[]
       reasons.add("cleanup_in_progress");
   }
   return [...reasons];
+}
+
+/** A built-in skill root is owned by its process lease. Missing or unverifiable evidence retains it. */
+export function skillRootProtections(
+  readLease: () => string,
+  runtime?: SkillProcessRuntime,
+): StorageReason[] {
+  try {
+    return builtinSkillLeaseUnused(readLease(), runtime) ? [] : ["leased"];
+  } catch {
+    return ["owner_unavailable"];
+  }
 }

@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import {
   renameAt,
+  removeDirectoryAt,
   unlinkAt,
   openRoot,
   openAt,
@@ -152,18 +153,35 @@ export class PinnedDirectory {
   createExclusive(name: string): number {
     return openAt(this.fd, name, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL).fd;
   }
+  private stage(fd: number, text: string): void {
+    const bytes = Buffer.from(text);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const written = writeSync(fd, bytes, offset, bytes.length - offset, offset);
+      if (!written) throw new Error("Short marker write");
+      offset += written;
+    }
+    fsyncSync(fd);
+  }
+  /** Atomically replaces a private file. Neither name is followed if it is a symlink. */
+  replace(name: string, text: string): void {
+    const temporary = name + ".pending";
+    this.removeTemporary(temporary);
+    const fd = this.createExclusive(temporary);
+    try {
+      this.stage(fd, text);
+      renameAt(this.fd, temporary, name);
+      fsyncSync(this.fd);
+    } finally {
+      closeSync(fd);
+      this.removeTemporary(temporary);
+    }
+  }
   publish(name: string, text: string): void {
     const temporary = name + ".pending";
     const fd = this.createExclusive(temporary);
     try {
-      const bytes = Buffer.from(text);
-      let offset = 0;
-      while (offset < bytes.length) {
-        const written = writeSync(fd, bytes, offset, bytes.length - offset, offset);
-        if (!written) throw new Error("Short marker write");
-        offset += written;
-      }
-      fsyncSync(fd);
+      this.stage(fd, text);
       // The caller owns selection's exclusive parent lock. Never replace an existing marker.
       try {
         this.metadata(name);
@@ -187,6 +205,9 @@ export class PinnedDirectory {
   }
   unlink(name: string): void {
     unlinkAt(this.fd, name);
+  }
+  removeDirectory(name: string): void {
+    removeDirectoryAt(this.fd, name);
   }
   closeSync(): void {
     closeSync(this.fd);

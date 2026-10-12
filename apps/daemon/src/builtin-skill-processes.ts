@@ -17,7 +17,8 @@ import {
 } from "@ace/provider-kit/process-identity";
 import type { ProcessLease } from "@ace/provider-kit/process";
 
-const filename = "skill-processes.json";
+export const skillLeaseFilename = "skill-processes.json";
+export const skillLeaseLimit = 32768;
 const LeaseRecord = z.strictObject({
   version: z.literal(1),
   owner: ProcessIdentity,
@@ -40,10 +41,11 @@ export const skillProcessRuntime: SkillProcessRuntime = {
 
 /** All inputs are validated before they can authorize deletion. Never follow a metadata symlink. */
 function readLease(root: string): LeaseRecord {
-  const file = openSync(join(root, filename), constants.O_RDONLY | constants.O_NOFOLLOW);
+  const file = openSync(join(root, skillLeaseFilename), constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = fstatSync(file);
-    if (!stat.isFile() || stat.size > 32768) throw new Error("Invalid skill process lease");
+    if (!stat.isFile() || stat.size > skillLeaseLimit)
+      throw new Error("Invalid skill process lease");
     return LeaseRecord.parse(JSON.parse(readFileSync(file, "utf8")));
   } finally {
     closeSync(file);
@@ -51,7 +53,7 @@ function readLease(root: string): LeaseRecord {
 }
 /** Synchronous and atomic: a spawn cannot overtake its durable pending marker. */
 function writeLease(root: string, record: LeaseRecord): void {
-  const temporary = join(root, `${filename}.next`);
+  const temporary = join(root, `${skillLeaseFilename}.next`);
   const file = openSync(
     temporary,
     constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
@@ -63,7 +65,7 @@ function writeLease(root: string, record: LeaseRecord): void {
   } finally {
     closeSync(file);
   }
-  renameSync(temporary, join(root, filename));
+  renameSync(temporary, join(root, skillLeaseFilename));
 }
 function sameProcess(saved: ProcessIdentity, current: ProcessIdentity | undefined): boolean {
   // A live process can change uid or group. Its unchanged kernel start still retains the lease.
@@ -75,7 +77,16 @@ export function builtinSkillRootUnused(
   root: string,
   runtime: SkillProcessRuntime = skillProcessRuntime,
 ): boolean {
-  const record = readLease(root);
+  return leaseUnused(readLease(root), runtime);
+}
+/** Same decision for a lease the caller read without following links (storage cleanup). */
+export function builtinSkillLeaseUnused(
+  text: string,
+  runtime: SkillProcessRuntime = skillProcessRuntime,
+): boolean {
+  return leaseUnused(LeaseRecord.parse(JSON.parse(text)), runtime);
+}
+function leaseUnused(record: LeaseRecord, runtime: SkillProcessRuntime): boolean {
   if (record.launching) return false;
   if (!record.closed && sameProcess(record.owner, runtime.identity(record.owner.pid))) return false;
   for (const saved of record.processes) {

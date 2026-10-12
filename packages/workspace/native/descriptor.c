@@ -210,6 +210,18 @@ static napi_value unlink_at(napi_env env, napi_callback_info info) {
   napi_get_undefined(env, &result);
   return result;
 }
+static napi_value remove_directory_at(napi_env env, napi_callback_info info) {
+  napi_value args[2], result;
+  size_t count = 2;
+  int32_t parent;
+  char name[4096];
+  if (napi_get_cb_info(env, info, &count, args, NULL, NULL) != napi_ok || count != 2 ||
+      napi_get_value_int32(env, args[0], &parent) != napi_ok ||
+      !component(env, args[1], name, sizeof(name))) return fail(env, EINVAL);
+  if (unlinkat(parent, name, AT_REMOVEDIR) < 0) return fail(env, errno);
+  napi_get_undefined(env, &result);
+  return result;
+}
 static napi_value rename_at(napi_env env, napi_callback_info info) {
   napi_value args[3], result;
   size_t count = 3;
@@ -234,6 +246,7 @@ static napi_value init(napi_env env, napi_value exports) {
     {"statAt", NULL, stat_at, NULL, NULL, NULL, napi_default, NULL},
     {"pipe", NULL, make_pipe, NULL, NULL, NULL, napi_default, NULL},
     {"unlinkAt", NULL, unlink_at, NULL, NULL, NULL, napi_default, NULL},
+    {"removeDirectoryAt", NULL, remove_directory_at, NULL, NULL, NULL, napi_default, NULL},
     {"renameAt", NULL, rename_at, NULL, NULL, NULL, napi_default, NULL}
   };
   napi_define_properties(env, exports, sizeof(methods) / sizeof(methods[0]), methods);
