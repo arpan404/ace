@@ -7,6 +7,82 @@ import { remoteCliFixture } from "./cli-remote-test-support.ts";
 import { openCli, startCli, invoke } from "./cli-test-support.ts";
 
 test(
+  "a single stdin chunk containing a prompt and quit exits uncertain and keeps the prompt replayable",
+  { timeout: 30000 },
+  async () => {
+    const f = await remoteCliFixture();
+    f.loseReplies();
+    const cli = startCli(
+      f.home,
+      [
+        "chat",
+        "--project",
+        f.workspace,
+        "--provider",
+        "claude",
+        "--idempotency-key",
+        "buffered-quit",
+        ...f.remoteArgs,
+        "--stream",
+        "jsonl",
+      ],
+      "Single chunk prompt\n/quit\n",
+    );
+    try {
+      let exited = false;
+      void cli.exited.then(() => {
+        exited = true;
+      });
+      await expect.poll(() => exited, { timeout: 5000 }).toBe(true);
+      const result = await cli.exited;
+      expect(result.code, result.stderr).toBe(5);
+      const records = result.stdout
+        .trim()
+        .split("\n")
+        .map((line): unknown => JSON.parse(line));
+      const evidence = z
+        .object({
+          status: z.literal("uncertain"),
+          admission: z.object({ threadId: ThreadId, idempotencyKey: z.literal("buffered-quit") }),
+        })
+        .parse(records.at(-1)).admission;
+      const db = new DatabaseSync(join(f.home, "cli-remotes", f.profileId, "cli-outbox.sqlite"));
+      try {
+        const row = z
+          .object({ value: z.string() })
+          .parse(db.prepare("SELECT value FROM intents WHERE id=?").get(evidence.idempotencyKey));
+        expect(
+          z.object({ command: Command }).parse(JSON.parse(row.value)).command.payload,
+        ).toMatchObject({ type: "thread.create", threadId: evidence.threadId });
+      } finally {
+        db.close();
+      }
+      f.restoreReplies();
+      const replay = await invoke(f.home, [
+        "run",
+        "Single chunk prompt",
+        "--project",
+        f.workspace,
+        "--provider",
+        "claude",
+        "--idempotency-key",
+        evidence.idempotencyKey,
+        ...f.remoteArgs,
+        "--json",
+      ]);
+      expect(replay.code, replay.stderr).toBe(0);
+      expect(JSON.parse(replay.stdout)).toMatchObject({ threadId: evidence.threadId });
+      await f.daemon.engine?.flush();
+      expect(f.h.inputs.get(evidence.threadId)).toEqual(["Single chunk prompt"]);
+    } finally {
+      cli.child.kill("SIGKILL");
+      await cli.exited;
+      await f.close();
+    }
+  },
+);
+
+test(
   "a changed remote public-key pin is fatal instead of entering a reconnect loop",
   { timeout: 30000 },
   async () => {

@@ -14,8 +14,14 @@ export function projectPath(value: string | undefined, remote: boolean, cwd: str
   }
   return resolve(cwd, value ?? ".");
 }
-export async function addProject(client: Client, path: string, id: string, signal: AbortSignal) {
-  const receipt = await command(client, { type: "workspace.add", path }, id, signal);
+export async function addProject(
+  client: Client,
+  path: string,
+  id: string,
+  signal: AbortSignal,
+  submit: typeof command = command,
+) {
+  const receipt = await submit(client, { type: "workspace.add", path }, id, signal);
   if (!receipt.workspace)
     throw new CliFailure("uncertain", "Project registration returned no identity", receipt);
   return receipt;

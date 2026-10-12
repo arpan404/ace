@@ -49,6 +49,7 @@ export async function admitWork(
   },
   client: Client,
   signal: AbortSignal,
+  submit: typeof command = command,
 ) {
   const { project, id } = input;
   const provider = ProviderKind.parse(input.provider);
@@ -62,6 +63,7 @@ export async function admitWork(
       path,
       `project-${createHash("sha256").update(path).update("\0").update(id).digest("hex")}`,
       signal,
+      submit,
     );
     if (!receipt.workspace)
       throw new CliFailure("uncertain", "Workspace registration returned no identity");
@@ -69,7 +71,7 @@ export async function admitWork(
   }
   // Caller-owned thread identity makes a retried run stable, even before admission completes.
   const threadId = runThreadId(id);
-  const receipt = await command(
+  const receipt = await submit(
     client,
     {
       type: "thread.create",
