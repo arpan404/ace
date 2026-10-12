@@ -23,13 +23,8 @@ function useWaited(threadId: string, from: number, to: number): number {
 }
 
 /**
- * A work log's headline. Settled turn summaries use the server run start and tree end;
- * live segments stay quiet while the transcript footer owns the ticking line. From its first step to `until`,
- * the moment its stretch closed (the agent answered, the turn ended), less any wait on the
- * person and any `idle` time between two runs in between, so a step that settles later never
- * changes it; a log still open runs to its newest step. It never ticks: a step still unsettled
- * shows that on its own row. Live logs keep a quiet "Work so far" headline; transient
- * working status belongs to the composer. Waiting and held states retain their context.
+ * Settled summaries time the whole tree from its server run start, excluding human waits.
+ * Ongoing logs stay collapsed behind the transcript's live line unless a jump opens one.
  */
 export function useWorkLog(
   threadId: string,

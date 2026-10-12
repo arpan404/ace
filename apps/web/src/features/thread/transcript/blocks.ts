@@ -532,6 +532,7 @@ export function buildBlocks(source: BlockSource): Block[] {
   // Each turn whose whole tree has settled: its changed files after its last answer, then how
   // it ended after its last block. One pass places them after those blocks.
   const after = new Map<number, Block[]>();
+  const before = new Map<number, Block[]>();
   // Error notices a failed ending shows instead (QA-10).
   const absorbed = new Set<number>();
   const place = (index: number, block: Block) => {
@@ -571,14 +572,17 @@ export function buildBlocks(source: BlockSource): Block[] {
         first.itemIds = turn.work.flatMap((block) => block.itemIds);
         for (const block of turn.work.slice(1)) absorbed.add(workAt.get(block) ?? -1);
       } else {
-        place(turn.lastBlock, {
+        const at = turn.lastMessage >= 0 ? turn.lastMessage : turn.lastBlock + 1;
+        const summary: Block = {
           kind: "work",
           key: `work:turn:${turn.id}`,
           itemIds: [],
           startedAt: facts.startedAt,
           until,
           outcome,
-        });
+        };
+        if (at < blocks.length) before.set(at, [...(before.get(at) ?? []), summary]);
+        else place(turn.lastBlock, summary);
       }
     }
     if (turn.edits.length)
@@ -608,8 +612,9 @@ export function buildBlocks(source: BlockSource): Block[] {
       place(turn.lastBlock, endBlock(turn, "interrupted", newest === turn));
   }
   const result =
-    after.size || absorbed.size
+    after.size || before.size || absorbed.size
       ? blocks.flatMap((block, index) => [
+          ...(before.get(index) ?? []),
           ...(absorbed.has(index) ? [] : [block]),
           ...(after.get(index) ?? []),
         ])

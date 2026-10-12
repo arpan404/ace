@@ -151,7 +151,6 @@ export interface FeedProps {
   seqTurns: ReadonlyMap<string, number> | undefined;
   /** Items that reached the live end since the reader left it. */
   fresh: { count: number; more: boolean };
-  liveNewest: string | undefined;
 }
 
 /**

@@ -74,7 +74,6 @@ export function Transcript(props: { threadId: string }) {
         pager={pager}
         seqTurns={jump.turns}
         fresh={fresh}
-        liveNewest={liveOrder.at(-1)}
       />
     </ThreadWindowProvider>
   );
