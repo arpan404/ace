@@ -69,7 +69,7 @@ test("an approval is answered on the card attached to the composer, never inside
   });
   const feed = screen.getByRole("feed", { name: "Transcript" });
   expect(within(feed).queryByRole("article", { name: /^Run rm -rf/ })).toBeNull();
-  expect(within(feed).queryByText("Waiting for your approval")).toBeNull();
+  expect(within(feed).getByRole("link", { name: "Waiting for your approval" })).toBeTruthy();
 
   await userEvent.click(within(card).getByRole("button", { name: "Allow once" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull());
@@ -100,6 +100,10 @@ test("several open requests stack as a deck: 1 of 3 on top, moved through with â
   expect(within(region).getByText("2 of 3")).toBeTruthy();
 
   within(region).getByRole("button", { name: "Deny" }).focus();
+  await userEvent.keyboard("]");
+  expect(within(region).getByText("3 of 3")).toBeTruthy();
+  await userEvent.keyboard("[");
+  expect(within(region).getByText("2 of 3")).toBeTruthy();
   await userEvent.keyboard("]");
   expect(within(region).getByText("3 of 3")).toBeTruthy();
   await userEvent.click(within(region).getByRole("button", { name: "Previous request" }));
@@ -312,3 +316,30 @@ test("Skip on the question card declines it, without a message", async () => {
     }),
   );
 });
+
+for (const [decision, outcome] of [
+  ["Allow once", "Allowed once:"],
+  ["Deny", "Denied:"],
+] as const) {
+  test(`${decision} removes the attached approval and records its command in the transcript`, async () => {
+    const app = harness();
+    app.play(flakyCheckout()).runThrough("approval-requested");
+    await app.open("/t/thread-checkout");
+    const region = await stack();
+    const feed = screen.getByRole("feed", { name: "Transcript" });
+    const marker = await within(feed).findByRole("link", { name: "Waiting for your approval" });
+    expect(within(feed).queryByRole("button", { name: "Allow once" })).toBeNull();
+    expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
+    await userEvent.click(marker);
+    await userEvent.tab();
+    expect(region.contains(document.activeElement)).toBe(true);
+    await userEvent.click(within(region).getByRole("button", { name: decision }));
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull(),
+    );
+    const recorded = await within(feed).findByRole("note");
+    expect(recorded.textContent).toContain(outcome);
+    expect(recorded.textContent).toContain("rm -rf node_modules/.cache/vitest");
+    expect(within(feed).queryByRole("link", { name: "Waiting for your approval" })).toBeNull();
+  });
+}

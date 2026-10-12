@@ -116,17 +116,15 @@ test("subagents open inline as the agents started, and the agent tree is one cli
   expect(within(tree).getByRole("button", { name: "Open reconnect-audit, Running" })).toBeTruthy();
   expect(within(tree).getByRole("button", { name: "Open regression-test, Running" })).toBeTruthy();
 
-  await userEvent.click(await within(feed).findByRole("button", { name: "Subagent actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
+  await userEvent.click(screen.getByRole("button", { name: "Open work and agents" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Agents");
 });
 
-test("the composer status counts the root and its working subagents without a duplicate live line", async () => {
+test("the transcript live line counts the working subagents without a composer pill", async () => {
   await openReplay("finding");
-  const label = await screen.findByText("3 agents working");
-  expect(label.closest('[role="status"]')).toBeTruthy();
-  expect(screen.queryByRole("status", { name: "Waiting on 2 subagents" })).toBeNull();
+  expect(screen.getByRole("status", { name: "Working" }).textContent).toContain("2 subagents");
+  expect(screen.queryByText("3 agents working")).toBeNull();
 });
 
 test("a network retry holds still: no spinner, no shimmer", async () => {
@@ -151,7 +149,7 @@ test("stopping a background task waits for the daemon to report it stopped", asy
   expect(within(line).queryByRole("button", { name: "Stop background task" })).toBeNull();
 });
 
-test("returning to a thread marks where the new activity starts", async () => {
+test("returning to a thread shows new output without a divider and advances its read cursor", async () => {
   const { app, script, feed } = await openReplay("background");
   await within(feed).findByText("Running in background");
   expect(screen.queryByRole("separator", { name: "New activity" })).toBeNull();
@@ -171,7 +169,6 @@ test("returning to a thread marks where the new activity starts", async () => {
 
   await userEvent.click(screen.getByRole("button", { name: "Back" }));
   const again = await screen.findByRole("feed", { name: "Transcript" });
-  const divider = await within(again).findByRole("separator", { name: "New activity" });
-  const article = divider.closest("[role=article]");
-  expect(article?.textContent).toContain("reconnect-audit found one more path");
+  expect(await within(again).findByText(/reconnect-audit found one more path/)).toBeTruthy();
+  expect(within(again).queryByRole("separator", { name: "New activity" })).toBeNull();
 });

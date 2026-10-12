@@ -202,7 +202,7 @@ test("the step in flight follows the step's own updates, and the line says which
   thread.replace(shell("run", "bun run build apps/web", "succeeded", 0));
   const after = readTurnActivity(thread.reader, "root");
   expect(after.activity?.current).toBeUndefined();
-  expect(after.watch).toEqual([]);
+  expect(after.watch).not.toContain("item:run");
 });
 
 test("while a step waits for approval the line says so, with no timer", () => {
@@ -297,8 +297,9 @@ test("a dev server left running in the background is not the step in flight", ()
   expect(turnActivity(thread.reader, "root")?.current).toBe("Running bun run dev");
   thread.background("dev");
   expect(turnActivity(thread.reader, "root")).toMatchObject({
-    label: "Thinking",
-    current: undefined,
+    label: "Working",
+    current: "dev",
+    backgroundCommands: 1,
   });
 });
 
@@ -319,22 +320,27 @@ test("a turn that left a command running watches it, by name when it is the only
   ]);
   thread.background("dev");
   const line = turnActivity(thread.reader, "root");
-  expect(line).toMatchObject({ label: "Watching", code: "dev", tone: "held" });
-  expect(activityText(line!, 10 * second)).toBe("Watching dev");
+  expect(line).toMatchObject({
+    label: "Working",
+    current: "dev",
+    tone: "working",
+    backgroundCommands: 1,
+  });
+  expect(activityText(line!, 10 * second)).toBe("Working");
 
   thread.background("tunnel");
   thread.status({ state: "blocked", on: "background_task", refs: ["task-dev", "task-tunnel"] });
   expect(turnActivity(thread.reader, "root")).toMatchObject({
-    label: "Watching 2 background tasks",
-    code: undefined,
+    label: "Working",
+    backgroundCommands: 2,
   });
 });
 
 test("waiting on subagents counts them", () => {
   const thread = world({ state: "blocked", on: "subagents", refs: ["web", "mobile"] }, []);
-  expect(turnActivity(thread.reader, "root")?.label).toBe("Waiting on 2 subagents");
+  expect(turnActivity(thread.reader, "root")?.subagents).toBe(2);
   thread.status({ state: "blocked", on: "subagents", refs: ["web"] });
-  expect(turnActivity(thread.reader, "root")?.label).toBe("Waiting on 1 subagent");
+  expect(turnActivity(thread.reader, "root")?.subagents).toBe(1);
 });
 
 test("saved history has no live activity until a new turn starts", () => {

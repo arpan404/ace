@@ -258,7 +258,7 @@ test("expanded MCP steps reveal raw identifiers and JSON only after Details", as
 });
 
 test("shell output strips colour codes and OSC hyperlinks without losing text", async () => {
-  const { feed } = await open([
+  const { app, feed } = await open([
     {
       type: "item.upsert",
       agent: "root",
@@ -281,7 +281,8 @@ test("shell output strips colour codes and OSC hyperlinks without losing text", 
       },
     },
   ]);
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Work so far/ }));
+  act(() => app.daemon.apply("hygiene", [facts.endTurn("root")]));
+  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
   await userEvent.click(await within(feed).findByRole("button", { name: /Ran printf output/ }));
   expect((await within(feed).findByLabelText("Output")).textContent).toBe("green link\nnext");
 });
