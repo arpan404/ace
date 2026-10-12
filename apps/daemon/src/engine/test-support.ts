@@ -15,7 +15,14 @@ import {
   type ServerMessage,
   type ProviderKind,
 } from "@ace/protocol";
-import { Store, Engine, AdapterRegistry, type EngineClock, type EngineOptions } from "@ace/daemon";
+import {
+  Store,
+  Engine,
+  AdapterRegistry,
+  type EngineClock,
+  type EngineOptions,
+  type StoreOptions,
+} from "@ace/daemon";
 import { startServer } from "../server.ts";
 import { Client, token } from "../socket-test-support.ts";
 
@@ -111,11 +118,12 @@ export async function harness(
     discovery?: DiscoveryResult;
     onSessionOpenFailure?: EngineOptions["onSessionOpenFailure"];
     createTranslator?: ProviderAdapter["createTranslator"];
+    storeOptions?: StoreOptions;
   } = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), "ace-engine-"));
   const path = join(home, "events.sqlite");
-  const store = new Store(path);
+  const store = new Store(path, undefined, options.storeOptions);
   const workspace = store.createWorkspace(home, "Workspace");
   const clock = new ManualClock();
   const contexts: SessionContext[] = [];

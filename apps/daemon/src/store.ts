@@ -466,6 +466,14 @@ export class Store {
       return work(this.db);
     }, signal);
   }
+  /** Begin history publication once maintenance releases writers; queues rather than fails. */
+  async startHistoryWriting(signal?: AbortSignal): Promise<void> {
+    for (;;) {
+      await this.writes.open(signal);
+      // Same turn as the registration, so maintenance cannot start in between.
+      if (!this.writes.isHeld()) return this.setHistoryWriting(true);
+    }
+  }
   setHistoryWriting(active: boolean): void {
     if (active && this.historyWriting) throw new Error("History publication in progress");
     // Metadata writers wait for the worker lock rather than failing at the first contention.

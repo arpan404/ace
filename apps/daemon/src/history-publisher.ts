@@ -16,7 +16,7 @@ export async function publishHistory(
   spawnWorker: HistoryPublicationWorkerFactory = (url, options) => new Worker(url, options),
 ) {
   signal.throwIfAborted();
-  store.setHistoryWriting(true);
+  await store.startHistoryWriting(signal);
   const cancellation = new SharedArrayBuffer(4);
   const abort = () => Atomics.store(new Int32Array(cancellation), 0, 1);
   signal.addEventListener("abort", abort, { once: true });
