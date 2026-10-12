@@ -1,0 +1,211 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentCatalogModel.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "aliases": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "contextWindow": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "custom": {
+      "type": "boolean"
+    },
+    "defaultEffort": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "defaultSource": {
+      "enum": [
+        "built-in",
+        "user"
+      ],
+      "type": "string"
+    },
+    "defaultTier": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "deprecated": {
+      "type": "boolean"
+    },
+    "detail": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "displayName": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "family": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "favourite": {
+      "type": "boolean"
+    },
+    "free": {
+      "type": "boolean"
+    },
+    "group": {
+      "enum": [
+        "current",
+        "legacy"
+      ],
+      "type": "string"
+    },
+    "hidden": {
+      "type": "boolean"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "inputModalities": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instance": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "isDefault": {
+      "type": "boolean"
+    },
+    "isNew": {
+      "type": "boolean"
+    },
+    "legacy": {
+      "type": "boolean"
+    },
+    "modelConfigId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "nativeModelId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "nativeProviderId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "providerEnabled": {
+      "type": "boolean"
+    },
+    "reasoningEfforts": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "resolvedModelId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "selectorMethod": {
+      "enum": [
+        "session/set_config_option",
+        "session/set_model"
+      ],
+      "type": "string"
+    },
+    "serviceTiers": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ModelTier.json"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "sortKey": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "source": {
+      "$ref": "https://ace.local/protocol/v1/ModelSource.json"
+    },
+    "tier": {
+      "enum": [
+        "current",
+        "legacy"
+      ],
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "visibilityReason": {
+      "enum": [
+        "provider_disabled",
+        "group_hidden",
+        "model_hidden",
+        "deprecated",
+        "not_favourite",
+        "provider_hidden"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "displayName",
+    "provider",
+    "instance",
+    "nativeModelId",
+    "reasoningEfforts",
+    "serviceTiers",
+    "inputModalities",
+    "isDefault",
+    "hidden",
+    "deprecated"
+  ],
+  "type": "object"
+}

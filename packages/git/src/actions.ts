@@ -112,7 +112,7 @@ export async function pushBranch(repository: Repository, options: PushOptions): 
         throw new GitError("invalid_argument", "The selected remote changed before pushing");
     }
     options.beforePush?.();
-    await repository.cli.call(
+    await repository.cli.push(
       root,
       ["push", "--set-upstream", "--", remote, `HEAD:refs/heads/${info.branch}`],
       {

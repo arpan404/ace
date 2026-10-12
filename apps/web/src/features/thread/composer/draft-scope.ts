@@ -10,6 +10,7 @@ import { ConsumedDraftScope, draftScopes } from "../sources/context-source.ts";
 export function useDraftScope(
   workspaceId: string | undefined,
   owner?: {
+    epoch?: number | undefined;
     read(): string | undefined;
     granted(id: string): void;
     owns(id: string): boolean;
@@ -25,7 +26,13 @@ export function useDraftScope(
   const ready = useConnectionState() === "ready";
   const [attempt, setAttempt] = useState(0);
   const retryScope = useCallback(() => setAttempt((value) => value + 1), []);
-  const [scope, setScope] = useState<{ workspaceId: string; draftId: string; attempt: number }>();
+  const epoch = owner?.epoch ?? 0;
+  const [scope, setScope] = useState<{
+    workspaceId: string;
+    draftId: string;
+    attempt: number;
+    epoch: number;
+  }>();
   const adopted = useRef<string>(undefined);
   const currentOwner = useEffectEvent(() => owner);
   useEffect(() => {
@@ -52,7 +59,7 @@ export function useDraftScope(
           granted = draftId;
           if (live) {
             scopeOwner?.granted(draftId);
-            setScope({ workspaceId, draftId, attempt });
+            setScope({ workspaceId, draftId, attempt, epoch });
           } else if (!scopeOwner?.owns(draftId)) scopes.release(draftId);
         },
         () => {
@@ -67,9 +74,13 @@ export function useDraftScope(
       if (granted && adopted.current !== granted && !scopeOwner?.owns(granted))
         scopes.release(granted);
     };
-  }, [client, workspaceId, ready, attempt]);
+  }, [client, workspaceId, ready, attempt, epoch]);
   const draftId =
-    ready && scope && scope.workspaceId === workspaceId && scope.attempt === attempt
+    ready &&
+    scope &&
+    scope.workspaceId === workspaceId &&
+    scope.attempt === attempt &&
+    scope.epoch === epoch
       ? scope.draftId
       : undefined;
   const adopt = useCallback(() => {

@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./review-anchor": "./src/review-anchor.ts",
+    "./review-comment-body": "./src/review-comment-body.ts",
     "./pr-reference": "./src/pr-reference.ts",
     "./testing": "./src/testing/fixtures.ts"
   },

@@ -1,3 +1,4 @@
+import { PrReviewDiff, PrViewedFile } from "./pr-review-diff.tsx";
 import { useState } from "react";
 import type { ForgePrDetail, ForgeRepository } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -75,7 +76,17 @@ export function PrFiles(props: {
                 <span className="text-xs text-muted-foreground">{file.status}</span>
                 <DiffStat additions={file.additions} deletions={file.deletions} />
               </summary>
-              {file.patch ? (
+              {!props.commit && (
+                <PrViewedFile path={file.path} headSha={props.detail.status.headSha} />
+              )}
+              {file.patch && !props.commit ? (
+                <PrReviewDiff
+                  pr={ref}
+                  path={file.path}
+                  patch={file.patch}
+                  headSha={props.detail.status.headSha}
+                />
+              ) : file.patch ? (
                 <pre className="max-h-[60vh] overflow-auto p-3 font-mono text-xs leading-relaxed">
                   <code>{file.patch}</code>
                 </pre>

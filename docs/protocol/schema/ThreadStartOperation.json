@@ -1,0 +1,71 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadStartOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "accountId": {
+      "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+    },
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "op": {
+      "const": "thread.start",
+      "type": "string"
+    },
+    "options": {
+      "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
+    },
+    "permissionMode": {
+      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 16384,
+      "minLength": 1,
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "workspace": {
+      "$ref": "https://ace.local/protocol/v1/AgentWorkspace.json"
+    }
+  },
+  "required": [
+    "op",
+    "requestId",
+    "title",
+    "text",
+    "workspace",
+    "provider"
+  ],
+  "type": "object"
+}
