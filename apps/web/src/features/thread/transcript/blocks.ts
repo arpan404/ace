@@ -11,11 +11,12 @@ import {
 export { isInlineInteraction } from "@ace/ui-core";
 
 /**
- * The transcript reads like a document: a turn's tool work collapses into one "Worked for" line
- * and its spawns into one "Started N subagents" line (subagents' own work interleaves with the
+ * The transcript reads like a document: tool work collapses into "Worked for" segments
+ * and each narrated launch batch into a subagent card (subagents' own work interleaves with the
  * parent's, so these are per turn, not per run of adjacent items). What the agent says between
  * steps sits inside that log, in order; what it says after its last step is the answer, shown
- * below it. Background tasks, questions and notices show where they happened without opening a
+ * below it. Launch cards separate work segments, and batch narration stays between the cards.
+ * Background tasks, questions and notices show where they happened without opening a
  * second log, and a run the agent starts by itself when its background work finishes carries
  * the same log on. Once a turn's whole tree has settled, one changed-files card follows its
  * last answer, and a turn that failed, was stopped or was paused by a usage limit says so after
@@ -100,6 +101,8 @@ export interface BlockSource {
   background: ReadonlyMap<string, string>;
   /** Interactions that render inline (questions), oldest first. */
   questions?: readonly InlineQuestion[];
+  /** Canonical child-thread link for a native spawn, including late agent links. */
+  launchThread?(agentId: string): string | undefined;
   /** The turn (the root agent's run) an item belongs to, where known. */
   turnOf?(itemId: string): string | undefined;
   /** A run's state, trigger and end. */
@@ -184,6 +187,9 @@ type WorkBlock = Extract<Block, { kind: "work" }>;
 
 /** The person's own words: not a message ace or the provider wrote for them. */
 const isPerson = (item: Item) => item.type === "message" && item.role === "user" && !item.synthetic;
+const isLaunch = (item: Item) =>
+  item.type === "delegation.started" ||
+  (item.type === "tool_call" && item.call.kind === "agent.spawn");
 
 /**
  * Whether turn `next` carries on the stretch before it: the agent started it by itself once its
@@ -240,6 +246,8 @@ function lastWorkOf(
         turn = next;
       }
     }
+    // Look ahead only within the work segment on this side of a launch card.
+    if (isLaunch(item)) stretch++;
     stretchAt[index] = stretch;
     const question =
       anchors.has(id) && item.type === "tool_call" && item.call.detail.kind === "ask_user";
@@ -249,8 +257,8 @@ function lastWorkOf(
 }
 
 /**
- * The transcript's blocks. A stretch of work (one "Worked for" log, one "Started N subagents"
- * line) is a turn's output until its answer or the person's next message, never across turns:
+ * The transcript's blocks. A work segment ends at a launch card, an answer or the person's
+ * next message. Narration following a launch batch stays in its own transcript block:
  * the agent's words between steps join the log in order, and notices, background tasks,
  * questions, injected messages and other events show inline without ending it. A turn's files
  * card and ending wait until its whole tree has settled (ADR 0062).
@@ -262,7 +270,11 @@ export function buildBlocks(source: BlockSource): Block[] {
   const { stretchAt, lastWork } = lastWorkOf(order, source, anchors);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];
-  let stretch: { work?: { block: WorkBlock; at: number }; subagents?: { itemIds: string[] } } = {};
+  let stretch: { work?: { block: WorkBlock; at: number } } = {};
+  // Launch batches belong to their launching agent's own run, independent of work-log stretches.
+  const batches = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
+  const launched = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
+  const branches = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
   const groupOf = new Map<string, { itemIds: string[]; at: number }>();
   let turnId: string | undefined;
   let askId: string | undefined;
@@ -310,14 +322,39 @@ export function buildBlocks(source: BlockSource): Block[] {
   };
   const group = (kind: "work" | "subagents", id: string) => {
     if (kind === "subagents") {
-      let open = stretch.subagents;
+      const item = source.item(id);
+      if (!item) return;
+      const owner = item.agentId ?? "";
+      const child =
+        item.type === "delegation.started"
+          ? item.childThreadId
+          : item.type === "tool_call" &&
+              item.call.detail.kind === "agent.spawn" &&
+              item.call.detail.childAgentId
+            ? source.launchThread?.(item.call.detail.childAgentId)
+            : undefined;
+      let open = branches.get(owner) ?? (child ? launched.get(child) : undefined);
       if (!open) {
-        const itemIds: string[] = [];
-        blocks.push({ kind, key: `${kind}:${id}`, itemIds });
-        open = stretch.subagents = { itemIds };
+        const batch = batches.get(owner);
+        if (batch?.run === item.runId) open = batch;
       }
+      if (!open) {
+        close(item.createdAt);
+        const itemIds: string[] = [];
+        const at = blocks.push({ kind, key: `${kind}:${id}`, itemIds }) - 1;
+        open = { run: item.runId, itemIds, at };
+      }
+      // A delayed duplicate stays at its original launch; it cannot reopen a narrated batch.
+      if (!child || !launched.has(child)) batches.set(owner, open);
+      if (child) launched.set(child, open);
+      if (
+        item.type === "tool_call" &&
+        item.call.detail.kind === "agent.spawn" &&
+        item.call.detail.childAgentId
+      )
+        branches.set(item.call.detail.childAgentId, open);
       open.itemIds.push(id);
-      placed(blocks.length - 1);
+      placed(open.at);
       return;
     }
     let open = stretch.work;
@@ -340,6 +377,13 @@ export function buildBlocks(source: BlockSource): Block[] {
     const item = source.item(id);
     if (!item) continue;
     const person = isPerson(item);
+    const launchNarration =
+      item.type === "message" &&
+      item.role === "assistant" &&
+      !item.synthetic &&
+      batches.has(item.agentId ?? "");
+    if (person) batches.clear();
+    else if (item.type === "message" && !item.synthetic) batches.delete(item.agentId ?? "");
     const known = source.turnOf?.(id);
     if (person) {
       // The person's message belongs to the turn that answers it.
@@ -376,12 +420,13 @@ export function buildBlocks(source: BlockSource): Block[] {
           else {
             // Said between steps: it reads inside the log, in order. After the last step: the
             // answer, below the log.
-            const between = (lastWork.get(stretchAt[index] ?? -1) ?? -1) > index;
+            const between =
+              !launchNarration && (lastWork.get(stretchAt[index] ?? -1) ?? -1) > index;
             if (between) group("work", id);
             else
               push(
                 { kind: "message", key: id, itemId: id },
-                item.complete ? item.createdAt : false,
+                launchNarration || item.complete ? item.createdAt : false,
                 true,
               );
             // The agent spoke after the error: that error was not how the turn ended.
@@ -390,13 +435,13 @@ export function buildBlocks(source: BlockSource): Block[] {
           break;
         case "tool_call": {
           const taskId = source.background.get(id);
-          if (taskId !== undefined)
-            push({ kind: "background", key: id, itemId: id, taskId }, false);
-          else if (item.call.kind === "agent.spawn") {
+          if (item.call.kind === "agent.spawn") {
             group("subagents", id);
             if (item.call.detail.kind === "agent.spawn" && item.call.detail.childAgentId)
               mark?.agents.add(item.call.detail.childAgentId);
-          } else {
+          } else if (taskId !== undefined)
+            push({ kind: "background", key: id, itemId: id, taskId }, false);
+          else {
             group("work", id);
             if (editKinds.has(item.call.kind)) mark?.edits.push(id);
           }
@@ -404,6 +449,9 @@ export function buildBlocks(source: BlockSource): Block[] {
         }
         case "reasoning":
           group("work", id);
+          break;
+        case "delegation.started":
+          group("subagents", id);
           break;
         case "notice": {
           // A measurement, or the daemon's audit of a computer-use action: both are steps of the

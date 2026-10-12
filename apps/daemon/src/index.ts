@@ -13,14 +13,8 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { createRedactor } from "@ace/redaction";
-import {
-  logError,
-  logFields,
-  createFileSink,
-  createLogger,
-  createHealthMonitor,
-} from "@ace/diagnostics";
+import { createDaemonLogger } from "./diagnostic-log.ts";
+import { logError, logFields, createFileSink, createHealthMonitor } from "@ace/diagnostics";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 
@@ -172,12 +166,14 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       async close() {},
     }));
-    const log = createLogger({
-      sink,
-      now,
-      redact: createRedactor(context),
-      level: config.logLevel,
-    });
+    const log = createDaemonLogger(
+      {
+        sink,
+        now,
+        level: config.logLevel,
+      },
+      context,
+    );
     resources.own(() => log.close());
     lifetime.signal.throwIfAborted();
     const serviceContext: ServiceContext = {

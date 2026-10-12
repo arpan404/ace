@@ -107,6 +107,7 @@ export function accessHttp({
             ...(serviceStatus ? { services: serviceStatus() } : {}),
           };
         else if (path === "/v1/maintenance" && maintenance) {
+          if (!auth.local(token)) throw new AccessError(403, "Host token required");
           if (request.method === "POST") result = maintenance.enter();
           else if (request.method === "DELETE") result = maintenance.leave();
           else if (request.method === "GET") result = maintenance.status();

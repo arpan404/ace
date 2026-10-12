@@ -9,7 +9,7 @@
     "./availability": "./src/availability.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "accounts": "node src/cli.ts",
     "bench": "node bench/quota.ts"
   },

@@ -5,7 +5,7 @@ import { AgentControlError } from "./failure.ts";
 /** At most four filesystem operations; cancellation owns their I/O signals. */
 export class ReservationLifetimes {
   private entries = new Map<ThreadId, { parentId: ThreadId; controller: AbortController }>();
-  watch(reservation: DelegationReservation) {
+  watch(reservation: DelegationReservation): { signal: AbortSignal; close: () => void } {
     const record = reservation.record;
     if (this.entries.has(record.childId) || this.entries.size >= 4)
       throw new AgentControlError("delegation_limit", "Reservation lifetime capacity");

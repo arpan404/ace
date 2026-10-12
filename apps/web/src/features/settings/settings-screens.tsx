@@ -183,3 +183,19 @@ export function PairDeviceScreen() {
     </Suspense>
   );
 }
+
+const SourceControlSettings = lazy(() =>
+  import("./source-control-page.tsx").then((module) => ({ default: module.SourceControlSettings })),
+);
+export function SourceControlSettingsScreen() {
+  return (
+    <SettingsBody
+      page="Source control"
+      lede="GitHub access through this computer’s installed CLI. Credentials stay with gh and Git."
+    >
+      <Suspense fallback={null}>
+        <SourceControlSettings />
+      </Suspense>
+    </SettingsBody>
+  );
+}

@@ -8,7 +8,7 @@
     "./client": "./src/client.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "bench": "node bench/download.ts",
     "bench:relay": "node bench/relay.ts",
     "bench:artifacts": "node bench/artifacts.ts"

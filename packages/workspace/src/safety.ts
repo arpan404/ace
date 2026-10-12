@@ -1,4 +1,11 @@
-import { openAt, openRoot, statAt, descriptorNames, type Descriptor } from "./descriptor.ts";
+import {
+  openAt,
+  openRoot,
+  openMetadataAt,
+  statAt,
+  descriptorNames,
+  type Descriptor,
+} from "./descriptor.ts";
 import { constants, type Stats } from "node:fs";
 import { type FileHandle } from "node:fs/promises";
 import { workspaceRuntime, type WorkspaceFileSystem, type WorkspaceRuntime } from "./runtime.ts";
@@ -136,6 +143,45 @@ export class SafeRoot {
         throw new WorkspaceError("PATH_CHANGED", "File was replaced while opening");
       await this.verify(input, resolved, info);
       return { handle, info, resolved };
+    } catch (error) {
+      await handle?.close();
+      throw failure(error);
+    }
+  }
+  /** Acquire private staging metadata even when the file's mode forbids reads. */
+  async privateFileMetadata(input: string) {
+    const path = this.path(input);
+    if (internal(dirname(path)) || !/^\.ace-upload-[a-zA-Z0-9_-]+$/.test(basename(path)))
+      throw new WorkspaceError("INVALID_PATH", "Expected a private transfer file");
+    let handle: Descriptor | undefined;
+    try {
+      const parentPath = dirname(path) === "." ? "" : dirname(path);
+      const parentResolved = await this.resolve(parentPath);
+      const parentInfo = await this.fs.lstat(parentResolved);
+      const resolved = join(parentResolved, basename(path));
+      const expected = await this.fs.lstat(resolved);
+      if (!expected.isFile())
+        throw new WorkspaceError("NOT_FILE", "Expected a regular private file");
+      const parent = await this.anchored(
+        parentResolved,
+        constants.O_RDONLY | constants.O_DIRECTORY,
+      );
+      try {
+        handle = openMetadataAt(parent.fd, basename(path));
+      } finally {
+        await parent.close();
+      }
+      const info = await handle.stat();
+      if (!info.isFile() || !same(info, expected) || info.nlink !== 1)
+        throw new WorkspaceError("PATH_CHANGED", "Private file was replaced or linked");
+      const verify = async () => {
+        await this.verify(parentPath, parentResolved, parentInfo);
+        const current = await this.fs.lstat(resolved);
+        if (!current.isFile() || !same(current, info) || current.nlink !== 1)
+          throw new WorkspaceError("PATH_CHANGED", "Private file was replaced or linked");
+      };
+      await verify();
+      return { handle, info, verify };
     } catch (error) {
       await handle?.close();
       throw failure(error);

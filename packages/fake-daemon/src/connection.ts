@@ -215,6 +215,7 @@ export class Connection {
         }
         if (
           (message.command.payload.type === "workspace.clone" ||
+            message.command.payload.type === "workspace.publish" ||
             ((message.command.payload.type === "thread.create" ||
               message.command.payload.type === "thread.prepare") &&
               message.command.payload.mode === "worktree")) &&

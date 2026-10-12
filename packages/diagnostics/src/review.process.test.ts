@@ -38,7 +38,7 @@ it("embedded event payloads, colliding keys and excessive depth cannot leak stru
   db.exec("CREATE TABLE events(seq INTEGER PRIMARY KEY, at INTEGER, type TEXT, payload TEXT)");
   db.prepare("INSERT INTO events VALUES(1, 0, 'event', ?)").run(JSON.stringify(payload));
   db.close();
-  for await (const line of recentThreadEvents(path, controlledWorker)) {
+  for await (const line of recentThreadEvents(path, { home: "/private/home" }, controlledWorker)) {
     const clean = redact(line);
     expect(clean).not.toContain("OPAQUE_REFRESH_VALUE");
     expect(clean).not.toContain("OPAQUE_PASSWORD_VALUE");

@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "vitest";
 import { Command, DiagnosticsHealth, ThreadId, type ThreadStatus } from "@ace/protocol";
 import { fixture, token } from "./socket-test-support.ts";
 import { accessRequest } from "./client-access.ts";
+import { setup } from "./remote-test-support.ts";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0)) await close();
@@ -161,6 +162,54 @@ test("draining still serves read-only diagnostics without changing agent work", 
   expect(f.store.headSeq()).toBe(before);
   expect(await accessRequest(f.server.httpUrl, "/v1/maintenance", { token })).toEqual({
     draining: true,
+    blockers: 0,
+  });
+});
+
+test("paired credentials cannot inspect or change the host maintenance lease on loopback", async () => {
+  const f = await fixture();
+  cleanups.push(() => f.close());
+  const credentials = [
+    f.store.devices.create("Admin", ["admin"], 1).token,
+    f.store.devices.create("Desktop", ["desktop", "admin"], 1).token,
+    f.store.devices.create("Operator", ["read", "operate"], 1).token,
+    f.store.devices.create("Reader", ["read"], 1).token,
+  ];
+  for (const draining of [false, true]) {
+    await accessRequest(f.server.httpUrl, "/v1/maintenance", {
+      method: draining ? "POST" : "DELETE",
+      token,
+    });
+    for (const credential of credentials) {
+      for (const method of ["GET", "POST", "DELETE"] as const) {
+        await expect(
+          accessRequest(f.server.httpUrl, "/v1/maintenance", {
+            method,
+            token: credential,
+          }),
+        ).rejects.toThrow("403");
+        expect(await accessRequest(f.server.httpUrl, "/v1/maintenance", { token })).toEqual({
+          draining,
+          blockers: 0,
+        });
+      }
+    }
+  }
+});
+
+test("the remote HTTPS listener omits the maintenance route even for a paired admin", async () => {
+  const f = await setup();
+  const admin = await f.pair(["admin"]);
+  for (const method of ["GET", "POST", "DELETE"] as const) {
+    await expect(
+      f.remoteRequest("/v1/maintenance", {
+        method,
+        token: admin.token,
+      }),
+    ).rejects.toThrow("404");
+  }
+  expect(await accessRequest(f.server.httpUrl, "/v1/maintenance", { token })).toEqual({
+    draining: false,
     blockers: 0,
   });
 });

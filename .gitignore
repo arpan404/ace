@@ -27,3 +27,6 @@ native/screen-helper-windows/target/
 
 # Isolated development data (daemon home, Electron userData)
 .ace-dev/
+
+# Incremental typecheck declarations, generated project configs and compiler caches.
+**/.cache/typecheck/
