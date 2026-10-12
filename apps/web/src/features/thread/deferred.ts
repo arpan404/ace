@@ -27,6 +27,10 @@ export const DeferredThreadMenu = deferredComponent(() =>
 export const DeferredThreadHotkeys = deferredComponent(() =>
   import("./header/thread-menu.tsx").then((module) => module.ThreadHotkeys),
 );
+/** Checkout and git actions, mounted only by the Work tab. */
+export const DeferredWorkEnvironment = deferredComponent(() =>
+  import("./header/work-environment.tsx").then((m) => m.WorkEnvironment),
+);
 /**
  * The long-thread tools, loaded when first opened and warmed while idle: the turn timeline,
  * search within the thread (ADR 0056: off the route's first paint).

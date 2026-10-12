@@ -7,6 +7,8 @@ import { createContext, useContext, type ComponentType } from "react";
  * Each is optional; a tab without its part says what it can't show here.
  */
 export interface ThreadParts {
+  /** The thread slice owns checkout and git actions; Work provides their panel placement. */
+  WorkEnvironment?: ComponentType<{ threadId: string }>;
   /** One agent's own work in a thread, or a whole (child) thread when `agentId` is left out. */
   AgentTranscript?: ComponentType<{ threadId: string; agentId?: string | undefined }>;
   /** The thread composer's shape for a side chat, off with `reason` while it can't run. */

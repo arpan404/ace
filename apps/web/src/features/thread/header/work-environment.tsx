@@ -1,4 +1,5 @@
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
+import { useThreadMeta } from "@ace/client-react";
 import { useState, lazy, Suspense } from "react";
 import { fileTab, loadCreateFile } from "@/features/panels/index.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -15,7 +16,21 @@ const keepWorkOpen = () => {};
 const CreateFile = lazy(() => loadCreateFile().then((module) => ({ default: module.CreateFile })));
 
 /** Environment and git controls used by the right-panel Work tab. */
-export function WorkEnvironment(props: { thread: ThreadRef }) {
+export function WorkEnvironment(props: { threadId: string }) {
+  const meta = useThreadMeta(props.threadId);
+  return meta ? (
+    <EnvironmentActions
+      thread={{
+        id: props.threadId,
+        workspaceId: meta.workspaceId,
+        title: meta.title,
+        provider: meta.provider,
+      }}
+    />
+  ) : null;
+}
+
+function EnvironmentActions(props: { thread: ThreadRef }) {
   const git = useGitFlow(props.thread);
   const [linking, setLinking] = useState(false);
   const [addingScript, setAddingScript] = useState(false);

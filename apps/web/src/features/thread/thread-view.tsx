@@ -55,6 +55,7 @@ import {
   DeferredAgentComposer,
   DeferredThreadHotkeys,
   DeferredThreadMenu,
+  DeferredWorkEnvironment,
   DeferredTurnsPanel,
   preloadDeferred,
 } from "./deferred.ts";
@@ -115,8 +116,8 @@ export interface ThreadTarget {
 
 /**
  * A thread: the transcript and composer in the main column; in the header only its title, the ⋯
- * menu, the work card's button (project, git, actions, editors, sources) and the side panel's
- * toggle; and its side panel of tabs (Changes, Agents, terminals, Files, Browser, …). A long
+ * menu and the side panel toggle; its panel tabs include Work, Changes, terminals, Files
+ * and Browser. A long
  * thread adds its turns and search.
  */
 export function ThreadView(props: { threadId: string; target?: ThreadTarget | undefined }) {
@@ -156,6 +157,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
     () => ({
       ...outer,
       AgentTranscript,
+      WorkEnvironment: DeferredWorkEnvironment.Component,
       SideChatComposer,
       AgentComposer,
       fork: forkPoint && (() => setForking(forkPoint)),
