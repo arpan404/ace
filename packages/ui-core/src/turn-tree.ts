@@ -39,6 +39,7 @@ export class TurnTree {
   private agents = 0;
   private attention = 0;
   private readonly requests = new Map<string, Interaction>();
+  private readonly statusRequests = new Map<string, Set<string>>();
   private readonly shells = new Map<string, BackgroundTask>();
   private readonly endOf = new Map<string, { turn: string; at: number }>();
   private readonly ends = new Map<string, Map<string, number>>();
@@ -75,8 +76,10 @@ export class TurnTree {
           const link = this.link(key);
           const moved = this.links.get(key) !== link;
           if (this.dependencies.has(key)) this.links.set(key, link);
-          for (const entry of this.dependencies.get(key) ?? [])
-            if (moved || !keys.has(key) || entry.startsWith("interaction:")) affected.add(entry);
+          // Status changes affect actionable requests, not retained run ancestry.
+          const dependents =
+            moved || !keys.has(key) ? this.dependencies.get(key) : this.statusRequests.get(key);
+          for (const entry of dependents ?? []) affected.add(entry);
         }
         for (const key of affected) this.read(key);
       });
@@ -92,6 +95,7 @@ export class TurnTree {
     this.links.clear();
     this.counts.clear();
     this.requests.clear();
+    this.statusRequests.clear();
     this.shells.clear();
     this.endOf.clear();
     this.ends.clear();
@@ -335,8 +339,18 @@ export class TurnTree {
     if (value.agent) this.agents += delta;
     if (value.needsYou) this.attention += delta;
     if (value.request) {
-      if (delta > 0) this.requests.set(key, value.request);
-      else this.requests.delete(key);
+      const owner = `agent:${value.request.agentId}`;
+      if (delta > 0) {
+        this.requests.set(key, value.request);
+        let requests = this.statusRequests.get(owner);
+        if (!requests) this.statusRequests.set(owner, (requests = new Set()));
+        requests.add(key);
+      } else {
+        this.requests.delete(key);
+        const requests = this.statusRequests.get(owner);
+        requests?.delete(key);
+        if (!requests?.size) this.statusRequests.delete(owner);
+      }
     }
     if (value.shell) {
       if (delta > 0) this.shells.set(key, value.shell);

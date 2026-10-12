@@ -8,7 +8,7 @@ import {
   type Run,
   type ToolCall,
 } from "@ace/protocol";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { ThreadSource } from "@ace/client";
 import { turnTreeOf } from "./turn-tree.ts";
 import { ledgerOf } from "./thread-ledger.ts";
@@ -527,6 +527,53 @@ test("an unanchored root request stays with its server turn after a newer run st
   expect(turnTreeOf({ ...thread.reader }).settled("run-1")).toBe(false);
   thread.ask(approval("first-approval", 5_000, 45_000));
   expect(turnTreeOf(thread.reader).settled("run-1")).toBe(true);
+});
+
+test("a child's status update visits only current requests even after a thousand retained runs", () => {
+  const thread = world(working, [shell("spawn", "start audit", "succeeded", 0)]);
+  thread.subagent("audit", working, "spawn");
+  for (let index = 0; index < 1000; index++)
+    thread.runs.set(`past-${index}`, {
+      ...run(`past-${index}`, "audit"),
+      state: "completed",
+      startedAt: index,
+      endedAt: index + 1,
+    });
+  thread.ask({ ...question("question", 5), agentId: agent("audit", working).id });
+  let notify: Parameters<ThreadSource["observe"]>[0] | undefined;
+  const reader = {
+    ...thread.reader,
+    observe: (tap: Parameters<ThreadSource["observe"]>[0]) => {
+      notify = tap;
+      return () => {};
+    },
+  };
+  const tree = turnTreeOf(reader);
+  expect(tree.needsYou).toBe(false);
+  let visits = 0;
+  const iterate = Set.prototype[Symbol.iterator];
+  // Count yielded entries, including skipped dependencies that never cause a reader call.
+  const iterations = vi.spyOn(Set.prototype, Symbol.iterator).mockImplementation(function (
+    this: Set<unknown>,
+  ) {
+    const cursor = iterate.call(this);
+    const next = cursor.next.bind(cursor);
+    cursor.next = (...args) => {
+      const result = next(...args);
+      if (!result.done) visits++;
+      return result;
+    };
+    return cursor;
+  });
+  try {
+    thread.subagent("audit", { state: "blocked", on: "human", refs: ["question"] }, "spawn");
+    notify?.(new Set(["agent:audit"]));
+    expect(tree.needsYou).toBe(true);
+    expect(tree.settled("run-1")).toBe(false);
+    expect(visits).toBeLessThan(80);
+  } finally {
+    iterations.mockRestore();
+  }
 });
 
 test("a continuation recovered with only its new output still uses the original server stretch clock", () => {
