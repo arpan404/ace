@@ -1,7 +1,13 @@
 import { useClient, useConnectionState } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingList, SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import {
+  SettingFooter,
+  SettingList,
+  SettingNote,
+  SettingRow,
+  SettingSection,
+} from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { RowMenu } from "@/components/ui/row-menu.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
@@ -63,31 +69,32 @@ export function ProjectFolders() {
           ))}
         </SettingList>
       ) : null}
-      <form
-        data-setting-slot=""
-        className="flex min-h-(--setting-row-height) items-center gap-2 px-4 py-(--setting-row-y)"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void run(() => addProjectRoot(client, path.trim()));
-        }}
-      >
-        <Input
-          aria-label="Folder path"
-          placeholder="Add a project folder"
-          value={path}
-          className="min-w-0 flex-1"
-          onChange={(event) => setPath(event.target.value)}
-          disabled={disabled}
-        />
-        <Button
-          type="submit"
-          size="sm"
-          variant="secondary"
-          disabled={disabled || !/^(?:\/|[A-Za-z]:[\\/])/.test(path.trim())}
+      <SettingFooter className="justify-start">
+        <form
+          className="flex min-w-0 flex-1 items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void run(() => addProjectRoot(client, path.trim()));
+          }}
         >
-          Add folder
-        </Button>
-      </form>
+          <Input
+            aria-label="Folder path"
+            placeholder="Add a project folder"
+            value={path}
+            className="min-w-0 flex-1"
+            onChange={(event) => setPath(event.target.value)}
+            disabled={disabled}
+          />
+          <Button
+            type="submit"
+            size="sm"
+            variant="secondary"
+            disabled={disabled || !/^(?:\/|[A-Za-z]:[\\/])/.test(path.trim())}
+          >
+            Add folder
+          </Button>
+        </form>
+      </SettingFooter>
       {problem && (
         <SettingNote role="alert" className="text-status-failed">
           {problem}

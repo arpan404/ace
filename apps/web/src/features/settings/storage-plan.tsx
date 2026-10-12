@@ -32,12 +32,19 @@ export function StoragePlanPreview(props: {
   const finished = props.result?.state === "complete" || props.result?.state === "stale";
   return (
     <SettingSection label="Cleanup preview">
-      <SettingNote>
-        {remove.length} items to remove · {storageBytes(props.plan.bytes)} of data.{" "}
-        {protectedItems.length} protected.
-        {!props.plan.complete &&
-          " This is a bounded batch. Preview again after cleanup to find more data."}
-      </SettingNote>
+      {props.plan.items.length > 0 ? (
+        <SettingNote>
+          {remove.length} items to remove · {storageBytes(props.plan.bytes)} of data.{" "}
+          {protectedItems.length} protected.
+          {!props.plan.complete &&
+            " This is a bounded batch. Preview again after cleanup to find more data."}
+        </SettingNote>
+      ) : (
+        // Nothing found: say so, with no summary of zeros and no action that can't run.
+        <SettingNote role="status" className="py-5 text-center">
+          Nothing to clean up. No data was found in these storage categories.
+        </SettingNote>
+      )}
       {props.plan.items.length > 0 && (
         <SettingList aria-label="Cleanup items">
           {props.plan.items.map((item) => {
@@ -91,9 +98,6 @@ export function StoragePlanPreview(props: {
           })}
         </SettingList>
       )}
-      {!props.plan.items.length && (
-        <SettingNote>No data was found in these storage categories.</SettingNote>
-      )}
       {props.result?.state === "stale" && (
         <SettingNote role="alert" className="text-foreground">
           This plan changed. Preview cleanup again before removing data.
@@ -104,26 +108,28 @@ export function StoragePlanPreview(props: {
           Cleanup finished. Items that became protected were kept.
         </SettingNote>
       )}
-      <SettingFooter>
-        <Button
-          size="sm"
-          variant="danger"
-          disabled={
-            props.busy ||
-            props.disabled ||
-            finished ||
-            !remove.length ||
-            props.forceItems.length > 0
-          }
-          onClick={() => setConfirm(true)}
-        >
-          {props.busy
-            ? "Cleaning…"
-            : props.result?.state === "pending"
-              ? "Resume cleanup"
-              : `Remove ${remove.length} items`}
-        </Button>
-      </SettingFooter>
+      {(remove.length > 0 || props.busy || props.result?.state === "pending") && (
+        <SettingFooter>
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={
+              props.busy ||
+              props.disabled ||
+              finished ||
+              !remove.length ||
+              props.forceItems.length > 0
+            }
+            onClick={() => setConfirm(true)}
+          >
+            {props.busy
+              ? "Cleaning…"
+              : props.result?.state === "pending"
+                ? "Resume cleanup"
+                : `Remove ${remove.length} items`}
+          </Button>
+        </SettingFooter>
+      )}
       <Dialog open={confirm} onOpenChange={setConfirm}>
         <DialogContent>
           <DialogHeader>

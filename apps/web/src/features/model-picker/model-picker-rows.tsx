@@ -205,14 +205,23 @@ const fixedBySignIn = new Set<ModelProblem["code"]>(["not_configured", "auth_exp
  * could not be reached. Check your network and refresh models." Its last models still list.
  * Where signing in fixes it, Sign in starts that provider's (or upstream's) own sign-in.
  */
-export function GroupProblem(props: { problem: ModelProblem; id: string; provider: ProviderKind }) {
+export function GroupProblem(props: {
+  problem: ModelProblem;
+  id: string;
+  provider: ProviderKind;
+  /** Where it sits decides its inset: the picker's rows, or a settings row's own. */
+  className?: string;
+}) {
   const { problem } = props;
   const refresh = useRefreshModels();
   return (
     <p
       id={props.id}
       role="presentation"
-      className="flex gap-1.5 px-2.5 py-1 text-xs leading-4 text-muted-foreground"
+      className={cn(
+        "flex gap-1.5 px-2.5 py-1 text-xs leading-4 text-muted-foreground",
+        props.className,
+      )}
     >
       {problem.severity !== "info" && (
         <WarningCircleIcon aria-hidden size={14} className="mt-px shrink-0 text-status-failed" />
