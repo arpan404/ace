@@ -69,7 +69,7 @@ export function ElapsedTime(props: { from: number; className?: string }) {
     write();
     return seconds.subscribe(write);
   }, [seconds, from]);
-  return <span ref={element} className={cn("font-mono text-xs tabular-nums", props.className)} />;
+  return <span ref={element} className={cn("tabular-nums", props.className)} />;
 }
 
 /**
@@ -97,7 +97,7 @@ export function WorkingIndicator(props: {
       <span className="shrink-0">
         {timed ? `${timedWords(label)} ` : label}
         {props.held !== undefined ? (
-          <span className="font-mono text-xs tabular-nums">{formatElapsed(props.held)}</span>
+          <span className="tabular-nums">{formatElapsed(props.held)}</span>
         ) : (
           props.from !== undefined && <ElapsedTime from={props.from} />
         )}
