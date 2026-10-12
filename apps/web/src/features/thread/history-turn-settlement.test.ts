@@ -72,6 +72,17 @@ test("a jumped history turn stays unfinished during its silent continuation and 
 
 test("a history window assigns an unanchored pending root approval to its older server turn", async () => {
   const { daemon, time } = seed();
+  time(10_000);
+  daemon.apply(id, [
+    { type: "turn.ended", agent: "root", nativeTurnId: "first", outcome: "completed" },
+  ]);
+  time(40_000);
+  daemon.apply(id, [
+    { type: "turn.started", agent: "root", nativeTurnId: "second", trigger: "user" },
+    facts.message("root", "second-ask", "user", "Second question"),
+    facts.message("root", "second-answer", "assistant", "Second answer"),
+  ]);
+  // The older request arrives late, after newer output, with its original server timestamp.
   time(5_000);
   daemon.apply(id, [
     {
@@ -85,16 +96,6 @@ test("a history window assigns an unanchored pending root approval to its older 
         options: [{ id: "deny", kind: "deny", label: "Deny" }],
       },
     },
-  ]);
-  time(10_000);
-  daemon.apply(id, [
-    { type: "turn.ended", agent: "root", nativeTurnId: "first", outcome: "completed" },
-  ]);
-  time(40_000);
-  daemon.apply(id, [
-    { type: "turn.started", agent: "root", nativeTurnId: "second", trigger: "user" },
-    facts.message("root", "second-ask", "user", "Second question"),
-    facts.message("root", "second-answer", "assistant", "Second answer"),
   ]);
   const { source, firstRun, release } = await history(daemon);
   try {

@@ -566,8 +566,8 @@ test("a child's status update visits only current requests even after a thousand
     return cursor;
   });
   try {
-    thread.subagent("audit", { state: "blocked", on: "human", refs: ["question"] }, "spawn");
-    notify?.(new Set(["agent:audit"]));
+    thread.subagent("audit", { state: "idle" }, "spawn");
+    notify?.(new Set(["agent:audit", "run:run-audit"]));
     expect(tree.needsYou).toBe(true);
     expect(tree.settled("run-1")).toBe(false);
     expect(visits).toBeLessThan(80);
