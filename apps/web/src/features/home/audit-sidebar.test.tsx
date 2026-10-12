@@ -175,7 +175,7 @@ test("a filtered empty state names the project rather than its opaque id", async
   expect(screen.queryByText(`Nothing in ${project.id}`)).toBeNull();
 });
 
-test("a compact thread keeps provider context in its accessible name and hover card", async () => {
+test("a task keeps project and activity context visible with provider details in its accessible name", async () => {
   const made = harness();
   createIdleTask(made.daemon, {
     id: "bare",
@@ -189,7 +189,8 @@ test("a compact thread keeps provider context in its accessible name and hover c
     { name: /^Bare thread/ },
   );
   expect(bare.getAttribute("aria-label")).toContain("Codex");
-  expect(within(bare).queryByText("Codex")).toBeNull();
+  expect(within(bare).getByText("relay")).toBeTruthy();
+  expect(within(bare).getByText("Done · Codex")).toBeTruthy();
   await userEvent.hover(bare);
   expect(
     within(await screen.findByLabelText(/^Details for Bare thread/)).getByText("Codex"),

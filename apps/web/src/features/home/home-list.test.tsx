@@ -80,7 +80,7 @@ test("a pinned thread leads the list, ahead of threads that need you", async () 
 test("tasks expose status, linked PR, provider and branch details", async () => {
   await openHome(workbenchApp());
   const refund = card(/^Partial refunds double-count tax/);
-  expect(within(refund).queryByText("fix/refund-tax")).toBeNull();
+  expect(within(refund).getByText("fix/refund-tax")).toBeTruthy();
   expect(refund.getAttribute("aria-label") ?? refund.textContent).toContain(
     "Waiting for your approval",
   );
@@ -88,12 +88,12 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   expect(refund.getAttribute("aria-label")).toContain("Pull request #77");
   expect(refund.getAttribute("aria-label")).toContain("fix/refund-tax");
   expect(refund.getAttribute("aria-label")).toContain("billing-api");
-  expect(within(refund).queryByText("billing-api")).toBeNull();
+  expect(within(refund).getByText("billing-api")).toBeTruthy();
   expect(within(threads()).getByRole("heading", { name: "billing-api" })).toBeTruthy();
 
   // Working rows expose their worktree and subagents too.
   const dedupe = card(/^Dedupe thread events after reconnect/);
-  expect(within(dedupe).queryByText("fix/replay-dedupe")).toBeNull();
+  expect(within(dedupe).getByText("fix/replay-dedupe")).toBeTruthy();
   expect(dedupe.getAttribute("aria-label")).toContain("Claude Code · 2 subagents running");
   expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toContain(
     "Waiting on 2 subagents",
@@ -359,7 +359,7 @@ test("a row's name and tooltip give its whole branch, including main", async () 
 
   const onMain = card(/^Tidy the README/);
   expect(onMain.getAttribute("aria-label")).toContain("Branch main");
-  expect(within(onMain).queryByText("main", { exact: true })).toBeNull();
+  expect(within(onMain).getByText("main", { exact: true })).toBeTruthy();
   await userEvent.unhover(hashed);
   onMain.focus();
   const details = await screen.findByLabelText(/^Details for Tidy the README/);

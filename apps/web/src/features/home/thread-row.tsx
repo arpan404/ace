@@ -12,7 +12,15 @@ import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
-import { RowStatus, StatusMark, threadDetails, titleTone, quietCard } from "./row-parts.tsx";
+import {
+  RowStatus,
+  RowContext,
+  RowTime,
+  threadDetails,
+  titleTone,
+  quietCard,
+} from "./row-parts.tsx";
+import { Dot } from "@/components/ui/dot.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
 import { useThreadCard } from "./use-thread-card.ts";
@@ -20,7 +28,7 @@ import { useThreadCard } from "./use-thread-card.ts";
 const row =
   "flex w-full items-center rounded-md px-2 text-left text-ui outline-none transition-colors duration-(--dur-1)";
 
-/** One compact title row; full context stays in its accessible name and hover card. */
+/** Tasks show project and status, title, then context; settled work stays compact. */
 export function ThreadRow(props: {
   threadId: string;
   settled: boolean;
@@ -54,19 +62,18 @@ export function ThreadRow(props: {
     (entry.switch?.state === "queued" ? entry.switch.selection.instanceId : undefined) ??
     entry.live?.account ??
     entry.execution?.instanceId;
-  const attention = card.status.tone === "needs-you" || card.status.tone === "failed";
-  const body = (
-    <div className="flex min-w-0 w-full items-center gap-1.5 group-focus-within/row:pr-7 group-hover/row:pr-7">
-      <span
-        {...(card.flags.unread
-          ? { role: "img", "aria-label": "Unread activity" }
-          : { "aria-hidden": true })}
-        className="grid w-3 shrink-0 place-items-center"
-      >
-        <StatusMark card={card} muted={!attention} />
-      </span>
+  // Attention remains visible even while an optimistic settlement is being reconciled.
+  const compact = settled && (card.status.tone === "done" || card.status.tone === "idle");
+  const height = compact ? "h-8 pointer-coarse:h-11" : "h-19 py-2.5";
+  const title = (
+    <div className="flex min-w-0 items-center gap-1.5">
+      {card.flags.unread && <Dot tone="working" label="Unread activity" />}
       <div
-        className={cn("min-w-0 flex-1 truncate text-ui leading-4", titleTone(card, highlighted))}
+        className={cn(
+          "min-w-0 flex-1 truncate leading-5",
+          !compact && "text-base",
+          titleTone(card, highlighted),
+        )}
       >
         {renaming ? (
           <RenameField
@@ -78,7 +85,22 @@ export function ThreadRow(props: {
           card.title
         )}
       </div>
-      <RowStatus card={card} />
+    </div>
+  );
+  const body = compact ? (
+    <div className="flex min-w-0 w-full items-center gap-2 group-focus-within/row:pr-7 group-hover/row:pr-7">
+      <div className="min-w-0 flex-1">{title}</div>
+      <RowTime card={card} />
+    </div>
+  ) : (
+    <div className="flex min-w-0 w-full flex-col gap-0.5">
+      <div className="flex min-w-0 items-center gap-1.5 pr-7 text-xs leading-4 text-muted-foreground">
+        <span className="min-w-0 truncate">{card.project}</span>
+        <span aria-hidden>·</span>
+        <RowStatus card={card} />
+      </div>
+      {title}
+      <RowContext card={card} />
     </div>
   );
   return (
@@ -102,11 +124,12 @@ export function ThreadRow(props: {
             render={<div />}
             className={cn("group/row relative", !online && "opacity-60")}
             data-attention={quiet ? "quiet" : "attention"}
+            data-row-layout={compact ? "compact" : "task"}
             // Settled rows stay out of picking and dragging, as they always have.
             {...(settled ? {} : { "data-thread-row": entry.id })}
           >
             {renaming ? (
-              <div className={cn(row, "h-8 pointer-coarse:h-11")}>{body}</div>
+              <div className={cn(row, height)}>{body}</div>
             ) : (
               <Link
                 to="/t/$threadId"
@@ -116,7 +139,7 @@ export function ThreadRow(props: {
                 draggable={false}
                 className={cn(
                   row,
-                  "h-8 pointer-coarse:h-11",
+                  height,
                   "group/link focus-ring focus-visible:bg-sidebar-accent data-[status=active]:bg-foreground/5",
                   selected && "bg-foreground/5",
                   handle && "pointer-coarse:pr-11",
@@ -148,7 +171,7 @@ export function ThreadRow(props: {
           </HoverCardTrigger>
         </ThreadMenu>
         {hover.open && !renaming && (
-          <ThreadHoverContent card={card} entry={entry} icon={data.icon} instance={instance} />
+          <ThreadHoverContent card={card} entry={entry} instance={instance} />
         )}
       </HoverCard>
     </>

@@ -37,9 +37,9 @@ import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 const estimates: Record<HomeRow["kind"], number> = {
   "pinned-header": 33,
-  pinned: 32,
+  pinned: 76,
   "pinned-end": 9,
-  thread: 32,
+  thread: 76,
   "settled-header": 37,
   settled: 32,
 };
@@ -121,6 +121,10 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
         project === null && row && startsProject(row, drawn[index - 1]?.item, projects);
       return estimates[kind] + (heading ? 28 : 0);
     },
+    paddingStart: 8,
+    paddingEnd: 8,
+    scrollPaddingStart: 8,
+    scrollPaddingEnd: 8,
     overscan: 6,
     getItemKey: (index) => drawn[index]?.key ?? index,
   });
@@ -305,6 +309,10 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
           void loadDrag();
         }}
         data-virtual-viewport=""
+        style={{
+          maskImage:
+            "linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent)",
+        }}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-4"
       >
         <div

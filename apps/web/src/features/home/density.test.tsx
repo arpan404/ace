@@ -35,10 +35,11 @@ test("all-project rows group under project headings and keyboard arrows follow t
   first.focus();
   await userEvent.keyboard("{ArrowDown}");
   expect(document.activeElement).toBe(links[1]);
-  expect(first.textContent).not.toContain("ace");
+  expect(within(first).getByText("ace")).toBeTruthy();
+  expect(within(first).getByText("Working", { exact: true })).toBeTruthy();
 });
 
-test("a selected project keeps compact rows without repeating its project heading", async () => {
+test("a selected project keeps project and status on each task without repeating its group heading", async () => {
   const storage = memoryKeyValue();
   storage.setItem(
     "ace.home.organizer",
@@ -48,12 +49,14 @@ test("a selected project keeps compact rows without repeating its project headin
   seed(app);
   await app.open("/new?project=ace");
   const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
-  await nav.findByRole("link", { name: /^Last task/ });
+  const task = await nav.findByRole("link", { name: /^Last task/ });
+  expect(within(task).getByText("ace")).toBeTruthy();
+  expect(within(task).getByText("Working", { exact: true })).toBeTruthy();
   expect(nav.queryByRole("heading", { name: "ace" })).toBeNull();
   expect(nav.queryByRole("link", { name: /^Other project/ })).toBeNull();
 });
 
-test("a failed thread keeps its attention label while routine work has no status word", async () => {
+test("failed and working tasks both keep visible status words", async () => {
   const app = harness();
   seed(app);
   app.daemon.apply("first", [facts.endTurn("root", "failed")]);
@@ -62,6 +65,6 @@ test("a failed thread keeps its attention label while routine work has no status
   const failed = await nav.findByRole("link", { name: /^First task/ });
   expect(within(failed).getByText("Failed")).toBeTruthy();
   const working = nav.getByRole("link", { name: /^Last task/ });
-  expect(within(working).queryByText("Working")).toBeNull();
+  expect(within(working).getByText("Working", { exact: true })).toBeTruthy();
   expect(working.getAttribute("aria-label")).toContain("Working");
 });
