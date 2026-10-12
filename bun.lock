@@ -46,6 +46,7 @@
         "@ace/git": "workspace:*",
         "@ace/handoff": "workspace:*",
         "@ace/history-import": "workspace:*",
+        "@ace/html": "workspace:*",
         "@ace/mcp-server": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/notify": "workspace:*",
@@ -130,9 +131,10 @@
         "@ace/client": "workspace:*",
         "@ace/client-react": "workspace:*",
         "@ace/client-worker": "workspace:*",
-        "@ace/forge": "workspace:*",
         "@ace/commands": "workspace:*",
         "@ace/core": "workspace:*",
+        "@ace/forge": "workspace:*",
+        "@ace/html": "workspace:*",
         "@ace/project-picker": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
@@ -163,8 +165,8 @@
         "@ace/adapter-cursor": "workspace:*",
         "@ace/adapter-opencode": "workspace:*",
         "@ace/adapter-testkit": "workspace:*",
-        "@ace/daemon": "workspace:*",
         "@ace/browser": "workspace:*",
+        "@ace/daemon": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@ace/review": "workspace:*",
         "@babel/core": "^8.0.6",
@@ -527,9 +529,9 @@
     "packages/git": {
       "name": "@ace/git",
       "dependencies": {
-        "@ace/redaction": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@ace/redaction": "workspace:*",
         "koffi": "3.3.2",
         "yaml": "^2.8.1",
         "zod": "^4.6.5",
@@ -552,6 +554,14 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/html": {
+      "name": "@ace/html",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "parse5": "^8.0.0",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/interaction": {
       "name": "@ace/interaction",
       "dependencies": {
@@ -561,6 +571,7 @@
     "packages/mcp-server": {
       "name": "@ace/mcp-server",
       "dependencies": {
+        "@ace/html": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@modelcontextprotocol/client": "2.2.0",
@@ -861,6 +872,7 @@
         "@ace/daemon": "workspace:*",
         "@ace/engine-api": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
+        "@ace/html": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@ace/ui-core": "workspace:*",
@@ -945,6 +957,8 @@
     "@ace/handoff": ["@ace/handoff@workspace:packages/handoff"],
 
     "@ace/history-import": ["@ace/history-import@workspace:packages/history-import"],
+
+    "@ace/html": ["@ace/html@workspace:packages/html"],
 
     "@ace/interaction": ["@ace/interaction@workspace:packages/interaction"],
 

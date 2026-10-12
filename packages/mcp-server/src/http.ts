@@ -229,7 +229,7 @@ async function createHandler(
   };
   const handler = createMcpHandler(factory, {
     legacy: "stateless",
-    maxRequestBodySize: options.maxBodyBytes ?? 64 * 1024,
+    maxRequestBodySize: options.maxBodyBytes ?? 2 * 1024 * 1024,
     maxSubscriptions: 16,
   });
   const legacy = await legacySessions(factory, (request) =>
@@ -247,7 +247,7 @@ async function createHandler(
       },
     },
     {
-      maxRequestBodySize: options.maxBodyBytes ?? 64 * 1024,
+      maxRequestBodySize: options.maxBodyBytes ?? 2 * 1024 * 1024,
     },
   );
   const validateHost = localhostHostValidation();
