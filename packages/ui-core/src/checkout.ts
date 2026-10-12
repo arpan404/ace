@@ -126,3 +126,17 @@ export function nextGitStep(checkout: Checkout): GitStep {
   if (live(checkout.pr)) return { kind: "pr", pr: checkout.pr };
   return { kind: "create-pr", blocked: prBlocker(checkout) };
 }
+
+const commits = (count: number) => `${count} ${count === 1 ? "commit" : "commits"}`;
+
+/**
+ * The checkout's sync state in one line, or undefined when there is nothing to say:
+ * "2 commits not pushed", "3 commits to pull", "1 commit not pushed · 2 to pull".
+ */
+export function checkoutNote(checkout: Checkout): string | undefined {
+  const { ahead, behind } = checkout;
+  if (ahead > 0 && behind > 0) return `${commits(ahead)} not pushed · ${behind} to pull`;
+  if (ahead > 0) return `${commits(ahead)} not pushed`;
+  if (behind > 0) return `${commits(behind)} to pull`;
+  return undefined;
+}
