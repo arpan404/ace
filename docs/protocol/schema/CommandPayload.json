@@ -1327,6 +1327,74 @@
     },
     {
       "properties": {
+        "input": {
+          "$ref": "https://ace.local/protocol/v1/ForgeIssueWrite.json"
+        },
+        "repository": {
+          "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+        },
+        "type": {
+          "const": "forge.issue.write",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId",
+        "repository",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "actionId": {
+          "$ref": "https://ace.local/protocol/v1/CommandId.json"
+        },
+        "repository": {
+          "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+        },
+        "type": {
+          "const": "forge.issue.reconcile",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId",
+        "repository",
+        "actionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "issue": {
+          "$ref": "https://ace.local/protocol/v1/ForgeIssueRef.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "forge.issue.link",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "issue"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "source": {
           "$ref": "https://ace.local/protocol/v1/ReviewSource.json"
         },
@@ -1658,6 +1726,9 @@
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "issue": {
+          "$ref": "https://ace.local/protocol/v1/ForgeIssueRef.json"
         },
         "mode": {
           "enum": [

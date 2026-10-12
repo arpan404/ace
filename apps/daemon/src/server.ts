@@ -1,3 +1,4 @@
+import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { shutdownDeadline } from "./shutdown.ts";
 import type { HistoryScanStatus } from "@ace/protocol/history";
 import { startTransports, startLocalTransports } from "./services/transports.ts";
@@ -587,32 +588,56 @@ export async function startServer(options: ServerOptions): Promise<{
               commandId: message.command.id,
               ...(retryable ? { retryable } : {}),
             });
+          const refuseBeforeAccept = (code: string, text: string, retryable = false) => {
+            if (message.command.payload.type !== "forge.issue.write") {
+              refuse(code, text, retryable);
+              return;
+            }
+            // An admission refusal says nothing about an earlier attempt with this ID.
+            // Look up only the authenticated device's receipt, never the payload's owner.
+            const uncertain = {
+              commandId: message.command.id,
+              ok: false,
+              error: "action_outcome_uncertain",
+            };
+            try {
+              const previous = device && options.store.commandReceipt(message.command.id, device);
+              send({
+                type: "commandResult",
+                ...(previous
+                  ? previous.error === "client_action_pending"
+                    ? uncertain
+                    : previous
+                  : commandNotDispatched(message.command, code)),
+              });
+            } catch {
+              send({ type: "commandResult", ...uncertain });
+            }
+          };
           if (!authorize(scope)) {
-            refuse("forbidden", `${scope} scope required`);
+            refuseBeforeAccept("forbidden", `${scope} scope required`);
             break;
           }
           if (socket.readyState !== WebSocket.OPEN || !authenticated.has(socket)) break;
           if (!authorize(scope)) {
-            refuse("forbidden", `${scope} scope required`);
+            refuseBeforeAccept("forbidden", `${scope} scope required`);
             break;
           }
           if (message.command.deviceId !== device) {
-            refuse("device_mismatch", "Command device must match hello");
+            refuseBeforeAccept("device_mismatch", "Command device must match hello");
             break;
           }
           if (!maintenance.admitCommand(message.command)) {
-            refuse("maintenance", "New work is paused. Resume new work in ace to continue.", true);
+            refuseBeforeAccept(
+              "maintenance",
+              "New work is paused. Resume new work in ace to continue.",
+              true,
+            );
             break;
           }
           try {
             if (route) await route.accept(message.command, device);
-            else
-              send({
-                type: "commandResult",
-                commandId: message.command.id,
-                ok: false,
-                error: "not_implemented",
-              });
+            else refuseBeforeAccept("not_implemented", "Command is not supported");
           } catch (error) {
             options.log?.(error);
             refuse("command_failed", "Command transaction rolled back", true);

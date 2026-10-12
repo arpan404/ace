@@ -31,15 +31,18 @@ Example:
 ```json
 {
   "concurrency": 5,
-  "enabled": true,
+  "enabled": false,
   "id": "example",
-  "jitterMs": 7,
-  "missedRun": "skip",
+  "jitterMs": 1,
+  "missedRun": "run_once",
   "prompt": "example",
-  "provider": "opencode",
+  "provider": "cursor",
   "title": "example",
   "trigger": {
-    "kind": "manual"
+    "kind": "file",
+    "paths": [
+      "example"
+    ]
   },
   "workspace": "example",
   "worktree": true
@@ -77,7 +80,7 @@ Example:
 
 ```json
 {
-  "before": 3,
+  "before": null,
   "runs": []
 }
 ```
@@ -95,7 +98,7 @@ Example:
 
 ```json
 {
-  "at": 9,
+  "at": 6,
   "message": "example"
 }
 ```
@@ -118,13 +121,12 @@ Example:
 {
   "automation": {
     "concurrency": 4,
-    "enabled": false,
+    "enabled": true,
     "id": "example",
-    "jitterMs": 1,
+    "jitterMs": 0,
     "missedRun": "skip",
-    "model": "example",
     "prompt": "example",
-    "provider": "codex",
+    "provider": "pi",
     "title": "example",
     "trigger": {
       "kind": "file",
@@ -133,7 +135,7 @@ Example:
       ]
     },
     "workspace": "example",
-    "worktree": false
+    "worktree": true
   },
   "requestId": "example",
   "type": "automation.put"
@@ -208,7 +210,8 @@ Example:
 
 ```json
 {
-  "limit": 7,
+  "before": 6,
+  "limit": 1,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -234,23 +237,8 @@ Example:
 ```json
 {
   "error": "example",
-  "inbox": {
-    "before": 1,
-    "runs": []
-  },
-  "ok": false,
+  "ok": true,
   "requestId": "example",
-  "run": {
-    "automationId": "example",
-    "eventKey": "example",
-    "id": "example",
-    "result": "example",
-    "startedAt": 3,
-    "status": "running",
-    "title": "example",
-    "trigger": "file"
-  },
-  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -279,11 +267,10 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "startedAt": 4,
+  "startedAt": 2,
   "status": "failed",
-  "threadId": "example",
   "title": "example",
-  "trigger": "github"
+  "trigger": "schedule"
 }
 ```
 
@@ -367,7 +354,7 @@ Example:
   "kind": "github",
   "label": "example",
   "pollIntervalMs": 60001,
-  "repository": "Hd8/9l"
+  "repository": "cTYYA/hQzO9AUX"
 }
 ```
 

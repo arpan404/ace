@@ -1,3 +1,4 @@
+import { ForgeIssueCommands, ForgeIssueRef } from "./forge-issues.ts";
 import { ProjectCommands } from "./projects.ts";
 import { ThreadMarkReadCommand } from "./thread-mark-read.ts";
 import { PermissionMode } from "./permissions.ts";
@@ -60,12 +61,14 @@ export const CommandPayload = z.discriminatedUnion("type", [
   ...WorkspaceCommands,
   ...ProjectCommands,
   ...ForgeCommand.options,
+  ...ForgeIssueCommands,
   ...ReviewCommands,
   OrchestrationCreateCommand,
   OrchestrationCancelCommand,
   OrchestrationPickCommand,
   z.object({
     type: z.literal("thread.create"),
+    issue: ForgeIssueRef.optional(),
     permissionMode: PermissionMode.optional(),
     /** Explicit portable fork/migration, preserving the source and allocating fresh native state. */
     handoffFrom: ThreadId.optional(),

@@ -1,4 +1,6 @@
 import type { WriteDispatch } from "./write-dispatch.ts";
+import { GitHubIssues } from "./github-issues.ts";
+import type { ForgeIssueSearch, ForgeIssueWrite } from "@ace/protocol/forge-issues";
 import { GitHubMergeState } from "./github-merge-state.ts";
 import { sameStack } from "./stack-plan.ts";
 import { GitHubStacks } from "./github-stacks.ts";
@@ -36,6 +38,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
   readonly #status = new GitHubStatusReader(this.revisions);
   readonly #root: string;
   readonly #browser: GitHubBrowser;
+  readonly #issues: GitHubIssues;
   readonly #mergeState: GitHubMergeState;
   readonly #stacks: GitHubStacks;
   readonly #localStacks: LocalStacks;
@@ -58,6 +61,27 @@ export class GitHubForge implements Forge, ForgeBrowser {
     this.#localStacks = new LocalStacks(options.runner, options.command);
     this.#browser = new GitHubBrowser(this.#api, this.repository);
     this.reviews = new GitHubReviews(this.#api, (number) => this.#ref(number));
+    this.#issues = new GitHubIssues(this.#api, this.repository);
+  }
+  listIssues(query: ForgeIssueSearch, signal: AbortSignal) {
+    return this.#issues.list(query, signal);
+  }
+  issueDetail(number: number, signal: AbortSignal) {
+    return this.#issues.detail(number, signal);
+  }
+  issueTimeline(number: number, page: number, signal: AbortSignal) {
+    return this.#issues.timeline(number, page, signal);
+  }
+  writeIssue(
+    input: ForgeIssueWrite,
+    actionId: string,
+    signal: AbortSignal,
+    dispatch?: WriteDispatch,
+  ) {
+    return this.#issues.write(input, actionId, signal, dispatch);
+  }
+  reconcileIssue(input: ForgeIssueWrite, actionId: string, signal: AbortSignal) {
+    return this.#issues.reconcile(input, actionId, signal);
   }
   #ref(number: number): ForgePrRef {
     return ForgePrRef.parse({ repository: this.repository, number });
