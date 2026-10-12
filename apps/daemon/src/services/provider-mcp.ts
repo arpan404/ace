@@ -1,5 +1,5 @@
-import { join } from "node:path";
-import { mkdtemp, rm, mkdir } from "node:fs/promises";
+import { rm } from "node:fs/promises";
+import { createBuiltinSkillRoot } from "../builtin-skill-roots.ts";
 import { prepareBuiltinSkills } from "@ace/plugins";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
@@ -24,9 +24,7 @@ export function withDaemonMcp(
       let skills: Awaited<ReturnType<typeof prepareBuiltinSkills>> | undefined;
       let root: string | undefined;
       if (context.config && (adapter.provider === "claude" || adapter.provider === "codex")) {
-        const base = join(context.config.dataDir, "builtin-skill-sessions");
-        await mkdir(base, { recursive: true, mode: 0o700 });
-        root = await mkdtemp(join(base, "session-"));
+        root = await createBuiltinSkillRoot(context.config.dataDir);
         try {
           skills = await prepareBuiltinSkills(adapter.provider, root);
         } catch (error) {

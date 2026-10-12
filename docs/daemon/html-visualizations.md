@@ -22,32 +22,47 @@ Remote and relay clients fetch through their owning connection's attachment API.
 
 `@ace/html` owns the pure validator and document builder. It parses HTML with
 parse5 and rejects authored frames, forms, plugins, base URLs, refresh metadata
-and external resource declarations. Diagnostics are authoring guidance. Browser
-policies enforce execution restrictions even when scripts construct requests.
+and external resource declarations. Diagnostics are authoring guidance. Every display path removes authored
+executable content; CSP limits the trusted resize bridge and resource loading.
 
 The web renderer is lazy-loaded only for a canonical HTML item. Its outer frame
 loads a data document with an opaque origin and `sandbox="allow-scripts"`. The
 trusted outer document has `frame-src 'none'` and holds the authored page in a
 second sandboxed `srcdoc` frame. This prevents the inner page navigating its own
 frame to an external address. Both documents deny external resources, fetch,
-WebSocket, workers, forms and plugins through CSP. No frame has same-origin,
+WebSocket, workers, forms and plugins through CSP. Each head starts with a DNS
+prefetch opt-out meta element before any author content. No frame has same-origin,
 popup, top-navigation, storage-access or download permissions.
 
-WebRTC constructors are locked off before authored scripts run. Trusted Types
-with no allowed policies prevents creating another scripted `srcdoc` document
-or injecting new HTML to recover those APIs. Clients without Trusted Types show
-"view on desktop/web" instead of executing the page. Dynamic UI uses DOM nodes,
-text and event listeners; libraries that depend on `innerHTML`, `document.write`
-or runtime evaluation need an alternative implementation. The outer document
-checks the same capability before activating the inner page, including exports.
+Authored scripts and event handlers are removed on every render and export path.
+The guest CSP permits only the hash of the fixed resize bridge. Every client gets
+a static view, including browsers with Trusted Types. The preview's `static-view`
+diagnostic tells authors to replace script-driven content with HTML or SVG.
+
+This fallback is necessary because Blink's `DnsPrefetchIfNeeded` checks its frame
+settings instead of `document.IsDNSPrefetchEnabled()`. Its `PreconnectIfNeeded`
+also dispatches to the network-hints interface without a document opt-out or CSP
+check. Setting `x-dns-prefetch-control=off` changes the document flag and latches it
+off, but does not block those explicit link-loader paths. Preload, prefetch and
+modulepreload use the resource fetch machinery and its CSP checks. Static link
+markup is rejected by validation, and inactive authored code cannot create any
+of these hints at runtime. Electron sets `blink-settings=dnsPrefetchingEnabled=false` before Chromium
+starts as defense in depth; this setting is not relied on for preconnect isolation.
+
+Scripted visuals can return only when a browser-owned network-hint deny policy is
+available and verified. Source inspection used Chromium's
+[preload helper](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/loader/preload_helper.cc),
+[HTTP-equivalent metadata handling](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/loader/http_equiv.cc),
+[document DNS control](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/dom/document.cc),
+and [command-line Blink settings](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/exported/web_view_impl.cc).
 
 Height messages contain exactly `{ type: "ace.html.height", height }`. Both
 bridges validate the sending window, opaque origin, finite number and bounds.
 No other child message becomes an app action. Frame height is capped, changes
 are coalesced by animation frame, and the virtualizer measures the resulting row.
-Theme CSS tokens follow the app theme; changing theme reloads the frame and resets
-its local interactions. Scrolling a visualization out of the mounted transcript
-also resets its local state. Published document bytes remain durable.
+Theme CSS tokens follow the app theme. The static document is rebuilt when the
+theme changes or virtualization remounts the row. Published document bytes remain
+durable.
 
 The title and compact action row follow the existing chat density tokens. Expand,
 fullscreen, new window, copy and download are user actions. New windows and
@@ -55,9 +70,11 @@ exports contain the same sandbox wrapper. Desktop viewer windows have no Node
 integration or preload bridge. An exported file can be viewed offline; it does
 not receive subsequent theme changes.
 
-The behavior guards cover resource requests and frame navigation, parent DOM,
-cookies and local storage, popups, WebRTC availability, injected descendants,
-forged resize messages, normal-message text, and daemon restart/replay. They were
+DNS-level regression coverage reads Chromium NetLog host-resolver events for
+published and exported pages, with an unprotected DNS/preconnect hint as a positive
+control. Other behavior guards cover inactive authored scripts and event handlers,
+resource requests, frame navigation, parent data, popups, forged resize messages,
+normal-message text, and daemon restart/replay. They were
 written but not executed during development, per the owner's verification limit.
 
 Browser rules are based on the [HTML iframe specification](https://html.spec.whatwg.org/multipage/iframe-embed-object.html),
@@ -75,10 +92,14 @@ The daemon uses the ADR 0014 plugin projector and writer for each launched
 Claude Code or Codex session. Claude's SDK receives a local plugin directory.
 Codex's app-server process receives session-only local marketplace/plugin
 configuration arguments. Each session owns a separate ace data directory and
-removes it after provider exit or close. User CLI homes and project files are
-unchanged. Release packaging copies the bundle beside the daemon's split modules.
+removes it after provider exit or close. Startup captures old roots before the
+engine starts and reclaims owned projections after provider-session recovery. New
+roots created during recovery are retained; failed recovery preserves old roots.
+Unowned nonempty roots and symlinks are refused, with cleanup diagnostics logged.
+User CLI homes and project files are unchanged. Release packaging copies the
+bundle beside the daemon's split modules.
 
 The skill teaches when a visual is useful, self-contained assets, accessible
-colour and keyboard controls, fluid widths, theme tokens, preview before render,
+colour and semantic HTML, fluid widths, theme tokens, preview before render,
 and concise prose after publication. Native provider skill discovery sees it as
 part of the `ace-builtins` plugin.
