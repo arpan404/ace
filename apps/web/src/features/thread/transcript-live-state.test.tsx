@@ -8,7 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { createTimeSource, TimeContext } from "@/lib/time.ts";
-import { ActivityLine } from "./transcript/live-footer.tsx";
+import { ActivityLine } from "./items/live-head.tsx";
 
 beforeEach(() => localStorage.clear());
 
@@ -299,7 +299,10 @@ test("the live line ticks with an injected clock and stops ticking when approval
     );
     now = 200_000;
     act(() => vi.advanceTimersByTime(1_000));
-    expect(screen.getByRole("status").textContent).toBe("Waiting for your approval");
+    // The time stands where the wait began.
+    expect(screen.getByRole("status").textContent).toBe(
+      "Working for 1m 15s · Waiting for your approval",
+    );
     view.unmount();
   } finally {
     vi.useRealTimers();
@@ -408,7 +411,7 @@ test("only the visible activity line ticks while ongoing work logs stay static",
             logRenders++;
           }}
         >
-          <WorkLog threadId={id} itemIds={itemIds} ongoing />
+          <WorkLog threadId={id} block={{ kind: "work", key: "work", itemIds, ongoing: true }} />
         </Profiler>
         <ActivityLine
           activity={{ label: "Working", tone: "working", elapsedFrom: 1_000, current: undefined }}

@@ -3,11 +3,11 @@ import type { WorkLogHeadline } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 
 /*
- * The work log's header; `work-log.tsx` binds it to the live thread. Its rows
- * (`work-log-steps.tsx`) load after first paint: logs start collapsed.
+ * A settled work log's header; `work-log.tsx` binds it to the thread. Its steps load when it
+ * opens (`turn-work.tsx`): logs start folded.
  */
 
-/** "Worked for 4m 12s ›  Explored 6 files · Ran 3 commands", and the live step while closed. */
+/** "Worked for 2m 5s ›  Explored 3 files · 2 searches · ran 2 commands". */
 export function WorkLogHeader(props: {
   headline: WorkLogHeadline;
   open: boolean;
@@ -16,27 +16,39 @@ export function WorkLogHeader(props: {
 }) {
   const { headline, open } = props;
   return (
-    <div className="border-b border-border pb-1">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={props.panel}
-        onClick={props.onToggle}
-        className="group inline-flex h-6 pointer-coarse:min-h-11 max-w-full items-center gap-1.5 rounded-sm px-1.5 text-xs text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground hover:underline"
-      >
-        <span className={headline.running ? "shrink-0 shimmer" : "shrink-0"}>{headline.label}</span>
-        <CaretRightIcon
-          aria-hidden
-          size={14}
-          className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-(--motion-base) ease-spring",
-            open && "rotate-90",
-          )}
-        />
-        {headline.counts && (
-          <span className="ml-1 truncate text-xs text-subtle-foreground">{headline.counts}</span>
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-controls={props.panel}
+      onClick={props.onToggle}
+      className="group inline-flex h-7 pointer-coarse:min-h-10 max-w-full items-center gap-1.5 rounded-sm text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground"
+    >
+      <span className="shrink-0">{headline.label}</span>
+      <CaretRightIcon
+        aria-hidden
+        size={14}
+        className={cn(
+          "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
+          open && "rotate-90",
         )}
-      </button>
+      />
+      {headline.counts && (
+        <span className="ml-2 min-w-0 truncate text-subtle-foreground">{headline.counts}</span>
+      )}
+    </button>
+  );
+}
+
+/** Rows standing in for a log's steps while they load. */
+export function StepsSkeleton() {
+  return (
+    <div role="status" aria-label="Loading steps" className="flex flex-col gap-2 py-1.5 pl-1.5">
+      {[62, 48, 70].map((width) => (
+        <div key={width} className="flex h-4 items-center gap-2">
+          <span className="fx-skeleton size-3.5 shrink-0 rounded-sm" />
+          <span className="fx-skeleton h-3" style={{ width: `${width}%` }} />
+        </div>
+      ))}
     </div>
   );
 }

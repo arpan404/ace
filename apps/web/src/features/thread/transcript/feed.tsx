@@ -38,7 +38,8 @@ import { readingColumn } from "../lib/column.ts";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
 import { blockItems, type Block } from "./blocks.ts";
-import { LiveFooter } from "./live-footer.tsx";
+import { LiveHead } from "../items/live-head.tsx";
+import { useDropTurnSteps } from "../lib/turn-steps.ts";
 import {
   newestOrdinal,
   recentFrom,
@@ -87,12 +88,14 @@ function readUnsettled(reader: ThreadReader): Watched<Unsettled> {
   };
 }
 const nearEdge = 64;
+const tailLive: Block = { kind: "live", key: "live:tail", askId: undefined };
 /** Room above a row brought into view, for the bars that float over the transcript's top. */
 const topRoom = 56;
 const gap: Record<Block["kind"], string> = {
   user: "pb-4",
   message: "pb-4",
   work: "pb-2.5",
+  live: "pb-2",
   files: "pb-4",
   subagents: "pb-1.5",
   background: "pb-2",
@@ -175,10 +178,17 @@ export function Feed(props: FeedProps) {
   // The person's messages on their way join the live tail as the bubbles their items become.
   const built = useBlocks(threadId);
   const local = useLocalSendsView(threadId);
-  const blocks = useMemo(
-    () => (local && !detached ? local.merge(built, blockItems) : built),
-    [local, built, detached],
-  );
+  const activity = useTurnActivity(threadId);
+  useDropTurnSteps(threadId);
+  // The live turn's header sits under its ask; a turn whose ask is not in view (still on its
+  // way, older than the window) keeps it at the end instead.
+  const working = !detached && !!activity && activity.tone !== "paused";
+  const blocks = useMemo(() => {
+    const merged = local && !detached ? local.merge(built, blockItems) : built;
+    return working && !merged.some((block) => block.kind === "live")
+      ? [...merged, tailLive]
+      : merged;
+  }, [local, built, detached, working]);
   const order = useItemOrder(threadId) ?? none;
   const runOrdinals = useRunOrdinals(threadId);
   const { seqTurns } = props;
@@ -227,7 +237,6 @@ export function Feed(props: FeedProps) {
     () => new Set(motionRows.flatMap((row) => (row.phase === "enter" ? [row.key] : []))),
     [motionRows],
   );
-  const activity = useTurnActivity(threadId);
 
   const viewport = useRef<HTMLDivElement>(null);
   const feed = useRef<HTMLDivElement>(null);
@@ -316,6 +325,12 @@ export function Feed(props: FeedProps) {
 
   // The turn in the middle of the view: what the jump bar says the reader is looking at.
   const [reading, setReading] = useState<number>();
+  // The live header scrolled out of view above: a copy stays pinned at the top.
+  const liveRow = useMemo(
+    () => rows.findIndex((row) => row.kind === "block" && row.block.kind === "live"),
+    [rows],
+  );
+  const [livePinned, setLivePinned] = useState(false);
   /** The first row in view, which turn the reader is in, and where its top sits. */
   const readTop = () => {
     const el = viewport.current;
@@ -324,6 +339,8 @@ export function Feed(props: FeedProps) {
     const items = virtualizer.getVirtualItems();
     const first = items.find((item) => item.end > top);
     if (!first) return;
+    const pinLive = liveRow >= 0 && first.index > liveRow;
+    if (pinLive !== livePinned) setLivePinned(pinLive);
     const row = rows[first.index];
     // While code is placing the view (a jump landing, a restored place), the place it set is
     // the reader's; what the virtualizer last rendered may not have caught up yet.
@@ -587,7 +604,7 @@ export function Feed(props: FeedProps) {
                 })}
               </JumpedItem>
             </div>
-            {detached ? (
+            {detached && (
               <Suspense fallback={null}>
                 <DeferredGapRow.Component
                   threadId={threadId}
@@ -597,19 +614,6 @@ export function Feed(props: FeedProps) {
                   onLive={toLive}
                 />
               </Suspense>
-            ) : (
-              <LiveFooter
-                threadId={threadId}
-                activity={
-                  activity?.tone === "paused" ||
-                  (activity?.label === "Waiting for your approval" &&
-                    blocks.some(
-                      (block) => block.kind === "question" && block.requestKind === "approval",
-                    ))
-                    ? undefined
-                    : activity
-                }
-              />
             )}
             <div ref={dock} className="mt-4 empty:hidden" />
             {!detached && (
@@ -619,6 +623,13 @@ export function Feed(props: FeedProps) {
             )}
           </div>
         </div>
+        {livePinned && working && (
+          <div className="ace-floating-solid absolute inset-x-0 top-0 z-[5] bg-background/95 pb-1">
+            <div className={readingColumn}>
+              <LiveHead threadId={threadId} />
+            </div>
+          </div>
+        )}
         <div className="pointer-events-none absolute inset-x-0 top-3 z-[6] flex flex-col items-center gap-2 px-4">
           {nav.searchOpen && (
             <Suspense fallback={null}>
@@ -695,7 +706,14 @@ const RowView = memo(function RowView(props: RowViewProps) {
   const { row } = props;
   switch (row.kind) {
     case "block":
-      return <BlockView threadId={props.threadId} block={row.block} live={props.live} />;
+      return (
+        <BlockView
+          threadId={props.threadId}
+          block={row.block}
+          live={props.live}
+          ordinal={row.ordinal}
+        />
+      );
     case "turn":
       return (
         <Suspense fallback={<TurnLine ordinal={row.ordinal} />}>

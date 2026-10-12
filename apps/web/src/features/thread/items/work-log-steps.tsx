@@ -1,98 +1,22 @@
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
-import {
-  BrainIcon,
-  EyeIcon,
-  GlobeIcon,
-  MagnifyingGlassIcon,
-  NotePencilIcon,
-  NoteIcon,
-  TerminalIcon,
-  WrenchIcon,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
-import {
-  isMeasurementCall,
-  reviewedInteraction,
-  retriedStepIds,
-  type StepIcon,
-  type StepText,
-} from "@ace/ui-core";
+import type { ToolSurface } from "@ace/protocol";
+import { isMeasurementCall, reviewedInteraction, type StepText } from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import { Suspense, useId, useState } from "react";
-import { LiveWorkMark } from "@/components/live-work-mark.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
 import { DeferredReviewNote } from "./deferred-review.ts";
 import { MessageAttachments } from "@/components/attachment-message.tsx";
-import { AssistantMessage } from "./messages.tsx";
 import { StepDetail } from "./step-detail.tsx";
-import { StepGroup, StepImages, useAceLog } from "./ace-steps.tsx";
-import { ToolMarkIcon } from "./tool-mark.tsx";
-import { useItemsSelect } from "../lib/use-items.ts";
+import { StepImages } from "./ace-steps.tsx";
+import { StepGlyph } from "./step-glyph.tsx";
+import { StepProse } from "./step-prose.tsx";
 import { useStepDisplay } from "./use-step-display.ts";
 
 /*
- * A work log's rows, shown when it opens: each step as a quiet line that expands to its
- * detail, and what the agent said between steps as prose, in order. Loaded after first paint
- * (logs start collapsed), with the step wording.
+ * One work-log step as a quiet row that expands to its detail, and what the agent said between
+ * steps as prose. Rows are grouped by `step-groups-view.tsx`.
  */
-
-const icons: Record<StepIcon, PhosphorIcon> = {
-  read: EyeIcon,
-  search: MagnifyingGlassIcon,
-  shell: TerminalIcon,
-  edit: NotePencilIcon,
-  web: GlobeIcon,
-  tool: WrenchIcon,
-  think: BrainIcon,
-  note: NoteIcon,
-};
-
-/**
- * The open log's steps. ace's own steps read with what earlier ones said, the daemon's audit of
- * a computer-use action folds into its call, and consecutive steps on one app, site or device
- * collapse into one line.
- */
-export function WorkLogSteps(props: {
-  threadId: string;
-  itemIds: readonly string[];
-  panel: string;
-}) {
-  const log = useAceLog(props.threadId, props.itemIds);
-  const retried = useItemsSelect(
-    props.threadId,
-    props.itemIds,
-    retriedStepIds,
-    (a, b) => a.size === b.size && [...a].every((id) => b.has(id)),
-  );
-  return (
-    <ul id={props.panel} aria-label="Steps" className="fx-rise-in mt-0.5 mb-2 flex flex-col py-1">
-      {log.rows.map((row) =>
-        row.kind === "group" ? (
-          <StepGroup key={row.key} group={row}>
-            {row.ids.map((id) => (
-              <ToolStep
-                key={id}
-                threadId={props.threadId}
-                itemId={id}
-                ace={log.contexts[id]}
-                retried={retried?.has(id)}
-              />
-            ))}
-          </StepGroup>
-        ) : (
-          <ToolStep
-            key={row.id}
-            threadId={props.threadId}
-            itemId={row.id}
-            ace={log.contexts[row.id]}
-            retried={retried?.has(row.id)}
-          />
-        ),
-      )}
-    </ul>
-  );
-}
 
 /**
  * One row of the work log. Expands to its output, diff or reasoning. ace's review of a step
@@ -103,6 +27,7 @@ export function ToolStepContent(props: {
   itemId: string;
   ace?: AceToolContext | undefined;
   retried?: boolean | undefined;
+  surface?: ToolSurface | undefined;
 }) {
   const data = useStepDisplay(props.threadId, props.itemId, props.ace);
   const item = data?.item;
@@ -115,7 +40,7 @@ export function ToolStepContent(props: {
   if (item?.type === "message")
     return (
       <li className="py-1.5 pl-1.5">
-        <AssistantMessage threadId={props.threadId} itemId={props.itemId} />
+        <StepProse threadId={props.threadId} itemId={props.itemId} />
       </li>
     );
   if (item?.type === "notice" && reviewedInteraction(item))
@@ -126,7 +51,7 @@ export function ToolStepContent(props: {
         </Suspense>
       </li>
     );
-  const line = <StepLine threadId={props.threadId} data={display} />;
+  const line = <StepLine threadId={props.threadId} data={display} surface={props.surface} />;
   if (
     data &&
     ((item?.type === "tool_call" && (item.measurement || isMeasurementCall(item.call))) ||
@@ -140,7 +65,11 @@ export function ToolStepContent(props: {
   return line;
 }
 
-function StepLine(props: { threadId: string; data: ReturnType<typeof useStepDisplay> }) {
+function StepLine(props: {
+  threadId: string;
+  data: ReturnType<typeof useStepDisplay>;
+  surface?: ToolSurface | undefined;
+}) {
   const { data } = props;
   // Details start folded; pending requests remain visible above the composer.
   const [open, setOpen] = useState(false);
@@ -151,6 +80,8 @@ function StepLine(props: { threadId: string; data: ReturnType<typeof useStepDisp
     <li>
       <StepRow
         step={data.step}
+        item={data.item}
+        surface={props.surface}
         open={open}
         panel={panel}
         onToggle={() => setOpen(!open)}
@@ -179,13 +110,14 @@ function StepLine(props: { threadId: string; data: ReturnType<typeof useStepDisp
 /** One quiet step row: glyph or spinner, verb, target, diff stat and note. */
 export function StepRow(props: {
   step: StepText;
+  item?: import("@ace/protocol").Item | undefined;
+  surface?: ToolSurface | undefined;
   open: boolean;
   panel: string;
   onToggle(): void;
   expandable?: boolean;
 }) {
   const { step } = props;
-  const Glyph = icons[step.icon];
   return (
     <button
       type="button"
@@ -196,14 +128,18 @@ export function StepRow(props: {
       onClick={props.expandable === false ? undefined : props.onToggle}
       className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent"
     >
-      {!step.settled ? (
-        <LiveWorkMark className="mx-px" />
-      ) : step.ace ? (
-        <ToolMarkIcon mark={step.ace.mark} fallback="row" />
-      ) : (
-        <Glyph aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
-      )}
-      <span className={step.target ? "shrink-0" : "min-w-0 truncate"}>{step.verb}</span>
+      <StepGlyph
+        item={props.item}
+        surface={props.surface}
+        mark={step.ace?.mark}
+        running={!step.settled}
+        failed={step.failed}
+      />
+      <span
+        className={cn(step.target ? "shrink-0" : "min-w-0 truncate", !step.settled && "shimmer")}
+      >
+        {step.verb}
+      </span>
       {step.target && (
         <code className="min-w-0 truncate font-mono text-[12px] text-foreground">
           {step.target}
@@ -224,7 +160,7 @@ export function StepRow(props: {
   );
 }
 
-function ToolStep(props: React.ComponentProps<typeof ToolStepContent>) {
+export function ToolStep(props: React.ComponentProps<typeof ToolStepContent>) {
   return (
     <LocalBoundary label="this step">
       <ToolStepContent {...props} />

@@ -48,7 +48,16 @@ export type Block =
       idle?: number | undefined;
       startedAt?: number | undefined;
       outcome?: "completed" | "interrupted" | "failed" | "paused" | undefined;
+      /**
+       * A completed turn's head: everything it did before its answer, in order (work, what
+       * it said between steps, subagents, background commands), folded behind "Worked for".
+       */
+      folded?: Block[] | undefined;
+      /** The completed turn's answer, shown below its folded head. */
+      answerId?: string | undefined;
     }
+  /** The newest turn's live header, right under the ask that started it, until it settles. */
+  | { kind: "live"; key: string; askId: string | undefined }
   | { kind: "subagents"; key: string; itemIds: string[] }
   | { kind: "background"; key: string; itemId: string; taskId: string }
   | { kind: "files"; key: string; itemIds: string[] }
@@ -181,6 +190,8 @@ interface TurnMark {
   /** Index of its last assistant message's block, and of its last block. */
   lastMessage: number;
   lastBlock: number;
+  /** Every block it placed, by index. */
+  blocks: Set<number>;
   /** Every run of its tree, and the agents it spawned (whose runs may not have started). */
   runs: Set<string>;
   agents: Set<string>;
@@ -313,6 +324,7 @@ export function buildBlocks(source: BlockSource): Block[] {
         edits: [],
         lastMessage: -1,
         lastBlock: -1,
+        blocks: new Set(),
         runs: new Set(),
         agents: new Set(),
         tasks: new Set(),
@@ -335,6 +347,7 @@ export function buildBlocks(source: BlockSource): Block[] {
   };
   const placed = (index: number, message = false) => {
     if (!mark) return;
+    mark.blocks.add(index);
     mark.lastBlock = Math.max(mark.lastBlock, index);
     if (message) mark.lastMessage = index;
   };
@@ -399,6 +412,7 @@ export function buildBlocks(source: BlockSource): Block[] {
     placed(blocks.length - 1, message);
   };
   const reviewsPlaced = new Map<string, number>();
+  const askAt = new Map<string, number>();
   for (const [index, id] of order.entries()) {
     const item = source.item(id);
     if (!item) continue;
@@ -448,8 +462,10 @@ export function buildBlocks(source: BlockSource): Block[] {
       switch (item.type) {
         case "message":
           if (item.synthetic) push({ kind: "event", key: id, itemId: id }, false);
-          else if (person) push({ kind: "user", key: id, itemId: id }, item.createdAt);
-          else {
+          else if (person) {
+            push({ kind: "user", key: id, itemId: id }, item.createdAt);
+            askAt.set(id, blocks.length - 1);
+          } else {
             // Said between steps: it reads inside the log, in order. After the last step: the
             // answer, below the log.
             const between =
@@ -567,6 +583,14 @@ export function buildBlocks(source: BlockSource): Block[] {
       (!pseudo && !settled(source, turn, newestRun === turn))
     ) {
       for (const block of turn.work) block.ongoing = true;
+      // The newest turn says what it is doing right under the ask that started it.
+      if (newest === turn && source.heldTurn !== turn.id) {
+        const live: Block = { kind: "live", key: `live:${turn.id}`, askId: turn.askId };
+        const ask = turn.askId === undefined ? undefined : askAt.get(turn.askId);
+        const first = Math.min(...turn.blocks);
+        if (ask !== undefined) place(ask, live);
+        else if (Number.isFinite(first)) before.set(first, [live, ...(before.get(first) ?? [])]);
+      }
       // A pause shows while the turn waits on the limit, before anything settles.
       if (source.heldTurn === turn.id) {
         place(turn.lastBlock, endBlock(turn, "paused", newest === turn, ending?.runId));
@@ -585,8 +609,10 @@ export function buildBlocks(source: BlockSource): Block[] {
         ...taskEnds,
       );
       const first = turn.work[0];
+      const firstIds = first?.itemIds ?? [];
       const state = ending?.state ?? facts.state;
       const outcome = turn.paused ? "paused" : state === "active" ? "completed" : state;
+      let head: WorkBlock | undefined = first;
       if (first) {
         first.startedAt = startedAt;
         first.idle =
@@ -598,7 +624,7 @@ export function buildBlocks(source: BlockSource): Block[] {
         for (const block of turn.work.slice(1)) absorbed.add(workAt.get(block) ?? -1);
       } else {
         const at = turn.lastMessage >= 0 ? turn.lastMessage : turn.lastBlock + 1;
-        const summary: Block = {
+        const summary: WorkBlock = {
           kind: "work",
           key: `work:turn:${turn.id}`,
           itemIds: [],
@@ -609,6 +635,25 @@ export function buildBlocks(source: BlockSource): Block[] {
         };
         if (at < blocks.length) before.set(at, [...(before.get(at) ?? []), summary]);
         else place(turn.lastBlock, summary);
+        head = summary;
+      }
+      // A completed turn folds into "Worked for": only its answer, failures and changed
+      // files stay in view. Failed and stopped turns keep everything they did in view.
+      if (outcome === "completed" && head) {
+        const folded: Block[] = [];
+        const headAt = first ? workAt.get(first) : undefined;
+        for (const index of [...turn.blocks].toSorted((a, b) => a - b)) {
+          const block = blocks[index];
+          if (!block || index === turn.lastMessage) continue;
+          if (index === headAt) folded.push({ kind: "work", key: head.key, itemIds: firstIds });
+          else if (foldable(block, source)) {
+            folded.push(block);
+            absorbed.add(index);
+          }
+        }
+        if (folded.length) head.folded = folded;
+        const answer = blocks[turn.lastMessage];
+        if (answer?.kind === "message") head.answerId = answer.itemId;
       }
     }
     if (turn.edits.length)
@@ -659,6 +704,25 @@ export function buildBlocks(source: BlockSource): Block[] {
   return result;
 }
 
+/** Whether a settled turn's block folds behind its "Worked for": never an error or an ending. */
+function foldable(block: Block, source: BlockSource): boolean {
+  switch (block.kind) {
+    case "work":
+    case "message":
+    case "subagents":
+    case "background":
+    case "question":
+    case "event":
+      return true;
+    case "item": {
+      const item = source.item(block.itemId);
+      return !(item?.type === "notice" && item.level === "error");
+    }
+    default:
+      return false;
+  }
+}
+
 function endBlock(
   turn: TurnMark,
   ending: "failed" | "interrupted" | "paused",
@@ -704,7 +768,10 @@ function settled(source: BlockSource, turn: TurnMark, newest: boolean): boolean 
 
 /** The items a block shows, for finding its turn and the row a jump lands on. */
 export function blockItems(block: Block): readonly string[] {
+  if (block.kind === "work" && block.folded)
+    return [...block.itemIds, ...block.folded.flatMap((inner) => blockItems(inner))];
   if ("itemIds" in block) return block.itemIds ?? [];
+  if (block.kind === "live") return [];
   if (block.kind === "question") {
     const shown = block.itemId ?? block.anchorId;
     return shown === undefined ? [] : [shown];
@@ -724,7 +791,8 @@ export function sameBlock(a: Block, b: Block): boolean {
     const x = left[field];
     const y = right[field];
     if (Array.isArray(x) && Array.isArray(y)) {
-      if (x.length !== y.length || x.some((value, index) => value !== y[index])) return false;
+      if (x.length !== y.length || x.some((value, index) => !sameEntry(value, y[index])))
+        return false;
     } else if (!Object.is(x, y)) return false;
   }
   return true;
@@ -755,6 +823,15 @@ export function withoutQueued(
   // Only a hidden ask came after it: the ending closing the view is the newest turn's again.
   if (last?.kind === "end" && !last.latest) shown[shown.length - 1] = { ...last, latest: true };
   return shown;
+}
+
+/** Array entries match: the same value, or folded blocks that show the same thing. */
+function sameEntry(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  return isBlock(a) && isBlock(b) && sameBlock(a, b);
+}
+function isBlock(value: unknown): value is Block {
+  return typeof value === "object" && value !== null && "kind" in value && "key" in value;
 }
 
 export function blocksEqual(a: readonly Block[], b: readonly Block[]): boolean {

@@ -1,6 +1,8 @@
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
+import type { TurnSummary } from "@ace/protocol";
 import {
+  digestWork,
   formatElapsed,
   ledgerOf,
   summarizeWork,
@@ -20,39 +22,43 @@ function useWaited(threadId: string, from: number, to: number): number {
 }
 
 /**
- * Settled summaries time the whole tree from its server run start, excluding human waits.
- * Ongoing logs stay collapsed behind the transcript's live line unless a jump opens one.
+ * A settled log's headline: "Worked for 2m 5s" over the whole tree, excluding human waits and
+ * idle gaps. With the turn's summary from the daemon (`turns.page`), its time and counts are
+ * the turn's own, however much of it the thread has loaded; until then, the loaded items'.
  */
 export function useWorkLog(
   threadId: string,
   itemIds: readonly string[],
   options: {
-    ongoing?: boolean | undefined;
-    live?: boolean | undefined;
     until?: number | undefined;
     idle?: number | undefined;
     startedAt?: number | undefined;
     outcome?: "completed" | "interrupted" | "failed" | "paused" | undefined;
+    summary?: TurnSummary | undefined;
   },
 ): WorkLogHeadline | undefined {
-  const { until, idle = 0 } = options;
-  const summary = useItemsSelect(threadId, itemIds, summarizeWork, flatEqual);
-  const from = options.startedAt ?? summary?.startedAt ?? 0;
+  const { until, idle = 0, summary: turn } = options;
+  const loaded = useItemsSelect(threadId, itemIds, summarizeWork, flatEqual);
+  const from = turn?.startedAt ?? options.startedAt ?? loaded?.startedAt ?? 0;
   // Frozen: from the first step to the moment the stretch closed, whatever settles later.
-  const to = until ?? summary?.endedAt ?? 0;
+  const to = turn?.endedAt ?? until ?? loaded?.endedAt ?? 0;
   const waited = useWaited(threadId, from, to);
-  if (!summary && options.outcome === undefined) return undefined;
-  const counts = summary ? workCounts(summary) : "";
+  if (!loaded && !turn && options.outcome === undefined) return undefined;
+  const counts = turn ? digestWork(turn.digest) : loaded ? workCounts(loaded) : "";
+  const verb =
+    options.outcome === "interrupted"
+      ? "Stopped after"
+      : options.outcome === "failed"
+        ? "Failed after"
+        : "Worked for";
   return {
     label:
-      options.ongoing || until === undefined
-        ? "Working"
-        : options.outcome === "paused"
-          ? "Paused · Usage limit"
-          : `${options.outcome === "interrupted" ? "Stopped after" : options.outcome === "failed" ? "Failed after" : "Worked for"} ${formatElapsed(Math.max(1000, to - from - waited - idle))}`,
+      options.outcome === "paused"
+        ? "Paused · Usage limit"
+        : `${verb} ${formatElapsed(Math.max(1000, to - from - waited - idle))}`,
     counts,
     running: false,
     current: undefined,
-    awaiting: summary?.awaiting ?? false,
+    awaiting: loaded?.awaiting ?? false,
   };
 }
