@@ -15,18 +15,18 @@ Import `cn` from `@/lib/cn.ts`, never from `cn` directly: the local one knows th
 
 ## Layout of `src/`
 
-| Path                | Owner      | What lives there                                                                                                                    |
-| ------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `theme/`            | foundation | Themes and mode: six palettes, token and CSS generation, contrast checks, liquid glass, `ThemeProvider` / `useTheme()`              |
-| `styles/`           | foundation | Static tokens (`tokens.css`), Tailwind mapping and base styles (`index.css`), vendored shadcn variants                              |
-| `components/ui/`    | foundation | Owned primitives restyled to the design. Slices use them, never fork them                                                           |
-| `components/`       | foundation | `Icon`, `SettingRow` / `SettingSection`, `StatusLabel`, `DataTable`                                                                 |
-| `lib/`              | foundation | `keymap.ts` (every shortcut), `hotkeys.ts` (`useHotkey`), `layout.tsx` (sidebar and panels), `history-nav.ts`, `time.ts` (`useNow`) |
-| `boot/`             | foundation | Client construction, daemon URL and token handling, fake boot, the fake backend for features without protocol (`fake-backend.ts`)   |
-| `features/shell/`   | foundation | `Rail`, `AppSidebar`, `SidebarFrame`, `ViewFrame`, `ViewSidebar`, `AppHeader`, `Screen`, panels, connection notice                  |
-| `features/<slice>/` | the slice  | Everything for one slice: components, hooks, adapters, tests. Its `index.ts` is the only door in                                    |
-| `app/`              | app        | Composition of several slices: `AppShell` (rail, sidebar, palette, notifier), `ConnectionGate`                                      |
-| `routes/`           | per route  | TanStack file routes: route definition, search schema and params only. Screens live in the slice                                    |
+| Path                | Owner      | What lives there                                                                                                                           |
+| ------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `theme/`            | foundation | Themes and mode: eight themes on one neutral ramp, token and CSS generation, contrast checks, liquid glass, `ThemeProvider` / `useTheme()` |
+| `styles/`           | foundation | Static tokens (`tokens.css`), Tailwind mapping and base styles (`index.css`), vendored shadcn variants                                     |
+| `components/ui/`    | foundation | Owned primitives restyled to the design. Slices use them, never fork them                                                                  |
+| `components/`       | foundation | `Icon`, `SettingRow` / `SettingSection`, `StatusLabel`, `DataTable`                                                                        |
+| `lib/`              | foundation | `keymap.ts` (every shortcut), `hotkeys.ts` (`useHotkey`), `layout.tsx` (sidebar and panels), `history-nav.ts`, `time.ts` (`useNow`)        |
+| `boot/`             | foundation | Client construction, daemon URL and token handling, fake boot, the fake backend for features without protocol (`fake-backend.ts`)          |
+| `features/shell/`   | foundation | `Rail`, `AppSidebar`, `SidebarFrame`, `ViewFrame`, `ViewSidebar`, `AppHeader`, `Screen`, panels, connection notice                         |
+| `features/<slice>/` | the slice  | Everything for one slice: components, hooks, adapters, tests. Its `index.ts` is the only door in                                           |
+| `app/`              | app        | Composition of several slices: `AppShell` (rail, sidebar, palette, notifier), `ConnectionGate`                                             |
+| `routes/`           | per route  | TanStack file routes: route definition, search schema and params only. Screens live in the slice                                           |
 
 Headless view logic (status wording, Home ordering and settling, thread cards, work-log and diff
 summaries, relative time) lives in `packages/ui-core` (`@ace/ui-core`) so the Expo

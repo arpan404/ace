@@ -73,7 +73,7 @@ The browser build has no daemon until it is given one. A connection gate shows a
 
 ### Design tokens
 
-Superseded by [ADR 0075](0075-themes-mode-surfaces-motion.md). Six hand-tuned themes (Ace by default) each have a light and a dark palette, and Light/Dark/System is a separate mode. Surfaces (Translucent/Solid) controls glass on floating layers only, and Reduce motion is System/On/Off. The working spec is `docs/design/visual-language.md`. Status hues are one vocabulary, read through `data-tone`; project badges take one of twelve `--project-<n>` tints (`projectTint` in `@ace/ui-core`). Tailwind utilities map to the variables, so components never hard-code colours. Icons are Phosphor: regular when inactive, fill when active, duotone for empty states.
+Superseded by [ADR 0075](0075-themes-mode-surfaces-motion.md). Eight themes (Graphite by default) share one neutral ramp per mode and differ by accent, and Light/Dark/System is a separate mode. Surfaces (Translucent/Solid) controls glass on floating layers only, and Reduce motion is System/On/Off. The working spec is `docs/design/visual-language.md`. Status hues are one vocabulary, read through `data-tone`; project badges take one of twelve `--project-<n>` tints (`projectTint` in `@ace/ui-core`). Tailwind utilities map to the variables, so components never hard-code colours. Icons are Phosphor: regular when inactive, fill when active, duotone for empty states.
 
 ### Electron
 

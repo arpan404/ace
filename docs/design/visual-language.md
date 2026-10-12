@@ -8,7 +8,7 @@ The approved design prototype is the reference for values. The code that owns ea
 
 | Part                      | Owner                                                                             |
 | ------------------------- | --------------------------------------------------------------------------------- |
-| Palettes (the six themes) | `apps/web/src/theme/palettes.ts`                                                  |
+| Palettes and neutral ramp | `apps/web/src/theme/palettes.ts`                                                  |
 | Palette → CSS variables   | `apps/web/src/theme/tokens.ts`, `apps/web/src/theme/css.ts`                       |
 | WCAG checks               | `apps/web/src/theme/contrast.ts`, `apps/web/src/theme/surfaces.ts`                |
 | Settings and resolution   | `apps/web/src/theme/appearance.ts`, `theme-provider.tsx`                          |
@@ -32,58 +32,70 @@ Mode and theme are separate settings.
 
 - **Mode:** Light, Dark or System. System follows `prefers-color-scheme`, and a change
   cross-fades the window.
-- **Theme:** Ace (the default), Paper, Dusk, Tide, Ember or Moss. Each has a hand-tuned light
-  palette and dark palette.
+- **Theme:** Graphite (the default), Ace, Mono, Paper, Dusk, Tide, Ember or Moss.
 
-`<html>` carries `data-theme="<id>"` and `data-scheme="light|dark"`. Each theme/scheme pair is one
-CSS rule, `[data-theme="tide"][data-scheme="dark"] { … }`. Any element carrying both attributes
-gets that theme's real tokens, which is how the Appearance swatches preview themes.
+Every theme shares one **neutral ramp** per scheme: twelve near-true greys generated in OKLCH
+(`palettes.ts`). Only Paper and Ember warm the greys, and only slightly (chroma 0.006). A theme's
+identity is its accent; Mono's accent is the text colour itself. Graphite is pure grey with a
+restrained blue, close to T3 Code and Codex.
 
-Every palette passes WCAG AA on every surface text can sit on: page, raised, floating, sidebar,
-code, glass (blur and liquid tint) over the page and sidebar, and a highlighted row on each of
-those. `contrastWarnings()` checks this and a test runs it for all twelve palettes. Quiet text
-(`t3`) is one step stronger than the prototype's so it still reads on a highlighted menu row. To
-change a palette, edit `palettes.ts` and keep that test green.
+| Step | Name           | Light   | Dark    | For                                      |
+| ---- | -------------- | ------- | ------- | ---------------------------------------- |
+| 1    | `canvas`       | #FDFDFD | #161616 | Page and reading column                  |
+| 2    | `sidebar`      | #F6F6F6 | #111111 | Sidebar and side panel                   |
+| 3    | `surface`      | #F2F2F2 | #1D1D1D | Cards, bubbles, settings groups          |
+| 4    | `raised`       | #FFFFFF | #222222 | Floating layers when solid               |
+| 5    | `hover`        | #EEEEEE | #262626 | Solid hover fill                         |
+| 6    | `active`       | #E7E7E7 | #2D2D2D | Solid pressed or selected fill           |
+| 7    | `border`       | #E2E2E2 | #303030 | Hairlines                                |
+| 8    | `borderStrong` | #D0D0D0 | #424242 | Control edges, switch tracks (`--input`) |
+| 9    | `faint`        | #8C8C8C | #6F6F6F | Decorative icons (3:1)                   |
+| 10   | `subtle`       | #636363 | #9E9E9E | Quiet text (`--subtle-foreground`)       |
+| 11   | `muted`        | #4A4A4A | #C1C1C1 | Secondary text (`--muted-foreground`)    |
+| 12   | `text`         | #191919 | #F0F0F0 | Text (`--foreground`)                    |
+
+(Values shown are Graphite's; warm themes differ by a hair.) Each step is a token by name and by
+number: `--neutral-1` … `--neutral-12`.
 
 ### Palette fields
 
-| Field                                            | Meaning                                         |
-| ------------------------------------------------ | ----------------------------------------------- |
-| `s0`                                             | Page and reading column                         |
-| `s1`                                             | Quiet raised fill: bubbles, cards, hunk headers |
-| `s2`                                             | Floating layers when solid                      |
-| `sidebar`, `border`                              | Sidebar, side panel and hairlines               |
-| `t1` / `t2` / `t3`                               | Primary, secondary and quiet text               |
-| `accent`, `accentHover`, `accentPressed`         | Accent fill and its states                      |
-| `accentFg` / `accentText`                        | Label on an accent fill / the accent as text    |
-| `working`, `needs`, `failed`, `done` (+ `…Text`) | Status marks and status words                   |
-| `code`, `shadow`                                 | Code background; the shadow tint ("r g b")      |
+| Field                                            | Meaning                                       |
+| ------------------------------------------------ | --------------------------------------------- |
+| the twelve ramp steps                            | See the table above                           |
+| `s0`, `s1`, `s2`                                 | Short names for `canvas`, `surface`, `raised` |
+| `t1` / `t2` / `t3`                               | Short names for `text`, `muted`, `subtle`     |
+| `accent`, `accentHover`, `accentPressed`         | Accent fill and its states                    |
+| `accentFg` / `accentText`                        | Label on an accent fill / the accent as text  |
+| `working`, `needs`, `failed`, `done` (+ `…Text`) | Status marks and status words                 |
+| `code`, `shadow`                                 | Code background; the shadow tint ("r g b")    |
 
 ## Tokens
 
 Theme tokens are generated per palette in `tokens.ts`. The names agreed with shadcn are kept, so
 existing components need no edits.
 
-| Purpose                   | Token(s)                                                                         |
-| ------------------------- | -------------------------------------------------------------------------------- |
-| Page, reading column      | `--background`, `--reading`, `--surface-0`                                       |
-| Raised quiet fill         | `--surface-1`, `--card`, `--bubble`                                              |
-| Floating (solid)          | `--surface-2`, `--popover`                                                       |
-| Sidebar, right panel      | `--sidebar`, `--panel`                                                           |
-| Hover and selected washes | `--fill` (= `--accent`, `--muted`), `--fill-strong` (= `--sidebar-accent`)       |
-| Controls                  | `--secondary`, `--seg-bg`, `--seg-thumb`, `--seg-thumb-shadow`, `--switch-off`   |
-| Lines                     | `--border`, `--border-soft`, `--border-strong` (= `--input`), `--sidebar-border` |
-| Text                      | `--foreground`, `--muted-foreground`, `--subtle-foreground`                      |
-| Inverse (tooltips, send)  | `--primary`, `--primary-foreground`                                              |
-| Accent                    | `--ring`, `--ring-hover`, `--ring-pressed`, `--ring-foreground`, `--ring-text`   |
-| Focus                     | `--focus`                                                                        |
-| Status                    | `--status-{working,needs-you,waiting,unresponsive,failed,done}` and `…-text`     |
-| Errors                    | `--destructive`                                                                  |
-| Code                      | `--code`, `--syn-{kw,str,num,fn,type,com}`, `--diff-add`, `--diff-del`           |
-| Loading                   | `--skel`, `--skel-hi`                                                            |
-| Overlay                   | `--scrim`                                                                        |
-| Floating material         | `--float-edge`, `--float-shadow` (= `--glass-shadow`), `--glass-*`, `--sliver`   |
-| Project badges            | `--project-1` … `--project-12`                                                   |
+| Purpose                   | Token(s)                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| Page, reading column      | `--background`, `--reading`, `--surface-0`                                        |
+| Neutral ramp              | `--neutral-1` … `--neutral-12`, `--hover`, `--active`, `--faint-foreground`       |
+| Raised quiet fill         | `--surface-1`, `--card`, `--bubble`                                               |
+| Floating (solid)          | `--surface-2`, `--popover`                                                        |
+| Sidebar, right panel      | `--sidebar`, `--panel`                                                            |
+| Hover and selected washes | `--fill` (= `--accent`, `--muted`), `--fill-strong` (= `--sidebar-accent`)        |
+| Controls                  | `--secondary`, `--seg-bg`, `--seg-thumb`, `--seg-thumb-shadow`, `--switch-off`    |
+| Lines                     | `--border`, `--border-soft`, `--border-strong` (= `--input`), `--sidebar-border`  |
+| Text fields               | `--field` (white with a hairline in light, a quiet lift in dark)                  |
+| Text                      | `--foreground`, `--muted-foreground`, `--subtle-foreground`                       |
+| Inverse (tooltips, send)  | `--primary`, `--primary-foreground`                                               |
+| Accent                    | `--ring`, `--ring-hover`, `--ring-pressed`, `--ring-foreground`, `--ring-text`    |
+| Focus                     | `--focus`                                                                         |
+| Status                    | `--status-{working,needs-you,waiting,unresponsive,failed,done}` and `…-text`      |
+| Errors                    | `--destructive`                                                                   |
+| Code                      | `--code`, `--syn-{kw,str,num,fn,type,com}`, `--diff-add`, `--diff-del`            |
+| Loading                   | `--skel`, `--skel-hi`                                                             |
+| Modal backdrop            | `--scrim` (solid), `--scrim-glass` (over blur); modal panels `--glass-tint-modal` |
+| Floating material         | `--float-edge`, `--float-shadow` (= `--glass-shadow`), `--glass-*`, `--sliver`    |
+| Project badges            | `--project-1` … `--project-12`                                                    |
 
 Tailwind utilities: `bg-surface-{0,1,2}`, `bg-fill`, `bg-fill-strong`, `bg-scrim`, `bg-tint`,
 `bg-tint-hover`, `bg-tint-pressed`, `text-tint-foreground`, `text-link`, and every shadcn name.
@@ -196,12 +208,37 @@ On, or when it's System and the OS prefers reduced motion. Under it:
 - Tailwind's `motion-reduce:` and `motion-safe:` variants follow the attribute, not only the OS.
 - In JS, read it with `useReducedMotion()` or `prefersReducedMotion()` from `lib/motion.ts`.
 
+## Modals
+
+Dialogs, sheets and the command palette (`components/ui/dialog.tsx`, `sheet.tsx`, `command.tsx`):
+
+- **Backdrop** (`.ace-backdrop`): under Translucent the page is blurred once, 16px with a light
+  saturate, under a faint tint (`--scrim-glass`); there is no dark dim. Under Solid or reduced
+  transparency it is a light neutral scrim (`--scrim`). It fades in by opacity with the motion
+  tokens; the blur radius never animates.
+- **Panel** (`.ace-modal` with `.ace-floating`): a 90–92% tint over the already blurred page, with
+  no blur or displacement of its own, so text and fields read as on a solid surface.
+- **Placement:** centred with insets and auto margins, never with a translate. Dialogs centre in
+  the window; the palette and search are 640px wide (less on phones), 13vh from the top, and as
+  tall as their content.
+- **Empty states act:** before a query, search offers recent threads, recent searches and quick
+  commands. No explanatory prose.
+
+## Settings
+
+- Pages sit in a column that grows with the window (`--settings-column`, 640–900px).
+- Each group is a `SettingSection`: a title, then its rows on a subtle card (`--card`, a hairline
+  border, hairlines between rows). Rows that head a page without a title use `SettingCard`.
+- Every row is one height (`--setting-row-height`, 52px; 44px compact), and every child of a card
+  shares one inset, notes and buttons included.
+- Text fields use `--field`, never a control-border colour.
+
 ## First paint
 
 The theme provider writes `ace.boot-appearance` to storage. It holds the settings plus the chosen
 theme's CSS. `index.html` replays it before the app's script runs: it resolves System mode,
 reduced transparency and reduced motion against the OS, then sets every attribute. A first visit
-paints Ace in the OS scheme. Reloading in any theme or mode never flashes the wrong one.
+paints Graphite in the OS scheme. Reloading in any theme or mode never flashes the wrong one.
 
 ## Layout rules (approved prototype)
 

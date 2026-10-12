@@ -23,17 +23,20 @@ the window opaque and puts glass only on floating layers.
 ### Mode and theme
 
 - **Mode is its own setting**: Light, Dark or System. System follows `prefers-color-scheme`.
-- **Theme** is one of six: Ace (the default), Paper, Dusk, Tide, Ember or Moss.
-  - Each has a hand-tuned light palette and dark palette (`apps/web/src/theme/palettes.ts`), and
-    its own accent.
+- **Theme** is one of eight: Graphite (the default), Ace, Mono, Paper, Dusk, Tide, Ember or Moss.
+  - Amended after the owner's review of the first build ("missing various neutral colors"):
+    every theme shares one twelve-step near-true-grey ramp per scheme, generated in OKLCH
+    (`apps/web/src/theme/palettes.ts`). Only Paper and Ember warm it slightly; the accent
+    carries each theme's identity. Graphite (pure grey, restrained blue) and Mono (accent = text)
+    were added.
   - `<html>` carries `data-theme` and `data-scheme`. Each theme/scheme pair is one rule,
     `[data-theme][data-scheme]`.
   - Every palette passes WCAG AA on every surface text sits on. `contrastWarnings` checks this
-    and a test runs it for all twelve palettes.
+    and a test runs it for all sixteen palettes.
 
 ### Removed
 
-These are replaced by the six themes and Surfaces:
+These are replaced by the theme set and Surfaces:
 
 - the accent picker, since a pinned accent would break palettes that were tuned and checked
   together;
@@ -58,6 +61,9 @@ These are replaced by the six themes and Surfaces:
   - Layers of the same geometry share a filter, and filters are cached.
   - A layer registers when it appears, through a marker animation's `animationstart`. A single
     ResizeObserver re-measures it only when it resizes.
+- Modal layers (dialogs, sheets, the palette) don't use liquid glass. Their backdrop blurs the page
+  once with a faint tint (a light neutral scrim when solid), and the panel is a dense tint with no
+  blur of its own.
 - **Safari and Firefox** get blur and saturate.
   - They drop `url()` backdrop filters while `CSS.supports` still reports support, so the engine
     comes from the user agent.
@@ -79,7 +85,7 @@ The theme provider stores `ace.boot-appearance`: the settings plus the chosen th
 
 ### Native status hues
 
-Native status markers (`packages/design-tokens`) use Ace's values. A parity test keeps all six
+Native status markers (`packages/design-tokens`) use the default theme's values (Graphite shares Ace's statuses). A parity test keeps all six
 statuses equal to what the web renders in Ace.
 
 ### Old names
