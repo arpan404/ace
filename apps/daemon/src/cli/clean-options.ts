@@ -23,9 +23,12 @@ export function planOperation(args: Args): PlanOperation {
   const saved = option(args, "retention");
   if (olderThan !== undefined && saved !== undefined)
     throw new CliFailure("refused", "Use either --older-than or --retention, not both");
+  // An explicit selection keeps a threshold from re-enabling kinds disabled in settings.
+  if (olderThan !== undefined && !kinds)
+    throw new CliFailure("refused", "--older-than needs at least one kind, e.g. --logs");
   const retention =
-    olderThan !== undefined
-      ? retentionFor(kinds ?? kindSwitches, olderThanDays(olderThan))
+    olderThan !== undefined && kinds
+      ? retentionFor(kinds, olderThanDays(olderThan))
       : saved !== undefined
         ? StorageRetention.parse(JSON.parse(saved))
         : undefined;

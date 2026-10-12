@@ -17,8 +17,11 @@ export function terminalConfirmation(): Confirmation {
     interactive: process.stdin.isTTY === true,
     async ask(question, signal) {
       const reader = createInterface({ input: process.stdin, output: process.stderr });
+      // End of input (Ctrl-D) answers no rather than leaving the prompt pending.
+      const closed = new Promise<string>((resolve) => reader.once("close", () => resolve("")));
       try {
-        return /^y(es)?$/i.test((await reader.question(question, { signal })).trim());
+        const answer = await Promise.race([reader.question(question, { signal }), closed]);
+        return /^y(es)?$/i.test(answer.trim());
       } finally {
         reader.close();
       }
@@ -35,6 +38,9 @@ export async function cleanCommand(
 ) {
   validateArgs(args, [...planOptions, "dry-run", "yes"], 1);
   const operation = planOperation(args);
+  // Forcing protected items is reviewed as a preview first, then applied with `clean apply`.
+  if (operation.forceItems.length && !args.flags["dry-run"])
+    throw new CliFailure("refused", "--force-items requires --dry-run. Nothing was removed.");
   if (args.flags["dry-run"]) {
     await printPlan(args, await planCleanup(client, operation, signal));
     return;
@@ -56,8 +62,9 @@ export async function cleanCommand(
   if (!args.flags.yes) {
     if (json) process.stderr.write(`${planSummary(plan)}\n`);
     const question = `Remove ${removable.length} item${removable.length === 1 ? "" : "s"} (${formatBytes(plan.bytes)})? [y/N] `;
-    if (!(await confirmation.ask(question, signal)))
-      throw new CliFailure("refused", "Cleanup cancelled. Nothing was removed.");
+    // An aborted prompt (interrupt, timeout, closed input) is a refusal: no apply was sent.
+    const confirmed = await confirmation.ask(question, signal).catch(() => false);
+    if (!confirmed) throw new CliFailure("refused", "Cleanup cancelled. Nothing was removed.");
   }
   const receipt = await applyCleanup(client, { planId: plan.id, revision: plan.revision }, signal);
   await printReceipt(args, json ? { plan, apply: receipt } : receiptSummary(receipt), receipt);
