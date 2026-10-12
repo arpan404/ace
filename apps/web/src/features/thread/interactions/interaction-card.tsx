@@ -292,7 +292,7 @@ function OpenRequest(props: {
           <span className="ml-auto flex items-center gap-3">{props.aside}</span>
         </p>
       )}
-      {request.kind !== "question" || request.questions.length !== 1 ? (
+      {request.kind !== "question" ? (
         <div className="mt-2 mb-2.5 flex items-start gap-2">
           <h3 className="min-w-0 flex-1 text-md leading-[1.35] font-medium tracking-[-0.005em]">
             {copy?.command ? (
