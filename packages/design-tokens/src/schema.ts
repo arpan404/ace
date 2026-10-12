@@ -23,6 +23,7 @@ const scheme = z
         foreground: colour,
         mutedForeground: colour,
         subtleForeground: colour,
+        decoration: colour,
         separator: colour,
         fill: colour,
         glass: colour,
@@ -36,6 +37,16 @@ const scheme = z
       })
       .readonly(),
     status: z
+      .strictObject({
+        needsYou: colour,
+        working: colour,
+        waiting: colour,
+        unresponsive: colour,
+        done: colour,
+        failed: colour,
+      })
+      .readonly(),
+    statusText: z
       .strictObject({
         needsYou: colour,
         working: colour,
