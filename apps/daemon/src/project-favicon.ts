@@ -1,5 +1,6 @@
 import type { PinnedDirectory } from "@ace/workspace";
 import { ProjectIcon } from "@ace/protocol";
+import { rasterPng } from "./icons/icon-image.ts";
 
 const directories = [
   "",
@@ -13,59 +14,12 @@ const directories = [
 ];
 const names = ["favicon.ico", "favicon.png", "favicon.svg", "favicon.webp", "icon.png", "icon.svg"];
 const byteLimit = 96_000;
-let decoder: Promise<typeof import("sharp")> | undefined;
-let decoding = Promise.resolve();
-let queued = 0;
-
-function safeSvg(bytes: Buffer): boolean {
-  let text: string;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    return false;
-  }
-  text = text.replace(/<!--[\s\S]*?-->/g, "").replace(/<\?xml\s[\s\S]*?\?>/g, "");
-  return (
-    /^\s*<svg(?:\s|>)/i.test(text) &&
-    !/<!|<\?|<(?:[\w.-]+:)?(?:script|foreignObject|image|style)\b|\bxml:base\s*=|\bstyle\s*=|\bon\w+\s*=|\b(?:xlink:)?href\s*=\s*["'](?!#)|\burl\s*\(\s*["']?(?!#)/i.test(
-      text,
-    )
-  );
-}
 
 async function raster(bytes: Buffer, svg: boolean): Promise<string | null | undefined> {
-  if (svg && !safeSvg(bytes)) return null;
-  if (queued >= 8) return undefined;
-  queued++;
-  const previous = decoding;
-  const finished = Promise.withResolvers<void>();
-  decoding = finished.promise;
-  try {
-    await previous;
-    const sharp = await (decoder ??= import("sharp")
-      .then((module) => module.default)
-      .catch((error) => {
-        decoder = undefined;
-        throw error;
-      }));
-    const png = await sharp(bytes, {
-      limitInputPixels: 1_048_576,
-      animated: false,
-      failOn: "warning",
-    })
-      .resize({ width: 64, height: 64, fit: "inside", withoutEnlargement: true })
-      .timeout({ seconds: 1 })
-      .png()
-      .toBuffer();
-    const value = `data:image/png;base64,${png.toString("base64")}`;
-    return ProjectIcon.safeParse(value).success ? value : null;
-  } catch {
-    // Decoder availability and timeouts are transient, unlike an absent file.
-    return undefined;
-  } finally {
-    queued--;
-    finished.resolve();
-  }
+  const png = await rasterPng(bytes, svg);
+  if (!png) return png;
+  const value = `data:image/png;base64,${png.toString("base64")}`;
+  return ProjectIcon.safeParse(value).success ? value : null;
 }
 
 async function ico(bytes: Buffer): Promise<string | null | undefined> {

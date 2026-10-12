@@ -71,6 +71,9 @@ type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "storag
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"
   | "items.window"
+  | "turn.steps"
+  | "icons.resolve"
+  | "icons.read"
   | "thread.search"
   | "thread.catchUp"
   | "thread.readState"
@@ -162,6 +165,9 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "activity.markRead": ["activity.reads.result"],
   "turns.page": ["turns.page"],
   "items.window": ["items.window"],
+  "turn.steps": ["turn.steps"],
+  "icons.resolve": ["icons.resolve"],
+  "icons.read": ["icons.read"],
   "thread.search": ["thread.search"],
   "thread.catchUp": ["thread.catchUp"],
   "thread.readState": ["thread.readState"],

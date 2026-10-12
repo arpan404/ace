@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/IconsResolveRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "icons": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ToolIcon.json"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "type": "array"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "icons.resolve",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "icons"
+  ],
+  "type": "object"
+}

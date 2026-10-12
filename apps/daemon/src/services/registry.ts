@@ -45,6 +45,7 @@ import { createReviewSession } from "./review.ts";
 import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
 import { createActivityReadsSession } from "./activity-reads.ts";
+import { createIconsSession } from "./icons.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
   createCliControlSession,
@@ -58,6 +59,7 @@ export const socketServiceFactories = [
   createPreviewClientSession,
   createAutomationsSession,
   createActivityReadsSession,
+  createIconsSession,
   createThreadOrganizationSession,
   createWorkspaceActionsSession,
   createProjectsSession,

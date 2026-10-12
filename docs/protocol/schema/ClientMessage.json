@@ -386,6 +386,15 @@
       "$ref": "https://ace.local/protocol/v1/ItemsWindowRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/TurnStepsRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/IconsResolveRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/IconsReadRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ThreadSearchRequest.json"
     },
     {

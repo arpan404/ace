@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/IconsResolveResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "refs": {
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "https://ace.local/protocol/v1/IconRef.json"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "icons.resolve",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "refs"
+  ],
+  "type": "object"
+}

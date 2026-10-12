@@ -24,6 +24,15 @@
       "$ref": "https://ace.local/protocol/v1/ItemsWindowResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/TurnStepsResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/IconsResolveResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/IconsReadResponse.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ThreadSearchResponse.json"
     },
     {
