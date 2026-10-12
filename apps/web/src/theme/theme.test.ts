@@ -5,7 +5,7 @@ import { defaultAppearance, loadAppearance, resolveAppearance } from "./appearan
 import { worstContrast } from "./colour.ts";
 import { contrastWarnings, parseOpaqueColor } from "./contrast.ts";
 import { themeDeclarations, themeRule } from "./css.ts";
-import { edgeMap, glassEngine, glassGeometry } from "./glass.ts";
+import { edgeMap, fitStep, glassEngine, glassGeometry } from "./glass.ts";
 import { themeIds, themes } from "./palettes.ts";
 import { paletteSurfaces } from "./surfaces.ts";
 
@@ -147,6 +147,22 @@ test("liquid glass bends a fixed rim in pixels, whatever the layer's size", () =
   expect(tooltip.scale).toBeLessThanOrEqual(tooltip.band);
   // Layers a pixel apart share one filter.
   expect(glassGeometry(241, 181, 14).key).toBe(menu.key);
+});
+
+test("a layer gets its rim at once when it opens, and a new one only after a resize settles", () => {
+  const opened = glassGeometry(320, 240, 14);
+  // First measure: the rim is there from the first frame.
+  expect(fitStep(undefined, opened)).toBe("now");
+  // Measured again at the same size: nothing to do.
+  expect(fitStep(opened.key, opened)).toBe("keep");
+  // Resized: the old rim comes off now and a new filter waits for the size to settle.
+  const taller = glassGeometry(320, 300, 14);
+  expect(fitStep(opened.key, taller)).toBe("settle");
+  // Still settling, with no rim on: each further size waits too, back to the old one included.
+  expect(fitStep("", taller)).toBe("settle");
+  expect(fitStep("", opened)).toBe("settle");
+  // A pixel of jitter is the same filter.
+  expect(fitStep(opened.key, glassGeometry(321, 241, 14))).toBe("keep");
 });
 
 test("the displacement map moves only the rim and leaves the middle still", () => {

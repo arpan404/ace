@@ -53,6 +53,21 @@ export function glassGeometry(width: number, height: number, radius: number): Gl
   return { width: w, height: h, radius: r, band, scale, key: `${w}x${h}r${r}` };
 }
 
+/** What a measured layer needs from its filter. */
+export type FitStep = "now" | "keep" | "settle";
+
+/**
+ * A layer measured for the first time gets its filter at once, so it opens with its rim. One that
+ * measures the same as its filter keeps it. One whose size changed loses its rim straight away (a
+ * filter sized for the old box would bend the wrong edge) and gets a new one once its size holds
+ * still, so a list filtering as you type builds one filter, not one per height on the way.
+ * `fitted` is the key of the filter it has: undefined before its first, "" while it has none.
+ */
+export function fitStep(fitted: string | undefined, measured: GlassGeometry): FitStep {
+  if (fitted === undefined) return "now";
+  return fitted === measured.key ? "keep" : "settle";
+}
+
 /**
  * The displacement map as RGBA pixels: red and green push each pixel inward near the rounded
  * rect's rim (strongest at the edge, flat in the middle), so the backdrop bends at the edge like

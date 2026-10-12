@@ -1,4 +1,4 @@
-import { edgeMap, glassGeometry, type GlassGeometry } from "./glass.ts";
+import { edgeMap, fitStep, glassGeometry, type GlassGeometry } from "./glass.ts";
 
 /*
  * The DOM half of liquid glass. Each floating layer gets an SVG filter sized to its own box, so
@@ -84,7 +84,8 @@ export function startLiquidGlass(document: Document): () => void {
   document.body.append(container);
 
   const filters = new Map<string, Filter>();
-  const layers = new Map<HTMLElement, string>();
+  /** Each observed layer and the key of its filter: undefined before its first, "" while none. */
+  const layers = new Map<HTMLElement, string | undefined>();
 
   const release = (key: string | undefined) => {
     const filter = key === undefined ? undefined : filters.get(key);
@@ -106,11 +107,8 @@ export function startLiquidGlass(document: Document): () => void {
     layers.delete(layer);
     resize.unobserve(layer);
   };
-  const fit = (layer: HTMLElement, width: number, height: number) => {
-    if (!layer.isConnected || width < 8 || height < 8) return;
-    const radius = Number.parseFloat(view.getComputedStyle(layer).borderTopLeftRadius) || 0;
-    const geometry = glassGeometry(width, height, radius);
-    if (layers.get(layer) === geometry.key) return;
+  const fit = (layer: HTMLElement, geometry: GlassGeometry) => {
+    if (!layer.isConnected) return;
     let filter = filters.get(geometry.key);
     if (!filter) {
       const element = createFilter(document, geometry);
@@ -129,8 +127,12 @@ export function startLiquidGlass(document: Document): () => void {
     layer.style.setProperty("--liquid-filter", `url(#${filter.element.id})`);
     prune();
   };
-  // A layer is fitted once its size holds still, so a list filtering as you type or a popover
-  // settling its height builds one filter for where it lands, not one for every size on the way.
+  /** Takes the layer's rim off until it is fitted again: blur alone, never a misplaced bend. */
+  const unfit = (layer: HTMLElement) => {
+    release(layers.get(layer));
+    layers.set(layer, "");
+    layer.style.removeProperty("--liquid-filter");
+  };
   const pending = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
   const resize = new view.ResizeObserver((entries) => {
     for (const entry of entries) {
@@ -143,19 +145,23 @@ export function startLiquidGlass(document: Document): () => void {
       const box = entry.borderBoxSize[0];
       const width = box?.inlineSize ?? layer.offsetWidth;
       const height = box?.blockSize ?? layer.offsetHeight;
-      // The first measure fits at once, so a layer opens with its rim.
-      if (!layers.get(layer)) {
-        fit(layer, width, height);
-        continue;
-      }
+      if (width < 8 || height < 8) continue;
+      const radius = Number.parseFloat(view.getComputedStyle(layer).borderTopLeftRadius) || 0;
+      const geometry = glassGeometry(width, height, radius);
       clearTimeout(pending.get(layer));
-      pending.set(
-        layer,
-        setTimeout(() => {
-          pending.delete(layer);
-          fit(layer, width, height);
-        }, settleMs),
-      );
+      pending.delete(layer);
+      const step = fitStep(layers.get(layer), geometry);
+      if (step === "now") fit(layer, geometry);
+      else if (step === "settle") {
+        unfit(layer);
+        pending.set(
+          layer,
+          setTimeout(() => {
+            pending.delete(layer);
+            fit(layer, geometry);
+          }, settleMs),
+        );
+      }
     }
   });
   const mounted = (event: AnimationEvent) => {
@@ -164,7 +170,7 @@ export function startLiquidGlass(document: Document): () => void {
     if (!(layer instanceof view.HTMLElement) || layers.has(layer)) return;
     // Layers that closed since the last one opened stop being observed.
     for (const known of layers.keys()) if (!known.isConnected) forget(known);
-    layers.set(layer, "");
+    layers.set(layer, undefined);
     resize.observe(layer);
   };
   document.addEventListener("animationstart", mounted, true);
