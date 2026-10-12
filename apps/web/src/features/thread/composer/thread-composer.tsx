@@ -34,7 +34,13 @@ import {
 import { DeferredPlanTab, DeferredRequestStack, DeferredStatusStrip } from "./deferred-cards.ts";
 import { UsageNotice } from "./usage-notice.tsx";
 import { useShownPlans } from "./plan-state.ts";
-import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
+import {
+  runsOn,
+  runsNow,
+  changedTurnOptions,
+  selectionIdentity,
+  type PendingTurn,
+} from "./execution.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
 
 /** The send pipeline's code: fetched when a composer mounts, so the first Enter never waits on it. */
@@ -105,14 +111,47 @@ export function ThreadComposer({
       setPicked(turn && { threadId: props.thread.id, ...turn }),
   };
 
+  const sent = pending?.identity === selectionIdentity(runsOn(meta)) ? pending : undefined;
+  const activeSelection = meta && runsNow(meta);
+  const activeModel = currentModelChoice(modelChoices, activeSelection);
+  const activeEffort = resolveEffort(
+    activeModel?.efforts ?? [],
+    typeof activeSelection?.options?.["effort"] === "string"
+      ? activeSelection.options["effort"]
+      : undefined,
+    activeModel?.defaultEffort,
+  );
+  const pendingModel = currentModelChoice(modelChoices, runsOn(meta));
+  const pendingEffort =
+    sent &&
+    resolveEffort(
+      pendingModel?.efforts ?? [],
+      typeof sent.options["effort"] === "string" ? sent.options["effort"] : undefined,
+      pendingModel?.defaultEffort,
+    );
+  const pendingOptions = sent && {
+    ...sent.options,
+    ...(pendingEffort !== undefined ? { effort: pendingEffort } : {}),
+  };
+  const followUpOptions = changedTurnOptions(pendingOptions, {
+    ...activeSelection?.options,
+    ...(activeEffort !== undefined ? { effort: activeEffort } : {}),
+  });
+  const selectionWaiting = busy && (!!followUpOptions || meta?.switch?.state === "queued");
+
   const submit = async (draft: Draft) => {
     // Never send options picked for another selection; the controls are re-checking them.
-    const sent = pending?.identity === selectionIdentity(runsOn(meta)) ? pending : undefined;
     const commandId = crypto.randomUUID();
     // While the agent works the delivery is said outright, so this window knows at once
     // whether the message is a bubble (steered in) or a pill (queued).
     const other = followUp === "steer" ? "queue" : "steer";
-    const delivery = busy ? (draft.opposite ? other : (followUp ?? "queue")) : undefined;
+    const delivery = busy
+      ? selectionWaiting
+        ? "queue"
+        : draft.opposite
+          ? other
+          : (followUp ?? "queue")
+      : undefined;
     const selection = runsOn(meta);
     const model = currentModelChoice(modelChoices, selection);
     const explicit = sent?.options ?? selection?.options;
@@ -122,10 +161,12 @@ export function ThreadComposer({
       model?.defaultEffort,
     );
     // Steering leaves the running turn intact; its next admission resolves the same default.
-    const options =
-      delivery !== "steer" &&
-      effort !== undefined &&
-      (explicit?.["effort"] === undefined || model?.efforts.includes(String(explicit["effort"])))
+    const options = busy
+      ? followUpOptions
+      : delivery !== "steer" &&
+          effort !== undefined &&
+          (explicit?.["effort"] === undefined ||
+            model?.efforts.includes(String(explicit["effort"])))
         ? { ...(sent?.options ?? selection?.options), effort }
         : sent?.options;
     const { sendMessage } = await loadSender();
@@ -229,8 +270,8 @@ export function ThreadComposer({
         draftKey={`thread:${props.thread.id}`}
         keepsAttachments
         busy={busy}
-        followUp={followUp}
-        canSteer={canSteer}
+        followUp={selectionWaiting ? "queue" : followUp}
+        canSteer={canSteer && !selectionWaiting}
         onSubmit={submit}
         onStop={tab === "plan" && activityState.canStop ? stop : undefined}
         stopping={stopping}

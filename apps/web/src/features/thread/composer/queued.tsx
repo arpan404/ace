@@ -136,7 +136,9 @@ export function QueuedTray(props: {
                   ? "This message is still being saved."
                   : busy
                     ? "This message is being updated."
-                    : props.steerReason;
+                    : message.requiresNextTurn
+                      ? "This message changes model or turn options and must wait for the next turn."
+                      : props.steerReason;
                 return (
                   <li
                     key={message.id}

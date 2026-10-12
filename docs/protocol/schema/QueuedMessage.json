@@ -18,6 +18,9 @@
       "minItems": 1,
       "type": "array"
     },
+    "requiresNextTurn": {
+      "type": "boolean"
+    },
     "state": {
       "enum": [
         "queued",
