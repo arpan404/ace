@@ -40,13 +40,18 @@ await client.close();
 
 `command(payload, options?, id?)` adds a cancellable waiter for the daemon receipt, without a failure deadline. Both `command` and `enqueue` save offline actions. Aborting a waiter cannot undo the durable intent or daemon effects. A reconnect replays pending intents even if a prior waiter was cancelled. A failed persistence write does not send anything. Persistence failures while recording receipts put the client in fatal state and keep the durable command replayable.
 
-For a newly allocated explicit command ID, its first submission may pass `{ admission: "fresh" }`.
-Omit this evidence when restoring or replaying an ID. An absent intent does not prove the ID
-was never dispatched: successful receipts delete persisted intents, and settled cache entries
-can be evicted. A local capacity refusal returns `not_dispatched` only with positive freshness
-evidence and no known earlier admission; unavailable history remains `limit`. IDs allocated by
-the client when the third argument is omitted supply freshness automatically. Direct and worker
-clients use the public `commandAdmissionError` classifier.
+`submitNew(payload, record, options?)` is the allocation-and-submit API for a new action.
+It allocates the ID internally and waits for `record(id)` to finish before dispatch. In a worker,
+the owning client allocates the ID, sends it to the tab, and waits for the tab's recording
+acknowledgement. The issue editor saves its submission association in this callback. A fresh
+capacity refusal is `not_dispatched`; no caller-supplied freshness flag is accepted.
+
+Replay with `command(payload, originalOptions, originalId)`. Explicit IDs always have unknown
+history unless an intent proves prior admission, so a capacity refusal stays `limit` even if the
+original options contain an obsolete freshness flag. Successful receipts delete persisted intents
+and settled entries can be evicted; absence is never freshness. Both paths use the public
+`commandAdmissionError` classifier. Existing tab-side `command`/`enqueue` ID generators remain
+unchanged; `submitNew` allocates through the worker owner's generator.
 
 `itemsPage({threadId,before?,limit}, options?)` returns older items with an exclusive numeric creation-sequence cursor and consistency sequence. Use `thread.store.itemsBefore` as the older-page cursor. Creation-sequence metadata keeps this cursor accurate when the SDK trims a daemon window. Apply it with `thread.store.page(page)`. The store reconciles later item changes and rejects expired coverage with ClientError("stale"); obtain a fresh page in that case. Live creation advances the bounded window; updates to unloaded history do not reinsert it. `outputRead({streamId,offset,limit})` reads a bounded Uint8Array at byte offsets. `output` is an async generator that requests another chunk only when its consumer advances. Shell items expose bounded output summaries containing streamId, byte count and a tail; complete output lives in the daemon stream store.
 

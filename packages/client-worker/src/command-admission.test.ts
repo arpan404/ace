@@ -12,7 +12,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
-test("a full tab RPC queue refuses a fresh command as unsent and the same ID can be retried after capacity frees", async () => {
+test("a full tab RPC queue refuses a new submission before allocating an ID and remount permits retry", async () => {
   const { daemon, tab, faults } = world();
   const scenario = new ScenarioPlayer(daemon, flakyCheckout());
   scenario.runUntilBlocked();
@@ -29,12 +29,15 @@ test("a full tab RPC queue refuses a fresh command as unsent and the same ID can
   );
   const input = { type: "thread.archive", threadId: ThreadId.parse(scenario.threadId) } as const;
   try {
+    let allocated = false;
     await expect(
-      client.command(input, { admission: "fresh" }, "fresh-capacity"),
+      client.submitNew(input, () => {
+        allocated = true;
+      }),
     ).rejects.toMatchObject({
       code: "not_dispatched",
     });
-    expect(client.intent("fresh-capacity").getSnapshot()).toBeUndefined();
+    expect(allocated).toBe(false);
     const before = daemon.snapshot({ kind: "threads" });
     expect(
       before?.kind === "threads" ? before.threads[scenario.threadId]?.archivedAt : undefined,
@@ -48,8 +51,7 @@ test("a full tab RPC queue refuses a fresh command as unsent and the same ID can
   await client.close();
   const remounted = tab();
   await remounted.start();
-  expect(remounted.intent("fresh-capacity").getSnapshot()).toBeUndefined();
-  expect(await remounted.command(input, {}, "fresh-capacity")).toMatchObject({ ok: true });
+  expect(await remounted.submitNew(input, () => {})).toMatchObject({ ok: true });
   const after = daemon.snapshot({ kind: "threads" });
   expect(
     after?.kind === "threads" ? after.threads[scenario.threadId]?.archivedAt : undefined,
@@ -115,24 +117,34 @@ test("a lost tab reply followed by worker restart keeps replay uncertain after t
   const scenario = new ScenarioPlayer(daemon, flakyCheckout());
   scenario.runUntilBlocked();
   const lost = Promise.withResolvers<void>();
+  let commandId: string | undefined;
+  const originalOptions = { timeoutMs: 100, admission: "fresh" };
   const receipt = z.object({
     t: z.literal("reply"),
     value: z.object({
-      result: z.object({ commandId: z.literal("lost-tab-reply"), ok: z.literal(true) }),
+      result: z.object({ commandId: z.string(), ok: z.literal(true) }),
     }),
   });
   faults.worker = (message, deliver) => {
-    if (receipt.safeParse(message).success) lost.resolve();
+    const parsed = receipt.safeParse(message);
+    if (parsed.success && parsed.data.value.result.commandId === commandId) lost.resolve();
     else deliver(message);
   };
   const original = tab();
   await original.start();
   const input = { type: "thread.archive", threadId: ThreadId.parse(scenario.threadId) } as const;
   const waiting = original
-    .command(input, { admission: "fresh" }, "lost-tab-reply")
+    .submitNew(
+      input,
+      (id) => {
+        commandId = id;
+      },
+      originalOptions,
+    )
     .catch((error: unknown) => error);
   await lost.promise;
   await deleted.promise;
+  if (!commandId) throw new Error("The new submission must allocate its own ID");
   expect(JSON.parse(await readFile(path, "utf8"))).toEqual([]);
   const accepted = daemon.snapshot({ kind: "threads" });
   expect(
@@ -146,7 +158,7 @@ test("a lost tab reply followed by worker restart keeps replay uncertain after t
   faults.worker = (message, deliver) => deliver(message);
   const replay = tab();
   await replay.start();
-  expect(replay.intent("lost-tab-reply").getSnapshot()).toBeUndefined();
+  expect(replay.intent(commandId).getSnapshot()).toBeUndefined();
   faults.incoming = (message, text, deliver) => {
     if (message.type !== "items.page") deliver(text);
   };
@@ -157,46 +169,58 @@ test("a lost tab reply followed by worker restart keeps replay uncertain after t
       .catch((error: unknown) => error),
   );
   try {
-    await expect(replay.command(input, {}, "lost-tab-reply")).rejects.toMatchObject({
+    await expect(replay.command(input, originalOptions, commandId)).rejects.toMatchObject({
       code: "limit",
     });
-    expect(replay.intent("lost-tab-reply").getSnapshot()?.localFailure).toBeUndefined();
+    expect(replay.intent(commandId).getSnapshot()?.localFailure).toBeUndefined();
   } finally {
     controller.abort();
     await Promise.all(reads);
   }
 });
 
-test("a legacy worker's missing-intent unsent inference cannot release a replayed ID", async () => {
-  const { daemon, tab, faults } = world();
+test("a worker waits for the recording callback before an allocated command can reach the daemon", async () => {
+  const { daemon, tab } = world();
   const scenario = new ScenarioPlayer(daemon, flakyCheckout());
   scenario.runUntilBlocked();
   const client = tab();
   await client.start();
-  const evidence = z.object({ t: z.literal("command.admission"), check: z.number() });
-  faults.worker = (message, deliver) => {
-    const parsed = evidence.safeParse(message);
-    deliver(parsed.success ? { ...parsed.data, outcome: "unsent" } : message);
-  };
-  faults.incoming = (message, text, deliver) => {
-    if (message.type !== "items.page") deliver(text);
-  };
-  const controller = new AbortController();
-  const reads = Array.from({ length: defaultLimits.requests }, () =>
-    client
-      .itemsPage({ threadId: scenario.threadId, limit: 1 }, { signal: controller.signal })
-      .catch((error: unknown) => error),
-  );
-  try {
-    await expect(
-      client.command(
-        { type: "thread.archive", threadId: ThreadId.parse(scenario.threadId) },
-        {},
-        "restored-without-history",
-      ),
-    ).rejects.toMatchObject({ code: "limit" });
-  } finally {
-    controller.abort();
-    await Promise.all(reads);
-  }
+  const recording = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const payload = { type: "thread.archive", threadId: ThreadId.parse(scenario.threadId) } as const;
+  const result = client.submitNew(payload, async () => {
+    recording.resolve();
+    await release.promise;
+  });
+  await recording.promise;
+  const before = daemon.snapshot({ kind: "threads" });
+  expect(
+    before?.kind === "threads" ? before.threads[scenario.threadId]?.archivedAt : undefined,
+  ).toBeUndefined();
+  release.resolve();
+  expect(await result).toMatchObject({ ok: true });
+  const after = daemon.snapshot({ kind: "threads" });
+  expect(
+    after?.kind === "threads" ? after.threads[scenario.threadId]?.archivedAt : undefined,
+  ).toBeDefined();
+});
+
+test("a failed recording callback refuses the new worker command without daemon effects", async () => {
+  const { daemon, tab } = world();
+  const scenario = new ScenarioPlayer(daemon, flakyCheckout());
+  scenario.runUntilBlocked();
+  const client = tab();
+  await client.start();
+  await expect(
+    client.submitNew(
+      { type: "thread.archive", threadId: ThreadId.parse(scenario.threadId) },
+      () => {
+        throw new Error("Recording unavailable");
+      },
+    ),
+  ).rejects.toMatchObject({ code: "not_dispatched" });
+  const snapshot = daemon.snapshot({ kind: "threads" });
+  expect(
+    snapshot?.kind === "threads" ? snapshot.threads[scenario.threadId]?.archivedAt : undefined,
+  ).toBeUndefined();
 });

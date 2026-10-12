@@ -1,3 +1,4 @@
+import { CommandRecords } from "./command-records.ts";
 import {
   ClientError,
   defaultLimits,
@@ -10,16 +11,17 @@ import {
 } from "@ace/client";
 import type { Item, ServerMessage } from "@ace/protocol";
 import { sidebarPatches, threadPatches, type Patch } from "./patches.ts";
-import { callArgs, iterateArgs, objectInput, requestArgs, sendArgs } from "./calls.ts";
+import {
+  callArgs,
+  iterateArgs,
+  objectInput,
+  requestArgs,
+  sendArgs,
+  submitNewArgs,
+} from "./calls.ts";
 import { admitArguments } from "./argument-graph.ts";
 import { TabChannels } from "./tab-channels.ts";
-import {
-  CommandAdmissionId,
-  TabMessage,
-  type LeaseChanges,
-  type PortLike,
-  type Scope,
-} from "./wire.ts";
+import { TabMessage, type LeaseChanges, type PortLike, type Scope } from "./wire.ts";
 
 /*
  * The worker side (ADR 0056). One `Client` per daemon target is shared by every tab attached
@@ -220,7 +222,7 @@ class Tab {
   #entry: Entry | undefined;
   #leases = new Map<number, Held>();
   #calls = new Map<number, AbortController>();
-  #commandIds = new Map<number, string>();
+  #commandRecords = new CommandRecords((message) => this.#post(message));
   #collection: ReturnType<Client["threadsCollection"]> | undefined;
   #sidebar(client: Client) {
     return (this.#collection ??= client.threadsCollection());
@@ -295,29 +297,10 @@ class Tab {
       if (message.visible) this.#schedule();
       return;
     }
-    if (message.t === "command.admission") {
-      const entry = this.#entry;
-      if (!entry)
-        return this.#post({ t: "command.admission", check: message.check, outcome: "unknown" });
-      void entry.started.then(
-        () => {
-          if (this.#entry !== entry || this.#dropped) return;
-          const active = [...entry.tabs].some((tab) =>
-            [...tab.#commandIds.values()].includes(message.commandId),
-          );
-          const admitted =
-            active || entry.client.intent(message.commandId).getSnapshot() !== undefined;
-          this.#post({
-            t: "command.admission",
-            check: message.check,
-            // Acknowledgements and eviction erase intents. Missing history proves nothing.
-            outcome: admitted ? "admitted" : (message.freshness ?? "unknown"),
-          });
-        },
-        () => this.#post({ t: "command.admission", check: message.check, outcome: "unknown" }),
-      );
-      return;
-    }
+    if (message.t === "command.admission")
+      return this.#post({ t: "command.admission", check: message.check, outcome: "unknown" });
+    if (message.t === "command.recorded")
+      return this.#commandRecords.settle(message.call, message.ok);
     const client = this.#entry?.client;
     if (!client) {
       if (message.t === "call" || message.t === "iterate" || message.t === "next")
@@ -541,27 +524,27 @@ class Tab {
     this.#calls.set(call, controller);
     try {
       admitArguments(args);
-      const rawId = method === "command" ? args[2] : method === "enqueue" ? args[1] : undefined;
-      const commandId = CommandAdmissionId.safeParse(rawId);
-      if (commandId.success) this.#commandIds.set(call, commandId.data);
       const value =
-        method === "request" && isChannelRequest(args[0])
-          ? await this.#channelRequest(client, call, controller, args)
-          : await callArgs(
-              client,
-              method,
-              args,
-              controller.signal,
-              method === "threadsWindow" || method === "threadsMore"
-                ? this.#sidebar(client)
-                : client,
-            );
+        method === "submitNew"
+          ? await submitNewArgs(client, args, controller.signal, (id) =>
+              this.#commandRecords.record(call, id, controller.signal),
+            )
+          : method === "request" && isChannelRequest(args[0])
+            ? await this.#channelRequest(client, call, controller, args)
+            : await callArgs(
+                client,
+                method,
+                args,
+                controller.signal,
+                method === "threadsWindow" || method === "threadsMore"
+                  ? this.#sidebar(client)
+                  : client,
+              );
       this.#post(value === undefined ? { t: "reply", call } : { t: "reply", call, value });
     } catch (error) {
       this.#post({ t: "failed", call, error: errorShape(error) });
     } finally {
       this.#calls.delete(call);
-      this.#commandIds.delete(call);
     }
   }
   async #channelRequest(

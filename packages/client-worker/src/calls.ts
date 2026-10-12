@@ -14,6 +14,7 @@ import {
   CommandPayload,
   TextSource,
   ThreadMarkReadCommand,
+  type CommandResult,
 } from "@ace/protocol";
 import { z } from "zod";
 
@@ -29,9 +30,6 @@ const RequestOptions = z.object({
   timeoutMs: z.number().positive().optional(),
 });
 const Options = RequestOptions.optional();
-const CommandOptions = RequestOptions.extend({
-  admission: z.literal("fresh").optional(),
-}).optional();
 const Read = z.object({
   streamId: z.string(),
   offset: z.number().int().nonnegative(),
@@ -81,7 +79,8 @@ const longThreadArgs = async () => (longThread ??= longThreadSchemas(await loadS
 const schemas = {
   markThreadRead: z.tuple([ThreadMarkReadCommand.omit({ type: true }), Options]),
   enqueue: z.tuple([CommandPayload, z.string().optional()]),
-  command: z.tuple([CommandPayload, CommandOptions, z.string().optional()]),
+  command: z.tuple([CommandPayload, Options, z.string().optional()]),
+  submitNew: z.tuple([CommandPayload, Options]),
   registry: z.tuple([RegistryInput, Options]),
   itemsPage: z.tuple([Page, Options]),
   loadOlder: z.tuple([z.string(), z.number().int().positive(), Options]),
@@ -143,24 +142,8 @@ export async function callArgs(
     }
     case "command": {
       const [payload, parsed, id] = decode(schemas.command, args);
-      const result = await client.command(
-        payload,
-        {
-          ...options(parsed, signal),
-          ...(parsed?.admission ? { admission: parsed.admission } : {}),
-        },
-        id,
-      );
-      const current = client.intent(result.commandId).getSnapshot();
-      return {
-        result,
-        intent: current && {
-          ...current,
-          state: current.state === "pending" ? (result.ok ? "acked" : "failed") : current.state,
-          error: current.state === "pending" ? result.error : current.error,
-          threadId: result.threadId ?? current.threadId,
-        },
-      };
+      const result = await client.command(payload, options(parsed, signal), id);
+      return commandReply(client, result);
     }
     case "registry": {
       const [input, parsed] = decode(schemas.registry, args);
@@ -216,6 +199,30 @@ export async function callArgs(
     default:
       throw new ClientError("protocol", "Unknown worker request");
   }
+}
+
+/** New commands allocate in the worker; the tab must record the ID before dispatch. */
+export async function submitNewArgs(
+  client: ClientCore,
+  args: unknown[],
+  signal: AbortSignal,
+  record: (id: string) => Promise<void>,
+): Promise<unknown> {
+  const [payload, parsed] = decode(schemas.submitNew, args);
+  return commandReply(client, await client.submitNew(payload, record, options(parsed, signal)));
+}
+
+function commandReply(client: ClientCore, result: CommandResult) {
+  const current = client.intent(result.commandId).getSnapshot();
+  return {
+    result,
+    intent: current && {
+      ...current,
+      state: current.state === "pending" ? (result.ok ? "acked" : "failed") : current.state,
+      error: current.state === "pending" ? result.error : current.error,
+      threadId: result.threadId ?? current.threadId,
+    },
+  };
 }
 
 /** Preserve the fully validated response type across channel lifetime tracking. */

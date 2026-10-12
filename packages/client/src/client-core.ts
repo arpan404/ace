@@ -41,7 +41,7 @@ import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
 import { Notifications, type Selection } from "./observable.ts";
 import { Requests } from "./requests.ts";
-import { commandAdmissionError } from "./command-admission.ts";
+import { commandAdmissionError, type CommandAdmissionEvidence } from "./command-admission.ts";
 import { Sidebar } from "./sidebar.ts";
 import { Subscriptions, type ThreadSubscription } from "./subscriptions.ts";
 import { retryDelay } from "./lifecycle.ts";
@@ -50,7 +50,6 @@ import {
   defaultLimits,
   type ClientOptions,
   type RequestOptions,
-  type CommandOptions,
   type ConnectionInfo,
   type ConnectionState,
 } from "./types.ts";
@@ -529,12 +528,44 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   command(
     payload: CommandPayload,
-    options: CommandOptions = {},
+    options: RequestOptions = {},
     suppliedId?: string,
   ): Promise<CommandResult> {
-    const id = suppliedId ?? this.options.id();
-    const freshness =
-      suppliedId === undefined || options.admission === "fresh" ? "fresh" : "unknown";
+    return suppliedId === undefined
+      ? this.submitNew(payload, () => {}, options)
+      : this.#command(payload, options, suppliedId, "unknown");
+  }
+  submitNew(
+    payload: CommandPayload,
+    record: (id: string) => void | Promise<void>,
+    options: RequestOptions = {},
+  ): Promise<CommandResult> {
+    const id = this.options.id();
+    const dispatch = () => {
+      if (this.closed || options.signal?.aborted)
+        return Promise.reject(commandAdmissionError("fresh"));
+      return this.#command(payload, options, id, "fresh");
+    };
+    let recorded: void | Promise<void>;
+    try {
+      if (this.closed || options.signal?.aborted)
+        return Promise.reject(commandAdmissionError("fresh"));
+      recorded = record(id);
+    } catch {
+      return Promise.reject(commandAdmissionError("fresh"));
+    }
+    return recorded === undefined
+      ? dispatch()
+      : Promise.resolve(recorded).then(dispatch, () => {
+          throw commandAdmissionError("fresh");
+        });
+  }
+  #command(
+    payload: CommandPayload,
+    options: RequestOptions,
+    id: string,
+    freshness: CommandAdmissionEvidence,
+  ): Promise<CommandResult> {
     if (payload.type === "thread.markRead")
       return this.markThreadRead(
         {

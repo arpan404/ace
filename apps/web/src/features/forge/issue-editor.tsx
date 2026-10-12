@@ -112,9 +112,9 @@ export function IssueEditor(props: {
   const submit = async () => {
     if (!canSubmit || submitting.current) return;
     submitting.current = true;
-    const id = newId();
+    let id: string | undefined;
     const revision = draft.revision ?? newId();
-    const snapshot = { ...draft, revision, submission: { id, revision } };
+    const snapshot = { ...draft, revision, submission: undefined };
     update(snapshot);
     const input: ForgeIssueWrite =
       props.action === "create"
@@ -131,22 +131,30 @@ export function IssueEditor(props: {
     setPending(true);
     setMessage("Waiting for GitHub. This action is saved on this device.");
     try {
-      const result = await client.command(
+      const result = await client.submitNew(
         {
           type: "forge.issue.write",
           workspaceId: WorkspaceId.parse(props.workspaceId),
           repository: props.repository,
           input,
         },
-        { admission: "fresh" },
-        id,
+        (allocated) => {
+          id = allocated;
+          const latest = readJson(storage, key, IssueDraft, currentDraft.current);
+          const recorded = { ...latest, submission: { id: allocated, revision } };
+          if (!storage) throw new ClientError("storage");
+          storage.setItem(key, JSON.stringify(recorded));
+          currentDraft.current = recorded;
+          setDraft(recorded);
+        },
       );
       if (result.ok && result.issue) {
-        confirm(id);
+        confirm(result.commandId);
         setMessage("Saved on GitHub.");
         props.onSaved(result.issue);
       } else {
         if (
+          id !== undefined &&
           result.commandId === id &&
           (result.code === "action_not_dispatched" ||
             (result.issueAction?.id === id && result.issueAction.state === "failed"))
@@ -160,8 +168,9 @@ export function IssueEditor(props: {
       }
     } catch (error) {
       if (
-        (error instanceof ClientError && error.code === "not_dispatched") ||
-        client.intent(id).getSnapshot()?.localFailure
+        id !== undefined &&
+        ((error instanceof ClientError && error.code === "not_dispatched") ||
+          client.intent(id).getSnapshot()?.localFailure)
       )
         releaseUnsent(id);
       setMessage("This device couldn't save the action. Your draft is preserved.");

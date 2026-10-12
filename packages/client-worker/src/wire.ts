@@ -23,6 +23,7 @@ export const CallMethod = z.enum([
   "threadsMore",
   "enqueue",
   "command",
+  "submitNew",
   "registry",
   "itemsPage",
   "turnsPage",
@@ -49,13 +50,13 @@ export const TabMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("lease"), lease: id, scope: Scope }),
   z.object({ t: z.literal("release"), lease: id }),
   z.object({ t: z.literal("call"), call: id, method: CallMethod, args: z.array(z.unknown()) }),
-  /** A refused attempt was never posted. Freshness must be supplied positively by its allocator. */
+  /** Legacy admission probes are retained for decoding, but never establish freshness. */
   z.object({
     t: z.literal("command.admission"),
     check: id,
     commandId: CommandAdmissionId,
-    freshness: z.optional(z.literal("fresh")),
   }),
+  z.object({ t: z.literal("command.recorded"), call: id, ok: z.boolean() }),
   z.object({
     t: z.literal("iterate"),
     call: id,
@@ -100,6 +101,7 @@ export type LeaseChanges = z.infer<typeof LeaseChanges>;
 
 export const WorkerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("pong") }),
+  z.object({ t: z.literal("command.allocated"), call: id, commandId: CommandAdmissionId }),
   z.object({
     t: z.literal("command.admission"),
     check: id,
