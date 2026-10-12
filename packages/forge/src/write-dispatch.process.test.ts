@@ -1,7 +1,7 @@
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { GhApi, GitHubForge, WriteDispatch, createCommandRunner } from "./index.ts";
+import { GhApi, GitHubForge, WriteDispatch, createCommandRunner, identityRunner } from "./index.ts";
 import { mergeStateResponse, fakeGh, repository, sha, pr } from "./testing/fixtures.ts";
 
 const signal = () => new AbortController().signal;
@@ -157,7 +157,10 @@ for (const failure of ["timeout", "output limit"] as const) {
       const dispatch = new WriteDispatch();
       await expect(
         f.forge.enableAutoMerge(7, sha, "squash", signal(), dispatch),
-      ).rejects.toMatchObject({ kind: failure === "timeout" ? "cli" : "limit" });
+      ).rejects.toMatchObject({
+        kind: "outcome_uncertain",
+        receipt: { dispatched: true },
+      });
       expect(dispatch.definitelyFailed).toBe(false);
       expect(await f.requests()).toEqual(
         expect.arrayContaining([
@@ -190,6 +193,40 @@ test("a changed head prevents auto-merge before mutation dispatch", async () => 
     expect(
       (await f.requests()).filter((request) => JSON.stringify(request.body).includes("mutation")),
     ).toEqual([]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("structured auto-merge keeps its admitted outcome when the identity probe changes after the mutation", async () => {
+  const f = await fakeGh({
+    "repos/octo/ace/pulls/7": [{ body: pr }],
+    user: [
+      { body: { login: "alice" } },
+      { body: { login: "alice" } },
+      { body: { login: "alice" } },
+      { body: { login: "bob" } },
+    ],
+    graphql: [
+      { body: mergeStateResponse() },
+      { body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
+    ],
+  });
+  const backend = new GitHubForge({
+    repository,
+    now: () => 1000,
+    runner: identityRunner(
+      (request) => f.runner({ ...request, command: f.executable }),
+      repository.host,
+      "alice",
+    ),
+  });
+  const dispatch = new WriteDispatch();
+  try {
+    await expect(
+      backend.enableAutoMerge(7, sha, "squash", signal(), dispatch),
+    ).rejects.toMatchObject({ kind: "outcome_uncertain", receipt: { number: 7, headSha: sha } });
+    expect(dispatch.definitelyFailed).toBe(false);
   } finally {
     await f.cleanup();
   }

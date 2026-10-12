@@ -6,6 +6,11 @@
     "scripts/test-failure-reporter*.ts",
     "scripts/test-project-isolation*.ts",
     "scripts/process-test-setup.ts",
-    "scripts/check-ui-values.ts"
-  ]
+    "scripts/check-ui-values.ts",
+    "scripts/typecheck*.ts"
+  ],
+  "compilerOptions": {
+    "incremental": true,
+    "tsBuildInfoFile": "./.cache/typecheck/root-tests.tsbuildinfo"
+  }
 }

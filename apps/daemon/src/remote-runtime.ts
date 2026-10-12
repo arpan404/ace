@@ -98,6 +98,8 @@ export function remoteRuntime(
     const keepDirect = directSignature === listen;
     if (!keepDirect) await retire();
     else {
+      // The applied signature is invalid as soon as its relay resource is retired.
+      active = "";
       await relay?.close();
       relay = undefined;
       options.relay = undefined;

@@ -104,6 +104,7 @@ export const mergeMethods: readonly { method: MergeMethod; label: string }[] = [
 export function parsePrReference(
   text: string,
   repository: ForgeRepository | undefined,
+  hosts: readonly string[] = ["github.com"],
 ): { number: number; repository?: ForgeRepository } | { error: string } {
   const value = text.trim();
   const bare = /^#?(\d{1,9})$/.exec(value);
@@ -112,7 +113,7 @@ export function parsePrReference(
       ? valid(Number(bare[1]))
       : { error: "Paste the pull request’s GitHub address. This checkout has no origin remote." };
   try {
-    const ref = prFromUrl(value);
+    const ref = prFromUrl(value, hosts);
     const ours =
       repository &&
       `${ref.repository.host}/${ref.repository.owner}/${ref.repository.name}`.toLowerCase() ===

@@ -274,18 +274,20 @@ test("a turn stopped before any reply keeps saying so under its ask after the ne
   expect(follows(kept, next)).toBe(true);
 });
 
-test("the subagents line opens to the agents started, with their model, and opens a delegate's thread", async () => {
+test("the subagent card deduplicates a launch and its spawn call and opens the child thread", async () => {
   const app = harness();
   for (const thread of delegatedDocs()) app.play(thread).runUntilBlocked();
   await app.open(`/t/${delegatedDocsIds.parent}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(await within(feed).findByRole("button", { name: "Started 1 subagent" }));
-  const tree = within(feed).getByRole("tree", { name: "Subagents" });
-  const [row] = within(tree).getAllByRole("treeitem");
-  expect(row?.getAttribute("aria-label")).toMatch(/^protocol-docs: /);
-  expect(row?.textContent).toContain("Codex · GPT-5.5 Codex");
+  await userEvent.click(await within(feed).findByRole("button", { name: "1 subagent" }));
+  const tree = within(feed).getByRole("list", { name: "Subagents" });
+  expect(within(tree).getAllByRole("listitem")).toHaveLength(1);
+  expect(within(tree).getByText("Relay protocol reference")).toBeTruthy();
+  expect(within(tree).getByText("Finished")).toBeTruthy();
 
-  await userEvent.click(within(tree).getByRole("link", { name: "Open protocol-docs's thread" }));
+  await userEvent.click(
+    within(tree).getByRole("link", { name: "Open Relay protocol reference's thread, Finished" }),
+  );
   expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();
 });
 

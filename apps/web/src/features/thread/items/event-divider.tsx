@@ -1,6 +1,6 @@
 import type { ThreadReader } from "@ace/client";
 import { useItem, useThreadMeta, useThread } from "@ace/client-react";
-import type { Item, ProviderKind } from "@ace/protocol";
+import type { Item } from "@ace/protocol";
 import {
   displayNotice,
   sanitizeUserText,
@@ -8,10 +8,8 @@ import {
   handoffSummary,
   inputLine,
   isBareErrorCode,
-  modelLabel,
   noticeInput,
   parseDelegationResults,
-  providerNames,
   repeatsEarlierEvent,
   settledResults,
   systemInput,
@@ -30,7 +28,6 @@ import {
   WarningIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
 import { useCallback, useId, useState } from "react";
 import { ArtifactLine } from "@/components/attachment-artifact.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
@@ -157,7 +154,15 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
         return null;
       case "subagent_result": {
         const results = parseDelegationResults(input.text);
-        if (results.length) return <DelegationCard results={results} received={input.text} />;
+        if (results.length)
+          return (
+            <DelegationCard
+              threadId={props.threadId}
+              results={results}
+              received={input.text}
+              at={item.createdAt}
+            />
+          );
         return (
           <EventDivider
             line={{ icon: "automation", text: "Delegated work finished" }}
@@ -232,7 +237,7 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
         />
       );
     default:
-      return <DelegationItem item={item} />;
+      return <DelegationItem threadId={props.threadId} item={item} />;
   }
 }
 
@@ -278,33 +283,10 @@ function QuietText(props: { text: string }) {
   );
 }
 
-/** #116's delegation lifecycle items, read structurally until their types reach this build. */
-function DelegationItem(props: { item: Item }) {
+/** Canonical result receipts render at their delivery point; launches belong to the grouped card. */
+function DelegationItem(props: { threadId: string; item: Item }) {
   const results = settledResults(props.item);
-  if (results?.length) return <DelegationCard results={results} />;
-  if ((props.item.type as string) !== "delegation.started") return null;
-  const record = props.item as unknown as Record<string, unknown>;
-  const title = typeof record["title"] === "string" ? record["title"] : "a new thread";
-  const childThreadId = typeof record["childThreadId"] === "string" ? record["childThreadId"] : "";
-  const provider = record["provider"] as ProviderKind | undefined;
-  const model = typeof record["model"] === "string" ? record["model"] : undefined;
-  return (
-    <p className="flex items-center gap-2 text-ui text-muted-foreground">
-      {provider && <ProviderIcon provider={provider} model={model} size={14} decorative />}
-      <span>
-        Delegated to <b className="font-medium text-foreground">{title}</b>
-        {provider ? ` · ${providerNames[provider] ?? provider}` : ""}
-        {model ? ` · ${modelLabel(model)}` : ""}
-      </span>
-      {childThreadId && (
-        <Link
-          to="/t/$threadId"
-          params={{ threadId: childThreadId }}
-          className="ml-auto text-xs underline-offset-2 hover:text-foreground hover:underline"
-        >
-          Open thread
-        </Link>
-      )}
-    </p>
-  );
+  return results?.length ? (
+    <DelegationCard threadId={props.threadId} results={results} at={props.item.createdAt} />
+  ) : null;
 }

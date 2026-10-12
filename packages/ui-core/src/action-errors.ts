@@ -80,6 +80,10 @@ const copy: Record<string, string> = {
   forge_cli: "The GitHub CLI failed: install `gh` and run `gh auth login`, then retry.",
   forge_not_found:
     "GitHub couldn't find the pull request: check its number and your access to the repository.",
+  forge_outcome_uncertain:
+    "GitHub may have completed this action before the account changed. Check the remote result and restore the intended account. A reply retry verifies the saved comment before another write.",
+  forge_preferences_changed:
+    "Source control settings changed during this action. Rescan this computer and retry with the intended account.",
   forge_forbidden:
     "GitHub denied access: check your permissions on the repository, or run `gh auth login`.",
   forge_rate_limit: "GitHub's rate limit was reached: wait a few minutes, then retry.",

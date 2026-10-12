@@ -14,7 +14,7 @@
     "browser": "node src/browser.ts",
     "memory": "node src/memory.ts",
     "long-thread": "node src/long-thread.ts",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "markdown-stream": "node src/markdown-stream.ts"
   },
   "dependencies": {

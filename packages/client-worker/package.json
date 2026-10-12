@@ -14,7 +14,7 @@
     "./remote-artifact-return": "./src/remote-artifact-return.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
     "@ace/client": "workspace:*",

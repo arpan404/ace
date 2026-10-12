@@ -1,3 +1,4 @@
+import { HostedRepositoriesTab } from "./hosted-repositories-tab.tsx";
 import {
   ArrowLeftIcon,
   DownloadSimpleIcon,
@@ -23,6 +24,7 @@ const tabs: { value: AddTab; label: string; icon: typeof FolderOpenIcon }[] = [
   { value: "open", label: "Open folder", icon: FolderOpenIcon },
   { value: "create", label: "New project", icon: FolderPlusIcon },
   { value: "clone", label: "Clone", icon: DownloadSimpleIcon },
+  { value: "github", label: "GitHub", icon: DownloadSimpleIcon },
 ];
 
 /** ←/→ switch tabs from a text box only while it is empty, so they still move the caret. */
@@ -47,6 +49,7 @@ export function AddProjectDialog(props: {
   onAdded(result: Added, verb: string, options: LandOptions): void;
 }) {
   const machines = useMachines();
+  const [selectedClone, setSelectedClone] = useState<{ machine: string; url: string }>();
   const [chosen, setChosen] = useState<{ id: string; name: string; primary: boolean }>();
   const choose = (id: string | undefined) => {
     const next = machines.find((each) => each.id === id);
@@ -67,7 +70,7 @@ export function AddProjectDialog(props: {
     const mod = applePlatform ? event.metaKey : event.ctrlKey;
     const at = tabs.findIndex((tab) => tab.value === props.tab);
     let next: AddTab | undefined;
-    if (mod && !event.shiftKey && !event.altKey && /^[1-3]$/.test(event.key))
+    if (mod && !event.shiftKey && !event.altKey && /^[1-4]$/.test(event.key))
       next = tabs[Number(event.key) - 1]?.value;
     else if (mod && event.key.toLowerCase() === "m" && several && machine) {
       event.preventDefault();
@@ -112,7 +115,14 @@ export function AddProjectDialog(props: {
           <MachinePicker machines={machines} value={machine.id} onValue={choose} />
         )}
         <div className="grid min-w-0 gap-3">
-          {props.tab === "sources" && <ProjectSourcePicker onChoose={props.onTab} />}
+          {props.tab === "sources" && (
+            <ProjectSourcePicker
+              onChoose={(tab) => {
+                setSelectedClone(undefined);
+                props.onTab(tab);
+              }}
+            />
+          )}
           {machine && machine.status !== "online" && (
             <p role="status" className="text-sm text-muted-foreground">
               {removed
@@ -147,9 +157,26 @@ export function AddProjectDialog(props: {
                   />
                 </div>
               )}
+              {props.tab === "github" && (
+                <HostedRepositoriesTab
+                  machine={machine}
+                  onSelect={(row) => {
+                    setSelectedClone({ machine: machine.id, url: row.cloneUrl });
+                    props.onTab("clone");
+                  }}
+                />
+              )}
               {props.tab === "clone" && (
                 <div className="min-w-0">
-                  <CloneProjectTab machine={machine} machines={machines} clone={props.clone} />
+                  <CloneProjectTab
+                    key={selectedClone?.url ?? "pasted"}
+                    machine={machine}
+                    machines={machines}
+                    clone={props.clone}
+                    {...(selectedClone?.machine === machine.id
+                      ? { initialUrl: selectedClone.url }
+                      : {})}
+                  />
                 </div>
               )}
             </>

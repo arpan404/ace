@@ -8,7 +8,7 @@
     "./errors": "./src/public-error.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "bench": "node bench/dispatch.ts"
   },
   "dependencies": {

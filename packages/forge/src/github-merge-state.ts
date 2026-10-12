@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ForgeMergeState } from "@ace/protocol/forge-merge-state";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import type { GhApi } from "./http.ts";
+import { ForgeMutationOutcome } from "./mutation.ts";
 import { ForgeError } from "./errors.ts";
 import { mergeStateChangeObserved } from "./merge-state.ts";
 import type { MergeMethod } from "./api.ts";
@@ -159,6 +160,7 @@ export class GitHubMergeState {
       );
       const result = z.object({ data: z.record(z.string(), z.unknown()) }).safeParse(page.body);
       if (!result.success || !result.data.data[mutation]) throw new ForgeError("invalid_data");
+      if (page.identityChanged) throw new ForgeMutationOutcome({ number, headSha });
       // Return the acknowledgement before any read. The shell persists acceptance
       // before fetching host state, which may fail or lag behind this write.
       return undefined;

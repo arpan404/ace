@@ -192,7 +192,7 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
             throw new Error("The branch changes moved. Generate again or discard the draft.");
         }
         // A branch without an upstream reports nothing ahead; pushing first is always safe.
-        await workspace.push(thread);
+        await workspace.push(thread, { repository, branch, head: checkout.head });
         const status = await workspace.createPr(thread, {
           repository,
           branch,
@@ -202,6 +202,7 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
           draftBaseRef: checkout.baseRef,
           summary: change.summary,
           draft: change.draft,
+          ...(checkout.head ? { expectedHead: checkout.head } : {}),
         });
         published(status);
         return change.reviewers?.length
