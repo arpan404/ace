@@ -248,11 +248,6 @@
       grid-template-columns: minmax(0, 224px) 152px 152px 128px 128px;
     }
   }
-  /* One fixed blur avoids Tailwind's full backdrop-filter property set for sheet scrims. */
-  .sheet-scrim {
-    -webkit-backdrop-filter: blur(4px);
-    backdrop-filter: blur(4px);
-  }
   /* Spinner ring in the current colour: the working blue unless a caller sets another. */
   .spin-ring {
     width: 11px;

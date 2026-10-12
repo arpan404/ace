@@ -79,11 +79,17 @@ test("closed filters keep their scope visible and Clear filters restores all kin
   await waitFor(async () => expect(within(await results()).getAllByRole("option")).toHaveLength(2));
 });
 
-test("a new search explains what can be searched before a query is entered", async () => {
-  await search();
-  expect(screen.getByText("Search your threads")).toBeTruthy();
-  expect(screen.getByText(/Find a message, command or file/)).toBeTruthy();
+test("a new search offers recent threads and quick commands instead of an explanation", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  await search(undefined, app);
+  const threads = await screen.findByRole("region", { name: "Recent threads" });
+  expect(within(threads).getAllByRole("button").length).toBeGreaterThan(0);
+  expect(screen.getByRole("button", { name: /New thread/ })).toBeTruthy();
+  expect(screen.queryByText(/Find a message, command or file/)).toBeNull();
   expect(screen.queryByRole("option")).toBeNull();
+  await userEvent.click(within(threads).getAllByRole("button")[0]!);
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull());
 });
 
 test("arrow keys move through results and Enter opens the thread", async () => {
@@ -109,7 +115,7 @@ test("arrow keys move through results and Enter opens the thread", async () => {
 
 test("a search with no matches says so", async () => {
   await search("kubernetes");
-  expect(await screen.findByText("No matches yet")).toBeTruthy();
+  expect(await screen.findByText("No matches")).toBeTruthy();
 });
 
 test("emptying the field empties the results; Esc puts the dialog away, and it opens fresh", async () => {
@@ -148,10 +154,10 @@ test("Tab skips results and cycles through the search dialog's controls", async 
   await results();
   field().focus();
   await userEvent.tab();
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close search" }));
-  await userEvent.tab();
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Filters" }));
   await userEvent.keyboard("{Enter}");
+  await userEvent.tab();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close search" }));
   await userEvent.tab();
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "All" }));
   await userEvent.tab();
@@ -172,17 +178,17 @@ test("a search that was opened is offered again from Recent, and can be forgotte
   first.unmount();
 
   await search();
-  const recent = await screen.findByRole("region", { name: "Recent" });
+  const recent = await screen.findByRole("region", { name: "Recent searches" });
   await userEvent.click(within(recent).getByRole("button", { name: "retry budget" }));
   expect(within(await results()).getAllByRole("option").length).toBeGreaterThan(0);
 
   await userEvent.clear(field());
   await userEvent.click(
-    within(await screen.findByRole("region", { name: "Recent" })).getByRole("button", {
+    within(await screen.findByRole("region", { name: "Recent searches" })).getByRole("button", {
       name: 'Forget "retry budget"',
     }),
   );
-  expect(screen.queryByRole("region", { name: "Recent" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Recent searches" })).toBeNull();
 });
 
 test("when search fails, the dialog says why and tries again", async () => {
@@ -285,7 +291,7 @@ test("an empty visible page keeps Show more until all pages have been checked", 
   };
   await search("visible", app);
   expect(await screen.findByText("More results to check")).toBeTruthy();
-  expect(screen.queryByText("No matches yet")).toBeNull();
+  expect(screen.queryByText("No matches")).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Show more results" }));
   expect(await screen.findByText("The visible message")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Show more results" })).toBeNull();
@@ -360,7 +366,7 @@ test("Date narrows by creation time and Any time restores older matches", async 
   await userEvent.click(screen.getByRole("button", { name: "Filters" }));
   await userEvent.click(screen.getByRole("combobox", { name: "Date" }));
   await userEvent.click(await screen.findByRole("option", { name: "Past day" }));
-  expect(await screen.findByText("No matches yet")).toBeTruthy();
+  expect(await screen.findByText("No matches")).toBeTruthy();
   await userEvent.click(screen.getByRole("combobox", { name: "Date" }));
   await userEvent.click(await screen.findByRole("option", { name: "Any time" }));
   expect(within(await results()).getAllByRole("option").length).toBeGreaterThan(0);

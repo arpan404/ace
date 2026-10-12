@@ -29,7 +29,7 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
       data-slot="dialog-overlay"
       className={cn(
         layers.overlay,
-        "fixed inset-0 bg-scrim [-webkit-app-region:no-drag] transition-opacity duration-(--motion-base) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-(--motion-exit) data-starting-style:opacity-0",
+        "ace-backdrop fixed inset-0 [-webkit-app-region:no-drag] transition-opacity duration-(--motion-base) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-(--motion-exit) data-starting-style:opacity-0",
         className,
       )}
       {...props}
@@ -89,8 +89,9 @@ function DialogContent({
         className={cn(
           layers.modal,
           overlaySurface,
-          "fixed top-1/2 left-1/2 flex max-h-[calc(100dvh-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg p-5 text-ui text-popover-foreground outline-none [-webkit-app-region:no-drag]",
-          "transition-[opacity,transform] duration-(--motion-base) ease-spring data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--motion-exit) data-ending-style:ease-exit data-starting-style:translate-y-[calc(-50%+var(--rise))] data-starting-style:scale-[0.97] data-starting-style:opacity-0",
+          // Centred by insets and auto margins, never by a translate another rule could replace.
+          "ace-modal fixed inset-0 m-auto flex h-fit max-h-[calc(100dvh-2rem)] flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg p-5 text-ui text-popover-foreground outline-none [-webkit-app-region:no-drag]",
+          "transition-[opacity,transform] duration-(--motion-base) ease-spring data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--motion-exit) data-ending-style:ease-exit data-starting-style:translate-y-(--rise) data-starting-style:scale-[0.97] data-starting-style:opacity-0",
           sizes[size],
           className,
         )}

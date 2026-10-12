@@ -45,13 +45,42 @@
 
   /* A layer announces itself to liquid-glass.ts when it appears: a 1ms marker animation on a
      zero-size ::before, whose animationstart bubbles to the document. */
-  :root[data-surface="translucent"][data-glass-engine="liquid"] :is(.ace-floating, .glass)::before {
+  :root[data-surface="translucent"][data-glass-engine="liquid"]
+    :is(.ace-floating, .glass):not(.ace-modal)::before {
     content: "";
     position: absolute;
     width: 0;
     height: 0;
     pointer-events: none;
     animation: ace-glass-mount 1ms;
+  }
+
+  /*
+   * Modal layers (dialogs, sheets, the command palette): `.ace-modal` on the panel. Under
+   * Translucent the backdrop behind it is the blur (`.ace-backdrop`), so the panel adds no blur of
+   * its own and no displacement: it is a dense tint over an already blurred page, so text and
+   * fields read as on a solid surface. Declared after the liquid rule so it wins.
+   */
+  :root[data-surface="translucent"] :is(.ace-floating, .glass).ace-modal {
+    background:
+      radial-gradient(120% 60% at 22% 0%, var(--glass-sheen), transparent 60%),
+      var(--glass-tint-modal);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /*
+   * What sits behind a modal. Solid: a light neutral scrim. Translucent: the page blurred once,
+   * with only a faint tint and no dark dim. It fades in through opacity; the blur radius is fixed
+   * and never animates.
+   */
+  .ace-backdrop {
+    background: var(--scrim);
+  }
+  :root[data-surface="translucent"] .ace-backdrop {
+    background: var(--scrim-glass);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    backdrop-filter: blur(16px) saturate(140%);
   }
 }
 

@@ -81,7 +81,9 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     // Text fields: white with a hairline in light, a quiet lift in dark; same on any surface.
     "--field": light ? p.raised : wash(p.t1, 6),
     "--faint-foreground": p.faint,
-    "--scrim": light ? `rgb(${p.shadow} / 0.16)` : "rgb(0 0 0 / 0.42)",
+    // Modal backdrops: a light neutral scrim when solid, a barely-there tint over blur when glass.
+    "--scrim": light ? `rgb(${p.shadow} / 0.14)` : "rgb(0 0 0 / 0.36)",
+    "--scrim-glass": light ? "rgb(255 255 255 / 0.16)" : "rgb(0 0 0 / 0.18)",
     "--skel": wash(p.t1, light ? 6 : 8),
     "--skel-hi": wash(p.s0, light ? 70 : 12),
 
@@ -138,6 +140,8 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     "--float-edge": light ? `color-mix(in srgb, ${p.border}, ${p.t1} 4%)` : p.border,
     "--float-shadow": floatShadow,
     "--glass-tint": `color-mix(in srgb, ${p.s2} ${light ? 64 : 68}%, transparent)`,
+    // Dialogs, sheets and the palette: glass dense enough that nothing behind reads through.
+    "--glass-tint-modal": `color-mix(in srgb, ${p.s2} ${light ? 90 : 92}%, transparent)`,
     "--glass-tint-liquid": `color-mix(in srgb, ${p.s2} ${light ? 56 : 62}%, transparent)`,
     "--glass-edge": light ? `rgb(${p.shadow} / 0.1)` : "rgb(255 255 255 / 0.09)",
     "--glass-inner": glassInner,
