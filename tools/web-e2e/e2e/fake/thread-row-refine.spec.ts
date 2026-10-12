@@ -28,7 +28,8 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
         await expect(changed.getByText(/^\+3$|^−1$/)).toHaveCount(0);
       }
       const local = nav.getByRole("link", { name: /^greeting/ });
-      await expect(local.getByText("Done · Claude Code", { exact: true })).toBeVisible();
+      await expect(local.getByRole("img", { name: "Claude Code", exact: true })).toBeVisible();
+      await expect(local.getByText("Done", { exact: true })).toHaveCount(0);
       await expect(nav.getByRole("img", { name: /^Device:/ })).toHaveCount(0);
       for (const interact of [() => local.hover(), () => local.focus()]) {
         await interact();

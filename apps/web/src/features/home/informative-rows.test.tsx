@@ -78,20 +78,20 @@ test.each([
   },
 );
 
-test("task context shows activity, branch and PR while hover adds provider and diff details", async () => {
+test("task context shows branch, environment and provider while hover keeps the full status and diff details", async () => {
   const app = harness();
   task(app, "build", "Build replay recovery");
   await app.open("/new");
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
   expect(within(row).getByText("Working", { exact: true })).toBeTruthy();
-  expect(within(row).getByText("Working · Codex")).toBeTruthy();
+  expect(within(row).queryByText("Working · Codex")).toBeNull();
   expect(within(row).getByText("fix/replay")).toBeTruthy();
   expect(row.getAttribute("aria-label")).toContain("Working");
   expect(within(row).getByRole("img", { name: "draft pull request #283" })).toBeTruthy();
   expect(within(row).queryByText("+24")).toBeNull();
   expect(within(row).queryByText("−6")).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Codex");
-  expect(within(row.parentElement ?? row).queryByRole("img", { name: "Codex" })).toBeNull();
+  expect(within(row).getByRole("img", { name: "Codex" })).toBeTruthy();
   await userEvent.hover(row);
   const tip = await screen.findByLabelText(/^Details for /);
   expect(tip.textContent).toContain("Build replay recovery");
@@ -109,9 +109,9 @@ test("this device's read cursor shows new activity even while a task works", asy
   ]);
   await app.open("/new");
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
-  expect(await within(row).findByRole("img", { name: "Unread activity" })).toBeTruthy();
+  expect(row.getAttribute("aria-label")).toContain(", unread");
   expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running");
-  expect(within(row).getByLabelText("1 subagent running")).toBeTruthy();
+  expect(within(row).getByRole("img", { name: "Codex · 1 subagent running" })).toBeTruthy();
 });
 
 test("agents running beside a human request remain counted until they finish", async () => {
@@ -132,7 +132,7 @@ test("agents running beside a human request remain counted until they finish", a
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
   expect(within(row).getByText("Approve")).toBeTruthy();
   expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running");
-  expect(within(row).getByLabelText("1 subagent running")).toBeTruthy();
+  expect(within(row).getByRole("img", { name: "Codex · 1 subagent running" })).toBeTruthy();
   app.daemon.apply("build", [facts.endTurn("web")]);
   await waitFor(() => expect(row.getAttribute("aria-label")).not.toContain("subagent running"));
   expect(within(row).getByText("Approve")).toBeTruthy();
@@ -196,7 +196,7 @@ test.each([false, true])(
     if (!row.parentElement) throw new Error("No row container");
     const device = within(row.parentElement).queryByRole("img", { name: `Device: ${name}` });
     expect(device).toBeNull();
-    expect(row.textContent).not.toContain(name);
+    expect(within(row).getByText(name, { exact: true })).toBeTruthy();
     expect(row.textContent).not.toContain("Stale server");
     expect(row.getAttribute("aria-label")).toContain(`Running on ${name}`);
     expect(row.getAttribute("aria-label")).toContain("Codex");
@@ -209,7 +209,7 @@ test.each([false, true])(
   },
 );
 
-test("settled rows keep local device truth in the rich hover card", async () => {
+test("settled rows keep the same project and environment context without a Done word", async () => {
   const storage = memoryKeyValue();
   storage.setItem(
     "ace.home.organizer",
@@ -227,9 +227,9 @@ test("settled rows keep local device truth in the rich hover card", async () => 
   if (!row.parentElement) throw new Error("No row container");
   expect(within(row.parentElement).queryByRole("img", { name: "Device: Workshop Mac" })).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Codex");
-  expect(within(row).queryByText("ace")).toBeNull();
+  expect(within(row).getByText("ace")).toBeTruthy();
   expect(within(row).queryByText("Done", { exact: true })).toBeNull();
-  expect(row.textContent).not.toContain("Workshop Mac");
+  expect(within(row).getByText("Workshop Mac")).toBeTruthy();
   await userEvent.hover(row);
   expect((await screen.findByLabelText(/^Details for /)).textContent).toContain("Workshop Mac");
 });

@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-test("read work stays quiet while unread results, requests and failures retain attention", async () => {
+test("read and completed titles stay legible while unread results retain emphasis", async () => {
   const app = harness();
   const scenarios = workbench();
   for (const scenario of scenarios) app.play(scenario).runUntilBlocked();
@@ -36,12 +36,11 @@ test("read work stays quiet while unread results, requests and failures retain a
     expect(attention(working)).toBe("quiet");
     expect(attention(done)).toBe("quiet");
   });
-  expect(within(card(done)).getByText(done).classList.contains("text-subtle-foreground")).toBe(
-    true,
-  );
+  expect(card(done).getAttribute("aria-label")).not.toContain(", unread");
+  expect(within(card(done)).queryByText("Done", { exact: true })).toBeNull();
   await read(done, true);
   await waitFor(() => expect(attention(done)).toBe("attention"));
-  expect(within(card(done)).getByText(done).classList.contains("font-semibold")).toBe(true);
+  expect(card(done).getAttribute("aria-label")).toContain(", unread");
   for (const title of [
     "Partial refunds double-count tax",
     "Approval sheet loses its state on rotate",
@@ -53,7 +52,7 @@ test("read work stays quiet while unread results, requests and failures retain a
   await read(done, false);
   await userEvent.click(card(done));
   await waitFor(() => expect(card(done).getAttribute("aria-current")).toBe("page"));
-  expect(within(card(done)).getByText(done).classList.contains("text-foreground")).toBe(true);
+  expect(card(done).getAttribute("aria-label")).not.toContain(", unread");
   expect(attention(done)).toBe("quiet");
   await userEvent.click(
     screen.getByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),

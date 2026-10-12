@@ -42,14 +42,16 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       await expect(
         row("Build replay recovery").getByText("Waiting", { exact: true }),
       ).toBeVisible();
-      await expect(row("Build replay recovery").getByText("⑂ 2", { exact: true })).toBeVisible();
+      await expect(
+        row("Build replay recovery").getByRole("img", { name: "Codex · 2 subagents running" }),
+      ).toBeVisible();
       await expect(
         row("Build replay recovery").getByRole("img", { name: "draft pull request #283" }),
       ).toBeVisible();
       await expect(row("Build replay recovery").getByText("+24", { exact: true })).toHaveCount(0);
       await expect(
         row("Publish the release").getByText("Build server", { exact: true }),
-      ).toBeHidden();
+      ).toBeVisible();
       await expect(
         row("Retry workspace sync")
           .getByText(/^Limited/)
@@ -60,7 +62,6 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       ).toBeVisible();
       const muted = await themeInk(page, "muted-foreground");
       const foreground = await themeInk(page, "foreground");
-      const subtle = await themeInk(page, "subtle-foreground");
       for (const title of [
         "Build replay recovery",
         "Run the mobile checks",
@@ -68,7 +69,7 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
         "Retry workspace sync",
         "Tidy the README",
       ]) {
-        expect(await ink(row(title).getByText(title, { exact: true }))).toBe(subtle);
+        expect(await ink(row(title).getByText(title, { exact: true }))).toBe(foreground);
       }
       expect(
         await ink(row("Build replay recovery").getByText("Waiting", { exact: true })),
@@ -98,15 +99,15 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       await row("Write the install guide").click({ button: "right" });
       await page.getByRole("menuitem", { name: /^Mark unread/ }).click();
       await page.mouse.move(width - 2, 840);
-      await expect(
-        row("Write the install guide").getByRole("img", { name: "Unread activity" }),
-      ).toBeVisible();
+      await expect(row("Write the install guide")).toHaveAccessibleName(/unread/);
       expect(
         await ink(
           row("Write the install guide").getByText("Write the install guide", { exact: true }),
         ),
       ).toBe(foreground);
-      await expect(nav.getByText("Workshop Mac", { exact: true })).toHaveCount(0);
+      await expect(
+        row("Build replay recovery").getByText("Workshop Mac", { exact: true }),
+      ).toBeVisible();
       await expect(nav.getByText("New thread", { exact: true })).toHaveCount(0);
       await nav.getByRole("button", { name: /^Settled/ }).click();
       await expect(row("Bump the client SDK")).toBeVisible();
@@ -173,16 +174,17 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       await page.screenshot({ path: `${shots}/picker-${theme}-${width}.png` });
     });
 
-test("working elapsed time advances without streaming resetting it", async ({ page }) => {
+test("finished tasks show relative age without a Done word", async ({ page }) => {
   await page.clock.install();
   await stageInformativeSidebar(page, "dark");
   await page.goto("/new");
   const row = page
     .getByRole("navigation", { name: "Threads" })
-    .getByRole("link", { name: /^Run the mobile checks/ });
-  await expect(row.getByText("1m", { exact: true })).toBeVisible();
-  await page.clock.fastForward(60_000);
-  await expect(row.getByText("2m", { exact: true })).toBeVisible();
+    .getByRole("link", { name: /^Tidy the README/ });
+  await expect(row.getByText("2d", { exact: true })).toBeVisible();
+  await expect(row.getByText("Done", { exact: true })).toHaveCount(0);
+  await page.clock.fastForward(86_400_000);
+  await expect(row.getByText("3d", { exact: true })).toBeVisible();
 });
 
 test("unread work brightens only the title, while statuses fit without clipping", async ({
@@ -195,7 +197,7 @@ test("unread work brightens only the title, while statuses fit without clipping"
   await work.click({ button: "right" });
   await page.getByRole("menuitem", { name: /^Mark unread/ }).click();
   await page.mouse.move(1400, 840);
-  await expect(work.getByRole("img", { name: "Unread activity" })).toBeVisible();
+  await expect(work).toHaveAccessibleName(/unread/);
   expect(await ink(work.getByText("Run the mobile checks", { exact: true }))).toBe(
     await themeInk(page, "foreground"),
   );

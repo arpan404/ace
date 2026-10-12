@@ -175,7 +175,7 @@ test("a filtered empty state names the project rather than its opaque id", async
   expect(screen.queryByText(`Nothing in ${project.id}`)).toBeNull();
 });
 
-test("a task keeps project and activity context visible with provider details in its accessible name", async () => {
+test("a task keeps project and provider context visible without duplicating Done", async () => {
   const made = harness();
   createIdleTask(made.daemon, {
     id: "bare",
@@ -190,12 +190,13 @@ test("a task keeps project and activity context visible with provider details in
   );
   expect(bare.getAttribute("aria-label")).toContain("Codex");
   expect(within(bare).getByText("relay")).toBeTruthy();
-  expect(within(bare).getByText("Done · Codex")).toBeTruthy();
+  expect(within(bare).queryByText("Done", { exact: true })).toBeNull();
+  expect(within(bare).getByRole("img", { name: "Codex" })).toBeTruthy();
   await userEvent.hover(bare);
   expect(
     within(await screen.findByLabelText(/^Details for Bare thread/)).getByText("Codex"),
   ).toBeTruthy();
-  expect(within(nav()).queryByRole("img", { name: "Codex" })).toBeNull();
+  expect(within(nav()).getByRole("img", { name: "Codex" })).toBeTruthy();
 });
 
 test("composition Enter leaves rename open and Escape preserves the existing multi-selection", async () => {

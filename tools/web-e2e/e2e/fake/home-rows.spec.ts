@@ -33,11 +33,11 @@ test("tasks show project and status above the title, with branch and provider be
   await expect(branch).toBeVisible();
   await expect(row.getByText("+3", { exact: true })).toHaveCount(0);
   await expect(row.getByText("−1", { exact: true })).toHaveCount(0);
-  await expect(row.getByText("Working · Claude Code", { exact: true })).toBeVisible();
+  await expect(row.getByRole("img", { name: "Claude Code", exact: true })).toBeVisible();
   const taskTitle = row.getByText("Audit Console Feature Gaps", { exact: true });
   expect((await branch.boundingBox())?.y).toBeGreaterThan((await taskTitle.boundingBox())?.y ?? 0);
   expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(72);
-  expect((await row.boundingBox())?.height).toBeLessThanOrEqual(80);
+  expect((await row.boundingBox())?.height).toBeLessThanOrEqual(88);
   const project = row.getByText("OpenForge", { exact: true });
   const status = row.getByText("Working", { exact: true });
   expect((await project.boundingBox())?.y).toBeLessThan((await taskTitle.boundingBox())?.y ?? 0);
@@ -61,9 +61,9 @@ test("tasks show project and status above the title, with branch and provider be
   }
   await nav.getByRole("button", { name: "Settled 1" }).click();
   const settled = nav.getByRole("link", { name: /^Build Agent State Engine/ });
-  await expect(settled.getByText("OpenForge", { exact: true })).toHaveCount(0);
-  await expect(settled.getByText("feat/agent-state", { exact: true })).toHaveCount(0);
-  expect((await settled.boundingBox())?.height).toBeLessThanOrEqual(36);
+  await expect(settled.getByText("OpenForge", { exact: true })).toBeVisible();
+  await expect(settled.getByText("feat/agent-state", { exact: true })).toBeVisible();
+  expect((await settled.boundingBox())?.height).toBeGreaterThanOrEqual(80);
   await row.hover();
   await expect(row.getByText("Working", { exact: true })).toBeVisible();
   await expect(row.getByText("+3", { exact: true })).toHaveCount(0);
@@ -182,7 +182,7 @@ test.describe("coarse pointer task rows", () => {
     const settled = nav.getByRole("link", { name: /^Build Agent State Engine/ });
     await expect(settled).toBeVisible();
     expect((await settled.boundingBox())?.height).toBeGreaterThanOrEqual(44);
-    await expect(settled.getByText("OpenForge", { exact: true })).toHaveCount(0);
+    await expect(settled.getByText("OpenForge", { exact: true })).toBeVisible();
   });
 });
 
