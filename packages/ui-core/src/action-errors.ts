@@ -46,6 +46,8 @@ const copy: Record<string, string> = {
   git_missing: "Git isn't installed: install Git, then retry.",
   git_too_old: "This Git is too old: update Git, then retry.",
   git_failed: "Git couldn't finish that: run the same command in a terminal to see why.",
+  git_objects_not_available:
+    "Git objects are not available locally. Fetch the revision explicitly, then retry.",
   git_head_moved: "The branch moved since you looked: refresh the changes, then retry.",
   git_conflicts: "Git found conflicts: resolve them in the checkout, then retry.",
   git_hook_failed: "A Git hook rejected the change: fix what the hook reports, then retry.",

@@ -44,7 +44,7 @@ export interface Output {
 
 export class GitCli {
   private readonly protectedWorktrees = new Set<string>();
-  private readonly executionPolicy = new AsyncLocalStorage<"non-executing">();
+  private readonly executionPolicy = new AsyncLocalStorage<"non-executing" | "explicit-fetch">();
   readonly leaseId: () => string;
   readonly leaseSchedule: GitProcessRuntime["scheduleTimeout"];
   readonly binary: string;
@@ -142,6 +142,19 @@ export class GitCli {
     );
     return result;
   }
+  /** Explicit network admission only; never used for checkout or a protected worktree. */
+  fetch(cwd: string, args: string[], options: CallOptions): Promise<Output> {
+    if (args[0] !== "fetch" || this.protectedPath(cwd))
+      return Promise.reject(
+        new GitError("invalid_argument", "Explicit fetch requires an unprotected project checkout"),
+      );
+    return this.executionPolicy.run("explicit-fetch", () =>
+      this.call(cwd, ["-c", "core.hooksPath=/dev/null", ...args], {
+        ...options,
+        env: { ...options.env, ...nonExecutingEnv() },
+      }),
+    );
+  }
   /** Cancellable I/O-bound retry pause, using the same injected clock as calls. */
   pause(milliseconds: number): Promise<void> {
     if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
@@ -199,7 +212,7 @@ export class GitCli {
     if (!this.executionDisabledAt(cwd)) return this.executeRaw(cwd, args, options);
     // Inspect effective driver names only, never commands or credential values. Every nested
     // call is guarded here, including temporary-index writes, status and branch cleanup.
-    const filters = await this.executeRaw(cwd, filterKeyQuery, {
+    const filters = await this.executeRaw(cwd, ["-c", "protocol.allow=never", ...filterKeyQuery], {
       env: { ...options.env, ...nonExecutingEnv() },
       allowFailure: true,
       captureBytes: 1_048_576,
@@ -213,7 +226,7 @@ export class GitCli {
       throw new GitError("git_failed", "Could not inspect filter configuration safely");
     if (!isUtf8(filters.stdout))
       throw new GitError("malformed_output", "Invalid filter configuration encoding");
-    return this.executeRaw(cwd, args, {
+    return this.executeRaw(cwd, ["-c", "protocol.allow=never", ...args], {
       ...options,
       env: { ...options.env, ...nonExecutingEnv(filters.stdout.toString("utf8")) },
     });
@@ -397,8 +410,21 @@ export class GitCli {
         if (spawnFailure) failure ??= await spawnFailure;
         const stderr = Buffer.concat(errors).toString("utf8");
         if (failure) return reject(failure);
-        if (code !== 0 && !options.allowFailure) {
-          return reject(new GitError(diagnostics.finish(), "Git command failed", { code }));
+        if (code !== 0) {
+          const category = diagnostics.finish();
+          if (
+            !options.allowFailure ||
+            (this.executionDisabledAt(cwd) && category === "objects_not_available")
+          )
+            return reject(
+              new GitError(
+                category,
+                category === "objects_not_available"
+                  ? "Objects not available locally"
+                  : "Git command failed",
+                { code },
+              ),
+            );
         }
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
       };

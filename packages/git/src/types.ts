@@ -31,6 +31,7 @@ export type GitErrorCode =
   | "git_missing"
   | "git_too_old"
   | "git_failed"
+  | "objects_not_available"
   | "head_moved"
   | "conflicts"
   | "hook_failed"

@@ -166,7 +166,10 @@ export async function fetchPrHead(
   z.number().int().positive().max(Number.MAX_SAFE_INTEGER).parse(options.number);
   const root = await repository.root(options.repo);
   const ref = `refs/ace/pr/${options.remote}/${options.number}/head`;
-  await fetchOneRef(repository, root, options, `refs/pull/${options.number}/head`, ref);
+  await fetchOneRef(repository, root, options, `refs/pull/${options.number}/head`, ref, [
+    "--no-filter",
+    "--refetch",
+  ]);
   return hash(
     textOutput(
       await repository.cli.call(root, [
@@ -185,6 +188,7 @@ async function fetchOneRef(
   options: Omit<FetchBranchOptions, "branch">,
   source: string,
   target: string,
+  transfer: readonly string[] = [],
 ) {
   const deadline = timeout.safeParse(options.timeoutMs);
   if (!deadline.success)
@@ -204,12 +208,11 @@ async function fetchOneRef(
   };
   let result;
   try {
-    result = await repository.cli.call(
+    result = await repository.cli.fetch(
       root,
       [
-        "-c",
-        "core.hooksPath=/dev/null",
         "fetch",
+        ...transfer,
         "--progress",
         "--no-tags",
         "--no-recurse-submodules",
