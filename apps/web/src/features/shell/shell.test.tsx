@@ -7,7 +7,11 @@ import { harness } from "@/test/harness.tsx";
 
 const title = (name: string) => screen.findByRole("heading", { level: 1, name });
 const threadList = () => screen.queryByRole("complementary", { name: "Threads" });
-const button = (name: string) => screen.getByRole<HTMLButtonElement>("button", { name });
+/** A button in the sidebar's top row, where back, forward and its toggle sit while it shows. */
+const topRow = (name: string) =>
+  within(screen.getByRole("navigation", { name: "App" })).getByRole<HTMLButtonElement>("button", {
+    name,
+  });
 
 test("every view and settings page opens in the shell under its own title", async () => {
   const pages: [string, string][] = [
@@ -66,25 +70,25 @@ test("old addresses land where their pages live now", async () => {
   await title("Home");
 });
 
-test("the header's back and forward follow profile view history", async () => {
+test("back and forward in the sidebar's top row follow profile view history", async () => {
   await harness().open("/");
   await title("Home");
-  expect(button("Back").disabled).toBe(true);
-  expect(button("Forward").disabled).toBe(true);
+  expect(topRow("Back").disabled).toBe(true);
+  expect(topRow("Forward").disabled).toBe(true);
 
   await openProfileView("Automations");
   await title("Automations");
   expect(screen.getByRole("link", { name: "Back to app" })).toBeTruthy();
-  expect(button("Back").disabled).toBe(false);
+  expect(topRow("Back").disabled).toBe(false);
 
-  await userEvent.click(button("Back"));
+  await userEvent.click(topRow("Back"));
   await title("Home");
-  expect(button("Back").disabled).toBe(true);
-  expect(button("Forward").disabled).toBe(false);
+  expect(topRow("Back").disabled).toBe(true);
+  expect(topRow("Forward").disabled).toBe(false);
 
   await userEvent.keyboard("{Meta>}]{/Meta}");
   await title("Automations");
-  expect(button("Forward").disabled).toBe(true);
+  expect(topRow("Forward").disabled).toBe(true);
 });
 
 test("⌘\\ hides the sidebar and the header offers to bring it back", async () => {
@@ -96,7 +100,9 @@ test("⌘\\ hides the sidebar and the header offers to bring it back", async () 
 
   await userEvent.keyboard("{Meta>}\\{/Meta}");
   await waitFor(() => expect(threadList()).toBeNull());
-  await userEvent.click(button("Show sidebar"));
+  await userEvent.click(
+    within(screen.getByRole("banner")).getByRole("button", { name: "Show sidebar" }),
+  );
   expect(threadList()).toBeTruthy();
 });
 

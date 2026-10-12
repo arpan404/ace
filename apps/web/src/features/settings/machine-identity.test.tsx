@@ -21,7 +21,7 @@ async function renameMachine(button: string, name: string, icon: string) {
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 }
 
-test("editing this machine updates Settings, the new-thread environment and the thread's Work card", async () => {
+test("editing this machine updates Settings, the new-thread environment and the thread's details card", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   let view = await app.open("/settings/remote");
@@ -43,7 +43,6 @@ test("editing this machine updates Settings, the new-thread environment and the 
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openWorkCard();
   expect(within(card).getByRole("button", { name: /^Workshop Mac, / })).toBeTruthy();
-  expect(within(card).getByRole("button", { name: "Checkout: Local" })).toBeTruthy();
 });
 
 test("editing a paired machine saves on that host and replaces stale thread labels", async () => {

@@ -52,7 +52,7 @@ test("a script reuses an agent shell whose command arrives after the task", asyn
   expect(app.daemon.terminals.list(threadId)).toEqual([]);
 });
 
-test("tree folds and Work scroll position survive a remount", async () => {
+test("tree folds and Summary scroll position survive a remount", async () => {
   const resized = new Map<ResizeObserver, () => void>();
   // jsdom has no layout notifications. Deliver the card's real resize callback after its
   // asynchronously loaded agent rows give it enough height for the saved position.
@@ -94,7 +94,7 @@ test("tree folds and Work scroll position survive a remount", async () => {
   app.play(scenario).runUntilBlocked();
   const view = await app.open(`/t/${scenario.thread.id}`);
   await openWorkPanel();
-  const card = screen.getByRole("tabpanel", { name: "Work" });
+  const card = screen.getByRole("tabpanel", { name: "Summary" });
   const parent = within(card).getByRole("treeitem", { name: /^Write retry tests 1:/ });
   parent.focus();
   await userEvent.keyboard("{ArrowLeft}");
@@ -105,7 +105,7 @@ test("tree folds and Work scroll position survive a remount", async () => {
   fireEvent(scroll, new Event("scrollend"));
   view.unmount();
   await app.open(`/t/${scenario.thread.id}`);
-  const restored = await screen.findByRole("tabpanel", { name: "Work" });
+  const restored = await screen.findByRole("tabpanel", { name: "Summary" });
   expect(
     within(restored)
       .getByRole("treeitem", { name: /^Write retry tests 1:/ })

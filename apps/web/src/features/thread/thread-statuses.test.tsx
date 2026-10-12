@@ -42,7 +42,7 @@ test("a background command appears once in the transcript while its row keeps th
 
 test("a thread waiting on subagents keeps the transcript live with their count", async () => {
   const { header, row } = await open(waitingOnSubagents());
-  expect(screen.getByRole("button", { name: "Open work and agents" }).textContent).toContain(
+  expect(screen.getByRole("button", { name: "Open the summary" }).textContent).toContain(
     "2 subagents",
   );
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
@@ -65,7 +65,7 @@ test.each([
   },
 );
 
-test("a thread that asked a question keeps the waiting state in the thread, row and Work icon", async () => {
+test("a thread that asked a question keeps the waiting state in the thread, row and details icon", async () => {
   const { header, row } = await open(askingQuestion());
   expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
   expect(screen.getByRole("status", { name: "Waiting for your answer" })).toBeTruthy();
@@ -78,7 +78,7 @@ test("a thread that asked a question keeps the waiting state in the thread, row 
 
 test("a thread running tests names its current action in the transcript live line", async () => {
   const { header, row } = await open(runningTests());
-  expect(screen.getByRole("button", { name: "Open work and agents" }).textContent).toContain(
+  expect(screen.getByRole("button", { name: "Open the summary" }).textContent).toContain(
     "Running tests…",
   );
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();

@@ -1,4 +1,4 @@
-import { gitAction, openWorkCard } from "@/test/open-work.ts";
+import { currentCheckout, gitAction, openWorkCard } from "@/test/open-work.ts";
 import { chooseAccount } from "@/test/model-control.ts";
 import { fixtureImage, longHistory, replayCursor } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
@@ -155,7 +155,7 @@ test("the account row moves the thread to another account and blocks one at its 
   expect(screen.getByRole("button", { name: /^Model: GPT-5 Codex, Personal/ })).toBeTruthy();
 });
 
-test("the Work card carries checkout details and refreshes them after a commit", async () => {
+test("the details card carries checkout details and refreshes them after a commit", async () => {
   const { app } = await open("busy");
   // While the agent works the tab says so; Stop ends the turn and the background relay.
   await userEvent.click(await screen.findByRole("button", { name: "Stop the agent" }));
@@ -163,7 +163,7 @@ test("the Work card carries checkout details and refreshes them after a commit",
     { type: "background.ended", task: "relay", status: "stopped" },
   ]);
   const card = await openWorkCard();
-  expect(within(card).getByRole("button", { name: "Checkout: Local" })).toBeTruthy();
+  expect(await currentCheckout()).toBe("Local");
   expect(
     await within(card).findByRole("button", { name: "Branch fix/replay-cursor, switch branch" }),
   ).toBeTruthy();

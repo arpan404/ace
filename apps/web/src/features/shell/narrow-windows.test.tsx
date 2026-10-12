@@ -107,7 +107,7 @@ test("on a narrow window ⌘\\ opens and closes the sheet and leaves the wide wi
   expect(layout()).toBe(before);
 });
 
-test("on a phone Work is reached through the header menu", async () => {
+test("on a phone the Summary is reached through the header menu", async () => {
   windowWidth(390);
   await openThread();
   const header = screen.getByRole("banner");
@@ -116,19 +116,19 @@ test("on a phone Work is reached through the header menu", async () => {
   expect(screen.queryByRole("button", { name: "Right panel" })).toBeNull();
   const more = await moreActions(header);
   await userEvent.click(more);
-  expect(await screen.findByRole("menuitem", { name: "Work" })).toBeTruthy();
+  expect(await screen.findByRole("menuitem", { name: "Summary" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Work" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Summary" })).toBeNull());
   await userEvent.keyboard("{Meta>}f{/Meta}");
   expect(await screen.findByRole("search", { name: "Search this thread" })).toBeTruthy();
 });
 
-test("on a phone Work opens in the panel sheet and Escape closes it", async () => {
+test("on a phone the Summary opens in the panel sheet and Escape closes it", async () => {
   windowWidth(390);
   await openThread();
   await userEvent.click(await moreActions(screen.getByRole("banner")));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Work" }));
-  const work = await screen.findByRole("tabpanel", { name: "Work" });
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Summary" }));
+  const work = await screen.findByRole("tabpanel", { name: "Summary" });
   expect(await within(work).findByRole("region", { name: "Background" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
@@ -144,7 +144,7 @@ test("in a wide window the header shows only its menu, the thread details icon a
     expect(within(header).queryByRole("button", { name })).toBeNull();
 });
 
-test("a header narrowed by a side panel still shows one menu and the Work icon", async () => {
+test("a header narrowed by a side panel still shows one menu and the details icon", async () => {
   windowWidth(1440);
   headerWidth(400);
   await openThread();
@@ -160,7 +160,7 @@ test("on a phone a panel covers the thread as a sheet that Done or Escape closes
   await openThread();
   // On a phone the panel's toggle lives in the header's ⋯, which focus returns to.
   await userEvent.click(await moreActions(screen.getByRole("banner")));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Work" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Summary" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).queryByRole("separator", { name: /Resize/ })).toBeNull();
   // Focus moves into the sheet, onto its showing tab.

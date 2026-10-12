@@ -7,7 +7,7 @@ import { harness } from "@/test/harness.tsx";
 
 // The demo thread deliberately carries an older machine name. Every current-machine view
 // must prefer the host identity instead of that saved metadata or the connection address.
-test("the connected machine keeps its name in menus, settings and the Work card", async () => {
+test("the connected machine keeps its name in menus, settings and the details card", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   app.daemon.services.settings.seed({ "host.displayName": "Workshop Mac" });

@@ -8,8 +8,8 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { harness } from "@/test/harness.tsx";
 
-// The outer menu preload does not load its nested editor submenu. Warm its code before
-// behavioural deadlines; editor discovery and launch still run through the real fixture wire.
+// Warm the details card's editor menu code before behavioural deadlines; editor discovery and
+// launch still run through the real fixture wire.
 await import("./header/thread-open-in.tsx");
 configure({ asyncUtilTimeout: 10000 });
 
@@ -48,15 +48,15 @@ const header = () => {
   if (!found) throw new Error("No header");
   return found;
 };
-/** The Work card's "Open in editor" menu: the machine's installed editors. */
+/** The details card's "Other ways to open" menu: the machine's installed editors. */
 async function openEditorsMenu() {
   const card = await openWorkCard();
-  await userEvent.click(within(card).getByRole("button", { name: "Open in editor" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Other ways to open" }));
 }
 
 const sidePanel = () => screen.findByRole("region", { name: "Thread panel" });
 
-/** A git step from the Work card's More git actions menu ("Commit & push…", "Create PR…"). */
+/** A git step from the details card's More git actions menu ("Commit & push…", "Create PR…"). */
 async function gitStep(name: string) {
   const card = await openWorkCard();
   await userEvent.click(await within(card).findByRole("button", { name: "More git actions" }));
@@ -86,7 +86,7 @@ const sketch = {
 // ---------------------------------------------------------------------------------------------
 // The header
 
-test("the header keeps navigation, the title, its menu, the Work icon and the panel toggle", async () => {
+test("the header keeps navigation, the title, its menu, the details icon and the panel toggle", async () => {
   await openThread();
   expect(await workButton()).toBeTruthy();
   expect(within(header()).getByRole("button", { name: "Right panel" })).toBeTruthy();
@@ -128,7 +128,7 @@ test("search lives in the palette and the turns shortcut still works", async () 
 // ---------------------------------------------------------------------------------------------
 // The work card
 
-test("the Work shortcut opens the Work card and toggles it closed", async () => {
+test("the details shortcut opens the details card and toggles it closed", async () => {
   await openThread();
   await userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}");
   const card = await screen.findByRole("dialog", { name: "Thread details" });
@@ -585,7 +585,10 @@ test("past 500 files the list says it is cut short, and commits only what it lis
 test("checkout moves wait while agents work, and say why", async () => {
   await openThread("checkout");
   const card = await openWorkCard();
-  await userEvent.click(within(card).getByRole("button", { name: "Checkout: Worktree" }));
+  await userEvent.click(within(card).getByRole("button", { name: machineRow }));
+  expect(
+    within(await screen.findByRole("menuitem", { name: /^Worktree/ })).getByText("current"),
+  ).toBeTruthy();
   const local = await screen.findByRole("menuitem", { name: /^Local/ });
   expect(local.getAttribute("aria-disabled")).toBe("true");
   expect(local.textContent).toContain("Wait for the agents to stop");
@@ -614,7 +617,10 @@ test("from the card, an idle thread switches branch and moves into a worktree of
     await within(after).findByRole("button", { name: "Branch develop, switch branch" }),
   ).toBeTruthy();
 
-  await userEvent.click(within(after).getByRole("button", { name: "Checkout: Local" }));
+  await userEvent.click(within(after).getByRole("button", { name: machineRow }));
+  expect(
+    within(await screen.findByRole("menuitem", { name: /^Local/ })).getByText("current"),
+  ).toBeTruthy();
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Worktree/ }));
   expect(await screen.findByText("Moved to a worktree")).toBeTruthy();
   const snapshot = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-idle") });
@@ -742,7 +748,7 @@ test("the thread menu offers working thread actions without Side chat", async ()
   expect(screen.queryByRole("menuitem", { name: /side chat/i })).toBeNull();
   await userEvent.click(screen.getByRole("menuitem", { name: /Open agent tree/ }));
   const panel = await sidePanel();
-  expect(await within(panel).findByRole("tab", { name: "Work", selected: true })).toBeTruthy();
+  expect(await within(panel).findByRole("tab", { name: "Summary", selected: true })).toBeTruthy();
   expect(await within(panel).findByRole("tree", { name: "Agent tree" })).toBeTruthy();
   expect(within(panel).queryByText("This tool isn’t available.")).toBeNull();
 });

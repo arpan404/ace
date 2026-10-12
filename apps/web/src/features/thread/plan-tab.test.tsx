@@ -23,9 +23,9 @@ async function open() {
     );
   return { app, plan };
 }
-const live = () => screen.getByRole("button", { name: "Open work and agents" });
+const live = () => screen.getByRole("button", { name: "Open the summary" });
 
-test("operational plans show the current step in the live line and their full list in Work, without a composer strip", async () => {
+test("operational plans show the current step in the live line and their full list in the Summary, without a composer strip", async () => {
   const { plan } = await open();
   plan([
     todo("Find the reset", "completed"),
@@ -36,12 +36,12 @@ test("operational plans show the current step in the live line and their full li
   expect(screen.queryByRole("region", { name: "Plan" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull();
   await userEvent.click(live());
-  expect(await screen.findByRole("tab", { name: "Work" })).toBeTruthy();
-  const work = await screen.findByRole("tabpanel", { name: "Work" });
+  expect(await screen.findByRole("tab", { name: "Summary" })).toBeTruthy();
+  const work = await screen.findByRole("tabpanel", { name: "Summary" });
   const list = await within(work).findByRole("list", { name: "Plan" });
   expect(await within(work).findByRole("tree", { name: "Agent tree" })).toBeTruthy();
   await within(work).findByRole("region", { name: "Automations" });
-  expect(screen.getAllByRole("tab", { name: "Work" })).toHaveLength(1);
+  expect(screen.getAllByRole("tab", { name: "Summary" })).toHaveLength(1);
   expect(screen.queryByRole("tab", { name: "Agents" })).toBeNull();
   expect(
     screen.queryByText(

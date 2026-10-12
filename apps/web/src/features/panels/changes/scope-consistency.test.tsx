@@ -37,7 +37,7 @@ test("the Changes toolbar counts the selected turn and keeps it when another tab
   await waitFor(() => expectTotal(panel, 17, 5));
   await pick(panel, "Turn 1");
   await waitFor(() => expectTotal(panel, 8, 2));
-  await userEvent.click(within(panel).getByRole("tab", { name: "Work" }));
+  await userEvent.click(within(panel).getByRole("tab", { name: "Summary" }));
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
   expect(within(panel).getByRole("button", { name: "Scope: Turn 1" })).toBeTruthy();
   await waitFor(() => expectTotal(panel, 8, 2));
@@ -61,7 +61,7 @@ test("uncommitted totals come from the live checkout and stay selected across ta
   );
   await waitFor(() => expectTotal(panel, 2, 1));
   expect(within(panel).getByRole("button", { name: "Scope: Uncommitted" })).toBeTruthy();
-  await userEvent.click(within(panel).getByRole("tab", { name: "Work" }));
+  await userEvent.click(within(panel).getByRole("tab", { name: "Summary" }));
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
   expect(within(panel).getByRole("button", { name: "Scope: Uncommitted" })).toBeTruthy();
   await waitFor(() => expectTotal(panel, 2, 1));

@@ -1,10 +1,4 @@
-import {
-  gitAction,
-  machineRow,
-  openMachineMenu,
-  openWorkCard,
-  openWorkPanel,
-} from "@/test/open-work.ts";
+import { gitAction, machineRow, openWorkCard, openWorkPanel } from "@/test/open-work.ts";
 import { facts, workCardScenario } from "@ace/fake-daemon";
 import { Automation, ThreadId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
@@ -17,19 +11,20 @@ beforeEach(() => localStorage.clear());
 async function openWork(app: ReturnType<typeof harness>, threadId: string) {
   await app.open(`/t/${threadId}`);
   await openWorkPanel();
-  return screen.findByRole("tabpanel", { name: "Work" });
+  return screen.findByRole("tabpanel", { name: "Summary" });
 }
 
-/** Open the Work card on `threadId` from the header's Work icon. */
+/** Open the details card on `threadId` from the header's details icon. */
 async function openCard(app: ReturnType<typeof harness>, threadId: string) {
   await app.open(`/t/${threadId}`);
   return openWorkCard();
 }
 
-/** The machine menu's Project scripts submenu: the checkout's script files and a new one. */
+/** The card's Add project script menu: the checkout's script files and a new one. */
 async function openScripts() {
-  const menu = await openMachineMenu();
-  await userEvent.click(await within(menu).findByRole("menuitem", { name: /^Project scripts/ }));
+  const card = await openWorkCard();
+  await userEvent.click(within(card).getByRole("button", { name: "Add project script" }));
+  return screen.findByRole("menu");
 }
 
 test("a child keeps working through a non-blocking question and requests attention after its turn ends", async () => {
@@ -70,7 +65,11 @@ test("a child keeps working through a non-blocking question and requests attenti
     expect(within(card).queryByRole("treeitem", { name: /.*: Needs you/ })).toBeNull(),
   );
   expect(within(card).getByText("2 active · 1 done")).toBeTruthy();
-  expect(screen.queryByRole("img", { name: "Work needs you" })).toBeNull();
+  expect(
+    within(screen.getByRole("banner")).queryByRole("button", {
+      name: "Thread details, something needs you",
+    }),
+  ).toBeNull();
   act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-1")]));
   expect(
     await within(card).findByRole("treeitem", { name: "Check supervisor logs: Needs you" }),
@@ -191,8 +190,12 @@ test("project schedules show their cadence and persist toggles and run-now resul
   });
   const card = await openWork(app, fixture.thread.id);
   const section = within(card).getByRole("region", { name: "Automations" });
-  await within(section).findByRole("button", { name: "Open automation Review changes" });
-  expect(section.textContent).toContain("Every 5 minutes");
+  const row = await within(section).findByRole("button", {
+    name: "Open automation Review changes",
+  });
+  // One row: its cadence is the tooltip, and Edit and Run show while it is hovered.
+  await userEvent.hover(row);
+  expect((await screen.findByRole("tooltip")).textContent).toContain("Every 5 minutes");
   expect(section.textContent).toMatch(/In |Any moment|Today|Tomorrow/);
   expect(within(section).queryByText("Other project")).toBeNull();
   await userEvent.click(within(section).getByRole("button", { name: "Run Review changes now" }));
@@ -259,7 +262,7 @@ test("the script menu offers only configurations in the checkout", async () => {
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull());
 });
 
-test("a new script file is created, edited and saved through the Work card", async () => {
+test("a new script file is created, edited and saved through the details card", async () => {
   const user = userEvent.setup();
   const app = harness();
   const fixture = workCardScenario("worktree");

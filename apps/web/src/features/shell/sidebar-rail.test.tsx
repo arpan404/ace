@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
-test("the standard rail toggles offcanvas while the header remains the keyboard control", async () => {
+test("the standard rail toggles offcanvas while the sidebar toggle remains the keyboard control", async () => {
   const storage = memoryKeyValue();
   const view = await harness({ storage }).open("/new");
   await screen.findByRole("heading", { level: 1, name: "New thread" });

@@ -120,7 +120,7 @@ test("the selected diff layout survives switching tabs", async () => {
   expect(within(replay).getByText(/const \{ events, coldStart \} = replayFrom/)).toBeTruthy();
   await expectLayout(panel, "Split");
 
-  await userEvent.click(within(panel).getByRole("tab", { name: "Work" }));
+  await userEvent.click(within(panel).getByRole("tab", { name: "Summary" }));
   await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
   await expectLayout(panel, "Split");
 });
@@ -225,7 +225,7 @@ test("a collapsed file stays collapsed after looking at another tab and coming b
   const { panel } = await openChanges();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   await userEvent.click(within(replay).getByRole("button", { name: /replay\.ts/, expanded: true }));
-  await userEvent.click(within(panel).getByRole("tab", { name: /Work/ }));
+  await userEvent.click(within(panel).getByRole("tab", { name: "Summary" }));
   await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
   const again = within(panel).getByRole("region", { name: "apps/server/src/replay.ts" });
   expect(

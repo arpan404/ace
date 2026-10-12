@@ -1,4 +1,4 @@
-import { gitAction, openWorkCard } from "@/test/open-work.ts";
+import { currentCheckout, gitAction, machineRow, openWorkCard } from "@/test/open-work.ts";
 import { facts, workbench, type Scenario } from "@ace/fake-daemon";
 import { ForgePrStatus, ForgeMergeState, ThreadId, type CommandPayload } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
@@ -103,7 +103,7 @@ async function withPr(status: ForgePrStatus | undefined, details: Partial<Detail
   return app;
 }
 
-/** The Work card's PR line Merge for PR `number`. */
+/** The details card's PR line Merge for PR `number`. */
 async function merge(number = 42) {
   const card = await openWorkCard();
   await userEvent.click(
@@ -111,7 +111,7 @@ async function merge(number = 42) {
   );
 }
 
-/** The link form, from the Work card's More git actions. */
+/** The link form, from the details card's More git actions. */
 async function linkField() {
   await gitAction("Link a pull request…");
   const dialog = await screen.findByRole("dialog", { name: "Link an existing pull request" });
@@ -292,12 +292,10 @@ test("switching branch with uncommitted changes offers to bring them along", asy
 test("a thread in its own worktree moves back to the local checkout", async () => {
   const app = await withPr(undefined, { mode: "worktree", worktree: "/fake/worktrees/thread-pr" });
   const card = await openWorkCard();
-  await userEvent.click(within(card).getByRole("button", { name: "Checkout: Worktree" }));
+  await userEvent.click(within(card).getByRole("button", { name: machineRow }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Local" }));
   expect(await screen.findByText("Moved to the local checkout")).toBeTruthy();
-  expect(
-    await within(await openWorkCard()).findByRole("button", { name: "Checkout: Local" }),
-  ).toBeTruthy();
+  await waitFor(async () => expect(await currentCheckout()).toBe("Local"));
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
   expect(view && "thread" in view && view.thread.details?.mode).toBe("local");
 });

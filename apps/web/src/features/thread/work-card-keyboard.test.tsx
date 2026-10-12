@@ -48,7 +48,7 @@ async function openThread() {
   return app;
 }
 
-test("the Work shortcut opens the card with focus inside, and Escape hands focus back to the icon", async () => {
+test("the details shortcut opens the card with focus inside, and Escape hands focus back to the icon", async () => {
   await openThread();
   const icon = await workButton();
   await userEvent.keyboard("{Alt>}{Meta>}o{/Meta}{/Alt}");

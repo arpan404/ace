@@ -6,10 +6,17 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { selectAccount } from "@/test/model-control.ts";
 import { harness } from "@/test/harness.tsx";
+import { openWorkCard } from "@/test/open-work.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
+
+const banner = () => within(screen.getByRole("banner"));
+
+/** Whether `first` comes before `second` in the document, as it reads. */
+const precedes = (first: Node, second: Node) =>
+  Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
 
 async function fork() {
   const app = harness();
@@ -91,12 +98,37 @@ test("a named fork runs on the chosen model and links back to its parent", async
   expect(child.execution?.model).toBe("gpt-5-codex");
   expect(child.execution?.instanceId).toBe("codex-personal");
   expect(await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ })).toBeTruthy();
-  const parent = screen.getByRole("link", { name: "Document the router" });
+  const parent = await banner().findByRole("link", { name: "Document the router" });
   await userEvent.click(parent);
   await screen.findByRole("heading", { level: 1, name: "Document the router" });
-  expect(screen.queryByText("Forked from")).toBeNull();
+  expect(banner().queryByRole("link", { name: "Try another model" })).toBeNull();
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-router") });
   expect(view?.kind === "thread" && view.thread.status.state).toBe("done");
+});
+
+test("a thread's header names its project before the title, and a fork's names its parent, a link to it", async () => {
+  await fork();
+  const parent = await banner().findByRole("link", { name: "Document the router" });
+  const forkTitle = banner().getByRole("heading", { level: 1, name: "Try another model" });
+  expect(precedes(parent, forkTitle)).toBe(true);
+  expect(banner().queryByText("docs-site")).toBeNull();
+
+  await userEvent.click(parent);
+  const title = await banner().findByRole("heading", { level: 1, name: "Document the router" });
+  const project = await banner().findByText("docs-site");
+  expect(precedes(project, title)).toBe(true);
+  expect(banner().queryByRole("link", { name: "Document the router" })).toBeNull();
+});
+
+test("a fork's details card shows its parent under Lineage and opens it; the parent has none", async () => {
+  await fork();
+  const card = await openWorkCard();
+  const lineage = within(card).getByRole("region", { name: "Lineage" });
+  await userEvent.click(
+    within(lineage).getByRole("button", { name: /^Open parent thread Document the router\b/ }),
+  );
+  await screen.findByRole("heading", { level: 1, name: "Document the router" });
+  expect(within(await openWorkCard()).queryByRole("region", { name: "Lineage" })).toBeNull();
 });
 
 test("bringing a summary and code changes back shows the fork's name and edited summary in the parent", async () => {

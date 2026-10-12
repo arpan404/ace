@@ -14,16 +14,16 @@ async function open() {
   return { app, scenario, work: await openWorkPanel() };
 }
 
-test("opening the panel defaults to Work with agents and automations, the checkout left to the Work card", async () => {
+test("opening the panel defaults to Summary with agents and automations, the checkout left to the details card", async () => {
   const app = harness();
   const scenario = workCardScenario("changes");
   app.play(scenario).runUntilBlocked();
   await app.open(`/t/${scenario.thread.id}`);
   await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
-  const work = await screen.findByRole("tabpanel", { name: "Work" });
-  expect(screen.getByRole("tab", { name: "Work", selected: true })).toBeTruthy();
+  const work = await screen.findByRole("tabpanel", { name: "Summary" });
+  expect(screen.getByRole("tab", { name: "Summary", selected: true })).toBeTruthy();
   expect(screen.queryByRole("tab", { name: "Agents" })).toBeNull();
-  expect(screen.getAllByRole("tab")[0]?.textContent).toBe("Work");
+  expect(screen.getAllByRole("tab")[0]?.textContent).toBe("Summary");
   expect(await within(work).findByRole("tree", { name: "Agent tree" })).toBeTruthy();
   await within(work).findByRole("region", { name: "Automations" });
   expect(within(work).getByRole("button", { name: "Show bun run dev output" })).toBeTruthy();
