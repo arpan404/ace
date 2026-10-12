@@ -1,3 +1,4 @@
+import * as forgeWorktree from "@ace/protocol/forge-worktree";
 import * as entities from "@ace/protocol/entities";
 import * as ids from "@ace/protocol/ids";
 import * as notifications from "@ace/protocol/notifications";
@@ -48,6 +49,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./context-meter", contextMeter],
   ["./forge", forge],
   ["./forge-browser", forgeBrowser],
+  ["./forge-worktree", forgeWorktree],
   ["./forge-lifecycle", forgeLifecycle],
   ["./forge-issues", forgeIssues],
   ["./forge-merge-state", forgeMergeState],

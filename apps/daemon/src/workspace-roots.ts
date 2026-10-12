@@ -1,3 +1,4 @@
+import type { PreparePrBase } from "./pr-worktree-resolution.ts";
 import type { CreationProgress } from "./creation-progress.ts";
 import { WorkspaceCreations } from "./creation-workspace.ts";
 import { createHash } from "node:crypto";
@@ -28,13 +29,18 @@ export class WorkspaceRoots {
     directory: string,
     now: () => number,
     machine: { host: string; name: string },
-    options: { baseFetchTimeoutMs?: number; sourceControl?: SourceControl } = {},
+    options: {
+      baseFetchTimeoutMs?: number;
+      preparePr?: PreparePrBase;
+      sourceControl?: SourceControl;
+    } = {},
   ) {
     this.creations = new WorkspaceCreations(
       store,
       git,
       directory,
       options.baseFetchTimeoutMs ?? defaultBaseFetchTimeoutMs,
+      options.preparePr,
     );
     this.store = store;
     this.git = git;
@@ -42,6 +48,15 @@ export class WorkspaceRoots {
     this.now = now;
     this.machine = machine;
     this.sourceControl = options.sourceControl;
+  }
+  creationReady(): Promise<void> {
+    return this.creations.ready();
+  }
+  creationCleanupComplete(command: Command): boolean {
+    return this.creations.cleanupComplete(command);
+  }
+  prepareExistingPr(command: Command, progress?: CreationProgress) {
+    return this.creations.prepareExisting(command, progress);
   }
   root(id: ThreadId): string {
     const binding = this.store.executionWorkspace(id);
@@ -204,7 +219,7 @@ export class WorkspaceRoots {
       });
     const info = await this.git.repositoryInfo(path);
     // Switching to a named branch replaces the base the worktree was first made from.
-    const { base, ...kept } = thread.details ?? {};
+    const { base, pullRequestWorkspace: _pullRequestWorkspace, ...kept } = thread.details ?? {};
     return {
       ...kept,
       ...(base && !selection.branch ? { base } : {}),

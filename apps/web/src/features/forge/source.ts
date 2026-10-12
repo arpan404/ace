@@ -33,6 +33,18 @@ export function forgeError(code: string): string {
     action_not_dispatched: "The action was not sent to GitHub. Your draft can be submitted again.",
     forge_write_uncertain:
       "GitHub may have accepted the action. Refresh to reconcile it before making another change.",
+    git_remote_ref_not_found: "The PR source ref is missing. Refresh GitHub before trying again.",
+    git_remote_unreachable:
+      "The Git remote could not be reached. Check the project's remote and connection.",
+    git_auth_failed:
+      "Git could not authenticate to the PR repository. Check your installed Git credentials.",
+    git_timeout: "Fetching the PR head timed out. Try again after checking the connection.",
+    workspace_cleanup_required:
+      "PR worktree cleanup needs attention before this task can continue.",
+    repository_mismatch: "Choose a project with a remote matching this PR repository.",
+    pr_checkout_changed:
+      "This task checkout has moved. Choose another task or refresh before preparing again.",
+    pr_requires_worktree: "Working on a PR requires its own isolated worktree.",
     issue_reconciliation_required: "An earlier write is uncertain. Reconcile it before continuing.",
     action_outcome_uncertain:
       "GitHub may have accepted this action. Reconcile the write before retrying; your draft is retained.",
