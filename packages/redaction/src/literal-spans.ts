@@ -1,5 +1,6 @@
 import { CREDENTIAL_PATTERNS } from "./credential-patterns.ts";
 import type { EnvironmentMatcher } from "./environment.ts";
+import { jsonCredentialSpans } from "./json-credentials.ts";
 
 export interface SensitiveSpan {
   start: number;
@@ -22,17 +23,22 @@ export function* sensitiveSpans(
         match && {
           start: match.index + (prefix === undefined ? 0 : (match[1]?.length ?? 0) + prefix),
           end: match.index + match[0].length - (suffix ?? 0),
+          replacement: "<SECRET>",
         }
       );
     };
     return { next, match: next() };
   });
+  const json = jsonCredentialSpans(text);
+  const next = () => json.next().value ?? null;
+  scans.push({ next, match: next() });
   for (;;) {
     let start = env[index]?.start ?? Infinity;
     for (const scan of scans) if (scan.match) start = Math.min(start, scan.match.start);
     if (!Number.isFinite(start)) return;
     let end = start + 1;
     let replacement = "<ENV>";
+    let preferred: SensitiveSpan | undefined;
     let extended = true;
     while (extended) {
       extended = false;
@@ -46,6 +52,11 @@ export function* sensitiveSpans(
       }
       for (const scan of scans) {
         while (scan.match && scan.match.start < end) {
+          if (
+            !preferred ||
+            (scan.match.start <= preferred.start && scan.match.end >= preferred.end)
+          )
+            preferred = scan.match;
           if (scan.match.end > end) {
             end = scan.match.end;
             extended = true;
@@ -55,7 +66,12 @@ export function* sensitiveSpans(
         }
       }
     }
-    yield { start, end, replacement };
+    yield {
+      start,
+      end,
+      replacement:
+        preferred?.start === start && preferred.end === end ? preferred.replacement : replacement,
+    };
   }
 }
 

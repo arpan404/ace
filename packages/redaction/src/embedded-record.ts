@@ -30,10 +30,8 @@ export function embeddedRecordEnd(text: string, start: number): number {
 export function consumedRecordEnd(text: string, start: number, end: number): number {
   for (let cursor = start; cursor < end; cursor++) {
     const char = text[cursor];
-    if (char === "\\") {
-      cursor++;
-      continue;
-    }
+    // This cursor is in unquoted prose. Backslashes cannot escape openers;
+    // embeddedRecordEnd handles escapes only after entering a quoted token.
     if (char !== "{" && char !== "[" && char !== '"') continue;
     if (char === "{") {
       let next = cursor + 1;
