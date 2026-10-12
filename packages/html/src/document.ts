@@ -3,7 +3,7 @@ import { validateHtml } from "./validation.ts";
 
 /** No endpoints, storage, workers, frames, forms, eval or provider credentials. */
 export const htmlCsp =
-  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'";
+  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'; trusted-types 'none'; webrtc 'block'";
 export const themeProperties = [
   "background",
   "foreground",
@@ -36,6 +36,9 @@ function attribute(value: string): string {
     .replaceAll(">", "&gt;");
 }
 const bridge = `(() => {
+  // WebRTC is not covered by connect-src. Lock its constructors before authored scripts run.
+  for (const name of ['RTCPeerConnection','webkitRTCPeerConnection','mozRTCPeerConnection'])
+    Object.defineProperty(globalThis, name, { value: undefined, writable: false, configurable: false });
   let queued = false;
   const report = () => {
     if (queued) return;
@@ -79,11 +82,11 @@ function themedDocument(html: string, theme: HtmlTheme): string {
 export function visualizationDocument(html: string, theme: HtmlTheme): string {
   if (!validateHtml(html).valid) throw new Error("Invalid visualization document");
   const page = themedDocument(html, theme);
-  return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${attribute(htmlCsp)}"><meta name="referrer" content="no-referrer"><style>html,body{margin:0}iframe{width:100%;border:0;display:block}</style></head><body><iframe title="Visualization content" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(page)}"></iframe><script>(()=>{const frame=document.querySelector('iframe');addEventListener('message',event=>{const data=event.data;if(event.source!==frame.contentWindow||event.origin!=='null'||!data||Object.keys(data).length!==2||data.type!=='ace.html.height'||typeof data.height!=='number'||!Number.isFinite(data.height)||data.height<1||data.height>10000)return;frame.style.height=data.height+'px';parent.postMessage({type:'ace.html.height',height:data.height},'*');});})();</script></body></html>`;
+  return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${attribute(htmlCsp)}"><meta name="referrer" content="no-referrer"><style>html,body{margin:0}iframe{width:100%;border:0;display:block}</style></head><body><template id="ace-page"><iframe title="Visualization content" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(page)}"></iframe></template><script>(()=>{const template=document.getElementById('ace-page');if(!globalThis.trustedTypes){template.remove();document.body.textContent='View this visualization on desktop/web in a browser with Trusted Types support.';parent.postMessage({type:'ace.html.height',height:80},'*');return;}const frame=template.content.querySelector('iframe');document.body.append(frame);template.remove();addEventListener('message',event=>{const data=event.data;if(event.source!==frame.contentWindow||event.origin!=='null'||!data||Object.keys(data).length!==2||data.type!=='ace.html.height'||typeof data.height!=='number'||!Number.isFinite(data.height)||data.height<1||data.height>10000)return;frame.style.height=data.height+'px';parent.postMessage({type:'ace.html.height',height:data.height},'*');});})();</script></body></html>`;
 }
 /** A data URL starts with an opaque origin and does not inherit the app's script CSP. */
 export function visualizationUrl(html: string, theme: HtmlTheme): string {
-  return `data:text/html;charset=utf-8,${encodeURIComponent(visualizationDocument(html, theme))}`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(visualizationDocument(html, theme).toWellFormed())}`;
 }
 /** Opening keeps the same sandbox; never open authored HTML as an app-origin blob. */
 export function visualizationWindow(html: string, theme: HtmlTheme): string {

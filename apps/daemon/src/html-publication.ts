@@ -47,8 +47,10 @@ export function htmlPublication(runtime: {
               raw: [],
               visualization: {
                 title:
-                  (runtime.redactTitle ?? createTextRedactor({}))(input.title).slice(0, 160) ||
-                  "Visualization",
+                  (runtime.redactTitle ?? createTextRedactor({}))(input.title.trim()).slice(
+                    0,
+                    160,
+                  ) || "Visualization",
                 document,
                 ...(input.height === undefined ? {} : { height: input.height }),
               },

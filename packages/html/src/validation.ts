@@ -25,13 +25,22 @@ export function validateHtml(html: string): HtmlDiagnostics {
   if (!html.trim()) report("empty", "Provide a complete HTML document.");
   if (diagnostics.length) return { valid: false, bytes, maxBytes: maxHtmlBytes, diagnostics };
   const document = parse(html);
-  const pending: DefaultTreeAdapterMap["node"][] = [document];
+  const pending: { node: DefaultTreeAdapterMap["node"]; depth: number }[] = [
+    { node: document, depth: 0 },
+  ];
+  let visited = 0;
   while (pending.length) {
-    const node = pending.pop();
-    if (!node) break;
-    if ("childNodes" in node) pending.push(...node.childNodes);
+    const entry = pending.pop();
+    if (!entry) break;
+    const { node, depth } = entry;
+    if (++visited > 20000 || depth > 64) {
+      report("complexity", "Use at most 20,000 nodes and 64 levels of nesting.");
+      break;
+    }
+    if ("childNodes" in node)
+      for (const child of node.childNodes) pending.push({ node: child, depth: depth + 1 });
     if (!("tagName" in node)) continue;
-    if ("content" in node) pending.push(node.content);
+    if ("content" in node) pending.push({ node: node.content, depth: depth + 1 });
     if (forbidden.has(node.tagName))
       report(
         "embedded-content",

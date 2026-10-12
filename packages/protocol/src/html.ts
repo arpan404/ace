@@ -3,9 +3,9 @@ import { Attachment } from "./context.ts";
 
 export const HtmlDocument = z.string().min(1).max(262144);
 export const HtmlHeight = z.number().int().min(80).max(2000);
-export const HtmlPreviewInput = z.strictObject({ html: HtmlDocument });
+export const HtmlPreviewInput = z.strictObject({ html: z.string().max(1024 * 1024) });
 export const HtmlRenderInput = z.strictObject({
-  title: z.string().trim().min(1).max(160),
+  title: z.string().min(1).max(160).regex(/\S/),
   html: HtmlDocument,
   height: HtmlHeight.optional(),
 });
@@ -22,6 +22,7 @@ export const HtmlVisualization = z.object({
   document: Attachment,
   height: HtmlHeight.optional(),
 });
+export type HtmlVisualization = z.infer<typeof HtmlVisualization>;
 export const HtmlHeightMessage = z.strictObject({
   type: z.literal("ace.html.height"),
   height: z.number().finite().min(1).max(10000),

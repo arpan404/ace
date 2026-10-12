@@ -23,3 +23,11 @@ test("size diagnostics count UTF-8 bytes before parsing", () => {
   expect(result.bytes).toBe(280000);
   expect(result.diagnostics.some((entry) => entry.code === "size")).toBe(true);
 });
+
+test("overly deep documents receive diagnostics instead of reaching recursive document serialization", () => {
+  const result = validateHtml(
+    `<html><body>${"<div>".repeat(80)}deep${"</div>".repeat(80)}</body></html>`,
+  );
+  expect(result.valid).toBe(false);
+  expect(result.diagnostics.some((entry) => entry.code === "complexity")).toBe(true);
+});

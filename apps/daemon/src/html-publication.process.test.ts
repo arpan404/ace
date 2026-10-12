@@ -60,13 +60,18 @@ test("preview does not publish; rendered HTML replays after daemon restart with 
     expect(store.readItemPage(thread.id, store.headSeq() + 1, 200).items).toHaveLength(0);
     const rendered = Result.parse(
       await (
-        await invoke(connection, "ace_html_render", { title: "Replay chart", html, height: 400 })
+        await invoke(connection, "ace_html_render", {
+          title: "Replay reader@example.invalid",
+          html,
+          height: 400,
+        })
       ).json(),
     );
     expect(rendered.result.isError).not.toBe(true);
     const before = store.readItemPage(thread.id, store.headSeq() + 1, 200).items;
     const item = before.find((entry) => entry.type === "html");
     if (item?.type !== "html") throw new Error("Missing visualization");
+    expect(item.visualization.title).toBe("Replay <EMAIL>");
     expect(JSON.stringify(item).length).toBeLessThan(2048);
     expect(retainsHtml(store, thread.id, item.visualization.document.sha256)).toBe(true);
     await mcp.close();
@@ -77,18 +82,20 @@ test("preview does not publish; rendered HTML replays after daemon restart with 
     store = new Store(path);
     context = await openContext();
     expect(store.readItemPage(thread.id, store.headSeq() + 1, 200).items).toEqual(before);
-    const content = await context.readAttachment(
-      "reader",
-      thread.id,
-      item.visualization.document.sha256,
-      "original",
-      0,
-      65536,
-      () => true,
-    );
-    expect(Buffer.from(content.data).toString()).toBe(
-      Buffer.from(html).subarray(0, 65536).toString(),
-    );
+    const chunks: Buffer[] = [];
+    for (let offset = 0; offset < item.visualization.document.bytes; offset += 65536) {
+      const content = await context.readAttachment(
+        "reader",
+        thread.id,
+        item.visualization.document.sha256,
+        "original",
+        offset,
+        65536,
+        () => true,
+      );
+      chunks.push(Buffer.from(content.data));
+    }
+    expect(Buffer.concat(chunks).equals(Buffer.from(html))).toBe(true);
   } finally {
     await mcp?.close();
     await context?.close();
