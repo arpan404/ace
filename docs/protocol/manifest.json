@@ -497,8 +497,8 @@
       "sha256": "55d33fce37e9cec63ddda0273cb90922c076503f1808c954331869afe1799fb8"
     },
     "schema/CliTree.json": {
-      "bytes": 2676,
-      "sha256": "c45edf88ee57f229030ff05ee8110584a55f0fa200d0a99b51586b28c7572b76"
+      "bytes": 2751,
+      "sha256": "5f062587971baf2fb1b12c45de0ce3d389c6292ef3486819e98a47ce536315d5"
     },
     "schema/ClientMessage.json": {
       "bytes": 58227,
@@ -3341,6 +3341,6 @@
       "sha256": "e2fd444d6f75628305f61da2d2f245109d22a982482700dadf5632bee8e43756"
     }
   },
-  "input": "c822ae60d10f06924f3d4dc77ba4539c1def692a9b35ad0fe166e8e7beee0dde",
+  "input": "d9ded65dc9f60a3a6d0a51ecf08188be81cb6c0ce2a973d9333b9e959aca0958",
   "version": 1
 }

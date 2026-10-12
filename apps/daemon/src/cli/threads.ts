@@ -107,6 +107,9 @@ export async function waitThread(args: Args, client: Client, id: string, signal:
             status: outcome,
             thread: value.thread,
             tree: observedTree,
+            cancelled: observedTree
+              .filter((member) => member.cancelled)
+              .map((member) => member.threadId),
           },
           outcome,
         );

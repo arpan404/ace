@@ -45,6 +45,7 @@ export const CliTree = z
       pending: z.boolean(),
       queue: QueueState.extend({ uncertain: z.boolean() }),
       attention: z.string().optional(),
+      cancelled: z.boolean(),
     }),
   )
   .max(65);

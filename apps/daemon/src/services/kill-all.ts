@@ -23,11 +23,14 @@ export async function killAll(
   if (!fresh) return { ok: prior.ok, code: prior.ok ? undefined : "unavailable", data: prior };
   context.maintenance.enter();
   try {
+    const subtree = operation.threadId
+      ? new Set(engine.cleanupThreads(operation.threadId))
+      : undefined;
     const selected = context.options.store
       .listThreads()
       .filter(
         (thread) =>
-          (!operation.threadId || thread.id === operation.threadId) &&
+          (!subtree || subtree.has(thread.id)) &&
           (!operation.provider || thread.provider === operation.provider) &&
           (!operation.project || thread.workspaceId === operation.project),
       );
@@ -35,22 +38,24 @@ export async function killAll(
     for (const thread of selected) {
       const receipt = owner.delegations.command(
         `kill:${createHash("sha256").update(operation.key).update(thread.id).digest("hex")}`,
-        { type: "thread.interrupt", threadId: thread.id, cascade: true },
+        {
+          type: "thread.interrupt",
+          threadId: thread.id,
+          cascade: !operation.provider && !operation.project,
+        },
       );
       if (!receipt.ok) return { ok: false, code: "unavailable", data: receipt };
-      for (const id of engine.cleanupThreads(thread.id)) {
-        if (stopped.has(id)) continue;
-        stopped.add(id);
-        await engine.stopForDeletion(id);
-      }
+      stopped.add(thread.id);
+      await engine.stopForCancellation(thread.id);
     }
+    await engine.flush();
     if (!operation.threadId && !operation.provider && !operation.project) await stopOwnedGroups();
     context.options.store.completeAsyncCommand(receiptId, {
       commandId: receiptId,
       ok: true,
       detail: `Stopped ${stopped.size} threads`,
     });
-    return { ok: true, data: { stopped: [...stopped] } };
+    return { ok: true, data: { stopped: [...stopped], outcome: "cancelled" } };
   } finally {
     if (!before.draining) context.maintenance.leave();
   }

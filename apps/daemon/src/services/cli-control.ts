@@ -57,6 +57,8 @@ export function cliControl(context: ServiceContext) {
             uncertain: snapshot?.messages.some((message) => message.state === "uncertain") ?? false,
           },
           attention: threadAttention({ queue }),
+          cancelled:
+            queue?.lastFailure?.code === "cancelled" || edge?.outcome?.outcome === "cancelled",
         };
       });
       return { ok: true, data: CliTree.parse(data) };

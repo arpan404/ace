@@ -1,5 +1,6 @@
 import { ThreadId } from "@ace/protocol";
 import { spawn } from "node:child_process";
+import { stat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { expect, test } from "vitest";
@@ -47,8 +48,15 @@ test("external read enrollment exposes scoped reads, hides mutations and loses a
         bearer: z.string(),
         claude: z.string(),
         codex: z.string(),
+        setup: z.string(),
+        credentialFile: z.string(),
       })
       .parse(JSON.parse(output.stdout));
+    expect(lease.claude + lease.codex + lease.setup).not.toContain(lease.bearer);
+    expect(lease.claude).toContain("${ACE_MCP_TOKEN}");
+    expect(lease.codex).toContain('bearer_token_env_var = "ACE_MCP_TOKEN"');
+    expect((await stat(lease.credentialFile)).mode & 0o777).toBe(0o600);
+    expect(await readFile(lease.credentialFile, "utf8")).toBe(lease.bearer);
     await client.connect(
       new StreamableHTTPClientTransport(new URL(lease.url), {
         requestInit: { headers: { authorization: `Bearer ${lease.bearer}` } },
@@ -83,6 +91,7 @@ test("external read enrollment exposes scoped reads, hides mutations and loses a
     });
     const revoked = await cli(home, ["mcp", "revoke", lease.id, "--json"]);
     expect(revoked.code, revoked.stderr).toBe(0);
+    await expect(stat(lease.credentialFile)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(client.listTools()).rejects.toThrow();
   } finally {
     await client.close();
@@ -118,7 +127,24 @@ test("kill-all closes selected provider sessions and a receipt retry cannot kill
     ]);
     expect(stopped.code, stopped.stderr).toBe(0);
     const wait = await cli(home, ["thread", "wait", child, "--tree", "--timeout", "2s", "--json"]);
-    expect([0, 1]).toContain(wait.code);
+    expect(wait.code, wait.stderr).toBe(1);
+    expect(JSON.parse(wait.stdout)).toMatchObject({ status: "failed", cancelled: [child] });
+    const cancelled = await cli(home, ["task", "status", child, "--json"]);
+    expect(cancelled.code, cancelled.stderr).toBe(1);
+    expect(JSON.parse(cancelled.stdout)).toMatchObject({
+      state: "cancelled",
+      outcome: { outcome: "cancelled" },
+    });
+    const id = ThreadId.parse(child);
+    const queue = f.daemon.engine?.queue(id);
+    if (!queue) throw new Error("Missing queue");
+    expect(
+      f.controls.delegations.command("resume-after-kill", {
+        type: "queue.resume",
+        threadId: id,
+        expectedRevision: queue.revision,
+      }).ok,
+    ).toBe(true);
     const followup = await cli(home, ["thread", "send", child, "A later generation", "--json"]);
     expect(followup.code, followup.stderr).toBe(0);
     await f.daemon.engine?.flush();
