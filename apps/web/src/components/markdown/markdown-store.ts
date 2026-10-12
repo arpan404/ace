@@ -84,6 +84,12 @@ export class MarkdownStore {
   /** Whether a job, or a warm-up, has gone to the worker. */
   private started = false;
   private coldLeft: number;
+  /**
+   * Budget held by documents built in render but not yet adopted, by key: a first paint builds
+   * every visible row before any of them commits, and together they must stay in budget.
+   */
+  private reserved = new Map<string, number>();
+  private reservedTotal = 0;
   constructor(options: MarkdownStoreOptions) {
     this.options = options;
     this.coldLeft = options.cold?.total ?? 0;
@@ -130,18 +136,23 @@ export class MarkdownStore {
   }
   /**
    * While the worker is still starting: finished `text` built here, within the cold budget, for
-   * a stream the worker has never been sent. It changes nothing in the store (a view may call it
-   * while rendering); `adopt` keeps it once the view has committed.
+   * a stream the worker has never been sent. It holds its share of the budget (per key, so a
+   * re-render doesn't count twice) but changes no document; `adopt` keeps it once the view has
+   * committed.
    */
   buildCold(key: string, text: string): MarkdownDoc | undefined {
     const { backend, cold } = this.options;
     if (this.warm || !backend.parallel || !cold || !text || this.read(key)) return undefined;
-    if (text.length > cold.each || text.length > this.coldLeft) return undefined;
+    const held = this.reserved.get(key) ?? 0;
+    const left = this.coldLeft - (this.reservedTotal - held);
+    if (text.length > cold.each || text.length > left) return undefined;
     // A stream with a job on its way is the worker's: its reply would replace this document.
     const known = this.live.get(key) ?? this.parked.get(key);
     if (known?.sent || known?.busy) return undefined;
     const reply = backend.local({ stream: key, at: 0, append: text, final: true });
     if ("resync" in reply) return undefined;
+    this.reservedTotal += text.length - held;
+    this.reserved.set(key, text.length);
     return { blocks: reply.settled, settled: reply.settled.length };
   }
   /**
@@ -149,6 +160,9 @@ export class MarkdownStore {
    * asked for it, and start the worker for what comes next.
    */
   adopt(key: string, text: string, doc: MarkdownDoc): void {
+    // Whether or not it is kept, the render that built it is over.
+    this.reservedTotal -= this.reserved.get(key) ?? 0;
+    this.reserved.delete(key);
     const known = this.live.get(key) ?? this.parked.get(key);
     if (known?.doc || known?.sent || known?.busy) return;
     this.coldLeft -= text.length;

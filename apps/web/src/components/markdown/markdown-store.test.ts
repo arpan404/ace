@@ -299,6 +299,18 @@ test("finished messages build in place only within the cold budget, each and in 
   expect(mount(store, "c", "c")).toBeUndefined();
 });
 
+test("a first paint that builds several messages before keeping any stays within the budget", () => {
+  const { store } = harness(80, undefined, cold);
+  // Every visible row renders before any of them commits.
+  expect(store.buildCold("a", "a".repeat(60))).toBeDefined();
+  expect(store.buildCold("b", "b".repeat(40))).toBeDefined();
+  expect(store.buildCold("c", "c")).toBeUndefined();
+  // Rendering a row again doesn't spend its share twice.
+  expect(store.buildCold("a", "a".repeat(60))).toBeDefined();
+  expect(store.buildCold("b", "b".repeat(40))).toBeDefined();
+  expect(store.buildCold("c", "c")).toBeUndefined();
+});
+
 test("once the worker has answered a job, new messages are built there, not in place", async () => {
   const { store, reply, jobs } = harness(80, undefined, cold);
   store.want("m", "Streaming", false);
