@@ -4,7 +4,7 @@ import type { ScopeWorkspace, WorkspaceTab } from "@/lib/workspace/index.ts";
 export function migrateThreadWorkspace(workspace: ScopeWorkspace): ScopeWorkspace {
   const old = workspace.tabs.find((tab) => tab.kind === "agents");
   const work = workspace.tabs.find((tab) => tab.kind === "work");
-  if (!old && work === workspace.tabs[0] && !workspace.workCard?.open) return workspace;
+  if (!old && work && work === workspace.tabs[0] && !workspace.workCard?.open) return workspace;
   const first: WorkspaceTab = work ?? {
     key: "work",
     kind: "work",

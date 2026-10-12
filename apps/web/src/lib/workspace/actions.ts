@@ -93,7 +93,14 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
     change((workspace) => {
       if (workspace.tabs.length) return setPanelOpen(workspace, true);
       const initial = definition()?.initial ?? [];
-      if (initial.length) return initial.reduce((next, each) => openTab(next, each), workspace);
+      if (initial.length) {
+        const seeded = initial.reduce(
+          (next, each) => openTab(next, each, { reveal: false }),
+          workspace,
+        );
+        const first = shownTab(seeded)?.key;
+        return first ? activateTab(seeded, first) : seeded;
+      }
       const fresh = launcher(workspace);
       return fresh ? openTab(workspace, fresh) : workspace;
     });

@@ -88,7 +88,8 @@ export function FileDiffBlock(props: {
   const { file, view, onView } = props;
   const { open, expanded, asText } = view;
   const [drag, setDrag] = useState<LineRange>();
-  const renderer = useDiffRenderer(file.rows.length);
+  // The GPU view supports one unwrapped column; split and soft wrap use virtualized DOM rows.
+  const renderer = useDiffRenderer(props.mode === "unified" && !props.wrap ? file.rows.length : 0);
   const slash = file.path.lastIndexOf("/");
   const rows: DiffRow[] = file.rows.flatMap((row, index) =>
     row.kind === "fold" && expanded.has(index) && row.lines ? row.lines : [row],
