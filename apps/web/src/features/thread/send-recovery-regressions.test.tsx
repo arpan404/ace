@@ -70,7 +70,7 @@ test.each(["initial", "retry"])(
   },
 );
 
-test("Edit restores an uploaded attachment after a failed save and reload", async () => {
+test("Retry preserves an uploaded attachment after a failed save and reload", async () => {
   const storage = memoryKeyValue();
   const outbox = memoryStorage();
   let fail = false;
@@ -101,18 +101,20 @@ test("Edit restores an uploaded attachment after a failed save and reload", asyn
   cleanup();
   await first.client.close();
   reloadPage();
-  const again = harness({ storage, outbox });
-  again.play(longHistory(2)).runUntilBlocked();
+  const again = harness({ storage, outbox, daemon: first.daemon });
   await again.open("/t/thread-router");
   await screen.findByRole("combobox", { name: "Message" });
-  await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
-  await waitFor(() =>
-    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe("Keep the file"),
+  expect(screen.queryByRole("button", { name: /^Edit$/ })).toBeNull();
+  await userEvent.click(await screen.findByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Retry" })).toBeNull());
+  const view = again.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-router") });
+  if (view?.kind !== "thread") throw new Error("Missing transcript");
+  const sent = Object.values(view.items).find(
+    (item) =>
+      item.type === "message" &&
+      item.parts.some((part) => part.type === "text" && part.text === "Keep the file"),
   );
-  expect(await screen.findByRole("button", { name: "Remove notes.txt" })).toBeTruthy();
-  expect(
-    within(screen.getByRole("feed", { name: "Transcript" })).queryByText("Keep the file"),
-  ).toBeNull();
+  expect(sent).toMatchObject({ attachments: [{ name: "notes.txt" }] });
 });
 
 test("closing the page while its initial outbox save is pending preserves the message", async () => {
@@ -156,10 +158,6 @@ test("closing the page while its initial outbox save is pending preserves the me
   cleanup();
   await first.client.close();
   reloadPage();
-  Object.defineProperty(navigator, "locks", {
-    configurable: true,
-    value: { query: async () => ({ held: [] }) },
-  });
   try {
     const again = harness({ storage: atReload, outbox });
     again.play(longHistory(2)).runUntilBlocked();
@@ -171,7 +169,6 @@ test("closing the page while its initial outbox save is pending preserves the me
     expect(within(feed).getAllByText("Keep the pending save")).toHaveLength(1);
   } finally {
     saving.resolve();
-    Reflect.deleteProperty(navigator, "locks");
   }
 });
 
@@ -223,10 +220,6 @@ test.each(["saving", "admitted"])(
     }
     // The tab ended before its enqueue callback could remove the held record.
     reloadPage();
-    Object.defineProperty(navigator, "locks", {
-      configurable: true,
-      value: { query: async () => ({ held: [] }) },
-    });
     try {
       await made.open("/t/thread-router");
       const feed = await screen.findByRole("feed", { name: "Transcript" });
@@ -240,7 +233,6 @@ test.each(["saving", "admitted"])(
       expect(within(feed).getAllByText("Already on its way")).toHaveLength(1);
     } finally {
       saving.resolve();
-      Reflect.deleteProperty(navigator, "locks");
     }
   },
 );
@@ -273,10 +265,6 @@ test("a leftover held copy offers no Retry when the transcript owns it and the o
     ),
   ).toMatchObject({ ok: true });
   reloadPage();
-  Object.defineProperty(navigator, "locks", {
-    configurable: true,
-    value: { query: async () => ({ held: [] }) },
-  });
   try {
     await made.open("/t/thread-router");
     const feed = await screen.findByRole("feed", { name: "Transcript" });
@@ -286,7 +274,7 @@ test("a leftover held copy offers no Retry when the transcript owns it and the o
     expect(within(feed).queryByRole("button", { name: "Retry" })).toBeNull();
     expect(within(feed).getAllByText("Already delivered")).toHaveLength(1);
   } finally {
-    Reflect.deleteProperty(navigator, "locks");
+    reloadPage();
   }
 });
 

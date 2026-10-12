@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { memoryStorage } from "@/boot/client.ts";
 import { harness } from "@/test/harness.tsx";
-import { maintainUploadLease } from "@/lib/upload-owner-lease.ts";
+import { uploadTimeoutMs } from "./composer/upload-interruption.ts";
 import { resetSendStore } from "./composer/send-store.ts";
 import { reloadPage, resetStaged, stagedSends } from "./composer/staged-sends.ts";
 
@@ -22,12 +22,7 @@ const image = () =>
 const readQueue = async (app: ReturnType<typeof harness>) =>
   (await app.client.request({ type: "queue.get", threadId })).queue;
 
-test("a pending-upload reload without Web Locks offers recovery and releases later messages in order", async () => {
-  // Mock only the browser ownership boundary. No owner can be confirmed on the new page.
-  const previous = Object.getOwnPropertyDescriptor(navigator, "locks");
-  Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
-  let wall = 1000;
-  const { app, message } = await openBusy({ uiClock: () => wall });
+function stalledImage() {
   const file = image();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -42,6 +37,28 @@ test("a pending-upload reload without Web Locks offers recovery and releases lat
     };
     return part;
   };
+  return { file, entered, release };
+}
+
+function interruptedActions() {
+  const failure = screen.getByText("Upload interrupted").closest('[role="alert"]');
+  if (!(failure instanceof HTMLElement)) throw new Error("Missing interrupted-upload actions");
+  expect(
+    within(failure)
+      .getAllByRole("button")
+      .map((button) => button.textContent),
+  ).toEqual(["Remove"]);
+  return within(failure).getByRole("button", { name: "Remove" });
+}
+
+test("reload interrupts an unfinished upload and Remove releases later messages in order", async () => {
+  const { app, message } = await openBusy({ uiClock: () => 1000 });
+  await userEvent.upload(
+    screen.getByLabelText("Files to attach"),
+    new File(["notes"], "notes.txt", { type: "text/plain" }),
+  );
+  await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
+  const { file, entered, release } = stalledImage();
   try {
     await userEvent.upload(screen.getByLabelText("Files to attach"), file);
     await entered.promise;
@@ -50,102 +67,73 @@ test("a pending-upload reload without Web Locks offers recovery and releases lat
     await app.client.close();
     reloadPage();
     resetSendStore();
-    wall += 180_000;
-    const again = harness({ daemon: app.daemon, storage: app.storage, uiClock: () => wall });
+    const again = harness({ daemon: app.daemon, storage: app.storage, uiClock: () => 1000 });
     await again.open(`/t/${threadId}`);
-    const reason = await screen.findByText(/The uploading page stopped responding/);
-    const failure = reason.closest('[role="alert"]');
-    if (!(failure instanceof HTMLElement)) throw new Error("Missing upload recovery actions");
-    expect(within(failure).getByRole("button", { name: "Edit" })).toBeTruthy();
+    await screen.findByText("Upload interrupted");
     expect((await readQueue(again)).messages).toEqual([]);
-    await userEvent.click(within(failure).getByRole("button", { name: "Remove" }));
+    await userEvent.click(interruptedActions());
     await waitFor(async () =>
       expect((await readQueue(again)).messages.map((entry) => entry.input)).toEqual([
         [{ type: "text", text: "B behind A" }],
         [{ type: "text", text: "C behind B" }],
       ]),
     );
+    expect(
+      (
+        await again.client.request({
+          type: "context.request",
+          operation: { op: "attachment.list", threadId },
+        })
+      ).result,
+    ).toMatchObject({ kind: "attachments", attachments: [] });
   } finally {
     release.resolve();
-    if (previous) Object.defineProperty(navigator, "locks", previous);
-    else Reflect.deleteProperty(navigator, "locks");
   }
 });
 
-test("a foreign uploading owner stays live while heartbeats renew and recovers only after expiry", async () => {
-  const previous = Object.getOwnPropertyDescriptor(navigator, "locks");
-  Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+test("an upload past its injected-clock timeout cannot send after late completion", async () => {
   let wall = 1000;
-  const timers = new Set<{ at: number; callback(): void }>();
-  const advance = (to: number) => {
-    while (true) {
-      const next = [...timers].filter((timer) => timer.at <= to).toSorted((a, b) => a.at - b.at)[0];
-      if (!next) break;
-      timers.delete(next);
-      wall = next.at;
-      next.callback();
-    }
-    wall = to;
-  };
   const { app, message } = await openBusy({ uiClock: () => wall });
-  const entered = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
-  const file = image();
-  const slice = file.slice.bind(file);
-  file.slice = (start, end, type) => {
-    const part = slice(start, end, type);
-    const read = part.arrayBuffer.bind(part);
-    part.arrayBuffer = async () => {
-      entered.resolve();
-      await release.promise;
-      return read();
-    };
-    return part;
-  };
-  let lease: ReturnType<typeof maintainUploadLease>;
+  const { file, entered, release } = stalledImage();
   try {
     await userEvent.upload(screen.getByLabelText("Files to attach"), file);
     await entered.promise;
-    await userEvent.type(message, "Upload still running in its owner tab{Enter}");
-    const owner = stagedSends(app.storage).get()[0]?.owner;
-    if (!owner) throw new Error("Missing uploading owner");
-    cleanup();
-    await app.client.close();
-    reloadPage();
-    resetSendStore();
-    // An independent tab's heartbeat uses its own injected clock and timer boundary.
-    lease = maintainUploadLease(app.storage, owner, {
-      now: () => wall,
-      setTimer(callback, delay) {
-        const timer = { at: wall + delay, callback };
-        timers.add(timer);
-        return () => {
-          timers.delete(timer);
-        };
-      },
-    });
-    if (!lease) throw new Error("Owner couldn't establish its lease");
-    const observer = harness({ daemon: app.daemon, storage: app.storage, uiClock: () => wall });
-    await observer.open(`/t/${threadId}`);
-    await screen.findByText("Uploading an image…");
-    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
-    act(() => advance(110_000));
-    lease.abandon();
-    advance(200_000); // Past the original lease, still within the renewed lease.
+    await userEvent.type(message, "A timed out{Enter}B after A{Enter}");
+    wall += uploadTimeoutMs;
     fireEvent(document, new Event("visibilitychange"));
-    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
-    advance(240_000);
-    fireEvent(document, new Event("visibilitychange"));
-    await screen.findByText(/The uploading page stopped responding/);
-    expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy();
-  } finally {
-    lease?.abandon();
+    await screen.findByText("Upload interrupted");
+    interruptedActions();
     release.resolve();
-    if (previous) Object.defineProperty(navigator, "locks", previous);
-    else Reflect.deleteProperty(navigator, "locks");
+    await waitFor(async () =>
+      expect(
+        (
+          await app.client.request({
+            type: "context.request",
+            operation: { op: "attachment.list", threadId },
+          })
+        ).result,
+      ).toMatchObject({
+        kind: "attachments",
+        attachments: [expect.objectContaining({ name: "pasted.png" })],
+      }),
+    );
+    expect((await readQueue(app)).messages).toEqual([]);
+    await userEvent.click(interruptedActions());
+    await waitFor(async () =>
+      expect((await readQueue(app)).messages.map((entry) => entry.input)).toEqual([
+        [{ type: "text", text: "B after A" }],
+      ]),
+    );
+    expect(
+      (
+        await app.client.request({
+          type: "context.request",
+          operation: { op: "attachment.list", threadId },
+        })
+      ).result,
+    ).toMatchObject({ kind: "attachments", attachments: [] });
+  } finally {
+    release.resolve();
   }
 });
 async function openBusy(options: Parameters<typeof harness>[0] = {}) {
