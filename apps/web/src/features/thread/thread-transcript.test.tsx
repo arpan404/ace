@@ -4,6 +4,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { openWorkLog } from "@/test/open-work-log.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -95,7 +96,7 @@ test("a full-text edit's changed-files stat counts the lines that changed, as Ch
   expect(Number(stat?.[1])).toBeLessThan(20);
 
   // The work log's step for the same edit reads the same count.
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  await openWorkLog(feed);
   const step = within(feed).getByRole("button", { name: /^Edited apps\/server\/src\/replay.ts/ });
   await waitFor(() => expect(step.textContent).toContain(`+${stat?.[1]} −${stat?.[2]}`));
 

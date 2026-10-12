@@ -1,51 +1,46 @@
-import { formatElapsed, livePlanStep, type TurnActivity } from "@ace/ui-core";
-import { HourglassMediumIcon } from "@phosphor-icons/react";
-import { useContext, useLayoutEffect, useRef, useState } from "react";
-import { Icon } from "@/components/icon.tsx";
-import { Dot } from "@/components/ui/dot.tsx";
+import { formatElapsed, type TurnActivity } from "@ace/ui-core";
+import { useContext, useLayoutEffect, useRef } from "react";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { useShownPlans } from "@/lib/use-plans.ts";
 import { TimeContext } from "@/lib/time.ts";
+import type { ThreadKey, ThreadReader } from "@ace/client";
+import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
+import { ThinkingRow } from "./step-groups-view.tsx";
 
 /*
- * The live turn's header, right under the ask that started it: "Working for 1m 14s · Running
- * bun install · 2 subagents". It reads the same `turnActivity` as every other surface, counting
- * the whole tree. The timer writes its text through a ref, so a ticking second re-renders
- * nothing, and it stands still while the turn waits on the person.
+ * The live turn's header, right under the ask that started it: one muted "Working for 3m 6s"
+ * row over a hairline, the turn's steps flowing below it. It reads the same `turnActivity` as
+ * every other surface, counting the whole tree. The timer writes its text through a ref, so a
+ * ticking second re-renders nothing, and it stands at the time reached while the turn waits on
+ * the person (that time comes from the thread, so a redrawn header shows it too).
  */
 
 export function LiveHead(props: { threadId: string }) {
   const activity = useTurnActivity(props.threadId);
   const workspace = useWorkspaceActions(props.threadId);
-  const plans = useShownPlans(props.threadId);
-  const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
-  if (!activity) return null;
-  if (activity.tone === "paused") return null;
+  if (!activity || activity.tone === "paused") return null;
   return (
     <button
       type="button"
       aria-label="Open work and agents"
       onClick={() => workspace.open({ kind: "work" })}
-      className="block w-full rounded-md py-1 text-left focus-ring"
+      className="block w-full border-b border-border pb-2 text-left focus-ring"
     >
-      <ActivityLine activity={activity} progress={progress} />
+      <ActivityLine activity={activity} />
     </button>
   );
 }
 
 /**
  * "1m 14s" since `from`, written straight into the element on the page's shared one-second
- * clock: no React render per tick. Without `from` it stops and keeps the time it reached.
+ * clock: no React render per tick.
  */
-function Elapsed(props: { from: number | undefined }) {
+function Elapsed(props: { from: number }) {
   const element = useRef<HTMLSpanElement>(null);
   const { seconds } = useContext(TimeContext);
   const { from } = props;
   useLayoutEffect(() => {
-    if (from === undefined) return;
     const write = () => {
       if (element.current)
         element.current.textContent = formatElapsed(Math.max(0, seconds.read() - from));
@@ -57,16 +52,12 @@ function Elapsed(props: { from: number | undefined }) {
 }
 
 /**
- * The live line. Working moves (spinner, the step's shimmer, the timer); waiting on the person
- * keeps the time it had reached and says what it waits for; held lines stay still; a usage-limit
- * pause is a divider.
+ * The live line, muted: "Working for 1m 14s" moving; "Working for 1m 15s · Waiting for your
+ * approval" standing still while the person is asked; a held line as it is; a usage-limit pause
+ * as a divider.
  */
-export function ActivityLine(props: { activity: TurnActivity; progress?: string | undefined }) {
+export function ActivityLine(props: { activity: TurnActivity }) {
   const { activity } = props;
-  const timed = activity.tone === "working" && activity.elapsedFrom !== undefined;
-  // Whether the timer ran before a wait: then the wait shows the time it stopped at.
-  const [ran, setRan] = useState(timed);
-  if (timed && !ran) setRan(true);
   if (activity.tone === "paused")
     return (
       <Marker role="status" aria-label={activity.label} variant="separator" className="text-xs">
@@ -74,72 +65,46 @@ export function ActivityLine(props: { activity: TurnActivity; progress?: string 
       </Marker>
     );
   const label = activity.code ? `${activity.label} ${activity.code}` : activity.label;
-  if (activity.tone === "held")
-    return (
-      <p role="status" aria-label={label} className="flex min-w-0 items-center gap-2 text-[13.5px]">
-        <Icon icon={HourglassMediumIcon} size={14} className="text-subtle-foreground" />
-        <span className="shrink-0 text-muted-foreground">{activity.label}</span>
-        {activity.code && (
-          <code className="min-w-0 truncate font-mono text-sm text-foreground">
-            {activity.code}
-          </code>
-        )}
-      </p>
-    );
-  const working = activity.tone === "working";
-  const clock = working ? timed : ran;
   return (
     <p
       role="status"
       aria-label={label}
-      className="fx-view-in flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[13.5px]"
+      className="flex min-h-8 min-w-0 items-center text-ui text-muted-foreground"
     >
-      {working ? <Spinner /> : <Dot tone="needs-you" />}
-      {clock ? (
-        // One element across working and waiting, so the stopped time stays as it was.
-        <span className={working ? "shrink-0 text-foreground" : "shrink-0 text-muted-foreground"}>
-          {working ? `${activity.label} for ` : "Working for "}
-          <Elapsed from={working ? activity.elapsedFrom : undefined} />
-          {working ? "" : " · "}
+      {activity.tone === "working" && activity.elapsedFrom !== undefined ? (
+        <span className="shrink-0">
+          {activity.label} for <Elapsed from={activity.elapsedFrom} />
+        </span>
+      ) : activity.tone === "needs-you" && activity.elapsedMs !== undefined ? (
+        <span className="min-w-0 truncate">
+          {`Working for ${formatElapsed(activity.elapsedMs)} · ${activity.label}`}
         </span>
       ) : (
-        <span className="shrink-0 text-foreground">{working ? activity.label : ""}</span>
+        <span className="min-w-0 truncate">{label}</span>
       )}
-      {working ? (
-        activity.current && (
-          <span className="min-w-0 truncate text-muted-foreground">
-            ·{" "}
-            <span key={activity.current} className="shimmer">
-              {activity.current}
-            </span>
-          </span>
-        )
-      ) : (
-        <span className="text-foreground">{activity.label}</span>
-      )}
-      <Counts activity={activity} progress={working ? props.progress : undefined} />
     </p>
   );
 }
 
-function Counts(props: { activity: TurnActivity; progress: string | undefined }) {
-  const { activity } = props;
+const orderKeys: readonly ThreadKey[] = ["order"];
+/** Whether the newest item is a thought still being written (it says "Thinking" itself). */
+function readThinking(reader: ThreadReader): Watched<boolean> {
+  const last = reader.order.at(-1);
+  const item = last === undefined ? undefined : reader.item(last);
+  return {
+    value: item?.type === "reasoning" && !item.complete,
+    watch: last === undefined ? [] : [`item:${last}`],
+  };
+}
+
+/** "Thinking", closing the working turn's flow, while no step is in flight. */
+export function TailThinking(props: { threadId: string }) {
+  const activity = useTurnActivity(props.threadId);
+  const thought = useWatched(props.threadId, orderKeys, readThinking, Object.is) ?? false;
+  if (activity?.tone !== "working" || activity.current || thought) return null;
   return (
-    <>
-      {props.progress && (
-        <span className="min-w-0 truncate text-muted-foreground">· {props.progress}</span>
-      )}
-      {!!activity.subagents && (
-        <span className="shrink-0 text-muted-foreground">
-          · {activity.subagents} {activity.subagents === 1 ? "subagent" : "subagents"}
-        </span>
-      )}
-      {!!activity.backgroundCommands && (
-        <span className="shrink-0 text-muted-foreground">
-          · {activity.backgroundCommands}{" "}
-          {activity.backgroundCommands === 1 ? "background command" : "background commands"}
-        </span>
-      )}
-    </>
+    <ul aria-label="Working" className="flex flex-col">
+      <ThinkingRow />
+    </ul>
   );
 }

@@ -292,6 +292,8 @@ test("the live line ticks with an injected clock and stops ticking when approval
             label: "Waiting for your approval",
             tone: "needs-you",
             elapsedFrom: undefined,
+            // The thread's record of the time the turn had reached when the wait began.
+            elapsedMs: 75_000,
             current: undefined,
           }}
         />

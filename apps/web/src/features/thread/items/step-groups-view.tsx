@@ -1,83 +1,145 @@
-import { toolSurfaces } from "@ace/projection";
+import { toolSurface } from "@ace/projection";
 import type { Item, ToolSurface } from "@ace/protocol";
 import {
   groupSteps,
   retriedStepIds,
   sameFact,
   stepFact,
+  type GroupIcon,
   type GroupedSteps as Grouped,
   type StepFact,
   type StepGroup,
 } from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import {
+  BrainIcon,
+  FileTextIcon,
+  GlobeIcon,
+  HammerIcon,
+  ListChecksIcon,
+  MagnifyingGlassIcon,
+  MonitorIcon,
+  NotePencilIcon,
+  PlugIcon,
+  RobotIcon,
+  TerminalIcon,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 import { memo, useId, useMemo, useState } from "react";
-import { LiveWorkMark } from "@/components/live-work-mark.tsx";
+import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useAceLog } from "./ace-steps.tsx";
-import { useStepItemsSelect } from "./step-items.ts";
+import { useStepItem, useStepItemsSelect } from "./step-items.ts";
 import { ToolStep } from "./work-log-steps.tsx";
 
 /*
- * A work log's steps, grouped (`groupSteps`): consecutive calls by one agent fold into one
- * summary row, the agent's words between them stand alone. While the turn works, the newest
- * step of the last group stays in view under its summary, shimmering; the rest sit behind the
- * toggle. Appending a step regroups only the last group, so streaming costs what changed.
+ * A work log as one quiet flow: consecutive calls by one agent read as one sentence row with a
+ * muted icon ("Ran 5 commands and read 1 file"), opening in place to their steps; what the agent
+ * said between them is prose; what it thought is a muted row of its own. While the turn works,
+ * the step in flight closes the flow, shimmering, or "Thinking" when no step is. Each step is
+ * read once per change of that step, so streaming costs what changed, not the turn's length.
  */
 
-const sameFacts = (a: readonly StepFact[], b: readonly StepFact[]) =>
-  a.length === b.length && a.every((fact, index) => sameFact(fact, b[index] ?? fact));
+/** Per item object: what it counts as, and the surface it drove. Items change by replacement. */
+const facts = new WeakMap<Item, StepFact | null>();
+const surfaces = new WeakMap<Item, ToolSurface | null>();
 
-function readFacts(items: readonly (Item | undefined)[]): StepFact[] {
+function factOf(item: Item): StepFact | undefined {
+  let fact = facts.get(item);
+  if (fact === undefined) {
+    fact = stepFact(item) ?? null;
+    facts.set(item, fact);
+  }
+  return fact ?? undefined;
+}
+
+function surfaceOf(item: Item): ToolSurface | undefined {
+  let surface = surfaces.get(item);
+  if (surface === undefined) {
+    surface = item.type === "tool_call" ? (toolSurface(item.call) ?? null) : null;
+    surfaces.set(item, surface);
+  }
+  return surface ?? undefined;
+}
+
+const noIds: ReadonlySet<string> = new Set();
+
+interface LogReading {
+  facts: readonly StepFact[];
+  /** Each step's surface, a URL-less browser step on the site its agent was last on. */
+  surfaces: ReadonlyMap<string, ToolSurface>;
+  /** Failed steps a later step ran again with success: not shown as failed. */
+  retried: ReadonlySet<string>;
+}
+
+function readLog(items: readonly (Item | undefined)[]): LogReading {
   const loaded = items.filter((item): item is Item => item !== undefined);
-  const retried = retriedStepIds(loaded);
-  return loaded.map((item) => stepFact(item, retried));
+  // Only a log with a failure looks for retries: the common case reads each item once.
+  const retried = loaded.some((item) => factOf(item)?.failed) ? retriedStepIds(loaded) : undefined;
+  const out: StepFact[] = [];
+  const shown = new Map<string, ToolSurface>();
+  const sites = new Map<string, string>();
+  for (const item of loaded) {
+    const fact = factOf(item);
+    if (!fact) continue;
+    out.push(retried?.has(item.id) ? { ...fact, failed: false } : fact);
+    const surface = surfaceOf(item);
+    if (!surface) continue;
+    const agent = item.agentId ?? "";
+    const carried = sites.get(agent);
+    const drawn =
+      surface.kind === "browser" && !surface.icon && carried
+        ? { ...surface, icon: { kind: "site" as const, origin: carried } }
+        : surface;
+    if (drawn.icon?.kind === "site") sites.set(agent, drawn.icon.origin);
+    shown.set(item.id, drawn);
+  }
+  return { facts: out, surfaces: shown, retried: retried ?? noIds };
 }
 
-const surfaceKey = (surface: ToolSurface | undefined) =>
-  surface ? `${surface.kind}:${surface.icon ? JSON.stringify(surface.icon) : ""}` : "";
-function readSurfaces(items: readonly (Item | undefined)[]): ReadonlyMap<string, ToolSurface> {
-  return toolSurfaces(items.filter((item): item is Item => item !== undefined));
-}
-const sameSurfaces = (a: ReadonlyMap<string, ToolSurface>, b: ReadonlyMap<string, ToolSurface>) =>
-  a.size === b.size &&
-  [...a].every(([id, surface]) => surfaceKey(b.get(id)) === surfaceKey(surface));
+const sameReading = (a: LogReading, b: LogReading) =>
+  a.retried.size === b.retried.size &&
+  [...a.retried].every((id) => b.retried.has(id)) &&
+  a.facts.length === b.facts.length &&
+  a.facts.every((fact, index) => sameFact(fact, b.facts[index] ?? fact)) &&
+  a.surfaces.size === b.surfaces.size &&
+  [...a.surfaces].every(([id, surface]) => {
+    const other = b.surfaces.get(id);
+    return (
+      other?.kind === surface.kind &&
+      JSON.stringify(other.icon) === JSON.stringify(surface.icon) &&
+      other.iconRef === surface.iconRef
+    );
+  });
 
 /** The log's groups, regrouped from the first changed step only. */
-function useGroups(facts: readonly StepFact[]): readonly StepGroup[] {
-  const [grouped, setGrouped] = useState<Grouped>(() => groupSteps(facts));
-  if (grouped.facts === facts) return grouped.groups;
-  const next = groupSteps(facts, grouped);
+function useGroups(steps: readonly StepFact[]): readonly StepGroup[] {
+  const [grouped, setGrouped] = useState<Grouped>(() => groupSteps(steps));
+  if (grouped.facts === steps) return grouped.groups;
+  const next = groupSteps(steps, grouped);
   setGrouped(next);
   return next.groups;
 }
 
-const none: readonly StepFact[] = [];
-const noIds: ReadonlySet<string> = new Set();
-const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
-  a.size === b.size && [...a].every((id) => b.has(id));
-const noSurfaces: ReadonlyMap<string, ToolSurface> = new Map();
+const nothing: LogReading = { facts: [], surfaces: new Map(), retried: new Set() };
 
 export function GroupedSteps(props: {
   threadId: string;
   itemIds: readonly string[];
-  /** The turn still works: the last group keeps its newest step in view. */
+  /** The turn still works: its last group keeps the step in flight in view. */
   live?: boolean | undefined;
   /** Surfaces the daemon resolved with the steps (their icon hashes), by item. */
   surfaces?: ReadonlyMap<string, ToolSurface> | undefined;
   id?: string | undefined;
 }) {
-  const log = useAceLog(props.threadId, props.itemIds);
-  // ace's own audits fold into the call they record; everything else is a step.
+  const ace = useAceLog(props.threadId, props.itemIds);
+  // ace's own audits fold into the call they record; everything else may be a step.
   const shown = useMemo(
-    () => log.rows.flatMap((row) => (row.kind === "group" ? row.ids : [row.id])),
-    [log.rows],
+    () => (ace.hidden.size ? props.itemIds.filter((id) => !ace.hidden.has(id)) : props.itemIds),
+    [ace.hidden, props.itemIds],
   );
-  const facts = useStepItemsSelect(props.threadId, shown, readFacts, sameFacts) ?? none;
-  const carried =
-    useStepItemsSelect(props.threadId, shown, readSurfaces, sameSurfaces) ?? noSurfaces;
-  const groups = useGroups(facts);
-  const retried = useStepItemsSelect(props.threadId, shown, retriedStepIds, sameIds) ?? noIds;
+  const log = useStepItemsSelect(props.threadId, shown, readLog, sameReading) ?? nothing;
+  const groups = useGroups(log.facts);
   return (
     <ul id={props.id} aria-label="Steps" className="flex flex-col">
       {groups.map((group, index) => (
@@ -86,13 +148,73 @@ export function GroupedSteps(props: {
           threadId={props.threadId}
           group={group}
           live={!!props.live && index === groups.length - 1}
-          contexts={log.contexts}
-          surfaces={props.surfaces ?? carried}
-          fallback={carried}
-          retried={retried}
+          contexts={ace.contexts}
+          surfaces={props.surfaces}
+          carried={log.surfaces}
+          retried={log.retried}
         />
       ))}
     </ul>
+  );
+}
+
+const groupIcons: Record<GroupIcon, PhosphorIcon> = {
+  explore: MagnifyingGlassIcon,
+  mixed: HammerIcon,
+  edit: NotePencilIcon,
+  command: TerminalIcon,
+  computer: MonitorIcon,
+  browser: GlobeIcon,
+  fetch: GlobeIcon,
+  websearch: GlobeIcon,
+  read: FileTextIcon,
+  search: MagnifyingGlassIcon,
+  list: MagnifyingGlassIcon,
+  plan: ListChecksIcon,
+  spawn: RobotIcon,
+  agent: RobotIcon,
+  tool: PlugIcon,
+  think: BrainIcon,
+};
+
+const row = "flex min-h-8 w-full min-w-0 items-center gap-2.5 text-left text-ui";
+
+/** The turn is working with no step in flight: the model is thinking. */
+export function ThinkingRow() {
+  return (
+    <li role="status" className={cn(row, "text-muted-foreground")}>
+      <Icon icon={BrainIcon} size={16} className="text-subtle-foreground" />
+      <span className="step-shimmer">Thinking</span>
+    </li>
+  );
+}
+
+/** What the agent thought, as a muted row of its own; "Thinking" while it still thinks. */
+function ThoughtRow(props: { threadId: string; itemId: string }) {
+  const item = useStepItem(props.threadId, props.itemId);
+  const [open, setOpen] = useState(false);
+  if (item?.type !== "reasoning") return null;
+  const text = item.text.trim();
+  return (
+    <li className="flex min-h-8 min-w-0 items-start gap-2.5 py-1.5 text-ui text-muted-foreground">
+      <Icon icon={BrainIcon} size={16} className="mt-0.5 text-subtle-foreground" />
+      {!item.complete && !text ? (
+        <span className="step-shimmer">Thinking</span>
+      ) : (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className={cn(
+            "min-w-0 text-left leading-relaxed whitespace-pre-wrap",
+            !open && "line-clamp-3",
+            !item.complete && "step-shimmer",
+          )}
+        >
+          {text}
+        </button>
+      )}
+    </li>
   );
 }
 
@@ -101,8 +223,8 @@ const GroupView = memo(function GroupView(props: {
   group: StepGroup;
   live: boolean;
   contexts: Readonly<Record<string, AceToolContext>>;
-  surfaces: ReadonlyMap<string, ToolSurface>;
-  fallback: ReadonlyMap<string, ToolSurface>;
+  surfaces: ReadonlyMap<string, ToolSurface> | undefined;
+  carried: ReadonlyMap<string, ToolSurface>;
   retried: ReadonlySet<string>;
 }) {
   const { group } = props;
@@ -115,47 +237,40 @@ const GroupView = memo(function GroupView(props: {
       itemId={id}
       ace={props.contexts[id]}
       retried={props.retried.has(id)}
-      surface={props.surfaces.get(id) ?? props.fallback.get(id)}
+      surface={props.surfaces?.get(id) ?? props.carried.get(id)}
     />
   );
+  if (group.single && group.icon === "think")
+    return <ThoughtRow threadId={props.threadId} itemId={group.key} />;
   if (group.single) return step(group.key);
+  const [sentence, failed] = group.summary.split(" · ");
   return (
     <li>
       <button
         type="button"
         aria-expanded={open}
         aria-controls={panel}
+        data-step-group=""
         onClick={() => setOpen(!open)}
-        className="group flex h-7 pointer-coarse:min-h-10 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground"
-      >
-        {group.running && !open && !props.live ? (
-          <LiveWorkMark className="mx-px" />
-        ) : (
-          <CaretRightIcon
-            aria-hidden
-            size={14}
-            className={cn(
-              "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
-              open && "rotate-90",
-            )}
-          />
+        className={cn(
+          row,
+          "text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground",
         )}
+      >
+        <Icon icon={groupIcons[group.icon]} size={16} className="text-subtle-foreground" />
         <span className="min-w-0 truncate">
-          {group.summary.split(" · ").map((part, index) => (
-            <span key={part} className={cn(part.endsWith(" failed") && "text-status-failed")}>
-              {index ? " · " : ""}
-              {part}
-            </span>
-          ))}
+          {sentence}
+          {failed && <span className="text-status-failed"> · {failed}</span>}
         </span>
       </button>
       {open ? (
-        <ul id={panel} aria-label={group.summary} className="fx-rise-in flex flex-col">
+        <ul id={panel} aria-label={group.summary} className="fx-rise-in flex flex-col pl-6.5">
           {group.ids.map(step)}
         </ul>
       ) : (
-        props.live && (
-          <ul id={panel} aria-label="Newest step" className="flex flex-col">
+        props.live &&
+        group.running && (
+          <ul id={panel} aria-label="Step in flight" className="flex flex-col">
             {step(group.newest)}
           </ul>
         )

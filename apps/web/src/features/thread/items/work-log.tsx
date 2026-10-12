@@ -1,3 +1,4 @@
+import { formatClock } from "@ace/ui-core";
 import { Suspense, use, useEffect, useId, useMemo, useState } from "react";
 import { useTurnSummary } from "../long/turn-index.ts";
 import { blockItems, type Block } from "../transcript/blocks.ts";
@@ -54,13 +55,14 @@ function SettledLog(props: { threadId: string; block: WorkBlock; ordinal?: numbe
   return (
     <div>
       <WorkLogHeader
-        headline={headline}
+        label={headline.label}
+        time={headline.endedAt === undefined ? undefined : formatClock(headline.endedAt)}
         open={open}
         panel={panel}
         onToggle={() => setOpen(!open)}
       />
       {open && (
-        <div className="mt-0.5 mb-2">
+        <div className="pt-1 pb-1">
           <Suspense fallback={<StepsSkeleton />}>
             <TurnWork
               threadId={props.threadId}

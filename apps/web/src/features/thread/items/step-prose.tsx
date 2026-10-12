@@ -11,7 +11,7 @@ import { StepItems } from "./step-items.ts";
 export function StepProse(props: { threadId: string; itemId: string }) {
   const live = useItem(props.threadId, props.itemId);
   const fetched = use(StepItems)?.get(props.itemId);
-  if (live || fetched?.type !== "message") return <AssistantMessage {...props} />;
+  if (live || fetched?.type !== "message") return <AssistantMessage {...props} between />;
   const text = fetched.parts
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n\n");

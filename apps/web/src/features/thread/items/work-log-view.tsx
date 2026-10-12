@@ -1,5 +1,4 @@
 import { CaretRightIcon } from "@phosphor-icons/react";
-import type { WorkLogHeadline } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 
 /*
@@ -7,35 +6,40 @@ import { cn } from "@/lib/cn.ts";
  * opens (`turn-work.tsx`): logs start folded.
  */
 
-/** "Worked for 2m 5s ›  Explored 3 files · 2 searches · ran 2 commands". */
+/** "Worked for 1m 43s ›" with the turn's time at the right, over one hairline. */
 export function WorkLogHeader(props: {
-  headline: WorkLogHeadline;
+  label: string;
+  /** When the turn ended, "1:26 PM". */
+  time: string | undefined;
   open: boolean;
   panel: string;
   onToggle(): void;
 }) {
-  const { headline, open } = props;
   return (
-    <button
-      type="button"
-      aria-expanded={open}
-      aria-controls={props.panel}
-      onClick={props.onToggle}
-      className="group inline-flex h-7 pointer-coarse:min-h-10 max-w-full items-center gap-1.5 rounded-sm text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground"
-    >
-      <span className="shrink-0">{headline.label}</span>
-      <CaretRightIcon
-        aria-hidden
-        size={14}
-        className={cn(
-          "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
-          open && "rotate-90",
-        )}
-      />
-      {headline.counts && (
-        <span className="ml-2 min-w-0 truncate text-subtle-foreground">{headline.counts}</span>
+    <div className="flex min-h-8 items-center gap-3 border-b border-border pb-2">
+      <button
+        type="button"
+        aria-expanded={props.open}
+        aria-controls={props.panel}
+        onClick={props.onToggle}
+        className="group inline-flex min-w-0 items-center gap-1.5 text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground pointer-coarse:min-h-10"
+      >
+        <span className="truncate">{props.label}</span>
+        <CaretRightIcon
+          aria-hidden
+          size={14}
+          className={cn(
+            "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
+            props.open && "rotate-90",
+          )}
+        />
+      </button>
+      {props.time && (
+        <span className="ml-auto shrink-0 text-xs tabular-nums text-subtle-foreground">
+          {props.time}
+        </span>
       )}
-    </button>
+    </div>
   );
 }
 

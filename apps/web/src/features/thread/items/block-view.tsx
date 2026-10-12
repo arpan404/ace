@@ -13,7 +13,7 @@ import { QuestionBlock } from "./question-block.tsx";
 import { UserMessage } from "./user-message.tsx";
 import { WorktreeNote } from "../worktree/worktree-note.tsx";
 import { Subagents } from "./subagents.tsx";
-import { LiveHead } from "./live-head.tsx";
+import { LiveHead, TailThinking } from "./live-head.tsx";
 import { WorkLog } from "./work-log.tsx";
 
 const EventView = DeferredEvent.Component;
@@ -40,6 +40,8 @@ const BlockContent = memo(function BlockContent(props: {
       return <WorkLog threadId={threadId} block={block} ordinal={props.ordinal} />;
     case "live":
       return <LiveHead threadId={threadId} />;
+    case "thinking":
+      return <TailThinking threadId={threadId} />;
     case "subagents":
       return <Subagents threadId={threadId} itemIds={block.itemIds} />;
     case "background":

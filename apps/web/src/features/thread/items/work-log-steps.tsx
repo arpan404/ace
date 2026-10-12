@@ -39,13 +39,13 @@ export function ToolStepContent(props: {
   // What the agent said between two steps.
   if (item?.type === "message")
     return (
-      <li className="py-1.5 pl-1.5">
+      <li className="py-1.5">
         <StepProse threadId={props.threadId} itemId={props.itemId} />
       </li>
     );
   if (item?.type === "notice" && reviewedInteraction(item))
     return (
-      <li className="py-1 pl-1.5">
+      <li className="py-1">
         <Suspense fallback={<p className="text-ui text-muted-foreground">{item.text}</p>}>
           <DeferredReviewNote.Component threadId={props.threadId} item={item} />
         </Suspense>
@@ -79,6 +79,7 @@ function StepLine(props: {
   return (
     <li>
       <StepRow
+        threadId={props.threadId}
         step={data.step}
         item={data.item}
         surface={props.surface}
@@ -95,11 +96,11 @@ function StepLine(props: {
           <MessageAttachments
             threadId={props.threadId}
             attachments={[data.item.call.detail.attachment]}
-            className="mt-1 items-start pl-6"
+            className="mt-1 items-start pl-6.5"
           />
         )}
       {open && (
-        <div id={panel} className="mt-1 mb-2 pl-6">
+        <div id={panel} className="mt-1 mb-2 pl-6.5">
           <StepDetail item={data.item} threadId={props.threadId} ace={data.step.ace} />
         </div>
       )}
@@ -109,6 +110,7 @@ function StepLine(props: {
 
 /** One quiet step row: glyph or spinner, verb, target, diff stat and note. */
 export function StepRow(props: {
+  threadId: string;
   step: StepText;
   item?: import("@ace/protocol").Item | undefined;
   surface?: ToolSurface | undefined;
@@ -126,9 +128,10 @@ export function StepRow(props: {
       aria-label={[step.verb, step.target, step.note].filter(Boolean).join(" ")}
       title={step.ace?.problem?.hint}
       onClick={props.expandable === false ? undefined : props.onToggle}
-      className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent"
+      className="flex min-h-8 w-full min-w-0 items-center gap-2.5 text-left text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground"
     >
       <StepGlyph
+        threadId={props.threadId}
         item={props.item}
         surface={props.surface}
         mark={step.ace?.mark}
@@ -136,7 +139,10 @@ export function StepRow(props: {
         failed={step.failed}
       />
       <span
-        className={cn(step.target ? "shrink-0" : "min-w-0 truncate", !step.settled && "shimmer")}
+        className={cn(
+          step.target ? "shrink-0" : "min-w-0 truncate",
+          !step.settled && "step-shimmer",
+        )}
       >
         {step.verb}
       </span>

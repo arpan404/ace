@@ -1,14 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import type { TurnSummary } from "@ace/protocol";
-import {
-  digestWork,
-  formatElapsed,
-  ledgerOf,
-  summarizeWork,
-  workCounts,
-  type WorkLogHeadline,
-} from "@ace/ui-core";
+import { formatElapsed, ledgerOf, summarizeWork } from "@ace/ui-core";
 import { useCallback } from "react";
 import { flatEqual, useItemsSelect } from "../lib/use-items.ts";
 
@@ -22,9 +15,9 @@ function useWaited(threadId: string, from: number, to: number): number {
 }
 
 /**
- * A settled log's headline: "Worked for 2m 5s" over the whole tree, excluding human waits and
- * idle gaps. With the turn's summary from the daemon (`turns.page`), its time and counts are
- * the turn's own, however much of it the thread has loaded; until then, the loaded items'.
+ * A settled log's head: "Worked for 2m 5s" over the whole tree, excluding human waits and idle
+ * gaps, and when the turn ended. With the turn's summary from the daemon (`turns.page`), its
+ * time is the turn's own, however much of it the thread has loaded; until then, the loaded items'.
  */
 export function useWorkLog(
   threadId: string,
@@ -36,7 +29,7 @@ export function useWorkLog(
     outcome?: "completed" | "interrupted" | "failed" | "paused" | undefined;
     summary?: TurnSummary | undefined;
   },
-): WorkLogHeadline | undefined {
+): { label: string; endedAt: number | undefined } | undefined {
   const { until, idle = 0, summary: turn } = options;
   const loaded = useItemsSelect(threadId, itemIds, summarizeWork, flatEqual);
   const from = turn?.startedAt ?? options.startedAt ?? loaded?.startedAt ?? 0;
@@ -44,7 +37,6 @@ export function useWorkLog(
   const to = turn?.endedAt ?? until ?? loaded?.endedAt ?? 0;
   const waited = useWaited(threadId, from, to);
   if (!loaded && !turn && options.outcome === undefined) return undefined;
-  const counts = turn ? digestWork(turn.digest) : loaded ? workCounts(loaded) : "";
   const verb =
     options.outcome === "interrupted"
       ? "Stopped after"
@@ -56,9 +48,6 @@ export function useWorkLog(
       options.outcome === "paused"
         ? "Paused · Usage limit"
         : `${verb} ${formatElapsed(Math.max(1000, to - from - waited - idle))}`,
-    counts,
-    running: false,
-    current: undefined,
-    awaiting: loaded?.awaiting ?? false,
+    endedAt: to || undefined,
   };
 }

@@ -1,6 +1,12 @@
 import type { Item } from "@ace/protocol";
-import { aceToolLog, type AceLog, type AceLogRow, type AceToolView } from "@ace/ui-core/ace-tools";
-import { useCallback, useMemo } from "react";
+import {
+  aceCallOf,
+  aceToolLog,
+  screenStep,
+  type AceLog,
+  type AceToolView,
+} from "@ace/ui-core/ace-tools";
+import { useMemo } from "react";
 import { useLightbox } from "@/components/attachment-open.tsx";
 import type { ShownImage } from "@/components/attachment-format.ts";
 import { ImageTile } from "@/components/attachment-tiles.tsx";
@@ -11,24 +17,41 @@ import { useStepItemsSelect } from "./step-items.ts";
  * audits folded into their calls) and the images a step answered with.
  */
 
-const sameLog = (a: AceLog, b: AceLog) => a.signature === b.signature;
+/** Whether an item is one of ace's own steps or the daemon's audit of one; memoised per item. */
+const aceItems = new WeakMap<Item, boolean>();
+function isAce(item: Item): boolean {
+  let known = aceItems.get(item);
+  if (known === undefined) {
+    known = !!screenStep(item) || !!aceCallOf(item);
+    aceItems.set(item, known);
+  }
+  return known;
+}
 
-/** The open log's rows and each step's context; plain rows until the items are read. */
-export function useAceLog(threadId: string, itemIds: readonly string[]): AceLog {
-  const select = useCallback(
-    (items: readonly (Item | undefined)[]) => aceToolLog(itemIds, items),
-    [itemIds],
+/** ace's steps in a log: what each acted on, and the audits folded into the call they record. */
+export interface AceReading {
+  contexts: AceLog["contexts"];
+  hidden: ReadonlySet<string>;
+  signature: string;
+}
+const empty: AceReading = { contexts: {}, hidden: new Set(), signature: "" };
+const sameReading = (a: AceReading, b: AceReading) => a.signature === b.signature;
+
+function readAceLog(items: readonly (Item | undefined)[]): AceReading {
+  const ace = items.filter((item): item is Item => !!item && isAce(item));
+  if (!ace.length) return empty;
+  // Only ace's own steps feed its reading, so a log of other tools costs nothing here.
+  const log = aceToolLog(
+    ace.map((item) => item.id),
+    ace,
   );
-  const log = useStepItemsSelect(threadId, itemIds, select, sameLog);
-  return useMemo(
-    () =>
-      log ?? {
-        rows: itemIds.map((id): AceLogRow => ({ kind: "step", id })),
-        contexts: {},
-        signature: "",
-      },
-    [log, itemIds],
-  );
+  const shown = new Set(log.rows.flatMap((row) => (row.kind === "group" ? row.ids : [row.id])));
+  const hidden = new Set(ace.flatMap((item) => (shown.has(item.id) ? [] : [item.id])));
+  return { contexts: log.contexts, hidden, signature: log.signature };
+}
+
+export function useAceLog(threadId: string, itemIds: readonly string[]): AceReading {
+  return useStepItemsSelect(threadId, itemIds, readAceLog, sameReading) ?? empty;
 }
 
 /** A step's screenshots and images as small thumbnails; each opens the image lightbox. */

@@ -10,6 +10,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { openWorkLog } from "@/test/open-work-log.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -17,7 +18,7 @@ beforeEach(() => localStorage.clear());
 async function openSteps(app: ReturnType<typeof harness>, threadId: string) {
   await app.open(`/t/${threadId}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  await openWorkLog(feed);
   return { feed, steps: await within(feed).findByRole("list", { name: "Steps" }) };
 }
 
