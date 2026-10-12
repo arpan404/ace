@@ -140,10 +140,21 @@ function placedAt(
     itemId: itemId ?? rowItem(row),
   };
 }
-/** A progress note followed straight by another sits close to it; a turn's last answer doesn't. */
+/**
+ * A progress note followed straight by another sits close to it; a turn's last answer doesn't.
+ * An answer under its turn's "Worked for" has no time under it, only its hover actions' row, so
+ * its changed files sit close.
+ */
 function rowGap(row: Row, next: Row | undefined): string {
   if (row.kind !== "block") return "pb-1";
   if (row.block.kind === "message" && next?.kind === "block" && next.block.kind === "message")
+    return "pb-1.5";
+  if (
+    row.block.kind === "message" &&
+    row.block.headed &&
+    next?.kind === "block" &&
+    next.block.kind === "files"
+  )
     return "pb-1.5";
   return gap[row.block.kind];
 }

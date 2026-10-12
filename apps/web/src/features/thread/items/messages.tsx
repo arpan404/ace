@@ -1,6 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
 import { formatClock } from "@ace/ui-core";
+import { cn } from "@/lib/cn.ts";
 import { GitForkIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useCallback } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -75,7 +76,7 @@ export function AssistantMessage(props: {
         </div>
       )}
       {!props.between && (item.complete || (answer.truncated && !streaming)) && (
-        <div className="mt-1 flex min-h-6 items-center gap-2">
+        <div className={cn("flex min-h-6 items-center gap-2", props.timed !== false && "mt-1")}>
           {props.timed !== false && (
             <span className="text-xs text-subtle-foreground">{formatClock(item.createdAt)}</span>
           )}

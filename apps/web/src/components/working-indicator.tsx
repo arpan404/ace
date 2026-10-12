@@ -6,8 +6,8 @@ import { TimeContext } from "@/lib/time.ts";
 
 /*
  * Something is working: a tiny 3x3 pixel grid whose lit cells walk round it, words, and how long
- * it has run in monospace ("Working for 3m 6s"). The grid steps on the page's shared one-second clock
- * and writes through refs, so it costs no React render and no perpetual CSS animation; under
+ * it has run in tabular figures ("Working for 3m 6s"). The grid steps on the page's shared
+ * one-second clock and writes through refs, so it costs no React render and no perpetual CSS animation; under
  * reduced motion it holds one still pattern. Any row that shows something working (a sidebar
  * row, say) can use `WorkingIndicator` for the same look.
  */

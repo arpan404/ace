@@ -1,5 +1,5 @@
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
-import type { ToolSurface } from "@ace/protocol";
+import type { Item, ToolSurface } from "@ace/protocol";
 import { isMeasurementCall, reviewedInteraction, type StepText } from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import { Suspense, useId, useState } from "react";
@@ -114,7 +114,7 @@ function StepLine(props: {
 export function StepRow(props: {
   threadId: string;
   step: StepText;
-  item?: import("@ace/protocol").Item | undefined;
+  item?: Item | undefined;
   surface?: ToolSurface | undefined;
   open: boolean;
   panel: string;
@@ -194,7 +194,7 @@ export function ToolStep(props: React.ComponentProps<typeof ToolStepContent>) {
   );
 }
 
-function hasStepDetail(item: import("@ace/protocol").Item): boolean {
+function hasStepDetail(item: Item): boolean {
   if (item.type !== "tool_call") return item.type === "reasoning" || item.type === "notice";
   const detail = item.call.detail;
   if (item.call.error) return true;
