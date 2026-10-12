@@ -87,6 +87,7 @@ export function useCreateRecovery(options: {
   isSubmitting(): boolean;
   onError(message: string): void;
   onRecovered(payload: SubmittedDraft & { workspaceId: string }): void;
+  canNavigate?: (() => boolean) | undefined;
 }): { recovering: boolean; isRecovering(): boolean } {
   const { client, storage, key, hostId } = options;
   const ready = useConnectionState() === "ready";
@@ -130,6 +131,7 @@ export function useCreateRecovery(options: {
         return;
       }
       recovered(attempt.payload);
+      if (options.canNavigate?.() === false) return;
       void navigate({
         to: "/t/$threadId",
         params: { threadId: receipt.threadId ?? `pending:${attempt.commandId}` },
