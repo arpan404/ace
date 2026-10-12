@@ -1,6 +1,6 @@
 # 0073: Native mobile clients share the headless SDK and design tokens
 
-Date: 2026-10-11. Status: accepted stack; performance gate pending.
+Date: 2026-10-11. Status: accepted stack and Phase 0 evidence; performance gate held.
 
 ## Context
 
@@ -68,6 +68,31 @@ Changes and Machines. Phase 2 needs an FCM delivery ADR before implementation.
 Hosted-service setup requires explicit approval. Never put FCM service-account
 or signing keys in the daemon. Notification status and actions use the canonical
 notification and durable-command paths from ADR 0012.
+
+## Phase 0 outcome
+
+The owner accepts #565 as Phase 0 evidence, matching iOS #567. It remains an
+unmerged draft with the gate held. Phase 1 waits for the owner and real-device
+measurements. [The measurement report](../verification/android-phase0/README.md)
+records methods, raw numbers and screenshots.
+
+Proven in the measured emulator scope:
+
+- Input p95 of 47.80 ms against the ≤100 ms target, with 120/120 captures and
+  zero dropped reports, using intended-vsync completion timing.
+- SQLite offline send and app-kill replay, with exactly one daemon admission.
+- Bundled-font and fixed-theme parity in light and dark schemes.
+- Layouts at 420 dpi / text scale 1.0 and 450 dpi / text scale 1.3.
+
+Unproven:
+
+- Scrolling. Current and legacy jank measure different things. Presentation and
+  frame-timeline evidence must establish visible pacing and explain the 1,850
+  high-input-latency counts in the accelerated run.
+- Memory. Debug-emulator PSS was about 650–680 MiB without a plateau. A warmed,
+  longer, release-like soak with native/JS/graphics allocation breakdowns is needed.
+- Daemon-restart durability. The replay experiment killed the app while the daemon
+  stayed running; it did not exercise a daemon restart.
 
 ## Sources
 

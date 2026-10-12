@@ -1,6 +1,7 @@
 # Android Phase 0 measurements
 
-The Phase 0 gate remains held. End-to-end input latency passes on the accelerated
+The owner accepts #565 as Phase 0 evidence. It stays an unmerged draft, and the
+Phase 0 gate remains held. Phase 1 waits for the owner and real-device measurements. End-to-end input latency passes on the accelerated
 emulator, and SQLite restart replay passes. Scrolling improves substantially with
 host GPU rendering, but the current and legacy frame metrics disagree. A bounded
 five-minute memory observation does not certify long-run memory behaviour. This
@@ -26,31 +27,39 @@ cannot prove One UI, Xiaomi or OnePlus runtime equivalence.
 loaded 2,001-item streaming thread. The fixture produces 10 deltas per second.
 The timestamp precedes Android InputManager enqueue, dispatch and IME processing.
 Completion requires the React draft commit, an input draw and the matching
-completed Android FrameMetrics frame. Physical key actuation and display scanout
-are outside the measurement. This is an end-to-end software measurement, rather
+completed Android FrameMetrics frame. Draw matching uses actual vsync; completion
+uses intended vsync plus TOTAL_DURATION, per the [Android frame metrics reference](https://developer.android.com/reference/android/view/FrameMetrics).
+This single corrected rerun supersedes the earlier actual-vsync completion
+calculation. Physical key actuation and display scanout are outside the measurement. This is an end-to-end software measurement, rather
 than text-mutation-to-draw timing.
 
-| Observation                  |                   Result |
-| ---------------------------- | -----------------------: |
-| Attempted keys               |                      120 |
-| Captured completed frames    |                      120 |
-| Coverage misses              |                        0 |
-| Coverage                     |                     100% |
-| Required coverage            | 95%, at least 114 of 120 |
-| Captured-sample p95          |             56.171880 ms |
-| Conservative all-attempt p95 |             56.171880 ms |
-| Maximum                      |             66.818008 ms |
+| Observation                                        |                   Result |
+| -------------------------------------------------- | -----------------------: |
+| Attempted keys                                     |                      120 |
+| Captured completed frames                          |                      120 |
+| Dropped metric reports                             |                        0 |
+| Missing mutation / commit / draw / matching report |            0 / 0 / 0 / 0 |
+| Invalid metric observations                        |                        0 |
+| Coverage misses                                    |                        0 |
+| Coverage                                           |                     100% |
+| Required coverage                                  | 95%, at least 114 of 120 |
+| Captured-sample p95                                |             47.795470 ms |
+| Conservative all-attempt p95                       |             47.795470 ms |
+| Maximum                                            |             53.024598 ms |
 
 A missing FrameMetrics callback counts as a miss. The probe continues through all
 attempts and rejects below 95% coverage. It fences a timeout on the UI thread so a
 late callback cannot complete the next key. For the conservative all-attempt p95,
 missing observations are assigned the 2,000 ms capture timeout. These assignments
-are not measured latencies. The final result passes the 100 ms target with complete
-coverage. Intermediate JS logs can precede a frame callback; only the final result
+are not measured latencies. Dropped metric reports are counted independently of
+attempts missing a mutation, commit, draw or matching metric report. Each timeout
+records the first missing stage; dropped-report totals do not identify the lost
+frame. Final counters are logged even if the coverage threshold rejects the run.
+The final result passes the 100 ms target with complete coverage. Intermediate JS logs can precede a frame callback; only the final result
 is used here.
 
 The separate debug instrumentation APK gives adb-attributed input injection a
-bounded ten-minute window. The product APK gains no injection permission, and
+bounded window of up to ten minutes. The corrected rerun used three minutes. The product APK gains no injection permission, and
 ordinary app launches reject injection. No input contents or credentials are logged.
 
 ## Streaming transcript and memory
@@ -78,7 +87,9 @@ to keep the individual message bounded.
 Frame time is not input latency. The accelerated result meets the current Android
 frame deadline metric but exceeds a single 60 Hz frame interval in the legacy
 metric. A release/profileable build and device measurement must resolve this before
-claiming steady 60 fps. [Earlier frame statistics](pixel-debug-gfxinfo.txt) and
+claiming steady 60 fps. Presentation/frame-timeline evidence must also explain the
+1,850 high-input-latency counts in this run. Current and legacy jank are different
+metrics, not competing estimates of the same quantity. [Earlier frame statistics](pixel-debug-gfxinfo.txt) and
 sanitized [renderer](pixel-anr-renderer.txt) and [text layout](pixel-anr-text-layout.txt)
 ANR stacks preserve the software-renderer failure. Full device bug reports are not
 committed.
@@ -101,7 +112,8 @@ The observed range is 646.8–681.1 MiB. The final sample is 35,116 KiB, 5.30%,
 above the start. A collection-like drop occurred at minute three, but the final
 two samples rose. This does not establish a stable plateau. The SDK retention
 and streaming paragraph are bounded by construction; observed native/JS memory
-still needs a longer profileable soak before the memory gate can pass.
+still needs a warmed, longer, release-like soak with native/JS/graphics allocation
+breakdowns before the memory gate can pass.
 
 ## Offline send, process kill and SQLite replay
 
@@ -120,7 +132,8 @@ marks the client offline and awaits `enqueue` for `android-spike-r1`.
 5. A second cold launch preserved exactly one admission.
 
 [Replay observations](replay.json) contain IDs and states without message contents
-or tokens. The daemon stayed running throughout this experiment. Release builds
+or tokens. The daemon stayed running throughout this experiment. Daemon-restart durability
+is unproven. Release builds
 reject the fixture before creating SQLite or transport. Remote pairing and pinned
 TLS are Phase 1 work; the debug network policy allows cleartext only to loopback,
 and the release policy forbids cleartext everywhere.

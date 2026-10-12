@@ -58,13 +58,18 @@ shortcut starts the benchmark; production multiline input still inserts newlines
 
 The probe timestamps each of 120 native key events before Android input enqueue,
 then waits for the JS draft commit and matching completed rendering frame using
-FrameMetrics. It includes Android dispatch and IME processing. It excludes physical
+FrameMetrics. Draw matching uses actual vsync; completion uses intended vsync
+plus TOTAL_DURATION. It includes Android dispatch and IME processing. It excludes physical
 key actuation and display scanout. A missing frame counts as a coverage miss. All 120 attempts complete; the run
 rejects below 95% coverage, so at least 114 completed frames are required.
 The report gives captured-sample p95 and a conservative all-attempt p95 with
 uncaptured attempts imputed at the 2,000 ms timeout. These imputed values are
 not measured latencies. No zero-sample result can pass the gate. `AceSpikeInput` and `AceSpikeMetrics`
 contain sample counts, timings and coverage counters, without draft contents.
+Dropped FrameMetrics reports are counted independently of attempts missing a
+mutation, JS commit, draw or matching frame report. The latter categories identify
+the first missing stage. A dropped report does not identify which frame was lost.
+`AceSpikeInputFinal` records the final counters even when coverage rejects the run.
 
 `AceSpikeFont` records actual rendered glyph advances versus the bundled Inter
 asset, its SHA-256, text size and foreground colour. The earlier window-callback
