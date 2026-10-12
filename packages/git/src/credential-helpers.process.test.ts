@@ -1,66 +1,19 @@
 import { access, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { expect, test, vi } from "vitest";
-import { GitService, spawnGitProcess, type GitOptions } from "./index.ts";
-import { repository, scalar } from "./test-repo.ts";
-
-const quote = (text: string) => "'" + text.replaceAll("'", "'\"'\"'") + "'";
-
-async function challengeRemote() {
-  let requests = 0;
-  let authenticated = false;
-  const server = createServer((request, response) => {
-    requests++;
-    if (request.headers.authorization) {
-      authenticated = true;
-      // We only need a real HTTP authentication exchange, not a smart Git server.
-      response.writeHead(403);
-    } else response.writeHead(401, { "WWW-Authenticate": 'Basic realm="git-test"' });
-    response.end();
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Missing HTTP listener");
-  return {
-    url: `http://127.0.0.1:${address.port}/repo.git`,
-    requests: () => requests,
-    authenticated: () => authenticated,
-    close: () =>
-      new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      ),
-  };
-}
-
-async function helper(repo: string, name: string, fields: string = "") {
-  const marker = join(dirname(repo), `${name}-executed`);
-  const script = join(dirname(repo), `${name}.cjs`);
-  await writeFile(
-    script,
-    `
-    require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed');
-    process.stdin.resume();
-    process.stdin.on('end', () => {
-      if (process.argv.at(-1) === 'get') process.stdout.write(${JSON.stringify(fields)});
-    });
-  `,
-  );
-  return { marker, command: `${quote(process.execPath)} ${quote(script)}` };
-}
+import { GitService, type GitOptions } from "./index.ts";
+import { repository, scalar, execute } from "./test-repo.ts";
+import { executableAskpass, challengeRemote, helper } from "./credential-test-fixtures.ts";
 
 async function poison(repo: string, url: string, scope: "local" | "worktree") {
   if (scope === "worktree") await scalar(repo, "config", "extensions.worktreeConfig", "true");
   const generic = await helper(repo, "repo-helper");
   const scoped = await helper(repo, "url-helper");
-  const askpass = await helper(repo, "repo-askpass");
+  const askpass = await executableAskpass(dirname(repo), "repo-askpass");
   for (const [key, command] of [
     ["credential.helper", `!${generic.command}`],
     [`credential.${url}.helper`, `!${scoped.command}`],
-    ["core.askPass", askpass.command],
+    ["core.askPass", askpass.path],
   ]) {
     if (key === undefined || command === undefined) throw new Error("Missing poison fixture");
     await scalar(repo, "config", `--${scope}`, key, command);
@@ -152,11 +105,11 @@ test.each(["GIT_ASKPASS", "SSH_ASKPASS"])(
   async (variable) => {
     const repo = await repository();
     const remote = await challengeRemote();
-    const askpass = await helper(repo, "inherited-askpass");
+    const askpass = await executableAskpass(dirname(repo), "inherited-askpass");
     const service = new GitService({ credentialHelperLookup: async () => [] });
     try {
       await scalar(repo, "remote", "add", "origin", remote.url);
-      vi.stubEnv(variable, askpass.command);
+      vi.stubEnv(variable, askpass.path);
       service.protectWorktree(repo);
       await expect(service.push({ worktree: repo, remote: "origin" })).rejects.toMatchObject({
         name: "GitError",
@@ -166,6 +119,37 @@ test.each(["GIT_ASKPASS", "SSH_ASKPASS"])(
     } finally {
       vi.unstubAllEnvs();
       await service.close();
+      await remote.close();
+    }
+  },
+);
+
+test.each(["core.askPass", "GIT_ASKPASS", "SSH_ASKPASS"])(
+  "the executable %s fixture runs on an HTTP challenge without the ace policy",
+  async (selector) => {
+    const repo = await repository();
+    const remote = await challengeRemote();
+    const askpass = await executableAskpass(dirname(repo), "control-askpass");
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([key]) => !key.startsWith("GIT_") && key !== "SSH_ASKPASS",
+      ),
+    );
+    env.GIT_TERMINAL_PROMPT = "0";
+    try {
+      await scalar(repo, "remote", "add", "origin", remote.url);
+      if (selector === "core.askPass") await scalar(repo, "config", selector, askpass.path);
+      else env[selector] = askpass.path;
+      await expect(
+        execute("git", ["-c", "credential.helper=", "push", "origin", "HEAD"], {
+          cwd: repo,
+          env,
+          timeout: 10_000,
+        }),
+      ).rejects.toBeDefined();
+      expect(remote.requests()).toBeGreaterThan(0);
+      await expect(access(askpass.marker)).resolves.toBeUndefined();
+    } finally {
       await remote.close();
     }
   },
@@ -190,13 +174,7 @@ test("authorized transfers restore helpers from real system/global files, includ
     `!${globalHelper.command}`,
   );
   const options: GitOptions = {
-    processRuntime: {
-      spawn: (command, args, input) =>
-        spawnGitProcess(command, args, {
-          ...input,
-          env: { ...input.env, GIT_CONFIG_SYSTEM: system, GIT_CONFIG_GLOBAL: global },
-        }),
-    },
+    credentialConfigPaths: { system, global, xdg: join(dirname(repo), "unused-xdg") },
   };
   const service = new GitService(options);
   try {

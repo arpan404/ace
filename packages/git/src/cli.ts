@@ -8,10 +8,15 @@ import {
 import type { CleanupResult } from "@ace/provider-kit/cleanup";
 import { z } from "zod";
 import { isUtf8 } from "node:buffer";
-import { dirname, resolve as resolvePath } from "node:path";
+import { dirname, join, resolve as resolvePath } from "node:path";
+import { homedir } from "node:os";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { filterKeyQuery, nonExecutingEnv, nonExecutingTransportEnv } from "./non-executing.ts";
-import { credentialHelperArgs, readCredentialHelpers } from "./credential-helpers.ts";
+import { executionKeyQuery, nonExecutingEnv, nonExecutingTransportEnv } from "./non-executing.ts";
+import {
+  credentialHelperArgs,
+  readCredentialHelpers,
+  systemCredentialConfigFile,
+} from "./credential-helpers.ts";
 import { Readable, type Writable } from "node:stream";
 import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
@@ -58,6 +63,11 @@ export class GitCli {
   >();
   private readonly transportProtocols: readonly string[];
   private readonly credentialHelperLookup: GitCredentialHelperLookup | undefined;
+  private readonly credentialConfigPaths: {
+    system: string | undefined;
+    xdg: string;
+    global: string;
+  };
   readonly leaseId: () => string;
   readonly leaseSchedule: GitProcessRuntime["scheduleTimeout"];
   readonly binary: string;
@@ -73,6 +83,25 @@ export class GitCli {
   constructor(options: GitOptions) {
     this.transportProtocols = options.transportProtocols ?? ["http", "https", "ssh"];
     this.credentialHelperLookup = options.credentialHelperLookup;
+    const home = process.env.HOME || homedir();
+    const paths = {
+      system: options.credentialConfigPaths?.system,
+      xdg:
+        options.credentialConfigPaths?.xdg ??
+        join(process.env.XDG_CONFIG_HOME || join(home, ".config"), "git", "config"),
+      global: options.credentialConfigPaths?.global ?? join(home, ".gitconfig"),
+    };
+    for (const path of Object.values(paths)) {
+      if (path !== undefined && (!path || path.includes("\0")))
+        throw new GitError("invalid_argument", "Invalid user credential config path");
+    }
+    // Git resolves --file relative to the checkout. Resolve daemon-selected paths here so a
+    // relative XDG setting cannot accidentally select an agent-controlled file there.
+    this.credentialConfigPaths = {
+      system: paths.system === undefined ? undefined : resolvePath(paths.system),
+      xdg: resolvePath(paths.xdg),
+      global: resolvePath(paths.global),
+    };
     this.runtime = processRuntime(options.processRuntime);
     this.leaseId = options.leaseId ?? mutationLeaseId;
     this.leaseSchedule = this.runtime.scheduleTimeout;
@@ -174,7 +203,9 @@ export class GitCli {
   ): Promise<Output> {
     if (args[0] !== "push")
       return Promise.reject(new GitError("invalid_argument", "Explicit push requires push"));
-    return this.executionPolicy.run({ protocols }, () => this.call(cwd, args, options));
+    return this.executionPolicy.run({ protocols }, () =>
+      this.call(cwd, ["push", "--no-verify", "--signed=false", ...args.slice(1)], options),
+    );
   }
   /** Cancellable I/O-bound retry pause, using the same injected clock as calls. */
   pause(milliseconds: number): Promise<void> {
@@ -233,22 +264,26 @@ export class GitCli {
     const policy = this.executionPolicy.getStore();
     const transport = typeof policy === "object" ? policy : undefined;
     if (!this.executionDisabledAt(cwd) && !transport) return this.executeRaw(cwd, args, options);
-    // Inspect effective driver names only, never commands or credential values. Every nested
+    // Inspect effective driver/hook names only, never commands or credential values. Every nested
     // call is guarded here, including temporary-index writes, status and branch cleanup.
-    const filters = await this.executeRaw(cwd, ["-c", "protocol.allow=never", ...filterKeyQuery], {
-      env: { ...options.env, ...nonExecutingEnv() },
-      allowFailure: true,
-      captureBytes: 1_048_576,
-      signal: options.signal,
-      directoryFd: options.directoryFd,
-      ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
-    });
-    if (filters.truncated)
-      throw new GitError("output_too_large", "Filter configuration is too large");
-    if (filters.exitCode !== 0 && filters.exitCode !== 1)
-      throw new GitError("git_failed", "Could not inspect filter configuration safely");
-    if (!isUtf8(filters.stdout))
-      throw new GitError("malformed_output", "Invalid filter configuration encoding");
+    const extensions = await this.executeRaw(
+      cwd,
+      ["-c", "protocol.allow=never", ...executionKeyQuery],
+      {
+        env: { ...options.env, ...nonExecutingEnv() },
+        allowFailure: true,
+        captureBytes: 1_048_576,
+        signal: options.signal,
+        directoryFd: options.directoryFd,
+        ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+      },
+    );
+    if (extensions.truncated)
+      throw new GitError("output_too_large", "Execution configuration is too large");
+    if (extensions.exitCode !== 0 && extensions.exitCode !== 1)
+      throw new GitError("git_failed", "Could not inspect execution configuration safely");
+    if (!isUtf8(extensions.stdout))
+      throw new GitError("malformed_output", "Invalid execution configuration encoding");
     const helpers =
       transport && (args[0] === "push" || args[0] === "fetch")
         ? await this.authorizedCredentialHelpers(cwd, options)
@@ -261,8 +296,8 @@ export class GitCli {
         env: {
           ...options.env,
           ...(transport
-            ? nonExecutingTransportEnv(filters.stdout.toString("utf8"), transport.protocols)
-            : nonExecutingEnv(filters.stdout.toString("utf8"))),
+            ? nonExecutingTransportEnv(extensions.stdout.toString("utf8"), transport.protocols)
+            : nonExecutingEnv(extensions.stdout.toString("utf8"))),
         },
       },
     );
@@ -273,21 +308,37 @@ export class GitCli {
     options: CallOptions,
   ): Promise<GitCredentialHelper[]> {
     const helpers: GitCredentialHelper[] = [];
-    for (const scope of ["system", "global"] as const) {
+    if (this.credentialHelperLookup) {
+      for (const scope of ["system", "global"] as const) {
+        options.signal?.throwIfAborted();
+        helpers.push(...(await this.credentialHelperLookup(scope, options.signal)));
+      }
+      return helpers;
+    }
+    const query = (args: string[]) =>
+      this.executeRaw(cwd, ["-c", "protocol.allow=never", ...args], {
+        env: nonExecutingEnv(),
+        allowFailure: true,
+        captureBytes: 1_048_576,
+        signal: options.signal,
+        directoryFd: options.directoryFd,
+        ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+      });
+    const system = this.credentialConfigPaths.system ?? (await systemCredentialConfigFile(query));
+    for (const file of [
+      system,
+      this.credentialConfigPaths.xdg,
+      this.credentialConfigPaths.global,
+    ]) {
+      if (file === undefined) continue;
       options.signal?.throwIfAborted();
-      const selected = this.credentialHelperLookup
-        ? await this.credentialHelperLookup(scope, options.signal)
-        : await readCredentialHelpers(scope, (query) =>
-            this.executeRaw(cwd, ["-c", "protocol.allow=never", ...query], {
-              env: nonExecutingEnv(),
-              allowFailure: true,
-              captureBytes: 1_048_576,
-              signal: options.signal,
-              directoryFd: options.directoryFd,
-              ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
-            }),
-          );
-      helpers.push(...selected);
+      try {
+        await stat(file);
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
+        throw new GitError("filesystem_error", "Could not read user credential config file");
+      }
+      helpers.push(...(await readCredentialHelpers(file, query)));
     }
     return helpers;
   }

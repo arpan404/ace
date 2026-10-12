@@ -1,6 +1,7 @@
 import { isUtf8 } from "node:buffer";
+import { isAbsolute } from "node:path";
 import { z } from "zod";
-import { GitError, type GitCredentialHelper, type GitCredentialScope } from "./types.ts";
+import { GitError, type GitCredentialHelper } from "./types.ts";
 
 // '=' cannot be represented in a -c key. Reject it rather than accidentally expanding trust.
 const Helper = z.object({
@@ -36,22 +37,66 @@ function values(output: ConfigOutput): string[] {
 
 /** Only explicit scope files are consulted. Includes could redirect us into agent-owned files. */
 export async function readCredentialHelpers(
-  scope: GitCredentialScope,
+  file: string,
   query: (args: string[]) => Promise<ConfigOutput>,
 ): Promise<GitCredentialHelper[]> {
-  const prefix = ["config", `--${scope}`, "--no-includes", "--null"];
-  const general = values(await query([...prefix, "--get-all", "credential.helper"])).map(
-    (value) => ({ key: "credential.helper", value }),
+  // A single query preserves generic/URL-scoped helpers and empty resets in file order.
+  const ordered = values(
+    await query([
+      "config",
+      "--file",
+      file,
+      "--no-includes",
+      "--null",
+      "--get-regexp",
+      "^credential\\.(.*\\.)?helper$",
+    ]),
+  ).map((entry) => {
+    const separator = entry.indexOf("\n");
+    if (separator < 0)
+      throw new GitError("malformed_output", "Invalid credential helper configuration");
+    return { key: entry.slice(0, separator), value: entry.slice(separator + 1) };
+  });
+  return validateHelpers(ordered);
+}
+
+/** Resolve Git's compiled system file without assuming its installation prefix. Names only,
+ * pinned to system scope, with includes disabled. This also works on Git before `git var`
+ * learned GIT_CONFIG_SYSTEM. An empty system helper configuration needs no restoration. */
+export async function systemCredentialConfigFile(
+  query: (args: string[]) => Promise<ConfigOutput>,
+): Promise<string | undefined> {
+  const entries = values(
+    await query([
+      "config",
+      "--system",
+      "--no-includes",
+      "--null",
+      "--show-origin",
+      "--name-only",
+      "--get-regexp",
+      "^credential\\.(.*\\.)?helper$",
+    ]),
   );
-  const scoped = values(await query([...prefix, "--get-regexp", "^credential\\..+\\.helper$"])).map(
-    (entry) => {
-      const separator = entry.indexOf("\n");
-      if (separator < 0)
-        throw new GitError("malformed_output", "Invalid credential helper configuration");
-      return { key: entry.slice(0, separator), value: entry.slice(separator + 1) };
-    },
-  );
-  return validateHelpers([...general, ...scoped]);
+  const paths = new Set<string>();
+  for (let index = 0; index < entries.length; index += 2) {
+    const origin = entries[index];
+    const key = entries[index + 1];
+    if (
+      !origin?.startsWith("file:") ||
+      origin.length === 5 ||
+      !key ||
+      !Helper.shape.key.safeParse(key).success
+    )
+      throw new GitError("malformed_output", "Invalid system credential config origin");
+    const path = origin.slice(5);
+    if (!isAbsolute(path))
+      throw new GitError("malformed_output", "Invalid system credential config path");
+    paths.add(path);
+  }
+  if (paths.size > 1)
+    throw new GitError("malformed_output", "Ambiguous system credential config origin");
+  return paths.values().next().value;
 }
 
 function validateHelpers(helpers: readonly GitCredentialHelper[]): GitCredentialHelper[] {

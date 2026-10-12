@@ -18,6 +18,8 @@ export interface GitProcessRuntime {
 export interface GitOptions {
   /** Reads helper names only from the user's system/global files, never repository config. */
   credentialHelperLookup?: GitCredentialHelperLookup;
+  /** Daemon-owned config paths. Global files are read in XDG, then home order. */
+  credentialConfigPaths?: { system?: string; xdg?: string; global?: string };
   /** Tests may inject file transport for local remotes; production uses http/https/ssh. */
   transportProtocols?: readonly ("http" | "https" | "ssh" | "file")[];
   leaseId?: () => string;
