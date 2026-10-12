@@ -1,5 +1,6 @@
 import {
   agentName,
+  backgroundCommand,
   agentStatusLabel,
   describeActivity,
   formatSpan,
@@ -7,26 +8,23 @@ import {
   taskState,
   whyNotDone,
 } from "@ace/ui-core";
-import type { ThreadKey, ThreadReader } from "@ace/client";
 import {
-  arrayEqual,
   useAgent,
   useAgentTree,
-  useInteractions,
   useIntentSender,
   useItem,
   useTask,
-  useTaskIds,
-  useThread,
   useThreadMeta,
   type AgentTreeNode,
 } from "@ace/client-react";
-import type { Agent, BackgroundTask } from "@ace/protocol";
 import { ClockIcon, RobotIcon, TerminalIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { createContext, use, useCallback, useId, useMemo, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { useLiveConnection } from "@/lib/live-connection.ts";
+import { useTreeWork } from "./use-tree-work.ts";
+import { TreeWorkContext } from "./tree-work-context.ts";
 import { useNow } from "@/lib/time.ts";
 import { ArrivalScope, useArrival } from "@/lib/arrival.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
@@ -109,26 +107,6 @@ function treeKeys(tree: TreeState) {
   };
 }
 
-/** Background work still running (helpers that never hold the thread open left out). */
-const readRunning = (reader: ThreadReader) =>
-  reader.taskIds().filter((id) => {
-    const task = reader.task(id);
-    return task?.status === "running" && !task.ambient;
-  });
-
-/**
- * The thread's background work still running, oldest first. Finished work is not kept here:
- * its transcript row ("Finished `bun run build`") opens its output.
- */
-function useRunningTasks(threadId: string): readonly string[] {
-  const ids = useTaskIds(threadId) ?? none;
-  const keys = useMemo<ThreadKey[]>(
-    () => ["tasks", ...ids.map((id): ThreadKey => `task:${id}`)],
-    [ids],
-  );
-  return useThread(threadId, keys, readRunning, arrayEqual) ?? none;
-}
-
 /**
  * Agents tab: the whole agent tree with what each agent is doing and for how long (a row opens
  * that agent as its own tab), the background work still running with Stop, queued input,
@@ -136,7 +114,10 @@ function useRunningTasks(threadId: string): readonly string[] {
  */
 export function AgentsTab(props: { threadId: string }) {
   const tree = useAgentTree(props.threadId) ?? [];
-  const tasks = useRunningTasks(props.threadId);
+  const facts = useTreeWork(props.threadId);
+  const tasks = facts.tasks.filter(
+    (task) => task.status === "running" || task.status === "unknown",
+  );
   const thread = useThreadMeta(props.threadId);
   const queuedCount = useServerQueue(props.threadId).page?.total ?? 0;
   const queueWaiting = thread?.status.state === "waiting" && thread.status.on === "queue";
@@ -152,26 +133,28 @@ export function AgentsTab(props: { threadId: string }) {
       </div>
     );
   return (
-    <ArrivalScope>
-      <div className="px-2.5 pt-2 pb-5">
-        <AgentCounts threadId={props.threadId} />
-        <AgentTree threadId={props.threadId} nodes={tree} />
-        {(tasks.length > 0 || queuedCount > 0 || queueWaiting) && (
-          <section aria-labelledby="agents-background">
-            <h3 id="agents-background" className={heading}>
-              Background
-            </h3>
-            <ul>
-              {tasks.map((id) => (
-                <TaskRow key={id} threadId={props.threadId} taskId={id} />
-              ))}
-              {(queuedCount > 0 || queueWaiting) && <QueueRow count={queuedCount} />}
-            </ul>
-          </section>
-        )}
-        <Why threadId={props.threadId} queued={queuedCount} />
-      </div>
-    </ArrivalScope>
+    <TreeWorkContext value={facts.work}>
+      <ArrivalScope>
+        <div className="px-2.5 pt-2 pb-5">
+          <AgentCounts agents={facts.agents} work={facts.work} />
+          <AgentTree threadId={props.threadId} nodes={tree} />
+          {(tasks.length > 0 || queuedCount > 0 || queueWaiting) && (
+            <section aria-labelledby="agents-background">
+              <h3 id="agents-background" className={heading}>
+                Background
+              </h3>
+              <ul>
+                {tasks.map((task) => (
+                  <TaskRow key={task.id} threadId={props.threadId} taskId={task.id} />
+                ))}
+                {(queuedCount > 0 || queueWaiting) && <QueueRow count={queuedCount} />}
+              </ul>
+            </section>
+          )}
+          <Why threadId={props.threadId} queued={queuedCount} facts={facts} />
+        </div>
+      </ArrivalScope>
+    </TreeWorkContext>
   );
 }
 
@@ -202,10 +185,10 @@ function QueueRow(props: { count: number }) {
 function AgentTree(props: { threadId: string; nodes: readonly AgentTreeNode[] }) {
   const workspace = useScopeWorkspace(props.threadId);
   const actions = useWorkspaceActions(props.threadId);
-  const ui = workspace.tabs.find((tab) => tab.key === "agents")?.ui;
+  const ui = workspace.tabs.find((tab) => tab.key === "work")?.ui;
   const active = ui?.selected;
   const setActive = useCallback(
-    (selected: string | undefined) => actions.updateUi("agents", { selected }),
+    (selected: string | undefined) => actions.updateUi("work", { selected }),
     [actions],
   );
   const collapsed = useMemo(() => new Set(ui?.collapsed), [ui?.collapsed]);
@@ -224,7 +207,7 @@ function AgentTree(props: { threadId: string; nodes: readonly AgentTreeNode[] })
         const next = new Set(collapsed);
         if (open) next.delete(id);
         else next.add(id);
-        actions.updateUi("agents", { collapsed: [...next] });
+        actions.updateUi("work", { collapsed: [...next] });
       },
     }),
     [treeId, subagents, active, first, collapsed, setActive, actions],
@@ -285,6 +268,8 @@ function AgentRow(props: {
   const agent = useAgent(props.threadId, props.agentId);
   const thread = useThreadMeta(props.threadId);
   const workspace = useWorkspaceActions(props.threadId);
+  const work = use(TreeWorkContext);
+  const live = useLiveConnection();
   const status = agent?.status;
   const tool = useItem(
     props.threadId,
@@ -294,12 +279,23 @@ function AgentRow(props: {
   if (!agent || !status) return null;
   const root = agent.origin === "root";
   const name = agentName(agent);
-  const label = agentStatusLabel(status).label;
-  const activity = describeActivity(
-    status,
-    tool?.type === "tool_call" ? tool.call.title : undefined,
-  );
-  const running = isRunning(agent);
+  const running = work.running.has(agent.id);
+  const needsYou = work.needsYou.has(agent.id);
+  const waiting = running && !isRunning(agent);
+  const label =
+    !live.fresh && running
+      ? "Last seen"
+      : needsYou
+        ? "Needs you"
+        : waiting
+          ? "Waiting on work"
+          : agentStatusLabel(status).label;
+  const activity =
+    status.state === "failed"
+      ? "Couldn't finish. Open the agent for details."
+      : (!live.fresh && running) || needsYou || waiting
+        ? label
+        : describeActivity(status, tool?.type === "tool_call" ? tool.call.title : undefined);
   const end = agent.endedAt ?? (running ? Math.max(now, agent.createdAt) : agent.createdAt);
   const body = (
     <>
@@ -310,7 +306,7 @@ function AgentRow(props: {
           className="absolute -top-1.5 bottom-1/2 w-2.5 rounded-bl-md border-b-[1.5px] border-l-[1.5px]"
         />
       )}
-      <AgentStatusMark status={status} />
+      <AgentStatusMark status={status} pending={running} needsYou={needsYou} />
       <span className="shrink-0 font-medium whitespace-nowrap">{name}</span>
       <span
         className={cn(
@@ -383,7 +379,9 @@ function TaskRow(props: { threadId: string; taskId: string }) {
   const arrival = useArrival();
   const now = useNow();
   const stop = useIntentSender();
-  if (!task || task.ambient || task.status !== "running") return null;
+  const workspace = useWorkspaceActions(props.threadId);
+  const item = useItem(props.threadId, task?.toolCallId ?? "");
+  if (!task || (task.status !== "running" && task.status !== "unknown")) return null;
   const stopping = stop.intent?.state === "pending";
   const end = Math.max(now, task.startedAt);
   return (
@@ -392,14 +390,14 @@ function TaskRow(props: { threadId: string; taskId: string }) {
       className={cn("flex h-8 items-center gap-2 rounded-lg px-2 text-ui hover:bg-accent", arrival)}
     >
       <TerminalIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
-      <span
-        className={cn(
-          "min-w-0 shrink truncate",
-          task.kind === "shell" ? "font-mono text-sm" : "font-medium",
-        )}
+      <button
+        type="button"
+        className="focus-ring min-w-0 shrink truncate rounded-sm font-mono text-sm"
+        onClick={() => workspace.open({ kind: "shell", id: task.id })}
+        aria-label={`Show ${backgroundCommand(task, item)} output`}
       >
-        {task.title}
-      </span>
+        {backgroundCommand(task, item)}
+      </button>
       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
         {formatSpan(task.startedAt, end)} · {taskState(task)}
       </span>
@@ -415,53 +413,41 @@ function TaskRow(props: { threadId: string; taskId: string }) {
       )}
       {stop.intent?.state === "failed" && (
         <span role="alert" className="text-xs text-status-failed">
-          Couldn't stop: {stop.intent.error ?? "refused"}
+          Couldn't stop this command. Try again.
         </span>
       )}
     </li>
   );
 }
 
-interface Facts {
-  agents: Agent[];
-  tasks: BackgroundTask[];
-}
-const factsEqual = (a: Facts, b: Facts) =>
-  a.agents.length === b.agents.length &&
-  a.tasks.length === b.tasks.length &&
-  a.agents.every((agent, i) => agent === b.agents[i]) &&
-  a.tasks.every((task, i) => task === b.tasks[i]);
-const readFacts = (reader: ThreadReader): Facts => ({
-  agents: reader.agentIds().flatMap((id) => reader.agent(id) ?? []),
-  tasks: reader.taskIds().flatMap((id) => reader.task(id) ?? []),
-});
-const readAgentIds = (reader: ThreadReader) => reader.agentIds();
-const none: readonly string[] = [];
-
-function Why(props: { threadId: string; queued: number }) {
+function Why(props: { threadId: string; queued: number; facts: ReturnType<typeof useTreeWork> }) {
   const thread = useThreadMeta(props.threadId);
-  const agentIds = useThread(props.threadId, ["agents"], readAgentIds, arrayEqual) ?? none;
-  const taskIds = useTaskIds(props.threadId) ?? none;
-  const keys = useMemo<ThreadKey[]>(
-    () => [
-      "agents",
-      "tasks",
-      ...agentIds.map((id): ThreadKey => `agent:${id}`),
-      ...taskIds.map((id): ThreadKey => `task:${id}`),
-    ],
-    [agentIds, taskIds],
-  );
-  const facts = useThread(props.threadId, keys, readFacts, factsEqual);
-  const waitingOnYou = useInteractions(props.threadId)?.length ?? 0;
-  if (!thread || !facts) return null;
-  const why = whyNotDone({
-    status: thread.status,
-    rootAgentId: thread.rootAgentId,
-    agents: facts.agents,
-    tasks: facts.tasks,
-    waitingOnYou,
-    queued: props.queued,
-  });
+  const live = useLiveConnection();
+  if (!thread) return null;
+  const facts = props.facts;
+  const outstanding = facts.work.running.size > 0 || props.queued > 0;
+  // Replay may deliver thread metadata before the entity updates that settle its tree.
+  if (thread.status.state === "done" && outstanding)
+    return (
+      <p role="status" className="px-3 pt-2 text-ui text-muted-foreground">
+        {!live.fresh
+          ? "Last seen: work still in progress."
+          : facts.work.needsYou.size
+            ? "Work is waiting for you."
+            : "Agents or background commands are still working."}
+      </p>
+    );
+  const why =
+    thread.status.state === "failed"
+      ? { title: "Couldn't finish", body: "An agent couldn't finish. Open its work for details." }
+      : whyNotDone({
+          status: thread.status,
+          rootAgentId: thread.rootAgentId,
+          agents: facts.agents,
+          tasks: facts.tasks,
+          waitingOnYou: facts.interactions.length,
+          queued: props.queued,
+        });
   return (
     <section
       aria-label={why.title}

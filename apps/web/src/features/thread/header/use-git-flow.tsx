@@ -6,6 +6,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useCheckoutState, useGitActions, type GitChange } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
+import { WorkspaceError } from "../sources/workspace-source.ts";
 import type { GitDialogKind } from "./git-dialog.tsx";
 import { GitWriteConfirm } from "./git-write-confirm.tsx";
 
@@ -17,7 +18,9 @@ const PrFieldDialog = lazy(() =>
 
 /** What went wrong, in the daemon's words for its code, with commands set as code. */
 export const failure = (error: unknown) => (
-  <InlineMarkdown text={error instanceof Error ? error.message : actionErrorText(undefined)} />
+  <InlineMarkdown
+    text={actionErrorText(error instanceof WorkspaceError ? error.code : undefined)}
+  />
 );
 
 /** The toast that confirms a change, from what the daemon answered. */

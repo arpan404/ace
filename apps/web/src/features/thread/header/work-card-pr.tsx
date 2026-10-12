@@ -16,7 +16,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuTrigger, MenuItem } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { failure, type useGitFlow } from "./use-git-flow.tsx";
+import { type useGitFlow } from "./use-git-flow.tsx";
 import { PrLinkForm } from "./pr-link-form.tsx";
 import { PrDetails } from "./work-card-pr-details.tsx";
 import { openPullRequestLink as open } from "./work-card-pr-link.ts";
@@ -46,7 +46,16 @@ export function PullRequestsSection(props: {
   const [confirm, setConfirm] = useState(false);
   const { state, update } = useWorkCardState();
   const expanded = state.sections["pull-requests"] ?? false;
-  const links = git.linkedPrs?.length ? git.linkedPrs : checkout?.pr ? [checkout.pr] : [];
+  const seen = new Set<string>();
+  const links = (git.linkedPrs?.length ? git.linkedPrs : checkout?.pr ? [checkout.pr] : []).filter(
+    (pr) => {
+      const repo = pr.repo ?? checkout?.repository;
+      const key = `${repo?.host}/${repo?.owner}/${repo?.name}/${pr.number}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    },
+  );
   return (
     <section aria-label="Pull requests">
       <PrStackGroups
@@ -167,7 +176,7 @@ function PrDisclosure(props: {
       setRefreshing(false);
     }
   };
-  const title = pr.title ?? current?.title ?? `Pull request #${pr.number}`;
+  const title = pr.title ?? current?.title;
   const state = error !== undefined ? "Unavailable" : refreshing ? "Checking…" : prState[pr.state];
   const ci = error === undefined && !refreshing && pr.ci && pr.ci !== "unknown" ? pr.ci : undefined;
   return (
@@ -184,10 +193,11 @@ function PrDisclosure(props: {
           aria-label={`Pull request #${pr.number}${title ? `: ${title}` : ""}, ${state}${ci && ci !== "none" ? `, checks ${ci === "success" ? "passed" : ci === "failure" ? "failing" : "running"}` : ""}`}
         >
           <PullRequestGlyph state={pr.state} size={14} />
-          <Tip label={title}>
-            <TruncatedText>{title}</TruncatedText>
+          <Tip label={title ?? `Pull request #${pr.number}`}>
+            <TruncatedText>{title ? `#${pr.number} ${title}` : `#${pr.number}`}</TruncatedText>
           </Tip>
         </RowButton>
+        <span className={`${prTone(pr.state)} shrink-0 px-1 text-xs`}>{state}</span>
         {url && (
           <IconButton
             icon={ArrowSquareOutIcon}
@@ -248,15 +258,10 @@ function PrDisclosure(props: {
             </MenuContent>
           </Menu>
         </span>
-      </div>
-      <div className="flex min-h-(--control-height) items-center justify-between gap-2 pl-8 pr-2 text-xs">
-        <span className={prTone(pr.state)}>
-          #{pr.number} · {state}
-        </span>
         {(pr.state === "open" || pr.state === "draft") && (
           <button
             type="button"
-            className="focus-ring touch-hit rounded-sm text-link hover:underline disabled:text-muted-foreground"
+            className="focus-ring touch-hit shrink-0 rounded-sm px-2 text-xs text-link hover:underline disabled:text-muted-foreground"
             disabled={git.pending || refreshing || pr.state === "draft" || !repository}
             aria-label={`Merge PR #${pr.number}`}
             title={
@@ -273,7 +278,7 @@ function PrDisclosure(props: {
       {openNow && (
         <section id={id} aria-label={`Pull request #${pr.number}`}>
           <div className="flex min-h-(--row-height) items-center gap-1 pr-1 pl-2.5">
-            <Tip label={title}>
+            <Tip label={title ?? `Pull request #${pr.number}`}>
               <h3 className="min-w-0 flex-1 truncate text-ui">
                 <span className="text-subtle-foreground">#{pr.number}</span> {pr.title}
               </h3>
@@ -293,7 +298,7 @@ function PrDisclosure(props: {
           {error !== undefined ? (
             <>
               <p role="alert" className="px-2.5 py-1 text-sm text-status-failed">
-                {failure(error)}
+                Couldn't read this pull request. Check the connection, then refresh.
               </p>
             </>
           ) : current && current.ref.number === pr.number ? (

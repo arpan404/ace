@@ -44,7 +44,7 @@ export function AgentTab(props: TabViewProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-10 shrink-0 items-center gap-1 border-b px-1.5">
-        <Button size="sm" variant="ghost" onClick={() => actions.open({ kind: "agents" })}>
+        <Button size="sm" variant="ghost" onClick={() => actions.open({ kind: "work" })}>
           <ArrowLeftIcon aria-hidden size={14} />
           Back to agents
           <Kbd keys={keymap.agents.keys} />

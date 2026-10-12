@@ -1,18 +1,20 @@
+import { migrateThreadWorkspace } from "./work/migrate.ts";
 import { defineWorkspace } from "@/lib/workspace/index.ts";
 
 /**
- * A thread's side panel: Changes, Agents and Files (the checkout's tree) pinned; everything else
+ * A thread's side panel: Work, Changes and Files (the checkout's tree) pinned; everything else
  * (terminals, Logs, a file, Browser, …) opens as a tab from the + launcher, a tool's shortcut or
- * the work card. Only these strings load with the thread screen; the kinds (icons, badges,
+ * Work. Only these strings load with the thread screen; the kinds (icons, badges,
  * loaders) follow once it has painted.
  */
 export const threadWorkspace = defineWorkspace({
   label: "Thread panel",
+  migrate: migrateThreadWorkspace,
   launcher: "new-tab",
-  mobileAction: { label: "Changes", kind: "changes" },
+  mobileAction: { label: "Work", kind: "work" },
   initial: [
+    { kind: "work", pinned: true },
     { kind: "changes", pinned: true },
-    { kind: "agents", pinned: true },
     { kind: "files", pinned: true },
   ],
   shortcuts: {
@@ -22,7 +24,7 @@ export const threadWorkspace = defineWorkspace({
     browser: "browser",
     preview: "preview",
     devices: "devices",
-    agents: "agents",
+    work: "agents",
     logs: "logs",
   },
   kinds: () => import("./thread-kinds.tsx"),

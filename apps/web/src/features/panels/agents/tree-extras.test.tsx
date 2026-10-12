@@ -3,9 +3,14 @@ import { ClientProvider, ThreadWindowProvider } from "@ace/client-react";
 import { Agent, DeviceId, Event, ThreadView } from "@ace/protocol";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
+import { useTreeWork } from "./use-tree-work.ts";
 import { AgentCounts } from "./tree-extras.tsx";
 
 afterEach(cleanup);
+function Counts() {
+  const facts = useTreeWork("thread");
+  return <AgentCounts agents={facts.agents} work={facts.work} />;
+}
 test("a mounted Agents summary follows each child's status without calling failures done", async () => {
   const store = new ThreadStore(defaultLimits);
   const view = ThreadView.parse({
@@ -55,7 +60,7 @@ test("a mounted Agents summary follows each child's status without calling failu
   render(
     <ClientProvider client={client}>
       <ThreadWindowProvider threadId="thread" source={store}>
-        <AgentCounts threadId="thread" />
+        <Counts />
       </ThreadWindowProvider>
     </ClientProvider>,
   );

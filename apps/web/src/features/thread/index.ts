@@ -40,3 +40,6 @@ export {
   readDraft,
   writeDraft,
 } from "./composer/draft-store.ts";
+
+/** Work-tab environment actions, loaded only when the panel shows Work. */
+export const loadWorkEnvironment = () => import("./header/work-environment.tsx");

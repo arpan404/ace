@@ -27,14 +27,6 @@ export const DeferredThreadMenu = deferredComponent(() =>
 export const DeferredThreadHotkeys = deferredComponent(() =>
   import("./header/thread-menu.tsx").then((module) => module.ThreadHotkeys),
 );
-/** The work card the header's list button opens: project, git, actions, editors, sources. */
-export const DeferredWorkCard = deferredComponent(() =>
-  import("./header/work-card.tsx").then((module) => module.WorkCard),
-);
-/** The header summary shares the card's reads without adding git flows to first paint. */
-export const DeferredWorkCardToggle = deferredComponent(() =>
-  import("./header/work-card-toggle.tsx").then((module) => module.WorkCardToggle),
-);
 /**
  * The long-thread tools, loaded when first opened and warmed while idle: the turn timeline,
  * search within the thread (ADR 0056: off the route's first paint).
@@ -90,8 +82,6 @@ export function preloadDeferred(): Promise<unknown> {
     // An approval card's Details, with ace's review in words.
     import("@/components/approval-request.tsx").then((module) => module.preloadApprovalDetails()),
     DeferredThreadMenu.preload(),
-    DeferredWorkCard.preload(),
-    DeferredWorkCardToggle.preload(),
     // The workspace's tab kinds (icons, badges, loaders), so a tool opens without waiting.
     threadWorkspace.load(),
     preloadComposerParts(),
