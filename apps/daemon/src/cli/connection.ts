@@ -1,5 +1,13 @@
+import { selectedProfile } from "./profiles.ts";
+import { accessRequest, pinnedSocketTransport } from "../client-access.ts";
 import { z } from "zod";
-import { Client, ClientError, webSocketTransport, type Selection } from "@ace/client";
+import {
+  Client,
+  ClientError,
+  ticketCredential,
+  webSocketTransport,
+  type Selection,
+} from "@ace/client";
 import { DeviceId } from "@ace/protocol";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -7,7 +15,7 @@ import { join } from "node:path";
 import { WebSocket } from "ws";
 import { cliStorage } from "./storage.ts";
 import { CliFailure } from "./output.ts";
-import { timeoutMs, type Args } from "./args.ts";
+import { timeoutMs, option, type Args } from "./args.ts";
 
 const HostConnection = z.object({
   origin: z.url().refine((value) => {
@@ -43,7 +51,11 @@ export function waitSelection<T>(
     };
     const abort = () => {
       finish();
-      reject(new CliFailure("timeout", "Observation timed out"));
+      reject(
+        signal.reason instanceof CliFailure
+          ? signal.reason
+          : new CliFailure("timeout", "Observation timed out"),
+      );
     };
     const check = () => {
       const value = selection.getSnapshot();
@@ -78,16 +90,50 @@ export async function waitSelectionOrRefresh<T>(
     signal.removeEventListener("abort", abort);
   }
 }
-export async function connectCli(home: string, args: Args) {
-  const connection = hostConnection(home);
-  const persistence = cliStorage(home);
+export function connectCli(home: string, args: Args) {
+  return connectWithLifetime(home, args, timeoutMs(args));
+}
+export function connectChat(home: string, args: Args) {
+  return connectWithLifetime(home, args, option(args, "timeout") ? timeoutMs(args) : undefined);
+}
+async function connectWithLifetime(home: string, args: Args, duration: number | undefined) {
+  const profile = selectedProfile(home, option(args, "remote"));
+  const connection = profile ? undefined : hostConnection(home);
+  const persistence = cliStorage(profile ? join(home, "cli-remotes", profile.id) : home);
   const lifetime = new AbortController();
-  const timer = setTimeout(() => lifetime.abort(), timeoutMs(args));
+  const interrupt = () =>
+    lifetime.abort(
+      new CliFailure(
+        "uncertain",
+        "Chat or command observation was interrupted; work state is unconfirmed",
+      ),
+    );
+  process.once("SIGINT", interrupt);
+  process.once("SIGTERM", interrupt);
+  const timer =
+    duration === undefined
+      ? undefined
+      : setTimeout(
+          () => lifetime.abort(new CliFailure("timeout", "Observation timed out")),
+          duration,
+        );
   const client = new Client({
-    deviceId: DeviceId.parse("ace-cli"),
+    deviceId: profile?.deviceId ?? DeviceId.parse("ace-cli"),
     transport: () =>
-      webSocketTransport(() => new WebSocket(connection.origin.replace("http:", "ws:"))),
-    credential: async () => connection.token,
+      profile
+        ? pinnedSocketTransport(profile.origin.replace("https:", "wss:"), profile.fingerprint)
+        : webSocketTransport(() => new WebSocket(connection?.origin.replace("http:", "ws:") ?? "")),
+    credential: profile
+      ? ticketCredential(
+          async () => profile.token,
+          (token) =>
+            accessRequest(profile.origin, "/v1/tickets", {
+              method: "POST",
+              token,
+              fingerprint: profile.fingerprint,
+            }),
+        )
+      : async () => connection?.token ?? "",
     storage: persistence.storage,
     scheduler: {
       set(ms, callback) {
@@ -100,6 +146,8 @@ export async function connectCli(home: string, args: Args) {
     now: Date.now,
   });
   const close = async () => {
+    process.removeListener("SIGINT", interrupt);
+    process.removeListener("SIGTERM", interrupt);
     clearTimeout(timer);
     lifetime.abort();
     await client.close();
@@ -110,10 +158,16 @@ export async function connectCli(home: string, args: Args) {
     const state = await waitSelection(
       client.connectionState(),
       (candidate) => candidate === "ready" || candidate === "fatal",
-      lifetime.signal,
+      AbortSignal.any([lifetime.signal, AbortSignal.timeout(15000)]),
     );
     if (state === "fatal") throw client.error ?? new ClientError("auth");
-    return { client, signal: lifetime.signal, close };
+    return {
+      client,
+      signal: lifetime.signal,
+      close,
+      remote: profile !== undefined,
+      origin: profile?.origin ?? connection?.origin ?? "",
+    };
   } catch (error) {
     await close();
     throw error;

@@ -126,3 +126,7 @@ export {
   subagentLabels,
   type SubagentState,
 } from "./subagents.ts";
+
+export { turnTreeOf, TurnTree } from "./turn-tree.ts";
+
+export { livePlanStep } from "./plan.ts";

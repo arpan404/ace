@@ -3,14 +3,10 @@ import { subagentStatusLine, subagentTerminal } from "@ace/ui-core";
 import { CaretDownIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useAgentFacts } from "@/lib/use-agent-facts.ts";
-import { useCallback, useId, useState, lazy, Suspense } from "react";
+import { useCallback, useId, useState } from "react";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import { readSubagentGroup, subagentEntriesEqual } from "../lib/subagent-group.ts";
 import { SubagentAvatar, SubagentElapsed, SubagentRow, subagentTones } from "./subagent-row.tsx";
-
-const SubagentActions = lazy(() =>
-  import("./subagent-actions.tsx").then((module) => ({ default: module.SubagentActions })),
-);
 
 /** One disclosure at the first launch of a batch, with flat rows for its direct children. */
 export function Subagents(props: { threadId: string; itemIds: readonly string[] }) {
@@ -90,11 +86,6 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
                 />
               ))}
             </ul>
-            <div className="mt-1 flex justify-end">
-              <Suspense fallback={null}>
-                <SubagentActions threadId={props.threadId} />
-              </Suspense>
-            </div>
           </>
         )}
       </div>

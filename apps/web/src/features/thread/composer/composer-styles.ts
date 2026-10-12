@@ -13,7 +13,7 @@ export const inputMinLines = 2;
 
 /** One size for every footer control; labels are 13/16 so nothing lands on a half pixel. */
 const control =
-  "inline-flex h-(--composer-control) items-center justify-center gap-1.5 rounded-sm text-ui leading-4 font-medium text-muted-foreground outline-none transition-[background-color,color,transform] duration-(--dur-1) hover:bg-accent hover:text-foreground active:scale-95 aria-expanded:text-foreground focus-visible:bg-accent focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-40 data-disabled:pointer-events-none data-disabled:opacity-40";
+  "inline-flex h-(--composer-control) items-center justify-center gap-1.5 rounded-full text-ui leading-4 font-medium text-muted-foreground outline-none transition-[background-color,color,transform] duration-(--dur-1) hover:bg-accent hover:text-foreground active:scale-95 aria-expanded:text-foreground focus-visible:bg-accent focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-40 data-disabled:pointer-events-none data-disabled:opacity-40";
 
 /** A square icon control: plus, send and stop. It never gives up its room. */
 export const iconControl = `${control} size-(--composer-control) shrink-0 px-0`;
@@ -30,6 +30,12 @@ export const chipControl = `${control} min-w-(--composer-control) shrink px-2.5`
 
 /** One material for the input and its attached panels. Cast shadows would tint the footer. */
 export const composerSurface = "glass border border-sidebar-border shadow-none outline-none";
+
+/** The top card's inset, overlap and lower padding share the surface spacing tokens. */
+export const attachedInset = "mx-[calc(var(--surface-gap)*2)]";
+export const attachedOverlap = "-mb-[calc(var(--surface-gap)*2)]";
+export const attachedStripPadding = "pb-[calc(var(--surface-gap)*2)]";
+export const attachedCardPadding = "pb-[calc(var(--surface-gap)*2+var(--surface-inset))]";
 
 /** The same glass, tucked behind the input's edge on a narrower panel. */
 export const attachedSurface = `${composerSurface} rounded-xl`;

@@ -30,5 +30,5 @@ test("the transcript opens on the newest window and pages older history in order
   await waitFor(() =>
     expect(screen.queryByRole("button", { name: "Load earlier messages" })).toBeNull(),
   );
-  expect(screen.getByText("Beginning of thread")).toBeTruthy();
+  expect(screen.queryByText("Beginning of thread")).toBeNull();
 });

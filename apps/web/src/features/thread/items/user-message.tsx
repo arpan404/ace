@@ -99,7 +99,7 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
     local.send?.state === "sent" ||
     local.send?.state === "failed";
   const time = (
-    <span className="mt-[5px] pr-1 text-xs text-subtle-foreground opacity-0 transition-opacity duration-(--dur-1) group-focus-within/bubble:opacity-100 group-hover/bubble:opacity-100">
+    <span className="pr-1 text-xs text-subtle-foreground">
       {message ? formatClock(message.createdAt) : " "}
     </span>
   );
@@ -119,37 +119,39 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
         )}
         <div ref={content}>{parts.length ? <MessageReferences parts={parts} /> : text}</div>
       </div>
-      {(text || parts.some((part) => part.type === "mention")) && (
-        <div className="flex items-center gap-2 pt-1 opacity-0 transition-opacity duration-(--dur-1) group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100 [@media(pointer:coarse)]:opacity-100">
-          <IconButton
-            icon={copied ? CheckIcon : CopyIcon}
-            label={copied ? "Copied message" : "Copy message"}
-            size="sm"
-            onClick={() => copy(content.current?.textContent ?? text)}
-          />
-          {copied && (
-            <span role="status" className="text-xs text-muted-foreground">
-              Copied
-            </span>
-          )}
-        </div>
-      )}
       {/* One line under the bubble: how its sending goes, else its time on hover. Both are
           the same height, so the row doesn't move when "Sending…" goes. */}
-      {saying ? (
-        <Suspense fallback={time}>
-          <DeferredSendStatus.Component
-            threadId={props.threadId}
-            itemId={props.itemId}
-            send={local.send}
-            staged={local.staged}
-            noticeId={noticeId}
-            otherwise={time}
-          />
-        </Suspense>
-      ) : (
-        time
-      )}
+      <div className="mt-1 flex min-h-6 items-center gap-2">
+        {saying ? (
+          <Suspense fallback={time}>
+            <DeferredSendStatus.Component
+              threadId={props.threadId}
+              itemId={props.itemId}
+              send={local.send}
+              staged={local.staged}
+              noticeId={noticeId}
+              otherwise={time}
+            />
+          </Suspense>
+        ) : (
+          time
+        )}
+        {(text || parts.some((part) => part.type === "mention")) && (
+          <div className="flex items-center gap-2 opacity-0 transition-opacity duration-(--dur-1) group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100">
+            <IconButton
+              icon={copied ? CheckIcon : CopyIcon}
+              label={copied ? "Copied message" : "Copy message"}
+              size="sm"
+              onClick={() => copy(content.current?.textContent ?? text)}
+            />
+            {copied && (
+              <span role="status" className="text-xs text-muted-foreground">
+                Copied
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

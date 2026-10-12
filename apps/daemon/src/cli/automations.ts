@@ -1,0 +1,40 @@
+import { ClientError, type Client } from "@ace/client";
+import { option, validateArgs, type Args } from "./args.ts";
+import { TriggerVariables } from "@ace/protocol";
+import { result, mutationResult } from "./io.ts";
+import { key } from "./mutations.ts";
+import { CliFailure } from "./output.ts";
+export async function automationCommand(args: Args, client: Client, signal: AbortSignal) {
+  const verb = args.words[1];
+  validateArgs(args, ["variables", "idempotency-key"], verb === "run" ? 3 : 2);
+  const id = verb === "run" ? key(args) : undefined;
+  try {
+    const response =
+      verb === "list"
+        ? await client.request({ type: "automation.list" }, { signal })
+        : verb === "run" && args.words[2]
+          ? await client.request(
+              {
+                type: "automation.run",
+                id: args.words[2],
+                variables: TriggerVariables.parse(JSON.parse(option(args, "variables") ?? "{}")),
+              },
+              { signal, ...(id ? { requestId: id } : {}) },
+            )
+          : undefined;
+    if (!response)
+      throw new CliFailure("refused", "Usage: ace automation list|run ID [--variables JSON]");
+    if (!response.ok) throw new CliFailure("refused", response.error ?? "Automation refused");
+    if (id)
+      await mutationResult(args, { ...response, idempotencyKey: id, automationId: args.words[2] });
+    else await result(args, response);
+  } catch (error) {
+    if (id && (signal.aborted || error instanceof ClientError))
+      throw new CliFailure(
+        "uncertain",
+        "Automation admission is unconfirmed. Retry the same automation with its idempotency key.",
+        { automationId: args.words[2], idempotencyKey: id },
+      );
+    throw error;
+  }
+}

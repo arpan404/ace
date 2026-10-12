@@ -40,13 +40,12 @@ test("a background command appears once in the transcript while its row keeps th
   expect(within(header).queryByRole("status")).toBeNull();
 });
 
-test("a thread waiting on subagents shows their count in its row and all active agents in its composer", async () => {
+test("a thread waiting on subagents keeps the transcript live with their count", async () => {
   const { header, row } = await open(waitingOnSubagents());
-  expect(
-    await within(await screen.findByRole("region", { name: "Agents" })).findByText(
-      "3 agents working",
-    ),
-  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Open work and agents" }).textContent).toContain(
+    "2 subagents",
+  );
+  expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Waiting on 2 subagents");
   expect(within(header).queryByRole("status")).toBeNull();
 });
@@ -60,14 +59,12 @@ test("a thread that asked a question keeps the waiting state in the thread and r
   expect(within(header).queryByRole("button", { name: /^Work card/ })).toBeNull();
 });
 
-test("a thread running tests keeps its activity in the composer and row without repeating it in the transcript", async () => {
-  const { feed, header, row } = await open(runningTests());
-  expect(
-    await within(await screen.findByRole("region", { name: "Agents" })).findByText(
-      /Running tests…$/,
-    ),
-  ).toBeTruthy();
-  expect(within(feed).queryByText("Running tests…")).toBeNull();
+test("a thread running tests names its current action in the transcript live line", async () => {
+  const { header, row } = await open(runningTests());
+  expect(screen.getByRole("button", { name: "Open work and agents" }).textContent).toContain(
+    "Running tests…",
+  );
+  expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Running tests…");
   expect(within(header).queryByRole("status")).toBeNull();
 });

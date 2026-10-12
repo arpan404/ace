@@ -1,6 +1,13 @@
+import { remoteCommand, redeemCommand } from "./remote.ts";
+import { logsCommand } from "./logs.ts";
+import { cloudCommand } from "./cloud.ts";
+import { browserCommand } from "./browser.ts";
+import { automationCommand } from "./automations.ts";
+import { controlCommand, stopCommand } from "./control.ts";
+import { providersCommand, loginCommand } from "./providers.ts";
 import { ClientError } from "@ace/client";
 import { readConfig } from "../config.ts";
-import { parseArgs, type Args } from "./args.ts";
+import { option, parseArgs, type Args } from "./args.ts";
 import { CliFailure, exitCodes } from "./output.ts";
 import { print, validateOutput } from "./io.ts";
 import { runtimeCommand } from "./runtime.ts";
@@ -9,6 +16,9 @@ import { connectCli } from "./connection.ts";
 import { runCommand } from "./work.ts";
 import { listThreads, threadCommand, waitThread } from "./threads.ts";
 import { taskCommand } from "./tasks.ts";
+import { projectCommand, remoteWorkProject } from "./projects.ts";
+import { openCommand } from "./open.ts";
+import { retentionCommand } from "./retention.ts";
 const help = `ace run [PROMPT|-] [--provider codex|claude] [--project ID|PATH] [--worktree] [--model MODEL]
 ace threads list [--project ID]
 ace thread read|send|steer|wait|approve|deny|cancel|interrupt ID [TEXT]
@@ -18,9 +28,27 @@ ace start|status|token|pair [SCOPES]|devices list|revoke ID
 ace service install|uninstall|start|stop|status
 ace accounts add|list|status|discover
 ace doctor|support-bundle PATH
+ace stop|kill-all [--thread ID|--provider PROVIDER|--project ID]
+ace mcp enroll --scope read|operate --ttl DURATION [--project ID]
+ace mcp list|revoke ID
+ace capabilities|providers status|login codex|claude
+ace serve|service install --linger
+ace remote add NAME HTTPS_ORIGIN --fingerprint PIN --device ID --token-file PATH
+ace remote list|use|remove NAME
+ace pair redeem [URL|-] --profile NAME
+ace cloud codex exec|list|status|diff|apply [PROMPT|TASK_ID]
+ace logs [-f]
+ace browser shot|record THREAD [--url URL] [--output PATH]
+ace automation list|run ID
+ace add [PATH]|project add|list|rename|remove|open
+ace open [PATH] [--web]
+ace chat [--project ID|PATH] [--provider PROVIDER] [--thread ID] [--model MODEL]
+ace storage [usage]|clean [plan] [--kinds logs,artifacts]
+ace clean apply PLAN_ID --revision REVISION|clean status PLAN_ID
 
 All commands: --json, --jq EXPR, --timeout DURATION
 Mutations: --idempotency-key KEY. Waits: --tree. Run: --stream jsonl.
+Remote run/chat: --project WORKSPACE_ID from ace project list; paths are refused.
 Exit: 0 ok, 1 failed, 2 needs-human, 3 timeout, 4 refused, 5 uncertain.
 `;
 export async function main(input: string[]): Promise<void> {
@@ -34,6 +62,12 @@ export async function main(input: string[]): Promise<void> {
     }
     const command = args.words[0] ?? "start";
     const config = readConfig();
+    if (command === "chat") {
+      const { chatCommand } = await import("./chat.ts");
+      return await chatCommand(args, config);
+    }
+    if (command === "open" || (command === "project" && args.words[1] === "open"))
+      return await openCommand(args, config);
     if (command === "accounts") {
       const { runAccountsCommand } = await import("@ace/accounts");
       const lines: string[] = [];
@@ -76,15 +110,54 @@ export async function main(input: string[]): Promise<void> {
       else process.stdout.write(output.join(""));
       return;
     }
-    if (["start", "service"].includes(command)) return await runtimeCommand(args, config);
+    if (command === "remote") return await remoteCommand(args, config.dataDir);
+    if (command === "pair" && args.words[1] === "redeem")
+      return await redeemCommand(args, config.dataDir);
+    if (command === "logs") return await logsCommand(args, config.dataDir);
+    if (command === "cloud") return await cloudCommand(args, config.dataDir);
+    if (command === "stop") return await stopCommand(args, config.dataDir);
+    if (["start", "serve", "service"].includes(command)) return await runtimeCommand(args, config);
     if (["status", "token", "pair", "devices"].includes(command))
       return await accessCommand(args, config.dataDir);
-    if (!["run", "threads", "thread", "task"].includes(command))
+    if (
+      ![
+        "run",
+        "threads",
+        "thread",
+        "task",
+        "kill-all",
+        "mcp",
+        "capabilities",
+        "providers",
+        "login",
+        "browser",
+        "automation",
+        "add",
+        "project",
+        "storage",
+        "clean",
+      ].includes(command)
+    )
       throw new CliFailure("refused", "Unknown command. See ace --help.");
     const session = await connectCli(config.dataDir, args);
     try {
-      if (command === "run") {
-        const id = await runCommand(args, session.client, session.signal);
+      if (command === "storage" || command === "clean")
+        await retentionCommand(args, session.client, session.signal);
+      else if (command === "add" || command === "project")
+        await projectCommand(args, session.client, session.signal, session.remote);
+      else if (command === "browser") await browserCommand(args, session.client, session.signal);
+      else if (command === "automation")
+        await automationCommand(args, session.client, session.signal);
+      else if (command === "kill-all" || command === "mcp")
+        await controlCommand(args, session.client, session.signal);
+      else if (command === "capabilities" || command === "providers")
+        await providersCommand(args, session.client, session.signal);
+      else if (command === "login") await loginCommand(args, session.client, session.signal);
+      else if (command === "run") {
+        const project = session.remote
+          ? await remoteWorkProject(option(args, "project"), session.client, session.signal)
+          : option(args, "project");
+        const id = await runCommand(args, session.client, session.signal, project);
         if (args.flags.stream === "jsonl")
           await waitThread(
             { ...args, flags: { ...args.flags, tree: true } },

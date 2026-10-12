@@ -23,6 +23,17 @@ export interface AccessHttp {
     signal?: AbortSignal,
   ): Promise<unknown>;
 }
+/** Native pinned transports and fetch clients use the same HTTP retry policy. */
+export function accessResponseError(status: number): ClientError {
+  return new ClientError(
+    status === 401 || status === 403
+      ? "auth"
+      : status === 429 || status >= 500
+        ? "offline"
+        : "daemon",
+    `HTTP ${status}`,
+  );
+}
 
 /** Bounded HTTP transport shared by access operations and single-use ticket exchange. */
 export function accessHttp(options: AccessOptions): AccessHttp {
@@ -106,14 +117,7 @@ export function accessHttp(options: AccessOptions): AccessHttp {
       });
     if (!response.ok) {
       await response.body?.cancel();
-      throw new ClientError(
-        response.status === 401 || response.status === 403
-          ? "auth"
-          : response.status === 429 || response.status >= 500
-            ? "offline"
-            : "daemon",
-        `HTTP ${response.status}`,
-      );
+      throw accessResponseError(response.status);
     }
     if (!response.body) throw new ClientError("protocol");
     const reader = response.body.getReader();

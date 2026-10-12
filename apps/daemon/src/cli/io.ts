@@ -50,9 +50,13 @@ export async function result(args: Args, value: unknown, outcome: Outcome = "ok"
   await print(args, value);
   process.exitCode = exitCodes[outcome];
 }
-export async function mutationResult(args: Args, value: unknown): Promise<void> {
+export async function mutationResult(
+  args: Args,
+  value: unknown,
+  outcome: Outcome = "ok",
+): Promise<void> {
   try {
-    await result(args, value);
+    await result(args, value, outcome);
   } catch {
     throw new CliFailure(
       "uncertain",

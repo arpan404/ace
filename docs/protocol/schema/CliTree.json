@@ -6,6 +6,9 @@
       "attention": {
         "type": "string"
       },
+      "cancelled": {
+        "type": "boolean"
+      },
       "pending": {
         "type": "boolean"
       },
@@ -106,7 +109,8 @@
       "threadId",
       "status",
       "pending",
-      "queue"
+      "queue",
+      "cancelled"
     ],
     "type": "object"
   },

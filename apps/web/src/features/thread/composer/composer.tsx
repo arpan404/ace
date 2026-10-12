@@ -634,6 +634,11 @@ function ComposerBody({
         return;
       }
     }
+    if (event.key === "Escape" && props.busy && props.onStop && !props.stopping) {
+      event.preventDefault();
+      props.onStop();
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       if (answer) return sendAnswer();

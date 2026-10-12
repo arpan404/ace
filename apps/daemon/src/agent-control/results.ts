@@ -36,7 +36,12 @@ export function threadOutcome(store: Store, thread: Thread, cancelled = false): 
   const result = parts.join("\n");
   return {
     threadId: thread.id,
-    outcome: cancelled ? "cancelled" : thread.status.state === "failed" ? "failed" : "completed",
+    outcome:
+      cancelled || thread.queue?.lastFailure?.code === "cancelled"
+        ? "cancelled"
+        : thread.status.state === "failed"
+          ? "failed"
+          : "completed",
     result,
     truncated,
     before: page.itemsBefore,

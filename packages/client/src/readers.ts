@@ -32,6 +32,8 @@ export interface ThreadReader {
   /** Fresh membership lists: select with the "agents", "interactions" or "tasks" key and
    * an array equality, because each call returns a new array. */
   agentIds(): readonly string[];
+  /** Retained server runs, including runs whose agents have emitted no transcript items. */
+  runIds?(): readonly string[];
   children(agentId: string): readonly string[];
   interactionIds(): readonly string[];
   taskIds(): readonly string[];

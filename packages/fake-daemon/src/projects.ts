@@ -533,6 +533,28 @@ export class FakeProjects {
     }
     this.seed();
     try {
+      if (op.op === "workspace.get") {
+        const project = this.projects.get(op.workspaceId);
+        if (!project) throw new Error("workspace_not_found");
+        this.checked(project.path);
+        return wrap({ kind: "project", project });
+      }
+      if (op.op === "workspace.list") {
+        const page = this.list(op.after, op.limit);
+        const projects = page.workspaces.filter((project) => {
+          try {
+            this.checked(project.path);
+            return true;
+          } catch {
+            return false;
+          }
+        });
+        return wrap({
+          kind: "projects",
+          projects,
+          next: page.next ? WorkspaceId.parse(page.next) : null,
+        });
+      }
       if (op.op === "workspace.clone.validate") {
         try {
           return wrap({ kind: "cloneUrl", ...parseCloneUrl(op.url) });

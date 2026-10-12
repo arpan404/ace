@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ThreadId } from "./ids.ts";
+import { ThreadId, WorkspaceId } from "./ids.ts";
 import { DelegationRequest, AgentControlResult } from "./agent-control.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { QueueState } from "./queue.ts";
@@ -7,6 +7,22 @@ import { AgentTaskView } from "./agent-orchestration.ts";
 import { DelegationOutcome } from "./agent-control.ts";
 
 export const CliOperation = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("capabilities") }),
+  z.object({
+    op: z.literal("process.kill_all"),
+    threadId: ThreadId.optional(),
+    provider: z.string().max(128).optional(),
+    project: WorkspaceId.optional(),
+    key: z.string().regex(/^[a-zA-Z0-9_.-]{1,128}$/),
+  }),
+  z.object({
+    op: z.literal("mcp.enroll"),
+    scope: z.enum(["read", "operate"]),
+    ttlMs: z.number().int().positive().max(86400000),
+    project: WorkspaceId.optional(),
+  }),
+  z.object({ op: z.literal("mcp.list") }),
+  z.object({ op: z.literal("mcp.revoke"), id: z.string().min(1).max(128) }),
   z.object({ op: z.literal("thread.tree"), threadId: ThreadId }),
   z.object({ op: z.literal("task.spawn"), parentId: ThreadId, request: DelegationRequest }),
   z.object({ op: z.literal("task.status"), threadId: ThreadId }),
@@ -29,6 +45,7 @@ export const CliTree = z
       pending: z.boolean(),
       queue: QueueState.extend({ uncertain: z.boolean() }),
       attention: z.string().optional(),
+      cancelled: z.boolean(),
     }),
   )
   .max(65);
