@@ -12,7 +12,7 @@ struct NativeTextInput: UIViewRepresentable {
         view.font = AceTheme.uiFont(AceTheme.Typography.body, relativeTo: .body, traits: view.traitCollection)
         view.adjustsFontForContentSizeCategory = true
         view.backgroundColor = .clear
-        view.textContainerInset = .zero
+        view.textContainerInset = UIEdgeInsets(top: AceTheme.Spacing.md, left: AceTheme.Spacing.none, bottom: AceTheme.Spacing.md, right: AceTheme.Spacing.none)
         view.textContainer.lineFragmentPadding = AceTheme.Spacing.none
         view.isScrollEnabled = false
         view.accessibilityIdentifier = "composer.input"
@@ -32,7 +32,7 @@ struct NativeTextInput: UIViewRepresentable {
         guard let width = proposal.width else { return nil }
         let line = UIFontMetrics(forTextStyle: .body).scaledValue(for: AceTheme.Typography.body.lineHeight, compatibleWith: uiView.traitCollection)
         let height = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-        return CGSize(width: width, height: max(line, min(height, line * 5)))
+        return CGSize(width: width, height: max(AceTheme.Dimensions.touchTarget, min(height, line * 5 + AceTheme.Spacing.md * 2)))
     }
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     @MainActor final class Coordinator: NSObject, UITextViewDelegate {

@@ -13,7 +13,7 @@ struct ComposerView: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: AceTheme.Spacing.md) {
             NativeTextInput(text: $draft.text, inputBegan: inputBegan)
-                .overlay(alignment: .topLeading) {
+                .overlay(alignment: .leading) {
                     if draft.text.isEmpty { Text("Steer or follow up…").aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.subtleForeground).allowsHitTesting(false) }
                 }
             Menu {
