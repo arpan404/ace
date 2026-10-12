@@ -1,10 +1,12 @@
-import { chmod, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { once } from "node:events";
+import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
-import { GitService, isMutationUnavailable } from "./index.ts";
+import { GitError, GitService, isMutationUnavailable } from "./index.ts";
 import { git, put, repository, scalar, scratch } from "./test-repo.ts";
 
-const service = new GitService();
+const service = new GitService({ transportProtocols: ["file"] });
 
 /** A bare `origin`, a working copy that publishes to it, and a fresh clone of it. */
 async function remoteSetup() {
@@ -111,29 +113,47 @@ test("an unreachable remote fails the fetch as unreachable and the repository st
   ).resolves.toMatchObject({ branch: "ace/after" });
 });
 
-test("a fetch that outlives its deadline is stopped without quarantining the repository", async () => {
-  const { clone, directory } = await remoteSetup();
-  // A transport that never answers, configured the way a person would configure their own ssh.
-  const hang = join(directory, "hang.sh");
-  await writeFile(hang, "#!/bin/sh\nexec sleep 600\n");
-  await chmod(hang, 0o755);
-  await git(clone, "config", "core.sshCommand", hang);
-  await git(clone, "remote", "set-url", "origin", "ssh://git.example.invalid/repo.git");
-  const before = await scalar(clone, "rev-parse", "refs/remotes/origin/main");
-
-  const failure = await service
-    .fetchBranch({ repo: clone, remote: "origin", branch: "main", timeoutMs: 500 })
-    .catch((error: unknown) => error);
-
-  expect(failure).toMatchObject({ code: "git_timeout" });
-  expect(isMutationUnavailable(failure)).toBe(false);
-  expect(await service.mutationState(clone)).toEqual({ status: "available", leases: [] });
-  expect(await scalar(clone, "rev-parse", "refs/remotes/origin/main")).toBe(before);
-  await expect(service.status(clone)).resolves.toMatchObject({ conflicted: [] });
-  const path = join(dirname(clone), "after-timeout");
-  await expect(
-    service.createWorktree({ repo: clone, path, baseRef: before, branch: "ace/after-timeout" }),
-  ).resolves.toMatchObject({ head: before });
+test("a fetch deadline preserves its cleanup receipt without holding a working-tree mutation lease", async () => {
+  const { clone } = await remoteSetup();
+  const requested = Promise.withResolvers<void>();
+  const server = createServer(() => {
+    requested.resolve();
+  });
+  const fetcher = new GitService({
+    transportProtocols: ["http"],
+    credentialHelperLookup: async () => [],
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing HTTP address");
+  try {
+    await git(clone, "remote", "set-url", "origin", `http://127.0.0.1:${address.port}/repo.git`);
+    const before = await scalar(clone, "rev-parse", "refs/remotes/origin/main");
+    const operation = fetcher
+      .fetchBranch({ repo: clone, remote: "origin", branch: "main", timeoutMs: 500 })
+      .catch((error: unknown) => error);
+    await Promise.race([
+      requested.promise,
+      operation.then(() => {
+        throw new Error("Fetch ended before reaching the remote");
+      }),
+    ]);
+    const failure = await operation;
+    expect(failure).toMatchObject({ code: "git_timeout" });
+    expect(isMutationUnavailable(failure)).toBe(true);
+    if (!(failure instanceof GitError) || !failure.cleanup)
+      throw new Error("Missing fetch cleanup receipt");
+    expect(await failure.cleanup.settled).toMatchObject({ status: "unconfirmed" });
+    expect(await fetcher.mutationState(clone)).toEqual({ status: "available", leases: [] });
+    expect(await scalar(clone, "rev-parse", "refs/remotes/origin/main")).toBe(before);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+    await fetcher.close();
+  }
 });
 
 test("branch heads resolve only literal branch names, locally or on a remote", async () => {
