@@ -79,7 +79,15 @@ export interface ActivityOptions {
 export function activityText(activity: TurnActivity, now: number): string {
   if (activity.elapsedFrom === undefined)
     return activity.code ? `${activity.label} ${activity.code}` : activity.label;
-  return `${activity.label} for ${formatElapsed(Math.max(0, now - activity.elapsedFrom))}`;
+  return `${timedWords(activity.label)} ${formatElapsed(Math.max(0, now - activity.elapsedFrom))}`;
+}
+
+/**
+ * The words before a turn's time: "Working for 3m 6s". A label already in motion ("Stopping…")
+ * takes the time bare: "Stopping… 3s".
+ */
+export function timedWords(label: string): string {
+  return label.endsWith("…") ? label : `${label} for`;
 }
 
 /** "Paused · Codex usage limit · resets 6:00 PM": a usage-limit pause, live or in history. */

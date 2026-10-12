@@ -184,3 +184,8 @@ it("a mixed group names two kinds as a sentence: commands and a file read", () =
     ),
   ).toBe("Ran 3 commands and read 1 file");
 });
+
+it("a group of one kind shows that kind's icon: listings show the listing icon", () => {
+  const { groups } = groupSteps(facts([shell("a", "ls apps"), shell("b", "ls packages")]));
+  expect(groups[0]).toMatchObject({ icon: "list", explore: true });
+});

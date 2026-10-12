@@ -242,10 +242,11 @@ export function groupSentence(facts: readonly StepFact[]): string {
 
 /** The group's icon kind. */
 export function groupIcon(facts: readonly StepFact[]): GroupIcon {
-  if (exploreOnly(facts)) return "explore";
   const kinds = new Set(facts.map((fact) => fact.kind));
   const [only] = kinds;
-  return kinds.size === 1 && only ? only : "mixed";
+  // One kind of step (only listings, say) shows that kind's icon, as each of its rows does.
+  if (kinds.size === 1 && only) return only;
+  return exploreOnly(facts) ? "explore" : "mixed";
 }
 
 function makeGroup(facts: readonly StepFact[]): StepGroup {

@@ -11,8 +11,6 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
  */
 
 const caches = new WeakMap<ClientApi, ToolIconCache>();
-/** How long an icon that may come later waits before it is asked for again. */
-const retryMs = 30_000;
 
 function cacheOf(client: ClientApi): ToolIconCache {
   let cache = caches.get(client);
@@ -22,7 +20,7 @@ function cacheOf(client: ClientApi): ToolIconCache {
       read: (ref) => client.request({ type: "icons.read", ref }),
       // The page's wall clock, at the browser boundary.
       now: () => Date.now(),
-      retryMs,
+      schedule: (run, ms) => void setTimeout(run, ms),
     });
     caches.set(client, cache);
   }
@@ -38,14 +36,16 @@ export function useToolIcon(threadId: string, itemId: string, ref?: IconRef): Ic
     read,
     read,
   );
+  // An icon the daemon said may come later waits; the cache says when the wait is over, and the
+  // row asks again right then.
+  const readWaiting = useCallback(() => cache.waiting(threadId, itemId), [cache, threadId, itemId]);
+  const waiting = useSyncExternalStore(
+    useCallback((listener) => cache.subscribe(listener), [cache]),
+    readWaiting,
+    readWaiting,
+  );
   useEffect(() => {
-    if (image !== undefined) return;
-    const load = () => cache.load(ThreadId.parse(threadId), itemId, ref);
-    load();
-    // An icon the daemon said may come later is asked for again once its wait is over (the
-    // cache ignores an ask inside the wait, or while one is on its way).
-    const timer = setInterval(load, retryMs);
-    return () => clearInterval(timer);
-  }, [cache, threadId, itemId, ref, image]);
+    if (image === undefined && !waiting) cache.load(ThreadId.parse(threadId), itemId, ref);
+  }, [cache, threadId, itemId, ref, image, waiting]);
   return image;
 }

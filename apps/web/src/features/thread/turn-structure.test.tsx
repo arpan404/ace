@@ -452,10 +452,11 @@ test("an open turn has a quiet work log that becomes timed history when the turn
   script.runThrough("spoke");
   await app.open("/t/thread-frozen");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  expect(screen.getByRole("status", { name: "Working" })).toBeTruthy();
+  // The turn's live head sits at its top, inside the transcript, until the whole tree settles.
+  expect(within(feed).getByRole("group", { name: "Turn in progress" }).textContent).toMatch(
+    /^Working for/,
+  );
   expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
-  expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
-  expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
 
   now = 101_000;
   act(() => script.runThrough("settled"));
@@ -574,9 +575,12 @@ test("a finished child with no spawn link does not claim the active parent's tur
   script.runThrough("child-finished");
   await app.open("/t/thread-unlinked");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  expect(screen.getByRole("status", { name: "Working" })).toBeTruthy();
+  expect(within(feed).getByRole("group", { name: "Turn in progress" }).textContent).toMatch(
+    /^Working for/,
+  );
   expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
-  expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
   act(() => app.daemon.apply("thread-unlinked", [endTurn("root")]));
   expect(await within(feed).findByRole("button", { name: /^Worked for 4s/ })).toBeTruthy();
+  // Settled: the live head is gone.
+  expect(within(feed).queryByRole("group", { name: "Turn in progress" })).toBeNull();
 });

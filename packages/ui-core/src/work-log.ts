@@ -7,7 +7,16 @@ import { formatElapsed } from "./time.ts";
 import { planCount, planProgress, planTodos } from "./plan.ts";
 import { exploreAction } from "./explore-command.ts";
 
-export type StepIcon = "read" | "search" | "shell" | "edit" | "web" | "tool" | "think" | "note";
+export type StepIcon =
+  | "read"
+  | "search"
+  | "list"
+  | "shell"
+  | "edit"
+  | "web"
+  | "tool"
+  | "think"
+  | "note";
 
 /** How one work-log row reads: "Ran `bun run test`  exit 0". Pure. */
 export interface StepText {
@@ -135,7 +144,7 @@ function callText(call: ToolCall, context: StepContext): CallText {
       // A command that only looks reads as what it did: "Searched", "Read", "Listed".
       const explored = exploreAction(command.command);
       return {
-        icon: explored === "search" ? "search" : explored === "read" ? "read" : "shell",
+        icon: explored ?? "shell",
         verb:
           explored === "search"
             ? "Searched"

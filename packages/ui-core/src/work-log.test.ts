@@ -356,6 +356,6 @@ test("a shell command that only looks reads as what it did, not as a run", () =>
     icon: "search",
   });
   expect(describeStep(shellStep("cat package.json"))).toMatchObject({ verb: "Read", icon: "read" });
-  expect(describeStep(shellStep("ls apps"))).toMatchObject({ verb: "Listed" });
+  expect(describeStep(shellStep("ls apps"))).toMatchObject({ verb: "Listed", icon: "list" });
   expect(describeStep(shellStep("bun run test"))).toMatchObject({ verb: "Ran", icon: "shell" });
 });

@@ -1,4 +1,4 @@
-import { formatElapsed } from "@ace/ui-core";
+import { formatElapsed, timedWords } from "@ace/ui-core";
 import { useContext, useLayoutEffect, useRef } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useMotionReduced } from "@/lib/motion.ts";
@@ -8,7 +8,8 @@ import { TimeContext } from "@/lib/time.ts";
  * Something is working: a tiny 3x3 pixel grid whose lit cells walk round it, words, and how long
  * it has run in monospace ("Working for 3m 6s"). The grid steps on the page's shared one-second clock
  * and writes through refs, so it costs no React render and no perpetual CSS animation; under
- * reduced motion it holds one still pattern. `WorkingGlyph` is exported for other rows to reuse.
+ * reduced motion it holds one still pattern. Any row that shows something working (a sidebar
+ * row, say) can use `WorkingIndicator` for the same look.
  */
 
 /** The order the lit cell walks: round the edge, clockwise. */
@@ -16,7 +17,7 @@ const walk = [0, 1, 2, 5, 8, 7, 6, 3] as const;
 const still = new Set([0, 2, 4, 6, 8]);
 
 /** The pixel-grid glyph. `moving: false` holds the still pattern (waiting, stale). */
-export function WorkingGlyph(props: { moving?: boolean; className?: string }) {
+function WorkingGlyph(props: { moving?: boolean; className?: string }) {
   const grid = useRef<HTMLSpanElement>(null);
   const { seconds } = useContext(TimeContext);
   const reduced = useMotionReduced();
@@ -71,9 +72,12 @@ export function ElapsedTime(props: { from: number; className?: string }) {
   return <span ref={element} className={cn("font-mono text-xs tabular-nums", props.className)} />;
 }
 
-/** `[grid] Working for 3m 6s`: the glyph, the words, and the time it has run. */
+/**
+ * `[grid] Working for 3m 6s`: the glyph, the words, and the time it has run. Without a time it
+ * reads the bare label ("Working"); with one, "for" joins them (`timedWords`).
+ */
 export function WorkingIndicator(props: {
-  /** Words before the time; "Working for" by default. */
+  /** What is happening; "Working" by default. */
   label?: string;
   /** When the work began; no time without it. */
   from?: number | undefined;
@@ -82,16 +86,20 @@ export function WorkingIndicator(props: {
   className?: string;
 }) {
   const moving = props.held === undefined;
+  const label = props.label ?? "Working";
+  const timed = props.held !== undefined || props.from !== undefined;
   return (
     <span className={cn("inline-flex min-w-0 items-center gap-2", props.className)}>
       <WorkingGlyph moving={moving} />
-      {/* The trailing space keeps the words apart when read as text. */}
-      <span className="shrink-0">{`${props.label ?? "Working for"} `}</span>
-      {props.held !== undefined ? (
-        <span className="font-mono text-xs tabular-nums">{formatElapsed(props.held)}</span>
-      ) : (
-        props.from !== undefined && <ElapsedTime from={props.from} />
-      )}
+      {/* One run of text, one space: "Working for 3m 6s". */}
+      <span className="shrink-0">
+        {timed ? `${timedWords(label)} ` : label}
+        {props.held !== undefined ? (
+          <span className="font-mono text-xs tabular-nums">{formatElapsed(props.held)}</span>
+        ) : (
+          props.from !== undefined && <ElapsedTime from={props.from} />
+        )}
+      </span>
     </span>
   );
 }

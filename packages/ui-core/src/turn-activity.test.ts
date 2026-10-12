@@ -16,6 +16,7 @@ import { ledgerOf } from "./thread-ledger.ts";
 import { listTreeFacts, treeWorking } from "./live-status.ts";
 import {
   activityText,
+  timedWords,
   readTurnActivity,
   turnActivity,
   type ActivityReader,
@@ -624,4 +625,15 @@ test("a continuation recovered with only its new output still uses the original 
   });
   expect(activityText(turnActivity(thread.reader, "root")!, 45_000)).toBe("Working for 45s");
   expect(turnTreeOf(thread.reader).settled("run-1")).toBe(false);
+});
+
+test('a turn\'s time reads after "for", except after a label already in motion', () => {
+  expect(timedWords("Working")).toBe("Working for");
+  expect(timedWords("Stopping…")).toBe("Stopping…");
+  expect(
+    activityText(
+      { label: "Stopping…", tone: "working", elapsedFrom: 0, current: undefined },
+      3 * second,
+    ),
+  ).toBe("Stopping… 3s");
 });

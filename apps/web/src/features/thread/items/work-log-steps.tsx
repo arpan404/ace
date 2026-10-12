@@ -174,7 +174,7 @@ function TargetChip(props: { target: string }) {
   const path = slash > 0 && slash < props.target.length - 1 && !/\s/.test(props.target);
   if (!path)
     return (
-      <code className={chip}>
+      <code className={chip} title={props.target}>
         <span className="min-w-0 truncate">{props.target}</span>
       </code>
     );
