@@ -1,4 +1,4 @@
-import { StoragePlan, type StorageApply } from "@ace/protocol";
+import { StoragePlan, StorageApply } from "@ace/protocol";
 import { z } from "zod";
 import type { Store } from "../store.ts";
 import { ReviewedStorageItem } from "./types.ts";
@@ -10,6 +10,7 @@ export const CleanupJournal = z.object({
   state: z.enum(["review", "applying", "complete", "stale"]),
   compact: z.boolean(),
   compaction: z.enum(["not_requested", "complete", "deferred"]),
+  compactionReason: StorageApply.shape.compactionReason,
 });
 export type CleanupJournal = z.infer<typeof CleanupJournal>;
 
@@ -77,6 +78,7 @@ export class StorageJournal {
           error: entry.error,
         })),
       compaction: journal.compaction,
+      ...(journal.compactionReason ? { compactionReason: journal.compactionReason } : {}),
     };
   }
 }

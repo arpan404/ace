@@ -10,15 +10,10 @@ export async function startStorage(context: ServiceContext): Promise<void> {
     now: context.now,
     id: context.id,
     root: context.config.dataDir,
-    signal: context.signal,
-    ...(context.options.storageCompaction ? { compaction: context.options.storageCompaction } : {}),
   };
   const storage = new StorageService(owner);
   context.resources.own(() => storage.close());
   context.resources.onShutdown(() => storage.stop());
-  context.onListen.push((server) => {
-    storage.bindMaintenance(server.maintenance);
-  });
   // Recovery finishes after the other listener-phase services have recovered their ownership.
   const scheduled =
     (await context.services.settings?.get("storage.scheduledCleanup"))?.value === true;

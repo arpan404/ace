@@ -7,13 +7,11 @@ import { Thread, WorkspaceId, type ThreadId } from "@ace/protocol";
 import type { Services } from "../services/types.ts";
 import { Store } from "../store.ts";
 import { StorageService } from "./service.ts";
-import type { CompactionRuntime } from "./compaction-process.ts";
 
 export const storageNow = 200 * 86400000;
 export async function storageFixture(
   directory?: string,
   afterRemove?: (id: string) => Promise<void>,
-  compaction?: CompactionRuntime,
 ) {
   const root = directory ?? (await realpath(await mkdtemp(join(tmpdir(), "ace-storage-"))));
   let clock = storageNow,
@@ -42,7 +40,6 @@ export async function storageFixture(
     store,
     services,
     ...(afterRemove ? { afterRemove } : {}),
-    ...(compaction ? { compaction } : {}),
   });
   const thread = (id: string, status: Thread["status"] = { state: "done" }) => {
     const t = Thread.parse({

@@ -37,7 +37,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|compaction-process|fork|pty|account-management|process-guardian|pi-login-driver|session|api-key)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management|process-guardian|pi-login-driver|session|api-key|builtins)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -58,13 +58,10 @@ export async function bundleDaemon(
                   '"./mcp-ready-plugin"',
                   '"./opencode-mcp-ready-plugin"',
                 );
+              if (args.path.endsWith("/plugins/src/builtins.ts"))
+                contents = contents.replace('"../builtin-skills"', '"./builtin-skills"');
               if (args.path.endsWith("/mcp-server/src/injection.ts"))
                 contents = contents.replace('"./stdio-entry.ts"', '"./acp-mcp-bridge.mjs"');
-              if (args.path.endsWith("/daemon/src/storage/compaction-process.ts"))
-                contents = contents.replace(
-                  '"./compaction-worker.ts"',
-                  '"./storage-compaction-worker.mjs"',
-                );
               if (args.path.endsWith("/daemon/src/history-publisher.ts"))
                 contents = contents.replace(
                   '"./history-publish-worker.ts"',
@@ -156,6 +153,9 @@ export async function bundleDaemon(
     chunkNames: "chunk-[hash]",
     outExtension: { ".js": ".mjs" },
   });
+  await cp(join(repo, "packages/plugins/builtin-skills"), join(root, "builtin-skills"), {
+    recursive: true,
+  });
   if (!daemon.metafile) throw new Error("Bundle metadata is required");
   const inputs = new Set(Object.keys(daemon.metafile.inputs));
   const runtimeManifests = await stageRuntimePackages(repo, root, target);
@@ -176,7 +176,6 @@ export async function bundleDaemon(
     ["packages/adapter-claude/src/fork-worker.ts", "claude-fork-worker.mjs"],
     ["apps/daemon/src/cursor-account-terminal.ts", "cursor-account-terminal.mjs"],
     ["apps/daemon/src/history-publish-worker.ts", "history-publish-worker.mjs"],
-    ["apps/daemon/src/storage/compaction-worker.ts", "storage-compaction-worker.mjs"],
     ["packages/adapter-cursor/src/host-entry.ts", "cursor-sdk-host.mjs"],
     ["packages/adapter-cursor/src/api-key-entry.ts", "cursor-api-key.mjs"],
     ["packages/adapter-pi/src/extension.ts", "pi-extension.mjs"],

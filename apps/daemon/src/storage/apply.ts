@@ -6,7 +6,6 @@ import type { StorageJournal, CleanupJournal } from "./journal.ts";
 import { planStorageItem } from "./planner.ts";
 import { executeStorageItem, fenceStorageItem } from "./executor.ts";
 import { StorageRefusal } from "./refusal.ts";
-import { compactStorage } from "./compaction.ts";
 
 const missing = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "ENOENT";
@@ -110,7 +109,11 @@ export async function applyStorageItems(
       )
     )
       return journal.result(state);
-    if (state.compact) state.compaction = allowed() ? await compactStorage(owner) : "deferred";
+    // Compatibility for reviewed/recovered plans. No SQLite maintenance is performed.
+    if (state.compact) {
+      state.compaction = "deferred";
+      state.compactionReason = "disabled";
+    }
     state.state = "complete";
     journal.save(state);
     return journal.result(state);

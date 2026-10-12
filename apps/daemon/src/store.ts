@@ -310,7 +310,7 @@ export class Store {
         this.depth--;
       }
     }
-    this.db.exec(this.storageCompacting ? "BEGIN" : "BEGIN IMMEDIATE");
+    this.db.exec("BEGIN IMMEDIATE");
     this.transactionEvents = [];
     let result: T;
     let events: Event[];
@@ -401,21 +401,6 @@ export class Store {
       this.publishing = false;
     }
   }
-  private storageCompacting = false;
-  /** Engine intake waits; synchronous metadata mutations fail fast while WAL readers stay available. */
-  beginStorageCompaction(): void {
-    if (this.isHistoryWriting() || this.transactionEvents)
-      throw new Error("storage_compaction_busy");
-    this.setHistoryWriting(true);
-    this.storageCompacting = true;
-    this.db.exec("PRAGMA query_only=ON; PRAGMA busy_timeout=0");
-  }
-  endStorageCompaction(): void {
-    if (!this.storageCompacting) return;
-    this.db.exec("PRAGMA query_only=OFF; PRAGMA busy_timeout=5000");
-    this.storageCompacting = false;
-    this.setHistoryWriting(false);
-  }
   private historyWaiters = new Set<() => void>();
   isHistoryWriting(): boolean {
     return this.historyWriting;
@@ -437,13 +422,6 @@ export class Store {
       });
       signal?.throwIfAborted();
     }
-  }
-  /** Await maintenance, then commit synchronous writes without an admission/commit gap. */
-  async write<T>(run: () => T, signal?: AbortSignal): Promise<T> {
-    signal?.throwIfAborted();
-    while (this.historyWriting) await this.writable(signal);
-    signal?.throwIfAborted();
-    return this.transaction(run);
   }
   setHistoryWriting(active: boolean): void {
     if (active && this.historyWriting) throw new Error("History publication in progress");

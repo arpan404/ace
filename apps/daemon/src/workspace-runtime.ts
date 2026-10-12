@@ -156,12 +156,6 @@ export class WorkspaceRuntime {
   hasOwnedWork(id: ThreadId): boolean {
     return this.liveTerminalCount(id) > 0;
   }
-  get hasActiveTerminals(): boolean {
-    return (
-      this.pendingOpens > 0 ||
-      [...this.terminals.values()].some((entry) => entry.terminal.ownsProcesses)
-    );
-  }
   /** Include retained job groups even when their shell has exited. */
   liveTerminalCount(id: ThreadId): number {
     let count = 0;
@@ -199,14 +193,14 @@ export class WorkspaceRuntime {
   }
   async openTerminal(threadId: ThreadId, name: string, cols = 80, rows = 24): Promise<string> {
     if (threadCleaning(this.store, threadId)) throw new Error("thread_deleting");
+    for (const [key, entry] of this.terminals)
+      if (!terminalAlive(entry.terminal)) {
+        await this.manager.release(entry.terminal);
+        this.terminals.delete(key);
+      }
+    if (this.terminals.size + this.pendingOpens >= 64) throw new Error("terminal_limit");
     this.pendingOpens++;
     try {
-      for (const [key, entry] of this.terminals)
-        if (!terminalAlive(entry.terminal)) {
-          await this.manager.release(entry.terminal);
-          this.terminals.delete(key);
-        }
-      if (this.terminals.size + this.pendingOpens > 64) throw new Error("terminal_limit");
       const terminal = this.manager.openTerminal({ cwd: this.root(threadId), name, cols, rows });
       const id = `terminal-${this.terminalId()}`;
       this.terminals.set(id, { threadId, terminal });

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { storageFixture } from "./test-support.ts";
 
-test("a daemon crash after removing bytes resumes the durable plan without repeating other effects", async () => {
+test("a daemon crash resumes accepted removals while an old compaction request stays disabled", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-storage-crash-")));
   let f = await storageFixture(root);
   try {
@@ -28,6 +28,8 @@ test("a daemon crash after removing bytes resumes the durable plan without repea
     await f.storage.resume();
     expect(f.storage.status("owner", plan.id)).toMatchObject({
       state: "complete",
+      compaction: "deferred",
+      compactionReason: "disabled",
       items: [{ state: "removed" }, { state: "removed" }],
     });
     await expect(access(second)).rejects.toMatchObject({ code: "ENOENT" });

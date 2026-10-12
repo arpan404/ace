@@ -27,12 +27,8 @@ export class StorageService {
   private tail: Promise<unknown> = Promise.resolve();
   private queued = 0;
   private closed = false;
-  private lifetime = new AbortController();
   constructor(owner: StorageOwner) {
     this.owner = owner;
-    this.owner.signal = owner.signal
-      ? AbortSignal.any([owner.signal, this.lifetime.signal])
-      : this.lifetime.signal;
     initializeThreadCleanup(owner.store);
     this.journal = new StorageJournal(owner.store);
     this.inventory = new StorageInventory(owner);
@@ -284,12 +280,8 @@ export class StorageService {
     }
     return { type: "storage.result", requestId: request.requestId, result };
   }
-  bindMaintenance(maintenance: NonNullable<StorageOwner["maintenance"]>): void {
-    this.owner.maintenance = maintenance;
-  }
   stop(): void {
     this.closed = true;
-    this.lifetime.abort();
   }
   async close(): Promise<void> {
     this.stop();

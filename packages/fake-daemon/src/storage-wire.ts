@@ -111,7 +111,8 @@ export class FakeStorageWire {
           saved.result = {
             planId: saved.plan.id,
             state: stale ? "stale" : "complete",
-            compaction: "not_requested",
+            compaction: !stale && op.compact ? "deferred" : "not_requested",
+            ...(!stale && op.compact ? { compactionReason: "disabled" as const } : {}),
             items: saved.plan.items
               .filter((item) => item.disposition === "remove")
               .map((item) => ({

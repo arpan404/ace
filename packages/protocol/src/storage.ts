@@ -112,6 +112,8 @@ export const StorageApply = z.object({
     )
     .max(256),
   compaction: z.enum(["not_requested", "complete", "deferred"]),
+  /** Compaction is disabled until every daemon writer uses an enforced Store gate. */
+  compactionReason: z.literal("disabled").optional(),
 });
 export type StorageApply = z.infer<typeof StorageApply>;
 export const StorageRequest = z.object({
@@ -129,6 +131,7 @@ export const StorageRequest = z.object({
       op: z.literal("cleanup.apply"),
       planId: id,
       revision: StoragePlan.shape.revision,
+      /** Retained for compatibility. True defers compaction with reason `disabled`. */
       compact: z.boolean().default(false),
     }),
     z.object({ op: z.literal("cleanup.status"), planId: id }),
