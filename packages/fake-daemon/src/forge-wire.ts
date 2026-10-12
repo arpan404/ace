@@ -5,6 +5,8 @@ import {
   type CommandPayload,
   type CommandResult,
   type ForgePrRef,
+  type ForgeRepository,
+  type ForgeMergeState,
 } from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
 /** Scripted forge state uses the canonical contract, including optimistic merge guards. */
@@ -13,21 +15,30 @@ export class FakeForgeWire {
   private links = new Map<string, ForgePrStatus>();
   private sequence = 0;
   private publications = new Map<string, ForgePrStatus>();
-  /** Threads whose PR merges as soon as its checks pass (`forge.pr.auto-merge`). */
-  private autoMerge = new Set<string>();
   constructor(context: FakeServiceContext) {
     this.context = context;
   }
   status(id: string): ForgePrStatus | null {
     return [...this.links].findLast(([key]) => key.startsWith(`${id}:`))?.[1] ?? null;
   }
+  mergeState(
+    workspaceId: string,
+    repository: ForgeRepository | undefined,
+    number: number,
+  ): ForgeMergeState | undefined {
+    return [...this.links].find(
+      ([key, status]) =>
+        this.context.thread(key.split(":")[0] ?? "")?.thread.workspaceId === workspaceId &&
+        status.ref.number === number &&
+        (!repository || JSON.stringify(repository) === JSON.stringify(status.ref.repository)),
+    )?.[1].mergeState;
+  }
   /** Link a pull request the forge already knows: its checks, comments and state. */
   seed(threadId: string, status: ForgePrStatus): void {
     if (!this.context.thread(threadId)) throw new Error(`No thread ${threadId} to link`);
     this.sequence = Math.max(this.sequence, status.ref.number);
     const next = ForgePrStatus.parse(status);
-    // As GitHub does, a PR with auto-merge on merges once its checks pass.
-    this.publish(threadId, this.autoMerge.has(threadId) && ready(next) ? merged(next) : next);
+    this.publish(threadId, next);
   }
   private publish(id: string, status: ForgePrStatus): void {
     this.links.set(linkKey(id, status.ref), status);
@@ -105,7 +116,6 @@ export class FakeForgeWire {
               (!p.repo || JSON.stringify(p.repo) === JSON.stringify(status.ref.repository))))
         )
           this.links.delete(key);
-      this.autoMerge.delete(id);
       const thread = this.context.thread(id)?.thread;
       this.context.update(id, {
         type: "thread.client.updated",
@@ -166,11 +176,44 @@ export class FakeForgeWire {
     )
       return { ok: false, error: "forge_not_found" };
     if (p.type === "forge.pr.status") return { ok: true, prStatus: status };
-    if (p.type === "forge.pr.merge" || p.type === "forge.pr.auto-merge") {
+    if (p.type === "forge.pr.merge") {
       if (p.headSha !== status.headSha) return { ok: false, error: "forge_conflict" };
-      if (p.type === "forge.pr.merge" || ready(status))
-        this.publish(ThreadId.parse(id), merged(status));
-      else this.autoMerge.add(id);
+      this.publish(ThreadId.parse(id), merged(status));
+    }
+    if (p.type === "forge.pr.merge-state.change" || p.type === "forge.pr.auto-merge") {
+      const state = status.mergeState;
+      if (!state) return { ok: false, error: "forge_unsupported" };
+      if (p.headSha !== state.headSha) return { ok: false, error: "forge_conflict" };
+      const action = p.type === "forge.pr.auto-merge" ? "enable" : p.action;
+      if (
+        !(action === "enable"
+          ? state.canEnable
+          : action === "disable"
+            ? state.canDisable
+            : state.canDequeue)
+      )
+        return { ok: false, error: "forge_forbidden" };
+      this.publish(id, {
+        ...status,
+        mergeState: {
+          ...state,
+          autoMerge:
+            action === "enable"
+              ? {
+                  method: p.method.toUpperCase(),
+                  actor: "person",
+                  enabledAt: new Date(this.context.now()).toISOString(),
+                }
+              : action === "disable"
+                ? null
+                : state.autoMerge,
+          queue: action === "dequeue" ? null : state.queue,
+          canEnable:
+            action !== "enable" && (action === "disable" ? !state.queue : !state.autoMerge),
+          canDisable: action === "enable" || (action === "dequeue" && state.canDisable),
+          canDequeue: action !== "dequeue" && state.canDequeue,
+        },
+      });
     }
     if (p.type === "forge.comment.reply") {
       if (status.comments.length >= 64) return { ok: false, error: "forge_limit" };
@@ -195,8 +238,6 @@ export class FakeForgeWire {
   }
 }
 
-const ready = (status: ForgePrStatus) =>
-  status.state === "open" && status.ci === "success" && status.mergeability === "mergeable";
 const merged = (status: ForgePrStatus): ForgePrStatus => ({ ...status, state: "merged" });
 
 const linkKey = (id: string, ref: ForgePrRef) => `${id}:${JSON.stringify(ref)}`;

@@ -16,6 +16,7 @@ export * from "./github-lifecycle.ts";
 
 export * from "./write-dispatch.ts";
 export { GhApi } from "./http.ts";
+export { mergeStateChangeObserved } from "./merge-state.ts";
 export * from "./review-anchor.ts";
 export * from "./github-reviews.ts";
 export * from "./review-comment-body.ts";

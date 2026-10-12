@@ -1,3 +1,4 @@
+import { useIssueSource } from "@/features/forge/index.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { PastSessions } from "@/features/history/index.ts";
 import { ProjectPicker } from "./project-picker.tsx";
@@ -111,6 +112,7 @@ export function NewThreadPage(props: {
   project?: string | undefined;
   base?: string | undefined;
   skill?: string | undefined;
+  issue?: string | undefined;
 }) {
   const { storage } = useLayout();
   const { project: filter } = useOrganizerState();
@@ -128,7 +130,14 @@ export function NewThreadPage(props: {
       </Screen>
     );
   if (props.project && !projects.includes(props.project))
-    return <UnavailablePreparation host={host} project={props.project} skill={props.skill} />;
+    return (
+      <UnavailablePreparation
+        host={host}
+        project={props.project}
+        skill={props.skill}
+        issue={props.issue}
+      />
+    );
   if (!projects.length || !project)
     return (
       <Screen title="New thread">
@@ -137,13 +146,16 @@ export function NewThreadPage(props: {
     );
   return (
     <PreparationPage
-      key={preparationKey(host, project, props.skill)}
+      key={preparationKey(host, project, props.skill, props.issue)}
       {...props}
       host={host}
       project={project}
       onProject={(next) => {
         saveChoices(storage, { ...loadChoices(storage), project: next });
-        void navigate({ to: "/new", search: { project: next, skill: props.skill } });
+        void navigate({
+          to: "/new",
+          search: { project: next, skill: props.skill, issue: props.issue },
+        });
       }}
     />
   );
@@ -154,6 +166,7 @@ function PreparationPage(props: {
   project: string;
   base?: string | undefined;
   skill?: string | undefined;
+  issue?: string | undefined;
   onProject(project: string): void;
 }) {
   const { storage } = useLayout();
@@ -161,7 +174,8 @@ function PreparationPage(props: {
   const { ids: projects, name, loaded } = useRegisteredProjects();
   usePreparationsChanged();
   const project = props.project;
-  const draftKey = preparationKey(props.host, project, props.skill);
+  const issueSource = useIssueSource(project, props.issue);
+  const draftKey = preparationKey(props.host, project, props.skill, props.issue);
   const [restored] = useState<Preparation | undefined>(() => {
     const previous = preparation(storage, props.host, draftKey);
     if (previous?.discardRecovery) {
@@ -269,6 +283,7 @@ function PreparationPage(props: {
       project,
       owner: editorOwner,
       skill: props.skill,
+      issue: props.issue,
       choices: { ...snapshot(selection ?? previous?.choices ?? choices, resolved), project },
       settingsResolved: completed || !!resolved.model,
       provider: selection ? provider : (previous?.provider ?? provider),
@@ -474,7 +489,8 @@ function PreparationPage(props: {
                     ? "No model selected. Open the model menu to refresh or sign in."
                     : admitted.fallback;
   const send = async (draft: Draft) => {
-    if (!project || !resolved.model || admissionProblem || !scope.draftId) return false;
+    if (!project || !resolved.model || admissionProblem || issueSource.problem || !scope.draftId)
+      return false;
     submitting.current = true;
     const submittedRevision = preparation(storage, props.host, draftKey)?.revision;
     const submittedContent = JSON.stringify(readDraft(storage, draftKey));
@@ -486,6 +502,7 @@ function PreparationPage(props: {
     const sent = await create({
       project,
       draftKey,
+      issue: issueSource.ref,
       scope: resolved.model.scope,
       model: resolved.model.id,
       mode: resolved.mode,
@@ -613,7 +630,7 @@ function PreparationPage(props: {
           <div className="shrink-0">
             <Composer
               ref={composer}
-              key={project}
+              key={`${project}:${issueSource.ref ? JSON.stringify(issueSource.ref) : ""}`}
               onPlan={() => {
                 if (provider === "claude") setPermission("plan");
               }}
@@ -645,11 +662,14 @@ function PreparationPage(props: {
                   title: content.text.trim().split("\n")[0]?.slice(0, 100) || "Attached files",
                 });
               }}
-              initialText={props.skill ? `/${props.skill} ` : undefined}
+              initialText={issueSource.text ?? (props.skill ? `/${props.skill} ` : undefined)}
               busy={false}
               sendBlocked={
-                admissionProblem
-                  ? { reason: admissionProblem, describedBy: readinessId }
+                admissionProblem || issueSource.problem
+                  ? {
+                      reason: admissionProblem || issueSource.problem || "",
+                      describedBy: readinessId,
+                    }
                   : undefined
               }
               onSubmit={send}
@@ -729,9 +749,9 @@ function PreparationPage(props: {
                 />
               }
             />
-            {admissionProblem && (
+            {(admissionProblem || issueSource.problem) && (
               <p id={readinessId} role="status" className="mt-2 px-4 text-xs text-muted-foreground">
-                {admissionProblem}
+                {admissionProblem || issueSource.problem}
               </p>
             )}
             <SignInNotice provider={provider} />

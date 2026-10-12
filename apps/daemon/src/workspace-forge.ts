@@ -1,3 +1,8 @@
+import { commandNotDispatched } from "./command-not-dispatched.ts";
+import { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
+import { actionErrorCode } from "./action-errors.ts";
+import { IssueActions } from "./issue-actions.ts";
+import type { Command } from "@ace/protocol";
 import { ForgeResourceOwner } from "./forge-resource-owner.ts";
 import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
 import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
@@ -35,6 +40,8 @@ export class WorkspaceForge {
   private lifecycle: WorkspaceForgeLifecycle;
   private replyReceipts: ForgeReplyReceipts;
   private git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>;
+  private issueLinks: WorkspaceIssueLinks;
+  private issueActions: IssueActions;
   private reviews: WorkspaceForgeReviews;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
@@ -55,6 +62,8 @@ export class WorkspaceForge {
   ) {
     this.store = store;
     this.lifecycle = new WorkspaceForgeLifecycle(store, this.owner);
+    this.issueLinks = new WorkspaceIssueLinks(store);
+    this.issueActions = new IssueActions(store);
     this.stacks = new WorkspaceForgeStacks(store, now);
     this.reviews = new WorkspaceForgeReviews(store, this.owner);
     this.replyReceipts = new ForgeReplyReceipts(store);
@@ -118,6 +127,32 @@ export class WorkspaceForge {
       if (this.owner.current(ref, revision)) this.publishLifecycle(value.snapshot);
       return { resource: "prLifecycle", value };
     }
+    if (operation.op === "forge.issue.list")
+      return { resource: "issueList", value: await backend.listIssues(operation.query, signal) };
+    if (operation.op === "forge.issue.timeline")
+      return {
+        resource: "issueTimeline",
+        ...(await backend.issueTimeline(operation.number, operation.page, signal)),
+      };
+    if (operation.op === "forge.issue.actions")
+      return {
+        resource: "issueActions",
+        actions: this.issueActions.list(repository, operation.number),
+      };
+    if (operation.op === "forge.issue.detail") {
+      const value = await backend.issueDetail(operation.number, signal);
+      return {
+        resource: "issueDetail",
+        value: { ...value, ...this.issueLinks.related(value.ref) },
+      };
+    }
+    if (operation.op === "forge.pr.merge-state") {
+      const { value, writeState } = await this.actions.readMergeState(
+        { repository, number: operation.number },
+        () => backend.prMergeState(operation.number, signal),
+      );
+      return { resource: "prMergeState", value: { ...value, writeState } };
+    }
     if (operation.op === "forge.pr.stack")
       return {
         resource: "prStack",
@@ -180,6 +215,27 @@ export class WorkspaceForge {
       },
     };
   }
+  async issueCommand(command: Command, cwd: string, allowed: () => boolean) {
+    const p = command.payload;
+    if (p.type === "forge.issue.link") {
+      await (
+        await this.backend(cwd, p.issue.repository)
+      ).issueDetail(p.issue.number, this.lifetime.signal);
+      if (!allowed()) throw new Error("forbidden");
+      this.issueLinks.link(p.threadId, p.issue, this.now());
+      return { ok: true, threadId: p.threadId, issue: p.issue };
+    }
+    if (p.type !== "forge.issue.write" && p.type !== "forge.issue.reconcile")
+      throw new Error("invalid_command");
+    let backend: GitHubForge;
+    try {
+      backend = await this.backend(cwd, p.repository);
+    } catch (error) {
+      return commandNotDispatched(command, actionErrorCode(error));
+    }
+    return this.issueActions.execute(command, backend, allowed, this.lifetime.signal);
+  }
+
   async link(
     id: ThreadId,
     cwd: string,
@@ -508,6 +564,11 @@ export class WorkspaceForge {
     if (!allowed()) throw new Error("forbidden");
     const generation = this.links.getLinkState(id, p.link.pr)?.generation;
     const backend = await this.backend(cwd, p.link.pr.repository);
+    if (
+      (p.type === "forge.pr.merge-state.change" || p.type === "forge.pr.auto-merge") &&
+      generation === undefined
+    )
+      return { ok: false, error: "forge_not_found" };
     if (p.type === "forge.pr.stack.change") {
       if (generation === undefined) return { ok: false, error: "forge_not_found" };
       if (
@@ -533,8 +594,12 @@ export class WorkspaceForge {
       };
     }
     if (p.type !== "forge.pr.status")
-      return this.actions.execute(p, backend, this.lifetime.signal, allowed, (status) =>
-        this.projection.update(id, status, generation),
+      return this.actions.execute(
+        p,
+        backend,
+        this.lifetime.signal,
+        () => allowed() && this.links.getLinkState(id, p.link.pr)?.generation === generation,
+        (status) => this.projection.update(id, status, generation),
       );
     const { value } = await this.actions.readDetail(p.link.pr, async () => ({
       status: await backend.status(p.link.pr.number, this.lifetime.signal),

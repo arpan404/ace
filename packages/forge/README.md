@@ -53,6 +53,20 @@ The daemon's project-scoped `forge.hosted.lifecycle` command journals each write
 
 The PR workspace has a separate Metadata and lifecycle section. Metadata and revert summaries persist locally per repository/PR; failed writes retain them, and stale edits need an explicit refresh decision. A revert is created as a draft with its own diff, reviews and ordinary GitHub checks. Formatting, lint and serial package typechecks are the local verification path for this change; CI must execute the written behavior tests and full typecheck.
 
+## Repository issues
+
+Repository issues share the `GitHubForge` transport and CLI boundary. Search excludes pull requests,
+uses literal text plus bounded filters, and caps results at 1,000 (25 per page). Detail reads viewer
+permissions from GitHub; the paged timeline labels issue comments separately from activity and PR
+references. Unknown provider fields remain in `raw`.
+
+Issue writes use the daemon's durable command owner plus a resource-scoped action journal. An
+uncertain result blocks another write to that issue (or another create) until read-only reconciliation
+finds the marked issue/comment or confirms the requested edit/state. The recovery window is bounded
+at 1,000 records; absence never permits replaying a POST. Unsent editor content is stored per device,
+project, repository, issue and action. Issue links have their own indexed owner and never change PR
+associations. Thread admission records the source issue in the same transaction as creation.
+
 ## Hosted reviews
 
 `GitHubForge.reviews` reads the logged-in viewer, review-thread permissions and GitHub file-viewed marks. It submits commit-bound reviews, replies and conversation comments, edits/deletes the viewer's own comments, and resolves/unresolves hosted threads through the bounded `gh` transport. Hosted inline anchors use `@ace/forge/review-anchor`; they never use a local Changes session.

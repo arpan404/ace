@@ -27,6 +27,7 @@ export function PrLifecycle(props: {
   detail: ForgePrDetail;
   onRefresh(): void;
   refreshVersion?: number;
+  writeDisabled?: boolean;
 }) {
   const client = useClient();
   const ready = useConnectionState() === "ready";
@@ -109,7 +110,13 @@ export function PrLifecycle(props: {
   const unresolved = query.data?.operations.some(
     (op) => op.state === "pending" || op.state === "uncertain",
   );
-  const disabled = !ready || pending || !snapshot || Boolean(query.error) || unresolved === true;
+  const disabled =
+    !ready ||
+    pending ||
+    props.writeDisabled === true ||
+    !snapshot ||
+    Boolean(query.error) ||
+    unresolved === true;
   return (
     <section
       aria-label="Pull request metadata and lifecycle"

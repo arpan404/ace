@@ -1,3 +1,4 @@
+import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { createWritingCli } from "./source-control-cli.ts";
 import {
   SourceControlContext,
@@ -207,6 +208,11 @@ export class WorkspaceRuntime {
     });
     if (
       op.op === "forge.pr.lifecycle" ||
+      op.op === "forge.issue.list" ||
+      op.op === "forge.issue.detail" ||
+      op.op === "forge.issue.timeline" ||
+      op.op === "forge.issue.actions" ||
+      op.op === "forge.pr.merge-state" ||
       op.op === "forge.pr.stack" ||
       op.op === "forge.pr.stack-memberships" ||
       op.op === "forge.pr.review-state" ||
@@ -356,12 +362,17 @@ export class WorkspaceRuntime {
   }
   execute(command: Command, allowed: () => boolean = allowLocalAction): Promise<CommandResult> {
     return this.commands.run(command, async () => {
-      if (!allowed()) return { ok: false, error: "forbidden" };
+      if (!allowed()) return commandNotDispatched(command, "forbidden");
       const p = command.payload;
       if (p.type === "forge.hosted.lifecycle") {
         const cwd = this.store.getWorkspacePath(p.workspaceId);
         if (!cwd) return { ok: false, error: "workspace_not_found" };
         return this.forge.hostedLifecycle({ ...command, payload: p }, cwd, allowed);
+      }
+      if (p.type === "forge.issue.write" || p.type === "forge.issue.reconcile") {
+        const cwd = this.store.getWorkspacePath(p.workspaceId);
+        if (!cwd) return commandNotDispatched(command, "workspace_not_found");
+        return this.forge.issueCommand(command, cwd, allowed);
       }
       if (p.type === "forge.hosted.review") {
         const cwd = this.store.getWorkspacePath(p.workspaceId);
@@ -403,6 +414,7 @@ export class WorkspaceRuntime {
         return { ok: true, threadId };
       }
       const cwd = this.root(threadId);
+      if (p.type === "forge.issue.link") return this.forge.issueCommand(command, cwd, allowed);
       if (p.type === "git.commit")
         return {
           ok: true,

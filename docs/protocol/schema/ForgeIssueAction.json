@@ -1,0 +1,40 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeIssueAction.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "enum": [
+        "create",
+        "comment",
+        "edit",
+        "state"
+      ],
+      "type": "string"
+    },
+    "error": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/CommandId.json"
+    },
+    "issue": {
+      "$ref": "https://ace.local/protocol/v1/ForgeIssueRef.json"
+    },
+    "state": {
+      "enum": [
+        "pending",
+        "uncertain",
+        "succeeded",
+        "failed"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "state",
+    "action"
+  ],
+  "type": "object"
+}

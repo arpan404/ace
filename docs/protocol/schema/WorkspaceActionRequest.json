@@ -31,6 +31,135 @@
         },
         {
           "properties": {
+            "op": {
+              "const": "forge.issue.list",
+              "type": "string"
+            },
+            "query": {
+              "$ref": "https://ace.local/protocol/v1/ForgeIssueSearch.json"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "number": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "op": {
+              "const": "forge.issue.detail",
+              "type": "string"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId",
+            "number"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "number": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "op": {
+              "const": "forge.issue.timeline",
+              "type": "string"
+            },
+            "page": {
+              "default": 1,
+              "maximum": 120,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId",
+            "number"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "number": {
+              "default": 0,
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "op": {
+              "const": "forge.issue.actions",
+              "type": "string"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "number": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "op": {
+              "const": "forge.pr.merge-state",
+              "type": "string"
+            },
+            "repository": {
+              "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+            },
+            "workspaceId": {
+              "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+            }
+          },
+          "required": [
+            "op",
+            "workspaceId",
+            "number"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "number": {
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991,

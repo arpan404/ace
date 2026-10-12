@@ -1,3 +1,4 @@
+import { commandNotDispatched } from "../command-not-dispatched.ts";
 import { createWritingCli } from "../source-control-cli.ts";
 import { loadHostId } from "../local-files.ts";
 import { computerName } from "../computer-name.ts";
@@ -6,7 +7,13 @@ import { actionErrorCode } from "../action-errors.ts";
 import { logError } from "@ace/diagnostics";
 import { WorkspaceRefresh } from "../workspace-refresh.ts";
 import { PullRequestAutoLink } from "../pr-auto-link.ts";
-import { ThreadId, ForgeCommand, WorkspaceCommands, WorkspaceActionResult } from "@ace/protocol";
+import {
+  ThreadId,
+  ForgeCommand,
+  ForgeIssueCommands,
+  WorkspaceCommands,
+  WorkspaceActionResult,
+} from "@ace/protocol";
 import { WorkspaceRuntime } from "../workspace-runtime.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -74,6 +81,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
       types: [
         ...WorkspaceCommands.map((schema) => schema.shape.type.value),
         ...ForgeCommand.options.map((schema) => schema.shape.type.value),
+        ...ForgeIssueCommands.map((schema) => schema.shape.type.value),
       ],
       scope: (command) => (command.payload.type === "forge.pr.status" ? "read" : "operate"),
       async accept(command) {
@@ -82,14 +90,14 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
         if (
           !options.workspaceActions ||
           (p.type !== "forge.hosted.lifecycle" &&
+            p.type !== "forge.issue.write" &&
+            p.type !== "forge.issue.reconcile" &&
             p.type !== "forge.hosted.review" &&
             (!id || !canReadThread(ThreadId.parse(id))))
         ) {
           send({
             type: "commandResult",
-            commandId: command.id,
-            ok: false,
-            error: "workspace_unavailable",
+            ...commandNotDispatched(command, "workspace_unavailable"),
           });
           return;
         }
@@ -99,6 +107,8 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
             connected() &&
             authorize(p.type === "forge.pr.status" ? "read" : "operate") &&
             (p.type === "forge.hosted.lifecycle" ||
+              p.type === "forge.issue.write" ||
+              p.type === "forge.issue.reconcile" ||
               p.type === "forge.hosted.review" ||
               (id !== undefined && canReadThread(ThreadId.parse(id)))),
         );

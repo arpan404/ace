@@ -6,6 +6,45 @@
       "properties": {
         "action": {
           "enum": [
+            "enable",
+            "disable",
+            "dequeue"
+          ],
+          "type": "string"
+        },
+        "headSha": {
+          "pattern": "^[a-fA-F0-9]{40,64}$",
+          "type": "string"
+        },
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "method": {
+          "enum": [
+            "merge",
+            "squash",
+            "rebase"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "forge.pr.merge-state.change",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link",
+        "headSha",
+        "action",
+        "method"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "enum": [
             "merge",
             "rebase",
             "continue",

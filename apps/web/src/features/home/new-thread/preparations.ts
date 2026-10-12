@@ -10,6 +10,7 @@ const Preparation = z.object({
   revision: z.number().int().nonnegative().optional(),
   project: z.string(),
   skill: z.string().optional(),
+  issue: z.string().max(4096).optional(),
   choices: Choices,
   settingsResolved: z.boolean().optional(),
   provider: ProviderKind.optional(),
@@ -26,8 +27,8 @@ const Preparation = z.object({
 export type Preparation = z.infer<typeof Preparation>;
 const Records = z.array(z.tuple([z.string(), Preparation]));
 const storageKey = (host: string) => `ace.preparations:${host}`;
-export const preparationKey = (host: string, project: string, skill?: string) =>
-  `new:${JSON.stringify([host, project, skill ?? ""])}`;
+export const preparationKey = (host: string, project: string, skill?: string, issue?: string) =>
+  `new:${JSON.stringify([host, project, skill ?? "", ...(issue ? [issue] : [])])}`;
 
 // Notifications and failed-write notices stay in memory; durable rows remain the authority.
 const listeners = new Set<() => void>();

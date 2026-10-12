@@ -1,3 +1,4 @@
+import { prIndicatorFields, prIndicators } from "./github-browser-enrichment.ts";
 import { z } from "zod";
 import { ForgePrRef, type ForgeRepository, type ForgePrStatus } from "@ace/protocol/forge";
 import {
@@ -84,10 +85,14 @@ export class GitHubBrowser {
             node_id: z.string().optional(),
             event: z.string().max(256),
             actor: z
-              .looseObject({ login: z.string().max(256) })
+              .looseObject({ login: z.string().max(256), avatar_url: z.string().optional() })
               .nullable()
               .optional(),
             created_at: z.string().nullable().optional(),
+            sha: z.string().optional(),
+            submitted_at: z.string().nullable().optional(),
+            label: z.looseObject({ name: z.string() }).optional(),
+            requested_reviewer: z.looseObject({ login: z.string() }).nullable().optional(),
           }),
         )
         .max(25),
@@ -95,13 +100,20 @@ export class GitHubBrowser {
     );
     const next = this.#api.next(response, path);
     return {
-      events: records.map((record, index) => ({
-        id: String(record.id ?? record.node_id ?? `${page}:${index}`),
-        event: record.event,
-        actor: record.actor?.login ?? "GitHub",
-        at: record.created_at ?? null,
-        raw: record,
-      })),
+      events: records.map((record, index) =>
+        Object.assign(
+          {
+            id: String(record.id ?? record.node_id ?? `${page}:${index}`),
+            event: record.event,
+            actor: record.actor?.login ?? "GitHub",
+            at: record.created_at ?? record.submitted_at ?? null,
+            actorAvatarUrl: record.actor?.avatar_url,
+            subject: record.label?.name ?? record.requested_reviewer?.login,
+            raw: record,
+          },
+          record.sha && /^[a-fA-F0-9]{40,64}$/.test(record.sha) ? { commitSha: record.sha } : {},
+        ),
+      ),
       ...(next && page < 120 ? { nextPage: page + 1 } : {}),
       truncated: Boolean(next && page === 120),
     };
@@ -123,28 +135,36 @@ export class GitHubBrowser {
       const selected = ForgePrSearch.parse({ ...query, state });
       return `${state}: search(type: ISSUE, query: ${JSON.stringify(prSearchQuery(this.#repository, selected))}, first: 1) { issueCount }`;
     });
-    const counts = decode(
-      Counts,
-      (await this.#api.request("graphql", signal, { query: `query { ${fields.join(" ")} }` })).body,
-    ).data;
+    const response = await this.#api.request("graphql", signal, {
+      query: `query { ${fields.join(" ")} ${prIndicatorFields(
+        this.#repository,
+        page.items.map((item) => item.number),
+      )} }`,
+    });
+    const counts = decode(Counts, response.body).data;
+    const indicators = prIndicators(response.body);
     return {
       repository: this.#repository,
-      items: page.items.map((item) => ({
-        raw: item,
-        ref: { repository: this.#repository, number: item.number },
-        title: item.title,
-        url: item.html_url,
-        author: item.user?.login ?? "deleted user",
-        labels: item.labels.map((l) => l.name),
-        updatedAt: item.updated_at,
-        state: item.pull_request.merged_at
-          ? "merged"
-          : item.state === "closed"
-            ? "closed"
-            : item.draft
-              ? "draft"
-              : "open",
-      })),
+      items: page.items.map((item, index) =>
+        Object.assign({}, indicators[`p${index}`], {
+          raw: { search: item, indicators: indicators[`p${index}`]?.raw },
+          ref: { repository: this.#repository, number: item.number },
+          title: item.title,
+          url: item.html_url,
+          author: item.user?.login ?? "deleted user",
+          authorAvatarUrl: item.user?.avatar_url,
+          commentCount: indicators[`p${index}`]?.commentCount ?? item.comments,
+          labels: item.labels.map((l) => l.name),
+          updatedAt: item.updated_at,
+          state: item.pull_request.merged_at
+            ? "merged"
+            : item.state === "closed"
+              ? "closed"
+              : item.draft
+                ? "draft"
+                : "open",
+        }),
+      ),
       total: page.total_count,
       counts: {
         open: counts.open.issueCount,
@@ -172,6 +192,14 @@ export class GitHubBrowser {
     if (decision.headRefOid !== status.headSha) throw new ForgeError("conflict");
     return {
       status,
+      updatedAt: raw.updated_at,
+      createdAt: raw.created_at,
+      additions: raw.additions,
+      deletions: raw.deletions,
+      authorAvatarUrl: raw.user?.avatar_url,
+      reviewerAvatars: Object.fromEntries(
+        raw.requested_reviewers.flatMap((u) => (u.avatar_url ? [[u.login, u.avatar_url]] : [])),
+      ),
       body: raw.body ?? "",
       author: raw.user?.login ?? "deleted user",
       headBranch: raw.head.ref,
@@ -214,9 +242,46 @@ export class GitHubBrowser {
       sha: item.sha,
       message: item.commit.message,
       author: item.author?.login ?? item.commit.author?.name ?? "deleted user",
+      authorAvatarUrl: item.author?.avatar_url,
       date: item.commit.author?.date ?? null,
       url: item.html_url,
     }));
+    // One bounded GraphQL batch supplies statistics absent from REST's commit list.
+    if (commits.length) {
+      const fields = commits.map(
+        (c, i) =>
+          `c${i}: object(oid: ${JSON.stringify(c.sha)}) { ... on Commit { oid additions deletions } }`,
+      );
+      const stats = decode(
+        z.object({
+          data: z.object({
+            repository: z.record(
+              z.string(),
+              z
+                .looseObject({
+                  oid: z.string(),
+                  additions: z.number().int().nonnegative(),
+                  deletions: z.number().int().nonnegative(),
+                })
+                .nullable(),
+            ),
+          }),
+        }),
+        (
+          await this.#api.request("graphql", signal, {
+            query: `query { repository(owner:${JSON.stringify(this.#repository.owner)}, name:${JSON.stringify(this.#repository.name)}) { ${fields.join(" ")} } }`,
+          })
+        ).body,
+      ).data.repository;
+      commits.forEach((commit, i) => {
+        const stat = stats[`c${i}`];
+        if (stat) commit.raw = { commit: commit.raw, statistics: stat };
+        if (stat?.oid === commit.sha) {
+          commit.additions = stat.additions;
+          commit.deletions = stat.deletions;
+        }
+      });
+    }
     await this.#head(number, headSha, undefined, signal);
     return {
       commits,

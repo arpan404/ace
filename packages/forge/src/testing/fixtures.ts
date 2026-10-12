@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { createCommandRunner, GitHubForge } from "../index.ts";
-import { repository, sha } from "./identities.ts";
+import { repository, sha, nextSha } from "./identities.ts";
 
 // A completion safeguard, not a performance assertion. Allow the real runner's
 // 30-second command deadline to finish before Vitest aborts the enclosing test.
@@ -159,6 +159,35 @@ export async function fakeGh(
     },
     async cleanup() {
       await rm(dir, { recursive: true, force: true });
+    },
+  };
+}
+export { issueRecord, issuePermissions } from "./issue-fixtures.ts";
+
+/** Authoritative merge-state facts shared by process fixtures. */
+export function mergeStateResponse(overrides: Record<string, unknown> = {}): Response {
+  return {
+    body: {
+      data: {
+        repository: {
+          viewerPermission: "WRITE",
+          pullRequest: {
+            id: "PR_7",
+            number: 7,
+            headRefOid: sha,
+            state: "OPEN",
+            isDraft: false,
+            mergeStateStatus: "BLOCKED",
+            reviewDecision: "REVIEW_REQUIRED",
+            statusCheckRollup: { state: "SUCCESS" },
+            autoMergeRequest: null,
+            mergeQueueEntry: null,
+            viewerCanEnableAutoMerge: true,
+            viewerCanDisableAutoMerge: true,
+            ...overrides,
+          },
+        },
+      },
     },
   };
 }

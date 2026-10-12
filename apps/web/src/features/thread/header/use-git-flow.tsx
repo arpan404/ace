@@ -70,6 +70,7 @@ const failed: Record<GitChange["kind"], string> = {
  * disagree about what is possible or why not.
  */
 export function useGitFlow(thread: ThreadRef): {
+  threadId: string;
   checkout: ReturnType<typeof useCheckoutState>["checkout"];
   status: ForgePrStatus | undefined;
   linkedPrs: ReturnType<typeof useCheckoutState>["linkedPrs"];
@@ -151,6 +152,7 @@ export function useGitFlow(thread: ThreadRef): {
       )
     );
   return {
+    threadId: thread.id,
     checkout,
     status,
     linkedPrs,

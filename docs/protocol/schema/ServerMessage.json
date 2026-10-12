@@ -1402,6 +1402,12 @@
         "inspection": {
           "$ref": "https://ace.local/protocol/v1/ProjectInspection.json"
         },
+        "issue": {
+          "$ref": "https://ace.local/protocol/v1/ForgeIssueRef.json"
+        },
+        "issueAction": {
+          "$ref": "https://ace.local/protocol/v1/ForgeIssueAction.json"
+        },
         "ok": {
           "type": "boolean"
         },
