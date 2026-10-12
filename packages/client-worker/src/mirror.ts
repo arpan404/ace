@@ -81,6 +81,9 @@ export class MirrorThread implements ThreadSource {
   agentIds() {
     return this.links.ids;
   }
+  runIds(): readonly string[] {
+    return [...this.runs.keys()];
+  }
   children(agentId: string): readonly string[] {
     return [...(this.links.children[agentId] ?? none)];
   }

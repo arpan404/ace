@@ -179,6 +179,8 @@ export class ThreadLedger {
       this.tasksDirty = false;
     }
     this.syncOrder(reader);
+    const liveRun = reader.thread?.live?.rootRunId;
+    if (liveRun) this.followRun(reader, liveRun);
     return this;
   }
 
@@ -391,19 +393,7 @@ export class ThreadLedger {
       return;
     }
     const run = rootRunOf(reader, item.runId)?.id;
-    const before = this.stretch.run;
-    if (run !== undefined && before !== undefined && run !== before) {
-      const next = reader.run(run);
-      if (carriesOnStretch(next?.trigger)) {
-        const ended = reader.run(before)?.endedAt;
-        if (ended !== undefined && next && next.startedAt > ended)
-          this.stretch.idle += next.startedAt - ended;
-        this.stretch.run = run;
-      } else this.stretch = { ...newStretch(run), origin: reader.run(run)?.startedAt };
-    } else if (run !== undefined) {
-      this.stretch.run = run;
-      this.stretch.origin ??= reader.run(run)?.startedAt;
-    }
+    if (run !== undefined) this.followRun(reader, run);
     if (!isWork(item)) return;
     const stretch = this.stretch;
     const start = startOf(item);
@@ -417,6 +407,24 @@ export class ThreadLedger {
     if (!this.backgroundCalls.has(item.id))
       stretch.start = Math.min(stretch.start ?? Number.POSITIVE_INFINITY, start);
     if (this.flying.has(item.id)) stretch.flying.add(item.id);
+  }
+
+  private followRun(reader: LedgerReader, id: string) {
+    const next = reader.run(id);
+    if (!next) return;
+    const before = this.stretch.run ? reader.run(this.stretch.run) : undefined;
+    if (id === this.stretch.run) {
+      this.stretch.origin ??= next.startedAt;
+      return;
+    }
+    // A late child output from an older turn cannot take over the current server clock.
+    if (before && next.startedAt < before.startedAt) return;
+    if (before && carriesOnStretch(next.trigger)) {
+      this.stretch.origin ??= before.startedAt;
+      if (before.endedAt !== undefined && next.startedAt > before.endedAt)
+        this.stretch.idle += next.startedAt - before.endedAt;
+      this.stretch.run = id;
+    } else this.stretch = { ...newStretch(id), origin: next.startedAt };
   }
 
   private recheckFlying(reader: LedgerReader) {

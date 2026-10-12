@@ -12,6 +12,7 @@ type Reader = Pick<
   | "run"
   | "agent"
   | "agentIds"
+  | "runIds"
   | "thread"
   | "interactionIds"
   | "interaction"
@@ -30,6 +31,7 @@ type Contribution = {
 export class TurnTree {
   private readonly entries = new Map<string, Contribution>();
   private readonly dependencies = new Map<string, Set<string>>();
+  private readonly links = new Map<string, string | undefined>();
   private readonly watched = new Map<string, Set<string>>();
   private readonly counts = new Map<string, number>();
   private unknown = 0;
@@ -39,6 +41,9 @@ export class TurnTree {
   private readonly shells = new Map<string, BackgroundTask>();
   private readonly endOf = new Map<string, { turn: string; at: number }>();
   private readonly ends = new Map<string, Map<string, number>>();
+  private roots: { id: string; start: number }[] = [];
+  private readonly rootStarts = new Map<string, number>();
+  private rootId: string | undefined;
   private readonly latestEnd = new Map<string, number>();
   private observed = false;
   version = 0;
@@ -51,11 +56,15 @@ export class TurnTree {
       this.observed = true;
       const source = reader as Reader & Pick<ThreadSource, "observe">;
       source.observe((keys) => {
-        if (keys === "all") return this.reset();
+        if (keys === "all" || this.rootId !== reader.thread?.rootAgentId) return this.reset();
         const affected = new Set<string>();
         for (const key of keys) {
-          if (/^(agent|interaction|task):/.test(key)) affected.add(key);
-          for (const entry of this.dependencies.get(key) ?? []) affected.add(entry);
+          if (/^(agent|interaction|task|run):/.test(key)) affected.add(key);
+          const link = this.link(key);
+          const moved = this.links.get(key) !== link;
+          this.links.set(key, link);
+          for (const entry of this.dependencies.get(key) ?? [])
+            if (moved || entry.startsWith("interaction:")) affected.add(entry);
         }
         for (const key of affected) this.read(key);
       });
@@ -63,9 +72,13 @@ export class TurnTree {
   }
 
   private reset() {
+    this.rootId = this.reader.thread?.rootAgentId;
+    this.roots = [];
+    this.rootStarts.clear();
     this.entries.clear();
     this.dependencies.clear();
     this.watched.clear();
+    this.links.clear();
     this.counts.clear();
     this.requests.clear();
     this.shells.clear();
@@ -73,6 +86,7 @@ export class TurnTree {
     this.ends.clear();
     this.latestEnd.clear();
     this.unknown = this.agents = this.attention = 0;
+    for (const id of this.reader.runIds?.() ?? []) this.read(`run:${id}`);
     for (const id of this.reader.agentIds()) this.read(`agent:${id}`);
     for (const id of this.reader.taskIds()) this.read(`task:${id}`);
     for (const id of this.reader.interactionIds()) this.read(`interaction:${id}`);
@@ -82,11 +96,27 @@ export class TurnTree {
   /** Plain readers have no change feed; production sources process only changed entity keys. */
   sync(): this {
     if (!this.observed) {
+      for (const id of this.reader.runIds?.() ?? []) this.read(`run:${id}`);
       for (const id of this.reader.agentIds()) this.read(`agent:${id}`);
       for (const id of this.reader.taskIds()) this.read(`task:${id}`);
       for (const id of this.reader.interactionIds()) this.read(`interaction:${id}`);
     }
     return this;
+  }
+
+  /** Status/step deltas do not invalidate historical ancestry whose canonical links are unchanged. */
+  private link(key: string): string | undefined {
+    const id = key.slice(key.indexOf(":") + 1);
+    if (key.startsWith("agent:")) {
+      const agent = this.reader.agent(id);
+      return agent ? `${agent.parentId ?? ""}\0${agent.spawnedBy ?? ""}` : undefined;
+    }
+    if (key.startsWith("run:")) {
+      const run = this.reader.run(id);
+      return run ? `${run.agentId}\0${run.startedAt}` : undefined;
+    }
+    if (key.startsWith("item:")) return this.reader.item(id)?.runId;
+    return undefined;
   }
 
   private read(key: string) {
@@ -108,24 +138,37 @@ export class TurnTree {
         return reader.run(id);
       },
     };
-    const ownerTurn = (agentId: string, callId?: string) => {
+    const ownerTurn = (agentId: string, callId?: string, at?: number) => {
       const call = callId ? ancestry.item(callId) : undefined;
+      const direct = rootRunOf(ancestry, call?.runId)?.id;
+      if (direct) return direct;
+      if (agentId === reader.thread?.rootAgentId) {
+        const turn =
+          this.entries.get(key)?.turn ??
+          this.endOf.get(key)?.turn ??
+          (at === undefined ? undefined : this.rootAt(at)) ??
+          reader.thread?.live?.rootRunId ??
+          ledgerOf(reader).currentStretch(reader).runId;
+        if (turn) watch.add(`run:${turn}`);
+        return turn;
+      }
       const owner = ancestry.agent(agentId);
       const spawn = owner?.spawnedBy ? ancestry.item(owner.spawnedBy) : undefined;
-      const runId = call?.runId ?? spawn?.runId;
-      return (
-        rootRunOf(ancestry, runId)?.id ??
-        (agentId === reader.thread?.rootAgentId
-          ? (this.entries.get(key)?.turn ??
-            reader.thread?.live?.rootRunId ??
-            ledgerOf(reader).currentStretch(reader).runId)
-          : undefined)
-      );
+      return rootRunOf(ancestry, spawn?.runId)?.id;
     };
     const id = key.slice(key.indexOf(":") + 1);
     let next: Contribution | undefined;
     let ended: { turn: string; at: number } | undefined;
-    if (key.startsWith("agent:")) {
+    if (key.startsWith("run:")) {
+      const run = ancestry.run(id);
+      this.updateRoot(
+        id,
+        run && run.agentId === reader.thread?.rootAgentId ? run.startedAt : undefined,
+      );
+      const turn = rootRunOf(ancestry, id)?.id;
+      if (run?.state === "active") next = { turn, agent: false, needsYou: false };
+      if (run?.endedAt !== undefined && turn) ended = { turn, at: run.endedAt };
+    } else if (key.startsWith("agent:")) {
       const agent = ancestry.agent(id);
       if (agent && id !== reader.thread?.rootAgentId && agent.endedAt !== undefined) {
         const turn = ownerTurn(id);
@@ -140,12 +183,12 @@ export class TurnTree {
     } else if (key.startsWith("task:")) {
       const task = reader.task(id);
       if (task?.endedAt !== undefined) {
-        const turn = ownerTurn(task.agentId, task.toolCallId);
+        const turn = ownerTurn(task.agentId, task.toolCallId, task.startedAt);
         if (turn) ended = { turn, at: task.endedAt };
       }
       if (task && (task.status === "running" || task.status === "unknown"))
         next = {
-          turn: ownerTurn(task.agentId, task.toolCallId),
+          turn: ownerTurn(task.agentId, task.toolCallId, task.startedAt),
           agent: false,
           needsYou: false,
           shell: task.kind === "shell" ? task : undefined,
@@ -154,7 +197,7 @@ export class TurnTree {
       const request = reader.interaction(id);
       if (request?.state === "pending")
         next = {
-          turn: ownerTurn(request.agentId, request.toolCallId),
+          turn: ownerTurn(request.agentId, request.toolCallId, request.createdAt),
           agent: false,
           needsYou: isActionableInteraction(request, ancestry.agent(request.agentId)?.status),
           request,
@@ -166,6 +209,8 @@ export class TurnTree {
       if (!entries?.size) this.dependencies.delete(dependency);
     }
     this.watched.set(key, watch);
+    for (const dependency of watch)
+      if (!this.links.has(dependency)) this.links.set(dependency, this.link(dependency));
     for (const dependency of watch) {
       let entries = this.dependencies.get(dependency);
       if (!entries) this.dependencies.set(dependency, (entries = new Set()));
@@ -187,6 +232,35 @@ export class TurnTree {
       this.adjust(key, next, 1);
     } else this.entries.delete(key);
     this.version++;
+  }
+
+  private updateRoot(id: string, start: number | undefined) {
+    if (this.rootStarts.get(id) === start) return;
+    if (this.rootStarts.has(id)) this.roots = this.roots.filter((run) => run.id !== id);
+    if (start === undefined) {
+      this.rootStarts.delete(id);
+      return;
+    }
+    this.rootStarts.set(id, start);
+    let low = 0;
+    let high = this.roots.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if ((this.roots[middle]?.start ?? 0) <= start) low = middle + 1;
+      else high = middle;
+    }
+    this.roots.splice(low, 0, { id, start });
+  }
+
+  private rootAt(at: number): string | undefined {
+    let low = 0;
+    let high = this.roots.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if ((this.roots[middle]?.start ?? 0) <= at) low = middle + 1;
+      else high = middle;
+    }
+    return this.roots[low - 1]?.id;
   }
 
   private updateEnd(key: string, next: { turn: string; at: number } | undefined) {

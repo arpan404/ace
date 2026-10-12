@@ -45,6 +45,7 @@ export type ActivityReader = Pick<
   | "order"
   | "item"
   | "run"
+  | "runIds"
   | "agent"
   | "agentIds"
   | "thread"

@@ -1,6 +1,13 @@
 import type { ThreadReader } from "@ace/client";
-import type { Agent, Run } from "@ace/protocol";
-import { ledgerOf, limitHoldShown, rootRunOf, turnTreeOf, type TurnReader } from "@ace/ui-core";
+import type { Run } from "@ace/protocol";
+import {
+  ledgerOf,
+  limitHoldShown,
+  rootRunOf,
+  turnTreeOf,
+  isRunning,
+  type TurnReader,
+} from "@ace/ui-core";
 import type { Watched } from "@/lib/use-watched.ts";
 import { buildBlocks, blocksEqual, sameBlock, type Block, type RunFacts } from "./blocks.ts";
 
@@ -22,14 +29,6 @@ function failedOn(run: Run): string | undefined {
   return typeof error === "object" && error !== null && "kind" in error
     ? String(error.kind)
     : undefined;
-}
-
-/** A spawned agent has finished its part: it isn't starting, working or blocked on work. */
-function agentSettled(agent: Agent | undefined): boolean {
-  const status = agent?.status;
-  if (!status) return true;
-  if (status.state === "starting" || status.state === "working") return false;
-  return status.state !== "blocked";
 }
 
 /** The newest loaded turn of the root agent (walks back to the first item with a run). */
@@ -70,7 +69,7 @@ export function createBlockReader(
           state !== "failed" &&
           state !== "new" &&
           !(reader.thread?.status.state === "waiting" && reader.thread.status.on === "queue")
-        : !agentSettled(owner);
+        : !!owner && isRunning(owner);
     const limited =
       agentId === undefined &&
       status?.state === "blocked" &&
@@ -147,7 +146,10 @@ export function createBlockReader(
           }
         );
       },
-      agentSettled: (id) => agentSettled(reader.agent(id)),
+      agentSettled: (id) => {
+        const agent = reader.agent(id);
+        return !agent || !isRunning(agent);
+      },
       reviewedCall: (interactionId) => reader.interaction(interactionId)?.toolCallId,
       heldTurn,
       pausedTurns: paused,

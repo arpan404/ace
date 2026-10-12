@@ -1,3 +1,6 @@
+import { Profiler } from "react";
+import { ClientProvider } from "@ace/client-react";
+import { WorkLog } from "./items/work-log.tsx";
 import { ThreadId } from "@ace/protocol";
 import { facts, accountLimit, flakyCheckout, type Scenario } from "@ace/fake-daemon";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
@@ -26,9 +29,9 @@ const scenario = (events = initial()): Scenario => ({
 });
 const live = () => screen.getByRole("button", { name: "Open work and agents" });
 
-async function running(events = initial()) {
+async function running(events = initial(), throughWorker = false) {
   let now = 1_000;
-  const app = harness({ clock: () => now, uiClock: () => now });
+  const app = harness({ clock: () => now, uiClock: () => now, throughWorker });
   app.play(scenario(events)).runUntilBlocked();
   now = 75_000;
   const view = await app.open(`/t/${id}`);
@@ -335,48 +338,93 @@ test("the empty working composer exposes Stop and Escape stops the turn", async 
 });
 
 for (const waiting of [false, true]) {
-  test(`an older turn stays unsettled while its silent child ${waiting ? "awaits approval" : "works"}, after a newer root turn answers`, async () => {
-    const { app, setTime } = await running([...initial(), ...child()]);
-    act(() =>
-      app.daemon.apply(id, [
-        facts.toolDone("root", "build"),
-        facts.message("root", "first-answer", "assistant", "First answer."),
-        facts.endTurn("root"),
-      ]),
-    );
-    setTime(90_000);
-    act(() =>
-      app.daemon.apply(id, [
-        { type: "turn.started", agent: "root", nativeTurnId: "second-root", trigger: "user" },
-        facts.message("root", "second-ask", "user", "Check the next change."),
-        facts.message("root", "second-answer", "assistant", "Second answer."),
-        ...(waiting
-          ? [
-              {
-                type: "interaction.opened" as const,
-                agent: "audit",
-                interaction: "silent-approval",
-                blocking: true,
-                request: {
-                  kind: "approval" as const,
-                  title: "Approve the silent audit?",
-                  options: [{ id: "deny", kind: "deny" as const, label: "Deny" }],
-                },
-              },
-            ]
-          : []),
-      ]),
-    );
-    await screen.findByText("Second answer.");
-    expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
-    if (waiting) {
-      await userEvent.click(
-        within(await screen.findByRole("region", { name: "Waiting for you" })).getByRole("button", {
-          name: "Deny",
-        }),
+  for (const throughWorker of [false, true]) {
+    test(`an older turn stays unsettled while its silent child ${waiting ? "awaits approval" : "works"}, after a newer root turn answers (${throughWorker ? "worker mirror" : "direct client"})`, async () => {
+      const { app, setTime } = await running([...initial(), ...child()], throughWorker);
+      act(() =>
+        app.daemon.apply(id, [
+          facts.toolDone("root", "build"),
+          facts.message("root", "first-answer", "assistant", "First answer."),
+          facts.endTurn("root"),
+        ]),
       );
-    }
-    act(() => app.daemon.apply(id, [facts.endTurn("audit")]));
-    expect(await screen.findByRole("button", { name: /^Worked for 1m 29s/ })).toBeTruthy();
-  });
+      setTime(90_000);
+      act(() =>
+        app.daemon.apply(id, [
+          { type: "turn.started", agent: "root", nativeTurnId: "second-root", trigger: "user" },
+          facts.message("root", "second-ask", "user", "Check the next change."),
+          facts.message("root", "second-answer", "assistant", "Second answer."),
+          ...(waiting
+            ? [
+                {
+                  type: "interaction.opened" as const,
+                  agent: "audit",
+                  interaction: "silent-approval",
+                  blocking: true,
+                  request: {
+                    kind: "approval" as const,
+                    title: "Approve the silent audit?",
+                    options: [{ id: "deny", kind: "deny" as const, label: "Deny" }],
+                  },
+                },
+              ]
+            : []),
+        ]),
+      );
+      await screen.findByText("Second answer.");
+      expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
+      if (waiting) {
+        await userEvent.click(
+          within(await screen.findByRole("region", { name: "Waiting for you" })).getByRole(
+            "button",
+            {
+              name: "Deny",
+            },
+          ),
+        );
+      }
+      act(() => app.daemon.apply(id, [facts.endTurn("audit")]));
+      expect(await screen.findByRole("button", { name: /^Worked for 1m 29s/ })).toBeTruthy();
+    });
+  }
 }
+
+test("only the visible activity line ticks while ongoing work logs stay static", async () => {
+  const { app } = await running();
+  const lease = app.client.thread(id);
+  const itemIds = lease.store.order.filter(
+    (itemId) => lease.store.item(itemId)?.type === "tool_call",
+  );
+  let now = 5_000;
+  const time = createTimeSource(() => now);
+  let logRenders = 0;
+  vi.useFakeTimers();
+  const view = render(
+    <ClientProvider client={app.client}>
+      <TimeContext value={time}>
+        <Profiler
+          id="hidden-work"
+          onRender={() => {
+            logRenders++;
+          }}
+        >
+          <WorkLog threadId={id} itemIds={itemIds} ongoing />
+        </Profiler>
+        <ActivityLine
+          activity={{ label: "Working", tone: "working", elapsedFrom: 1_000, current: undefined }}
+        />
+      </TimeContext>
+    </ClientProvider>,
+  );
+  try {
+    const before = logRenders;
+    now = 8_000;
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(within(view.container).getByText("Working for 7s")).toBeTruthy();
+    expect(logRenders).toBe(before);
+  } finally {
+    view.unmount();
+    lease.release();
+    vi.useRealTimers();
+  }
+});

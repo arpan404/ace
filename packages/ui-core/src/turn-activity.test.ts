@@ -10,6 +10,7 @@ import {
 } from "@ace/protocol";
 import { expect, test } from "vitest";
 import type { ThreadSource } from "@ace/client";
+import { turnTreeOf } from "./turn-tree.ts";
 import { ledgerOf } from "./thread-ledger.ts";
 import {
   activityText,
@@ -120,24 +121,37 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
   const asked = new Map(interactions.map((interaction) => [interaction.id as string, interaction]));
   const tasks = new Map<string, BackgroundTask>();
   let order: readonly string[] = items.map((item) => item.id);
+  let liveRunId: string | undefined;
   const reader: ActivityReader = {
     get order() {
       return order;
     },
     item: (id) => byId.get(id),
     run: (id) => runs.get(id),
+    runIds: () => [...runs.keys()],
     agent: (id) => agents.get(id),
     agentIds: () => [...agents.keys()],
-    thread: Thread.parse({
-      id: "thread-1",
-      workspaceId: "project",
-      title: "Work",
-      provider: "claude",
-      rootAgentId: "root",
-      status: { state: "working", agents: 1 },
-      createdAt: 0,
-      updatedAt: 0,
-    }),
+    get thread() {
+      return Thread.parse({
+        id: "thread-1",
+        workspaceId: "project",
+        title: "Work",
+        provider: "claude",
+        rootAgentId: "root",
+        status: { state: "working", agents: 1 },
+        createdAt: 0,
+        updatedAt: 0,
+        ...(liveRunId
+          ? {
+              live: {
+                rootRunId: liveRunId,
+                workingSince: runs.get(liveRunId)?.startedAt,
+                runningSubagentCount: 0,
+              },
+            }
+          : {}),
+      });
+    },
     interactionIds: () => [...asked.keys()],
     interaction: (id) => asked.get(id),
     taskIds: () => [...tasks.keys()],
@@ -148,6 +162,9 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
     reader,
     runs,
     tasks,
+    liveRun: (id: string) => {
+      liveRunId = id;
+    },
     add(item: Item) {
       byId.set(item.id, item);
       order = [...order, item.id];
@@ -161,9 +178,14 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
     status(next: AgentStatus) {
       agents.set("root", agent("root", next));
     },
-    subagent(id: string, next: AgentStatus) {
-      agents.set(id, agent(id, next));
-      runs.set(`run-${id}`, run(`run-${id}`, id));
+    subagent(id: string, next: AgentStatus, spawnedBy?: string) {
+      agents.set(id, Agent.parse({ ...agent(id, next), spawnedBy }));
+      runs.set(`run-${id}`, {
+        ...run(`run-${id}`, id),
+        ...(next.state === "idle" || next.state === "failed" || next.state === "interrupted"
+          ? { state: "completed" as const, endedAt: 10 }
+          : {}),
+      });
     },
     background(toolCallId: string) {
       tasks.set(
@@ -394,6 +416,9 @@ test("continuations preserve the first server start and exclude the idle gap, in
     trigger: "subagent_result",
     startedAt: 40_000,
   });
+  thread.liveRun("run-2");
+  // The server can start the continuation before its first output arrives.
+  expect(activityText(turnActivity(thread.reader, "root")!, 40_000)).toBe("Working for 10s");
   thread.add({
     ...shell("continue", "bun run build", "running", 40_000),
     runId: "run-2" as Run["id"],
@@ -442,4 +467,51 @@ test("running-step updates do not revisit retained agents or enumerate historica
   expect(agentReads).toBeLessThan(10);
   expect(taskLists).toBe(0);
   expect(agentLists).toBe(0);
+  agentReads = 0;
+  thread.status({ state: "working", activity: "tool", detail: "Checking the updated build" });
+  for (const tap of taps) tap(new Set(["agent:root"]));
+  expect(turnActivity(reader, "root")?.tone).toBe("working");
+  expect(agentReads).toBeLessThan(10);
+  expect(taskLists).toBe(0);
+  expect(agentLists).toBe(0);
+});
+
+for (const waiting of [false, true]) {
+  test(`the first turn owns its silent child's ${waiting ? "approval" : "work"} after a second root run emits output, including snapshot replay`, () => {
+    const thread = world(working, [
+      said("ask", "user", 0),
+      shell("spawn", "start audit", "succeeded", 0),
+    ]);
+    thread.runs.set("run-1", { ...run("run-1", "root"), state: "completed", endedAt: 10_000 });
+    thread.subagent("audit", working, "spawn");
+    thread.runs.set("run-2", { ...run("run-2", "root"), startedAt: 40_000 });
+    thread.add({ ...said("second", "assistant", 41_000), runId: "run-2" as Run["id"] });
+    if (waiting) {
+      // A pending request holds the tree even if its owner has already reported idle.
+      thread.subagent("audit", { state: "idle" }, "spawn");
+      thread.ask(approval("silent-approval", 5_000, undefined, "audit"));
+    }
+    expect(turnTreeOf(thread.reader).settled("run-1")).toBe(false);
+    expect(turnTreeOf({ ...thread.reader }).settled("run-1")).toBe(false);
+    thread.subagent("audit", { state: "idle" }, "spawn");
+    thread.runs.set("run-audit", {
+      ...run("run-audit", "audit"),
+      state: "completed",
+      endedAt: 50_000,
+    });
+    if (waiting) thread.ask(approval("silent-approval", 5_000, 45_000, "audit"));
+    expect(turnTreeOf(thread.reader).settled("run-1")).toBe(true);
+    expect(turnTreeOf(thread.reader).endedAt("run-1")).toBe(50_000);
+  });
+}
+
+test("an unanchored root request stays with its server turn after a newer run starts and on reload", () => {
+  const thread = world(working, [said("ask", "user", 0)], [approval("first-approval", 5_000)]);
+  thread.runs.set("run-1", { ...run("run-1", "root"), state: "completed", endedAt: 10_000 });
+  thread.runs.set("run-2", { ...run("run-2", "root"), startedAt: 40_000 });
+  thread.liveRun("run-2");
+  expect(turnTreeOf(thread.reader).settled("run-1")).toBe(false);
+  expect(turnTreeOf({ ...thread.reader }).settled("run-1")).toBe(false);
+  thread.ask(approval("first-approval", 5_000, 45_000));
+  expect(turnTreeOf(thread.reader).settled("run-1")).toBe(true);
 });
