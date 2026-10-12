@@ -35,6 +35,17 @@ import Foundation
         #expect(model.thread?.items["one"]?.row.text == "Keep")
         #expect(model.error != nil)
     }
+    @Test func reopeningTheSameThreadRejectsUpdatesFromItsPreviousVisit() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("a")
+        model.receive(try frame([["type": "thread.reset", "threadId": "a", "epoch": 1], item("one", text: "Old visit", index: 0)]))
+        model.back()
+        model.open("a")
+        model.receive(try frame([["type": "thread.reset", "threadId": "a", "epoch": 1], item("one", text: "Late old visit", index: 0)]))
+        #expect(model.thread?.items.isEmpty == true)
+        model.receive(try frame([["type": "thread.reset", "threadId": "a", "epoch": 3]]))
+        #expect(model.thread?.items.isEmpty == true)
+    }
     private func item(_ id: String, text: String, index: Int) -> [String: Any] {
         ["type": "thread.item", "threadId": "a", "epoch": 1, "id": id,
          "row": ["id": id, "index": index, "type": "message", "role": "assistant", "text": text, "complete": false, "createdAt": 0, "agentId": "root", "truncated": false]]

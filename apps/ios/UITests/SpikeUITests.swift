@@ -1,6 +1,6 @@
 import XCTest
 
-@MainActor final class SpikeUITests: XCTestCase {
+@MainActor final class SpikeUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
     func testInboxThreadAndApprovalScreens() {
         let app = launch()
@@ -12,7 +12,7 @@ import XCTest
         app.navigationBars.buttons.firstMatch.tap()
         app.buttons["thread.ios-stream"].tap()
         XCTAssertTrue(app.staticTexts["spike.loaded"].waitForExistence(timeout: 25))
-        let loaded = NSPredicate(format: "label CONTAINS '2,000 items'")
+        let loaded = NSPredicate(format: "value == '2000'")
         expectation(for: loaded, evaluatedWith: app.staticTexts["spike.loaded"])
         waitForExpectations(timeout: 25)
         screenshot("thread")
@@ -21,7 +21,7 @@ import XCTest
         let app = launch()
         XCTAssertTrue(app.buttons["thread.ios-stream"].waitForExistence(timeout: 25))
         app.buttons["thread.ios-stream"].tap()
-        let loaded = NSPredicate(format: "label CONTAINS '2,000 items'")
+        let loaded = NSPredicate(format: "value == '2000'")
         expectation(for: loaded, evaluatedWith: app.staticTexts["spike.loaded"])
         waitForExpectations(timeout: 25)
         let options = XCTMeasureOptions()
@@ -36,9 +36,9 @@ import XCTest
         let app = launch()
         XCTAssertTrue(app.buttons["thread.ios-stream"].waitForExistence(timeout: 25))
         app.buttons["thread.ios-stream"].tap()
-        let loaded = NSPredicate(format: "label CONTAINS '2,000 items'")
-        expectation(for: loaded, evaluatedWith: app.staticTexts["spike.loaded"])
-        waitForExpectations(timeout: 25)
+        let loaded = NSPredicate(format: "value == '2000'")
+        let ready = expectation(for: loaded, evaluatedWith: app.staticTexts["spike.loaded"])
+        await fulfillment(of: [ready], timeout: 25)
         let field = app.textViews["composer.input"]
         field.tap()
         field.typeText("Keep process ownership explicit. Preserve every pending send through reconnect and restart. ")
@@ -50,6 +50,8 @@ import XCTest
         XCTAssertTrue(app.buttons["thread.ios-stream"].waitForExistence(timeout: 25))
         app.buttons["thread.ios-stream"].tap()
         XCTAssertTrue(app.textViews["composer.input"].waitForExistence(timeout: 25))
+        let ready = expectation(for: NSPredicate(format: "value IN {'2000', '2001', '2002'}"), evaluatedWith: app.staticTexts["spike.loaded"])
+        await fulfillment(of: [ready], timeout: 25)
         try await control(false)
         let text = "Offline simulator send \(UUID().uuidString)"
         app.textViews["composer.input"].tap()
@@ -72,6 +74,18 @@ import XCTest
             if count == 0 { try await Task.sleep(for: .milliseconds(100)) }
         } while count == 0 && clock.now < deadline
         XCTAssertEqual(count, 1)
+    }
+    func testTwoMinuteStreamingMemoryWindow() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["thread.ios-stream"].waitForExistence(timeout: 25))
+        app.buttons["thread.ios-stream"].tap()
+        expectation(for: NSPredicate(format: "value == '2000'"), evaluatedWith: app.staticTexts["spike.loaded"])
+        waitForExpectations(timeout: 25)
+        // Leave the real app streaming without accessibility snapshots during the measured window.
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
+        XCTAssertEqual(app.staticTexts["spike.loaded"].value as? String, "2000")
+        screenshot("memory-window")
     }
     private func control(_ online: Bool) async throws {
         var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:9841/control")))

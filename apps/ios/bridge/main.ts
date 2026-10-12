@@ -22,6 +22,7 @@ let lease: Lease<ThreadSource> | undefined;
 let stopThread: (() => void) | undefined;
 let epoch = 0;
 let itemLimit = 200;
+let historyAbort: AbortController | undefined;
 const pump = new PatchPump();
 const sockets = new Map<string, TransportEvents>();
 function error(): void {
@@ -115,6 +116,7 @@ async function hydrate(
   store: ThreadSource,
   id: string,
   generation: number,
+  signal: AbortSignal,
 ): Promise<void> {
   // Snapshots always cap at 200. Exercise the SDK's paged history admission and delta journal.
   await new Promise<void>((resolve) => {
@@ -122,16 +124,23 @@ async function hydrate(
       resolve();
       return;
     }
+    const cancelled = () => {
+      stop();
+      resolve();
+    };
     const stop = store.observe(() => {
       if (store.thread || store.error) {
         stop();
+        signal.removeEventListener("abort", cancelled);
         resolve();
       }
     });
+    signal.addEventListener("abort", cancelled, { once: true });
+    if (signal.aborted) cancelled();
   });
   while (store.itemsBefore != null && store.order.length < itemLimit) {
-    if (generation !== epoch) return;
-    await owner.loadOlder(id, Math.min(200, itemLimit - store.order.length));
+    if (generation !== epoch || signal.aborted) return;
+    await owner.loadOlder(id, Math.min(200, itemLimit - store.order.length), { signal });
   }
   if (generation === epoch)
     pump.put("thread:ready", () => ({
@@ -147,13 +156,23 @@ function action(json: string): void {
     if (!client) throw new Error("Client not started");
     switch (value.type) {
       case "open":
+        historyAbort?.abort();
+        historyAbort = new AbortController();
         stopThread?.();
         lease?.release();
         lease = client.thread(value.threadId);
         stopThread = followThread(lease.store, value.threadId, ++epoch, pump, itemLimit);
-        if (itemLimit > 200) void hydrate(client, lease.store, value.threadId, epoch).catch(error);
+        if (itemLimit > 200) {
+          const generation = epoch;
+          const signal = historyAbort.signal;
+          void hydrate(client, lease.store, value.threadId, generation, signal).catch(() => {
+            if (generation === epoch && !signal.aborted) error();
+          });
+        }
         break;
       case "back":
+        epoch++;
+        historyAbort?.abort();
         stopThread?.();
         lease?.release();
         lease = undefined;

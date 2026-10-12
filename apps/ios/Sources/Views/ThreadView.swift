@@ -68,8 +68,9 @@ struct ThreadView: View {
             #if DEBUG
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled {
-                    Text("\(thread.items.count) items · \(model.connection)").font(.caption2.monospaced())
+                    Text(verbatim: "\(thread.items.count) items · \(model.connection)").font(.caption2.monospaced())
                         .padding(4).background(.thinMaterial, in: Capsule()).allowsHitTesting(false)
+                        .accessibilityLabel("Loaded transcript").accessibilityValue(String(thread.items.count))
                         .accessibilityIdentifier("spike.loaded")
                 }
             }
@@ -88,7 +89,6 @@ private struct TranscriptItemView: View {
                     .padding(row.role == "user" ? 12 : 0)
                     .background(row.role == "user" ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: 17))
                 if row.truncated { Text("Showing a bounded preview").font(.caption2).foregroundStyle(AceTheme.Colours.mutedForeground) }
-                if !row.complete { StateLabel(state: "working") }
             }.frame(maxWidth: .infinity, alignment: row.role == "user" ? .trailing : .leading)
         } else {
             HStack {

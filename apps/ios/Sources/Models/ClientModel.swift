@@ -28,6 +28,7 @@ import CryptoKit
     var error: String?
     var thread: ThreadModel?
     var inboxLoaded = false
+    @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: ClientRuntime?
     @ObservationIgnored let now: () -> Double
     @ObservationIgnored var metrics: SpikeMetrics?
@@ -65,7 +66,7 @@ import CryptoKit
             case .error(let message): error = message
             case .receipt(_, let ok, let message): if !ok { error = message }
             case .threadReset(let id, let epoch):
-                guard let thread, thread.id == id, epoch >= thread.epoch else { continue }
+                guard let thread, thread.id == id, epoch == thread.epoch else { continue }
                 thread.epoch = epoch
                 thread.items.removeAll(keepingCapacity: true)
                 thread.positions.removeAll(keepingCapacity: true)
@@ -97,10 +98,12 @@ import CryptoKit
         }
     }
     func open(_ id: String) {
+        generation += 1
         thread = ThreadModel(id: id)
+        thread?.epoch = generation
         action(["type": "open", "threadId": id])
     }
-    func back() { action(["type": "back"]); thread = nil }
+    func back() { generation += 1; action(["type": "back"]); thread = nil }
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
     func retry() { action(["type": "retry"]) }
     func send(_ text: String, delivery: String) {
