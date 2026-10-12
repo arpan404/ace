@@ -1,46 +1,91 @@
 import { expect, test } from "vitest";
-import { ThreadId } from "@ace/protocol";
+import { AgentCatalogInput } from "@ace/protocol";
 import { setup } from "./test-support.ts";
 
-test("delegates resolve their own provider's native default and may select another advertised mode", async () => {
+test("a child cannot widen its captured ceiling after its parent widens", async () => {
   const h = setup();
-  await h.catalog.refresh();
-  const workspace = h.store.createWorkspace(h.home, "workspace");
-  const created = h.service.command("parent", {
-    type: "thread.prepare",
-    threadId: ThreadId.parse("parent-root"),
-    title: "Parent",
-    workspaceId: workspace,
+  const parent = await h.parent(":workspace");
+  const child = h.service.delegate(parent, {
+    requestId: "narrow",
+    task: "inspect",
+    role: "reader",
     provider: "codex",
-    permissionMode: ":workspace",
+    permissionMode: ":read-only",
+    wait: false,
+    estimatedLoad: 0,
   });
-  if (!created.ok || !created.threadId) throw new Error("Missing parent");
+  await h.engine.flush();
+  expect(h.contexts.get(child.childId)?.permissionMode).toBe(":read-only");
+  await h.complete(child.childId, "inspected");
+  await h.complete(parent.threadId, "ready");
   expect(
-    h.service.command("parent-turn", {
-      type: "thread.send",
-      threadId: created.threadId,
-      input: [{ type: "text", text: "parent" }],
+    h.service.command("full", {
+      type: "thread.permission.set",
+      threadId: parent.threadId,
+      permissionMode: ":danger-full-access",
     }).ok,
   ).toBe(true);
-  await h.engine.flush();
-  const parent = h.caller(created.threadId);
-  const child = h.delegate(parent, "owned-child");
-  await h.engine.flush();
-  // The scripted Claude adapter advertises approvals but no native auto review.
-  // Its explicit manual preset must not inherit the parent's Codex :workspace mode.
-  expect(h.contexts.get(child.childId)?.permissionMode).toBeUndefined();
-  expect(h.store.getThread(child.childId)?.permission).toMatchObject({
-    effective: null,
-    override: null,
+  h.service.command("new-parent-turn", {
+    type: "thread.send",
+    threadId: parent.threadId,
+    input: [{ type: "text", text: "continue" }],
   });
+  await h.engine.flush();
+  expect(h.store.getThread(parent.threadId)?.permission?.effective).toBe(":danger-full-access");
   expect(
-    h.service.command("widen-child", {
+    h.service.command("widen", {
       type: "thread.permission.set",
       threadId: child.childId,
-      permissionMode: "bypassPermissions",
+      permissionMode: ":danger-full-access",
     }),
-  ).toMatchObject({ ok: true });
-  expect(h.store.getThread(created.threadId)?.permission?.effective).toBe(":workspace");
-  expect(h.store.getThread(child.childId)?.permission?.override).toBe("bypassPermissions");
-  expect(h.errors).toEqual([]);
+  ).toMatchObject({ ok: false, error: "permission_ceiling_unverifiable" });
+  expect(h.store.getThread(child.childId)?.permission?.override).toBe(":read-only");
+});
+
+test("unverifiable cross-provider policies fail before child creation", async () => {
+  const h = setup();
+  const parent = await h.parent(":read-only");
+  expect(() =>
+    h.service.delegate(parent, {
+      requestId: "cross",
+      task: "edit",
+      role: "writer",
+      provider: "claude",
+      permissionMode: "bypassPermissions",
+      wait: false,
+      estimatedLoad: 0,
+    }),
+  ).toThrow();
+  expect(h.store.listThreads()).toHaveLength(1);
+});
+
+test("a child cannot delegate under an obsolete ceiling after an ancestor narrows", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const child = h.delegate(parent, "child");
+  await h.engine.flush();
+  await h.complete(child.childId, "ready");
+  await h.complete(parent.threadId, "ready");
+  expect(
+    h.service.command("narrow-parent", {
+      type: "thread.permission.set",
+      threadId: parent.threadId,
+      permissionMode: ":read-only",
+    }).ok,
+  ).toBe(true);
+  h.service.command("apply-narrow-parent", {
+    type: "thread.send",
+    threadId: parent.threadId,
+    input: [{ type: "text", text: "continue" }],
+  });
+  await h.engine.flush();
+  expect(h.store.getThread(parent.threadId)?.permission?.effective).toBe(":read-only");
+  expect(() => h.delegate(h.caller(child.childId), "grandchild")).toThrow();
+  const catalog = h.service.catalog(
+    h.caller(child.childId),
+    AgentCatalogInput.parse({ provider: "claude" }),
+  );
+  expect(catalog.instances).toHaveLength(1);
+  expect(catalog.instances.flatMap((instance) => instance.allowedPermissionModes)).toHaveLength(0);
+  expect(h.store.listThreads()).toHaveLength(2);
 });

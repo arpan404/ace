@@ -34,6 +34,7 @@ export function setup(
   capacity?: number,
   models?: import("@ace/models").ModelCatalogApi,
   engineLimits?: Partial<import("../engine/limits.ts").EngineLimits>,
+  providerEnabled?: import("./delegations.ts").DelegationDependencies["providerEnabled"],
 ) {
   const home = path ? join(path, "..") : mkdtempSync(join(tmpdir(), "ace-control-"));
   if (!path) homes.push(home);
@@ -184,6 +185,7 @@ export function setup(
     ...(capacity === undefined ? {} : { journalCapacity: capacity }),
     ...(accounts ? { accounts } : {}),
     models: models ?? catalog,
+    ...(providerEnabled ? { providerEnabled } : {}),
     admitsWork: () => admitting,
     onError: (error) => errors.push(error),
   });
@@ -205,12 +207,13 @@ export function setup(
     if (!agentId) throw new Error("Root not materialized");
     return { sessionId: "test-lease", threadId, agentId };
   }
-  async function parent() {
+  async function parent(permissionMode = ":danger-full-access") {
     await (models ?? catalog).refresh();
     const result = service.command(randomUUID(), {
       type: "thread.create",
       workspaceId: workspace,
       provider: "codex",
+      permissionMode,
       input: [{ type: "text", text: "plan" }],
     });
     if (!result.ok || !result.threadId) throw new Error("Creation failed");
@@ -293,6 +296,7 @@ export function setup(
         ...(capacity === undefined ? {} : { journalCapacity: capacity }),
         ...(accounts ? { accounts } : {}),
         models: models ?? catalog,
+        ...(providerEnabled ? { providerEnabled } : {}),
         admitsWork: () => admitting,
         onError: (error) => errors.push(error),
       });

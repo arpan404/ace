@@ -7,6 +7,10 @@ import {
 } from "./mutation-leases.ts";
 import type { CleanupResult } from "@ace/provider-kit/cleanup";
 import { z } from "zod";
+import { isUtf8 } from "node:buffer";
+import { dirname, resolve as resolvePath } from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { filterKeyQuery, nonExecutingEnv, nonExecutingTransportEnv } from "./non-executing.ts";
 import { Readable, type Writable } from "node:stream";
 import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
@@ -40,6 +44,11 @@ export interface Output {
 }
 
 export class GitCli {
+  private readonly protectedWorktrees = new Set<string>();
+  private readonly executionPolicy = new AsyncLocalStorage<
+    "non-executing" | { protocols: readonly string[] }
+  >();
+  private readonly transportProtocols: readonly string[];
   readonly leaseId: () => string;
   readonly leaseSchedule: GitProcessRuntime["scheduleTimeout"];
   readonly binary: string;
@@ -53,6 +62,7 @@ export class GitCli {
   private closing: Promise<void> | undefined;
 
   constructor(options: GitOptions) {
+    this.transportProtocols = options.transportProtocols ?? ["http", "https", "ssh"];
     this.runtime = processRuntime(options.processRuntime);
     this.leaseId = options.leaseId ?? mutationLeaseId;
     this.leaseSchedule = this.runtime.scheduleTimeout;
@@ -92,6 +102,27 @@ export class GitCli {
     );
   }
 
+  protectWorktree(path: string): void {
+    this.protectedWorktrees.add(resolvePath(path));
+  }
+  forgetWorktree(path: string): void {
+    this.protectedWorktrees.delete(resolvePath(path));
+  }
+  private protectedPath(path: string): boolean {
+    let current = resolvePath(path);
+    for (;;) {
+      if (this.protectedWorktrees.has(current)) return true;
+      const parent = dirname(current);
+      if (parent === current) return false;
+      current = parent;
+    }
+  }
+  nonExecuting<T>(operation: () => Promise<T>): Promise<T> {
+    return this.executionPolicy.run("non-executing", operation);
+  }
+  executionDisabledAt(path: string): boolean {
+    return this.executionPolicy.getStore() === "non-executing" || this.protectedPath(path);
+  }
   get activeCalls(): number {
     return this.calls.size;
   }
@@ -115,6 +146,25 @@ export class GitCli {
       () => this.calls.delete(result),
     );
     return result;
+  }
+  /** A user-admitted fetch retains all tree execution guards, including in protected roots. */
+  fetch(cwd: string, args: string[], options: CallOptions): Promise<Output> {
+    if (args[0] !== "fetch")
+      return Promise.reject(new GitError("invalid_argument", "Explicit fetch requires fetch"));
+    return this.executionPolicy.run({ protocols: this.transportProtocols }, () =>
+      this.call(cwd, args, options),
+    );
+  }
+  /** Publishing has its own admission path; local plumbing never inherits transport permission. */
+  push(
+    cwd: string,
+    args: string[],
+    options: CallOptions,
+    protocols: readonly string[] = this.transportProtocols,
+  ): Promise<Output> {
+    if (args[0] !== "push")
+      return Promise.reject(new GitError("invalid_argument", "Explicit push requires push"));
+    return this.executionPolicy.run({ protocols }, () => this.call(cwd, args, options));
   }
   /** Cancellable I/O-bound retry pause, using the same injected clock as calls. */
   pause(milliseconds: number): Promise<void> {
@@ -169,7 +219,38 @@ export class GitCli {
     }
   }
 
-  private execute(cwd: string, args: string[], options: CallOptions): Promise<Output> {
+  private async execute(cwd: string, args: string[], options: CallOptions): Promise<Output> {
+    const policy = this.executionPolicy.getStore();
+    const transport = typeof policy === "object" ? policy : undefined;
+    if (!this.executionDisabledAt(cwd) && !transport) return this.executeRaw(cwd, args, options);
+    // Inspect effective driver names only, never commands or credential values. Every nested
+    // call is guarded here, including temporary-index writes, status and branch cleanup.
+    const filters = await this.executeRaw(cwd, ["-c", "protocol.allow=never", ...filterKeyQuery], {
+      env: { ...options.env, ...nonExecutingEnv() },
+      allowFailure: true,
+      captureBytes: 1_048_576,
+      signal: options.signal,
+      directoryFd: options.directoryFd,
+      ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+    });
+    if (filters.truncated)
+      throw new GitError("output_too_large", "Filter configuration is too large");
+    if (filters.exitCode !== 0 && filters.exitCode !== 1)
+      throw new GitError("git_failed", "Could not inspect filter configuration safely");
+    if (!isUtf8(filters.stdout))
+      throw new GitError("malformed_output", "Invalid filter configuration encoding");
+    return this.executeRaw(cwd, ["-c", "protocol.allow=never", ...args], {
+      ...options,
+      env: {
+        ...options.env,
+        ...(transport
+          ? nonExecutingTransportEnv(filters.stdout.toString("utf8"), transport.protocols)
+          : nonExecutingEnv(filters.stdout.toString("utf8"))),
+      },
+    });
+  }
+
+  private executeRaw(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
     // Repository/index selectors inherited from an agent must not redirect our commands.
     const env = Object.fromEntries(
@@ -350,8 +431,21 @@ export class GitCli {
         if (spawnFailure) failure ??= await spawnFailure;
         const stderr = Buffer.concat(errors).toString("utf8");
         if (failure) return reject(failure);
-        if (code !== 0 && !options.allowFailure) {
-          return reject(new GitError(diagnostics.finish(), "Git command failed", { code }));
+        if (code !== 0) {
+          const category = diagnostics.finish();
+          if (
+            !options.allowFailure ||
+            (this.executionDisabledAt(cwd) && category === "objects_not_available")
+          )
+            return reject(
+              new GitError(
+                category,
+                category === "objects_not_available"
+                  ? "Objects not available locally"
+                  : "Git command failed",
+                { code },
+              ),
+            );
         }
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
       };

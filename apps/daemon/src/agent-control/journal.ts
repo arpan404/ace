@@ -72,6 +72,9 @@ export class DelegationJournal {
         root_id TEXT NOT NULL, agent_id TEXT NOT NULL, counter_key TEXT NOT NULL,
         tokens INTEGER NOT NULL, cost REAL NOT NULL, counts JSON NOT NULL, PRIMARY KEY(root_id,agent_id,counter_key)
       );
+      CREATE TABLE IF NOT EXISTS delegation_usage_offsets (
+        thread_id TEXT PRIMARY KEY REFERENCES threads(id), seq INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS delegation_agent_runs (agent_id TEXT PRIMARY KEY, run_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS agent_thread_metadata (
         thread_id TEXT PRIMARY KEY REFERENCES threads(id), snoozed_until INTEGER
@@ -391,6 +394,30 @@ export class DelegationJournal {
     this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(thread);
     this.sql("UPDATE delegation_trees SET cancelled=0 WHERE root_id=?").run(thread);
     this.consume(thread);
+  }
+  usageOffset(thread: ThreadId): number {
+    return Number(
+      this.sql("SELECT seq FROM delegation_usage_offsets WHERE thread_id=?").get(thread)?.seq ?? 0,
+    );
+  }
+  usageThreads(after: string) {
+    return this.sql(
+      "SELECT child_id AS thread_id,root_id FROM delegated_threads WHERE child_id>? ORDER BY child_id LIMIT 64",
+    )
+      .all(after)
+      .map((row) => z.object({ thread_id: ThreadId, root_id: ThreadId }).parse(row));
+  }
+  /** Counters and the replay position share one commit, including incremental samples. */
+  account(root: ThreadId, event: Event): void {
+    if (event.payload.type !== "run.started" && event.payload.type !== "usage.updated") return;
+    this.store.atomic(() => {
+      if (event.seq <= this.usageOffset(event.threadId)) return;
+      this.started(event);
+      this.usage(root, event);
+      this.sql(
+        "INSERT INTO delegation_usage_offsets VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET seq=excluded.seq",
+      ).run(event.threadId, event.seq);
+    });
   }
   started(event: Event) {
     if (event.payload.type !== "run.started") return;

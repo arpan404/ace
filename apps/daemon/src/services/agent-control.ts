@@ -12,6 +12,7 @@ import { DelegationService } from "../agent-control/delegations.ts";
 import { createAgentControlPort } from "../agent-control/tools.ts";
 import { systemClock } from "../engine/actor.ts";
 import type { ServiceContext } from "./types.ts";
+import { createWorkspaceDelegations } from "../agent-control/workspaces.ts";
 
 export function startAgentControl(context: ServiceContext): void {
   const { services, store, options, now, id, log, resources, onListen } = context;
@@ -157,6 +158,7 @@ export function startAgentControl(context: ServiceContext): void {
   const owners = createAgentOwners(context, delegations);
   const port = createAgentControlPort(store, delegations, {
     ...options.agentControl?.extensions,
+    delegateWorkspace: createWorkspaceDelegations(context, delegations),
     remote: (caller, operation, signal) =>
       (operation.op === "device.task_publish"
         ? publications.publish(caller, operation, signal)

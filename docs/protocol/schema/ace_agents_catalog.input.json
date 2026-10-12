@@ -1,0 +1,55 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_agents_catalog.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instance": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceOffset": {
+      "default": 0,
+      "maximum": 64,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "limit": {
+      "default": 10,
+      "maximum": 20,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "offset": {
+      "default": 0,
+      "maximum": 40960,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "permissionOffset": {
+      "default": 0,
+      "maximum": 256,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    }
+  },
+  "type": "object"
+}

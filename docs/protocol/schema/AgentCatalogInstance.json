@@ -1,0 +1,125 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentCatalogInstance.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "accountLabel": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "allowedPermissionModes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/NativePermissionMode.json"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "auth": {
+      "enum": [
+        "logged_in",
+        "logged_out",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "availability": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "error": {
+      "enum": [
+        "discovery_failed",
+        "timeout",
+        "persistence_failed"
+      ],
+      "type": "string"
+    },
+    "errorDetail": {
+      "$ref": "https://ace.local/protocol/v1/ModelDiscoveryError.json"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "installed": {
+      "type": "boolean"
+    },
+    "instance": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "lastRefreshedAt": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "launchOptions": {
+      "items": {
+        "enum": [
+          "effort",
+          "serviceTier"
+        ],
+        "type": "string"
+      },
+      "maxItems": 2,
+      "type": "array"
+    },
+    "nextPermissionOffset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "permissionModes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/NativePermissionMode.json"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "refreshedAt": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "refreshing": {
+      "type": "boolean"
+    },
+    "stale": {
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "fresh",
+        "refreshing",
+        "stale"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider",
+    "instance",
+    "stale",
+    "refreshing",
+    "installed",
+    "auth",
+    "launchOptions",
+    "allowedPermissionModes"
+  ],
+  "type": "object"
+}

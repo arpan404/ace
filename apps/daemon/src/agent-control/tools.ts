@@ -11,6 +11,7 @@ import type { AgentControlPort } from "@ace/mcp-server";
 import type { Store } from "../store.ts";
 import type { DelegationService } from "./delegations.ts";
 import { controlCommandId } from "./delegations.ts";
+import { agentTaskView } from "./task-view.ts";
 
 export type ExtensionOperation = Extract<
   AgentControlOperation,
@@ -55,6 +56,11 @@ export type PrOwnerOperation = Extract<
 >;
 /** Typed owner ports are capability-gated. They cannot carry an approval or arbitrary command. */
 export interface AgentControlExtensions {
+  delegateWorkspace?(
+    caller: McpAttribution,
+    request: import("@ace/protocol").DelegationRequest,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol").DelegationRecord>;
   /** Canonical client thread/Forge owners register here without expanding agent authority. */
   thread?(
     caller: McpAttribution,
@@ -104,6 +110,8 @@ export function createAgentControlPort(
           "thread.wait",
           "thread.search",
           "preview.list",
+          "agent.status",
+          "agent.result",
         ].includes(operation.op);
         if (!service.authorize(caller, operation.threadId, !read))
           return { ok: false, code: "forbidden" };
@@ -119,14 +127,55 @@ export function createAgentControlPort(
         }
       }
       switch (operation.op) {
+        case "agents.catalog": {
+          const { op: _op, ...input } = operation;
+          return { ok: true, data: service.catalog(caller, input) };
+        }
+        case "agent.status":
+        case "agent.result": {
+          const record = service.journal.get(operation.threadId);
+          const thread = store.getThread(operation.threadId);
+          if (!record || !thread || !service.authorize(caller, operation.threadId, true))
+            return { ok: false, code: "forbidden" };
+          const pending = service.journal
+            .family(record.rootId)
+            .some(
+              (edge) =>
+                edge.phase !== "settled" &&
+                service.journal.isDescendant(edge.childId, record.childId),
+            );
+          const root = thread.rootAgentId && store.getMcpAgent(thread.id, thread.rootAgentId);
+          const view = agentTaskView(
+            thread,
+            record,
+            pending,
+            !!root && ["idle", "blocked", "interrupted"].includes(root.status.state),
+          );
+          const available =
+            ["result_available", "failed", "cancelled"].includes(view.state) && !pending;
+          if (operation.op === "agent.result" && (!available || !record.outcome))
+            return { ok: false, code: "not_ready", data: view };
+          return {
+            ok: true,
+            data: { ...view, ...(available && record.outcome ? { outcome: record.outcome } : {}) },
+          };
+        }
         case "delegate_task": {
           const { op: _op, ...request } = operation;
-          const configured = await service.prepareModels(caller, request);
-          signal.throwIfAborted();
-          const child = service.delegate(caller, request, configured);
-          const outcome = operation.wait
-            ? await service.wait(caller, child.childId, signal)
-            : undefined;
+          const child =
+            request.workspace && extensions.delegateWorkspace
+              ? await extensions.delegateWorkspace(caller, request, signal)
+              : await (async () => {
+                  if (request.workspace?.kind && request.workspace.kind !== "project")
+                    throw new Error("Workspace owner unavailable");
+                  const configured = await service.prepareModels(caller, request);
+                  signal.throwIfAborted();
+                  return service.delegate(caller, request, configured);
+                })();
+          const outcome =
+            operation.waitMs !== undefined || operation.wait
+              ? await service.waitBounded(caller, child.childId, signal, operation.waitMs ?? 240000)
+              : undefined;
           return { ok: true, data: { threadId: child.childId, ...(outcome ? { outcome } : {}) } };
         }
         case "thread.create": {
@@ -149,7 +198,13 @@ export function createAgentControlPort(
           service.launch(record, operation.text);
           return { ok: true };
         }
+        case "agent.message":
         case "thread.message": {
+          if (
+            operation.op === "agent.message" &&
+            !service.journal.isDescendant(operation.threadId, caller.threadId)
+          )
+            return { ok: false, code: "forbidden" };
           const result = service.message(
             caller,
             operation.requestId,
@@ -197,7 +252,13 @@ export function createAgentControlPort(
           signal.throwIfAborted();
           return { ok: true, data };
         }
+        case "agent.cancel":
         case "thread.interrupt": {
+          if (
+            operation.op === "agent.cancel" &&
+            !service.journal.isDescendant(operation.threadId, caller.threadId)
+          )
+            return { ok: false, code: "forbidden" };
           const result = service.command(
             controlCommandId(caller.threadId, operation.requestId, operation.op),
             { type: "thread.interrupt", threadId: operation.threadId, cascade: true },

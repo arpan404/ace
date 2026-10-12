@@ -1,12 +1,9 @@
 import { delegationRequest } from "./cursor-request.ts";
 import { incomingRemoteRoot } from "./incoming-root.ts";
-import { cursorDefaultInstanceId } from "@ace/provider-kit/cursor-selection";
 import { AgentControlError, controlAdmissionError } from "./failure.ts";
-import { delegationModel } from "./models.ts";
+import { delegationSelection, validateDelegationSelection } from "./selection.ts";
 import { callerThread } from "./authorization.ts";
 import { admitDelegation, delegationBudget } from "@ace/orchestrator";
-import { pickInstance, explicitInstance } from "@ace/accounts";
-import { AccountProvider } from "@ace/protocol/accounts";
 import {
   Command,
   AcpIdentity,
@@ -40,6 +37,16 @@ export class DelegationAdmission {
   validate(caller: McpAttribution, input: DelegationRequest) {
     if (!this.admits()) throw new AgentControlError("admission_closed", "Admission closed");
     callerThread(this.deps.store, caller);
+    try {
+      this.deps.engine.childPermissionMode(
+        caller.threadId,
+        input.provider,
+        input.permissionMode,
+        input,
+      );
+    } catch {
+      throw controlAdmissionError("permission_ceiling_unverifiable");
+    }
     const root = this.journal.get(caller.threadId)?.rootId ?? caller.threadId;
     if (incomingRemoteRoot(this.deps.store, root))
       throw new AgentControlError(
@@ -112,47 +119,14 @@ export class DelegationAdmission {
           rejection ?? "active_limit",
         );
       this.journal.assertCapacity();
-      const provider = AccountProvider.safeParse(
-        input.provider === "acp" ? undefined : input.provider,
-      );
-      const candidates = provider.success
-        ? (this.deps.accounts
-            ?.list()
-            .filter(
-              (entry) =>
-                entry.instance.provider === provider.data &&
-                (input.accountId
-                  ? entry.instance.id === input.accountId
-                  : !entry.instance.implicit),
-            ) ?? [])
-        : [];
-      const selected = provider.success
-        ? input.accountId && candidates[0]
-          ? explicitInstance(
-              { provider: provider.data, role: input.role, estimatedLoad: input.estimatedLoad },
-              candidates[0],
-              now,
-            )
-          : pickInstance(
-              { provider: provider.data, role: input.role, estimatedLoad: input.estimatedLoad },
-              candidates,
-              now,
-            )
-        : undefined;
-      if (provider.success && (input.accountId || candidates.length > 0) && !selected)
-        throw new AgentControlError(
-          "account_unavailable",
-          "Account unavailable or quota exhausted",
-        );
-      const resolvedModel = delegationModel(
-        this.deps.models,
+      const selected = delegationSelection(
+        this.deps,
         input,
         callerThread(this.deps.store, caller),
-        selected?.id ??
-          input.instanceId ??
-          (input.provider === "cursor" ? cursorDefaultInstanceId : `${input.provider}-cli-default`),
+        now,
         configuredModel,
       );
+      const resolvedModel = selected.resolvedModel;
       const reservation: DelegationReservation = {
         record: {
           childId: ThreadId.parse(this.deps.id()),
@@ -168,7 +142,7 @@ export class DelegationAdmission {
           generation: 0,
           ...(resultDelivery ? { resultDelivery } : {}),
         },
-        ...(selected ? { accountId: selected.id } : {}),
+        ...(selected.accountId ? { accountId: selected.accountId } : {}),
       };
       this.journal.reserve(reservation);
       return reservation;
@@ -193,6 +167,7 @@ export class DelegationAdmission {
       resultDelivery: "owner";
       handoffFrom?: ThreadId;
     },
+    prepared?: Pick<import("../commands.ts").CommandContext, "preparedWorkspace">,
   ) {
     return this.deps.store.atomic(() => {
       const requested = reservation.record;
@@ -213,22 +188,13 @@ export class DelegationAdmission {
           rejection,
         );
       // Quota may have changed during filesystem work; selected identity is immutable.
-      if (current.accountId) {
-        const account = this.deps.accounts?.get(current.accountId);
-        const provider = AccountProvider.parse(r.request.provider);
-        if (
-          !account ||
-          !explicitInstance(
-            { provider, role: r.request.role, estimatedLoad: r.request.estimatedLoad },
-            account,
-            this.deps.clock.now(),
-          )
-        )
-          throw new AgentControlError(
-            "account_unavailable",
-            "Account unavailable or quota exhausted",
-          );
-      }
+      validateDelegationSelection(
+        this.deps,
+        r.request,
+        r.resolvedModel,
+        current.accountId,
+        this.deps.clock.now(),
+      );
       const identity = r.request.provider === "acp" ? AcpIdentity.parse(r.request) : undefined;
       const result = this.deps.engine.spawn(
         Command.parse({
@@ -236,6 +202,10 @@ export class DelegationAdmission {
           deviceId: "ace-agent",
           payload: {
             type: "thread.prepare",
+            ...(prepared?.preparedWorkspace ? { mode: "worktree" } : {}),
+            ...(r.request.workspace?.kind === "new_worktree"
+              ? { base: r.request.workspace.base }
+              : {}),
             ...(ownership?.handoffFrom ? { handoffFrom: ownership.handoffFrom } : {}),
             threadId: r.childId,
             workspaceId: workspace,
@@ -252,6 +222,7 @@ export class DelegationAdmission {
           parentThreadId: r.parentId,
           ...(r.request.permissionMode ? { permissionMode: r.request.permissionMode } : {}),
         },
+        prepared,
       );
       if (!result.ok) throw controlAdmissionError(result.error ?? "Child creation failed");
       const child = this.deps.store.getThread(r.childId);

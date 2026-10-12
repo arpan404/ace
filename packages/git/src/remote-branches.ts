@@ -162,7 +162,7 @@ export async function fetchBranch(
   };
   let result;
   try {
-    result = await repository.cli.call(
+    result = await repository.cli.fetch(
       root,
       [
         "fetch",

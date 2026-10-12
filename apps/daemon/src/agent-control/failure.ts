@@ -26,6 +26,7 @@ export function controlAdmissionError(reason: string): AgentControlError {
     launch_options_unsupported: "not_supported",
     permission_mode_unsupported: "not_supported",
     permission_exceeds_parent: "delegation_denied",
+    permission_ceiling_unverifiable: "delegation_denied",
   };
   return new AgentControlError(codes[reason] ?? "execution_failed", reason);
 }

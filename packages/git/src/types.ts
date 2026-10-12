@@ -16,6 +16,8 @@ export interface GitProcessRuntime {
 }
 
 export interface GitOptions {
+  /** Tests may inject file transport for local remotes; production uses http/https/ssh. */
+  transportProtocols?: readonly ("http" | "https" | "ssh" | "file")[];
   leaseId?: () => string;
   processRuntime?: Partial<GitProcessRuntime>;
   gitBinary?: string;
@@ -33,6 +35,7 @@ export type GitErrorCode =
   | "git_missing"
   | "git_too_old"
   | "git_failed"
+  | "objects_not_available"
   | "head_moved"
   | "conflicts"
   | "hook_failed"

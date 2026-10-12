@@ -9,13 +9,13 @@ import {
 import { AcpIdentity, type DelegationRequest, type Thread } from "@ace/protocol";
 
 /** Only catalog identities from the selected provider/account reach provider launch. */
-export function delegationModel(
+export function selectedDelegationModel(
   catalog: ModelCatalogApi,
   request: DelegationRequest,
   parent: Thread,
   instance?: string,
   configured?: string,
-): string {
+): import("@ace/protocol").CatalogModel {
   const identity = request.provider === "acp" ? AcpIdentity.parse(request) : undefined;
   const filter = selectionModelFilter(request.provider, instance, identity);
   if (!filter)
@@ -52,5 +52,24 @@ export function delegationModel(
       "model_unavailable",
       `Cannot delegate to ${request.provider}${instance ? ` account ${instance}` : ""}: requested model ${request.model ?? "(default)"} is unavailable and no valid configured default exists. Refresh the target account's model catalog or choose an available model.`,
     );
-  return executionModelId(chosen);
+  if (
+    (request.options?.effort &&
+      chosen.reasoningEfforts.length > 0 &&
+      !chosen.reasoningEfforts.includes(request.options.effort)) ||
+    (request.options?.serviceTier &&
+      chosen.serviceTiers.length > 0 &&
+      !chosen.serviceTiers.some((tier) => tier.id === request.options?.serviceTier))
+  )
+    throw new AgentControlError("not_supported", "The selected model does not offer these options");
+  return chosen;
+}
+
+export function delegationModel(
+  catalog: ModelCatalogApi,
+  request: DelegationRequest,
+  parent: Thread,
+  instance?: string,
+  configured?: string,
+): string {
+  return executionModelId(selectedDelegationModel(catalog, request, parent, instance, configured));
 }

@@ -200,6 +200,162 @@
     {
       "additionalProperties": false,
       "properties": {
+        "acpAgentId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "installationId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "instance": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "instanceId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "instanceOffset": {
+          "default": 0,
+          "maximum": 64,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "limit": {
+          "default": 10,
+          "maximum": 20,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "maximum": 40960,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "op": {
+          "const": "agents.catalog",
+          "type": "string"
+        },
+        "permissionOffset": {
+          "default": 0,
+          "maximum": 256,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "agent.status",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "agent.result",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "agent.cancel",
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "delivery": {
+          "default": "queue",
+          "enum": [
+            "queue",
+            "steer"
+          ],
+          "type": "string"
+        },
+        "op": {
+          "const": "agent.message",
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId",
+        "requestId",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "accountId": {
           "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
@@ -261,6 +417,14 @@
         "wait": {
           "default": false,
           "type": "boolean"
+        },
+        "waitMs": {
+          "maximum": 240000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "workspace": {
+          "$ref": "https://ace.local/protocol/v1/AgentWorkspace.json"
         }
       },
       "required": [

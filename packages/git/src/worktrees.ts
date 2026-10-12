@@ -6,6 +6,7 @@ import { Repository } from "./repository.ts";
 import { statusWithoutHidingFlags } from "./temporary-index.ts";
 import { GitError, isMutationUnavailable, type Worktree } from "./types.ts";
 
+/** Worktree allocation and checkout never execute repository hooks. */
 export interface CreateWorktreeOptions {
   repo: string;
   path: string;
@@ -54,6 +55,8 @@ export async function createWorktree(
       await cli.call(
         root,
         [
+          "-c",
+          "core.hooksPath=/dev/null",
           "worktree",
           "add",
           ...(staged ? ["--no-checkout"] : []),
@@ -86,10 +89,22 @@ export async function createWorktree(
             resolve(tree.path) === path && tree.branch === options.branch && tree.head === sha,
         );
         if (owned)
-          await cli.call(root, ["worktree", "remove", ...(staged ? ["--force"] : []), "--", path], {
-            write: true,
-            allowFailure: true,
-          });
+          await cli.call(
+            root,
+            [
+              "-c",
+              "core.hooksPath=/dev/null",
+              "worktree",
+              "remove",
+              ...(staged ? ["--force"] : []),
+              "--",
+              path,
+            ],
+            {
+              write: true,
+              allowFailure: true,
+            },
+          );
         if (!(await repository.worktrees(root)).some((tree) => tree.branch === options.branch))
           await deleteUnchangedBranch(repository, root, {
             repo: root,
@@ -150,7 +165,15 @@ export async function removeWorktree(
     // No JS recursive deletion. Git owns removal of this exact registered root.
     await repository.cli.call(
       root,
-      ["worktree", "remove", ...(options.force ? ["--force"] : []), "--", found.path],
+      [
+        "-c",
+        "core.hooksPath=/dev/null",
+        "worktree",
+        "remove",
+        ...(options.force ? ["--force"] : []),
+        "--",
+        found.path,
+      ],
       { write: true },
     );
   });
@@ -164,7 +187,7 @@ async function checkoutFiles(repository: Repository, path: string, options: Crea
   const { cli } = repository;
   checkCancellation(options.signal);
   options.onProgress?.({ step: "checking_out", percent: 0 });
-  await cli.call(path, ["read-tree", "HEAD"], { write: true });
+  await cli.call(path, ["-c", "core.hooksPath=/dev/null", "read-tree", "HEAD"], { write: true });
   const listing = await cli.call(path, ["ls-files", "-z"]);
   // Retain bytes: Git paths need not be valid UTF-8. The CLI bounds this listing at 64 MiB.
   let total = 0;
@@ -183,11 +206,15 @@ async function checkoutFiles(repository: Repository, path: string, options: Crea
       offset = end + 1;
       completed++;
     }
-    await cli.call(path, ["checkout-index", "--force", "--stdin", "-z"], {
-      write: true,
-      input: listing.stdout.subarray(start, offset),
-      ...(options.stderr ? { stderr: options.stderr } : {}),
-    });
+    await cli.call(
+      path,
+      ["-c", "core.hooksPath=/dev/null", "checkout-index", "--force", "--stdin", "-z"],
+      {
+        write: true,
+        input: listing.stdout.subarray(start, offset),
+        ...(options.stderr ? { stderr: options.stderr } : {}),
+      },
+    );
     const percent = Math.floor((completed * 100) / total);
     if (percent > reported) {
       reported = percent;
