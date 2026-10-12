@@ -87,6 +87,7 @@ export async function prDaemon(
   options.configure?.(fixtures, { head, base, source });
   const gh = await fakeGh(fixtures);
   const runtimeOptions = {
+    git: { transportProtocols: ["file"] as const },
     forgeRunner: () => (request: Parameters<typeof gh.runner>[0]) =>
       gh.runner({ ...request, command: gh.executable }),
     ...(options.matchRepository ? {} : { prRemote: () => "origin" }),

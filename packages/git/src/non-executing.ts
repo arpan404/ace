@@ -41,6 +41,7 @@ export function nonExecutingEnv(keys: string = ""): Record<string, string> {
     GIT_CONFIG_COUNT: String(pairs.length),
     GIT_ATTR_NOSYSTEM: "1",
     GIT_NO_LAZY_FETCH: "1",
+    GIT_ALLOW_PROTOCOL: "",
     GIT_OPTIONAL_LOCKS: "0",
   };
   for (const [index, pair] of pairs.entries()) {
@@ -51,4 +52,17 @@ export function nonExecutingEnv(keys: string = ""): Record<string, string> {
     env[`GIT_CONFIG_VALUE_${index}`] = value;
   }
   return env;
+}
+
+/** Only an explicitly admitted transfer may use transports. Repository protocol overrides lose. */
+export function nonExecutingTransportEnv(
+  keys: string,
+  protocols: readonly string[] = ["http", "https", "ssh"],
+): Record<string, string> {
+  const allowed = z.array(z.enum(["http", "https", "ssh", "file"])).max(4).parse(protocols);
+  return {
+    ...nonExecutingEnv(keys),
+    GIT_ALLOW_PROTOCOL: allowed.join(":"),
+    GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
+  };
 }

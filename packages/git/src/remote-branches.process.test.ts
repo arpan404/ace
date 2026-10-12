@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { GitService, isMutationUnavailable } from "./index.ts";
 import { git, put, repository, scalar, scratch } from "./test-repo.ts";
 
-const service = new GitService();
+const service = new GitService({ transportProtocols: ["file"] });
 
 /** A bare `origin`, a working copy that publishes to it, and a fresh clone of it. */
 async function remoteSetup() {

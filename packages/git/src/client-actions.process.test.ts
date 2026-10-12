@@ -147,7 +147,7 @@ test("committing named files takes their names literally and accepts a rename's 
 test("push updates an existing remote branch and refuses detached HEAD", async () => {
   const root = await repository();
   const remote = join(await scratch(), "remote.git");
-  const service = new GitService();
+  const service = new GitService({ transportProtocols: ["file"] });
   try {
     await git(root, "init", "--bare", remote);
     await git(root, "remote", "add", "origin", remote);

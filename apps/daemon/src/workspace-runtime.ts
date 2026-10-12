@@ -29,6 +29,7 @@ import {
 } from "@ace/protocol";
 import { listScripts, installedEditors, shellQuote } from "./workspace-scripts.ts";
 import { createCommandRunner, type CommandRunner } from "@ace/forge";
+import { pushWorkspace } from "./workspace-push.ts";
 import { WorkspaceForge } from "./workspace-forge.ts";
 import { RunCheckpoints } from "./run-checkpoints.ts";
 import { listClientRuns } from "./run-client-storage.ts";
@@ -37,6 +38,7 @@ import type { Store } from "./store.ts";
 import { systemCredentials } from "./credential-runtime.ts";
 
 export interface WorkspaceRuntimeOptions {
+  sourceControl?: import("./source-control.ts").SourceControl;
   git?: GitOptions;
   writingCli?: ReturnType<typeof createWritingCli>;
   reconcileThread?(id: ThreadId): Promise<void>;
@@ -96,9 +98,11 @@ export class WorkspaceRuntime {
       this.git,
       now,
       options.forgeRunner ?? ((cwd) => createCommandRunner({ cwd })),
+      options.sourceControl,
     );
     this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine, {
       ...(options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {}),
+      ...(options.sourceControl ? { sourceControl: options.sourceControl } : {}),
       preparePr: prBasePreparation({
         git: this.git,
         signal: this.prLifetime.signal,
@@ -409,7 +413,7 @@ export class WorkspaceRuntime {
           }),
         };
       if (p.type === "git.push") {
-        await this.git.push({ worktree: cwd, remote: p.remote });
+        await pushWorkspace(this.git, this.options.sourceControl, cwd, p, allowed);
         return { ok: true };
       }
       if (p.type === "workspace.editor.open") {

@@ -4,8 +4,9 @@ import { WorkspaceCreations } from "./creation-workspace.ts";
 import { createHash } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { GitError, publicationRemote, type GitService } from "@ace/git";
-import { repositoryFromRemote } from "@ace/forge";
+import { GitError, type GitService } from "@ace/git";
+import { workspaceRepository } from "./workspace-repository.ts";
+import type { SourceControl } from "./source-control.ts";
 import { ThreadId, type ThreadDetails, type Command } from "@ace/protocol";
 import type { Store } from "./store.ts";
 import { recordedBaseRef } from "./worktree-base.ts";
@@ -20,6 +21,7 @@ export class WorkspaceRoots {
   private git: WorkspaceGit;
   private directory: string;
   private now: () => number;
+  private sourceControl: SourceControl | undefined;
   private machine: { host: string; name: string };
   constructor(
     store: Store,
@@ -27,7 +29,11 @@ export class WorkspaceRoots {
     directory: string,
     now: () => number,
     machine: { host: string; name: string },
-    options: { baseFetchTimeoutMs?: number; preparePr?: PreparePrBase } = {},
+    options: {
+      baseFetchTimeoutMs?: number;
+      preparePr?: PreparePrBase;
+      sourceControl?: SourceControl;
+    } = {},
   ) {
     this.creations = new WorkspaceCreations(
       store,
@@ -41,6 +47,7 @@ export class WorkspaceRoots {
     this.directory = directory;
     this.now = now;
     this.machine = machine;
+    this.sourceControl = options.sourceControl;
   }
   creationReady(): Promise<void> {
     return this.creations.ready();
@@ -225,6 +232,7 @@ export class WorkspaceRoots {
   }
   async details(id: ThreadId): Promise<ThreadDetails> {
     for (let attempt = 0; attempt < 2; attempt++) {
+      const check = await this.sourceControl?.guard();
       const root = this.root(id);
       const info = await this.git.repositoryInfo(root);
       const changed = await this.git.changeSummary(root);
@@ -233,7 +241,8 @@ export class WorkspaceRoots {
       const project = this.store.getWorkspace(thread.workspaceId);
       if (!project) throw new Error("workspace_not_found");
       const projectPath = await realpath(project.path);
-      const repository = originRepository(info.remotes);
+      const repository = workspaceRepository(info.remotes, await this.sourceControl?.preferences());
+      check?.();
       // Never publish a read from an old binding. There is no await between comparison and write.
       if (this.root(id) !== root) continue;
       const current = this.store.getThread(id);
@@ -251,6 +260,7 @@ export class WorkspaceRoots {
         machine: this.machine,
         diff: changed,
       };
+      if (!repository) delete details.repository;
       if (JSON.stringify(current.details) !== JSON.stringify(details))
         this.store.appendEvents(
           id,
@@ -265,18 +275,5 @@ export class WorkspaceRoots {
     this.closing = true;
     await this.creations.close();
     await Promise.allSettled(this.preparations.values());
-  }
-}
-
-/** The forge repository of the origin remote (else the first), or undefined when unsupported. */
-function originRepository(
-  remotes: readonly { name: string; fetchUrls: readonly string[] }[],
-): ThreadDetails["repository"] {
-  const remote = publicationRemote(remotes)?.fetchUrls[0];
-  if (!remote) return undefined;
-  try {
-    return repositoryFromRemote(remote);
-  } catch {
-    return undefined;
   }
 }

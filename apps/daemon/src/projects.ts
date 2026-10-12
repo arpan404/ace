@@ -1,3 +1,5 @@
+import { RepositoryPublications } from "./repository-publications.ts";
+import type { SourceControl } from "./source-control.ts";
 import { discoverProjectFavicon } from "./project-favicon.ts";
 import { parseCloneUrl } from "@ace/project-picker";
 import type { PickerFilesystem } from "./project-picker-filesystem.ts";
@@ -33,6 +35,7 @@ import { browseProjects } from "./project-browse.ts";
 import type { Store } from "./store.ts";
 
 export interface ProjectsOptions {
+  sourceControl?: SourceControl;
   home?: string;
   /** Monotonic clock at the filesystem I/O boundary, for scan budgets and cache expiry. */
   pickerClock?: () => number;
@@ -60,6 +63,7 @@ export class Projects {
   private options: ProjectsOptions;
   private home: string;
   private commands: AsyncCommands;
+  private publications: RepositoryPublications | undefined;
   private destinations = new Set<string>();
   private clones = new Map<string, CloneFlight>();
   private progressListeners = new Set<(device: string, progress: WorkspaceCloneProgress) => void>();
@@ -80,6 +84,9 @@ export class Projects {
       options.pickerFilesystem,
     );
     this.commands = new AsyncCommands(store);
+    this.publications = options.sourceControl
+      ? new RepositoryPublications(store, options.sourceControl, now)
+      : undefined;
     this.stopRevocation = store.devices.onRevoke((device) => this.cancelDevice(device));
     this.ready = this.restoreIcons().catch(() => undefined);
   }
@@ -236,6 +243,7 @@ export class Projects {
           const project = this.catalog.get(p.workspaceId);
           assertProjectPath(project.path, await this.paths.roots());
           this.check(allowed);
+          if (this.destinations.has(project.path)) throw new ProjectError("project_busy");
           if (p.type === "workspace.update") {
             const defaultIcon = await this.favicon(project.path);
             this.check(allowed);
@@ -252,6 +260,50 @@ export class Projects {
             this.options.hasOwnedWork ?? (() => false),
           );
           return { ok: true };
+        }
+        if (p.type === "workspace.publish") {
+          if (!this.publications) throw new ProjectError("publication_unavailable");
+          const project = this.catalog.get(p.workspaceId);
+          const directory = await ProjectDirectory.open(this.paths, project.path);
+          let reserved = false;
+          try {
+            this.check(allowed);
+            this.store.workspaceReservations.assertAvailable(directory.path);
+            if (this.destinations.has(directory.path)) throw new ProjectError("project_busy");
+            this.destinations.add(directory.path);
+            reserved = true;
+            const publication = await this.publications.publish(
+              p.workspaceId,
+              input.deviceId,
+              p.input,
+              directory,
+              this.git,
+              () => !this.closed && allowed(),
+              this.options.gitPolicy,
+            );
+            this.check(allowed);
+            // Keep the durable failure even when cancelled Git work fences metadata reads.
+            if (publication.error)
+              return { ok: false, error: publication.error, publication, workspace: project };
+            const inspection = await this.inspectDirectory(directory);
+            const workspace = this.catalog.update(
+              p.workspaceId,
+              project.name,
+              undefined,
+              "updated",
+              inspection.defaultIcon,
+            );
+            return {
+              ok: publication.error === null,
+              ...(publication.error ? { error: publication.error } : {}),
+              publication,
+              workspace,
+              inspection,
+            };
+          } finally {
+            if (reserved) this.destinations.delete(directory.path);
+            await directory.close();
+          }
         }
         const parentDirectory = await ProjectDirectory.open(this.paths, p.parent);
         const parent = parentDirectory.path;
@@ -446,11 +498,34 @@ export class Projects {
       return wrap({ kind: "error", code: projectErrorCode(error) });
     }
   }
+  async publicationStatus(id: WorkspaceId, allowed: () => boolean) {
+    this.check(allowed);
+    const project = this.catalog.get(id);
+    await this.paths.directory(project.path);
+    this.check(allowed);
+    return this.publications?.status(id) ?? null;
+  }
+  async publicationState(id: WorkspaceId, device: string, allowed: () => boolean) {
+    const publication = await this.publicationStatus(id, allowed);
+    const activity = this.publications?.activity(id, device) ?? { running: false, canStop: false };
+    return {
+      publication,
+      ...activity,
+      running: activity.running || this.destinations.has(this.catalog.get(id).path),
+    };
+  }
+  async cancelPublication(id: WorkspaceId, device: string, allowed: () => boolean) {
+    await this.publicationStatus(id, allowed);
+    if (!this.publications) throw new ProjectError("publication_unavailable");
+    this.publications.cancel(id, device);
+  }
   cancelDevice(device: string): void {
+    this.publications?.cancelDevice(device);
     for (const clone of this.clones.values()) if (clone.device === device) clone.controller.abort();
   }
   async close(): Promise<void> {
     this.closed = true;
+    this.publications?.close();
     this.stopRevocation();
     for (const clone of this.clones.values()) clone.controller.abort();
     await Promise.all([
@@ -462,6 +537,7 @@ export class Projects {
   }
 }
 export function projectErrorCode(error: unknown): string {
+  if (error instanceof Error && /^publication_[a-z_]+$/.test(error.message)) return error.message;
   return error instanceof ProjectError
     ? error.code
     : error instanceof GitError

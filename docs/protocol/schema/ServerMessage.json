@@ -81,6 +81,12 @@
       "$ref": "https://ace.local/protocol/v1/ProjectsResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SourceControlResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/HostedRepositoriesResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/WorkspaceChanged.json"
     },
     {
@@ -1401,6 +1407,9 @@
         },
         "prStatus": {
           "$ref": "https://ace.local/protocol/v1/ForgePrStatus.json"
+        },
+        "publication": {
+          "$ref": "https://ace.local/protocol/v1/RepositoryPublication.json"
         },
         "review": {
           "$ref": "https://ace.local/protocol/v1/ReviewData.json"

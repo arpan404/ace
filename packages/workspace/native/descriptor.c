@@ -158,6 +158,46 @@ static int component(napi_env env, napi_value value, char *name, size_t capacity
   if (napi_get_value_string_utf8(env, value, name, capacity, &size) != napi_ok) return 0;
   return strlen(name) == size && !strchr(name, '/') && strcmp(name, ".") && strcmp(name, "..");
 }
+// Metadata descriptors do not request file read/write permission. The policy
+// caller checks the acquired inode before changing its private staging mode.
+static napi_value open_metadata_at(napi_env env, napi_callback_info info) {
+  napi_value args[2], result;
+  size_t count = 2;
+  int32_t parent;
+  char name[4096];
+  if (napi_get_cb_info(env, info, &count, args, NULL, NULL) != napi_ok || count != 2 ||
+      napi_get_value_int32(env, args[0], &parent) != napi_ok ||
+      !component(env, args[1], name, sizeof(name))) return fail(env, EINVAL);
+#ifdef __APPLE__
+  int flags = O_EVTONLY | O_NONBLOCK;
+#else
+  int flags = O_PATH;
+#endif
+  int descriptor = openat(parent, name, flags | O_NOFOLLOW | O_CLOEXEC);
+  if (descriptor < 0) return fail(env, errno);
+  napi_create_int32(env, descriptor, &result);
+  return result;
+}
+static napi_value chmod_metadata(napi_env env, napi_callback_info info) {
+  napi_value args[2], result;
+  size_t count = 2;
+  int32_t descriptor, mode;
+  if (napi_get_cb_info(env, info, &count, args, NULL, NULL) != napi_ok || count != 2 ||
+      napi_get_value_int32(env, args[0], &descriptor) != napi_ok || descriptor < 0 ||
+      napi_get_value_int32(env, args[1], &mode) != napi_ok || mode < 0 || mode > 0777)
+    return fail(env, EINVAL);
+#ifdef __APPLE__
+  if (fchmod(descriptor, (mode_t)mode) < 0) return fail(env, errno);
+#else
+  // fchmod rejects O_PATH descriptors. procfs addresses this held inode, not a
+  // mutable workspace name, and works on kernels predating fchmodat2.
+  char path[64];
+  snprintf(path, sizeof(path), "/proc/self/fd/%d", descriptor);
+  if (chmod(path, (mode_t)mode) < 0) return fail(env, errno);
+#endif
+  napi_get_undefined(env, &result);
+  return result;
+}
 static napi_value unlink_at(napi_env env, napi_callback_info info) {
   napi_value args[2], result;
   size_t count = 2;
@@ -186,6 +226,8 @@ static napi_value rename_at(napi_env env, napi_callback_info info) {
 static napi_value init(napi_env env, napi_value exports) {
   napi_property_descriptor methods[] = {
     {"openAt", NULL, open_at, NULL, NULL, NULL, napi_default, NULL},
+    {"openMetadataAt", NULL, open_metadata_at, NULL, NULL, NULL, napi_default, NULL},
+    {"chmodMetadata", NULL, chmod_metadata, NULL, NULL, NULL, napi_default, NULL},
     {"openRoot", NULL, open_root, NULL, NULL, NULL, napi_default, NULL},
     {"mkdirAt", NULL, mkdir_at, NULL, NULL, NULL, napi_default, NULL},
     {"names", NULL, names, NULL, NULL, NULL, napi_default, NULL},
@@ -194,7 +236,7 @@ static napi_value init(napi_env env, napi_value exports) {
     {"unlinkAt", NULL, unlink_at, NULL, NULL, NULL, napi_default, NULL},
     {"renameAt", NULL, rename_at, NULL, NULL, NULL, napi_default, NULL}
   };
-  napi_define_properties(env, exports, 8, methods);
+  napi_define_properties(env, exports, sizeof(methods) / sizeof(methods[0]), methods);
   return exports;
 }
 NAPI_MODULE(NODE_GYP_MODULE_NAME, init)

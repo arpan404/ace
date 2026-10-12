@@ -368,6 +368,9 @@
         "prStatus": {
           "$ref": "https://ace.local/protocol/v1/ForgePrStatus.json"
         },
+        "publication": {
+          "$ref": "https://ace.local/protocol/v1/RepositoryPublication.json"
+        },
         "review": {
           "$ref": "https://ace.local/protocol/v1/ReviewData.json"
         },

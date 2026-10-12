@@ -1,3 +1,4 @@
+import { fileExportSource } from "../file-export-source.ts";
 import { remoteOutputRead } from "../agent-control/remote-return.ts";
 import { remoteContextTransfer } from "../agent-control/remote-context-transfer.ts";
 import { providerAuthRelay } from "./provider-auth-relay.ts";
@@ -10,6 +11,7 @@ import {
 import { connectBrowser, type BrowserService } from "@ace/browser";
 import { screenConnection, Simulators, type ScreenManager } from "@ace/screen";
 import {
+  FileError,
   chunkFilesChannel,
   attachFilesRelay,
   attachmentChannel,
@@ -163,10 +165,13 @@ export function attachRelayService(
       close: endpoint.close,
     };
   }
-  const legacy = options.files
-    ? attachFilesRelay(options.files, channel, device, (scope) =>
-        authorize(scope === "files.read" ? "read" : "operate"),
-      )
+  const legacyService = options.files;
+  const legacy = legacyService
+    ? attachFilesRelay(legacyService, channel, device, (scope, operation) => {
+        if (!authorize(scope === "files.read" ? "read" : "operate")) return false;
+        const source = fileExportSource(legacyService, options.store, operation);
+        return source === undefined || threadAccess(source);
+      })
     : undefined;
   const attachmentService = options.context;
   const attachments = attachmentService?.downloadAttachment
@@ -232,11 +237,23 @@ export function attachRelayService(
             }
             const root = files.root(threadId);
             const { service, release } = await files.acquire(threadId);
+            let source: ThreadId | undefined;
+            try {
+              source = fileExportSource(service, options.store, operation);
+              if (source !== undefined && (source !== threadId || !threadAccess(source)))
+                throw new FileError("FORBIDDEN", "Export source is not readable by this thread");
+            } catch (error) {
+              release();
+              throw error;
+            }
             return {
               service,
               release,
               allowed: (access) =>
-                authorize(access) && threadAccess(threadId) && files.matches(threadId, root),
+                authorize(access) &&
+                threadAccess(threadId) &&
+                files.matches(threadId, root) &&
+                (source === undefined || threadAccess(source)),
             };
           },
         })

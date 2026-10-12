@@ -1,5 +1,10 @@
 import type { SettingsValues } from "@ace/protocol";
 export const defaults: SettingsValues = {
+  "sourceControl.preferences": {
+    hosts: [{ host: "github.com" }],
+    host: "github.com",
+    remote: "origin",
+  },
   "providers.configuration": [],
   "host.displayName": "",
   "host.icon": { kind: "laptop" },

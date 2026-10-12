@@ -18,6 +18,7 @@ test("a protected partial-clone checkout never launches a promisor SSH command f
   await scalar(repo, "config", "core.repositoryFormatVersion", "1");
   await scalar(repo, "config", "extensions.partialClone", "origin");
   await scalar(repo, "config", "remote.origin.promisor", "true");
+  await scalar(repo, "config", "protocol.ssh.allow", "always");
   await scalar(repo, "config", "remote.origin.partialclonefilter", "blob:none");
   await scalar(
     repo,
@@ -67,7 +68,7 @@ test("explicit PR fetch supplies partial-clone blobs before a non-executing chec
   const head = await scalar(publisher, "rev-parse", "HEAD");
   await git(source, "update-ref", "refs/pull/7/head", head);
   await git(parent, "clone", "--filter=blob:none", "--no-checkout", "--", `file://${source}`, repo);
-  const service = new GitService();
+  const service = new GitService({ transportProtocols: ["file"] });
   const path = join(parent, "materialized-pr");
   try {
     await service.nonExecuting(async () => {
@@ -84,9 +85,9 @@ test("explicit PR fetch supplies partial-clone blobs before a non-executing chec
       service.protectWorktree(path);
     });
     expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe("original\n");
-    await expect(
-      service.fetchPrHead({ repo: path, remote: "origin", number: 7, timeoutMs: 60_000 }),
-    ).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(
+      await service.fetchPrHead({ repo: path, remote: "origin", number: 7, timeoutMs: 60_000 }),
+    ).toBe(head);
   } finally {
     await service.close();
   }

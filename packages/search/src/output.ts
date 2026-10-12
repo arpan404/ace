@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { OutputSummary, ThreadId } from "@ace/protocol";
+import type { OutputSummary, TextSource, ThreadId } from "@ace/protocol";
 import { FIELD_CAP, capText, GAP } from "./text.ts";
 
 /** Caller-owned output storage; each request is at most 64 KiB. */
@@ -42,4 +42,22 @@ export function outputText(
   const tail = read(summary.bytes - FIELD_CAP * 4, FIELD_CAP * 4);
   if (!head || !tail) return summary.tail;
   return decode(head, false).slice(0, FIELD_CAP) + GAP + decode(tail, true).slice(-FIELD_CAP);
+}
+
+/** Source previews retain searchable head/tail text while full search reads the stream in chunks. */
+export function sourceText(
+  reader: OutputReader | undefined,
+  threadId: ThreadId,
+  source: TextSource,
+  fallback: string,
+): string {
+  if (!reader || !source.bytes) return fallback;
+  const read = (offset: number, limit: number) => {
+    const bytes = reader(threadId, source.streamId, offset, limit);
+    return bytes === undefined ? undefined : Buffer.from(Bytes.parse(bytes)).toString("utf16le");
+  };
+  if (source.bytes <= FIELD_CAP * 4) return capText(read(0, source.bytes) ?? fallback);
+  const head = read(0, FIELD_CAP * 2);
+  const tail = read(source.bytes - FIELD_CAP * 2, FIELD_CAP * 2);
+  return head === undefined || tail === undefined ? fallback : capText(head + GAP + tail);
 }

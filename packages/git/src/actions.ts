@@ -1,7 +1,7 @@
 import { writingContext } from "./writing-context.ts";
 import { z } from "zod";
 import type { Repository } from "./repository.ts";
-import { GitError } from "./types.ts";
+import { GitError, type PushOptions } from "./types.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
 /** Pathspec bytes one commit may name: well inside every platform's argument limit. */
 const maxPathBytes = 256 * 1024;
@@ -81,10 +81,7 @@ export async function commitChanges(
     return head.parse(await repository.commit(root, "HEAD"));
   });
 }
-export async function pushBranch(
-  repository: Repository,
-  options: { worktree: string; remote: string },
-): Promise<void> {
+export async function pushBranch(repository: Repository, options: PushOptions): Promise<void> {
   const remote = z
     .string()
     .min(1)
@@ -92,12 +89,30 @@ export async function pushBranch(
     .regex(/^[\w./-]+$/)
     .refine((value) => !value.startsWith("-"))
     .parse(options.remote);
+  const expected =
+    options.expected === undefined
+      ? undefined
+      : z
+          .object({
+            branch: z.string().min(1).max(1024),
+            head: head.nullable(),
+            pushUrls: z.array(z.string().min(1).max(4096)).min(1).max(100),
+          })
+          .parse(options.expected);
   const root = await repository.root(options.worktree);
   await repository.serial(root, async () => {
     const info = await repository.info(root);
     if (!info.branch || !info.remotes.some((entry) => entry.name === remote))
       throw new GitError("invalid_argument", "Select a branch and an existing remote");
-    await repository.cli.call(
+    const selected = info.remotes.find((entry) => entry.name === remote);
+    if (expected) {
+      if (info.branch !== expected.branch || info.head !== expected.head)
+        throw new GitError("head_moved", "The selected PR head moved before pushing");
+      if (JSON.stringify(selected?.pushUrls) !== JSON.stringify(expected.pushUrls))
+        throw new GitError("invalid_argument", "The selected remote changed before pushing");
+    }
+    options.beforePush?.();
+    await repository.cli.push(
       root,
       ["push", "--set-upstream", "--", remote, `HEAD:refs/heads/${info.branch}`],
       {

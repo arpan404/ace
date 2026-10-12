@@ -16,6 +16,8 @@ export interface GitProcessRuntime {
 }
 
 export interface GitOptions {
+  /** Tests may inject file transport for local remotes; production uses http/https/ssh. */
+  transportProtocols?: readonly ("http" | "https" | "ssh" | "file")[];
   leaseId?: () => string;
   processRuntime?: Partial<GitProcessRuntime>;
   gitBinary?: string;
@@ -28,6 +30,8 @@ export interface GitOptions {
 }
 
 export type GitErrorCode =
+  | "sensitive_publication"
+  | "publication_scan_incomplete"
   | "git_missing"
   | "git_too_old"
   | "git_failed"
@@ -169,3 +173,10 @@ export function isMutationUnavailable(error: unknown): boolean {
     error instanceof GitError && (error.code === "git_quarantined" || error.cleanup !== undefined)
   );
 }
+
+export type PushOptions = {
+  worktree: string;
+  remote: string;
+  beforePush?: () => void;
+  expected?: { branch: string; head: string | null; pushUrls: readonly string[] };
+};
