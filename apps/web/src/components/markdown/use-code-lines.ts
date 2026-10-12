@@ -3,9 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import { codeHash, codeLinesWeight, type CodeLines } from "./code-lines.ts";
 import { highlightJobs } from "./highlight-jobs.ts";
 
-/** Files highlighted this session, so switching back to a file tab shows it at once. */
+/**
+ * Code highlighted this session by (language, text): a file tab switched back to, or a fence
+ * scrolled back into view, shows its colours at once. Bounded by what the lines weigh; a
+ * transcript's fences are small, so many fit.
+ */
 const ready = new LruCache<string, CodeLines>({
-  maxEntries: 12,
+  maxEntries: 512,
   maxWeight: 12 * 1024 * 1024,
   weigh: codeLinesWeight,
 });

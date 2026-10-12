@@ -51,8 +51,9 @@ export function codeLinesWeight(doc: CodeLines): number {
 }
 
 const resultLimit = 8 * 1024 * 1024;
+// The worker's own copy, by (language, text): a fence the page dropped is not tokenized again.
 const built = new LruCache<string, CodeLines>({
-  maxEntries: 16,
+  maxEntries: 256,
   maxWeight: resultLimit,
   weigh: codeLinesWeight,
 });
