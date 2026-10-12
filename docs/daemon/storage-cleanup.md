@@ -163,45 +163,61 @@ database file. Compaction is a separate, admin-only operation.
 `cleanup.compact` compacts `events.sqlite`. It runs under the Store maintenance
 fence, never inside a retention plan.
 
-The Store has one write boundary, `Store.write(run)`. A caller awaits admission
-there, then `run` commits synchronously, so ownership checks inside a commit still
-see the state they commit against. `writable()` is the same admission for callers
-that already sequence their own commit. History publication and other writers whose
-commits span awaits register through `Store.writer()`. `Store.maintenance(work)`
-holds new admissions, waits up to 10s for registered writers to drain, then runs
-the work alone. A held writer waits up to 60s, then fails as `Store is busy`, the
-same transient error SQLite contention already raises. Refresh sweeps, async action
-receipt completion, automation admission, the async Forge projections (status,
-refresh and PR creation), device artifact publication and preview authentication
-all go through `write`.
+### What the write fence covers
 
-A few writers stay synchronous by contract: event-listener bookkeeping, the
-`WriteDispatch` journal callbacks in `@ace/forge`, reservation of async command
-receipts, and bearer authentication on sockets. They share the Store's single
-connection and event loop, and a maintenance step never holds a transaction across
-an await, so such a write commits whole between two steps and is never lost or torn.
-Moving them behind `write` needs interface changes in those packages and is tracked
-separately.
+The Store has one connection, and every write on it is a synchronous transaction.
+`Store.maintenance(work)` holds new writers that come through `Store.write(run)` or
+`Store.writable()`. It also drains writers registered with `Store.writer()`, waiting
+up to 10s, and then runs the work alone. History publication is the registered
+writer: its worker commits on a second connection. It now queues behind maintenance
+through `startHistoryWriting()` instead of failing.
 
-New databases are created with `auto_vacuum=INCREMENTAL`. The incremental mode
-releases free pages with `incremental_vacuum(256)`. Each chunk is its own
-transaction, journaled in `storage_compactions`, and the step yields between
-chunks. A run is limited to 4,096 chunks and is left `pending` beyond that. It
-ends with `wal_checkpoint(TRUNCATE)`; `checkpointed: false` means a reader kept
-the WAL from being truncated. A file created before incremental vacuum reports
-`fullRequired`. Only a full rebuild can shrink it: `mode: "full"` with
-`confirm: true`, which sets incremental mode and runs `VACUUM`. Full VACUUM keeps
-the rowids of tables without an explicit INTEGER PRIMARY KEY through SQLite's
-transfer optimisation, and some engine tables depend on that ordering.
+Most mutation paths do not go through the fence. Hundreds of synchronous writes call
+`atomic()`, `appendEvents()` or prepared statements directly. Examples are the engine
+repository and permissions, delegations, the thread organiser, browser origins, socket
+bearer authentication and the `@ace/forge` `WriteDispatch` callbacks. The fence does
+not hold them, and it does not need to. They share the Store's single connection and
+event loop, so a synchronous write runs only between two awaits of the maintenance
+work. Every maintenance step leaves no transaction open across an await: each
+`incremental_vacuum` chunk and each journal save commits on its own. Such a write
+therefore commits whole between two chunks, and it can neither tear a chunk nor be
+lost.
 
-Every step leaves an intact file if the process is killed. A chunk and a VACUUM
-are both atomic, so the only trace is a `running` journal entry. On startup, an
-incremental entry resumes. A full rebuild is never repeated without a fresh
-confirmation: it becomes `interrupted`, waiting for `cleanup.compact` with
-`mode: "full", confirm: true` or for `cleanup.compactAbandon`. Settings → Storage
-offers Compact database, and offers Rebuild database (behind a confirmation)
-when it is needed. The CLI equivalent is
-`ace clean --compact [--full --confirm] [--abandon ID]`.
+The fence is for writers whose commits would otherwise overlap a step. It covers
+other-connection writers, which today means history publication. It also covers async
+flows that already await `writable()`, including engine delivery, recovery, sessions
+and storage apply, plus the sites moved onto `write`. Those sites are refresh sweeps,
+async receipt completion, automation admission, the Forge status, refresh and
+PR-creation projections, device artifact publication and preview authentication.
+
+Admission waits without a time limit by default. Maintenance is itself bounded: a
+drain timeout, and a fixed number of chunks per run. A failed admission after an
+external effect, such as a created PR or a published recording, could not be retried
+safely, and an agent session must never fail because of maintenance. `holdMs` is an
+opt-in bound for tests; the engine actor retries a busy admission rather than failing.
+
+### Incremental only
+
+New databases are created with `auto_vacuum=INCREMENTAL`. Compaction releases free
+pages with `incremental_vacuum(256)`. Each chunk is its own transaction, journaled in
+`storage_compactions`, and the step yields between chunks. A run is limited to
+4,096 chunks; any remainder stays `pending` and resumes on the next request or at
+startup. `cleanup.compactAbandon` stops resuming it. Each run ends with
+`wal_checkpoint(TRUNCATE)`, and `checkpointed: false` means a reader kept the WAL
+from being truncated.
+
+A full `VACUUM` is not offered. When `VACUUM` converts a file to incremental mode,
+it renumbers rows in tables without an INTEGER PRIMARY KEY alias.
+`compaction.process.test.ts` showed this on the bundled SQLite: rowids 1, 2, 4, 5
+became 1, 2, 3, 4. Engine provider frames, MCP intents, blobs and PR-creation receipts
+are addressed by implicit rowid, so a rebuild would corrupt them. A file created
+before incremental vacuum reports `incrementalUnavailable` and is left untouched. Its
+free pages are still reused by ordinary writes. Offering a rebuild would first need
+explicit INTEGER PRIMARY KEYs on every rowid-addressed table.
+
+A kill at any point leaves an intact file: every chunk is atomic, and the only trace
+is a `running` journal entry, which resumes on startup. Settings → Storage offers
+Compact database. The CLI equivalent is `ace clean --compact [--abandon ID]`.
 
 ## Scheduling and verification
 

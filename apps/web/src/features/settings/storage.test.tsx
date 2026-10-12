@@ -47,10 +47,15 @@ test("storage shows protected data and waits for confirmation before removing re
   expect(screen.getByText("Cleanup finished. Items that became protected were kept.")).toBeTruthy();
 });
 
-test("compacting the database reports the result and refreshes usage", async () => {
+test("compacting the database reports the freed bytes and refreshes usage", async () => {
   const app = harness({ clock: () => 200 * 86400000 });
+  app.daemon.seedServices({
+    storageDatabase: { bytes: 10 * 1024 ** 2, reclaimable: 4 * 1024 ** 2 },
+  });
   await app.open("/settings/storage");
-  await userEvent.click(await screen.findByRole("button", { name: "Compact database" }));
-  expect(await screen.findByText("Compacted from 0 B to 0 B.")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Rebuild database" })).toBeNull();
+  expect(await screen.findByText("10.0 MB")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Compact database" }));
+  expect(await screen.findByText("Compacted from 10.0 MB to 6.0 MB.")).toBeTruthy();
+  expect(await screen.findByText("6.0 MB")).toBeTruthy();
+  expect(screen.getByText("0 B of unused pages SQLite can reuse.")).toBeTruthy();
 });

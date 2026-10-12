@@ -146,17 +146,15 @@ export function StoragePlanPreview(props: {
   );
 }
 
-/** Database compaction. A full rebuild rewrites the file, so it always asks first. */
+/** Incremental database compaction; there is no full rebuild to confirm. */
 export function StorageCompactAction(props: {
   result?: StorageCompaction | undefined;
   busy: boolean;
   disabled: boolean;
-  onCompact(mode: StorageCompaction["mode"]): void;
+  onCompact(): void;
   onAbandon(id: string): void;
 }) {
-  const [confirm, setConfirm] = useState(false);
   const result = props.result;
-  const rebuild = result?.fullRequired === true || result?.state === "interrupted";
   return (
     <div className="mt-4">
       <div className="flex flex-wrap gap-2">
@@ -164,68 +162,32 @@ export function StorageCompactAction(props: {
           size="sm"
           variant="ghost"
           disabled={props.busy || props.disabled}
-          onClick={() => props.onCompact("incremental")}
+          onClick={props.onCompact}
         >
           {result?.state === "pending" ? "Resume compaction" : "Compact database"}
         </Button>
-        {rebuild && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={props.busy || props.disabled}
-            onClick={() => setConfirm(true)}
-          >
-            Rebuild database
-          </Button>
-        )}
-        {result?.state === "interrupted" && (
+        {result?.state === "pending" && (
           <Button
             size="sm"
             variant="ghost"
             disabled={props.busy || props.disabled}
             onClick={() => props.onAbandon(result.id)}
           >
-            Abandon rebuild
+            Stop compaction
           </Button>
         )}
       </div>
       {result && (
         <p role="status" className="mt-2 text-xs text-muted-foreground">
-          {result.state === "complete"
-            ? `Compacted from ${storageBytes(result.databaseBytesBefore)} to ${storageBytes(result.databaseBytes)}.`
-            : result.state === "pending"
-              ? "Compaction paused. Resume to continue."
-              : result.state === "interrupted"
-                ? "A rebuild was interrupted. The database is intact."
-                : "Rebuild abandoned."}
-          {result.fullRequired ? " This database needs a rebuild before it can shrink." : ""}
+          {result.incrementalUnavailable
+            ? "This database was created before compaction was available and can't shrink in place."
+            : result.state === "complete"
+              ? `Compacted from ${storageBytes(result.databaseBytesBefore)} to ${storageBytes(result.databaseBytes)}.`
+              : result.state === "pending"
+                ? "Compaction paused. Resume to continue."
+                : "Compaction stopped."}
         </p>
       )}
-      <Dialog open={confirm} onOpenChange={setConfirm}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rebuild the database?</DialogTitle>
-            <DialogDescription>
-              ace rewrites the whole database file. Agents keep working, but their writes wait until
-              the rebuild finishes.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setConfirm(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                setConfirm(false);
-                props.onCompact("full");
-              }}
-            >
-              Rebuild
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

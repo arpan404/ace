@@ -140,9 +140,7 @@ export function StorageSettings() {
             result={compaction}
             busy={busy}
             disabled={!ready}
-            onCompact={(mode) =>
-              void compact({ op: "cleanup.compact", mode, confirm: mode === "full" })
-            }
+            onCompact={() => void compact({ op: "cleanup.compact" })}
             onAbandon={(compactionId) =>
               void compact({ op: "cleanup.compactAbandon", compactionId })
             }
