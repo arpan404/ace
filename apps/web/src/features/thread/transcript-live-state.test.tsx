@@ -333,3 +333,50 @@ test("the empty working composer exposes Stop and Escape stops the turn", async 
   expect(await screen.findByRole("button", { name: /^Stopped after/ })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
 });
+
+for (const waiting of [false, true]) {
+  test(`an older turn stays unsettled while its silent child ${waiting ? "awaits approval" : "works"}, after a newer root turn answers`, async () => {
+    const { app, setTime } = await running([...initial(), ...child()]);
+    act(() =>
+      app.daemon.apply(id, [
+        facts.toolDone("root", "build"),
+        facts.message("root", "first-answer", "assistant", "First answer."),
+        facts.endTurn("root"),
+      ]),
+    );
+    setTime(90_000);
+    act(() =>
+      app.daemon.apply(id, [
+        { type: "turn.started", agent: "root", nativeTurnId: "second-root", trigger: "user" },
+        facts.message("root", "second-ask", "user", "Check the next change."),
+        facts.message("root", "second-answer", "assistant", "Second answer."),
+        ...(waiting
+          ? [
+              {
+                type: "interaction.opened" as const,
+                agent: "audit",
+                interaction: "silent-approval",
+                blocking: true,
+                request: {
+                  kind: "approval" as const,
+                  title: "Approve the silent audit?",
+                  options: [{ id: "deny", kind: "deny" as const, label: "Deny" }],
+                },
+              },
+            ]
+          : []),
+      ]),
+    );
+    await screen.findByText("Second answer.");
+    expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
+    if (waiting) {
+      await userEvent.click(
+        within(await screen.findByRole("region", { name: "Waiting for you" })).getByRole("button", {
+          name: "Deny",
+        }),
+      );
+    }
+    act(() => app.daemon.apply(id, [facts.endTurn("audit")]));
+    expect(await screen.findByRole("button", { name: /^Worked for 1m 29s/ })).toBeTruthy();
+  });
+}

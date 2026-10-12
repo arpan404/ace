@@ -115,6 +115,9 @@ export interface BlockSource {
   run?(runId: string): RunFacts | undefined;
   /** Whether a spawned agent has finished its part of the turn. */
   agentSettled?(agentId: string): boolean;
+  /** Shared canonical settlement, including descendants without transcript output. */
+  turnSettled?: ((runId: string) => boolean) | undefined;
+  turnEndedAt?(runId: string): number | undefined;
   /** The tool call an interaction was raised from, for ace's review notices. */
   reviewedCall?(interactionId: string): string | undefined;
   /** The turn a usage limit holds right now, and turns seen held earlier. */
@@ -565,7 +568,12 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (facts?.endedAt !== undefined && facts.startedAt !== undefined && !turn.paused) {
       const ends = [...turn.runs].flatMap((id) => source.run?.(id)?.endedAt ?? []);
       const taskEnds = [...turn.tasks].flatMap((id) => source.task?.(id)?.endedAt ?? []);
-      const until = Math.max(facts.endedAt, ...ends, ...taskEnds);
+      const until = Math.max(
+        facts.endedAt,
+        source.turnEndedAt?.(turn.id) ?? facts.endedAt,
+        ...ends,
+        ...taskEnds,
+      );
       const first = turn.work[0];
       const outcome = turn.paused ? "paused" : facts.state === "active" ? "completed" : facts.state;
       if (first) {
@@ -658,6 +666,7 @@ function endBlock(
  * has finished. What is still open is added to `watch`, so its settling rebuilds the blocks.
  */
 function settled(source: BlockSource, turn: TurnMark, newest: boolean): boolean {
+  if (source.turnSettled) return source.turnSettled(turn.id);
   let done = !(newest && (source.pending || (source.unsettledTail && !source.heldTurn)));
   for (const taskId of turn.tasks) {
     const task = source.task?.(taskId);
@@ -668,14 +677,12 @@ function settled(source: BlockSource, turn: TurnMark, newest: boolean): boolean 
     done = false;
     source.watch?.runs.add(runId);
   }
-  // A child's status is about its latest work: it decides only the newest turn (an older
-  // turn's children are judged by their runs in it).
-  if (newest)
-    for (const agentId of turn.agents) {
-      if (source.agentSettled?.(agentId) ?? true) continue;
-      done = false;
-      source.watch?.agents.add(agentId);
-    }
+  // Compatibility for callers without the canonical tree projection.
+  for (const agentId of turn.agents) {
+    if (source.agentSettled?.(agentId) ?? true) continue;
+    done = false;
+    source.watch?.agents.add(agentId);
+  }
   return done && source.run?.(turn.id) !== undefined;
 }
 

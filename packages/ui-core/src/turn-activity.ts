@@ -1,7 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { isTestCommand } from "@ace/projection";
 import type { Interaction, Item, ThreadStatus } from "@ace/protocol";
-import { agentTreeWork } from "./agents.ts";
+import { turnTreeOf } from "./turn-tree.ts";
 import { askingLabel, describeLive, type LiveFact } from "./live-status.ts";
 import { providerNames } from "./providers.ts";
 import { limitHoldShown } from "./queue.ts";
@@ -135,33 +135,21 @@ export function readTurnActivity(
   rootId: string,
   options: ActivityOptions = {},
 ): ActivityReading {
-  const watch: string[] = [];
-  const agents = reader.agentIds().flatMap((id) => {
-    watch.push(`agent:${id}`);
-    const agent = reader.agent(id);
-    return agent ? [agent] : [];
-  });
-  const tasks = reader.taskIds().flatMap((id) => {
-    watch.push(`task:${id}`);
-    const task = reader.task(id);
-    return task ? [task] : [];
-  });
-  const pending = [...ledgerOf(reader).pending()];
-  const tree = agentTreeWork(agents, tasks, pending);
-  const activity = tree.needsYou.has(rootId)
+  const tree = turnTreeOf(reader);
+  const watch = [...tree.watch()];
+  const pending = tree.pending();
+  const activity = tree.needsYou
     ? waitingOnYou(pending)
     : readActivity(reader, rootId, options, watch);
   const status = reader.agent(rootId)?.status;
   const waitingCount =
     status?.state === "blocked" && status.on === "subagents" ? status.refs.length : 0;
   const subagents = Math.max(
-    agents.filter((agent) => agent.id !== rootId && tree.running.has(agent.id)).length,
+    tree.subagents,
     reader.thread?.live?.runningSubagentCount ?? 0,
     waitingCount,
   );
-  const backgroundCommands = tasks.filter(
-    (task) => task.kind === "shell" && (task.status === "running" || task.status === "unknown"),
-  ).length;
+  const backgroundCommands = tree.backgroundCommands;
   const workingTree = subagents > 0 || backgroundCommands > 0;
   const stretch = ledgerOf(reader).currentStretch(reader);
   for (const id of stretch.watch) watch.push(`item:${id}`);
@@ -169,7 +157,8 @@ export function readTurnActivity(
   const run = runId ? reader.run(runId) : undefined;
   if (runId) watch.push(`run:${runId}`);
   // The server's turn start survives snapshots, partial messages and child work outliving it.
-  const from = run?.startedAt ?? reader.thread?.live?.workingSince ?? stretch.start;
+  const from =
+    stretch.origin ?? run?.startedAt ?? reader.thread?.live?.workingSince ?? stretch.start;
   const active = activity?.tone === "working" || workingTree;
   const shown =
     active &&
@@ -193,13 +182,7 @@ export function readTurnActivity(
           current:
             activity?.current ??
             currentAction(stretch.current, options.labels) ??
-            (backgroundCommands
-              ? tasks.find(
-                  (task) =>
-                    task.kind === "shell" &&
-                    (task.status === "running" || task.status === "unknown"),
-                )?.title
-              : undefined),
+            tree.currentCommand(),
           subagents,
           backgroundCommands,
         }

@@ -1,4 +1,4 @@
-import type { ThreadReader } from "@ace/client";
+import type { ThreadReader, ThreadSource } from "@ace/client";
 import type { Interaction, Item, Run } from "@ace/protocol";
 import { rootRunOf } from "./turn-ordinals.ts";
 
@@ -95,6 +95,7 @@ interface Stretch {
   run: string | undefined;
   /** Its earliest steps by start, at most `earliestKept`, oldest first. */
   earliest: { id: string; start: number }[];
+  origin?: number | undefined;
   start: number | undefined;
   /** Its steps that were in flight when they arrived (pruned as they settle). */
   flying: Set<string>;
@@ -141,10 +142,42 @@ export class ThreadLedger {
   private readonly flying = new Map<string, Item>();
   private stretch = newStretch(undefined);
 
+  private observed = false;
+  private interactionsDirty = true;
+  private tasksDirty = true;
+
+  /** The source owns the change feed; no history lists are enumerated on running-step deltas. */
+  observe(source: Pick<ThreadSource, "observe">): void {
+    this.observed = true;
+    source.observe((keys) => {
+      if (keys === "all") {
+        this.resetInteractions();
+        this.interactionsVersion++;
+        this.taskCount = 0;
+        this.background.clear();
+        this.backgroundCalls.clear();
+        this.tasksVersion++;
+        this.resetOrder();
+        this.interactionsDirty = this.tasksDirty = true;
+        return;
+      }
+      for (const key of keys) {
+        if (key === "interactions" || key.startsWith("interaction:")) this.interactionsDirty = true;
+        if (key === "tasks" || key.startsWith("task:")) this.tasksDirty = true;
+      }
+    });
+  }
+
   /** Bring the ledger up to date with the reader. Costs what changed since the last call. */
   sync(reader: LedgerReader): this {
-    this.syncInteractions(reader);
-    this.syncTasks(reader);
+    if (!this.observed || this.interactionsDirty) {
+      this.syncInteractions(reader);
+      this.interactionsDirty = false;
+    }
+    if (!this.observed || this.tasksDirty) {
+      this.syncTasks(reader);
+      this.tasksDirty = false;
+    }
     this.syncOrder(reader);
     return this;
   }
@@ -354,7 +387,7 @@ export class ThreadLedger {
         return;
       // A steer belongs to the active turn; it must not restart that turn's timer.
       if (!incoming || incoming.id !== this.stretch.run || incoming.state !== "active")
-        this.stretch = newStretch(incoming?.id);
+        this.stretch = { ...newStretch(incoming?.id), origin: incoming?.startedAt };
       return;
     }
     const run = rootRunOf(reader, item.runId)?.id;
@@ -366,8 +399,11 @@ export class ThreadLedger {
         if (ended !== undefined && next && next.startedAt > ended)
           this.stretch.idle += next.startedAt - ended;
         this.stretch.run = run;
-      } else this.stretch = newStretch(run);
-    } else if (run !== undefined) this.stretch.run = run;
+      } else this.stretch = { ...newStretch(run), origin: reader.run(run)?.startedAt };
+    } else if (run !== undefined) {
+      this.stretch.run = run;
+      this.stretch.origin ??= reader.run(run)?.startedAt;
+    }
     if (!isWork(item)) return;
     const stretch = this.stretch;
     const start = startOf(item);
@@ -406,6 +442,7 @@ export class ThreadLedger {
   currentStretch(reader: LedgerReader): {
     start: number | undefined;
     runId: string | undefined;
+    origin: number | undefined;
     /** Time the agent sat idle between runs that carried the stretch on. */
     idle: number;
     current: Item | undefined;
@@ -433,7 +470,14 @@ export class ThreadLedger {
       const item = reader.item(id);
       if (item?.type === "tool_call" && runningStatus.has(item.call.status)) current = item;
     }
-    return { start: stretch.start, runId: stretch.run, idle: stretch.idle, current, watch };
+    return {
+      start: stretch.start,
+      runId: stretch.run,
+      origin: stretch.origin,
+      idle: stretch.idle,
+      current,
+      watch,
+    };
   }
 }
 
@@ -442,6 +486,11 @@ const ledgers = new WeakMap<object, ThreadLedger>();
 /** The reader's shared ledger, brought up to date. */
 export function ledgerOf(reader: LedgerReader): ThreadLedger {
   let ledger = ledgers.get(reader);
-  if (!ledger) ledgers.set(reader, (ledger = new ThreadLedger()));
+  if (!ledger) {
+    ledger = new ThreadLedger();
+    ledgers.set(reader, ledger);
+    if ("observe" in reader && typeof reader.observe === "function")
+      ledger.observe(reader as LedgerReader & Pick<ThreadSource, "observe">);
+  }
   return ledger.sync(reader);
 }

@@ -9,6 +9,7 @@ import {
   type ToolCall,
 } from "@ace/protocol";
 import { expect, test } from "vitest";
+import type { ThreadSource } from "@ace/client";
 import { ledgerOf } from "./thread-ledger.ts";
 import {
   activityText,
@@ -127,7 +128,16 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
     run: (id) => runs.get(id),
     agent: (id) => agents.get(id),
     agentIds: () => [...agents.keys()],
-    thread: undefined,
+    thread: Thread.parse({
+      id: "thread-1",
+      workspaceId: "project",
+      title: "Work",
+      provider: "claude",
+      rootAgentId: "root",
+      status: { state: "working", agents: 1 },
+      createdAt: 0,
+      updatedAt: 0,
+    }),
     interactionIds: () => [...asked.keys()],
     interaction: (id) => asked.get(id),
     taskIds: () => [...tasks.keys()],
@@ -136,6 +146,8 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
   };
   return {
     reader,
+    runs,
+    tasks,
     add(item: Item) {
       byId.set(item.id, item);
       order = [...order, item.id];
@@ -182,7 +194,7 @@ test("a working turn times its work and names the step in flight readably", () =
   const activity = turnActivity(reader, "root");
   expect(activity?.tone).toBe("working");
   expect(activity?.current).toBe("Running bun install --frozen-lockfile");
-  expect(activityText(activity!, 84 * second)).toBe("Working for 1m 14s");
+  expect(activityText(activity!, 84 * second)).toBe("Working for 1m 24s");
 });
 
 test("the step in flight follows the step's own updates, and the line says which to watch", () => {
@@ -262,9 +274,10 @@ test("the timer counts the whole turn's work, across what the agent said between
     "Working for 1m 30s",
   );
   // The person's next message starts a new stretch.
-  thread.add(said("again", "user", 100 * second));
-  thread.add(shell("next", "ls", "running", 110 * second));
-  expect(activityText(turnActivity(thread.reader, "root")!, 120 * second)).toBe("Working for 10s");
+  thread.runs.set("run-2", { ...run("run-2", "root"), startedAt: 100 * second });
+  thread.add({ ...said("again", "user", 100 * second), runId: "run-2" as Run["id"] });
+  thread.add({ ...shell("next", "ls", "running", 110 * second), runId: "run-2" as Run["id"] });
+  expect(activityText(turnActivity(thread.reader, "root")!, 120 * second)).toBe("Working for 20s");
 });
 
 test("a finished turn has no live line unless a question still waits on the person", () => {
@@ -326,7 +339,7 @@ test("a turn that left a command running watches it, by name when it is the only
     tone: "working",
     backgroundCommands: 1,
   });
-  expect(activityText(line!, 10 * second)).toBe("Working");
+  expect(activityText(line!, 10 * second)).toBe("Working for 10s");
 
   thread.background("tunnel");
   thread.status({ state: "blocked", on: "background_task", refs: ["task-dev", "task-tunnel"] });
@@ -369,5 +382,64 @@ test("saved history has no live activity until a new turn starts", () => {
   thread.status({ state: "starting" });
   expect(turnActivity(reader, "root")).toBeUndefined();
   thread.status({ state: "working", activity: "thinking" });
-  expect(turnActivity(thread.reader, "root")?.label).toBe("Thinking");
+  expect(turnActivity(thread.reader, "root")?.label).toBe("Working");
+});
+
+test("continuations preserve the first server start and exclude the idle gap, including after replay", () => {
+  const thread = world(working, [said("ask", "user", 0), shell("early", "ls", "succeeded", 0)]);
+  expect(activityText(turnActivity(thread.reader, "root")!, 10_000)).toBe("Working for 10s");
+  thread.runs.set("run-1", { ...run("run-1", "root"), state: "completed", endedAt: 10_000 });
+  thread.runs.set("run-2", {
+    ...run("run-2", "root"),
+    trigger: "subagent_result",
+    startedAt: 40_000,
+  });
+  thread.add({
+    ...shell("continue", "bun run build", "running", 40_000),
+    runId: "run-2" as Run["id"],
+  });
+  expect(activityText(turnActivity(thread.reader, "root")!, 45_000)).toBe("Working for 15s");
+  // A new reader replays the same server facts instead of inheriting client-side timer state.
+  expect(activityText(turnActivity({ ...thread.reader }, "root")!, 45_000)).toBe("Working for 15s");
+});
+
+test("running-step updates do not revisit retained agents or enumerate historical tasks", () => {
+  const thread = world(working, [shell("run", "bun run build", "running", 0)]);
+  for (let index = 0; index < 1_000; index++) {
+    thread.subagent(`past-${index}`, { state: "idle" });
+    thread.background(`past-${index}`);
+    const task = thread.tasks.get(`task-past-${index}`);
+    if (task) thread.tasks.set(task.id, { ...task, status: "completed", endedAt: 10 });
+  }
+  let agentReads = 0;
+  let taskLists = 0;
+  let agentLists = 0;
+  const taps = new Set<Parameters<ThreadSource["observe"]>[0]>();
+  const reader = {
+    ...thread.reader,
+    agent: (id: string) => {
+      agentReads++;
+      return thread.reader.agent(id);
+    },
+    agentIds: () => {
+      agentLists++;
+      return thread.reader.agentIds();
+    },
+    taskIds: () => {
+      taskLists++;
+      return thread.reader.taskIds();
+    },
+    observe: (tap: Parameters<ThreadSource["observe"]>[0]) => {
+      taps.add(tap);
+      return () => taps.delete(tap);
+    },
+  };
+  turnActivity(reader, "root");
+  agentReads = taskLists = agentLists = 0;
+  thread.replace(shell("run", "bun run build web", "running", 0));
+  for (const tap of taps) tap(new Set(["item:run"]));
+  expect(turnActivity(reader, "root")?.current).toBe("Running bun run build web");
+  expect(agentReads).toBeLessThan(10);
+  expect(taskLists).toBe(0);
+  expect(agentLists).toBe(0);
 });
