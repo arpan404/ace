@@ -46,16 +46,12 @@ function draw(overrides: Partial<ModelControlView> = {}) {
   return { chip: screen.getByRole("button", { name: view.ariaLabel }), actions };
 }
 
-test("one chip shows the model, its effort and its speed, and the model name gives way first", () => {
+test("one chip shows the model, its effort and its speed, with no separate effort chip", () => {
   const { chip } = draw();
   expect(chip.textContent).toContain(view.label);
   expect(chip.querySelector("[data-slot=model-effort]")?.textContent).toBe("High");
   expect(within(chip).getByRole("img", { name: "Fast" })).toBeTruthy();
-  expect(chip.querySelector("[data-slot=model-name]")?.className).toContain("truncate");
-  expect(chip.querySelector("[data-slot=model-effort]")?.parentElement?.className).toContain(
-    "shrink-0",
-  );
-  expect(screen.queryByRole("button", { name: /^Reasoning: / })).toBeNull();
+  expect(screen.getAllByRole("button")).toEqual([chip]);
 });
 
 test("standard speed shows no speed icon on the chip", () => {
