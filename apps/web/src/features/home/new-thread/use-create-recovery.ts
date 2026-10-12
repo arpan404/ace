@@ -98,6 +98,7 @@ export function useCreateRecovery(options: {
   const submitting = useEffectEvent(options.isSubmitting);
   const report = useEffectEvent(options.onError);
   const recovered = useEffectEvent(options.onRecovered);
+  const navigationAllowed = useEffectEvent(() => options.canNavigate?.() ?? true);
   useEffect(() => {
     const changed = (event: StorageEvent) => {
       if (event.key === key) setRevision((value) => value + 1);
@@ -131,7 +132,7 @@ export function useCreateRecovery(options: {
         return;
       }
       recovered(attempt.payload);
-      if (options.canNavigate?.() === false) return;
+      if (!navigationAllowed()) return;
       void navigate({
         to: "/t/$threadId",
         params: { threadId: receipt.threadId ?? `pending:${attempt.commandId}` },
