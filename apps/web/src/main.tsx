@@ -22,6 +22,7 @@ import {
 } from "./features/connect/index.ts";
 import { watchKeyboardInset } from "./lib/keyboard-inset.ts";
 import { profileName, setProfileName } from "./lib/profile.ts";
+import { glassEngine } from "./theme/glass.ts";
 import "./styles/index.css";
 
 // A browser that denies site data throws on the first touch of storage; ace then starts with
@@ -32,8 +33,22 @@ const environment = {
   storage: local,
   matchMedia: (query: string) => matchMedia(query),
   root: document.documentElement,
+  glassEngine: glassEngine(navigator.userAgent, userAgentBrands()),
 };
 const stores = { local, session };
+
+/** `navigator.userAgentData.brands` where the browser has it (Chromium); not in every DOM lib. */
+function userAgentBrands(): { brand: string }[] {
+  const data: unknown = Reflect.get(navigator, "userAgentData");
+  const brands: unknown = data && typeof data === "object" ? Reflect.get(data, "brands") : [];
+  return Array.isArray(brands)
+    ? brands.flatMap((entry: unknown) => {
+        const brand: unknown =
+          entry && typeof entry === "object" ? Reflect.get(entry, "brand") : undefined;
+        return typeof brand === "string" ? [{ brand }] : [];
+      })
+    : [];
+}
 // Sidebar status stays live in hidden tabs; transcript streams stay in the worker.
 const batch = frameBatch(nextFrame);
 const app = (client: ClientApi, machines?: MachinePool) => (

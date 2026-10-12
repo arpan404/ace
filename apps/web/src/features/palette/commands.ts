@@ -13,20 +13,14 @@ import {
   useWorkspaceCommands,
 } from "@/lib/workspace/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { themeIds, themes } from "@/theme/palettes.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { useThreadCommands } from "./thread-commands.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
 
 export type { PaletteCommand, PaletteGroup, PaletteIcon } from "./types.ts";
 
-type Destination =
-  | View["to"]
-  | "/setup"
-  | "/new"
-  | "/accounts"
-  | "/archived"
-  | "/settings"
-  | "/settings/theme-editor";
+type Destination = View["to"] | "/setup" | "/new" | "/accounts" | "/archived" | "/settings";
 
 /** The order groups show in with an empty query: what's at hand first, the long lists after. */
 const groupOrder = [
@@ -52,7 +46,7 @@ const orderOf = (group: PaletteGroup) => {
  */
 export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] {
   const navigate = useNavigate();
-  const { themes, theme, update } = useTheme();
+  const { resolved, update } = useTheme();
   // Workspace commands act on the screen showing one (a thread), and only appear there.
   const scope = useFocusedScope();
   const workspace = useScopeWorkspace(scope);
@@ -136,94 +130,86 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
       },
       {
         value: "Actions",
-        items: [
-          ...(scope
-            ? [
-                {
-                  id: "toggle-changes",
-                  label: "Show changes",
-                  keys: keymap.changes.keys,
-                  icon: "action",
-                  run: run(() => panel.toggleKind("changes")),
-                } satisfies PaletteCommand,
-                {
-                  id: "open-agents",
-                  label: "Open agent tree",
-                  keys: keymap.agents.keys,
-                  icon: "action",
-                  run: run(() => panel.toggleKind("work")),
-                } satisfies PaletteCommand,
-                {
-                  id: "open-terminal",
-                  label: "Open terminal",
-                  keys: keymap.terminal.keys,
-                  icon: "action",
-                  run: run(() => panel.toggleKind("terminal")),
-                } satisfies PaletteCommand,
-                {
-                  id: "open-file",
-                  label: "Open a file from the checkout",
-                  keys: keymap.files.keys,
-                  icon: "action",
-                  run: run(() => panel.shortcut("files")),
-                } satisfies PaletteCommand,
-                {
-                  id: "open-browser",
-                  label: "Open the browser",
-                  keys: keymap.browser.keys,
-                  icon: "action",
-                  run: run(() => panel.shortcut("browser")),
-                } satisfies PaletteCommand,
-                {
-                  id: "new-terminal",
-                  label: "New terminal",
-                  keys: keymap.newTerminal.keys,
-                  icon: "action",
-                  run: run(() => openNewTerminal(panel, workspace)),
-                } satisfies PaletteCommand,
-                {
-                  id: "open-logs",
-                  label: "Show logs",
-                  keys: keymap.logs.keys,
-                  icon: "action",
-                  run: run(() => panel.toggleKind("logs")),
-                } satisfies PaletteCommand,
-                {
-                  id: "toggle-right",
-                  label: `${workspace.open ? "Hide" : "Show"} side panel`,
-                  keys: keymap.rightPanel.keys,
-                  icon: "action",
-                  run: run(() => panel.toggle()),
-                } satisfies PaletteCommand,
-                {
-                  id: "new-tab",
-                  label: "New tab in the side panel",
-                  keys: keymap.newTab.keys,
-                  icon: "action",
-                  run: run(() => panel.newTab()),
-                } satisfies PaletteCommand,
-                {
-                  id: "full-view",
-                  label: workspace.expanded ? "Exit full view" : "Side panel in full view",
-                  keys: keymap.fullView.keys,
-                  icon: "action",
-                  run: run(() => panel.setExpanded(!workspace.expanded)),
-                } satisfies PaletteCommand,
-                ...tabCommands.map((command): PaletteCommand => ({
-                  ...command,
-                  id: `workspace-${command.id}`,
-                  icon: "action",
-                  run: run(command.run),
-                })),
-              ]
-            : []),
-          {
-            id: "theme-editor",
-            label: "Theme editor",
-            icon: "theme",
-            run: go("/settings/theme-editor"),
-          },
-        ],
+        items: scope
+          ? [
+              {
+                id: "toggle-changes",
+                label: "Show changes",
+                keys: keymap.changes.keys,
+                icon: "action",
+                run: run(() => panel.toggleKind("changes")),
+              } satisfies PaletteCommand,
+              {
+                id: "open-agents",
+                label: "Open agent tree",
+                keys: keymap.agents.keys,
+                icon: "action",
+                run: run(() => panel.toggleKind("work")),
+              } satisfies PaletteCommand,
+              {
+                id: "open-terminal",
+                label: "Open terminal",
+                keys: keymap.terminal.keys,
+                icon: "action",
+                run: run(() => panel.toggleKind("terminal")),
+              } satisfies PaletteCommand,
+              {
+                id: "open-file",
+                label: "Open a file from the checkout",
+                keys: keymap.files.keys,
+                icon: "action",
+                run: run(() => panel.shortcut("files")),
+              } satisfies PaletteCommand,
+              {
+                id: "open-browser",
+                label: "Open the browser",
+                keys: keymap.browser.keys,
+                icon: "action",
+                run: run(() => panel.shortcut("browser")),
+              } satisfies PaletteCommand,
+              {
+                id: "new-terminal",
+                label: "New terminal",
+                keys: keymap.newTerminal.keys,
+                icon: "action",
+                run: run(() => openNewTerminal(panel, workspace)),
+              } satisfies PaletteCommand,
+              {
+                id: "open-logs",
+                label: "Show logs",
+                keys: keymap.logs.keys,
+                icon: "action",
+                run: run(() => panel.toggleKind("logs")),
+              } satisfies PaletteCommand,
+              {
+                id: "toggle-right",
+                label: `${workspace.open ? "Hide" : "Show"} side panel`,
+                keys: keymap.rightPanel.keys,
+                icon: "action",
+                run: run(() => panel.toggle()),
+              } satisfies PaletteCommand,
+              {
+                id: "new-tab",
+                label: "New tab in the side panel",
+                keys: keymap.newTab.keys,
+                icon: "action",
+                run: run(() => panel.newTab()),
+              } satisfies PaletteCommand,
+              {
+                id: "full-view",
+                label: workspace.expanded ? "Exit full view" : "Side panel in full view",
+                keys: keymap.fullView.keys,
+                icon: "action",
+                run: run(() => panel.setExpanded(!workspace.expanded)),
+              } satisfies PaletteCommand,
+              ...tabCommands.map((command): PaletteCommand => ({
+                ...command,
+                id: `workspace-${command.id}`,
+                icon: "action",
+                run: run(command.run),
+              })),
+            ]
+          : [],
       },
       {
         value: "Theme",
@@ -232,23 +218,20 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
             id: "theme-toggle",
             label: "Toggle light and dark",
             icon: "theme",
-            run: run(() => update({ theme: theme.scheme === "dark" ? "light" : "dark" })),
+            run: run(() => update({ mode: resolved.scheme === "dark" ? "light" : "dark" })),
           },
           {
             id: "theme-system",
-            label: "Match system",
+            label: "Match system light and dark",
             icon: "theme",
-            run: run(() => update({ theme: "system" })),
+            run: run(() => update({ mode: "system" })),
           },
-          // Light and Dark are the toggle above; the rest are named themes.
-          ...themes
-            .filter((option) => option.id !== "light" && option.id !== "dark")
-            .map((option): PaletteCommand => ({
-              id: `theme-${option.id}`,
-              label: `Use ${option.name}`,
-              icon: "theme",
-              run: run(() => update({ theme: option.id })),
-            })),
+          ...themeIds.map((id): PaletteCommand => ({
+            id: `theme-${id}`,
+            label: `Use ${themes[id].name}`,
+            icon: "theme",
+            run: run(() => update({ theme: id })),
+          })),
         ],
       },
     ];
@@ -268,8 +251,7 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
   }, [
     close,
     navigate,
-    themes,
-    theme.scheme,
+    resolved.scheme,
     update,
     scope,
     panel,

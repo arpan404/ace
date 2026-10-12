@@ -129,13 +129,13 @@ export function XtermView(props: {
         fit();
       });
 
-      // Follow theme changes (presets, light and dark, accent) on the document root.
+      // Follow theme and mode changes on the document root.
       const retheme = new MutationObserver(() => {
         term.options.theme = themeFor(element);
       });
       retheme.observe(document.documentElement, {
         attributes: true,
-        attributeFilter: ["data-theme", "data-accent", "class", "style"],
+        attributeFilter: ["data-theme", "data-scheme", "class", "style"],
       });
 
       term.attachCustomKeyEventHandler((event) => {

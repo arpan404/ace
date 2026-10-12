@@ -1,38 +1,57 @@
-import type { Theme } from "./presets.ts";
-import { statusTextColours } from "./status-text.ts";
+import { readableAcross } from "./colour.ts";
+import { themeIds, themes, type Palette, type Scheme, type ThemeId } from "./palettes.ts";
+import { paletteSurfaces } from "./surfaces.ts";
+import { themeTokens } from "./tokens.ts";
+
+const schemes: readonly Scheme[] = ["light", "dark"];
 
 /**
- * One theme as a CSS rule scoped to `[data-theme="<id>"]`. Foreground aliases are emitted
- * here so components only ever read shadcn token names, and each status hue as readable text.
+ * Waiting and not-responding are shared hues, so their words are made readable per theme: the
+ * hue itself where it reads at AA on every surface, else the nearest step toward the text colour.
  */
-export function themeRule(theme: Theme): string {
-  const t = theme.tokens;
-  const declarations: Record<string, string> = {
-    "color-scheme": theme.scheme,
-    ...t,
-    "--card-foreground": t["--foreground"],
-    "--popover-foreground": t["--foreground"],
-    "--secondary-foreground": t["--foreground"],
-    "--accent-foreground": t["--foreground"],
-    "--sidebar-primary": t["--foreground"],
-    "--sidebar-primary-foreground": t["--primary-foreground"],
-    "--sidebar-accent-foreground": t["--foreground"],
-    ...statusTextColours(theme),
+function sharedStatusText(palette: Palette, scheme: Scheme, tokens: Record<string, string>) {
+  const surfaces = paletteSurfaces(palette, scheme).map((surface) => surface.rgb);
+  const text = (hue: string) => readableAcross(hue, surfaces, scheme === "dark") ?? palette.t1;
+  return {
+    "--status-waiting-text": text(tokens["--status-waiting"] ?? palette.t1),
+    "--status-unresponsive-text": text(tokens["--status-unresponsive"] ?? palette.t1),
   };
-  const body = Object.entries(declarations)
-    .map(([name, value]) => `${name}:${sanitize(value)}`)
+}
+
+/** Every declaration one theme sets in one scheme, as the page receives it. */
+export function themeDeclarations(id: ThemeId, scheme: Scheme): Record<string, string> {
+  const palette = themes[id][scheme];
+  const tokens: Record<string, string> = themeTokens(palette, scheme);
+  return {
+    "color-scheme": scheme,
+    ...tokens,
+    ...sharedStatusText(palette, scheme, tokens),
+    // shadcn's foreground aliases, so components only ever read token names.
+    "--card-foreground": palette.t1,
+    "--popover-foreground": palette.t1,
+    "--secondary-foreground": palette.t1,
+    "--accent-foreground": palette.t1,
+    "--sidebar-primary": palette.t1,
+    "--sidebar-primary-foreground": palette.s0,
+    "--sidebar-accent-foreground": palette.t1,
+  };
+}
+
+/**
+ * One theme in one scheme as a rule. It matches any element carrying both attributes, so
+ * `<html>` themes the app and a swatch can preview another theme with the same tokens.
+ */
+export function themeRule(id: ThemeId, scheme: Scheme): string {
+  const body = Object.entries(themeDeclarations(id, scheme))
+    .map(([name, value]) => `${name}:${value}`)
     .join(";");
-  return `[data-theme="${cssString(theme.id)}"]{${body}}`;
+  return `[data-theme="${id}"][data-scheme="${scheme}"]{${body}}`;
 }
 
-export function themeStylesheet(themes: readonly Theme[]): string {
-  return themes.map(themeRule).join("\n");
+/** Both schemes of one theme: what the boot record replays before first paint. */
+export function themeStylesheet(id: ThemeId): string {
+  return schemes.map((scheme) => themeRule(id, scheme)).join("\n");
 }
 
-/** Imported themes are user data: a value can never close the rule or open another. */
-function sanitize(value: string): string {
-  return value.replace(/[{};<>]/g, "");
-}
-function cssString(value: string): string {
-  return value.replace(/["\\]/g, "");
-}
+/** Every theme in both schemes, for the app and the theme swatches. */
+export const allThemesStylesheet: string = themeIds.map(themeStylesheet).join("\n");

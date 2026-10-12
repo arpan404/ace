@@ -49,7 +49,7 @@ const tones: Record<NonNullable<Style["tone"]>, string> = {
   yellow: "text-status-needs-you",
   blue: "text-status-working",
   magenta: "text-status-waiting",
-  cyan: "text-[var(--accent-teal)]",
+  cyan: "text-[var(--syn-type)]",
 };
 
 /** Above this many rows a screen mounts only the rows near the viewport. */
