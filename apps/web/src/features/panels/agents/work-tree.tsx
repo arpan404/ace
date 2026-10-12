@@ -103,7 +103,7 @@ function treeKeys(tree: TreeState) {
  * that agent as its own tab), the background work still running with Stop, queued input,
  * and queued input. Every row subscribes to its own entity.
  */
-export function AgentsTab(props: { threadId: string }) {
+export function WorkTree(props: { threadId: string }) {
   const tree = useAgentTree(props.threadId) ?? [];
   const facts = useTreeWork(props.threadId);
   const tasks = facts.tasks.filter(
