@@ -70,6 +70,20 @@ async function openHistory(made: ReturnType<typeof app>) {
   await userEvent.click(await screen.findByRole("option", { name: /^relay$/ }));
 }
 
+test("new-thread history follows its single project picker", async () => {
+  const made = app();
+  await made.open("/new?project=relay");
+  await screen.findByRole("list", { name: "Past sessions in relay" });
+  expect(screen.queryByRole("combobox", { name: "Past sessions project" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Setup project:/ })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Project: relay" }));
+  const popup = await screen.findByRole("dialog", { name: "Choose project" });
+  await userEvent.click(await within(popup).findByRole("option", { name: "docs-site" }));
+  await screen.findByRole("button", { name: "Project: docs-site" });
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Past sessions" })).toBeNull());
+  expect(screen.queryByText("Fix the old retry loop")).toBeNull();
+});
+
 test("Setup lists the selected project's sessions and Import opens their saved conversation", async () => {
   const made = app();
   await openHistory(made);

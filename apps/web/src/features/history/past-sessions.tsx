@@ -8,6 +8,13 @@ import { useOpenSession, usePastSessions } from "./use-past-sessions.ts";
 
 const AllSessions = lazy(() => import("./sessions-dialog.tsx"));
 
+/** The new-thread heading owns project selection, including the sessions shown below it. */
+export function ProjectPastSessions({ projectId }: { projectId: string | undefined }) {
+  const directory = useProjectDirectory();
+  const project = directory.projects.find((entry) => entry.id === projectId);
+  return project ? <ProjectSessions key={project.id} project={project} /> : null;
+}
+
 export function PastSessions() {
   const directory = useProjectDirectory();
   const [selected, setSelected] = useState("");
