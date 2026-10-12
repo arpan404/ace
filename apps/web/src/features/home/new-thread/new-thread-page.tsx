@@ -164,7 +164,8 @@ export function NewThreadPage(props: {
     setBase(undefined);
     choose({ project: next });
   };
-  const draftKeyFor = (id: string) => `new:${id}${props.skill ? `:skill:${props.skill}` : ""}${props.pullRequest ? `:pr:${props.pullRequest}` : ""}`;
+  const draftKeyFor = (id: string) =>
+    `new:${id}${props.skill ? `:skill:${props.skill}` : ""}${props.pullRequest ? `:pr:${props.pullRequest}` : ""}`;
   // A model remembered as a bare id (before option keys) is saved under its option key, again
   // after any later choice saves the bare id it still holds.
   const upgraded = resolved.upgradedModel;
@@ -315,11 +316,7 @@ export function NewThreadPage(props: {
                 if (provider === "claude") setPermission("plan");
               }}
               thread={draftThread}
-              draftKey={
-                project
-                  ? draftKeyFor(project)
-                  : undefined
-              }
+              draftKey={project ? draftKeyFor(project) : undefined}
               initialText={prSource.text ?? (props.skill ? `/${props.skill} ` : undefined)}
               keepsAttachments
               busy={false}
