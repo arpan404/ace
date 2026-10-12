@@ -224,3 +224,60 @@ test("a failed recording callback refuses the new worker command without daemon 
     snapshot?.kind === "threads" ? snapshot.threads[scenario.threadId]?.archivedAt : undefined,
   ).toBeUndefined();
 });
+
+for (const method of ["command", "enqueue"] as const) {
+  for (const recording of ["succeeds", "fails"] as const) {
+    test(`a second tab cannot ${method} a reserved ID while recording ${recording}`, async () => {
+      const { daemon, tab } = world();
+      const scenario = new ScenarioPlayer(daemon, flakyCheckout());
+      scenario.runUntilBlocked();
+      const owner = tab();
+      const competitor = tab();
+      await owner.start();
+      await competitor.start();
+      const payload = {
+        type: "thread.archive",
+        threadId: ThreadId.parse(scenario.threadId),
+      } as const;
+      const exposed = Promise.withResolvers<string>();
+      const release = Promise.withResolvers<void>();
+      const submission = owner.submitNew(payload, async (id) => {
+        exposed.resolve(id);
+        await release.promise;
+        if (recording === "fails") throw new Error("Recording failed");
+      });
+      const outcome = submission.then(
+        (result) => result,
+        (error: unknown) => error,
+      );
+      const id = await exposed.promise;
+      try {
+        const competing =
+          method === "command"
+            ? competitor.command(payload, {}, id)
+            : competitor.enqueue(payload, id);
+        await expect(competing).rejects.toMatchObject({ code: "limit" });
+        const before = daemon.snapshot({ kind: "threads" });
+        expect(
+          before?.kind === "threads" ? before.threads[scenario.threadId]?.archivedAt : undefined,
+        ).toBeUndefined();
+      } finally {
+        release.resolve();
+      }
+      if (recording === "fails") {
+        expect(await outcome).toMatchObject({ code: "not_dispatched" });
+        const refused = daemon.snapshot({ kind: "threads" });
+        expect(
+          refused?.kind === "threads" ? refused.threads[scenario.threadId]?.archivedAt : undefined,
+        ).toBeUndefined();
+        expect(await competitor.command(payload, {}, id)).toMatchObject({ ok: true });
+      } else {
+        expect(await outcome).toMatchObject({ ok: true, commandId: id });
+      }
+      const after = daemon.snapshot({ kind: "threads" });
+      expect(
+        after?.kind === "threads" ? after.threads[scenario.threadId]?.archivedAt : undefined,
+      ).toBeDefined();
+    });
+  }
+}

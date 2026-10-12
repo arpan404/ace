@@ -347,3 +347,90 @@ test("settled intent eviction does not turn a known-ID capacity refusal into uns
     await cancelled;
   }
 });
+
+for (const method of ["command", "enqueue"] as const) {
+  for (const recording of ["succeeds", "fails"] as const) {
+    test(`a same-ID ${method} is refused while direct recording is pending and recording ${recording} safely`, async () => {
+      const h = await setup();
+      cleanup = h.cleanup;
+      const { client } = h.make();
+      await ready(client);
+      const payload = { type: "thread.archive", threadId: h.thread.id } as const;
+      const exposed = Promise.withResolvers<string>();
+      const reentrant = Promise.withResolvers<unknown>();
+      const release = Promise.withResolvers<void>();
+      const submission = client.submitNew(payload, async (id) => {
+        exposed.resolve(id);
+        const nested =
+          method === "command" ? client.command(payload, {}, id) : client.enqueue(payload, id);
+        reentrant.resolve(await nested.catch((error: unknown) => error));
+        await release.promise;
+        if (recording === "fails") throw new Error("Recording failed");
+      });
+      const outcome = submission.then(
+        (result) => result,
+        (error: unknown) => error,
+      );
+      const id = await exposed.promise;
+      try {
+        const competing =
+          method === "command" ? client.command(payload, {}, id) : client.enqueue(payload, id);
+        await expect(competing).rejects.toMatchObject({ code: "limit" });
+        expect(await reentrant.promise).toMatchObject({ code: "limit" });
+        expect(client.intent(id).getSnapshot()).toBeUndefined();
+        expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeUndefined();
+      } finally {
+        release.resolve();
+      }
+      if (recording === "fails") {
+        expect(await outcome).toMatchObject({ code: "not_dispatched" });
+        expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeUndefined();
+        // Failure releases the reservation; an explicit retry then has real effects.
+        expect(await client.command(payload, {}, id)).toMatchObject({ ok: true });
+      } else {
+        expect(await outcome).toMatchObject({ ok: true, commandId: id });
+      }
+      expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeDefined();
+      expect(
+        await client.submitNew(
+          { type: "thread.rename", threadId: h.thread.id, title: "Admission settled" },
+          () => {},
+        ),
+      ).toMatchObject({ ok: true });
+      expect(h.daemon.store.getThread(h.thread.id)?.title).toBe("Admission settled");
+    });
+  }
+}
+
+test("an explicit enqueue awaiting host binding cannot have its offered ID reclaimed as fresh", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const reference = h.make();
+  await ready(reference.client);
+  const welcome = await reference.faults.wait((event) => event.type === "welcome");
+  if (welcome.type !== "welcome") throw new Error("Expected authenticated host identity");
+  const { client, faults } = h.make({
+    id: () => "offered-before-recording",
+    expectedHostId: welcome.hostId,
+    storage: {
+      hostBinding: { load: async () => welcome.hostId, save: async () => {} },
+      load: async () => null,
+      save: (value) => h.storage.save(value),
+    },
+  });
+  await ready(client);
+  const payload = { type: "thread.archive", threadId: h.thread.id } as const;
+  const enqueued = client.enqueue(payload, "offered-before-recording");
+  let recorded = false;
+  await expect(
+    client.submitNew(payload, () => {
+      recorded = true;
+    }),
+  ).rejects.toMatchObject({ code: "limit" });
+  expect(recorded).toBe(false);
+  expect(await enqueued).toBe("offered-before-recording");
+  await faults.wait(
+    (event) => event.type === "commandResult" && event.commandId === "offered-before-recording",
+  );
+  expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeDefined();
+});

@@ -1,7 +1,7 @@
-import { ClientError, commandAdmissionError, defaultLimits } from "@ace/client";
+import { ClientError, defaultLimits } from "@ace/client";
 import type { WorkerMessage } from "./wire.ts";
 
-/** A worker-owned allocation cannot dispatch until its tab finishes recording the ID. */
+/** Core owns the reservation and certainty; this shell reports recording outcomes only. */
 export class CommandRecords {
   readonly #pending = new Map<number, { settle(ok: boolean): void }>();
   readonly #post: (message: WorkerMessage) => void;
@@ -10,7 +10,7 @@ export class CommandRecords {
   }
   record(call: number, commandId: string, signal: AbortSignal): Promise<void> {
     if (signal.aborted || this.#pending.size >= defaultLimits.requests)
-      return Promise.reject(commandAdmissionError("fresh"));
+      return Promise.reject(new ClientError("storage"));
     if (this.#pending.has(call)) return Promise.reject(new ClientError("protocol"));
     return new Promise((resolve, reject) => {
       const abort = () => this.settle(call, false);
@@ -18,7 +18,7 @@ export class CommandRecords {
         settle: (ok) => {
           signal.removeEventListener("abort", abort);
           if (ok) resolve();
-          else reject(commandAdmissionError("fresh"));
+          else reject(new ClientError("storage"));
         },
       });
       signal.addEventListener("abort", abort, { once: true });
