@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
