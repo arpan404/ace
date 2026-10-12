@@ -12,12 +12,31 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 const reducedAttribute = "data-reduce-motion";
 const rootElement = () => globalThis.document?.documentElement;
 
+/**
+ * Every subscriber shares one observer on <html>: arriving rows each read reduced motion, and a
+ * long transcript must not attach an observer per row. It is created with the first subscriber
+ * and disconnected with the last.
+ */
+const reducedListeners = new Set<() => void>();
+let reducedObserver: MutationObserver | undefined;
+
 function watchReducedMotion(changed: () => void): () => void {
   const root = rootElement();
   if (!root || typeof MutationObserver === "undefined") return () => {};
-  const observer = new MutationObserver(changed);
-  observer.observe(root, { attributes: true, attributeFilter: [reducedAttribute] });
-  return () => observer.disconnect();
+  reducedListeners.add(changed);
+  if (!reducedObserver) {
+    reducedObserver = new MutationObserver(() => {
+      for (const listener of reducedListeners) listener();
+    });
+    reducedObserver.observe(root, { attributes: true, attributeFilter: [reducedAttribute] });
+  }
+  return () => {
+    reducedListeners.delete(changed);
+    if (reducedListeners.size === 0) {
+      reducedObserver?.disconnect();
+      reducedObserver = undefined;
+    }
+  };
 }
 
 export function prefersReducedMotion(): boolean {
