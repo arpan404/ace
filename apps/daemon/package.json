@@ -45,6 +45,7 @@
     "@ace/git": "workspace:*",
     "@ace/handoff": "workspace:*",
     "@ace/history-import": "workspace:*",
+    "@ace/html": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",

@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/HtmlRenderInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "height": {
+      "$ref": "https://ace.local/protocol/v1/HtmlHeight.json"
+    },
+    "html": {
+      "$ref": "https://ace.local/protocol/v1/HtmlDocument.json"
+    },
+    "title": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "\\S",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "html"
+  ],
+  "type": "object"
+}

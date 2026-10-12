@@ -37,7 +37,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management|process-guardian|pi-login-driver|session|api-key)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management|process-guardian|pi-login-driver|session|api-key|builtins)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -58,6 +58,8 @@ export async function bundleDaemon(
                   '"./mcp-ready-plugin"',
                   '"./opencode-mcp-ready-plugin"',
                 );
+              if (args.path.endsWith("/plugins/src/builtins.ts"))
+                contents = contents.replace('"../builtin-skills"', '"./builtin-skills"');
               if (args.path.endsWith("/mcp-server/src/injection.ts"))
                 contents = contents.replace('"./stdio-entry.ts"', '"./acp-mcp-bridge.mjs"');
               if (args.path.endsWith("/daemon/src/history-publisher.ts"))
@@ -150,6 +152,9 @@ export async function bundleDaemon(
     entryNames: "ace",
     chunkNames: "chunk-[hash]",
     outExtension: { ".js": ".mjs" },
+  });
+  await cp(join(repo, "packages/plugins/builtin-skills"), join(root, "builtin-skills"), {
+    recursive: true,
   });
   if (!daemon.metafile) throw new Error("Bundle metadata is required");
   const inputs = new Set(Object.keys(daemon.metafile.inputs));

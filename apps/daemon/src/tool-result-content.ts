@@ -39,6 +39,19 @@ export async function toolImage(
 ) {
   const bytes = Buffer.from(image.data, "base64");
   if (bytes.length > 8 * 1024 * 1024) throw new Error("Tool image exceeds limit");
+  return toolAttachment(context, caller, bytes, {
+    name: `ace-tool-result.${image.mimeType === "image/jpeg" ? "jpg" : image.mimeType.split("/")[1]}`,
+    mimeType: image.mimeType,
+  });
+}
+
+/** Bounded daemon-owned bytes use the same upload, quota and lifetime rules as client files. */
+export async function toolAttachment(
+  context: ContextService,
+  caller: McpAttribution,
+  bytes: Buffer,
+  fileMetadata: { name: string; mimeType: string },
+) {
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const device = "daemon-tool-result";
   const begin = await context.uploads.handle(device, {
@@ -46,8 +59,7 @@ export async function toolImage(
     threadId: caller.threadId,
     sha256,
     bytes: bytes.length,
-    name: `ace-tool-result.${image.mimeType === "image/jpeg" ? "jpg" : image.mimeType.split("/")[1]}`,
-    mimeType: image.mimeType,
+    ...fileMetadata,
   });
   if (begin.kind !== "upload") throw new Error("Tool image upload refused");
   try {

@@ -1,0 +1,7 @@
+{
+  "$id": "https://ace.local/protocol/v1/HtmlHeight.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maximum": 2000,
+  "minimum": 80,
+  "type": "integer"
+}

@@ -452,11 +452,19 @@ Example:
     },
     "id": "example",
     "nativeId": "example",
-    "parts": [],
-    "raw": [],
-    "role": "user",
-    "synthetic": false,
-    "type": "message"
+    "type": "html",
+    "visualization": {
+      "document": {
+        "bytes": 8,
+        "height": 5,
+        "kind": "image",
+        "mimeType": "example",
+        "name": "example",
+        "sha256": "3f5379fb76f4523f73874cabbb384c190f2a8fa7ae9cb467d45672e639f60a11",
+        "thumbnailAvailable": true
+      },
+      "title": "example"
+    }
   },
   "type": "item.created"
 }
@@ -478,7 +486,7 @@ Example:
 {
   "agentId": "example",
   "append": "example",
-  "field": "text",
+  "field": "output",
   "itemId": "example",
   "type": "item.delta"
 }
@@ -497,11 +505,19 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "complete": false,
-    "createdAt": 3,
+    "complete": true,
+    "createdAt": 1,
+    "executionSource": {
+      "nativeSessionId": "example",
+      "selection": {
+        "instanceId": "example",
+        "provider": "pi"
+      }
+    },
     "id": "example",
-    "tokensAfter": 8,
-    "type": "compaction"
+    "runId": "example",
+    "text": "example",
+    "type": "reasoning"
   },
   "type": "item.updated"
 }
@@ -536,22 +552,28 @@ Example:
 {
   "interaction": {
     "agentId": "example",
-    "blocking": false,
-    "createdAt": 3,
-    "expirationReason": "provider_disconnected",
+    "blocking": true,
+    "createdAt": 9,
     "id": "example",
-    "raw": [],
     "request": {
-      "kind": "elicitation",
-      "message": "example",
-      "mode": "form",
-      "nativeId": "example",
-      "schema": null,
-      "server": "example",
+      "kind": "approval",
+      "mcpServer": {
+        "name": "example",
+        "source": "example"
+      },
+      "options": [],
       "title": "example"
     },
-    "state": "cancelled",
-    "threadId": "example"
+    "review": {
+      "decision": "approve",
+      "interactionId": "example",
+      "mode": "example",
+      "reason": "example",
+      "reviewer": "ace-risk-policy"
+    },
+    "state": "resolved",
+    "threadId": "example",
+    "toolCallId": "example"
   },
   "type": "interaction.opened"
 }
@@ -574,14 +596,10 @@ Example:
 
 ```json
 {
-  "autoReviewed": true,
-  "closedAt": 6,
+  "autoReviewed": false,
+  "closedAt": 1,
   "interactionId": "example",
-  "resolution": {
-    "action": "accept",
-    "content": null,
-    "kind": "elicitation"
-  },
+  "resolvedBy": "example",
   "state": "expired",
   "type": "interaction.closed"
 }
@@ -600,12 +618,16 @@ Example:
 {
   "task": {
     "agentId": "example",
+    "childAgentId": "example",
+    "endedAt": 6,
     "id": "example",
-    "kind": "other",
-    "startedAt": 2,
-    "status": "completed",
-    "stoppable": false,
-    "title": "example"
+    "kind": "monitor",
+    "raw": [],
+    "startedAt": 6,
+    "status": "unknown",
+    "stoppable": true,
+    "title": "example",
+    "toolCallId": "example"
   },
   "type": "background_task.started"
 }
@@ -624,8 +646,8 @@ Example:
 
 ```json
 {
-  "endedAt": 7,
-  "status": "unknown",
+  "endedAt": 9,
+  "status": "failed",
   "taskId": "example",
   "type": "background_task.updated"
 }
@@ -647,9 +669,13 @@ Example:
 
 ```json
 {
+  "lastFailure": {
+    "code": "example",
+    "title": "example"
+  },
   "paused": true,
   "reason": null,
-  "resumeAt": 0,
+  "resumeAt": null,
   "revision": 0,
   "type": "queue.updated"
 }
@@ -668,11 +694,10 @@ Example:
 {
   "meter": {
     "agentId": "example",
-    "epoch": 5,
-    "model": "example",
-    "source": "provider",
+    "epoch": 4,
+    "source": "unknown",
     "usedTokens": null,
-    "windowTokens": 5
+    "windowTokens": null
   },
   "type": "context_meter.updated"
 }
@@ -695,7 +720,7 @@ Example:
 {
   "agentId": "example",
   "type": "context.sampled",
-  "usedTokens": 5
+  "usedTokens": 9
 }
 ```
 
@@ -728,18 +753,13 @@ Example:
 
 ```json
 {
-  "accountId": "example",
   "agentId": "example",
-  "billingMode": "api",
-  "cacheWriteTokens": 3,
-  "contextTokens": 9,
-  "contextWindow": 10,
-  "costUsd": 2,
-  "inputTokens": 7,
-  "outputTokens": 6,
-  "reasoningTokens": 6,
-  "type": "usage.updated",
-  "usageScope": "agent"
+  "contextSessionId": "example",
+  "contextTokens": 3,
+  "inputTokens": 1,
+  "outputTokens": 8,
+  "reasoningTokens": 4,
+  "type": "usage.updated"
 }
 ```
 
@@ -759,7 +779,7 @@ Example:
     "id": "example",
     "op": "example",
     "path": "example",
-    "version": "example"
+    "version": null
   },
   "type": "workspace.files_changed",
   "workspaceId": "example"
