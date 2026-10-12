@@ -1,0 +1,6 @@
+{"minute": 0, "elapsedSeconds": 0.12, "pid": "3669", "pssKiB": 662335, "streamTicks": 2263}
+{"minute": 1, "elapsedSeconds": 60.1, "pid": "3669", "pssKiB": 677289, "streamTicks": 2854}
+{"minute": 2, "elapsedSeconds": 120.12, "pid": "3669", "pssKiB": 689276, "streamTicks": 3446}
+{"minute": 3, "elapsedSeconds": 180.11, "pid": "3669", "pssKiB": 676736, "streamTicks": 4037}
+{"minute": 4, "elapsedSeconds": 240.11, "pid": "3669", "pssKiB": 686391, "streamTicks": 4629}
+{"minute": 5, "elapsedSeconds": 300.1, "pid": "3669", "pssKiB": 697451, "streamTicks": 5220}

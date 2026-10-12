@@ -1,0 +1,14 @@
+{
+  "assetSha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
+  "actualAdvance": 359,
+  "bundledAdvance": 359,
+  "foreground": "#0B0B0C",
+  "textSizePx": 41,
+  "profile": {
+    "avd": "Ace_Pixel_Spike",
+    "api": "36",
+    "densityDpi": 420,
+    "fontScale": 1.0,
+    "gpu": "host"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "run": "r1",
+  "id": "android-spike-r1",
+  "savedOffline": ["android-spike-r1"],
+  "afterProcessKill": ["android-spike-r1"],
+  "offlineRelaunch": ["android-spike-r1"],
+  "afterReconnect": {
+    "receipt": "acked",
+    "outbox": [],
+    "daemonAdmissions": ["android-spike-r1"]
+  },
+  "afterSecondColdLaunchAdmissions": ["android-spike-r1"]
+}

@@ -1,0 +1,48 @@
+{
+  "name": "@ace/android",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start --port 8083",
+    "prebuild": "expo prebuild --platform android",
+    "typecheck": "GOMAXPROCS=2 tsc --project tsconfig.json --incremental --tsBuildInfoFile .cache/typecheck/android.tsbuildinfo",
+    "fixture": "node scripts/fixture.ts"
+  },
+  "dependencies": {
+    "@ace/client": "workspace:*",
+    "@ace/design-tokens": "workspace:*",
+    "@ace/projection": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "@expo/ui": "~57.0.22",
+    "@react-native-masked-view/masked-view": "0.3.2",
+    "@react-navigation/elements": "^2.9.44",
+    "@react-navigation/native": "^7.5.0",
+    "@react-navigation/native-stack": "^7.20.0",
+    "@shopify/flash-list": "2.0.2",
+    "core-js": "^3.50.0",
+    "expo": "57.0.27",
+    "expo-crypto": "~57.0.3",
+    "expo-font": "~57.0.4",
+    "expo-local-authentication": "~57.0.3",
+    "expo-network": "~57.0.2",
+    "expo-secure-store": "~57.0.4",
+    "expo-sqlite": "~57.0.4",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-keyboard-controller": "1.21.9",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-worklets": "0.10.1"
+  },
+  "devDependencies": {
+    "@ace/fake-daemon": "workspace:*",
+    "@babel/core": "7.29.7",
+    "@types/react": "^19.3.0",
+    "@types/ws": "^8.18.2",
+    "ws": "^8.22.0"
+  }
+}
