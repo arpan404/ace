@@ -3,7 +3,7 @@ import { useRefreshModels } from "@/features/model-picker/index.ts";
 import type { ModelSourceStatus, ProviderKind } from "@ace/protocol";
 import { PlusIcon } from "@phosphor-icons/react";
 import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
-import { SettingSection } from "@/components/setting-row.tsx";
+import { SettingList, SettingNote, SettingSection } from "@/components/setting-row.tsx";
 import { useModelInstances } from "@/lib/model-catalog.ts";
 import { preloadSignIn, SignInButton, useSignIn } from "@/features/sign-in/index.ts";
 
@@ -34,9 +34,12 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
   const listed = [...sources.values()];
   return (
     <SettingSection label="Services">
-      <ul aria-label={`${props.name} services`} className="divide-y">
+      <SettingList aria-label={`${props.name} services`}>
         {listed.map(({ source, error }) => (
-          <li key={source.id} className="flex h-9 items-center gap-2">
+          <li
+            key={source.id}
+            className="flex min-h-(--setting-row-height) items-center gap-2 px-4 py-(--setting-row-y)"
+          >
             <ProviderTile
               provider={props.provider}
               service={source}
@@ -90,7 +93,7 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
               type="button"
               onPointerEnter={() => void preloadSignIn()}
               onClick={() => signIn({ provider: props.provider })}
-              className="flex min-h-9 w-full items-center gap-2 py-1 text-left text-muted-foreground focus-ring hover:text-foreground"
+              className="flex min-h-(--setting-row-height) w-full items-center gap-2 px-4 text-left text-muted-foreground focus-ring-inset hover:text-foreground"
             >
               <span className="grid size-5 place-items-center">
                 <PlusIcon aria-hidden size={14} />
@@ -99,11 +102,11 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
             </button>
           </li>
         )}
-      </ul>
+      </SettingList>
       {local.size > 0 && (
-        <p className="mt-2 text-sm text-muted-foreground">
+        <SettingNote>
           Also uses models running on this computer: {[...local].join(", ")}.
-        </p>
+        </SettingNote>
       )}
     </SettingSection>
   );

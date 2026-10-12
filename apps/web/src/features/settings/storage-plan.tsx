@@ -9,7 +9,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
-import { SettingSection } from "@/components/setting-row.tsx";
+import {
+  SettingFooter,
+  SettingList,
+  SettingNote,
+  SettingSection,
+} from "@/components/setting-row.tsx";
 import { storageBytes, storageReasons } from "./storage-copy.ts";
 
 export function StoragePlanPreview(props: {
@@ -27,96 +32,98 @@ export function StoragePlanPreview(props: {
   const finished = props.result?.state === "complete" || props.result?.state === "stale";
   return (
     <SettingSection label="Cleanup preview">
-      <p className="mb-3 text-sm text-muted-foreground">
+      <SettingNote>
         {remove.length} items to remove · {storageBytes(props.plan.bytes)} of data.{" "}
         {protectedItems.length} protected.
-      </p>
-      {!props.plan.complete && (
-        <p className="mb-3 text-sm text-muted-foreground">
-          This is a bounded batch. Preview again after cleanup to find more data.
-        </p>
-      )}
-      <ul aria-label="Cleanup items" className="divide-y divide-border">
-        {props.plan.items.map((item) => {
-          const forceable =
-            item.kind === "worktrees" &&
-            item.disposition === "protect" &&
-            item.reasons.every((reason) => ["uncommitted", "unpushed"].includes(reason));
-          const result = props.result?.items.find((entry) => entry.id === item.id);
-          return (
-            <li key={item.id} className="py-3">
-              <div className="flex items-start justify-between gap-3 text-sm">
-                <span className="min-w-0 break-all font-medium">{item.label}</span>
-                <span className="shrink-0 tabular-nums text-muted-foreground">
-                  {storageBytes(item.bytes)}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {item.disposition === "remove" ? "Remove" : "Keep"} ·{" "}
-                {item.reasons.map((reason) => storageReasons[reason]).join("; ")}
-                {item.forced ? " · Forced for this item" : ""}
-                {item.removeBranch ? ` · Also remove branch ${item.branch ?? ""}` : ""}
-              </p>
-              {item.effects.includes("browser_data") && (
+        {!props.plan.complete &&
+          " This is a bounded batch. Preview again after cleanup to find more data."}
+      </SettingNote>
+      {props.plan.items.length > 0 && (
+        <SettingList aria-label="Cleanup items">
+          {props.plan.items.map((item) => {
+            const forceable =
+              item.kind === "worktrees" &&
+              item.disposition === "protect" &&
+              item.reasons.every((reason) => ["uncommitted", "unpushed"].includes(reason));
+            const result = props.result?.items.find((entry) => entry.id === item.id);
+            return (
+              <li key={item.id} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-3 text-sm">
+                  <span className="min-w-0 break-all font-medium">{item.label}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {storageBytes(item.bytes)}
+                  </span>
+                </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Also clears this thread's attachment references and browser data, including its
-                  desktop browser partition.
+                  {item.disposition === "remove" ? "Remove" : "Keep"} ·{" "}
+                  {item.reasons.map((reason) => storageReasons[reason]).join("; ")}
+                  {item.forced ? " · Forced for this item" : ""}
+                  {item.removeBranch ? ` · Also remove branch ${item.branch ?? ""}` : ""}
                 </p>
-              )}
-              {result && (
-                <p className="mt-1 text-xs" role="status">
-                  {result.state === "removed"
-                    ? "Removed"
-                    : result.state === "protected"
-                      ? `Kept: ${storageReasons[result.reason ?? "changed"]}`
-                      : "Cleanup pending. Resume to retry."}
-                </p>
-              )}
-              {forceable && (
-                <label className="mt-2 flex items-center gap-2 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={props.forceItems.includes(item.id)}
-                    disabled={props.busy || props.disabled}
-                    onChange={(event) => props.onForce(item.id, event.target.checked)}
-                  />
-                  Include this worktree despite uncommitted or unpushed work
-                </label>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+                {item.effects.includes("browser_data") && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Also clears this thread's attachment references and browser data, including its
+                    desktop browser partition.
+                  </p>
+                )}
+                {result && (
+                  <p className="mt-1 text-xs" role="status">
+                    {result.state === "removed"
+                      ? "Removed"
+                      : result.state === "protected"
+                        ? `Kept: ${storageReasons[result.reason ?? "changed"]}`
+                        : "Cleanup pending. Resume to retry."}
+                  </p>
+                )}
+                {forceable && (
+                  <label className="mt-2 flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={props.forceItems.includes(item.id)}
+                      disabled={props.busy || props.disabled}
+                      onChange={(event) => props.onForce(item.id, event.target.checked)}
+                    />
+                    Include this worktree despite uncommitted or unpushed work
+                  </label>
+                )}
+              </li>
+            );
+          })}
+        </SettingList>
+      )}
       {!props.plan.items.length && (
-        <p className="text-sm text-muted-foreground">
-          No data was found in these storage categories.
-        </p>
+        <SettingNote>No data was found in these storage categories.</SettingNote>
       )}
       {props.result?.state === "stale" && (
-        <p role="alert" className="mt-3 text-sm">
+        <SettingNote role="alert" className="text-foreground">
           This plan changed. Preview cleanup again before removing data.
-        </p>
+        </SettingNote>
       )}
       {props.result?.state === "complete" && (
-        <p role="status" className="mt-3 text-sm">
+        <SettingNote role="status" className="text-foreground">
           Cleanup finished. Items that became protected were kept.
-        </p>
+        </SettingNote>
       )}
-      <Button
-        size="sm"
-        variant="danger"
-        className="mt-4"
-        disabled={
-          props.busy || props.disabled || finished || !remove.length || props.forceItems.length > 0
-        }
-        onClick={() => setConfirm(true)}
-      >
-        {props.busy
-          ? "Cleaning…"
-          : props.result?.state === "pending"
-            ? "Resume cleanup"
-            : `Remove ${remove.length} items`}
-      </Button>
+      <SettingFooter>
+        <Button
+          size="sm"
+          variant="danger"
+          disabled={
+            props.busy ||
+            props.disabled ||
+            finished ||
+            !remove.length ||
+            props.forceItems.length > 0
+          }
+          onClick={() => setConfirm(true)}
+        >
+          {props.busy
+            ? "Cleaning…"
+            : props.result?.state === "pending"
+              ? "Resume cleanup"
+              : `Remove ${remove.length} items`}
+        </Button>
+      </SettingFooter>
       <Dialog open={confirm} onOpenChange={setConfirm}>
         <DialogContent>
           <DialogHeader>

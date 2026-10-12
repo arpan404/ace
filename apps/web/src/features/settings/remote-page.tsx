@@ -54,6 +54,7 @@ function PairedDevices() {
           key={device.id}
           title={device.name}
           description={[deviceScopeLabels(device.scopes)].join(" · ")}
+          inline
         >
           <RowMenu label={`Actions for ${device.name}`}>
             <MenuItem onClick={() => setRevoking(device)}>Revoke</MenuItem>

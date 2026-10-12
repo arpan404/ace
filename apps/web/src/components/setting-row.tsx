@@ -265,7 +265,10 @@ export function SettingDisclosure(props: {
         />
         {props.title}
       </summary>
-      <div className={cn(inCard && "border-t border-border-soft")}>{props.children}</div>
+      {/* Its rows keep the card's hairlines between them. */}
+      <div className={cn(inCard && "divide-y divide-border-soft border-t border-border-soft")}>
+        {props.children}
+      </div>
     </details>
   );
 }
