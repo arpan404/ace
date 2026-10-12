@@ -6,17 +6,17 @@ Reviewers check UI pull requests against this page.
 
 The approved design prototype is the reference for values. The code that owns each part:
 
-| Part                      | Owner                                                              |
-| ------------------------- | ------------------------------------------------------------------ |
-| Palettes (the six themes) | `apps/web/src/theme/palettes.ts`                                   |
-| Palette → CSS variables   | `apps/web/src/theme/tokens.ts`, `apps/web/src/theme/css.ts`        |
-| WCAG checks               | `apps/web/src/theme/contrast.ts`, `apps/web/src/theme/surfaces.ts` |
-| Settings and resolution   | `apps/web/src/theme/appearance.ts`, `theme-provider.tsx`           |
-| Pre-paint replay          | `apps/web/index.html` (inline boot script)                         |
-| Static tokens             | `apps/web/src/styles/tokens.css`                                   |
-| Motion                    | `apps/web/src/styles/motion.css`, `packages/ui-core/src/motion.ts` |
-| Glass                     | `apps/web/src/styles/glass.css`, `apps/web/src/theme/glass.ts`     |
-| Tailwind mapping          | `apps/web/src/styles/index.css` (`@theme inline`)                  |
+| Part                      | Owner                                                                             |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| Palettes (the six themes) | `apps/web/src/theme/palettes.ts`                                                  |
+| Palette → CSS variables   | `apps/web/src/theme/tokens.ts`, `apps/web/src/theme/css.ts`                       |
+| WCAG checks               | `apps/web/src/theme/contrast.ts`, `apps/web/src/theme/surfaces.ts`                |
+| Settings and resolution   | `apps/web/src/theme/appearance.ts`, `theme-provider.tsx`                          |
+| Pre-paint replay          | `apps/web/index.html` (inline boot script)                                        |
+| Static tokens             | `apps/web/src/styles/tokens.css`                                                  |
+| Motion                    | `apps/web/src/styles/motion.css`, `packages/ui-core/src/motion.ts`                |
+| Glass                     | `apps/web/src/styles/glass.css`, `apps/web/src/theme/glass.ts`, `liquid-glass.ts` |
+| Tailwind mapping          | `apps/web/src/styles/index.css` (`@theme inline`)                                 |
 
 ## Rules for every stream
 
@@ -136,9 +136,16 @@ them through `overlaySurface` and `popupSurface` in `components/ui/menu-styles.t
 Engines:
 
 - **Chromium and Electron** (`data-glass-engine="liquid"`) use
-  `backdrop-filter: url(#ace-liquid-glass) blur(7px) saturate(170%)` over a thinner tint. The SVG
-  filter is injected once (`installLiquidGlass`). It uses `objectBoundingBox` units, so a single
-  `feDisplacementMap` bends the backdrop at the rim of any layer, at any size.
+  `backdrop-filter: var(--liquid-filter) blur(8px) saturate(170%)` over a thinner tint.
+  - `--liquid-filter` points at an SVG `feDisplacementMap` sized to that layer's own box and
+    corner radius (`theme/liquid-glass.ts`).
+  - The bending rim is at most 24px deep and bends at most 24px, so a tooltip and a 620px palette
+    bend alike. Layers too small for the full rim get a shallower one.
+  - Layers of the same size (rounded to 2px) share one filter, and at most 24 unused filters are
+    cached.
+  - A layer registers itself when it appears: a 1ms marker animation on its `::before` fires
+    `animationstart`. One ResizeObserver re-measures it only when it resizes.
+  - Until its filter is ready, a layer shows blur only.
 - **Safari and Firefox** (`blur`) use `blur(20px) saturate(180%)`. They drop `url()` backdrop
   filters while `CSS.supports` still reports support, so the engine is read from the user agent
   (`glassEngine()`). Every iOS browser counts as WebKit.
@@ -153,7 +160,8 @@ Glass parts:
 
 Keep glass cheap:
 
-- No per-frame script: the sheen is static and doesn't follow the pointer.
+- No per-frame script: the sheen is static and doesn't follow the pointer, and filters are built
+  once per layer geometry.
 - No filter on large scrolling areas. Sheets and side panels stay solid.
 
 ## Motion
@@ -171,13 +179,20 @@ Keep glass cheap:
 
 Animate only `transform` and `opacity`. JS timers read `motionMs` from `@ace/ui-core`.
 
+`bun run check:ui` enforces the static motion policy: no CSS animation may run forever. The
+prototype's spinning working marker and shimmering "Working for…" line need the owner to amend
+that policy first. Until then, show working state statically.
+
 **Reduce motion** is System, On or Off. `<html>` gets `data-reduce-motion` when the setting is
 On, or when it's System and the OS prefers reduced motion. Under it:
 
 - Fades stay. Distances (`--rise`, `--slide`) become 0, `--ease-spring` falls back to `--ease-out`,
   and Base UI popups don't scale.
-- `.fx-shimmer` stops, `.fx-spin` pulses instead of turning, and anything marked `.fx-flourish`
-  stops. Use `.fx-flourish` for sheens, glows and trails such as the Ultra effort sheen.
+- Anything marked `.fx-flourish` stops. Use it for sheens, glows and trails such as the Ultra
+  effort sheen.
+- Fixed slides opt out with `motion-reduce:` utilities. For example, sheets don't slide in from
+  the edge and the segmented thumb jumps.
+- Pressed controls don't shrink.
 - Tailwind's `motion-reduce:` and `motion-safe:` variants follow the attribute, not only the OS.
 - In JS, read it with `useReducedMotion()` or `prefersReducedMotion()` from `lib/motion.ts`.
 
@@ -240,3 +255,16 @@ paints Ace in the OS scheme. Reloading in any theme or mode never flashes the wr
 - Loading and syncing states are visible.
 - Touch targets are at least 32 px on coarse pointers.
 - Check layouts at 390, 768, 1440 and 1920 px.
+
+## Old names
+
+The pre-redesign names still resolve, through `apps/web/src/styles/legacy-aliases.css` and the
+end of `themeTokens()`, so branches written against them merge cleanly:
+
+- motion: `--dur-1..4`, `--dur-exit`, `--ease`, `--spring`, `--sheet` and `--leave`;
+- materials: `--glass-bg`, `--glass-border`, `--wall`, the `-rgb` triples and `--accent-theme`;
+- the `glass` Tailwind colours;
+- the `.glass`, `.glass-behind`, `.search-glass`, `.vibrancy` and `.wallpaper` classes;
+- `motionMs.sheet` and `motionCurves.ease`.
+
+Don't use them in new code. They will be removed once the parallel UI streams have merged.
