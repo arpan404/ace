@@ -70,20 +70,11 @@ export async function pushPublication(
       throw new GitError("invalid_argument", "Publication origin changed");
     if (!info.head) return "empty";
     if (!info.branch) throw new GitError("invalid_argument", "Select a branch before publishing");
-    const transport = [
-      "-c",
-      "protocol.allow=never",
-      ...(policy.protocols ?? ["https", "ssh"]).flatMap((protocol) => [
-        "-c",
-        `protocol.${protocol}.allow=always`,
-      ]),
-    ];
     await scanPublication(repository.cli, { ...input, head: info.head });
     // Pin both destination and revision. External edits to origin/HEAD cannot redirect this push.
-    await repository.cli.call(
+    await repository.cli.push(
       input.worktree,
       [
-        ...transport,
         "push",
         "--no-follow-tags",
         "--recurse-submodules=no",
@@ -105,6 +96,7 @@ export async function pushPublication(
           GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
         },
       },
+      policy.protocols,
     );
     return "pushed";
   });
