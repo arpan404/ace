@@ -87,6 +87,34 @@ import Testing
         #expect(harness.model.thread?.items["poison"]?.row.complete == false)
         #expect(!harness.hasScheduledWork)
     }
+    @Test(arguments: [false, true])
+    func rejectionOfAnOlderDegradedTransferStillDeliversItsNewerReader(fragmented: Bool) throws {
+        let harness = try DeliveryHarness()
+        harness.call(fragmented ? "queueBrokenApproval" : "queueInvalidIdentity")
+        for _ in 0..<(fragmented ? 6 : 3) { try harness.step() } // Exhaust the three raw attempts.
+        #expect(harness.rejected == 3)
+        if fragmented { try harness.step() } // Accept the first degraded fragment.
+        try harness.step(reject: true, beforeAcknowledgment: {
+            // Replace after emission, while the older degraded transfer is still in flight.
+            harness.call(fragmented ? "replaceApproval" : "replacePoison")
+        })
+        let rejectedAt = try #require(harness.rejectionTimes.last)
+        for _ in 0..<(fragmented ? 2 : 1) { try harness.step() }
+        #expect(harness.time - rejectedAt <= 1008)
+        if fragmented {
+            let approval = try #require(harness.model.thread?.approvals.first)
+            #expect(approval.state == "pending")
+            #expect(approval.options.first?.id == "replacement-action-" + String(repeating: "x", count: 32768))
+            #expect(approval.options.first?.kind == "allow_once")
+        } else {
+            let row = try #require(harness.model.thread?.items["poison"]?.row)
+            #expect(row.id == "poison")
+            #expect(row.agentId == "agent")
+            #expect(!row.complete)
+        }
+        #expect(harness.rejected == 4)
+        #expect(!harness.hasScheduledWork)
+    }
     @Test func aRejectedResetCannotEraseRowsConfirmedWhileItWasDelayed() throws {
         let harness = try DeliveryHarness()
         harness.call("queueReset")
@@ -106,6 +134,7 @@ import Testing
     var emitted: [Data] = []
     var rejected = 0
     var rejectionTimes: [Double] = []
+    var time: Double { context.evaluateScript("time")?.toDouble() ?? 0 }
     var hasScheduledWork: Bool { context.evaluateScript("timers.size > 0")?.toBool() == true }
     init() throws {
         context = try #require(JSContext())
@@ -140,12 +169,14 @@ import Testing
         #expect(context.exception == nil)
     }
     func call(_ function: String) { context.objectForKeyedSubscript(function)?.call(withArguments: []) }
-    func step(reject: Bool = false) throws {
+    func step(reject: Bool = false, beforeAcknowledgment: () -> Void = {}) throws {
         call("advance")
         #expect(context.exception == nil)
         let frames = emitted; emitted.removeAll()
         for data in frames {
-            let accepted = reject ? false : model.receive(data)
+            beforeAcknowledgment()
+            // Inject rejection through the decoder so a fragmented native assembly resets too.
+            let accepted = model.receive(reject ? Data("invalid".utf8) : data)
             if !accepted { rejected += 1; rejectionTimes.append(context.evaluateScript("time")?.toDouble() ?? 0) }
             context.objectForKeyedSubscript("acknowledge")?.call(withArguments: [accepted])
         }

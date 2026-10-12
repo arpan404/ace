@@ -71,7 +71,7 @@ export class PatchPump {
     if (accepted) delivery.commit();
     else {
       this.#fragment = undefined; // Native discarded its incomplete assembly.
-      for (const { task } of delivery.delivered) this.#reject(task);
+      for (const entry of delivery.delivered) this.#reject(entry);
     }
     this.#schedule();
   }
@@ -218,12 +218,18 @@ export class PatchPump {
       queue.set(task.key, task);
     }
   }
-  #reject(task: Task): void {
+  #reject({ task, read }: Delivery): void {
     const queue = this.#queue(task.key);
     if (queue.get(task.key) !== task) return;
     task.failures++;
     queue.delete(task.key);
     queue.set(task.key, task);
+    if (task.degraded && task.read !== read) {
+      // An older failure cannot quarantine newer canonical data. Retain degraded
+      // mode and the retry budget, and give the replacement one bounded retry.
+      task.readyAt = host.now() + 1000;
+      return;
+    }
     if (task.degraded) {
       // Even an undecodable canonical identity cannot spin or block unrelated work.
       // Retain it without acknowledgment until a changed reader or resnapshot can retry.

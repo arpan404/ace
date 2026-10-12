@@ -54,7 +54,7 @@ function status() {
     },
   }));
 }
-function approval(broken: boolean) {
+function approval(broken: boolean, optionPrefix = "action-") {
   pump.put("thread:interaction:approval", () => ({
     type: "thread.interaction",
     threadId: "thread",
@@ -68,7 +68,7 @@ function approval(broken: boolean) {
       description: "",
       command: "echo test",
       truncated: false,
-      options: [{ id: "action-" + "x".repeat(32768), label: "Allow once", kind: "allow_once" }],
+      options: [{ id: optionPrefix + "x".repeat(32768), label: "Allow once", kind: "allow_once" }],
     },
   }));
 }
@@ -95,6 +95,7 @@ Object.assign(globalThis, {
   queueBrokenContent: () => brokenContent(false),
   queueInvalidIdentity: () => brokenContent(true),
   repairIdentity: () => brokenContent(false),
+  replacePoison: () => content("poison", "Recovered content"),
   queueReset: () =>
     pump.put("thread:reset", () => ({ type: "thread.reset", threadId: "thread", epoch: 1 })),
   queueMalformedDisplay: () => content("malformed", "\udc00a"),
@@ -103,6 +104,7 @@ Object.assign(globalThis, {
   queueSibling: () => content("sibling", "A later content row"),
   queueStatus: status,
   queueApproval: () => approval(false),
+  replaceApproval: () => approval(false, "replacement-action-"),
   queueBrokenApproval: () => approval(true),
   acknowledge: (accepted: boolean) => pump.ack(accepted),
 });
