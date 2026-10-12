@@ -21,7 +21,7 @@ import { PrLinkForm } from "./pr-link-form.tsx";
 import { PrDetails } from "./work-card-pr-details.tsx";
 import { openPullRequestLink as open } from "./work-card-pr-link.ts";
 import { TruncatedText, RowButton, RowNote } from "./work-card-parts.tsx";
-import { useWorkCardState } from "./work-card-state.tsx";
+import { useWorkState } from "./work-state.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
 
@@ -44,7 +44,7 @@ export function PullRequestsSection(props: {
   const checkout = git.checkout;
 
   const [confirm, setConfirm] = useState(false);
-  const { state, update } = useWorkCardState();
+  const { state, update } = useWorkState();
   const expanded = state.sections["pull-requests"] ?? false;
   const seen = new Set<string>();
   const links = (git.linkedPrs?.length ? git.linkedPrs : checkout?.pr ? [checkout.pr] : []).filter(

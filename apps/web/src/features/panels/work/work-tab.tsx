@@ -3,7 +3,6 @@ import { useThreadMeta } from "@ace/client-react";
 import { WorkAutomations } from "@/features/automations/index.ts";
 import {
   attachWorkspaceScroll,
-  useScopeWorkspace,
   useWorkspaceActions,
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
@@ -14,14 +13,13 @@ import { AgentsTab } from "../agents/agents-tab.tsx";
 export default function WorkTab(props: TabViewProps) {
   const thread = useThreadMeta(props.scope);
   const { WorkEnvironment: Environment } = useThreadParts();
-  const workspace = useScopeWorkspace(props.scope);
   const actions = useWorkspaceActions(props.scope);
-  const saved = workspace.workCard?.scrollTop ?? 0;
+  const saved = props.tab.ui?.scrollTop ?? 0;
   const scroll = useCallback(
     (node: HTMLDivElement | null) => {
       if (node)
         return attachWorkspaceScroll(node, saved, (scrollTop) =>
-          actions.setWorkCard({ scrollTop }),
+          actions.updateUi("work", { scrollTop }),
         );
     },
     [saved, actions],

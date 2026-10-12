@@ -15,7 +15,6 @@ import {
   type OpenRequest,
   type ScopeWorkspace,
   type WorkspaceTab,
-  type WorkCardState,
   type TabUiState,
 } from "./model.ts";
 import type { ClosingTab } from "./registry.ts";
@@ -55,7 +54,6 @@ export interface WorkspaceActions {
   updateUi(key: string, patch: Partial<TabUiState>): void;
   cycle(delta: 1 | -1): void;
   setOpen(open: boolean): void;
-  setWorkCard(patch: Partial<WorkCardState>): void;
   toggle(): void;
   setExpanded(expanded: boolean): void;
   setDock(dock: "side" | "bottom"): void;
@@ -235,17 +233,6 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
       }),
     cycle: (delta) => change((workspace) => cycleTab(workspace, delta)),
     setOpen: (open) => (open ? show() : change((workspace) => setPanelOpen(workspace, false))),
-    setWorkCard: (patch) =>
-      change((workspace) => ({
-        ...workspace,
-        workCard: {
-          open: false,
-          search: "",
-          ...workspace.workCard,
-          ...patch,
-          sections: { ...workspace.workCard?.sections, ...patch.sections },
-        },
-      })),
     toggle: () => {
       if (store.get(scope).open) change((workspace) => setPanelOpen(workspace, false));
       else show();

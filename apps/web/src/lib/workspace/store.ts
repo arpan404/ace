@@ -93,13 +93,8 @@ export class WorkspaceStore {
    * exist and what a fresh scope starts with. Seeds the scope.
    */
   define(scope: string, definition: WorkspaceDefinition): ScopeWorkspace {
-    const previous = this.definitions.get(scope);
     this.definitions.set(scope, definition);
-    const workspace = this.get(scope, () => seedWorkspace(definition.initial));
-    if (previous === definition || !definition.migrate) return workspace;
-    const migrated = definition.migrate(workspace);
-    this.scopes.set(scope, migrated);
-    return migrated;
+    return this.get(scope, () => seedWorkspace(definition.initial));
   }
 
   definition(scope: string): WorkspaceDefinition | undefined {

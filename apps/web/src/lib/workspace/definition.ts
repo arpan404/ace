@@ -1,5 +1,5 @@
 import type { KeymapId } from "@/lib/keymap.ts";
-import type { OpenRequest, WorkspaceTab, ScopeWorkspace } from "./model.ts";
+import type { OpenRequest, WorkspaceTab } from "./model.ts";
 import type { TabKind } from "./registry.ts";
 
 /*
@@ -15,8 +15,6 @@ export interface WorkspaceDefinitionOptions {
   launcher: string;
   /** The tabs a scope starts with, the first one showing. */
   initial: readonly OpenRequest[];
-  /** Update a saved scope when its tools change, once when the definition attaches. */
-  migrate?: (workspace: ScopeWorkspace) => ScopeWorkspace;
   /** Offer side/bottom docking in the panel strip. */
   dockable?: boolean;
   /** The phone header's labelled panel action. Omit kind to reopen the active tab or launcher. */
@@ -60,7 +58,6 @@ export function defineWorkspace(options: WorkspaceDefinitionOptions): WorkspaceD
     ));
   return {
     label: options.label,
-    ...(options.migrate ? { migrate: options.migrate } : {}),
     launcher: options.launcher,
     initial: options.initial,
     ...(options.dockable !== undefined ? { dockable: options.dockable } : {}),

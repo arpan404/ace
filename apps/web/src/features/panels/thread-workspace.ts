@@ -1,4 +1,3 @@
-import { migrateThreadWorkspace } from "./work/migrate.ts";
 import { defineWorkspace } from "@/lib/workspace/index.ts";
 
 /**
@@ -9,7 +8,6 @@ import { defineWorkspace } from "@/lib/workspace/index.ts";
  */
 export const threadWorkspace = defineWorkspace({
   label: "Thread panel",
-  migrate: migrateThreadWorkspace,
   launcher: "new-tab",
   mobileAction: { label: "Work", kind: "work" },
   initial: [

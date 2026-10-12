@@ -782,7 +782,9 @@ test("the thread menu offers working thread actions without Side chat", async ()
   expect(screen.queryByRole("menuitem", { name: /side chat/i })).toBeNull();
   await userEvent.click(screen.getByRole("menuitem", { name: /Open agent tree/ }));
   const panel = await sidePanel();
-  expect(await within(panel).findByRole("tab", { name: /^Agents/, selected: true })).toBeTruthy();
+  expect(await within(panel).findByRole("tab", { name: "Work", selected: true })).toBeTruthy();
+  expect(await within(panel).findByRole("tree", { name: "Agent tree" })).toBeTruthy();
+  expect(within(panel).queryByText("This tool isn’t available.")).toBeNull();
 });
 
 test("Fork is omitted until the first turn has finished", async () => {

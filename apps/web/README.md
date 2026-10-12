@@ -294,8 +294,8 @@ right-click (or the context-menu key) for full view, pin, move and close.
 The header holds navigation, the title, its menu and the panel toggle. Work is the panel's
 first and default tab. It contains the machine and checkout, branch and PR actions, commit
 and push, Changes, the whole agents tree with background commands and Stop, and project
-automations. The former Agents tab is this tab's Agents section. Saved Agents tabs and an
-open floating Work card migrate to Work, keeping tree folds and the scroll position.
+automations. Agent tree folds, environment folds and the scroll position are saved in the
+current Work tab state.
 
 The thread slice owns environment and git actions and supplies them through `ThreadParts`;
 the panels slice owns placement, the tree and schedules. Other thread UI can open Work with

@@ -9,7 +9,7 @@ import { useGitFlow } from "./use-git-flow.tsx";
 import { ProjectRow } from "./work-card-environment.tsx";
 import { BranchRow, ChangesSection, GitMenuItems } from "./work-card-git.tsx";
 import { PullRequestsSection } from "./work-card-pr.tsx";
-import { WorkCardStateProvider } from "./work-card-state.tsx";
+import { WorkStateProvider } from "./work-state.tsx";
 
 const keepWorkOpen = () => {};
 
@@ -37,7 +37,7 @@ function EnvironmentActions(props: { thread: ThreadRef }) {
   const workspace = useWorkspaceActions(props.thread.id);
   const checkout = useCheckoutMove(props.thread);
   return (
-    <WorkCardStateProvider scope={props.thread.id}>
+    <WorkStateProvider scope={props.thread.id}>
       <div className="divide-y divide-border [&>section]:px-3">
         <ProjectRow
           thread={props.thread}
@@ -97,6 +97,6 @@ function EnvironmentActions(props: { thread: ThreadRef }) {
           />
         </Suspense>
       )}
-    </WorkCardStateProvider>
+    </WorkStateProvider>
   );
 }

@@ -30,6 +30,8 @@ export interface TabUiState {
   query?: string | undefined;
   collapsed?: readonly string[] | undefined;
   selected?: string | undefined;
+  sections?: Record<string, boolean> | undefined;
+  scrollTop?: number | undefined;
 }
 
 export interface ScopeWorkspace {
@@ -43,14 +45,6 @@ export interface ScopeWorkspace {
   expanded: boolean;
   dock?: "side" | "bottom" | undefined;
   bottomSize?: number | undefined;
-  workCard?: WorkCardState | undefined;
-}
-
-export interface WorkCardState {
-  open: boolean;
-  sections: Record<string, boolean>;
-  search: string;
-  scrollTop?: number | undefined;
 }
 
 export interface OpenRequest {
@@ -289,6 +283,8 @@ const TabSchema = z.object({
       query: z.optional(z.string()),
       collapsed: z.optional(z.array(z.string())),
       selected: z.optional(z.string()),
+      sections: z.optional(z.record(z.string(), z.boolean())),
+      scrollTop: z.optional(z.number().check(z.gte(0), z.lte(10_000_000))),
     }),
   ),
 });
@@ -303,14 +299,6 @@ const CurrentSchema = z.object({
   bottomSize: z.optional(z.number().check(z.gte(0), z.lte(10_000))),
   ...PanelSchema.shape,
   expanded: z.catch(z.boolean(), false),
-  workCard: z.optional(
-    z.object({
-      open: z.boolean(),
-      sections: z.record(z.string(), z.boolean()),
-      search: z.string(),
-      scrollTop: z.optional(z.number().check(z.gte(0), z.lte(10_000_000))),
-    }),
-  ),
 });
 /** Before 0.9 a scope had a side panel (`right`) and a bottom panel (terminals, logs). */
 const LegacySchema = z.object({
@@ -354,6 +342,5 @@ export function sanitize(stored: Stored): ScopeWorkspace {
     dock: workspace.dock,
     bottomSize: workspace.bottomSize,
     expanded: workspace.expanded && open,
-    ...(workspace.workCard ? { workCard: workspace.workCard } : {}),
   };
 }

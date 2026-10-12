@@ -30,8 +30,13 @@ test("the agent tree shows subagents as they spawn and marks the one that fails"
 
   await act(async () => script.runThrough("tester-failed"));
   const failed = await within(panel).findByRole("treeitem", { name: "migration-tester: Failed" });
-  expect(within(failed).getByText(/Context window exceeded/)).toBeTruthy();
+  expect(within(failed).getByText("Couldn't finish. Open the agent for details.")).toBeTruthy();
+  expect(within(failed).queryByText(/Context window exceeded/)).toBeNull();
   expect(within(panel).getByRole("treeitem", { name: "schema-writer: Working" })).toBeTruthy();
+  await userEvent.click(failed);
+  const detail = await within(panel).findByRole("tabpanel", { name: "migration-tester" });
+  expect(await within(detail).findByText(/Context window exceeded/)).toBeTruthy();
+  expect(within(detail).getByRole("heading", { name: "migration-tester" })).toBeTruthy();
 });
 
 test("the Agents tab shows what each agent is doing, the background shell, and why the thread isn't done", async () => {
