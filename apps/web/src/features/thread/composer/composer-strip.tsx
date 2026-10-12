@@ -1,6 +1,6 @@
 import { useClient, useConnectionState, useInteractions } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
-import { Suspense, useLayoutEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { useHeldQueue } from "./queue-notice.tsx";
@@ -9,7 +9,7 @@ import { queuedCount } from "./queued.tsx";
 import { useQueuedPending } from "./queued-pending.ts";
 import { RequestStack } from "./request-stack.tsx";
 import { ConnectionStrip, PlanStrip, StripIndicators, type StripCounts } from "./strip-items.tsx";
-import { pickStrip, stripSlot, type StripFacts, type StripKind } from "./strip-slot.ts";
+import { pickStrip, stripSlot, type StripFacts } from "./strip-slot.ts";
 import { StripSurface } from "./strip-surface.tsx";
 import { useQueue } from "./use-queue.ts";
 
@@ -18,9 +18,8 @@ const noRequests: readonly string[] = [];
 /**
  * The one strip above the thread's composer (`stripSlot` decides what it shows): the agent's
  * open requests, trouble with the connection, the queue, or the main agent's plan, with the
- * others as indicators inside it. It says what it shows (`onShown`), so the composer answers a
- * request only while its card is in view. Loads after the thread has painted, unless the
- * thread opens on a request.
+ * others as indicators inside it. Loads after the thread has painted, unless the thread opens
+ * on a request.
  */
 export function ComposerStrip(props: {
   threadId: string;
@@ -30,7 +29,6 @@ export function ComposerStrip(props: {
   /** Put the caret back in the message. */
   onLeave(): void;
   onChooseModel(): void;
-  onShown(kind: StripKind | undefined): void;
 }) {
   const client = useClient();
   const daemon = useDaemonConnection();
@@ -51,8 +49,6 @@ export function ComposerStrip(props: {
   };
   const [pick, setPick] = useState<ReturnType<typeof pickStrip>>();
   const slot = stripSlot(facts, pick);
-  const { onShown } = props;
-  useLayoutEffect(() => onShown(slot.shown), [onShown, slot.shown]);
   if (!slot.shown) return null;
   const counts: StripCounts = { requests: requests.length, offline, queued, plan };
   const indicators = (

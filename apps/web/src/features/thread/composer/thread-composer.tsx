@@ -1,5 +1,5 @@
 import { useClient, useIntent, useInteractions, useThreadMeta } from "@ace/client-react";
-import type { ThreadStatus } from "@ace/protocol";
+import type { Interaction, ThreadStatus } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import {
   modelLabel,
@@ -10,7 +10,7 @@ import {
   resolveEffort,
   type AttachmentReader,
 } from "@ace/ui-core";
-import { Suspense, useCallback, useContext, useEffect, useRef, useState, type Ref } from "react";
+import { Suspense, useContext, useEffect, useRef, useState, type Ref } from "react";
 import { TimeContext } from "@/lib/time.ts";
 import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -24,7 +24,6 @@ import type { ThreadRef } from "../sources/index.ts";
 import { Composer, type ComposerHandle, type Draft } from "./composer.tsx";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import { ComposerDock } from "./composer-dock.tsx";
-import { useComposerAnswer } from "./answer-slot.ts";
 import {
   ControlsPending,
   DeferredCursorContinuation,
@@ -32,7 +31,6 @@ import {
   DeferredPermissionControl,
 } from "./deferred-parts.tsx";
 import { DeferredComposerStrip } from "./deferred-cards.ts";
-import type { StripKind } from "./strip-slot.ts";
 import { UsageNotice } from "./usage-notice.tsx";
 import {
   runsOn,
@@ -51,6 +49,9 @@ const loadSender = () => (sender ??= import("./send-message.ts"));
 const wideEnoughToFocus = () =>
   typeof matchMedia === "function" && matchMedia("(min-width: 768px)").matches;
 
+const pendingQuestion = (interaction: Interaction) =>
+  interaction.state === "pending" && interaction.request.kind === "question";
+
 /** The agent is mid-turn or held up: a new message follows up rather than starting a turn. */
 export function isBusy(status: ThreadStatus | undefined): boolean {
   return threadIsRunning(status) || status?.state === "limited";
@@ -62,10 +63,9 @@ export function isBusy(status: ThreadStatus | undefined): boolean {
  * works a message follows up the way the daemon's `threads.followUpBehavior` says (queue by
  * default), and ⌘↵ / Ctrl+↵ does the opposite where the provider can steer. Its footer shows
  * how actions are approved and the model, both changeable from the next turn. Nothing sits below
- * it; one strip sits above it (`ComposerStrip`): the agent's open requests (answered there, a
- * picked answer sent with the send button), the connection, the queue or the plan. Stop is in
- * the send slot while the composer is empty, and never while a request waits. The unsent draft
- * is kept per thread.
+ * it; one strip sits above it (`ComposerStrip`): the agent's open requests (answered on their
+ * card there), the connection, the queue or the plan. Stop is in the send slot while the
+ * composer is empty, and never while a question waits. The unsent draft is kept per thread.
  */
 export function ThreadComposer({
   composer,
@@ -219,11 +219,8 @@ export function ThreadComposer({
   // something: then its first option takes focus (UX audit CMP-2).
   const open = useInteractions(props.thread.id);
   const asking = !!open?.length;
-  const answer = useComposerAnswer(props.thread.id);
-  // The message answers a request only while the strip shows its card.
-  const [shown, setShown] = useState<StripKind>();
-  const onShown = useCallback((kind: StripKind | undefined) => setShown(kind), []);
-  const tab = asking && shown === "request" ? "requests" : undefined;
+  // A question is answered on its card, so Stop never sits in the send slot while one waits.
+  const questioned = !!useInteractions(props.thread.id, pendingQuestion)?.length;
   const toMessage = () =>
     box.current
       ?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')
@@ -272,7 +269,7 @@ export function ThreadComposer({
         followUp={selectionWaiting ? "queue" : followUp}
         canSteer={canSteer && !selectionWaiting}
         onSubmit={submit}
-        onStop={activityState.canStop ? stop : undefined}
+        onStop={activityState.canStop && !questioned ? stop : undefined}
         stopping={stopping}
         onReturnedOptions={(options) => {
           const identity = selectionIdentity(runsOn(meta));
@@ -292,11 +289,9 @@ export function ThreadComposer({
               requestTarget={props.requestTarget}
               onLeave={toMessage}
               onChooseModel={() => requestPicker((count) => count + 1)}
-              onShown={onShown}
             />
           </Suspense>
         }
-        answer={tab === "requests" ? answer : undefined}
         controls={
           <Suspense fallback={<ControlsPending />}>
             <DeferredPermissionControl.Component thread={props.thread} />

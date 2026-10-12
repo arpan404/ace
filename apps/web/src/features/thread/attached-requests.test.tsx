@@ -191,10 +191,12 @@ test("a question is answered on the deck; the transcript keeps one line with the
   });
   // No Stop while the agent asks, and nothing to submit until an option is picked.
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Answer" }).getAttribute("aria-disabled")).toBe("true");
+  expect(within(card).getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(
+    true,
+  );
   await userEvent.click(within(card).getByRole("radio", { name: /Persist the draft/ }));
-  // The pick enables the composer's Answer button.
-  await userEvent.click(await screen.findByRole("button", { name: "Answer" }));
+  // The pick enables the card's Continue.
+  await userEvent.click(within(card).getByRole("button", { name: "Continue" }));
   await waitFor(() =>
     expect(app.daemon.isPending("thread-sheet-rotate", "ask-recovery")).toBe(false),
   );
@@ -273,28 +275,28 @@ function twoQuestions(): Scenario {
   };
 }
 
-test("several questions are answered one at a time: Next through them, then Answer sends all", async () => {
+test("several questions are answered one at a time: Continue through them, then it sends all", async () => {
   const app = harness();
   app.play(twoQuestions()).runUntilBlocked();
   await app.open("/t/thread-two");
   const region = await stack();
-  expect(await within(region).findByText("1 of 2")).toBeTruthy();
+  expect(await within(region).findByLabelText("Question 1 of 2")).toBeTruthy();
   expect(within(region).queryByRole("radio", { name: "An hour" })).toBeNull();
 
   await userEvent.click(within(region).getByRole("radio", { name: "SQLite" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Next" }));
-  expect(await within(region).findByText("2 of 2")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Answer" }).getAttribute("aria-disabled")).toBe("true");
+  await userEvent.click(within(region).getByRole("button", { name: "Continue" }));
+  expect(await within(region).findByLabelText("Question 2 of 2")).toBeTruthy();
+  expect(within(region).getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(
+    true,
+  );
 
-  // Back keeps what was picked.
-  await userEvent.click(within(region).getByRole("button", { name: "Back" }));
+  // Going back keeps what was picked.
+  await userEvent.click(within(region).getByRole("button", { name: "Previous question" }));
   expect(within(region).getByRole("radio", { name: "SQLite", checked: true })).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  await userEvent.click(within(region).getByRole("button", { name: "Next question" }));
 
+  // Enter on the picked option continues, as the button would; on the last it sends.
   await userEvent.click(within(region).getByRole("radio", { name: "A day" }));
-  // Enter in the empty message sends the answer, as the button would.
-  await userEvent.click(screen.getByRole("combobox", { name: "Message" }));
   await userEvent.keyboard("{Enter}");
   await waitFor(() =>
     expect(app.daemon.resolution("thread-two", "store")).toEqual({

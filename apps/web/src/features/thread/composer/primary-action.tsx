@@ -1,14 +1,13 @@
-import { ArrowRightIcon, ArrowUpIcon, StopIcon } from "@phosphor-icons/react";
+import { ArrowUpIcon, StopIcon } from "@phosphor-icons/react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { formatKeys } from "@/lib/keymap.ts";
-import type { ComposerAnswer } from "./answer-slot.ts";
-import { iconControl, pillControl } from "./composer-styles.ts";
+import { iconControl } from "./composer-styles.ts";
 
-export type PrimaryMode = "send" | "queue" | "steer" | "stop" | "answer";
+export type PrimaryMode = "send" | "queue" | "steer" | "stop";
 
-const labels: Record<Exclude<PrimaryMode, "stop" | "answer">, string> = {
+const labels: Record<Exclude<PrimaryMode, "stop">, string> = {
   send: "Send",
   queue: "Queue message",
   steer: "Steer message",
@@ -18,7 +17,7 @@ const labels: Record<Exclude<PrimaryMode, "stop" | "answer">, string> = {
  * What Enter does now, and what ⌘↵ does instead while the agent works. A provider that can't
  * steer only queues, so ⌘↵ isn't offered (UX audit SY-14).
  */
-function hint(mode: Exclude<PrimaryMode, "stop" | "answer">, canSteer: boolean): string {
+function hint(mode: Exclude<PrimaryMode, "stop">, canSteer: boolean): string {
   const mod = formatKeys("mod+enter");
   if (mode === "steer") return `Steer into the running turn · ${mod} queues it instead`;
   if (mode === "queue")
@@ -46,45 +45,9 @@ export function PrimaryAction(props: {
   canSteer?: boolean | undefined;
   /** A Stop is on its way: "Stopping…" until the turn ends. */
   stopping?: boolean | undefined;
-  /** In `answer` mode: the question card's answer, its words and why it can't go yet. */
-  answer?: ComposerAnswer | undefined;
   onSend(): void;
   onStop(): void;
 }) {
-  if (props.mode === "answer") {
-    const label = props.answer?.label ?? "Answer";
-    const blocked = props.answer?.blocked;
-    const next = label === "Next";
-    return (
-      <Tip
-        label={blocked ?? (next ? "Next question" : "Send your answer")}
-        {...(blocked ? {} : { keys: "enter" })}
-        side="top"
-      >
-        <button
-          type="button"
-          aria-disabled={blocked ? true : undefined}
-          onClick={() => {
-            if (!blocked) props.onSend();
-          }}
-          className={cn(
-            pillControl,
-            "fx-pop",
-            blocked
-              ? "cursor-default bg-foreground/10 text-subtle-foreground hover:bg-foreground/10 hover:text-subtle-foreground active:scale-100"
-              : "bg-tint text-tint-foreground hover:bg-tint/85 hover:text-tint-foreground",
-          )}
-        >
-          {label}
-          {next ? (
-            <ArrowRightIcon aria-hidden size={14} weight="bold" />
-          ) : (
-            <ArrowUpIcon aria-hidden size={14} weight="bold" />
-          )}
-        </button>
-      </Tip>
-    );
-  }
   if (props.mode === "stop")
     return props.stopping ? (
       <Tip label="Stopping… the agent stops at its next safe point" side="top">

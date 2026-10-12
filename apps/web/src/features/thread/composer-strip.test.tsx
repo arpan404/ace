@@ -102,7 +102,7 @@ const ask = (app: ReturnType<typeof harness>, id: string) =>
     ]),
   );
 
-test("Enter answers a question only while the strip shows it", async () => {
+test("the message never answers a question: it queues, and the card's Continue answers", async () => {
   const app = await open();
   await queueMessage("Also cover the mobile path");
   ask(app, "ask-1");
@@ -110,7 +110,6 @@ test("Enter answers a question only while the strip shows it", async () => {
   await userEvent.click(within(card).getByRole("button", { name: "Show 1 queued message" }));
   await screen.findByRole("region", { name: "Message queue" });
   const message = screen.getByRole("combobox", { name: "Message" });
-  // With the queue showing, Enter queues the message and the question stays open.
   await userEvent.type(message, "Then log the cap{Enter}");
   await waitFor(() =>
     expect(
@@ -118,10 +117,17 @@ test("Enter answers a question only while the strip shows it", async () => {
     ).toHaveLength(2),
   );
   expect(app.daemon.isPending(threadId, "ask-1")).toBe(true);
-  // Back on the question, Enter answers it with the message.
+  // Back on the question, its own field and Continue answer it.
   await userEvent.click(screen.getByRole("button", { name: "Show 1 request waiting for you" }));
-  await screen.findByRole("region", { name: "Waiting for you" });
-  await userEvent.type(message, "No, skip them{Enter}");
+  const region = await screen.findByRole("region", { name: "Waiting for you" });
+  await userEvent.type(
+    within(region).getByRole("textbox", { name: /^Something else/ }),
+    "No, skip them",
+  );
+  await userEvent.click(within(region).getByRole("button", { name: "Continue" }));
   await waitFor(() => expect(app.daemon.isPending(threadId, "ask-1")).toBe(false));
-  expect(JSON.stringify(app.daemon.resolution(threadId, "ask-1"))).toContain("No, skip them");
+  expect(app.daemon.resolution(threadId, "ask-1")).toEqual({
+    kind: "question",
+    answers: { scope: ["No, skip them"] },
+  });
 });

@@ -65,19 +65,17 @@ async function openQuestion() {
   return { app, card, message: screen.getByRole("combobox", { name: "Message" }) };
 }
 
-test("Something else puts the caret in the message, whose text is then the answer", async () => {
+test("Something else is a field on the card: typing there picks it, and Continue sends the words", async () => {
   const { app, card, message } = await openQuestion();
-  // While the question is open, the send button answers it; nothing is picked or typed yet.
-  const send = screen.getByRole("button", { name: "Answer" });
-  expect(send.getAttribute("aria-disabled")).toBe("true");
+  const go = within(card).getByRole("button", { name: "Continue" });
+  expect(go.hasAttribute("disabled")).toBe(true);
 
-  await userEvent.click(within(card).getByRole("radio", { name: "Something else" }));
-  expect(document.activeElement).toBe(message);
-  // No second answer field inside the card: the message is where the answer goes.
-  expect(within(card).queryByRole("textbox")).toBeNull();
-
-  await userEvent.keyboard("Two spaces, like the rest of the repo");
-  await userEvent.click(screen.getByRole("button", { name: "Answer" }));
+  await userEvent.type(
+    within(card).getByRole("textbox", { name: /^Something else/ }),
+    "Two spaces, like the rest of the repo",
+  );
+  expect(within(card).getByRole("radio", { name: "Something else", checked: true })).toBeTruthy();
+  await userEvent.click(within(card).getByRole("button", { name: "Continue" }));
 
   await waitFor(() =>
     expect(app.daemon.resolution(threadId, "indent")).toEqual({
@@ -85,36 +83,37 @@ test("Something else puts the caret in the message, whose text is then the answe
       answers: { style: ["Two spaces, like the rest of the repo"] },
     }),
   );
-  // The text went as the answer, not as a message: the composer is empty and nothing queued.
-  await waitFor(() => expect(message.textContent).toBe(""));
+  // The message was never the answer: it is still empty and nothing queued.
+  expect(message.textContent).toBe("");
   expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
 });
 
-test("typing in the message while a question is open answers it with Enter, instead of queueing", async () => {
-  const { app, card, message } = await openQuestion();
-  await userEvent.click(message);
-  await userEvent.keyboard("Whatever the formatter says");
-
-  // Typing picks "Something else" on the card, so what is checked is what is sent.
-  await waitFor(() =>
-    expect(within(card).getByRole("radio", { name: "Something else", checked: true })).toBeTruthy(),
+test("Enter in the Something else field continues", async () => {
+  const { app, card } = await openQuestion();
+  await userEvent.type(
+    within(card).getByRole("textbox", { name: /^Something else/ }),
+    "Whatever the formatter says{Enter}",
   );
-  expect(screen.getByRole("button", { name: "Answer" }).getAttribute("aria-disabled")).toBeNull();
-  await userEvent.keyboard("{Enter}");
-
   await waitFor(() =>
     expect(app.daemon.resolution(threadId, "indent")).toEqual({
       kind: "question",
       answers: { style: ["Whatever the formatter says"] },
     }),
   );
-  expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
 });
 
-test("picking an option enables Answer, which sends the selected option", async () => {
+test("the message stays a message while a question is open, and Stop waits", async () => {
+  const { app, message } = await openQuestion();
+  expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
+  await userEvent.type(message, "Use whatever the repo already does{Enter}");
+  await screen.findByRole("list", { name: "Queued messages" });
+  expect(app.daemon.isPending(threadId, "indent")).toBe(true);
+});
+
+test("picking an option enables Continue, which sends the selected option", async () => {
   const { app, card } = await openQuestion();
   await userEvent.click(within(card).getByRole("radio", { name: "Spaces" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Answer" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Continue" }));
 
   await waitFor(() =>
     expect(app.daemon.resolution(threadId, "indent")).toEqual({

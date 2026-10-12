@@ -18,9 +18,6 @@ const control =
 /** A square icon control: plus, send and stop. It never gives up its room. */
 export const iconControl = `${control} size-(--composer-control) shrink-0 px-0`;
 
-/** A labelled filled action in the send slot: Submit ↑ and Next →. */
-export const pillControl = `${control} shrink-0 gap-1 pr-2.5 pl-3.5`;
-
 /**
  * A labelled control (the model): it shrinks with the footer and its label
  * truncates, so a narrow composer never paints one control over another. It keeps at least its

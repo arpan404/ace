@@ -31,7 +31,6 @@ import { composerSurface, inputLine, inputMinLines } from "./composer-styles.ts"
 import { useLayout } from "@/lib/layout.tsx";
 import type { ThreadRef } from "../sources/index.ts";
 import { AddButton, type AddHandle } from "./add-button.tsx";
-import { useShareMessage, type ComposerAnswer } from "./answer-slot.ts";
 import { AttachmentChips, maxAttachmentsPerMessage, useAttachments } from "./attachments.tsx";
 import { ComposerCompact } from "./composer-compact.ts";
 import { accept, insertAt, triggerAt, type Draft, type Trigger } from "./draft.ts";
@@ -137,11 +136,6 @@ function ComposerContent({
    * nothing else is, sharing its compact-width context. Nothing renders below the composer.
    */
   environment?: ReactNode;
-  /**
-   * The question card above: while it asks, the primary action and Enter answer it ("Answer",
-   * "Submit", "Next"), and where it takes a typed answer the message is that answer.
-   */
-  answer?: ComposerAnswer | undefined;
   /**
    * Provider/model information for the surrounding composer controls. Attachments always
    * have a daemon file-path fallback, including when native media input is unavailable.
@@ -540,23 +534,6 @@ function ComposerBody({
             : undefined;
   // Enter empties the composer at once; the message is the parent's from here on. Only a
   // message this device couldn't save comes back, and only into an untouched composer.
-  // While a question asks, sending answers it; a message it can't take as its answer (a question
-  // without free text) still goes as a message.
-  const answer = props.answer && (empty || props.answer.invitesText) ? props.answer : undefined;
-  // The composer is always in view; scrolling to it could drag the shell up mid-animation.
-  useShareMessage(props.answer ? props.thread.id : undefined, !empty, () =>
-    input.current?.focus({ preventScroll: true }),
-  );
-  const sendAnswer = () => {
-    if (!answer || answer.blocked) return;
-    answer.submit(text.trim());
-    if (!answer.takesText) return;
-    saved.discard();
-    setText("");
-    setTokens([]);
-    setPicked(new Set());
-    setCaret(0);
-  };
   const submit = (opposite: boolean) => {
     if (blocked) return;
     const draft: Draft = {
@@ -652,27 +629,23 @@ function ComposerBody({
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
-      if (answer) return sendAnswer();
       submit((event.metaKey || event.ctrlKey) && props.canSteer !== false);
     }
   };
-  // While a question asks, the composer answers it. Otherwise an empty composer offers what it
-  // can do now: Stop, or (with nothing to send) Send, unavailable; a draft goes as a message,
+  // An empty composer offers what it can do now: Stop, or (with nothing to send) Send,
+  // unavailable; a draft goes as a message,
   // queued or steered while the agent works.
-  const mode = answer
-    ? "answer"
-    : empty
-      ? props.busy && props.onStop
-        ? "stop"
-        : "send"
-      : props.busy
-        ? props.followUp === "steer"
-          ? "steer"
-          : "queue"
-        : "send";
+  const mode = empty
+    ? props.busy && props.onStop
+      ? "stop"
+      : "send"
+    : props.busy
+      ? props.followUp === "steer"
+        ? "steer"
+        : "queue"
+      : "send";
   const placeholder =
     props.unavailable?.short ??
-    (answer?.invitesText ? "Type your answer" : undefined) ??
     (terse ? (props.shortPlaceholder ?? props.placeholder) : props.placeholder) ??
     "Ask anything";
   const expanded = suggestions.state === "ready";
@@ -834,9 +807,8 @@ function ComposerBody({
               off={!!off}
               canSteer={props.canSteer !== false}
               stopping={!!props.stopping}
-              answer={answer}
               describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
-              onSend={() => (answer ? sendAnswer() : submit(false))}
+              onSend={() => submit(false)}
               onStop={() => props.onStop?.()}
             />
           </div>
