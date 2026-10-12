@@ -20,7 +20,7 @@ export async function executeStorageItem(
       inventory.files.remove(target.path, entry.item.kind, entry.fingerprint);
       return;
     case "skill_root":
-      inventory.files.removeSkillRoot(target.name, entry.fingerprint);
+      await inventory.files.removeSkillRoot(target.name);
       return;
     case "attachment":
       if (!services.context) throw new Error("storage_context_unavailable");

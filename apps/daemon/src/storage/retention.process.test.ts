@@ -1,4 +1,13 @@
-import { access, readdir, readFile, writeFile, rename, symlink, utimes } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readdir,
+  readFile,
+  writeFile,
+  rename,
+  symlink,
+  utimes,
+} from "node:fs/promises";
 import { basename, join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { prepareBuiltinSkills } from "@ace/plugins";
@@ -196,6 +205,24 @@ test("cleanup removes reviewed bytes and leaves durable writes available", async
   );
 });
 
+/** Ages a whole tree so retention alone never protects it. */
+async function age(root: string) {
+  for (const entry of await readdir(root, { recursive: true }))
+    await utimes(join(root, entry), new Date(1), new Date(1));
+  await utimes(root, new Date(1), new Date(1));
+}
+async function releasedProjection(root: string) {
+  await mkdir(root, { recursive: true });
+  await prepareBuiltinSkills("codex", root);
+  builtinSkillProcessLease(root).close();
+  await age(root);
+  return root;
+}
+const planCaches = (f: Awaited<ReturnType<typeof setup>>) =>
+  f.storage.plan("owner", { op: "cleanup.plan", kinds: ["caches"], forceItems: [] });
+const skillItem = (plan: Awaited<ReturnType<typeof planCaches>>, root: string) =>
+  plan.items.find((entry) => entry.label === `builtin-skill-sessions/${basename(root)}`);
+
 test("an expired skill root is removed only once its process lease is released", async () => {
   const f = await setup();
   const released = await createBuiltinSkillRoot(f.root);
@@ -203,21 +230,61 @@ test("an expired skill root is removed only once its process lease is released",
   builtinSkillProcessLease(released).close();
   const live = await createBuiltinSkillRoot(f.root);
   builtinSkillProcessLease(live); // Owned by this still-running process.
-  for (const root of [released, live]) {
-    for (const entry of await readdir(root, { recursive: true }))
-      await utimes(join(root, entry), new Date(1), new Date(1));
-    await utimes(root, new Date(1), new Date(1));
-  }
-  const plan = await f.storage.plan("owner", {
-    op: "cleanup.plan",
-    kinds: ["caches"],
-    forceItems: [],
-  });
-  const item = (root: string) =>
-    plan.items.find((entry) => entry.label === `builtin-skill-sessions/${basename(root)}`);
+  for (const root of [released, live]) await age(root);
+  const plan = await planCaches(f);
+  const item = (root: string) => skillItem(plan, root);
   expect(item(released)).toMatchObject({ disposition: "remove", reasons: ["expired"] });
   expect(item(live)).toMatchObject({ disposition: "protect", reasons: ["leased"] });
   expect((await f.storage.apply("owner", plan.id, plan.revision)).state).toBe("complete");
   await expect(access(released)).rejects.toMatchObject({ code: "ENOENT" });
   expect(await readFile(join(live, "skill-processes.json"), "utf8")).toContain('"closed":false');
+});
+
+test("unsafe or unprovable skill roots are protected without failing the plan, and links are never followed", async () => {
+  const f = await setup();
+  const sessions = join(f.root, "builtin-skill-sessions");
+  const released = await releasedProjection(join(sessions, "session-good01"));
+  const outside = await f.file("outside/keep.txt", "keep me");
+  await symlink(join(f.root, "outside"), join(sessions, "session-link01"));
+  await writeFile(join(sessions, "session-file01"), "not a root");
+  const deep = join(sessions, "session-deep01");
+  await mkdir(join(deep, ...Array.from({ length: 20 }, () => "d")), { recursive: true });
+  const unmarked = join(sessions, "session-mark01");
+  await mkdir(unmarked);
+  builtinSkillProcessLease(unmarked).close(); // Released, but never adopted by the plugin writer.
+  for (const root of [deep, unmarked]) await age(root);
+  const plan = await planCaches(f);
+  expect(skillItem(plan, released)).toMatchObject({ disposition: "remove", reasons: ["expired"] });
+  for (const name of ["session-link01", "session-file01", "session-deep01"])
+    expect(skillItem(plan, name)).toMatchObject({
+      disposition: "protect",
+      reasons: ["unsafe_path"],
+    });
+  expect(skillItem(plan, unmarked)).toMatchObject({
+    disposition: "protect",
+    reasons: ["owner_unavailable"],
+  });
+  expect((await f.storage.apply("owner", plan.id, plan.revision)).state).toBe("complete");
+  await expect(access(released)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await readFile(outside, "utf8")).toBe("keep me");
+  expect(await readFile(join(sessions, "session-link01", "keep.txt"), "utf8")).toBe("keep me");
+  await access(join(unmarked, "skill-processes.json"));
+});
+
+test("retained skill roots ahead of a reclaimable one cannot hide it from later plans", async () => {
+  const f = await setup();
+  const sessions = join(f.root, "builtin-skill-sessions");
+  await mkdir(sessions);
+  // No lease: ownership is unprovable, so these are listed as protected on every plan.
+  for (let index = 0; index < 260; index++)
+    await mkdir(join(sessions, `session-a${String(index).padStart(5, "0")}`));
+  const released = await releasedProjection(join(sessions, "session-z00000"));
+  const first = await planCaches(f);
+  expect(first.complete).toBe(false);
+  expect(skillItem(first, released)).toBeUndefined();
+  const second = await planCaches(f);
+  expect(skillItem(second, released)).toMatchObject({
+    disposition: "remove",
+    reasons: ["expired"],
+  });
 });
