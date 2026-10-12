@@ -10,6 +10,7 @@
     "./preview": "./src/preview.ts",
     "./history": "./src/history.ts",
     "./forge": "./src/forge.ts",
+    "./forge-merge-state": "./src/forge-merge-state.ts",
     "./forge-stacks": "./src/forge-stacks.ts",
     "./forge-review": "./src/forge-review.ts",
     "./forge-browser": "./src/forge-browser.ts",

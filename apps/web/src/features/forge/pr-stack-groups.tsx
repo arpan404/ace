@@ -8,7 +8,7 @@ export function useStackMemberships(
   repository: ForgeRepository,
   numbers: number[],
 ) {
-  return useDaemonQuery({
+  const query = useDaemonQuery({
     queryKey: ["forge", workspaceId, repository, "stack-memberships", numbers],
     enabled: numbers.length > 0,
     retry: false,
@@ -26,6 +26,13 @@ export function useStackMemberships(
       return result.value;
     },
   });
+  return {
+    ...query,
+    mergeBlocker:
+      !query.data || query.isError || !!query.data[0]?.stack
+        ? "Open the full PR workspace to inspect native stack merge rules."
+        : undefined,
+  };
 }
 function RepositoryStackGroups(props: {
   workspaceId: string;

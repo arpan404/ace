@@ -18,6 +18,7 @@ import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.
 import { usePrReview } from "./pr-review-context.tsx";
 import { PrOwnComment, PrReviewSubmission, PrThreadControls } from "./pr-review-forms.tsx";
 import { PrStack } from "./pr-stack.tsx";
+import { PrMergeState } from "./pr-merge-state.tsx";
 
 export function PrSection(props: { title: string; children: ReactNode; action?: ReactNode }) {
   const [open, setOpen] = useState(true);
@@ -123,6 +124,13 @@ export function PrSummary(props: {
         />
       </PrSection>
       {props.extensions?.summary?.(props.context)}
+      <PrMergeState
+        key={prKey}
+        workspaceId={props.context.workspaceId}
+        detail={detail}
+        writeDisabled={props.context.disabled}
+        onRefresh={() => void props.context.refresh()}
+      />
       <PrStack
         key={prKey}
         workspaceId={props.context.workspaceId}

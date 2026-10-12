@@ -71,8 +71,7 @@ export function PrActions(props: {
   const associated = props.detail.relatedThreads.some((thread) => thread.id === threadId);
   const active = props.detail.status.state === "open";
   const membership = useStackMemberships(props.workspaceId, ref.repository, [ref.number]);
-  const nativeStackOrUnknown =
-    !membership.data || membership.isError || !!membership.data[0]?.stack;
+  const nativeStackOrUnknown = membership.mergeBlocker !== undefined;
   return (
     <section
       aria-label="Linked tasks and pull request actions"
@@ -165,19 +164,6 @@ export function PrActions(props: {
             }
           >
             Merge PR
-          </Button>
-          <Button
-            disabled={!ready || pending || blocked || !active || nativeStackOrUnknown}
-            onClick={() =>
-              void run({
-                type: "forge.pr.auto-merge",
-                link,
-                method,
-                headSha: props.detail.status.headSha,
-              })
-            }
-          >
-            Enable auto-merge
           </Button>
           <form
             className="flex items-center gap-2"

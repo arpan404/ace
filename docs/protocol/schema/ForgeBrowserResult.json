@@ -5,6 +5,22 @@
     {
       "properties": {
         "resource": {
+          "const": "prMergeState",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeMergeState.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
           "const": "prStack",
           "type": "string"
         },

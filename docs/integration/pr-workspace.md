@@ -14,6 +14,11 @@ the exact displayed identity. Review reconciliation remains available while stal
 detail blocks ordinary writes. Supplied extension adapters take precedence over
 native diff/composer controls.
 
+Main’s stack navigation and auto-merge/queue controls are mounted in Summary,
+keyed by PR identity. Their existing command, membership and uncertainty guards
+remain intact; stale detail also disables auto-merge mutations while merge-state
+refresh stays available.
+
 `apps/web/src/features/forge/index.ts` exports `PrScreen`, `PrDetail`,
 `PrWorkspaceExtensions`, `PrListExtensions`, `PrWorkspaceContext`, `PrDiffContext`, and
 `PrWorkspaceExtensionProvider`. Pass adapters to `PrScreen` so all its resource tabs

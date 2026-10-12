@@ -206,6 +206,7 @@ export class WorkspaceRuntime {
       result,
     });
     if (
+      op.op === "forge.pr.merge-state" ||
       op.op === "forge.pr.stack" ||
       op.op === "forge.pr.stack-memberships" ||
       op.op === "forge.pr.review-state" ||
