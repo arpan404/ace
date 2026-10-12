@@ -23,7 +23,7 @@ async function open() {
     );
   return { app, plan };
 }
-const live = () => screen.getByRole("button", { name: "Open the summary" });
+const live = () => screen.getByRole("group", { name: "Turn in progress" });
 
 test("operational plans show their progress in the composer strip and their full list in the Summary", async () => {
   const { plan } = await open();
@@ -37,9 +37,9 @@ test("operational plans show their progress in the composer strip and their full
   expect(strip.textContent).toContain("Plan · 1 of 3");
   expect(strip.textContent).toContain("Fix it");
   expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull();
-  await userEvent.click(live());
-  expect(await screen.findByRole("tab", { name: "Summary" })).toBeTruthy();
-  const work = await screen.findByRole("tabpanel", { name: "Summary" });
+  await userEvent.click(screen.getByRole("button", { name: "Open summary" }));
+  expect(await screen.findByRole("tab", { name: "Work" })).toBeTruthy();
+  const work = await screen.findByRole("tabpanel", { name: "Work" });
   const list = await within(work).findByRole("list", { name: "Plan" });
   expect(await within(work).findByRole("tree", { name: "Agent tree" })).toBeTruthy();
   await within(work).findByRole("region", { name: "Automations" });
@@ -64,7 +64,7 @@ test("operational plan updates advance the live step and completed plans leave a
   await waitFor(() => expect(live().textContent).toContain("Step 1 of 2 · Fix it"));
   plan([todo("Fix it", "completed"), todo("Test", "in_progress")]);
   await waitFor(() => expect(live().textContent).toContain("Step 2 of 2 · Test"));
-  await userEvent.click(live());
+  await userEvent.click(screen.getByRole("button", { name: "Open summary" }));
   plan([todo("Fix it", "completed"), todo("Test", "completed")]);
   act(() => app.daemon.apply(threadId, [facts.endTurn("root")]));
   await waitFor(() => expect(screen.queryByRole("list", { name: "Plan" })).toBeNull());

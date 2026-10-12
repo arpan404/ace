@@ -148,11 +148,7 @@ export function StepRow(props: {
       >
         {step.verb}
       </span>
-      {step.target && (
-        <code className="min-w-0 truncate rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
-          {step.target}
-        </code>
-      )}
+      {step.target && <TargetChip target={step.target} />}
       <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-3 text-xs text-subtle-foreground">
         {step.added !== undefined && (step.added > 0 || (step.removed ?? 0) > 0) && (
           <span className="font-mono">
@@ -165,6 +161,23 @@ export function StepRow(props: {
         )}
       </span>
     </button>
+  );
+}
+
+/**
+ * A step's target as a monospace chip. A path keeps its file name in view and gives way from its
+ * folders when space runs short; a command or query truncates at its end.
+ */
+function TargetChip(props: { target: string }) {
+  const chip = "flex min-w-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground";
+  const slash = props.target.lastIndexOf("/");
+  const path = slash > 0 && slash < props.target.length - 1 && !/\s/.test(props.target);
+  if (!path) return <code className={cn(chip, "truncate")}>{props.target}</code>;
+  return (
+    <code className={chip} title={props.target}>
+      <span className="min-w-0 truncate">{props.target.slice(0, slash + 1)}</span>
+      <span className="shrink-0">{props.target.slice(slash + 1)}</span>
+    </code>
   );
 }
 

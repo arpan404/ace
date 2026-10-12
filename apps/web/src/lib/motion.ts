@@ -1,5 +1,6 @@
 import { diffList, motionMs, withLeaving } from "@ace/ui-core";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useMediaQuery } from "./media.ts";
 
 /*
  * The motion system's runtime half. CSS owns the curves and keyframes (styles/motion.css);
@@ -37,6 +38,23 @@ function watchReducedMotion(changed: () => void): () => void {
       reducedObserver = undefined;
     }
   };
+}
+
+/** The app's own Reduce motion setting, as `[data-reduce-motion]` on the root, followed live. */
+function subscribeSetting(changed: () => void): () => void {
+  if (typeof MutationObserver === "undefined" || typeof document === "undefined") return () => {};
+  const observer = new MutationObserver(changed);
+  observer.observe(document.documentElement, { attributeFilter: ["data-reduce-motion"] });
+  return () => observer.disconnect();
+}
+const readSetting = () =>
+  typeof document !== "undefined" && document.documentElement.hasAttribute("data-reduce-motion");
+
+/** Motion is reduced by the system or by the app's setting; follows either as it changes. */
+export function useMotionReduced(): boolean {
+  const system = useReducedMotion();
+  const setting = useSyncExternalStore(subscribeSetting, readSetting, () => false);
+  return system || setting;
 }
 
 export function prefersReducedMotion(): boolean {

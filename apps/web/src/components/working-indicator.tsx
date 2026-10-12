@@ -1,11 +1,12 @@
 import { formatElapsed } from "@ace/ui-core";
 import { useContext, useLayoutEffect, useRef } from "react";
 import { cn } from "@/lib/cn.ts";
+import { useMotionReduced } from "@/lib/motion.ts";
 import { TimeContext } from "@/lib/time.ts";
 
 /*
- * Something is working: a tiny 3x3 pixel grid whose lit cells walk round it, a word, and how long
- * it has run in monospace ("Working 3m 6s"). The grid steps on the page's shared one-second clock
+ * Something is working: a tiny 3x3 pixel grid whose lit cells walk round it, words, and how long
+ * it has run in monospace ("Working for 3m 6s"). The grid steps on the page's shared one-second clock
  * and writes through refs, so it costs no React render and no perpetual CSS animation; under
  * reduced motion it holds one still pattern. Sidebar rows reuse the glyph alone.
  */
@@ -14,18 +15,12 @@ import { TimeContext } from "@/lib/time.ts";
 const walk = [0, 1, 2, 5, 8, 7, 6, 3] as const;
 const still = new Set([0, 2, 4, 6, 8]);
 
-function reducedMotion(): boolean {
-  if (typeof document === "undefined") return true;
-  const root = document.documentElement;
-  if (root.hasAttribute("data-reduce-motion")) return true;
-  return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
 /** The pixel-grid glyph. `moving: false` holds the still pattern (waiting, stale). */
 export function WorkingGlyph(props: { moving?: boolean; className?: string }) {
   const grid = useRef<HTMLSpanElement>(null);
   const { seconds } = useContext(TimeContext);
-  const moving = props.moving ?? true;
+  const reduced = useMotionReduced();
+  const moving = (props.moving ?? true) && !reduced;
   useLayoutEffect(() => {
     const cells = [...(grid.current?.children ?? [])].filter(
       (cell): cell is HTMLElement => cell instanceof HTMLElement,
@@ -34,7 +29,7 @@ export function WorkingGlyph(props: { moving?: boolean; className?: string }) {
       cells.forEach((cell, index) => {
         cell.style.opacity = String(lit(index));
       });
-    if (!moving || reducedMotion()) {
+    if (!moving) {
       paint((index) => (still.has(index) ? 0.9 : 0.25));
       return;
     }
@@ -76,8 +71,12 @@ export function ElapsedTime(props: { from: number; className?: string }) {
   return <span ref={element} className={cn("font-mono text-xs tabular-nums", props.className)} />;
 }
 
-/** `[grid] Working 3m 6s`: the glyph, the word, and the time it has run. */
+/**
+ * `[grid] Working for 3m 6s`: the glyph, the words, and the time it has run. A sidebar row passes
+ * the compact `label="Working"` ("Working 4m").
+ */
 export function WorkingIndicator(props: {
+  /** Words before the time; "Working for" by default. */
   label?: string;
   /** When the work began; no time without it. */
   from?: number | undefined;
@@ -90,7 +89,7 @@ export function WorkingIndicator(props: {
     <span className={cn("inline-flex min-w-0 items-center gap-2", props.className)}>
       <WorkingGlyph moving={moving} />
       {/* The trailing space keeps the words apart when read as text. */}
-      <span className="shrink-0">{`${props.label ?? "Working"} `}</span>
+      <span className="shrink-0">{`${props.label ?? "Working for"} `}</span>
       {props.held !== undefined ? (
         <span className="font-mono text-xs tabular-nums">{formatElapsed(props.held)}</span>
       ) : (

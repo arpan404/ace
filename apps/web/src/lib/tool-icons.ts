@@ -18,6 +18,8 @@ function cacheOf(client: ClientApi): ToolIconCache {
     cache = new ToolIconCache({
       resolve: (threadId, itemIds) => client.request({ type: "icons.resolve", threadId, itemIds }),
       read: (ref) => client.request({ type: "icons.read", ref }),
+      // The page's wall clock, at the browser boundary.
+      now: () => Date.now(),
     });
     caches.set(client, cache);
   }

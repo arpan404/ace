@@ -35,7 +35,13 @@ const BlockContent = memo(function BlockContent(props: {
     case "user":
       return <PersonMessage threadId={threadId} itemId={block.itemId} />;
     case "message":
-      return <AssistantMessage threadId={threadId} itemId={block.itemId} />;
+      return (
+        <AssistantMessage
+          threadId={threadId}
+          itemId={block.itemId}
+          timed={block.headed ? false : undefined}
+        />
+      );
     case "work":
       return <WorkLog threadId={threadId} block={block} ordinal={props.ordinal} />;
     case "live":

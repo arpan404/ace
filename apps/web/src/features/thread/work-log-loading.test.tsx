@@ -64,3 +64,44 @@ test("a failed read says so with Retry, and Retry reads the steps", async () => 
   expect(await within(feed).findByRole("button", { name: /^Ran bun run build/ })).toBeTruthy();
   expect(within(feed).queryByRole("alert")).toBeNull();
 });
+
+// Mutation: stopping a long turn's log at its first read with no way to read on.
+test("a turn longer than one read offers to load the rest of its steps", async () => {
+  const app = harness();
+  app.daemon.createThread({
+    id: "long",
+    workspaceId: "ace",
+    title: "Long turn",
+    provider: "claude",
+  });
+  app.daemon.apply("long", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Run every step"),
+    ...Array.from({ length: 1001 }, (_, index) => ({
+      type: "item.upsert" as const,
+      agent: "root",
+      item: `step-${index}`,
+      draft: {
+        type: "tool_call" as const,
+        complete: true,
+        call: {
+          status: "succeeded" as const,
+          kind: "shell" as const,
+          title: "step",
+          detail: { kind: "shell" as const, command: `bun run step-${index}` },
+          raw: [],
+        },
+      },
+    })),
+    facts.message("root", "answer", "assistant", "Every step ran."),
+    facts.endTurn("root"),
+  ]);
+  await app.open("/t/long");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  expect(await within(feed).findByText("Ran 1000 commands")).toBeTruthy();
+  await userEvent.click(within(feed).getByRole("button", { name: "Load more steps" }));
+  expect(await within(feed).findByText("Ran 1001 commands")).toBeTruthy();
+  expect(within(feed).queryByRole("button", { name: "Load more steps" })).toBeNull();
+});

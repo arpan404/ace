@@ -29,7 +29,13 @@ export { isInlineInteraction } from "@ace/ui-core";
  */
 export type Block =
   | { kind: "user"; key: string; itemId: string }
-  | { kind: "message"; key: string; itemId: string }
+  | {
+      kind: "message";
+      key: string;
+      itemId: string;
+      /** The answer under a completed turn's head, which already shows when the turn ended. */
+      headed?: boolean | undefined;
+    }
   /**
    * A turn's tool work, with what the agent said between its steps, in order. `until` is the
    * moment the stretch closed (the agent answered, the person wrote, the turn ended): its
@@ -653,6 +659,7 @@ export function buildBlocks(source: BlockSource): Block[] {
           if (!block) continue;
           if (block.kind === "message" && (index > finalStep || index === turn.lastMessage)) {
             answers.push(block.itemId);
+            blocks[index] = { ...block, headed: true };
             continue;
           }
           if (index === headAt) folded.push({ kind: "work", key: head.key, itemIds: firstIds });

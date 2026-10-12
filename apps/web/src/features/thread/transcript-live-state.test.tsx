@@ -27,7 +27,7 @@ const scenario = (events = initial()): Scenario => ({
   thread: { id, title: "Replay cursor", workspaceId: "ace", provider: "codex" },
   steps: [{ kind: "facts", facts: events }],
 });
-const live = () => screen.getByRole("button", { name: "Open the summary" });
+const live = () => screen.getByRole("group", { name: "Turn in progress" });
 
 async function running(events = initial(), throughWorker = false) {
   let now = 1_000;
@@ -35,7 +35,7 @@ async function running(events = initial(), throughWorker = false) {
   app.play(scenario(events)).runUntilBlocked();
   now = 75_000;
   const view = await app.open(`/t/${id}`);
-  await waitFor(() => expect(live().textContent).toContain("Working 1m 14s"));
+  await waitFor(() => expect(live().textContent).toContain("Working for 1m 14s"));
   return {
     app,
     view,
@@ -57,15 +57,15 @@ test("reload and reconnect preserve the server start of a partial turn", async (
   await waitFor(() => expect(app.client.state).not.toBe("ready"));
   act(() => app.daemon.refuseConnections(false));
   await waitFor(() => expect(app.client.state).toBe("ready"));
-  await waitFor(() => expect(live().textContent).toContain("Working 1m 14s"));
+  await waitFor(() => expect(live().textContent).toContain("Working for 1m 14s"));
   view.unmount();
   await app.client.close();
   const reloaded = harness({ daemon: app.daemon, uiClock: () => 75_000 });
   await reloaded.open(`/t/${id}`);
-  await waitFor(() => expect(live().textContent).toContain("Working 1m 14s"));
+  await waitFor(() => expect(live().textContent).toContain("Working for 1m 14s"));
   act(() => app.daemon.apply(id, [facts.stream("root", "answer", " the replay cursor.")]));
   expect(await screen.findByText("Checking the replay cursor.")).toBeTruthy();
-  expect(live().textContent).toContain("Working 1m 14s");
+  expect(live().textContent).toContain("Working for 1m 14s");
 });
 
 test("steering into an active turn preserves its elapsed time and shows the new action", async () => {
@@ -82,7 +82,7 @@ test("steering into an active turn preserves its elapsed time and shows the new 
     ]),
   );
   await waitFor(() => expect(live().textContent).toContain("mobile.ts"));
-  expect(live().textContent).toContain("Working 1m 14s");
+  expect(live().textContent).toContain("Working for 1m 14s");
 });
 
 test("queued input does not replace the settled turn summary with a new working timer", async () => {
@@ -150,7 +150,7 @@ test("a parent answer stays working until its subagent finishes and its line ope
   expect(await screen.findByRole("region", { name: "Thread panel" })).toBeTruthy();
   act(() => app.daemon.apply(id, [facts.toolDone("audit", "audit-check"), facts.endTurn("audit")]));
   expect(await screen.findByRole("button", { name: /^Worked for 1m 14s/ })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Open the summary" })).toBeNull();
+  expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
 });
 
 test("only a background shell keeps the live timer until the shell ends", async () => {
@@ -168,7 +168,7 @@ test("only a background shell keeps the live timer until the shell ends", async 
   ]);
   act(() => app.daemon.apply(id, [facts.endTurn("root")]));
   await waitFor(() => expect(live().textContent).toContain("1 background command"));
-  expect(live().textContent).toContain("Working 1m 14s");
+  expect(live().textContent).toContain("Working for 1m 14s");
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
   act(() =>
     app.daemon.apply(id, [
@@ -177,10 +177,10 @@ test("only a background shell keeps the live timer until the shell ends", async 
     ]),
   );
   expect(await screen.findByRole("button", { name: /^Worked for 1m 14s/ })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Open the summary" })).toBeNull();
+  expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
 });
 
-test("approval inside a subagent holds the parent in a needs-you state without a timer", async () => {
+test("approval inside a subagent holds the parent in a needs-you state, its timer stopped", async () => {
   const { app } = await running([...initial(), ...child()]);
   act(() =>
     app.daemon.apply(id, [
@@ -222,7 +222,7 @@ for (const [outcome, label, at] of [
     expect(summary.getAttribute("aria-expanded")).toBe("false");
     await userEvent.click(summary);
     expect(await screen.findByRole("button", { name: "Ran bun run build" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open the summary" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
   });
 }
 
@@ -281,10 +281,10 @@ test("the live line ticks with an injected clock and stops ticking when approval
         />
       </TimeContext>,
     );
-    expect(screen.getByRole("status").textContent).toContain("Working 1m 14s");
+    expect(screen.getByRole("status").textContent).toContain("Working for 1m 14s");
     now = 76_000;
     act(() => vi.advanceTimersByTime(1_000));
-    expect(screen.getByRole("status").textContent).toContain("Working 1m 15s");
+    expect(screen.getByRole("status").textContent).toContain("Working for 1m 15s");
     view.rerender(
       <TimeContext value={time}>
         <ActivityLine
@@ -303,7 +303,7 @@ test("the live line ticks with an injected clock and stops ticking when approval
     act(() => vi.advanceTimersByTime(1_000));
     // The time stands where the wait began.
     expect(screen.getByRole("status").textContent).toBe(
-      "Working 1m 15s · Waiting for your approval",
+      "Working for 1m 15s · Waiting for your approval",
     );
     view.unmount();
   } finally {
@@ -425,7 +425,7 @@ test("only the visible activity line ticks while ongoing work logs stay static",
     const before = logRenders;
     now = 8_000;
     act(() => vi.advanceTimersByTime(3_000));
-    expect(view.container.textContent).toContain("Working 7s");
+    expect(view.container.textContent).toContain("Working for 7s");
     expect(logRenders).toBe(before);
   } finally {
     view.unmount();
@@ -470,7 +470,7 @@ for (const outcome of ["completed", "interrupted", "failed"] as const) {
         },
       ]),
     );
-    await waitFor(() => expect(live().textContent).toContain("Working 1m 39s"));
+    await waitFor(() => expect(live().textContent).toContain("Working for 1m 39s"));
     expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
     setTime(105_000);
     act(() =>
@@ -482,7 +482,7 @@ for (const outcome of ["completed", "interrupted", "failed"] as const) {
         }),
       ]),
     );
-    await waitFor(() => expect(live().textContent).toContain("Working 1m 44s"));
+    await waitFor(() => expect(live().textContent).toContain("Working for 1m 44s"));
     expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
     setTime(107_000);
     act(() =>
@@ -511,7 +511,7 @@ for (const outcome of ["completed", "interrupted", "failed"] as const) {
     expect(
       screen.getAllByRole("button", { name: /^(Worked for|Stopped after|Failed after)/ }),
     ).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: "Open the summary" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
     if (outcome === "failed") expect(await screen.findByText("Continuation failed.")).toBeTruthy();
   });
 }

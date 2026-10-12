@@ -23,7 +23,13 @@ const CopyAnswer = DeferredCopyAnswer.Component;
  * What the agent says between its steps reads as plain prose in the work log (`between`): no
  * time or actions under it.
  */
-export function AssistantMessage(props: { threadId: string; itemId: string; between?: boolean }) {
+export function AssistantMessage(props: {
+  threadId: string;
+  itemId: string;
+  between?: boolean;
+  /** Its turn's "Worked for" row already says when it ended. */
+  timed?: boolean | undefined;
+}) {
   const item = useItem(props.threadId, props.itemId);
   const agent = useAgent(props.threadId, item?.agentId ?? "");
   // Text left incomplete by a turn that stopped or failed no longer streams.
@@ -70,8 +76,10 @@ export function AssistantMessage(props: { threadId: string; itemId: string; betw
       )}
       {!props.between && (item.complete || (answer.truncated && !streaming)) && (
         <div className="mt-1 flex min-h-6 items-center gap-2">
-          <span className="text-xs text-subtle-foreground">{formatClock(item.createdAt)}</span>
-          <div className="flex opacity-0 transition-opacity duration-(--motion-fast) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
+          {props.timed !== false && (
+            <span className="text-xs text-subtle-foreground">{formatClock(item.createdAt)}</span>
+          )}
+          <div className="flex opacity-0 transition-opacity duration-(--dur-1) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
             <Suspense fallback={null}>
               <CopyAnswer
                 key={answer.partial ? "preview" : "answer"}

@@ -252,7 +252,6 @@ const GroupView = memo(function GroupView(props: {
   if (group.single && group.icon === "think")
     return <ThoughtRow threadId={props.threadId} itemId={group.key} />;
   if (group.single) return step(group.key);
-  const [sentence, failed] = group.summary.split(" · ");
   return (
     <li className="relative">
       <RailMark state={group.running ? "running" : group.failed ? "failed" : "done"} />
@@ -269,8 +268,8 @@ const GroupView = memo(function GroupView(props: {
       >
         <Icon icon={groupIcons[group.icon]} size={16} className="text-subtle-foreground" />
         <span className="min-w-0 truncate">
-          {sentence}
-          {failed && <span className="text-status-failed"> · {failed}</span>}
+          {group.sentence}
+          {group.failed > 0 && <span className="text-status-failed"> · {group.failed} failed</span>}
         </span>
       </button>
       {open ? (

@@ -1,4 +1,5 @@
-import type { TurnActivity } from "@ace/ui-core";
+import { livePlanStep, type TurnActivity } from "@ace/ui-core";
+import { useShownPlans } from "@/lib/use-plans.ts";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -8,7 +9,7 @@ import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { ThinkingRow } from "./step-groups-view.tsx";
 
 /*
- * The live turn's header, right under the ask that started it: one muted `[grid] Working 3m 6s`
+ * The live turn's header, right under the ask that started it: one muted `[grid] Working for 3m 6s`
  * row over a hairline, the turn's steps flowing below it. It reads the same `turnActivity` as
  * every other surface, counting the whole tree. The timer writes its text through a ref, so a
  * ticking second re-renders nothing, and it stands at the time reached while the turn waits on
@@ -18,25 +19,33 @@ import { ThinkingRow } from "./step-groups-view.tsx";
 export function LiveHead(props: { threadId: string }) {
   const activity = useTurnActivity(props.threadId);
   const workspace = useWorkspaceActions(props.threadId);
+  const plans = useShownPlans(props.threadId);
+  const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
   if (!activity || activity.tone === "paused") return null;
+  // The status line stays a live region of its own; the whole row also opens the Summary.
   return (
-    <button
-      type="button"
-      aria-label="Open work and agents"
-      onClick={() => workspace.open({ kind: "work" })}
-      className="block w-full border-b border-border pb-2 text-left focus-ring"
+    <div
+      role="group"
+      aria-label="Turn in progress"
+      className="relative border-b border-border pb-2"
     >
-      <ActivityLine activity={activity} />
-    </button>
+      <ActivityLine activity={activity} progress={progress} />
+      <button
+        type="button"
+        aria-label="Open summary"
+        onClick={() => workspace.open({ kind: "work" })}
+        className="absolute inset-0 rounded-sm focus-ring"
+      />
+    </div>
   );
 }
 
 /**
- * The live line, muted: `[grid] Working 1m 14s` moving; `Working 1m 15s · Waiting for your
- * approval` standing still while the person is asked; a held line as it is; a usage-limit pause
+ * The live line, muted: `[grid] Working for 1m 14s` moving; `Working for 1m 15s · Waiting for
+ * your approval` standing still while the person is asked; a held line as it is; a usage-limit pause
  * as a divider.
  */
-export function ActivityLine(props: { activity: TurnActivity }) {
+export function ActivityLine(props: { activity: TurnActivity; progress?: string | undefined }) {
   const { activity } = props;
   if (activity.tone === "paused")
     return (
@@ -52,7 +61,14 @@ export function ActivityLine(props: { activity: TurnActivity }) {
       className="flex min-h-8 min-w-0 items-center text-ui text-muted-foreground"
     >
       {activity.tone === "working" ? (
-        <WorkingIndicator label={activity.label} from={activity.elapsedFrom} />
+        <span className="flex min-w-0 items-center gap-1.5">
+          <WorkingIndicator
+            label={`${activity.label} for`}
+            from={activity.elapsedFrom}
+            className="shrink-0"
+          />
+          <Context activity={activity} progress={props.progress} />
+        </span>
       ) : activity.tone === "needs-you" && activity.elapsedMs !== undefined ? (
         <span className="flex min-w-0 items-center gap-1.5">
           <WorkingIndicator held={activity.elapsedMs} className="shrink-0" />
@@ -86,4 +102,22 @@ export function TailThinking(props: { threadId: string }) {
       <ThinkingRow />
     </ul>
   );
+}
+
+/** What else the whole tree is doing, quietly after the time: the plan's step, subagents, commands. */
+function Context(props: { activity: TurnActivity; progress: string | undefined }) {
+  const { activity } = props;
+  const parts = [
+    props.progress,
+    activity.subagents
+      ? `${activity.subagents} ${activity.subagents === 1 ? "subagent" : "subagents"}`
+      : undefined,
+    activity.backgroundCommands
+      ? `${activity.backgroundCommands} ${
+          activity.backgroundCommands === 1 ? "background command" : "background commands"
+        }`
+      : undefined,
+  ].filter(Boolean);
+  if (!parts.length) return null;
+  return <span className="min-w-0 truncate">{` · ${parts.join(" · ")}`}</span>;
 }
