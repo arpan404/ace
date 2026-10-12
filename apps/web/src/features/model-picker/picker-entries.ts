@@ -1,5 +1,6 @@
 import type { AccountView, PickerModel, PickerProvider } from "@ace/ui-core";
 import { accountLimit, providerNames } from "@ace/ui-core";
+import { acpAgentName } from "@ace/ui-core/provider-icons";
 import type { ProviderKind } from "@ace/protocol";
 
 export interface PickerEntry {
@@ -48,9 +49,23 @@ export function pickerEntries(
       return instances.map((instance) => {
         const account = own.find((candidate) => candidate.id === instance);
         const limit = account && accountLimit(account, now);
-        const name =
-          account || instances.length > 1
-            ? `${providerNames[entry.provider]} · ${account?.label ?? models.find((model) => model.instance === instance)?.source?.label ?? "Account"}`
+        const label =
+          account?.label ??
+          models.find((model) => model.instance === instance)?.source?.label ??
+          "Account";
+        // An ACP agent goes by its own name ("Gemini CLI"), with the account only when the same
+        // agent is signed in more than once.
+        const agent =
+          entry.provider === "acp" && account?.acpAgentId
+            ? acpAgentName(account.acpAgentId)
+            : undefined;
+        const twins = own.filter((candidate) => candidate.acpAgentId === account?.acpAgentId);
+        const name = agent
+          ? twins.length > 1
+            ? `${agent} · ${label}`
+            : agent
+          : account || instances.length > 1
+            ? `${providerNames[entry.provider]} · ${label}`
             : providerNames[entry.provider];
         return {
           id: `${entry.provider}:${instance}`,
