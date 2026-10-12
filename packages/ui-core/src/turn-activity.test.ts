@@ -295,6 +295,7 @@ test("the timer counts the whole turn's work, across what the agent said between
   expect(activityText(turnActivity(thread.reader, "root")!, 90 * second)).toBe(
     "Working for 1m 30s",
   );
+  thread.runs.set("run-1", { ...run("run-1", "root"), state: "completed", endedAt: 90 * second });
   // The person's next message starts a new stretch.
   thread.runs.set("run-2", { ...run("run-2", "root"), startedAt: 100 * second });
   thread.add({ ...said("again", "user", 100 * second), runId: "run-2" as Run["id"] });

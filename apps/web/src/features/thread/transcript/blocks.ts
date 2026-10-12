@@ -119,6 +119,7 @@ export interface BlockSource {
   turnSettled?: ((runId: string) => boolean) | undefined;
   turnEndedAt?(runId: string): number | undefined;
   turnIdle?(runId: string): number | undefined;
+  turnStartedAt?(runId: string): number | undefined;
   turnEnding?: ((runId: string) => (RunFacts & { runId: string }) | undefined) | undefined;
   /** The tool call an interaction was raised from, for ace's review notices. */
   reviewedCall?(interactionId: string): string | undefined;
@@ -556,6 +557,7 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (turn.lastBlock < 0) continue;
     const pseudo = turn.id === "" || turn.id.startsWith("ask:");
     const facts = pseudo ? undefined : source.run?.(turn.id);
+    const startedAt = source.turnStartedAt?.(turn.id) ?? facts?.startedAt;
     const ending =
       source.turnEnding?.(turn.id) ?? (facts ? { ...facts, runId: turn.id } : undefined);
     const held = !pseudo && (source.heldTurn === turn.id || source.pausedTurns?.has(turn.id));
@@ -573,7 +575,7 @@ export function buildBlocks(source: BlockSource): Block[] {
       continue;
     }
     if (turn.openWork && facts?.endedAt !== undefined) turn.openWork.until = facts.endedAt;
-    if (facts?.endedAt !== undefined && facts.startedAt !== undefined && !turn.paused) {
+    if (facts?.endedAt !== undefined && startedAt !== undefined && !turn.paused) {
       const ends = [...turn.runs].flatMap((id) => source.run?.(id)?.endedAt ?? []);
       const taskEnds = [...turn.tasks].flatMap((id) => source.task?.(id)?.endedAt ?? []);
       const until = Math.max(
@@ -586,7 +588,7 @@ export function buildBlocks(source: BlockSource): Block[] {
       const state = ending?.state ?? facts.state;
       const outcome = turn.paused ? "paused" : state === "active" ? "completed" : state;
       if (first) {
-        first.startedAt = facts.startedAt;
+        first.startedAt = startedAt;
         first.idle =
           source.turnIdle?.(turn.id) ??
           turn.work.reduce((total, work) => total + (work.idle ?? 0), 0);
@@ -600,7 +602,7 @@ export function buildBlocks(source: BlockSource): Block[] {
           kind: "work",
           key: `work:turn:${turn.id}`,
           itemIds: [],
-          startedAt: facts.startedAt,
+          startedAt,
           idle: source.turnIdle?.(turn.id),
           until,
           outcome,
@@ -631,7 +633,7 @@ export function buildBlocks(source: BlockSource): Block[] {
     } else if (
       ending?.state === "interrupted" &&
       !turn.paused &&
-      (ending.endedAt === undefined || facts?.startedAt === undefined)
+      (ending.endedAt === undefined || startedAt === undefined)
     )
       place(turn.lastBlock, endBlock(turn, "interrupted", newest === turn, ending.runId));
   }

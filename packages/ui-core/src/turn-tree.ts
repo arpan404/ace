@@ -196,13 +196,14 @@ export class TurnTree {
     } else if (key.startsWith("agent:")) {
       const agent = ancestry.agent(id);
       present = !!agent;
-      if (agent && id !== reader.thread?.rootAgentId && agent.endedAt !== undefined) {
+      const root = agent?.origin === "root" || id === this.rootId;
+      if (agent && !root && agent.endedAt !== undefined) {
         const turn = ownerTurn(id);
         if (turn) ended = { turn, at: agent.endedAt };
       }
       if (
         agent &&
-        id === reader.thread?.rootAgentId &&
+        root &&
         isRunning(agent) &&
         !(
           reader.thread?.imported &&
@@ -219,7 +220,7 @@ export class TurnTree {
           needsYou: agent.status.state === "blocked" && agent.status.on === "human",
         };
       }
-      if (agent && id !== reader.thread?.rootAgentId && isRunning(agent))
+      if (agent && !root && isRunning(agent))
         next = {
           turn: ownerTurn(id),
           agent: true,

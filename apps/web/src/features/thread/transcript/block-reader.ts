@@ -126,6 +126,7 @@ export function createBlockReader(
       turnSettled: agentId === undefined ? (id) => tree.settled(id) : undefined,
       turnEndedAt: (id) => tree.endedAt(id),
       turnIdle: (id) => tree.clock(id)?.idle,
+      turnStartedAt: (id) => ancestry.run(tree.turnId(id))?.startedAt,
       turnEnding:
         agentId === undefined
           ? (id) => {
