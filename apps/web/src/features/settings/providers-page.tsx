@@ -81,7 +81,8 @@ function ProviderRow(props: { entry: ProviderEntry }) {
         }
         secondary={
           !isMissing(props.entry) && (
-            <>
+            // Right-aligned on whichever line it lands, so the chevron keeps the row's edge.
+            <span className="ml-auto flex items-center gap-2">
               <span className="flex items-center gap-1">
                 {own?.map((account) => (
                   <AccountBadge key={account.id} account={account} focusable />
@@ -97,7 +98,7 @@ function ProviderRow(props: { entry: ProviderEntry }) {
                   <CaretRightIcon aria-hidden size={14} />
                 </Link>
               </Tip>
-            </>
+            </span>
           )
         }
         title={
