@@ -1,18 +1,21 @@
+import { ManagedWorktrees } from "../managed-worktrees.ts";
 import { createHash } from "node:crypto";
 import { ThreadId, type StorageReason } from "@ace/protocol";
 import type { OwnedStorageCandidate, StorageOwner, StorageTarget } from "./types.ts";
 import { StorageFiles, storageId } from "./files.ts";
-import { hasTable, storageProtections, storageTree } from "./ownership.ts";
+import { storageProtections, storageTree } from "./ownership.ts";
 import { transcriptBytes } from "./transcript.ts";
 
 const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export class StorageInventory {
   readonly files: StorageFiles;
+  readonly managed: ManagedWorktrees;
   private owner: StorageOwner;
   constructor(owner: StorageOwner) {
     this.owner = owner;
     this.files = new StorageFiles(owner);
+    this.managed = new ManagedWorktrees(owner.store, owner.root);
   }
   thread(id: ThreadId): OwnedStorageCandidate | undefined {
     const { store } = this.owner;
@@ -71,32 +74,15 @@ export class StorageInventory {
       target: { type: "attachment", hash },
     };
   }
-  async worktree(repo: string, path: string): Promise<OwnedStorageCandidate> {
-    const { store, services } = this.owner;
+  async worktree(repo: string, path: string): Promise<OwnedStorageCandidate | undefined> {
+    const { services } = this.owner;
     const workspace = services.workspaceActions;
     if (!workspace) throw new Error("storage_git_unavailable");
-    const ids = hasTable(store, "engine_sessions")
-      ? store
-          .statement("SELECT thread_id FROM engine_sessions WHERE cwd=? LIMIT 257")
-          .all(path)
-          .map((row) => ThreadId.parse(row.thread_id))
-      : [];
-    if (ids.length > 256) throw new Error("storage_owner_limit");
-    const protections = storageProtections(this.owner, ids);
-    const threads = ids.flatMap((id) => {
-      const thread = store.getThread(id);
-      return thread ? [thread] : [];
-    });
-    // A thread that still advertises this execution root must be archived before it can lose files.
-    if (threads.some((thread) => thread.deletedAt === undefined && thread.archivedAt === undefined))
-      protections.push("live_thread");
-    if (
-      store
-        .statement("SELECT 1 FROM workspace_root_reservations WHERE root=? AND command_id<>?")
-        .get(path, `storage:${this.owner.cleanupPlanId ?? ""}`)
-    )
-      protections.push("cleanup_in_progress");
+    if (!this.managed.verify(repo, path)) return undefined;
     const state = await workspace.git.inspectWorktreeCleanup(repo, path);
+    // Git inspection awaits I/O. Ownership is read afterwards, and apply holds root admission.
+    if (!this.managed.verify(repo, path)) return undefined;
+    const { ids, protections, threads } = this.worktreeOwnership(path);
     if (state.main) protections.push("main_worktree");
     if (state.locked) protections.push("locked_worktree");
     if (state.dirty) protections.push("uncommitted");
@@ -141,6 +127,25 @@ export class StorageInventory {
       },
     };
   }
+  worktreeOwners(path: string): ThreadId[] {
+    const created = this.managed.get(path);
+    return [...new Set([...(created ? [created.owner] : []), ...this.owner.store.workspaceReservations.owners([path])])];
+  }
+  worktreeOwnership(path: string) {
+    const { store } = this.owner;
+    const ids = [...new Set(this.worktreeOwners(path).flatMap((id) => storageTree(store, id)))];
+    const protections = storageProtections(this.owner, ids);
+    const threads = ids.flatMap((id) => { const thread = store.getThread(id); return thread ? [thread] : []; });
+    if (threads.some((thread) => thread.deletedAt === undefined && thread.archivedAt === undefined)
+      || store.statement(`SELECT 1 FROM workspace_canonical_roots w WHERE w.root=? AND NOT EXISTS
+        (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.workspace_id) LIMIT 1`).get(path)) protections.push("live_thread");
+    const reservation = store.statement("SELECT 1 FROM workspace_root_reservations WHERE root=? AND command_id<>?")
+      .get(path, `storage:${this.owner.cleanupPlanId ?? ""}`);
+    const repository = store.workspaceReservations.repository(path);
+    if (reservation || (repository && store.workspaceReservations.repositoryReserved(repository)
+      && !store.workspaceReservations.ownsRepositoryReservation(repository, `storage:${this.owner.cleanupPlanId ?? ""}`))) protections.push("cleanup_in_progress");
+    return { ids, protections, threads };
+  }
   async inspect(
     target: StorageTarget,
     kind: OwnedStorageCandidate["kind"],
@@ -179,69 +184,13 @@ export class StorageInventory {
       }
     }
     if (services.workspaceActions) {
-      const git = services.workspaceActions.git;
-      const paths = store
-        .statement("SELECT DISTINCT root FROM workspace_canonical_roots LIMIT 65")
-        .all();
-      if (paths.length > 64) complete = false;
-      for (const row of paths.slice(0, 64)) {
-        if (typeof row.root !== "string") continue;
-        const repo = row.root;
-        const trees = await git
-          .nonExecuting(() => git.listWorktrees(repo))
-          .catch(() => {
-            complete = false;
-            candidates.push({
-              id: storageId("worktrees", repo),
-              kind: "worktrees",
-              label: repo,
-              bytes: 0,
-              modifiedAt: 0,
-              threadIds: [],
-              fingerprint: "unavailable",
-              protections: ["unknown_git_state"],
-              eligibleReason: "orphaned",
-              target: {
-                type: "worktree",
-                repo,
-                path: repo,
-                gitFingerprint: "unavailable",
-                head: null,
-                branch: null,
-              },
-            });
-            return [];
-          });
-        for (const tree of trees ?? []) {
-          if (candidates.length > 1024) {
-            complete = false;
-            break;
-          }
-          try {
-            candidates.push(await this.worktree(repo, tree.path));
-          } catch {
-            complete = false;
-            candidates.push({
-              id: storageId("worktrees", `${repo}:${tree.path}`),
-              kind: "worktrees",
-              label: tree.path,
-              bytes: 0,
-              modifiedAt: 0,
-              threadIds: [],
-              fingerprint: "unavailable",
-              protections: ["unknown_git_state"],
-              eligibleReason: "orphaned",
-              target: {
-                type: "worktree",
-                repo,
-                path: tree.path,
-                gitFingerprint: "unavailable",
-                head: tree.head,
-                branch: tree.branch,
-              },
-            });
-          }
-        }
+      const records = this.managed.list();
+      if (records.length > 256) complete = false;
+      for (const record of records.slice(0, 256)) {
+        try { const candidate = await this.worktree(record.repo, record.path); if (candidate) candidates.push(candidate); }
+        catch { complete = false; candidates.push({ id: storageId("worktrees", `${record.repo}:${record.path}`), kind: "worktrees", label: record.path,
+          bytes: 0, modifiedAt: record.created_at, threadIds: [], fingerprint: "unavailable", protections: ["unknown_git_state"], eligibleReason: "orphaned",
+          target: { type: "worktree", repo: record.repo, path: record.path, gitFingerprint: "unavailable", head: null, branch: null } }); }
       }
     }
     return { candidates, complete };

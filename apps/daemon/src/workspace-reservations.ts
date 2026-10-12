@@ -130,14 +130,15 @@ export class WorkspaceReservations {
   }
   owners(roots: readonly string[]): ThreadId[] {
     const owners = new Set<ThreadId>();
+    const sessionsExist = Boolean(this.statement("SELECT 1 FROM sqlite_master WHERE name='engine_sessions'").get());
     for (const root of roots) {
       // Scope by indexed root/workspace first. No transcript or event history is read.
-      const sessions = this.statement(
+      const sessions = sessionsExist ? this.statement(
         "SELECT thread_id FROM engine_sessions WHERE cwd=? LIMIT 257",
-      ).all(root);
+      ).all(root) : [];
       const local =
         this.statement(`SELECT t.id AS thread_id FROM workspace_canonical_roots w JOIN threads t ON t.workspace_id=w.workspace_id
-        WHERE w.root=? AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id) LIMIT 257`).all(
+        WHERE w.root=? ${sessionsExist ? "AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id)" : ""} LIMIT 257`).all(
           root,
         );
       for (const row of [...sessions, ...local]) owners.add(ThreadId.parse(row.thread_id));

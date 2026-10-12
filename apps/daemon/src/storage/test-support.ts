@@ -85,6 +85,7 @@ export async function storageFixture(
     store,
     storage,
     services,
+    now,
     thread,
     upload,
     file,

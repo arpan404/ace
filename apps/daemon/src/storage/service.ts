@@ -14,8 +14,7 @@ import { initializeThreadCleanup } from "../thread-cleanup-journal.ts";
 import { StorageInventory } from "./inventory.ts";
 import { StorageJournal, type CleanupJournal } from "./journal.ts";
 import { planStorageItem } from "./planner.ts";
-import { executeStorageItem, fenceStorageItem } from "./executor.ts";
-import { compactStorage } from "./compaction.ts";
+import { applyStorageItems } from "./apply.ts";
 import type { StorageOwner } from "./types.ts";
 
 const missing = (error: unknown) =>
@@ -214,97 +213,8 @@ export class StorageService {
       return this.run(journal, allowed);
     });
   }
-  private async run(journal: CleanupJournal, allowed: () => boolean): Promise<StorageApply> {
-    this.owner.cleanupPlanId = journal.plan.id;
-    try {
-      for (const entry of journal.entries) {
-        if (this.closed || !allowed()) break;
-        if (entry.item.disposition !== "remove" || ["removed", "protected"].includes(entry.state))
-          continue;
-        try {
-          await this.owner.store.writable();
-          // Even after a crash, current activity/pins remain authoritative. Only a running
-          // effect may have already removed or tombstoned its exact reviewed target.
-          const current = await this.inventory
-            .inspect(entry.target, entry.item.kind)
-            .catch((error: unknown) => {
-              if (
-                missing(error) ||
-                (error instanceof Error && "code" in error && error.code === "worktree_not_found")
-              )
-                return undefined;
-              throw error;
-            });
-          const item =
-            current &&
-            planStorageItem(
-              current,
-              journal.plan.retention,
-              this.owner.now(),
-              new Set(entry.item.forced ? [entry.item.id] : []),
-            );
-          if (
-            (item?.disposition === "protect" &&
-              !(
-                entry.state === "running" &&
-                entry.target.type === "thread" &&
-                item.reasons.every((reason) => reason === "within_retention")
-              )) ||
-            (entry.state === "pending" && (!current || current.fingerprint !== entry.fingerprint))
-          ) {
-            entry.state = "protected";
-            entry.reason = item?.reasons[0] ?? "changed";
-            this.journal.save(journal);
-            this.releaseFences(journal.plan.id);
-            continue;
-          }
-          this.owner.store.atomic(() => {
-            fenceStorageItem(this.owner, journal.plan.id, entry);
-            entry.state = "running";
-            this.journal.save(journal);
-          });
-          await executeStorageItem(this.owner, this.inventory, entry, allowed);
-          await this.owner.afterRemove?.(entry.item.id);
-          entry.state = "removed";
-          delete entry.error;
-        } catch (error) {
-          // The durable running marker preserves uncertain effects. Retry/status can resume it.
-          if (missing(error) && entry.target.type === "file") {
-            entry.state = "removed";
-            entry.reason = "already_removed";
-          } else {
-            const code =
-              error instanceof Error && "code" in error && typeof error.code === "string"
-                ? error.code
-                : undefined;
-            entry.error = code?.match(/^[a-z_]{1,128}$/) ? code : "cleanup_pending";
-            this.journal.save(journal);
-            return this.journal.result(journal);
-          }
-        }
-        this.owner.store.atomic(() => {
-          this.journal.save(journal);
-          this.releaseFences(journal.plan.id);
-        });
-      }
-      if (
-        journal.entries.some(
-          (entry) =>
-            entry.item.disposition === "remove" && ["pending", "running"].includes(entry.state),
-        )
-      )
-        return this.journal.result(journal);
-      if (journal.compact) journal.compaction = await compactStorage(this.owner);
-      journal.state = "complete";
-      this.journal.save(journal);
-      return this.journal.result(journal);
-    } finally {
-      delete this.owner.cleanupPlanId;
-    }
-  }
-  private releaseFences(id: string): void {
-    this.owner.store.statement("DELETE FROM storage_cleanup_fences WHERE plan_id=?").run(id);
-    this.owner.store.workspaceReservations.release(`storage:${id}`);
+  private run(journal: CleanupJournal, allowed: () => boolean): Promise<StorageApply> {
+    return applyStorageItems(this.owner, this.inventory, this.journal, journal, () => !this.closed && allowed());
   }
   /** Automation hook. Host opt-in preauthorizes only the ordinary, non-forced retention policy. */
   async scheduledCleanup(allowed = () => true): Promise<StorageApply> {
