@@ -10,6 +10,7 @@ import { Approval } from "./Approval.tsx";
 import { Composer } from "./Composer.tsx";
 import { AceText, AceButton, Row, StatusPill } from "./components.tsx";
 import { statusAppearance } from "./status.ts";
+import { transcriptRowContent } from "./transcript-row.ts";
 import { AgentsSheet } from "./sheets.tsx";
 
 const TranscriptRow = memo(function TranscriptRow({
@@ -23,19 +24,7 @@ const TranscriptRow = memo(function TranscriptRow({
   const selection = useMemo(() => store.select([`item:${id}`], (r) => r.item(id)), [store, id]);
   const item = useSelection(selection);
   if (!item) return null;
-  let text: string;
-  let user = false;
-  if (item.type === "message") {
-    text = item.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("");
-    user = item.role === "user";
-  } else if (item.type === "reasoning") text = "Thinking…";
-  else if (item.type === "tool_call") text = `${item.call.title} · ${item.call.status}`;
-  else if (item.type === "notice") text = item.text;
-  else if (item.type === "delegation.started") text = `${item.title} · ${item.status.state}`;
-  else text = item.type.replaceAll("_", " ");
+  const { text, detail, user, quiet } = transcriptRowContent(item);
   return (
     <View
       style={{
@@ -50,13 +39,18 @@ const TranscriptRow = memo(function TranscriptRow({
     >
       <Text
         style={{
-          ...textStyle(item.type === "tool_call" ? "caption" : "body"),
+          ...textStyle(quiet ? "caption" : "body"),
           color: theme.colours.foreground,
         }}
       >
         {text}
         {item.complete ? "" : " ▍"}
       </Text>
+      {detail ? (
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          {detail}
+        </Text>
+      ) : null}
     </View>
   );
 });
