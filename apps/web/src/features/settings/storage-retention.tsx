@@ -100,7 +100,7 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
       )}
       <SettingRow
         title="Daily cleanup"
-        description="Automatically applies the saved retention policy. Forced worktree removal and database compaction stay manual."
+        description="Automatically applies the saved retention policy. Forced worktree removal stays manual."
         inline
       >
         <input

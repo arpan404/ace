@@ -45,7 +45,7 @@ export function StorageSettings() {
       setBusy(false);
     }
   };
-  const apply = async (compact: boolean) => {
+  const apply = async () => {
     if (!plan) return;
     setBusy(true);
     setError(undefined);
@@ -54,7 +54,7 @@ export function StorageSettings() {
         op: "cleanup.apply",
         planId: plan.id,
         revision: plan.revision,
-        compact,
+        compact: false,
       });
       if (response.kind !== "apply") throw new Error("Unexpected cleanup response.");
       setResult(response.apply);
@@ -83,7 +83,7 @@ export function StorageSettings() {
             ))}
             <SettingRow
               title="Transcript database"
-              description={`${storageBytes(usage.data.reclaimableDatabaseBytes)} of free pages available for compaction.`}
+              description={`${storageBytes(usage.data.reclaimableDatabaseBytes)} of unused pages SQLite can reuse. Database compaction is unavailable in this release.`}
               inline
             >
               <span className="text-sm tabular-nums text-muted-foreground">
@@ -139,7 +139,7 @@ export function StorageSettings() {
               selected ? [...items, id] : items.filter((item) => item !== id),
             )
           }
-          onApply={(compact) => void apply(compact)}
+          onApply={() => void apply()}
         />
       )}
       <StorageRetentionControls

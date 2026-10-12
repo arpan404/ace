@@ -19,10 +19,9 @@ export function StoragePlanPreview(props: {
   disabled: boolean;
   forceItems: string[];
   onForce(id: string, selected: boolean): void;
-  onApply(compact: boolean): void;
+  onApply(): void;
 }) {
   const [confirm, setConfirm] = useState(false);
-  const [compact, setCompact] = useState(false);
   const remove = props.plan.items.filter((item) => item.disposition === "remove");
   const protectedItems = props.plan.items.filter((item) => item.disposition === "protect");
   const finished = props.result?.state === "complete" || props.result?.state === "stale";
@@ -127,14 +126,6 @@ export function StoragePlanPreview(props: {
               anything that has changed or is protected.
             </DialogDescription>
           </DialogHeader>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={compact}
-              onChange={(event) => setCompact(event.target.checked)}
-            />
-            Compact the transcript database when idle
-          </label>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setConfirm(false)}>
               Cancel
@@ -143,7 +134,7 @@ export function StoragePlanPreview(props: {
               variant="danger"
               onClick={() => {
                 setConfirm(false);
-                props.onApply(compact);
+                props.onApply();
               }}
             >
               Remove items
