@@ -292,16 +292,18 @@ function Split(props: RowsProps) {
             side === "new" && "border-l",
           )}
         >
-          <Rows
-            items={pairs}
-            render={(pair, key) => (
-              <div data-diff-row>
-                <div ref={(node) => heights.attach(key, node)}>
-                  <SplitSideRow pair={pair} side={side} {...props} />
+          <div className={props.wrap ? "min-w-0" : "w-max min-w-full"}>
+            <Rows
+              items={pairs}
+              render={(pair, key) => (
+                <div data-diff-row>
+                  <div ref={(node) => heights.attach(key, node)}>
+                    <SplitSideRow pair={pair} side={side} {...props} />
+                  </div>
                 </div>
-              </div>
-            )}
-          />
+              )}
+            />
+          </div>
         </div>
       ))}
     </div>

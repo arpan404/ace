@@ -1,15 +1,6 @@
-import { FileTextIcon, GlobeIcon } from "@phosphor-icons/react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-  type KeyboardEvent,
-} from "react";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { cn } from "@/lib/cn.ts";
 import { keymap } from "@/lib/keymap.ts";
 import {
   useWorkspaceActions,
@@ -17,17 +8,6 @@ import {
   type OpenTab,
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
-import { useTurns } from "@/lib/diffs/use-turns.ts";
-import type { PreviewSource } from "../sources.ts";
-import { usePanelServices } from "../services.ts";
-import { WithServices } from "../with-services.tsx";
-import {
-  fileSuggestions,
-  urlSuggestions,
-  type FileSuggestion,
-  type UrlSuggestion,
-} from "./suggestions.ts";
-
 const heading = "px-1 text-xs font-medium text-muted-foreground";
 const card =
   "focus-ring group/card relative flex h-10 w-full min-w-0 items-center gap-2.5 rounded-md px-3 text-left text-ui text-foreground transition-colors duration-(--dur-1) hover:bg-accent";
@@ -66,9 +46,7 @@ function useToolGrid() {
 }
 
 /**
- * The new tab: a catalog of the workspace's tools, then what this thread suggests opening (its
- * local addresses and recently edited files). Picking one turns this tab into it; nothing here
- * starts agent work.
+ * The new tab is a catalog of tools. Picking one replaces the launcher with that tool.
  */
 export function LauncherTab(props: TabViewProps) {
   const store = useWorkspaceStore();
@@ -84,11 +62,6 @@ export function LauncherTab(props: TabViewProps) {
   );
   /** Open a request in this tab's place. */
   const openHere = (request: OpenTab) => actions.replace(props.tab.key, request);
-  const kindFor = (claim: "fromFile" | "fromUrl") => tools.find((kind) => kind[claim]);
-  const openUrl = (url: string) => {
-    const kind = kindFor("fromUrl");
-    if (kind?.fromUrl) openHere(kind.fromUrl(url, store.get(props.scope)));
-  };
   return (
     <div className="@container flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-auto">
@@ -125,107 +98,8 @@ export function LauncherTab(props: TabViewProps) {
               );
             })}
           </ul>
-          <WithServices quiet>
-            <Suggested
-              threadId={props.scope}
-              onFile={(file) => {
-                const kind = kindFor("fromFile");
-                if (kind?.fromFile) openHere(kind.fromFile(file.path));
-              }}
-              onUrl={(url) => openUrl(url.url)}
-            />
-          </WithServices>
         </div>
       </div>
     </div>
-  );
-}
-
-function usePreviewSuggestions(
-  source: PreviewSource | undefined,
-  threadId: string,
-): UrlSuggestion[] {
-  // The source's reads change with its version; read them again on each one.
-  "use no memo";
-  const subscribe = useCallback(
-    (changed: () => void) => source?.subscribe(changed, threadId) ?? (() => {}),
-    [source, threadId],
-  );
-  useSyncExternalStore(subscribe, () => source?.version ?? 0);
-  // Find the thread's dev servers while the launcher shows.
-  useEffect(() => source?.watch(threadId), [source, threadId]);
-  return source ? urlSuggestions(source.view(threadId), source.servers(threadId)) : [];
-}
-
-function Suggested(props: {
-  threadId: string;
-  onFile(file: FileSuggestion): void;
-  onUrl(url: UrlSuggestion): void;
-}) {
-  const { preview } = usePanelServices();
-  const urls = usePreviewSuggestions(preview, props.threadId);
-  const turns = useTurns(props.threadId);
-  const files = useMemo(() => fileSuggestions(turns), [turns]);
-  return (
-    <section aria-labelledby="launcher-suggested" className="mt-8">
-      <h2 id="launcher-suggested" className={heading}>
-        Suggested
-      </h2>
-      {!urls.length && !files.length ? (
-        <p className="mt-2 px-1 text-ui leading-normal text-muted-foreground">
-          Nothing yet. Dev servers this thread starts and files its agents edit show up here.
-        </p>
-      ) : (
-        <ul aria-label="Suggested" className="mt-2 flex flex-col gap-0.5">
-          {urls.map((url) => (
-            <SuggestionRow
-              key={url.url}
-              icon={GlobeIcon}
-              title={url.label}
-              detail={url.detail}
-              onClick={() => props.onUrl(url)}
-            />
-          ))}
-          {files.map((file) => (
-            <SuggestionRow
-              key={file.path}
-              icon={FileTextIcon}
-              title={file.name}
-              detail={file.folder || "Project root"}
-              mono
-              onClick={() => props.onFile(file)}
-            />
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-function SuggestionRow(props: {
-  icon: typeof GlobeIcon;
-  title: string;
-  detail: string;
-  mono?: boolean;
-  onClick(): void;
-}) {
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={props.onClick}
-        className="focus-ring flex h-9 w-full min-w-0 items-center gap-2.5 rounded-md px-3 text-left text-ui transition-colors duration-(--dur-1) hover:bg-accent"
-      >
-        <Icon icon={props.icon} size={16} className="text-muted-foreground" />
-        <span
-          className={cn("shrink-0 truncate text-foreground", props.mono && "font-mono text-sm")}
-        >
-          {props.title}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {props.detail}
-        </span>
-      </button>
-    </li>
   );
 }

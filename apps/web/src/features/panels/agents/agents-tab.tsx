@@ -6,7 +6,6 @@ import {
   formatSpan,
   isRunning,
   taskState,
-  whyNotDone,
 } from "@ace/ui-core";
 import {
   useAgent,
@@ -108,9 +107,9 @@ function treeKeys(tree: TreeState) {
 }
 
 /**
- * Agents tab: the whole agent tree with what each agent is doing and for how long (a row opens
+ * Work's Agents section: the whole agent tree with what each agent is doing and for how long (a row opens
  * that agent as its own tab), the background work still running with Stop, queued input,
- * and a plain answer to "why isn't this done?". Every row subscribes to its own entity.
+ * and queued input. Every row subscribes to its own entity.
  */
 export function AgentsTab(props: { threadId: string }) {
   const tree = useAgentTree(props.threadId) ?? [];
@@ -121,23 +120,16 @@ export function AgentsTab(props: { threadId: string }) {
   const thread = useThreadMeta(props.threadId);
   const queuedCount = useServerQueue(props.threadId).page?.total ?? 0;
   const queueWaiting = thread?.status.state === "waiting" && thread.status.on === "queue";
-  if (!tree.length)
-    return (
-      <div className="flex h-full flex-col">
-        <EmptyState
-          icon={RobotIcon}
-          title="No agents yet"
-          description="The thread's agent and any subagents it starts appear here."
-          className="h-auto flex-none pt-16 pb-4"
-        />
-      </div>
-    );
   return (
     <TreeWorkContext value={facts.work}>
       <ArrivalScope>
         <div className="px-2.5 pt-2 pb-5">
           <AgentCounts agents={facts.agents} work={facts.work} />
-          <AgentTree threadId={props.threadId} nodes={tree} />
+          {tree.length ? (
+            <AgentTree threadId={props.threadId} nodes={tree} />
+          ) : (
+            <EmptyState icon={RobotIcon} title="No agents yet" className="h-auto py-4" />
+          )}
           {(tasks.length > 0 || queuedCount > 0 || queueWaiting) && (
             <section aria-labelledby="agents-background">
               <h3 id="agents-background" className={heading}>
@@ -151,7 +143,6 @@ export function AgentsTab(props: { threadId: string }) {
               </ul>
             </section>
           )}
-          <Why threadId={props.threadId} queued={queuedCount} facts={facts} />
         </div>
       </ArrivalScope>
     </TreeWorkContext>
@@ -317,7 +308,7 @@ function AgentRow(props: {
         {activity}
       </span>
       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-        {formatSpan(agent.createdAt, end)}
+        {end - agent.createdAt >= 1000 ? formatSpan(agent.createdAt, end) : ""}
       </span>
       <ProviderIconTip
         provider={agent.native.provider}
@@ -356,6 +347,7 @@ function AgentRow(props: {
           threadId={props.threadId}
           agent={agent}
           subagents={props.subagents}
+          pending={running}
           inTree
           className="mr-1 hidden group-focus-within/agent:inline-flex group-hover/agent:inline-flex pointer-coarse:inline-flex"
           onKeyDown={(event) => {
@@ -399,7 +391,8 @@ function TaskRow(props: { threadId: string; taskId: string }) {
         {backgroundCommand(task, item)}
       </button>
       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-        {formatSpan(task.startedAt, end)} · {taskState(task)}
+        {end - task.startedAt >= 1000 ? `${formatSpan(task.startedAt, end)} · ` : ""}
+        {taskState(task)}
       </span>
       {task.stoppable && (
         <Button
@@ -417,43 +410,5 @@ function TaskRow(props: { threadId: string; taskId: string }) {
         </span>
       )}
     </li>
-  );
-}
-
-function Why(props: { threadId: string; queued: number; facts: ReturnType<typeof useTreeWork> }) {
-  const thread = useThreadMeta(props.threadId);
-  const live = useLiveConnection();
-  if (!thread) return null;
-  const facts = props.facts;
-  const outstanding = facts.work.running.size > 0 || props.queued > 0;
-  // Replay may deliver thread metadata before the entity updates that settle its tree.
-  if (thread.status.state === "done" && outstanding)
-    return (
-      <p role="status" className="px-3 pt-2 text-ui text-muted-foreground">
-        {!live.fresh
-          ? "Last seen: work still in progress."
-          : facts.work.needsYou.size
-            ? "Work is waiting for you."
-            : "Agents or background commands are still working."}
-      </p>
-    );
-  const why =
-    thread.status.state === "failed"
-      ? { title: "Couldn't finish", body: "An agent couldn't finish. Open its work for details." }
-      : whyNotDone({
-          status: thread.status,
-          rootAgentId: thread.rootAgentId,
-          agents: facts.agents,
-          tasks: facts.tasks,
-          waitingOnYou: facts.interactions.length,
-          queued: props.queued,
-        });
-  return (
-    <section
-      aria-label={why.title}
-      className="mx-0.5 mt-2 px-3 py-2 text-ui leading-normal text-muted-foreground"
-    >
-      {why.body}
-    </section>
   );
 }

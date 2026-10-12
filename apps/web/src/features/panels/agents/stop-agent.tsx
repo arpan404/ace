@@ -26,6 +26,8 @@ export function StopAgent(props: {
   agent: Agent;
   /** Agents under it, at any depth. */
   subagents: number;
+  /** Its own turn may have ended while descendants or background work remain live. */
+  pending?: boolean;
   className?: string;
   /** In the tree: reached with Delete or S rather than Tab. */
   inTree?: boolean;
@@ -35,7 +37,7 @@ export function StopAgent(props: {
 }) {
   const stop = useIntentSender();
   const [asking, setAsking] = useState(false);
-  if (props.agent.origin === "root" || !isRunning(props.agent)) return null;
+  if (props.agent.origin === "root" || (!props.pending && !isRunning(props.agent))) return null;
   const label = stopLabel(agentName(props.agent), props.subagents);
   const stopping = stop.intent?.state === "pending";
   const send = () => {
@@ -68,7 +70,7 @@ export function StopAgent(props: {
     <>
       {props.showFailure && stop.intent?.state === "failed" && (
         <span role="alert" className="truncate text-xs text-status-failed">
-          Couldn't stop: {stop.intent.error ?? "refused"}
+          Couldn't stop this agent. Try again.
         </span>
       )}
       {props.subagents ? (

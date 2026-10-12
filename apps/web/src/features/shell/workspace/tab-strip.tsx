@@ -44,7 +44,7 @@ export function TabStrip(props: {
   const [announcement, setAnnouncement] = useState("");
   const edges = useOverflow(scroller, state.tabs.length);
   const entering = useEntering(state.tabs.map((tab) => tab.key));
-  useRevealShown(scroller, shown, state.tabs.map((tab) => tab.key).join("\n"));
+  useRevealShown(scroller, shown);
   useLayoutEffect(() => {
     const key = focusNext.current;
     if (!key) return;
