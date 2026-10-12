@@ -1,3 +1,8 @@
+import { commandNotDispatched } from "./command-not-dispatched.ts";
+import { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
+import { actionErrorCode } from "./action-errors.ts";
+import { IssueActions } from "./issue-actions.ts";
+import type { Command } from "@ace/protocol";
 import { ForgeResourceOwner } from "./forge-resource-owner.ts";
 import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
@@ -33,6 +38,8 @@ export class WorkspaceForge {
   private store: Store;
   private replyReceipts: ForgeReplyReceipts;
   private git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>;
+  private issueLinks: WorkspaceIssueLinks;
+  private issueActions: IssueActions;
   private reviews: WorkspaceForgeReviews;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
@@ -52,6 +59,8 @@ export class WorkspaceForge {
     sourceControl?: import("./source-control.ts").SourceControl,
   ) {
     this.store = store;
+    this.issueLinks = new WorkspaceIssueLinks(store);
+    this.issueActions = new IssueActions(store);
     this.stacks = new WorkspaceForgeStacks(store, now);
     this.reviews = new WorkspaceForgeReviews(store, this.owner);
     this.replyReceipts = new ForgeReplyReceipts(store);
@@ -104,6 +113,25 @@ export class WorkspaceForge {
     const repository = operation.repository ?? (await this.repository(cwd));
     signal.throwIfAborted();
     const backend = await this.backend(cwd, repository);
+    if (operation.op === "forge.issue.list")
+      return { resource: "issueList", value: await backend.listIssues(operation.query, signal) };
+    if (operation.op === "forge.issue.timeline")
+      return {
+        resource: "issueTimeline",
+        ...(await backend.issueTimeline(operation.number, operation.page, signal)),
+      };
+    if (operation.op === "forge.issue.actions")
+      return {
+        resource: "issueActions",
+        actions: this.issueActions.list(repository, operation.number),
+      };
+    if (operation.op === "forge.issue.detail") {
+      const value = await backend.issueDetail(operation.number, signal);
+      return {
+        resource: "issueDetail",
+        value: { ...value, ...this.issueLinks.related(value.ref) },
+      };
+    }
     if (operation.op === "forge.pr.merge-state") {
       const { value, writeState } = await this.actions.readMergeState(
         { repository, number: operation.number },
@@ -201,6 +229,27 @@ export class WorkspaceForge {
       this.projection.publish(id);
     });
   }
+  async issueCommand(command: Command, cwd: string, allowed: () => boolean) {
+    const p = command.payload;
+    if (p.type === "forge.issue.link") {
+      await (
+        await this.backend(cwd, p.issue.repository)
+      ).issueDetail(p.issue.number, this.lifetime.signal);
+      if (!allowed()) throw new Error("forbidden");
+      this.issueLinks.link(p.threadId, p.issue, this.now());
+      return { ok: true, threadId: p.threadId, issue: p.issue };
+    }
+    if (p.type !== "forge.issue.write" && p.type !== "forge.issue.reconcile")
+      throw new Error("invalid_command");
+    let backend: GitHubForge;
+    try {
+      backend = await this.backend(cwd, p.repository);
+    } catch (error) {
+      return commandNotDispatched(command, actionErrorCode(error));
+    }
+    return this.issueActions.execute(command, backend, allowed, this.lifetime.signal);
+  }
+
   async link(
     id: ThreadId,
     cwd: string,

@@ -1,0 +1,70 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeIssueSearch.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "assignee": {
+      "default": "",
+      "maxLength": 100,
+      "pattern": "^[\\w-]*$",
+      "type": "string"
+    },
+    "author": {
+      "default": "",
+      "maxLength": 100,
+      "pattern": "^[\\w-]*$",
+      "type": "string"
+    },
+    "labels": {
+      "default": [],
+      "items": {
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 20,
+      "type": "array"
+    },
+    "milestone": {
+      "default": "",
+      "maxLength": 100,
+      "type": "string"
+    },
+    "order": {
+      "default": "desc",
+      "enum": [
+        "asc",
+        "desc"
+      ],
+      "type": "string"
+    },
+    "page": {
+      "default": 1,
+      "maximum": 40,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "search": {
+      "default": "",
+      "maxLength": 256,
+      "type": "string"
+    },
+    "sort": {
+      "default": "updated",
+      "enum": [
+        "created",
+        "updated",
+        "comments"
+      ],
+      "type": "string"
+    },
+    "state": {
+      "default": "open",
+      "enum": [
+        "open",
+        "closed"
+      ],
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

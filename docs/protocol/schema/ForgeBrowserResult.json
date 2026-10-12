@@ -5,6 +5,87 @@
     {
       "properties": {
         "resource": {
+          "const": "issueList",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeIssueList.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "issueDetail",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeIssueDetail.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "events": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeIssueEvent.json"
+          },
+          "maxItems": 25,
+          "type": "array"
+        },
+        "nextPage": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "resource": {
+          "const": "issueTimeline",
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "resource",
+        "events",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ForgeIssueAction.json"
+          },
+          "maxItems": 25,
+          "type": "array"
+        },
+        "resource": {
+          "const": "issueActions",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "actions"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
           "const": "prMergeState",
           "type": "string"
         },

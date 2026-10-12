@@ -1,4 +1,5 @@
 import { WorkspacePrLinks } from "../workspace-pr-links.ts";
+import { WorkspaceIssueLinks } from "../workspace-issue-links.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { isDefaultSelection } from "@ace/models";
 import { ModelSelectionError, type EngineModels } from "./models.ts";
@@ -304,6 +305,8 @@ export function engineHandler(
               context: [...previous.context, prepared.pullRequestWorkspace.context],
             });
           }
+          if (p.type === "thread.create" && p.issue)
+            new WorkspaceIssueLinks(repo.store).link(threadId, p.issue, at);
           if (handoff && p.handoffFrom) {
             const source = repo.store.getThread(p.handoffFrom);
             const previous = repo.transitions.get(threadId);

@@ -548,19 +548,28 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         }),
       );
     if (this.closed) return Promise.reject(new ClientError("offline"));
-    return this.requests.waitDurable(id, CommandResult.parse, options, () => {
-      void this.enqueue(payload, id).then(
-        () => {
-          const result = this.#intents.get(id)?.result;
-          if (result) this.requests.resolve(id, result);
-        },
-        (error: unknown) =>
-          this.requests.reject(
-            id,
-            error instanceof ClientError ? error : new ClientError("protocol"),
-          ),
-      );
-    });
+    return this.requests
+      .waitDurable(id, CommandResult.parse, options, () => {
+        void this.enqueue(payload, id).then(
+          () => {
+            const result = this.#intents.get(id)?.result;
+            if (result) this.requests.resolve(id, result);
+          },
+          (error: unknown) =>
+            this.requests.reject(
+              id,
+              error instanceof ClientError ? error : new ClientError("protocol"),
+            ),
+        );
+      })
+      .catch(async (error: unknown) => {
+        // Load persisted attempts before declaring this ID unsent, including before start().
+        if (error instanceof ClientError && error.code === "not_dispatched") {
+          await this.#intents.initialize();
+          if (this.#intents.get(id) !== undefined) throw new ClientError("limit");
+        }
+        throw error;
+      });
   }
   /** One-off service operation. Never persisted or replayed after a disconnect. */
   request<Q extends ServiceRequest>(

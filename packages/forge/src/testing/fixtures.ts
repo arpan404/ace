@@ -163,6 +163,7 @@ export async function fakeGh(
     },
   };
 }
+export { issueRecord, issuePermissions } from "./issue-fixtures.ts";
 
 /** Authoritative merge-state facts shared by process fixtures. */
 export function mergeStateResponse(overrides: Record<string, unknown> = {}): Response {

@@ -5,6 +5,7 @@ export class ClientError extends Error {
     | "offline"
     | "timeout"
     | "aborted"
+    | "not_dispatched"
     | "limit"
     | "busy"
     | "protocol"

@@ -11,6 +11,7 @@ const Preparation = z.object({
   project: z.string(),
   skill: z.string().optional(),
   pullRequest: z.string().max(4096).optional(),
+  issue: z.string().max(4096).optional(),
   choices: Choices,
   settingsResolved: z.boolean().optional(),
   provider: ProviderKind.optional(),

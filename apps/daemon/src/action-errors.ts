@@ -26,6 +26,7 @@ export function actionErrorCode(error: unknown): string {
       "pr_checkout_changed",
       "pr_requires_worktree",
       "workspace_cleanup_required",
+      "issue_reconciliation_required",
       "action_outcome_uncertain",
       "forge_write_pending",
       "workspace_not_found",

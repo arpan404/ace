@@ -15,6 +15,7 @@ const NewThreadSearch = z.object({
     z.optional(z.string().check(z.maxLength(64), z.regex(/^[a-z0-9][a-z0-9.-]*$/))),
     undefined,
   ),
+  issue: z.catch(z.optional(z.string().check(z.maxLength(4096))), undefined),
   pullRequest: z.catch(z.optional(z.string().check(z.maxLength(4096))), undefined),
   project: z.catch(z.optional(z.string().check(z.minLength(1))), undefined),
   base: z.catch(z.optional(z.string().check(z.minLength(1))), undefined),
@@ -37,11 +38,12 @@ function NewThreadRoute() {
   if (search.folder) return <OpenFolderScreen key={search.folder} folder={search.folder} />;
   return (
     <NewThreadPage
-      key={`${search.project ?? ""}:${search.base ?? ""}:${search.skill ?? ""}:${search.discard ?? ""}:${search.pullRequest ?? ""}`}
+      key={`${search.project ?? ""}:${search.base ?? ""}:${search.skill ?? ""}:${search.discard ?? ""}:${search.pullRequest ?? ""}:${search.issue ?? ""}`}
       project={search.project}
       base={search.base}
       skill={search.skill}
       pullRequest={search.pullRequest}
+      issue={search.issue}
     />
   );
 }

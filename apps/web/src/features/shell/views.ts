@@ -4,9 +4,9 @@ import type { KeymapId } from "@/lib/keymap.ts";
 
 /** The app's views (DESIGN-fable.md, Principle 4). Projects and machines are never views. */
 export interface View {
-  id: "home" | "activity" | "automations" | "skills" | "pull-requests";
+  id: "home" | "activity" | "automations" | "skills" | "pull-requests" | "issues";
   label: string;
-  to: "/" | "/activity" | "/automations" | "/skills" | "/pull-requests";
+  to: "/" | "/activity" | "/automations" | "/skills" | "/pull-requests" | "/issues";
   /** Path prefixes that belong to this view. */
   matches: readonly string[];
   shortcut?: KeymapId;
@@ -56,6 +56,7 @@ export const views: readonly View[] = [
     to: "/pull-requests",
     matches: ["/pull-requests"],
   },
+  { id: "issues", label: "Issues", to: "/issues", matches: ["/issues"] },
   ...menuViews,
 ];
 

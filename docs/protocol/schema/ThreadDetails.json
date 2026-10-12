@@ -66,6 +66,13 @@
         }
       ]
     },
+    "linkedIssues": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeIssueRef.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
     "linkedPr": {
       "anyOf": [
         {

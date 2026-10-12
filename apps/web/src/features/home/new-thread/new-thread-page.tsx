@@ -1,4 +1,4 @@
-import { usePrSource } from "@/features/forge/index.ts";
+import { useIssueSource, usePrSource } from "@/features/forge/index.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { PastSessions } from "@/features/history/index.ts";
 import { ProjectPicker } from "./project-picker.tsx";
@@ -113,6 +113,7 @@ export function NewThreadPage(props: {
   base?: string | undefined;
   skill?: string | undefined;
   pullRequest?: string | undefined;
+  issue?: string | undefined;
 }) {
   const { storage } = useLayout();
   const { project: filter } = useOrganizerState();
@@ -136,6 +137,7 @@ export function NewThreadPage(props: {
         project={props.project}
         skill={props.skill}
         pullRequest={props.pullRequest}
+        issue={props.issue}
       />
     );
   if (!projects.length || !project)
@@ -146,7 +148,7 @@ export function NewThreadPage(props: {
     );
   return (
     <PreparationPage
-      key={preparationKey(host, project, props.skill, props.pullRequest)}
+      key={preparationKey(host, project, props.skill, props.issue ?? props.pullRequest)}
       {...props}
       host={host}
       project={project}
@@ -154,7 +156,12 @@ export function NewThreadPage(props: {
         saveChoices(storage, { ...loadChoices(storage), project: next });
         void navigate({
           to: "/new",
-          search: { project: next, skill: props.skill, pullRequest: props.pullRequest },
+          search: {
+            project: next,
+            skill: props.skill,
+            pullRequest: props.pullRequest,
+            issue: props.issue,
+          },
         });
       }}
     />
@@ -167,6 +174,7 @@ function PreparationPage(props: {
   base?: string | undefined;
   skill?: string | undefined;
   pullRequest?: string | undefined;
+  issue?: string | undefined;
   onProject(project: string): void;
 }) {
   const { storage } = useLayout();
@@ -175,7 +183,8 @@ function PreparationPage(props: {
   usePreparationsChanged();
   const project = props.project;
   const prSource = usePrSource(project, props.pullRequest);
-  const draftKey = preparationKey(props.host, project, props.skill, props.pullRequest);
+  const issueSource = useIssueSource(project, props.issue);
+  const draftKey = preparationKey(props.host, project, props.skill, props.issue ?? props.pullRequest);
   const [restored] = useState<Preparation | undefined>(() => {
     const previous = preparation(storage, props.host, draftKey);
     if (previous?.discardRecovery) {
@@ -285,6 +294,7 @@ function PreparationPage(props: {
       owner: editorOwner,
       skill: props.skill,
       pullRequest: props.pullRequest,
+      issue: props.issue,
       choices: { ...snapshot(selection ?? previous?.choices ?? choices, resolved), project },
       settingsResolved: completed || !!resolved.model,
       provider: selection ? provider : (previous?.provider ?? provider),
@@ -491,7 +501,14 @@ function PreparationPage(props: {
                     ? "No model selected. Open the model menu to refresh or sign in."
                     : admitted.fallback;
   const send = async (draft: Draft) => {
-    if (!project || !resolved.model || admissionProblem || prSource.problem || !scope.draftId)
+    if (
+      !project ||
+      !resolved.model ||
+      admissionProblem ||
+      issueSource.problem ||
+      prSource.problem ||
+      !scope.draftId
+    )
       return false;
     submitting.current = true;
     const submittedRevision = preparation(storage, props.host, draftKey)?.revision;
@@ -505,6 +522,7 @@ function PreparationPage(props: {
       project,
       draftKey,
       pullRequest: prSource.selection,
+      issue: issueSource.ref,
       scope: resolved.model.scope,
       model: resolved.model.id,
       mode: resolved.mode,
@@ -664,11 +682,16 @@ function PreparationPage(props: {
                   title: content.text.trim().split("\n")[0]?.slice(0, 100) || "Attached files",
                 });
               }}
-              initialText={prSource.text ?? (props.skill ? `/${props.skill} ` : undefined)}
+              initialText={
+                prSource.text ?? issueSource.text ?? (props.skill ? `/${props.skill} ` : undefined)
+              }
               busy={false}
               sendBlocked={
-                admissionProblem || prSource.problem
-                  ? { reason: admissionProblem || prSource.problem || "", describedBy: readinessId }
+                admissionProblem || issueSource.problem || prSource.problem
+                  ? {
+                      reason: admissionProblem || issueSource.problem || prSource.problem || "",
+                      describedBy: readinessId,
+                    }
                   : undefined
               }
               onSubmit={send}
@@ -756,9 +779,9 @@ function PreparationPage(props: {
                 />
               }
             />
-            {(admissionProblem || prSource.problem) && (
+            {(admissionProblem || issueSource.problem || prSource.problem) && (
               <p id={readinessId} role="status" className="mt-2 px-4 text-xs text-muted-foreground">
-                {admissionProblem || prSource.problem}
+                {admissionProblem || issueSource.problem || prSource.problem}
               </p>
             )}
             <SignInNotice provider={provider} />
