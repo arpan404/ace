@@ -1,4 +1,5 @@
 import { GitHubLifecycle } from "./github-lifecycle.ts";
+import { GitHubReviews } from "./github-reviews.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import type { ForgePrSearch } from "@ace/protocol/forge-browser";
 import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
@@ -25,6 +26,7 @@ const mergeSchema = z.enum(["merge", "squash", "rebase"]);
 export class GitHubForge implements Forge, ForgeBrowser {
   readonly repository: ForgeRepository;
   readonly lifecycle: GitHubLifecycle;
+  readonly reviews: GitHubReviews;
   readonly #api: GhApi;
   readonly revisions = new StatusRevisions();
   readonly #status = new GitHubStatusReader(this.revisions);
@@ -46,6 +48,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     this.#api = new GhApi({ ...options, host: this.repository.host });
     this.#browser = new GitHubBrowser(this.#api, this.repository);
     this.lifecycle = new GitHubLifecycle(this.#api, this.repository);
+    this.reviews = new GitHubReviews(this.#api, (number) => this.#ref(number));
   }
   #ref(number: number): ForgePrRef {
     return ForgePrRef.parse({ repository: this.repository, number });

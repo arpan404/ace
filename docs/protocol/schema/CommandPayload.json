@@ -627,6 +627,9 @@
       "$ref": "https://ace.local/protocol/v1/ForgeHostedLifecycleCommand.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ForgeHostedReviewCommand.json"
+    },
+    {
       "properties": {
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"

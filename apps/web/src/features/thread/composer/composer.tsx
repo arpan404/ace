@@ -105,6 +105,12 @@ function ComposerContent({
    * back if nothing new was typed meanwhile.
    */
   onSubmit(draft: Draft): Promise<boolean>;
+  /** Observe preparation content without duplicating the composer storage format. */
+  onDraftChange?: ((draft: ComposerDraft) => void) | undefined;
+  /** A preparation owner fences writes when another editor has claimed its durable row. */
+  ownsDraft?: (() => boolean) | undefined;
+  /** A file selection owns a preparation even before its upload finishes. */
+  onFilesAdded?: (() => void) | undefined;
   onStop?: (() => void) | undefined;
   /** A Stop is on its way: the button says so until the turn ends. */
   stopping?: boolean | undefined;
@@ -221,7 +227,9 @@ function ComposerBody({
       (props.keepsAttachments ? restored?.attachments : undefined),
   );
   const attach = (files: Iterable<File>, note?: string) => {
-    const left = attachments.add(files);
+    const selected = [...files];
+    const left = attachments.add(selected);
+    if (selected.length > left) props.onFilesAdded?.();
     setNotice(
       left
         ? `A message carries up to ${maxAttachmentsPerMessage} files; ${left} more weren't attached.`
@@ -270,14 +278,20 @@ function ComposerBody({
     setPicked(new Set(next.mentions));
     setTokens(next.tokens ?? []);
   };
-  const saved = useDraftPersistence(props.draftKey, current, (next) => {
-    // Another window changed this draft: an idle composer takes it, a focused one offers it.
-    const draft = next ?? emptyDraft;
-    if (document.activeElement === input.current) return void setTheirs(draft);
-    if (!otherFiles(draft)) return void takeText(draft);
-    props.onReplaced(draft);
-    return "replace";
-  });
+  const saved = useDraftPersistence(
+    props.draftKey,
+    current,
+    (next) => {
+      // Another window changed this draft: an idle composer takes it, a focused one offers it.
+      const draft = next ?? emptyDraft;
+      if (document.activeElement === input.current) return void setTheirs(draft);
+      if (!otherFiles(draft)) return void takeText(draft);
+      props.onReplaced(draft);
+      return "replace";
+    },
+    props.onDraftChange,
+    props.ownsDraft,
+  );
   const apply = (next: ComposerDraft) => {
     if (!otherFiles(next)) return takeText(next);
     saved.drop();
@@ -544,7 +558,7 @@ function ComposerBody({
       opposite,
     };
     const before = { text, picked, tokens, files: attachments.ready };
-    saved.discard();
+    saved.hold();
     setText("");
     setCaret(0);
     setTheirs(undefined);
@@ -559,7 +573,22 @@ function ComposerBody({
         attachments: before.files,
       };
       if (!saved.finish()) {
-        if (!sent && draftKey) restoreReturnedDraft(storage, draftKey, returned);
+        if (!sent && draftKey) {
+          const stored = readDraft(storage, draftKey);
+          const held = JSON.stringify([
+            returned.text,
+            returned.tokens ?? [],
+            returned.mentions,
+            returned.attachments,
+          ]);
+          const storedVersion = JSON.stringify([
+            stored?.text,
+            stored?.tokens ?? [],
+            stored?.mentions ?? [],
+            stored?.attachments ?? [],
+          ]);
+          if (storedVersion !== held) restoreReturnedDraft(storage, draftKey, returned);
+        }
         return;
       }
       if (!sent) restoreSubmission(returned, draft);

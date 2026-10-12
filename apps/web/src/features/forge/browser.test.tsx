@@ -432,3 +432,84 @@ test("Refresh PR reloads metadata and permissions when title, head and state are
   ).toBe(true);
   expect(screen.queryByRole("button", { name: "Close PR" })).toBeNull();
 });
+
+test("new commits visibly invalidate durable hosted drafts and disable all review submission", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), number: 42 },
+    { resource: "prDetail", value: detail() },
+  );
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.review-state", workspaceId: WorkspaceId.parse("api"), repository, number: 42 },
+    {
+      resource: "prReviewState",
+      value: {
+        viewer: "reviewer",
+        headSha: "a".repeat(40),
+        drafts: [
+          {
+            id: "draft",
+            body: "Keep this unsent finding",
+            anchor: { commit: "b".repeat(40), path: "src/main.ts", line: 1, side: "RIGHT" },
+          },
+        ],
+        viewed: null,
+        canReview: true,
+        canComment: true,
+        resolvableThreads: [],
+        operations: [],
+      },
+    },
+  );
+  await app.open("/pull-requests?project=api&number=42");
+  expect(await screen.findByText("Keep this unsent finding")).toBeTruthy();
+  expect(screen.getByText(/Outdated anchor/)).toBeTruthy();
+  for (const name of ["Submit comment review", "Approve on GitHub", "Request changes on GitHub"])
+    expect(screen.getByRole<HTMLButtonElement>("button", { name }).disabled).toBe(true);
+  await userEvent.type(
+    screen.getByRole("textbox", { name: "Review summary" }),
+    "Preserve my summary",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Back to pull requests" }));
+  await app.open("/pull-requests?project=api&number=42");
+  expect(
+    await screen
+      .findByRole<HTMLTextAreaElement>("textbox", { name: "Review summary" })
+      .then((field) => field.value),
+  ).toBe("Preserve my summary");
+});
+
+test("a refused GitHub review shows the daemon refusal and retains the unsent summary", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  const workspaceId = WorkspaceId.parse("api");
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId, number: 42 },
+    { resource: "prDetail", value: detail() },
+  );
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.review-state", workspaceId, repository, number: 42 },
+    {
+      resource: "prReviewState",
+      value: {
+        viewer: "reviewer",
+        headSha: "a".repeat(40),
+        drafts: [],
+        viewed: null,
+        canReview: true,
+        canComment: true,
+        resolvableThreads: [],
+        operations: [],
+      },
+    },
+  );
+  await app.open("/pull-requests?project=api&number=42");
+  const summary = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Review summary",
+  });
+  await userEvent.type(summary, "Keep my unsent review");
+  await userEvent.click(screen.getByRole("button", { name: "Submit comment review" }));
+  expect(await screen.findByText("This daemon can't do that yet: update the daemon.")).toBeTruthy();
+  expect(summary.value).toBe("Keep my unsent review");
+});

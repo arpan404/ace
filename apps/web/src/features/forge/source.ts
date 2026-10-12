@@ -33,7 +33,7 @@ export function forgeError(code: string): string {
     forge_write_uncertain:
       "GitHub may have accepted the action. Refresh to reconcile it before making another change.",
     action_outcome_uncertain:
-      "GitHub may have accepted this action. Check its result before retrying; your edit is retained.",
+      "GitHub may have accepted this action. Reconcile the write before retrying; your draft is retained.",
     forge_cli: "GitHub is unavailable. Check your connection and installed gh CLI, then refresh.",
     forge_forbidden:
       "Your GitHub account cannot perform this action or access this repository. Check gh login and permissions.",

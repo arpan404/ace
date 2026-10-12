@@ -1,5 +1,6 @@
 import { ForgeResourceOwner } from "./forge-resource-owner.ts";
 import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
+import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
 import {
@@ -33,6 +34,7 @@ export class WorkspaceForge {
   private lifecycle: WorkspaceForgeLifecycle;
   private replyReceipts: ForgeReplyReceipts;
   private git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>;
+  private reviews: WorkspaceForgeReviews;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
   private projection: WorkspacePrLinks;
@@ -51,6 +53,7 @@ export class WorkspaceForge {
   ) {
     this.store = store;
     this.lifecycle = new WorkspaceForgeLifecycle(store, this.owner);
+    this.reviews = new WorkspaceForgeReviews(store, this.owner);
     this.replyReceipts = new ForgeReplyReceipts(store);
     this.git = git;
     this.now = now;
@@ -112,6 +115,11 @@ export class WorkspaceForge {
       if (this.owner.current(ref, revision)) this.publishLifecycle(value.snapshot);
       return { resource: "prLifecycle", value };
     }
+    if (operation.op === "forge.pr.review-state")
+      return {
+        resource: "prReviewState",
+        value: await this.reviews.state({ repository, number: operation.number }, backend, signal),
+      };
     if (operation.op === "forge.pr.activity")
       return {
         resource: "prActivity",
@@ -497,6 +505,23 @@ export class WorkspaceForge {
     const status = value.status;
     this.projection.update(id, status, generation);
     return { ok: true, pr: status.ref, prStatus: status };
+  }
+  async hostedReview(
+    input: import("@ace/protocol").Command & {
+      payload: import("zod").z.infer<typeof import("@ace/protocol").ForgeHostedReviewCommand>;
+    },
+    cwd: string,
+    allowed: () => boolean,
+  ) {
+    const p = input.payload;
+    await this.reviews.execute(
+      p,
+      input.id,
+      await this.backend(cwd, p.pr.repository),
+      this.lifetime.signal,
+      allowed,
+    );
+    return { ok: true };
   }
 
   private publishStatus(status: ForgePrStatus): void {

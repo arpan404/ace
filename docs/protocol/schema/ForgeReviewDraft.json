@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeReviewDraft.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "anchor": {
+      "$ref": "https://ace.local/protocol/v1/ForgeReviewAnchor.json"
+    },
+    "body": {
+      "maxLength": 60000,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "body",
+    "anchor"
+  ],
+  "type": "object"
+}

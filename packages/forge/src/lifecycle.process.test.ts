@@ -1,6 +1,13 @@
 import { GitHubForge, lifecycleWriteMarker, WriteDispatch } from "./index.ts";
 import { expect, test } from "vitest";
-import { fakeGh, lifecycleFixtures, lifecycleRecord, repository, sha, nextSha } from "./testing/fixtures.ts";
+import {
+  fakeGh,
+  lifecycleFixtures,
+  lifecycleRecord,
+  repository,
+  sha,
+  nextSha,
+} from "./testing/fixtures.ts";
 const signal = () => new AbortController().signal;
 const allowed = () => true;
 const beforeWrite = new WriteDispatch();
