@@ -36,6 +36,12 @@ class InputMetrics {
   private var mutations = 0
   private var commits = 0
   private var draws = 0
+  private var droppedMetricReports = 0
+  private var missingMutations = 0
+  private var missingCommits = 0
+  private var missingDraws = 0
+  private var missingFrameMetrics = 0
+  private var invalidFrameMetrics = 0
   private val watcher = object : TextWatcher {
     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
     override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -49,29 +55,32 @@ class InputMetrics {
       draws++
     }
   }
-  private val frame = Window.OnFrameMetricsAvailableListener { _, metrics, _ ->
+  private val frame = Window.OnFrameMetricsAvailableListener { _, metrics, dropCountSinceLastInvocation ->
+    droppedMetricReports += dropCountSinceLastInvocation
     if (drawVsyncNs > 0 && metrics.getMetric(FrameMetrics.VSYNC_TIMESTAMP) == drawVsyncNs) {
-      val completed = drawVsyncNs + metrics.getMetric(FrameMetrics.TOTAL_DURATION)
+      // Match the draw by actual vsync, but TOTAL_DURATION starts at intended vsync.
+      val intended = metrics.getMetric(FrameMetrics.INTENDED_VSYNC_TIMESTAMP)
+      val duration = metrics.getMetric(FrameMetrics.TOTAL_DURATION)
+      val completed = intended + duration
       val latency = (completed - eventNs) / 1_000_000.0
-      if (latency >= 0) {
+      val valid = intended >= 0 && duration >= 0 && latency >= 0
+      if (valid) {
         if (samples.size == 256) samples.removeFirst()
         samples.addLast(latency)
-        if (samples.size % 20 == 0) android.util.Log.i("AceSpikeInput", org.json.JSONObject(summary()).toString())
+      } else {
+        invalidFrameMetrics++
       }
       completion?.countDown()
       completion = null
       resetEvent()
+      if (valid && samples.size % 20 == 0) android.util.Log.i("AceSpikeInput", org.json.JSONObject(summary()).toString())
     }
   }
   fun attach(next: EditText, targetWindow: Window) {
     close()
     view = next
     window = targetWindow
-    samples.clear()
-    keys = 0
-    mutations = 0
-    commits = 0
-    draws = 0
+    resetCounters()
     Choreographer.getInstance().postFrameCallback(tick)
     next.addTextChangedListener(watcher)
     next.viewTreeObserver.addOnDrawListener(draw)
@@ -80,11 +89,7 @@ class InputMetrics {
   }
   fun resetSamples() {
     check(view?.hasFocus() == true) { "Focus the composer before probing input" }
-    samples.clear()
-    keys = 0
-    mutations = 0
-    commits = 0
-    draws = 0
+    resetCounters()
     resetEvent()
   }
   fun beginInput(timeMs: Long, finished: java.util.concurrent.CountDownLatch) {
@@ -96,6 +101,14 @@ class InputMetrics {
   }
   fun finishInput(finished: java.util.concurrent.CountDownLatch) {
     if (completion === finished) {
+      // Classify a timed-out attempt by the first stage it did not reach.
+      // Dropped report counts are independent; they do not identify which frame was lost.
+      when {
+        !mutated -> missingMutations++
+        !committed -> missingCommits++
+        drawVsyncNs == 0L -> missingDraws++
+        else -> missingFrameMetrics++
+      }
       completion = null
       resetEvent()
     }
@@ -114,7 +127,12 @@ class InputMetrics {
     // For a conservative gate, impute uncaptured attempts at the 2-second timeout.
     // Their actual latency is unknown; this is not a measured latency or lower bound.
     val allAttemptP95 = sorted.getOrNull(allAttemptRank) ?: if (keys == 0) 0.0 else 2000.0
-    return mapOf("misses" to (keys - sorted.size),
+    val pending = if (completion == null) 0 else 1
+    return mapOf("misses" to (keys - sorted.size - pending), "pendingAttempts" to pending,
+      "droppedMetricReports" to droppedMetricReports,
+      "missingMutations" to missingMutations, "missingCommits" to missingCommits,
+      "missingDraws" to missingDraws, "missingFrameMetrics" to missingFrameMetrics,
+      "invalidFrameMetrics" to invalidFrameMetrics,
       "coverage" to (if (keys == 0) 0.0 else sorted.size.toDouble() / keys),
       "minimumCoverage" to 0.95, "allAttemptP95ConservativeMs" to allAttemptP95, "samples" to sorted.size, "p95Ms" to p95, "maxMs" to (sorted.lastOrNull() ?: 0.0),
       "keys" to keys, "mutations" to mutations, "commits" to commits, "draws" to draws)
@@ -130,6 +148,20 @@ class InputMetrics {
       "bundledAdvance" to expected.measureText(sample).toDouble(),
       "foreground" to String.format(Locale.ROOT, "#%06X", input.currentTextColor and 0xffffff),
       "textSizePx" to input.textSize.toDouble())
+  }
+  private fun resetCounters() {
+    samples.clear()
+    keys = 0
+    mutations = 0
+    commits = 0
+    draws = 0
+    droppedMetricReports = 0
+    missingMutations = 0
+    missingCommits = 0
+    missingDraws = 0
+    missingFrameMetrics = 0
+    invalidFrameMetrics = 0
+    completion = null
   }
   private fun resetEvent() {
     eventNs = 0

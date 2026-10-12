@@ -41,6 +41,7 @@ class InputProbe(private val metrics: InputMetrics) {
         Thread.sleep(200)
       }
       val result = main(activity) { metrics.summary() }
+      android.util.Log.i("AceSpikeInputFinal", org.json.JSONObject(result).toString())
       val samples = result["samples"] as Int
       check(samples >= kotlin.math.ceil(count * 0.95).toInt()) {
         "Input coverage below 95%: $samples/$count completed frames"

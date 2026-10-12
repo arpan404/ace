@@ -9,6 +9,13 @@ const native = requireNativeModule<{
   probeInput(count: number): Promise<unknown>;
 }>("AceNative");
 const Metrics = z.object({
+  droppedMetricReports: z.number().int().nonnegative(),
+  missingMutations: z.number().int().nonnegative(),
+  missingCommits: z.number().int().nonnegative(),
+  missingDraws: z.number().int().nonnegative(),
+  missingFrameMetrics: z.number().int().nonnegative(),
+  invalidFrameMetrics: z.number().int().nonnegative(),
+  pendingAttempts: z.number().int().min(0).max(1),
   misses: z.number().int().nonnegative(),
   coverage: z.number().min(0).max(1),
   minimumCoverage: z.literal(0.95),
