@@ -30,6 +30,7 @@ import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
 import { readAgentCatalog } from "./catalog.ts";
 import { incomingRemoteRoot } from "./incoming-root.ts";
+import { recoverLocalUsage } from "./local-usage-recovery.ts";
 import { recoverIncomingUsage } from "./incoming-usage-recovery.ts";
 
 export interface DelegationDependencies {
@@ -71,6 +72,7 @@ export class DelegationService {
     this.policy = DelegationPolicy.parse(deps.policy ?? {});
     this.journal = new DelegationJournal(deps.store, deps.journalCapacity);
     recoverIncomingUsage(deps.store, this.journal, deps.clock.now());
+    recoverLocalUsage(deps.store, this.journal);
     this.admission = new DelegationAdmission(
       deps,
       this.journal,
@@ -406,10 +408,10 @@ export class DelegationService {
       }
       changed = true;
       if (event.payload.type === "run.started") {
-        if (edge) this.deps.store.atomic(() => this.journal.started(event));
+        if (edge) this.journal.account(edge.rootId, event);
         this.reconcile(edge);
       } else if (event.payload.type === "usage.updated" && edge) {
-        this.deps.store.atomic(() => this.journal.usage(edge.rootId, event));
+        this.journal.account(edge.rootId, event);
         const tree = this.admission.capacity(edge.rootId, this.deps.clock.now());
         if (delegationBudget(tree, this.policy, this.deps.clock.now()))
           this.cancelDescendants(edge.rootId);
