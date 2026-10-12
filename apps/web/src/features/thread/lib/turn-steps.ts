@@ -20,6 +20,14 @@ function cacheOf(client: ClientApi): TurnStepsCache {
   return cache;
 }
 
+export interface TurnSteps {
+  entry: TurnStepsEntry | undefined;
+  /** Read again after a failed read. */
+  retry(): void;
+  /** Read the next part of a turn longer than one read. */
+  loadMore(): void;
+}
+
 /**
  * The turn's steps while `open`. `endSeq` is the turn's end from its summary, when known: a
  * read older than it is read again.
@@ -29,7 +37,7 @@ export function useTurnSteps(
   ordinal: number | undefined,
   open: boolean,
   endSeq?: number,
-): TurnStepsEntry | undefined {
+): TurnSteps {
   const cache = cacheOf(useClient());
   const read = useCallback(
     () => (ordinal === undefined ? undefined : cache.get(threadId, ordinal)),
@@ -44,7 +52,16 @@ export function useTurnSteps(
     if (!open || ordinal === undefined) return;
     return cache.retain(threadId, ordinal, endSeq);
   }, [cache, threadId, ordinal, open, endSeq]);
-  return entry;
+  return {
+    entry,
+    // Holding a failed turn once more reads it again; the open log's own hold stays.
+    retry: () => {
+      if (ordinal !== undefined) cache.retain(threadId, ordinal, endSeq)();
+    },
+    loadMore: () => {
+      if (ordinal !== undefined) cache.loadMore(threadId, ordinal);
+    },
+  };
 }
 
 /** Drops the thread's finished steps once its view closes. */

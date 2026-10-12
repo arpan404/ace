@@ -80,7 +80,7 @@ test("a completed turn folds its work behind one head; its answer and failures s
   expect(blocks.map((block) => block.kind)).toEqual(["user", "work", "item", "message"]);
   const head = blocks[1];
   expect(head?.kind === "work" && head.outcome).toBe("completed");
-  expect(head?.kind === "work" && head.answerId).toBe("answer");
+  expect(head?.kind === "work" && head.answerIds).toEqual(["answer"]);
   // A jump to a folded step still finds the head that holds it.
   expect(head && blockItems(head)).toEqual(
     expect.arrayContaining(["install", "progress", "build"]),
@@ -106,4 +106,27 @@ test("a working turn's live header sits right under its ask, above everything it
     source(turn, { state: "completed", trigger: "user", startedAt: 1, endedAt: 7 }),
   );
   expect(done.some((block) => block.kind === "live")).toBe(false);
+});
+
+// Mutation: folding all but the last of an answer given in several messages.
+test("an answer said in several messages after the last step stays whole", () => {
+  const blocks = buildBlocks(
+    source(
+      [
+        message("ask", "user", 1),
+        shell("build", 2, "turn"),
+        message("found", "assistant", 3, "turn"),
+        message("fixed", "assistant", 4, "turn"),
+      ],
+      { state: "completed", trigger: "user", startedAt: 1, endedAt: 7 },
+    ),
+  );
+  expect(blocks.map((block) => ("itemId" in block ? block.itemId : block.kind))).toEqual([
+    "ask",
+    "work",
+    "found",
+    "fixed",
+  ]);
+  const head = blocks[1];
+  expect(head?.kind === "work" && head.answerIds).toEqual(["found", "fixed"]);
 });

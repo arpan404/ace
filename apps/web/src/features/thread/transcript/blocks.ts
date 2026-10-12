@@ -53,11 +53,13 @@ export type Block =
        * it said between steps, subagents, background commands), folded behind "Worked for".
        */
       folded?: Block[] | undefined;
-      /** The completed turn's answer, shown below its folded head. */
-      answerId?: string | undefined;
+      /** The completed turn's answer (every message after its last step), below its head. */
+      answerIds?: string[] | undefined;
     }
   /** The newest turn's live header, right under the ask that started it, until it settles. */
   | { kind: "live"; key: string; askId: string | undefined }
+  /** The end of the newest working turn's flow: "Thinking" while no step is in flight. */
+  | { kind: "thinking"; key: string }
   | { kind: "subagents"; key: string; itemIds: string[] }
   | { kind: "background"; key: string; itemId: string; taskId: string }
   | { kind: "files"; key: string; itemIds: string[] }
@@ -590,6 +592,7 @@ export function buildBlocks(source: BlockSource): Block[] {
         const first = Math.min(...turn.blocks);
         if (ask !== undefined) place(ask, live);
         else if (Number.isFinite(first)) before.set(first, [live, ...(before.get(first) ?? [])]);
+        place(turn.lastBlock, { kind: "thinking", key: `thinking:${turn.id}` });
       }
       // A pause shows while the turn waits on the limit, before anything settles.
       if (source.heldTurn === turn.id) {
@@ -642,9 +645,16 @@ export function buildBlocks(source: BlockSource): Block[] {
       if (outcome === "completed" && head) {
         const folded: Block[] = [];
         const headAt = first ? workAt.get(first) : undefined;
+        // Everything the agent said after its last step is the answer: it all stays in view.
+        const finalStep = Math.max(-1, ...turn.work.map((work) => workAt.get(work) ?? -1));
+        const answers: string[] = [];
         for (const index of [...turn.blocks].toSorted((a, b) => a - b)) {
           const block = blocks[index];
-          if (!block || index === turn.lastMessage) continue;
+          if (!block) continue;
+          if (block.kind === "message" && (index > finalStep || index === turn.lastMessage)) {
+            answers.push(block.itemId);
+            continue;
+          }
           if (index === headAt) folded.push({ kind: "work", key: head.key, itemIds: firstIds });
           else if (foldable(block, source)) {
             folded.push(block);
@@ -652,8 +662,7 @@ export function buildBlocks(source: BlockSource): Block[] {
           }
         }
         if (folded.length) head.folded = folded;
-        const answer = blocks[turn.lastMessage];
-        if (answer?.kind === "message") head.answerId = answer.itemId;
+        if (answers.length) head.answerIds = answers;
       }
     }
     if (turn.edits.length)
@@ -771,7 +780,7 @@ export function blockItems(block: Block): readonly string[] {
   if (block.kind === "work" && block.folded)
     return [...block.itemIds, ...block.folded.flatMap((inner) => blockItems(inner))];
   if ("itemIds" in block) return block.itemIds ?? [];
-  if (block.kind === "live") return [];
+  if (block.kind === "live" || block.kind === "thinking") return [];
   if (block.kind === "question") {
     const shown = block.itemId ?? block.anchorId;
     return shown === undefined ? [] : [shown];
