@@ -6,6 +6,8 @@ export interface PickerEntry {
   id: string;
   provider?: ProviderKind | undefined;
   instance?: string | undefined;
+  /** The ACP agent an account belongs to: each agent keeps its own rail tab and logo. */
+  acpAgentId?: string | undefined;
   name: string;
   reason?: string | undefined;
 }
@@ -54,6 +56,7 @@ export function pickerEntries(
           id: `${entry.provider}:${instance}`,
           provider: entry.provider,
           instance,
+          acpAgentId: account?.acpAgentId,
           name,
           reason:
             limit?.level === "reached"
@@ -81,18 +84,23 @@ export interface RailGroup {
 
 /**
  * The rail: one tab per provider rather than per account, so several accounts never stack up
- * as a column of near-identical logos. A provider is usable while any of its accounts is.
+ * as a column of near-identical logos. ACP agents are each their own tab, with their own logo.
+ * A provider is usable while any of its accounts is.
  */
 export function railGroups(entries: readonly PickerEntry[]): RailGroup[] {
   const groups: RailGroup[] = [];
   for (const entry of entries) {
-    const key = entry.provider ?? entry.id;
+    const key =
+      entry.provider === "acp"
+        ? `acp:${entry.acpAgentId ?? entry.instance ?? entry.id}`
+        : (entry.provider ?? entry.id);
     const group = groups.find((candidate) => candidate.id === key);
     if (group) {
       const accounts = [...group.accounts, entry];
       groups[groups.indexOf(group)] = {
         ...group,
-        name: entry.provider ? providerNames[entry.provider] : group.name,
+        name:
+          entry.provider && entry.provider !== "acp" ? providerNames[entry.provider] : group.name,
         reason: accounts.every((account) => account.reason) ? group.reason : undefined,
         accounts,
       };
