@@ -50,8 +50,8 @@ export async function executeStorageItem(
       });
       return;
     }
-    case "worktree": return executeWorktreeCleanup(owner, inventory, entry, allowed);
-
+    case "worktree":
+      return executeWorktreeCleanup(owner, inventory, entry, allowed);
   }
 }
 
@@ -66,20 +66,38 @@ export function fenceStorageItem(
     let ids = entry.item.threadIds.map((id) => ThreadId.parse(id));
     if (entry.target.type === "worktree") {
       const created = inventory.managed.get(entry.target.path);
-      if (!created || created.removed || created.repo !== entry.target.repo) throw new StorageRefusal("owner_unavailable");
+      if (!created || created.removed || created.repo !== entry.target.repo)
+        throw new StorageRefusal("owner_unavailable");
       const repository = store.workspaceReservations.repository(entry.target.path);
-      if (repository && store.workspaceReservations.repositoryReserved(repository)
-        && !store.workspaceReservations.ownsRepositoryReservation(repository, `storage:${planId}`)) throw new StorageRefusal("cleanup_in_progress");
+      if (
+        repository &&
+        store.workspaceReservations.repositoryReserved(repository) &&
+        !store.workspaceReservations.ownsRepositoryReservation(repository, `storage:${planId}`)
+      )
+        throw new StorageRefusal("cleanup_in_progress");
       // Fence root admission before the first asynchronous Git or filesystem inspection.
-      try { store.workspaceReservations.reserve(ThreadId.parse(`storage:${planId}`), CommandId.parse(`storage:${planId}`), [entry.target.path]); }
-      catch (error) { if (error instanceof Error && error.message === "workspace_change_in_progress") throw new StorageRefusal("cleanup_in_progress"); throw error; }
+      try {
+        store.workspaceReservations.reserve(
+          ThreadId.parse(`storage:${planId}`),
+          CommandId.parse(`storage:${planId}`),
+          [entry.target.path],
+        );
+      } catch (error) {
+        if (error instanceof Error && error.message === "workspace_change_in_progress")
+          throw new StorageRefusal("cleanup_in_progress");
+        throw error;
+      }
       ids = inventory.worktreeOwners(entry.target.path);
     }
     const members = new Set(ids.flatMap((id) => storageTree(store, id)));
     for (const member of members) {
-      const existing = store.statement("SELECT plan_id FROM storage_cleanup_fences WHERE thread_id=?").get(member);
+      const existing = store
+        .statement("SELECT plan_id FROM storage_cleanup_fences WHERE thread_id=?")
+        .get(member);
       if (existing && existing.plan_id !== planId) throw new StorageRefusal("cleanup_in_progress");
-      store.statement("INSERT OR IGNORE INTO storage_cleanup_fences VALUES (?,?)").run(member, planId);
+      store
+        .statement("INSERT OR IGNORE INTO storage_cleanup_fences VALUES (?,?)")
+        .run(member, planId);
     }
   });
 }

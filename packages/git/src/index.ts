@@ -277,7 +277,9 @@ export class GitService {
     return this.repository.serial(root, () => this.repository.worktrees(root));
   }
 
-  worktreeMetadata(repo: string, path: string) { return worktreeMetadata(this.repository, repo, path); }
+  worktreeMetadata(repo: string, path: string) {
+    return worktreeMetadata(this.repository, repo, path);
+  }
   inspectWorktreeCleanup(repo: string, path: string) {
     return inspectWorktreeCleanup(this.repository, repo, path);
   }

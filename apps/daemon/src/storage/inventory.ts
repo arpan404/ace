@@ -129,21 +129,43 @@ export class StorageInventory {
   }
   worktreeOwners(path: string): ThreadId[] {
     const created = this.managed.get(path);
-    return [...new Set([...(created ? [created.owner] : []), ...this.owner.store.workspaceReservations.owners([path])])];
+    return [
+      ...new Set([
+        ...(created ? [created.owner] : []),
+        ...this.owner.store.workspaceReservations.owners([path]),
+      ]),
+    ];
   }
   worktreeOwnership(path: string) {
     const { store } = this.owner;
     const ids = [...new Set(this.worktreeOwners(path).flatMap((id) => storageTree(store, id)))];
     const protections = storageProtections(this.owner, ids);
-    const threads = ids.flatMap((id) => { const thread = store.getThread(id); return thread ? [thread] : []; });
-    if (threads.some((thread) => thread.deletedAt === undefined && thread.archivedAt === undefined)
-      || store.statement(`SELECT 1 FROM workspace_canonical_roots w WHERE w.root=? AND NOT EXISTS
-        (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.workspace_id) LIMIT 1`).get(path)) protections.push("live_thread");
-    const reservation = store.statement("SELECT 1 FROM workspace_root_reservations WHERE root=? AND command_id<>?")
+    const threads = ids.flatMap((id) => {
+      const thread = store.getThread(id);
+      return thread ? [thread] : [];
+    });
+    if (
+      threads.some((thread) => thread.deletedAt === undefined && thread.archivedAt === undefined) ||
+      store
+        .statement(`SELECT 1 FROM workspace_canonical_roots w WHERE w.root=? AND NOT EXISTS
+        (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.workspace_id) LIMIT 1`)
+        .get(path)
+    )
+      protections.push("live_thread");
+    const reservation = store
+      .statement("SELECT 1 FROM workspace_root_reservations WHERE root=? AND command_id<>?")
       .get(path, `storage:${this.owner.cleanupPlanId ?? ""}`);
     const repository = store.workspaceReservations.repository(path);
-    if (reservation || (repository && store.workspaceReservations.repositoryReserved(repository)
-      && !store.workspaceReservations.ownsRepositoryReservation(repository, `storage:${this.owner.cleanupPlanId ?? ""}`))) protections.push("cleanup_in_progress");
+    if (
+      reservation ||
+      (repository &&
+        store.workspaceReservations.repositoryReserved(repository) &&
+        !store.workspaceReservations.ownsRepositoryReservation(
+          repository,
+          `storage:${this.owner.cleanupPlanId ?? ""}`,
+        ))
+    )
+      protections.push("cleanup_in_progress");
     return { ids, protections, threads };
   }
   async inspect(
@@ -187,10 +209,31 @@ export class StorageInventory {
       const records = this.managed.list();
       if (records.length > 256) complete = false;
       for (const record of records.slice(0, 256)) {
-        try { const candidate = await this.worktree(record.repo, record.path); if (candidate) candidates.push(candidate); }
-        catch { complete = false; candidates.push({ id: storageId("worktrees", `${record.repo}:${record.path}`), kind: "worktrees", label: record.path,
-          bytes: 0, modifiedAt: record.created_at, threadIds: [], fingerprint: "unavailable", protections: ["unknown_git_state"], eligibleReason: "orphaned",
-          target: { type: "worktree", repo: record.repo, path: record.path, gitFingerprint: "unavailable", head: null, branch: null } }); }
+        try {
+          const candidate = await this.worktree(record.repo, record.path);
+          if (candidate) candidates.push(candidate);
+        } catch {
+          complete = false;
+          candidates.push({
+            id: storageId("worktrees", `${record.repo}:${record.path}`),
+            kind: "worktrees",
+            label: record.path,
+            bytes: 0,
+            modifiedAt: record.created_at,
+            threadIds: [],
+            fingerprint: "unavailable",
+            protections: ["unknown_git_state"],
+            eligibleReason: "orphaned",
+            target: {
+              type: "worktree",
+              repo: record.repo,
+              path: record.path,
+              gitFingerprint: "unavailable",
+              head: null,
+              branch: null,
+            },
+          });
+        }
       }
     }
     return { candidates, complete };

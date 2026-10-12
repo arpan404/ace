@@ -38,7 +38,13 @@ export class WorkspaceCreations {
   private directory: string;
   private fetchTimeoutMs: number;
   private now: () => number;
-  constructor(store: Store, git: WorkspaceGit, directory: string, fetchTimeoutMs: number, now: () => number) {
+  constructor(
+    store: Store,
+    git: WorkspaceGit,
+    directory: string,
+    fetchTimeoutMs: number,
+    now: () => number,
+  ) {
     this.now = now;
     this.store = store;
     this.git = git;
@@ -153,7 +159,13 @@ export class WorkspaceCreations {
             }
           : {}),
       });
-      await new ManagedWorktrees(this.store, this.directory).created(this.git, project, path, id, this.now());
+      await new ManagedWorktrees(this.store, this.directory).created(
+        this.git,
+        project,
+        path,
+        id,
+        this.now(),
+      );
       this.journal.head(id, head);
       resource.cleanup_head = head;
       resource.uncertain = 0;
