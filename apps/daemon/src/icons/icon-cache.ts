@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -54,6 +54,15 @@ export class IconCache {
     mkdirSync(root, { recursive: true });
     // Startup reads the index and the folder once; bounded by the limits above.
     for (const name of readdirSync(root)) {
+      // A write a crash cut short leaves its temporary file: never a cached icon, so it goes.
+      if (name.endsWith(".tmp")) {
+        try {
+          unlinkSync(join(root, name));
+        } catch {
+          /* Someone else took it already. */
+        }
+        continue;
+      }
       const ref = name.endsWith(".png") ? name.slice(0, -4) : "";
       if (!IconRef.safeParse(ref).success) continue;
       try {

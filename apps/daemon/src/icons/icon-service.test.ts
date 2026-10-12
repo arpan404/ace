@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import type { ToolIcon } from "@ace/protocol";
 import { IconCache } from "./icon-cache.ts";
 import { IconService } from "./icon-service.ts";
+import { faviconPng } from "./favicon-image.ts";
 
 const homes: string[] = [];
 afterEach(() => {
@@ -161,4 +162,35 @@ test("the same icon stored for two sites at once is written and counted once", a
   ]);
   expect(a).toBe(b);
   expect(cache.size).toEqual({ icons: 1, bytes: png.length });
+});
+
+// Mutation: treating bytes the decoder refuses as a passing failure, fetched again every time.
+test("a favicon the decoder refuses is remembered as no icon", async () => {
+  const corrupt = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    Buffer.from("not really a png at all"),
+  ]);
+  let asked = 0;
+  const icons = new IconService({
+    cache: new IconCache(home()),
+    site: async () => {
+      asked++;
+      return corrupt;
+    },
+    app: async () => null,
+    normalize: (bytes) => faviconPng(bytes),
+    now: () => 1_000,
+  });
+  expect(await icons.resolve(github)).toBeNull();
+  expect(await icons.resolve(github)).toBeNull();
+  expect(asked).toBe(1);
+});
+
+// Mutation: keeping, or counting, temporary files a crash left behind.
+test("temporary files a crash left are cleared when the cache opens", async () => {
+  const root = home();
+  writeFileSync(join(root, `${"a".repeat(64)}.png.123.1.tmp`), "half");
+  const cache = new IconCache(root);
+  expect(readdirSync(root).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  expect(cache.size).toEqual({ icons: 0, bytes: 0 });
 });

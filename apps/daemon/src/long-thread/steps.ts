@@ -82,6 +82,9 @@ function siteBefore(
       break;
     }
   }
+  // Remembered misses included. A step whose URL only arrives in a later update of that step
+  // (some providers send arguments late) leaves later steps without its site until this entry
+  // turns over; the step itself still reads its own URL, so only the carried icon is missed.
   if (source.sites) {
     source.sites.set(key, origin ?? null);
     for (const oldest of source.sites.keys()) {
