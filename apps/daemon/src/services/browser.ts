@@ -208,10 +208,10 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
         )),
     onArtifact: async (rawThreadId, artifact) => {
       const threadId = ThreadId.parse(rawThreadId);
-      const thread = store.getThread(threadId);
-      if (!thread || thread.deletedAt !== undefined) return;
       const files = services.threadFiles;
-      const append = (artifactId?: string) =>
+      const append = (artifactId?: string) => {
+        const thread = store.getThread(threadId);
+        if (!thread || thread.deletedAt !== undefined) return;
         store.appendEvents(threadId, [
           {
             type: "item.created",
@@ -227,8 +227,9 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
             },
           },
         ]);
+      };
       if (files) await files.browserArtifacts.publish(threadId, artifact, append);
-      else append();
+      else await store.write(() => append());
     },
   });
   resources.own(() => browser.close());
@@ -279,6 +280,7 @@ export function createBrowserSession(context: SocketContext): SocketService {
       if (backendMessage.success) {
         try {
           if (backendMessage.data.type === "browser.backend.register") {
+            if (!context.maintenance.admit()) throw new Error("maintenance");
             const credential = options.store.devices.authenticate(
               backendMessage.data.credential,
               options.now?.() ?? Date.now(),
@@ -325,7 +327,29 @@ export function createBrowserSession(context: SocketContext): SocketService {
       if (!message.type.startsWith("browser.")) return false;
       const parsed = importBrowserMessage.safeParse(message);
       if (!parsed.success) return false;
-      void browser.handle(parsed.data).catch((error: unknown) => options.log?.(error));
+      const read = [
+        "browser.origins.list",
+        "browser.tabs.list",
+        "browser.downloads.list",
+        "browser.evaluate.grants.list",
+        "browser.subscribe",
+        "browser.unsubscribe",
+        "browser.ack",
+      ].includes(parsed.data.type);
+      const release = read ? undefined : context.maintenance.workLease();
+      if (!read && !release) {
+        context.send({
+          type: "browser.result",
+          requestId: parsed.data.requestId,
+          ok: false,
+          error: "maintenance",
+        });
+        return true;
+      }
+      void browser
+        .handle(parsed.data)
+        .catch((error: unknown) => options.log?.(error))
+        .finally(() => release?.());
       return true;
     },
   };

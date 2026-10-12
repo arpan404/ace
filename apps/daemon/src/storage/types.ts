@@ -6,7 +6,7 @@ import type { StorageCandidate } from "./planner.ts";
 export type StorageOwner = Pick<ServiceContext, "store" | "services" | "now" | "id"> & {
   root: string;
   signal?: AbortSignal;
-  maintenance?: Pick<import("@ace/service").MaintenanceGate, "storageLease">;
+  maintenance?: Pick<import("@ace/service").MaintenanceGate, "storageLease" | "hasPendingWork">;
   compaction?: import("./compaction-process.ts").CompactionRuntime;
   cleanupPlanId?: string;
   afterRemove?(id: string): Promise<void>;

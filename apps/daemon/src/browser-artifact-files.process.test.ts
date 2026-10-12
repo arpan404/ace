@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it, onTestFinished } from "vitest";
+import { z } from "zod";
 import { Item, type ThreadId } from "@ace/protocol";
 import { BrowserArtifactFiles } from "./browser-artifact-files.ts";
 import { Store } from "./store.ts";
@@ -157,6 +158,67 @@ it("maintenance cannot reclaim a registration before its admitted publication co
   });
   await maintenance;
   expect(await (await owner.get()).request("reader", { op: "artifacts.list" })).toMatchObject([
+    { id },
+  ]);
+});
+
+it("a recording registered during compaction stays publishable and downloadable after it", async () => {
+  const f = await fixture();
+  const owner = f.open();
+  const files = await owner.get();
+  const admitted = Promise.withResolvers<void>();
+  f.onId(() => {
+    f.onId(idle);
+    f.store.beginStorageCompaction();
+    admitted.resolve();
+  });
+  let id = "",
+    finished = false;
+  const publication = owner
+    .publish(f.thread.id, f.artifact, (value) => {
+      id = value;
+      f.append(f.thread.id, value);
+    })
+    .then(() => {
+      finished = true;
+    });
+  void publication.catch(() => {});
+  try {
+    await admitted.promise;
+    await expect
+      .poll(async () => ({
+        entries: z.array(z.unknown()).parse(await files.request("reader", { op: "artifacts.list" }))
+          .length,
+        finished,
+      }))
+      .toEqual({ entries: 1, finished: false });
+    expect(
+      f.store
+        .readEvents({ afterSeq: 0, threadId: f.thread.id, limit: 100 })
+        .some(
+          (event) =>
+            event.payload.type === "item.created" && event.payload.item.type === "artifact",
+        ),
+    ).toBe(false);
+  } finally {
+    f.store.endStorageCompaction();
+  }
+  await publication;
+  expect(owner.owns(f.thread.id, id)).toBe(true);
+  const download = await files.downloadForTransport("reader", {
+    op: "artifact.download",
+    artifactId: id,
+  });
+  try {
+    const chunks: Buffer[] = [];
+    for await (const bytes of download.chunks) chunks.push(bytes);
+    expect(Buffer.concat(chunks).toString()).toBe("image");
+  } finally {
+    await download.close();
+  }
+  await owner.close();
+  const reopened = f.open();
+  expect(await (await reopened.get()).request("reader", { op: "artifacts.list" })).toMatchObject([
     { id },
   ]);
 });

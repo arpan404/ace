@@ -7,6 +7,8 @@ import type { StorageOwner } from "./types.ts";
 export async function compactStorage(owner: StorageOwner): Promise<"complete" | "deferred"> {
   const idle = () =>
     !owner.store.isHistoryWriting() &&
+    !owner.maintenance?.hasPendingWork &&
+    !owner.services.workspaceActions?.hasActiveTerminals &&
     !owner.services.browser?.hasActiveSessions &&
     !owner.store
       .statement(

@@ -5,6 +5,9 @@ import { z } from "zod";
 import { expect, test } from "vitest";
 import { Command, DeviceId } from "@ace/protocol";
 import { MaintenanceGate } from "@ace/service";
+import { BrowserService } from "@ace/browser";
+import { FakeHeadless } from "@ace/browser/testing";
+import { WorkspaceRuntime } from "../workspace-runtime.ts";
 import { stubHandler } from "../commands.ts";
 import { startServer } from "../server.ts";
 import { Client, token } from "../socket-test-support.ts";
@@ -42,6 +45,15 @@ test("the same daemon socket serves heartbeat and SQLite reads while compaction 
   const worker = heldWorker();
   const f = await storageFixture(undefined, undefined, worker.runtime);
   const retained = f.thread("retained");
+  const workspace = new WorkspaceRuntime(f.store, f.root, f.now);
+  const browser = new BrowserService({
+    dataDir: join(f.root, "browser"),
+    headlessBackend: new FakeHeadless(),
+    now: f.now,
+    id: () => "browser",
+  });
+  f.services.workspaceActions = workspace;
+  f.services.browser = browser;
   const server = await startServer({
     port: 0,
     token,
@@ -49,6 +61,8 @@ test("the same daemon socket serves heartbeat and SQLite reads while compaction 
     store: f.store,
     handler: stubHandler({ development: true }),
     storage: f.storage,
+    workspaceActions: workspace,
+    browser,
   });
   f.storage.bindMaintenance(server.maintenance);
   const client = new Client(server.url);
@@ -70,6 +84,44 @@ test("the same daemon socket serves heartbeat and SQLite reads while compaction 
     // The helper cannot complete until these responses have reached the same client.
     client.send({ type: "ping" });
     expect(await client.next()).toEqual({ type: "pong" });
+    client.send({
+      type: "terminal.request",
+      requestId: "blocked-terminal",
+      operation: { op: "open", threadId: retained.id, name: "Blocked", cols: 80, rows: 24 },
+    });
+    expect(await client.next()).toMatchObject({
+      type: "terminal.result",
+      requestId: "blocked-terminal",
+      ok: false,
+      error: "maintenance",
+    });
+    expect(workspace.listTerminals(retained.id)).toEqual([]);
+    client.send({
+      type: "browser.open",
+      requestId: "blocked-browser",
+      options: {
+        threadId: retained.id,
+        workspaceId: retained.workspaceId,
+        headed: false,
+        background: false,
+      },
+    });
+    expect(await client.next()).toMatchObject({
+      type: "browser.result",
+      requestId: "blocked-browser",
+      ok: false,
+      error: "maintenance",
+    });
+    for (const type of ["browser.recording.start", "browser.recording.stop"] as const) {
+      client.send({ type, requestId: type, threadId: retained.id });
+      expect(await client.next()).toMatchObject({
+        type: "browser.result",
+        requestId: type,
+        ok: false,
+        error: "maintenance",
+      });
+    }
+    expect(browser.hasActiveSessions).toBe(false);
     client.send({
       type: "subscribe",
       subscriptionId: "during-compaction",
@@ -131,6 +183,8 @@ test("the same daemon socket serves heartbeat and SQLite reads while compaction 
     worker.kill();
     await client.close();
     await server.close();
+    await browser.close();
+    await workspace.close();
     await f.close();
   }
 });

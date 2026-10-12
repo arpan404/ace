@@ -12,6 +12,7 @@ export function createTerminalSession({
   connected,
   canReadThread,
   sessionId,
+  maintenance,
 }: SocketContext): SocketService {
   const streams = new Map<string, Stream>();
   const authStreams = new Map<string, { id: string; owner: string }>();
@@ -39,6 +40,19 @@ export function createTerminalSession({
       }
       if (message.type !== "terminal.request") return false;
       const op = message.operation;
+      const read = ["list", "subscribe", "unsubscribe"].includes(op.op);
+      if (
+        (!read || (op.op === "unsubscribe" && authStreams.has(op.subscriptionId))) &&
+        !maintenance.admit()
+      ) {
+        send({
+          type: "terminal.result",
+          requestId: message.requestId,
+          ok: false,
+          error: "maintenance",
+        });
+        return true;
+      }
       if (op.op === "unsubscribe" && authStreams.has(op.subscriptionId)) {
         const terminal = authStreams.get(op.subscriptionId);
         const terminalId = terminal?.id;
@@ -130,7 +144,6 @@ export function createTerminalSession({
         });
         return true;
       }
-      const read = ["list", "subscribe", "unsubscribe"].includes(op.op);
       const scope = read ? "read" : "operate";
       const reply = (ok: boolean, error?: string) =>
         send({

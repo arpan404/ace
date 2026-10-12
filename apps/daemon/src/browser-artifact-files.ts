@@ -104,9 +104,11 @@ export class BrowserArtifactFiles {
       let published = false;
       try {
         // Deleted-thread recording finalization is a discard, not a teardown failure.
-        if (!this.live(thread)) return;
-        append(id);
-        published = true;
+        published = await this.context.store.write(() => {
+          if (!this.live(thread)) return false;
+          append(id);
+          return true;
+        });
       } finally {
         if (!published) await service.removeArtifact(id);
       }

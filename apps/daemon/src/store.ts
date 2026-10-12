@@ -438,6 +438,13 @@ export class Store {
       signal?.throwIfAborted();
     }
   }
+  /** Await maintenance, then commit synchronous writes without an admission/commit gap. */
+  async write<T>(run: () => T, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted();
+    while (this.historyWriting) await this.writable(signal);
+    signal?.throwIfAborted();
+    return this.transaction(run);
+  }
   setHistoryWriting(active: boolean): void {
     if (active && this.historyWriting) throw new Error("History publication in progress");
     // Metadata writers wait for the worker lock rather than failing at the first contention.
