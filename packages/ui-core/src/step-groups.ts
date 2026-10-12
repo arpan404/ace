@@ -49,6 +49,8 @@ export interface StepGroup {
   single: boolean;
   /** "Edited 2 files · ran 1 command · 1 failed"; empty for a single step. */
   summary: string;
+  /** The summary without its failures, for a row that shows them apart. */
+  sentence: string;
   running: boolean;
   failed: number;
   /** Only reads, listings and searches. */
@@ -209,6 +211,13 @@ function exploreOnly(facts: readonly StepFact[]): boolean {
  * again with success adds " · 1 failed".
  */
 export function groupSummary(facts: readonly StepFact[]): string {
+  const failed = facts.filter((fact) => fact.failed).length;
+  const text = groupSentence(facts);
+  return failed ? `${text} · ${failed} failed` : text;
+}
+
+/** The group's sentence alone, without its failures: "Ran 5 commands and read 1 file". */
+export function groupSentence(facts: readonly StepFact[]): string {
   let text: string;
   if (exploreOnly(facts)) {
     const reads = distinct(facts, "read");
@@ -228,8 +237,7 @@ export function groupSummary(facts: readonly StepFact[]): string {
     if (others) parts.push(plural(others, "other step"));
     text = capital(sentence(parts));
   }
-  const failed = facts.filter((fact) => fact.failed).length;
-  return failed ? `${text} · ${failed} failed` : text;
+  return text;
 }
 
 /** The group's icon kind. */
@@ -251,6 +259,7 @@ function makeGroup(facts: readonly StepFact[]): StepGroup {
     ids: facts.map((fact) => fact.id),
     single,
     summary: single ? "" : groupSummary(facts),
+    sentence: single ? "" : groupSentence(facts),
     running: facts.some((fact) => fact.running),
     failed: facts.filter((fact) => fact.failed).length,
     explore: exploreOnly(facts),
@@ -336,6 +345,7 @@ function sameGroup(a: StepGroup, b: StepGroup): boolean {
   return (
     a.key === b.key &&
     a.summary === b.summary &&
+    a.sentence === b.sentence &&
     a.running === b.running &&
     a.failed === b.failed &&
     a.newest === b.newest &&

@@ -5,6 +5,7 @@ import type { StepLabels } from "./tool-labels.ts";
 import type { AceToolContext, AceToolView } from "./ace-tools.ts";
 import { formatElapsed } from "./time.ts";
 import { planCount, planProgress, planTodos } from "./plan.ts";
+import { exploreAction } from "./explore-command.ts";
 
 export type StepIcon = "read" | "search" | "shell" | "edit" | "web" | "tool" | "think" | "note";
 
@@ -73,6 +74,7 @@ const inFlight: Record<string, { running: string; awaiting: string }> = {
   "Searched the web": { running: "Searching the web", awaiting: "Search the web" },
   Fetched: { running: "Fetching", awaiting: "Fetch" },
   Ran: { running: "Running", awaiting: "Run" },
+  Listed: { running: "Listing", awaiting: "List" },
   Edited: { running: "Editing", awaiting: "Edit" },
   Wrote: { running: "Writing", awaiting: "Write" },
   Deleted: { running: "Deleting", awaiting: "Delete" },
@@ -130,9 +132,18 @@ function callText(call: ToolCall, context: StepContext): CallText {
         detail.exitCode === undefined || detail.exitCode === null
           ? undefined
           : `exit ${detail.exitCode}`;
+      // A command that only looks reads as what it did: "Searched", "Read", "Listed".
+      const explored = exploreAction(command.command);
       return {
-        icon: "shell",
-        verb: "Ran",
+        icon: explored === "search" ? "search" : explored === "read" ? "read" : "shell",
+        verb:
+          explored === "search"
+            ? "Searched"
+            : explored === "read"
+              ? "Read"
+              : explored === "list"
+                ? "Listed"
+                : "Ran",
         target: command.command,
         note: exit,
         title: command.raw ?? command.command,

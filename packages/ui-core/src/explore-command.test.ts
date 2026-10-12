@@ -37,3 +37,12 @@ it("options that write a file or run a program are not exploring", () => {
   expect(exploreAction("sed -n '$p' a.ts")).toBe("read");
   expect(exploreAction("git diff HEAD~1")).toBe("read");
 });
+
+it("a command substitution inside double quotes, combined flags and long sed options still run", () => {
+  expect(exploreAction('rg "$(rm -rf dist)" src')).toBeUndefined();
+  expect(exploreAction('grep "`touch x`" a.ts')).toBeUndefined();
+  expect(exploreAction("rg '$(not run)' src")).toBe("search");
+  expect(exploreAction("sort -uo out.txt names.txt")).toBeUndefined();
+  expect(exploreAction("sed --in-place -n '1p' a.ts")).toBeUndefined();
+  expect(exploreAction("sed -ni '1p' a.ts")).toBeUndefined();
+});

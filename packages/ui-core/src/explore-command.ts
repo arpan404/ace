@@ -18,8 +18,12 @@ function words(part: string): string[] | undefined {
   const out: string[] = [];
   let word = "";
   let quote: string | undefined;
-  for (const char of part) {
+  for (let index = 0; index < part.length; index++) {
+    const char = part[index] ?? "";
     if (quote) {
+      // Double quotes still run `$(…)` and backticks.
+      if (quote === '"' && (char === "`" || (char === "$" && part[index + 1] === "(")))
+        return undefined;
       if (char === quote) quote = undefined;
       else word += char;
     } else if (char === "'" || char === '"') quote = char;
@@ -72,8 +76,9 @@ function parts(command: string): { text: string; piped: boolean }[] {
 
 /** Options that write a file or run another program, on commands that otherwise only look. */
 const unsafe: Record<string, RegExp> = {
-  sort: /^(-o|--output)/,
-  tree: /^-o$/,
+  // Short flags combine: `sort -uo out` writes as surely as `sort -o out`.
+  sort: /^(-[a-zA-Z]*o|--output)/,
+  tree: /^-[a-zA-Z]*o/,
   rg: /^--pre/,
   fd: /^(-x|-X|--exec)/,
   git: /^(--output|-O|--open-files-in-pager|--ext-diff|--textconv)/,
@@ -98,7 +103,7 @@ function action(argv: readonly string[], piped: boolean): ExploreAction | "neutr
   if (program === "sed")
     return rest.includes("-n") &&
       rest.some((arg) => /^(\d+|\$)?(,(\d+|\$))?p$/.test(arg)) &&
-      !rest.some((arg) => /^-[ief]/.test(arg))
+      !rest.some((arg) => /^-[a-zA-Z]*[ief]|^--(in-place|expression|file)/.test(arg))
       ? "read"
       : undefined;
   if (program === "find")

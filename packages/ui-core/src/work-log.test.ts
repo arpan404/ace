@@ -331,3 +331,31 @@ test("a plan update reads as one quiet line with how far the plan is", () => {
   expect(step).toMatchObject({ verb: "Updated the plan", note: "1 of 3" });
   expect(describeStep(call({ kind: "plan" }, "succeeded", 1, 2)).note).toBeUndefined();
 });
+
+const shellStep = (command: string) =>
+  Item.parse({
+    id: command,
+    agentId: "root",
+    type: "tool_call",
+    createdAt: 1,
+    complete: true,
+    call: {
+      id: command,
+      agentId: "root",
+      kind: "shell",
+      title: command,
+      status: "succeeded",
+      startedAt: 1,
+      detail: { kind: "shell", command },
+      raw: [],
+    },
+  });
+test("a shell command that only looks reads as what it did, not as a run", () => {
+  expect(describeStep(shellStep("rg -n lastAckedSeq apps"))).toMatchObject({
+    verb: "Searched",
+    icon: "search",
+  });
+  expect(describeStep(shellStep("cat package.json"))).toMatchObject({ verb: "Read", icon: "read" });
+  expect(describeStep(shellStep("ls apps"))).toMatchObject({ verb: "Listed" });
+  expect(describeStep(shellStep("bun run test"))).toMatchObject({ verb: "Ran", icon: "shell" });
+});
