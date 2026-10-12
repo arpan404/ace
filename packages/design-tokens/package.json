@@ -1,0 +1,17 @@
+{
+  "name": "@ace/design-tokens",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.json": "./tokens.json"
+  },
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}
