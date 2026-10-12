@@ -86,15 +86,33 @@ export async function waitSelectionOrRefresh<T>(
     signal.removeEventListener("abort", abort);
   }
 }
-export async function connectCli(home: string, args: Args) {
+export function connectCli(home: string, args: Args) {
+  return connectWithLifetime(home, args, timeoutMs(args));
+}
+export function connectChat(home: string, args: Args) {
+  return connectWithLifetime(home, args, option(args, "timeout") ? timeoutMs(args) : undefined);
+}
+async function connectWithLifetime(home: string, args: Args, duration: number | undefined) {
   const profile = selectedProfile(home, option(args, "remote"));
   const connection = profile ? undefined : hostConnection(home);
   const persistence = cliStorage(profile ? join(home, "cli-remotes", profile.id) : home);
   const lifetime = new AbortController();
-  const interrupt = () => lifetime.abort();
+  const interrupt = () =>
+    lifetime.abort(
+      new CliFailure(
+        "uncertain",
+        "Chat or command observation was interrupted; work state is unconfirmed",
+      ),
+    );
   process.once("SIGINT", interrupt);
   process.once("SIGTERM", interrupt);
-  const timer = setTimeout(() => lifetime.abort(), timeoutMs(args));
+  const timer =
+    duration === undefined
+      ? undefined
+      : setTimeout(
+          () => lifetime.abort(new CliFailure("timeout", "Observation timed out")),
+          duration,
+        );
   const client = new Client({
     deviceId: profile?.deviceId ?? DeviceId.parse("ace-cli"),
     transport: () =>
@@ -138,7 +156,7 @@ export async function connectCli(home: string, args: Args) {
     const state = await waitSelection(
       client.connectionState(),
       (candidate) => candidate === "ready" || candidate === "fatal",
-      lifetime.signal,
+      AbortSignal.any([lifetime.signal, AbortSignal.timeout(15000)]),
     );
     if (state === "fatal") throw client.error ?? new ClientError("auth");
     return {

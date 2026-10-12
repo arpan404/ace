@@ -1,8 +1,9 @@
-import { CliTree, Interaction, ThreadId, InteractionId } from "@ace/protocol";
+import { CliTree, ThreadId, InteractionId } from "@ace/protocol";
 import type { Client } from "@ace/client";
 import { option, validateArgs, type Args } from "./args.ts";
 import { waitSelection, waitSelectionOrRefresh } from "./connection.ts";
 import { command, key } from "./mutations.ts";
+import { approval } from "./approval.ts";
 import { prompt, print, result, mutationResult } from "./io.ts";
 import { CliFailure, treeOutcome } from "./output.ts";
 export async function listThreads(args: Args, client: Client, signal: AbortSignal) {
@@ -129,27 +130,6 @@ export async function waitThread(args: Args, client: Client, id: string, signal:
     await stream;
     lease.release();
   }
-}
-function approval(interaction: Interaction, verb: string, selected: string | undefined) {
-  if (interaction.state !== "pending")
-    throw new CliFailure("refused", "Interaction is already closed");
-  if (interaction.request.kind === "plan_review")
-    return { kind: "plan_review", decision: verb === "approve" ? "approve" : "reject" };
-  if (interaction.request.kind !== "approval")
-    throw new CliFailure("refused", "This interaction requires a question or elicitation answer");
-  const choice = interaction.request.options.find((candidate) =>
-    selected
-      ? candidate.id === selected
-      : candidate.kind === (verb === "approve" ? "allow_once" : "deny"),
-  );
-  if (
-    !choice ||
-    (verb === "approve"
-      ? !choice.kind.startsWith("allow_")
-      : !["deny", "deny_always", "cancel"].includes(choice.kind))
-  )
-    throw new CliFailure("refused", "No matching approval option; specify --option");
-  return { kind: "approval", optionId: choice.id };
 }
 export async function threadCommand(args: Args, client: Client, signal: AbortSignal) {
   const verb = args.words[1];

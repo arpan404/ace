@@ -41,6 +41,7 @@ ace browser shot|record THREAD [--url URL] [--output PATH]
 ace automation list|run ID
 ace add [PATH]|project add|list|rename|remove|open
 ace open [PATH] [--web]
+ace chat [--project ID|PATH] [--provider PROVIDER] [--thread ID] [--model MODEL]
 
 All commands: --json, --jq EXPR, --timeout DURATION
 Mutations: --idempotency-key KEY. Waits: --tree. Run: --stream jsonl.
@@ -57,6 +58,10 @@ export async function main(input: string[]): Promise<void> {
     }
     const command = args.words[0] ?? "start";
     const config = readConfig();
+    if (command === "chat") {
+      const { chatCommand } = await import("./chat.ts");
+      return await chatCommand(args, config);
+    }
     if (command === "open" || (command === "project" && args.words[1] === "open"))
       return await openCommand(args, config);
     if (command === "accounts") {

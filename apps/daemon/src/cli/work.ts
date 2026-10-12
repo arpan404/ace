@@ -18,16 +18,49 @@ export async function runCommand(args: Args, client: Client, signal: AbortSignal
     throw new CliFailure("refused", "--stream supports jsonl");
   const text = await prompt(args, 1);
   const id = key(args);
-  const project = option(args, "project");
+  const admission = await admitWork(
+    {
+      text,
+      id,
+      project: option(args, "project"),
+      provider: option(args, "provider") ?? "codex",
+      model: option(args, "model"),
+      mode: args.flags.worktree ? "worktree" : "local",
+      cwd: process.cwd(),
+    },
+    client,
+    signal,
+  );
+  await mutationResult(args, admission);
+  return admission.threadId;
+}
+export function runThreadId(id: string) {
+  return ThreadId.parse(`cli-${createHash("sha256").update(id).digest("hex")}`);
+}
+export async function admitWork(
+  input: {
+    text: string;
+    id: string;
+    project: string | undefined;
+    provider: string;
+    model: string | undefined;
+    mode: "local" | "worktree";
+    cwd: string;
+  },
+  client: Client,
+  signal: AbortSignal,
+) {
+  const { project, id } = input;
+  const provider = ProviderKind.parse(input.provider);
   let workspaceId: string;
   if (project && !project.includes("/") && !project.startsWith("."))
     workspaceId = WorkspaceId.parse(project);
   else {
-    const path = resolve(project ?? process.cwd());
+    const path = resolve(project ?? input.cwd);
     const receipt = await addProject(
       client,
       path,
-      `project-${createHash("sha256").update(path).digest("hex")}`,
+      `project-${createHash("sha256").update(path).update("\0").update(id).digest("hex")}`,
       signal,
     );
     if (!receipt.workspace)
@@ -35,28 +68,27 @@ export async function runCommand(args: Args, client: Client, signal: AbortSignal
     workspaceId = receipt.workspace.id;
   }
   // Caller-owned thread identity makes a retried run stable, even before admission completes.
-  const threadId = ThreadId.parse(`cli-${createHash("sha256").update(id).digest("hex")}`);
+  const threadId = runThreadId(id);
   const receipt = await command(
     client,
     {
       type: "thread.create",
       workspaceId,
       threadId,
-      provider: ProviderKind.parse(option(args, "provider") ?? "codex"),
-      model: option(args, "model"),
-      mode: args.flags.worktree ? "worktree" : "local",
-      input: [{ type: "text", text }],
+      provider,
+      model: input.model,
+      mode: input.mode,
+      input: [{ type: "text", text: input.text }],
     },
     id,
     signal,
   );
-  await mutationResult(args, {
-    type: "admission",
+  return {
+    type: "admission" as const,
     ok: true,
-    status: "accepted",
+    status: "accepted" as const,
     commandId: id,
     idempotencyKey: id,
     threadId: receipt.threadId ?? threadId,
-  });
-  return receipt.threadId ?? threadId;
+  };
 }

@@ -121,6 +121,31 @@ headless hosts receive needs-human with the URL. No token is placed in the URL.
 Remote project paths must be absolute paths on the remote host. Remote opening uses
 that host's web app after the CLI verifies the profile connection.
 
+## Terminal chat
+
+```
+ace chat --project . --provider claude
+ace chat --thread THREAD
+ace chat --thread THREAD --stream jsonl
+```
+
+Chat creates a real ace thread on the first prompt, or attaches to `--thread`.
+Its messages and approvals appear in the GUI and mobile clients. `/stop` interrupts
+the tree, `/steer TEXT` redirects work, `/model MODEL` changes the thread's selection,
+and `/resume [THREAD]` resumes its held input or session. `/approve [INTERACTION]
+[OPTION]` and `/deny [INTERACTION]` resolve permissions. A single displayed approval
+also accepts `y` or `n`. Questions and elicitation require a suitable ace client.
+Use `//` to send a prompt that begins with `/`.
+
+Tree status includes descendant work and queue attention. A disconnected observer
+shows uncertainty. `/quit` or EOF detaches and leaves work running; that successful
+detach does not claim that work completed. Chat has no default observation deadline;
+an explicit `--timeout` limits the session. Human terminals show a bounded streaming
+preview above the input prompt, then print the completed message. Terminal control
+sequences in provider text are stripped. Piped human output streams text directly.
+`--json` and `--stream jsonl` emit one typed chat record per line, with admitted IDs
+and retry keys when an action becomes uncertain.
+
 ## Server and remote profiles
 
 ```
