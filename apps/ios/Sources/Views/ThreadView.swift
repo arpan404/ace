@@ -38,7 +38,7 @@ struct ThreadView: View {
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 VStack(spacing: AceTheme.Spacing.none) {
                     ForEach(thread.approvals) { approval in
-                        if approval.kind == "approval" { ApprovalCard(approval: approval) { model.approve(approval, option: $0) } }
+                        if approval.kind == "approval" { ApprovalCard(approval: approval, submission: model.approvalSubmissions[approval.id]) { model.approve(approval, option: $0) } }
                     }
                     ComposerView(state: metadata?.state ?? "new", modelName: metadata?.model ?? "", canSteer: metadata?.canSteer ?? false,
                                  send: { await model.send($0, delivery: $1) }, stop: { model.stopTree() }, inputBegan: { model.metrics?.inputBegan() })

@@ -28,10 +28,12 @@ import CryptoKit
     var error: String?
     var thread: ThreadModel?
     var inboxLoaded = false
+    var approvalSubmissions: [String: ApprovalSubmission] = [:]
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: ClientRuntime?
     @ObservationIgnored private var frames = BridgeFrames()
     @ObservationIgnored private let admissions = CommandAdmissions()
+    @ObservationIgnored private var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
     @ObservationIgnored var metrics: SpikeMetrics?
     @ObservationIgnored var largestFrame = 0
@@ -67,9 +69,18 @@ import CryptoKit
             case .connection(let state): connection = state
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
-            case .receipt(_, let ok, let message): if !ok { error = message }
+            case .receipt(let id, let ok, let message):
+                if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
+                    if ok { approvalSubmissions[interactionId]?.phase = .waiting }
+                    else { approvalSubmissions[interactionId] = nil; approvalRequests[id] = nil }
+                }
+                if !ok { error = message }
             case .admission(let id, let ok, let message):
                 admissions.resolve(id, persisted: ok)
+                if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
+                    if ok { approvalSubmissions[interactionId]?.phase = .waiting }
+                    else { approvalSubmissions[interactionId] = nil; approvalRequests[id] = nil }
+                }
                 if !ok { error = message }
             case .threadReset(let id, let epoch):
                 guard let thread, thread.id == id, epoch == thread.epoch else { continue }
@@ -92,7 +103,10 @@ import CryptoKit
                 } else { thread.items.removeValue(forKey: itemId); thread.positions.removeValue(forKey: itemId); reorder = true }
             case .metadata(let id, let epoch, let row): if thread?.id == id, thread?.epoch == epoch { thread?.metadata = row }
             case .interaction(let id, let epoch, let interactionId, let row):
-                if thread?.id == id, thread?.epoch == epoch { thread?.interactions[interactionId] = row }
+                if thread?.id == id, thread?.epoch == epoch {
+                    thread?.interactions[interactionId] = row
+                    if row?.state != "pending", let submission = approvalSubmissions.removeValue(forKey: interactionId) { approvalRequests[submission.requestId] = nil }
+                }
             case .cursor(let id, let epoch, let cursor): if thread?.id == id, thread?.epoch == epoch { thread?.cursor = cursor }
             case .ready(let id, let epoch, _): if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true }
             }
@@ -124,7 +138,14 @@ import CryptoKit
         command(["type": "thread.interrupt", "threadId": thread.id, "cascade": true, "beforeSeq": thread.cursor])
     }
     func approve(_ interaction: ApprovalRow, option: ApprovalRow.Option) {
-        command(["type": "interaction.resolve", "interactionId": interaction.id, "resolution": ["kind": "approval", "optionId": option.id]])
+        guard interaction.state == "pending", approvalSubmissions[interaction.id] == nil else { return }
+        let id = admissions.nextId()
+        approvalSubmissions[interaction.id] = ApprovalSubmission(requestId: id, phase: .saving)
+        approvalRequests[id] = interaction.id
+        if !command(["type": "interaction.resolve", "interactionId": interaction.id, "resolution": ["kind": "approval", "optionId": option.id]], requestId: id) {
+            approvalSubmissions[interaction.id] = nil
+            approvalRequests[id] = nil
+        }
     }
     func archive(_ id: String) { command(["type": "thread.archive", "threadId": id]) }
     func snooze(_ id: String) { command(["type": "thread.snooze", "threadId": id, "until": now() + 3_600_000]) }
@@ -140,9 +161,10 @@ import CryptoKit
     }
     func disconnectAndWait() async {
         admissions.cancel()
+        approvalSubmissions = [:]; approvalRequests = [:]
         guard let runtime else { return }
         self.runtime = nil
         await withCheckedContinuation { continuation in runtime.stop { continuation.resume() } }
     }
-    func disconnect() { admissions.cancel(); runtime?.stop(); runtime = nil }
+    func disconnect() { admissions.cancel(); approvalSubmissions = [:]; approvalRequests = [:]; runtime?.stop(); runtime = nil }
 }

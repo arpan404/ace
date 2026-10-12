@@ -14,9 +14,12 @@ export async function dispatchCommand(
     const payload = CommandPayload.parse(raw);
     const id = owner.commandId();
     const intent = owner.intent(id);
+    let settled = false;
     const receipt = () => {
+      if (settled) return;
       const result = intent.getSnapshot()?.result;
       if (!result) return;
+      settled = true;
       stop?.();
       pump.put(`receipt:${requestId}`, () => ({
         type: "receipt",

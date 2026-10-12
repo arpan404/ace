@@ -3,8 +3,8 @@ import SwiftUI
 struct ApprovalCard: View {
     @Environment(\.colorScheme) private var colourScheme
     let approval: ApprovalRow
+    let submission: ApprovalSubmission?
     let resolve: (ApprovalRow.Option) -> Void
-    @State private var submitted = false
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
             HStack(alignment: .top, spacing: AceTheme.Spacing.md) {
@@ -24,7 +24,6 @@ struct ApprovalCard: View {
             HStack(spacing: AceTheme.Spacing.sm) {
                 ForEach(approval.options.sorted { rank($0.kind) < rank($1.kind) }) { option in
                     Button {
-                        submitted = true
                         resolve(option)
                     } label: {
                         Text(option.label).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
@@ -32,14 +31,14 @@ struct ApprovalCard: View {
                             .background(option.kind == "allow_once" ? AceTheme.Colours.foreground : AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.button))
                     }.buttonStyle(.plain).accessibilityIdentifier("approval.\(option.kind)")
                 }
-            }.disabled(submitted)
-            if submitted { Label("Waiting for the daemon", systemImage: "clock").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
+            }.disabled(submission != nil)
+            if let submission { Label(submission.phase == .saving ? "Saving your answer…" : "Waiting for the daemon", systemImage: "clock").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
         }
         .padding(AceTheme.Spacing.lg).background(AceTheme.Colours.card, in: RoundedRectangle(cornerRadius: AceTheme.Radii.approval))
         .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.approval).stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
         .shadow(color: AceTheme.Colours.shadow.opacity(AceTheme.Opacity.shadow(colourScheme)), radius: AceTheme.Elevation.floating, y: AceTheme.Elevation.card)
         .padding(.horizontal, AceTheme.Dimensions.composerInset).padding(.bottom, AceTheme.Spacing.sm)
-        .sensoryFeedback(.selection, trigger: submitted)
+        .sensoryFeedback(.selection, trigger: submission?.requestId)
     }
     private func rank(_ kind: String) -> Int { kind == "deny" ? 0 : kind == "allow_once" ? 2 : 1 }
 }

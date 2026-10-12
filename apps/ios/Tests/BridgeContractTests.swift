@@ -5,6 +5,46 @@ import SQLite3
 
 /// Runs against the real local socket fixture. No provider CLI is invoked.
 @Suite(.serialized) @MainActor struct BridgeContractTests {
+    @Test func approvalControlsRecoverFromSQLiteFailureAndDaemonRefusalWithoutClosingTheInteraction() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = ClientModel(now: { 0 })
+        func stage(_ value: String) async throws {
+            var request = URLRequest(url: try #require(URL(string: "http://127.0.0.1:9841/review/approval")))
+            request.httpMethod = "POST"
+            request.httpBody = try JSONEncoder().encode(value)
+            let (_, response) = try await URLSession.shared.data(for: request)
+            #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        }
+        defer { Task { try? await stage("accept"); await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        model.connect(target: try target(), directory: root)
+        try await until { model.connection == "ready" }
+        try await stage("create")
+        model.open("ios-retry")
+        try await until { model.thread?.approvals.isEmpty == false }
+        let approval = try #require(model.thread?.approvals.first)
+        let option = try #require(approval.options.first)
+        model.network(false)
+        try await until { model.connection == "offline" }
+        try sql("CREATE TRIGGER reject_records BEFORE INSERT ON records BEGIN SELECT RAISE(ABORT,'contract write failure'); END;", in: root)
+        model.approve(approval, option: option)
+        #expect(model.approvalSubmissions[approval.id] != nil)
+        try await until("approval unlocks after failed persistence") { model.error != nil && model.approvalSubmissions[approval.id] == nil }
+        #expect(model.thread?.interactions[approval.id]?.state == "pending")
+        try sql("DROP TRIGGER reject_records;", in: root)
+        try await stage("refuse")
+        model.error = nil
+        model.approve(approval, option: option)
+        try await until { model.approvalSubmissions[approval.id]?.phase == .waiting }
+        #expect(model.thread?.interactions[approval.id]?.state == "pending")
+        model.network(true)
+        try await until("approval unlocks after refused receipt") { model.error == "contract_refused" && model.approvalSubmissions[approval.id] == nil }
+        #expect(model.thread?.interactions[approval.id]?.state == "pending")
+        try await stage("accept")
+        model.approve(approval, option: option)
+        try await until { model.thread?.interactions[approval.id]?.state == "resolved" }
+        #expect(model.thread?.approvals.isEmpty == true)
+        #expect(model.approvalSubmissions[approval.id] == nil)
+    }
     @Test func sdkLimitAndSQLiteFailurePreserveTheDraftAndACommittedRetryClearsIt() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { 0 })

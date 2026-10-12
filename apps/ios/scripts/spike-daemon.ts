@@ -3,7 +3,7 @@ import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
 import { z } from "zod";
 import { ThreadId } from "@ace/protocol";
-import { oversizedScenario } from "./review-scenarios.ts";
+import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts";
 
 const daemon = new FakeDaemon({
   clock: Date.now,
@@ -141,6 +141,13 @@ const server = Bun.serve<undefined>({
   port: 9841,
   async fetch(request, listener) {
     const path = new URL(request.url).pathname;
+    if (path === "/review/approval" && request.method === "POST") {
+      approvalRetryScenario(
+        daemon,
+        z.enum(["create", "refuse", "accept"]).parse(await request.json()),
+      );
+      return Response.json({ ok: true });
+    }
     if (path === "/review/oversized" && request.method === "POST") {
       oversizedScenario(daemon, z.enum(["create", "work", "approval"]).parse(await request.json()));
       return Response.json({ ok: true });
