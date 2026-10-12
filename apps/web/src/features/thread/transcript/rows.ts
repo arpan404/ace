@@ -120,6 +120,15 @@ export function newestOrdinal(
   return undefined;
 }
 
+/** Whether two rows draw the same thing: same kind, key, block and turn. */
+export function sameRow(a: Row, b: Row): boolean {
+  if (a === b) return true;
+  if (a.kind !== b.kind || a.key !== b.key || a.ordinal !== b.ordinal) return false;
+  if (a.kind === "block") return b.kind === "block" && a.block === b.block;
+  if (a.kind === "turn") return b.kind === "turn" && a.askId === b.askId;
+  return true;
+}
+
 /** The row that shows `itemId`, folded or not. */
 export function rowOf(rows: readonly Row[], itemId: string): number {
   return rows.findIndex((row) =>
