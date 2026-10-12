@@ -12,7 +12,10 @@ import { BlockList, isIP, type LookupFunction } from "node:net";
  * credentials or referrer; a short timeout and a byte cap.
  */
 
-const blocked = new BlockList();
+// One list per family: Node's BlockList checks an IPv4 address against IPv6 rules as its mapped
+// form too, so `::ffff:0:0/96` in a shared list would refuse every IPv4 address.
+const blockedV4 = new BlockList();
+const blockedV6 = new BlockList();
 for (const [network, prefix] of [
   ["0.0.0.0", 8],
   ["10.0.0.0", 8],
@@ -30,7 +33,7 @@ for (const [network, prefix] of [
   ["224.0.0.0", 4],
   ["240.0.0.0", 4],
 ] as const)
-  blocked.addSubnet(network, prefix, "ipv4");
+  blockedV4.addSubnet(network, prefix, "ipv4");
 for (const [network, prefix] of [
   ["::", 128],
   ["::1", 128],
@@ -48,13 +51,13 @@ for (const [network, prefix] of [
   ["fec0::", 10],
   ["ff00::", 8],
 ] as const)
-  blocked.addSubnet(network, prefix, "ipv6");
+  blockedV6.addSubnet(network, prefix, "ipv6");
 
 /** Whether an address is on the public internet: not loopback, private, link-local or special. */
 export function isPublicAddress(address: string): boolean {
   const family = isIP(address);
   if (!family) return false;
-  return !blocked.check(address, family === 4 ? "ipv4" : "ipv6");
+  return family === 4 ? !blockedV4.check(address, "ipv4") : !blockedV6.check(address, "ipv6");
 }
 
 /** Where a request may connect. The default: public addresses on the standard web ports. */
