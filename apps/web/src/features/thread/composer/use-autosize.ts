@@ -12,6 +12,8 @@ export function useAutosize(
   ref: RefObject<HTMLDivElement | null>,
   text: string,
   width: number,
+  /** Lines held while empty or short: two, or one in the pill composer. */
+  minLines: number = inputMinLines,
 ): void {
   useLayoutEffect(() => {
     const el = ref.current;
@@ -21,8 +23,8 @@ export function useAutosize(
       el.style.height = "auto";
       // Reserve the same minimum for empty and short drafts.
       const lines = text.trim()
-        ? Math.max(inputMinLines, Math.ceil(el.scrollHeight / inputLine))
-        : inputMinLines;
+        ? Math.max(minLines, Math.ceil(el.scrollHeight / inputLine))
+        : minLines;
       const column = el.closest<HTMLElement>("[data-thread-column]");
       const dock = el.closest<HTMLElement>("[data-composer-dock]");
       const available =
@@ -35,5 +37,5 @@ export function useAutosize(
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [ref, text, width]);
+  }, [ref, text, width, minLines]);
 }

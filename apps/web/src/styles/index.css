@@ -6,6 +6,7 @@
 @import "./legacy-aliases.css";
 @import "./model-control.css";
 @import "./composer-strip.css";
+@import "./composer-pill.css";
 
 /*
  * Scan only web runtime source. Tailwind turns class-like strings into CSS; generated

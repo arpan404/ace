@@ -335,7 +335,9 @@ function ComposerBody({
       takeText(next);
     } else props.onReplaced(next);
   });
-  useAutosize(input, text, width);
+  // An empty composer on a narrow width is one pill row: + · message · model · send.
+  const pill = compact && empty && !props.unavailable && suggestions.state === "closed";
+  useAutosize(input, text, width, pill ? 1 : inputMinLines);
   useTypeToFocus(input, !!props.typeToFocus && !props.unavailable);
   // After an inserted suggestion or mention has rendered, put the caret after it.
   useLayoutEffect(() => {
@@ -723,6 +725,9 @@ function ComposerBody({
             event.preventDefault();
             intake(event.dataTransfer);
           }}
+          // The pill (see `pill`): typing or a file opens it; the same elements stay mounted,
+          // so focus never moves.
+          data-pill={pill ? "" : undefined}
           className={cn(composerSurface, "relative z-10 flex flex-col rounded-xl")}
         >
           <AttachmentChips
@@ -731,7 +736,7 @@ function ComposerBody({
             onRetry={attachments.retry}
             threadId={props.thread.draft ? undefined : props.thread.id}
           />
-          <div className="px-4 pt-3.5 pb-1.5">
+          <div data-slot="composer-input" className="px-4 pt-3.5 pb-1.5">
             <MessageInput
               input={input}
               text={text}
@@ -774,7 +779,7 @@ function ComposerBody({
                 selection.addRange(range);
                 el.dispatchEvent(new Event("input", { bubbles: true }));
               }}
-              style={{ minHeight: inputLine * inputMinLines }}
+              style={{ minHeight: inputLine * (pill ? 1 : inputMinLines) }}
               className="message-input block min-w-0 w-full overflow-y-auto bg-transparent p-0 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
             />
           </div>
@@ -788,29 +793,37 @@ function ComposerBody({
             }}
             className="mb-1.5 flex h-11 min-w-0 items-center justify-between gap-0.5 px-2"
           >
-            <AddButton
-              handle={addMenu}
-              onFiles={attach}
-              onOpen={() => {
-                setDismissed(undefined);
-                setAdding(true);
-                placeCaret.current = caret;
-                input.current?.focus();
-              }}
-              unavailable={props.unavailable}
-            />
-            <div className="flex flex-1 items-center gap-0.5">{props.controls}</div>
-            {props.trailing}
-            <PrimaryAction
-              mode={mode}
-              blocked={blocked}
-              off={!!off}
-              canSteer={props.canSteer !== false}
-              stopping={!!props.stopping}
-              describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
-              onSend={() => submit(false)}
-              onStop={() => props.onStop?.()}
-            />
+            <div data-slot="composer-add" className="flex shrink-0 items-center">
+              <AddButton
+                handle={addMenu}
+                onFiles={attach}
+                onOpen={() => {
+                  setDismissed(undefined);
+                  setAdding(true);
+                  placeCaret.current = caret;
+                  input.current?.focus();
+                }}
+                unavailable={props.unavailable}
+              />
+            </div>
+            <div data-slot="composer-controls" className="flex flex-1 items-center gap-0.5">
+              {props.controls}
+            </div>
+            <div data-slot="composer-trailing" className="flex min-w-0 shrink items-center">
+              {props.trailing}
+            </div>
+            <div data-slot="composer-primary" className="flex shrink-0 items-center">
+              <PrimaryAction
+                mode={mode}
+                blocked={blocked}
+                off={!!off}
+                canSteer={props.canSteer !== false}
+                stopping={!!props.stopping}
+                describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
+                onSend={() => submit(false)}
+                onStop={() => props.onStop?.()}
+              />
+            </div>
           </div>
         </div>
       </ComposerCompact>
