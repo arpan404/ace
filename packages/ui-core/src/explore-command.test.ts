@@ -46,3 +46,9 @@ it("a command substitution inside double quotes, combined flags and long sed opt
   expect(exploreAction("sed --in-place -n '1p' a.ts")).toBeUndefined();
   expect(exploreAction("sed -ni '1p' a.ts")).toBeUndefined();
 });
+
+it("an escaped quote opens no quote, so what follows it still splits and counts", () => {
+  expect(exploreAction('rg \\" ; rm -rf x ; echo \\"')).toBeUndefined();
+  expect(exploreAction('rg "say \\"hi\\"" src')).toBe("search");
+  expect(exploreAction("rg foo\\ bar src")).toBe("search");
+});

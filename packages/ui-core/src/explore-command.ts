@@ -20,6 +20,12 @@ function words(part: string): string[] | undefined {
   let quote: string | undefined;
   for (let index = 0; index < part.length; index++) {
     const char = part[index] ?? "";
+    // A backslash makes the next character literal, except inside single quotes.
+    if (char === "\\" && quote !== "'") {
+      word += part[index + 1] ?? "";
+      index++;
+      continue;
+    }
     if (quote) {
       // Double quotes still run `$(…)` and backticks.
       if (quote === '"' && (char === "`" || (char === "$" && part[index + 1] === "(")))
@@ -46,6 +52,12 @@ function parts(command: string): { text: string; piped: boolean }[] {
   for (let index = 0; index < command.length; index++) {
     const char = command[index] ?? "";
     const next = command[index + 1];
+    // An escaped character never opens or closes a quote, or splits the command.
+    if (char === "\\" && quote !== "'") {
+      current += char + (next ?? "");
+      index++;
+      continue;
+    }
     if (quote) {
       if (char === quote) quote = undefined;
       current += char;
