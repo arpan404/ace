@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeLifecycleActionName.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "ready",
+    "draft",
+    "close",
+    "reopen",
+    "update.merge",
+    "update.rebase",
+    "revert"
+  ],
+  "type": "string"
+}

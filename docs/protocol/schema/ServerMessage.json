@@ -1390,6 +1390,9 @@
         "error": {
           "type": "string"
         },
+        "forgeLifecycle": {
+          "$ref": "https://ace.local/protocol/v1/ForgeLifecycleReceipt.json"
+        },
         "forkThreadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },

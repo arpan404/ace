@@ -45,6 +45,16 @@ The daemon routes project-scoped `forge.pr.*` reads through `workspace.request`,
 
 The public `@ace/forge/testing` entry supplies the existing executable fake `gh` fixture to process tests. The current shared-machine policy requires writing tests without running them locally; CI must verify the final change. No provider sessions or recorder runs are involved.
 
+## Hosted PR metadata and lifecycle
+
+`GitHubForge.lifecycle` owns existing PR edits, ready/draft, close/reopen, supported merge/rebase branch updates and separate draft revert PRs. It reads current viewer permissions and host mutation capabilities through the installed `gh api`. Metadata writes resolve repository label and user identities, recheck a version containing metadata/state/head/base immediately before writing, and retain provider refusals as fixed error codes. Branch updates send `expectedHeadOid` and remain pending until an observed head includes the chosen base; a moved head or base is reported for review. Reverts retain the original merged PR and append a stable operation marker to the editable summary.
+
+The daemon's project-scoped `forge.hosted.lifecycle` command journals each write before dispatch in SQLite and exposes accepted, pending, changed-head and uncertain outcomes. Pending or uncertain operations block another lifecycle write to that PR. Explicit reconciliation observes host state without repeating the mutation, including after restart or a lost response. Revert lookup is bounded by the existing pagination budget. An unavailable follow-up read preserves the durable receipt. Refresh and completed actions publish the observed title/state to every linked thread, including archived and secondary links, without changing agent state or association order.
+
+The PR workspace has a separate Metadata and lifecycle section. Metadata and revert summaries persist locally per repository/PR; failed writes retain them, and stale edits need an explicit refresh decision. A revert is created as a draft with its own diff, reviews and ordinary GitHub checks. Formatting, lint and serial package typechecks are the local verification path for this change; CI must execute the written behavior tests and full typecheck.
+
+## Repository issues
+
 Repository issues share the `GitHubForge` transport and CLI boundary. Search excludes pull requests,
 uses literal text plus bounded filters, and caps results at 1,000 (25 per page). Detail reads viewer
 permissions from GitHub; the paged timeline labels issue comments separately from activity and PR

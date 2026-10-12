@@ -1,3 +1,4 @@
+import { prUrl } from "./pr-reference.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import {
@@ -269,10 +270,7 @@ export function repositoryKey(repo: ForgePrRef["repository"]): string {
     name: repo.name.toLowerCase(),
   });
 }
-export function prUrl(pr: ForgePrRef): string {
-  const repo = pr.repository;
-  return `https://${repo.host}/${repo.owner}/${repo.name}/${repo.forge === "github" ? "pull" : "-/merge_requests"}/${pr.number}`;
-}
+export { prUrl } from "./pr-reference.ts";
 
 function prKey(pr: ForgePrRef): string {
   return `${repositoryKey(pr.repository)}:${pr.number}`;

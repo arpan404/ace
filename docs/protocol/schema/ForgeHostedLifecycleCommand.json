@@ -1,0 +1,66 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeHostedLifecycleCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "operation": {
+      "oneOf": [
+        {
+          "properties": {
+            "action": {
+              "$ref": "https://ace.local/protocol/v1/ForgeLifecycleAction.json"
+            },
+            "expectedVersion": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "kind": {
+              "const": "apply",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "expectedVersion",
+            "action"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "reconcile",
+              "type": "string"
+            },
+            "operationId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "operationId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "pr": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+    },
+    "type": {
+      "const": "forge.hosted.lifecycle",
+      "type": "string"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "type",
+    "workspaceId",
+    "pr",
+    "operation"
+  ],
+  "type": "object"
+}

@@ -45,6 +45,7 @@ export function PrSection(props: { title: string; children: ReactNode; action?: 
 export function PrSummary(props: {
   context: PrWorkspaceContext;
   extensions?: PrWorkspaceExtensions | undefined;
+  lifecycle?: ReactNode;
   onReviewers(): void;
   onOpen(number: number): void;
 }) {
@@ -124,6 +125,7 @@ export function PrSummary(props: {
         />
       </PrSection>
       {props.extensions?.summary?.(props.context)}
+      {props.lifecycle}
       <PrMergeState
         key={prKey}
         workspaceId={props.context.workspaceId}

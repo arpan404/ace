@@ -1,3 +1,4 @@
+import { ForgeHostedLifecycleCommand } from "./forge-lifecycle.ts";
 import {
   SourceControlSelection,
   SourceControlContext,
@@ -143,6 +144,7 @@ export const WorkspaceActionResult = z.object({
 });
 export type WorkspaceActionResult = z.infer<typeof WorkspaceActionResult>;
 export const WorkspaceCommands = [
+  ForgeHostedLifecycleCommand,
   ForgeHostedReviewCommand,
   z.object({ type: z.literal("thread.move"), threadId: ThreadId, workspaceId: WorkspaceId }),
   z.object({

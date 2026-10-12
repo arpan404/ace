@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeLifecycleReceipt.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "headSha": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "accepted",
+        "pending",
+        "head_changed"
+      ],
+      "type": "string"
+    },
+    "revertPr": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+    }
+  },
+  "required": [
+    "outcome",
+    "headSha"
+  ],
+  "type": "object"
+}

@@ -16,6 +16,7 @@ import * as accounts from "@ace/protocol/accounts";
 import * as queue from "@ace/protocol/queue";
 import * as contextMeter from "@ace/protocol/context-meter";
 import * as protocol from "@ace/protocol";
+import * as forgeLifecycle from "@ace/protocol/forge-lifecycle";
 import * as forgeIssues from "@ace/protocol/forge-issues";
 import * as forgeMergeState from "@ace/protocol/forge-merge-state";
 import * as forgeReview from "@ace/protocol/forge-review";
@@ -47,6 +48,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./context-meter", contextMeter],
   ["./forge", forge],
   ["./forge-browser", forgeBrowser],
+  ["./forge-lifecycle", forgeLifecycle],
   ["./forge-issues", forgeIssues],
   ["./forge-merge-state", forgeMergeState],
   ["./forge-stacks", forgeStacks],

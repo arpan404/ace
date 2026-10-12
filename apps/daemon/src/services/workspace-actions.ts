@@ -89,7 +89,8 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
         const id = "threadId" in p ? p.threadId : "link" in p ? p.link.threadId : undefined;
         if (
           !options.workspaceActions ||
-          (p.type !== "forge.issue.write" &&
+          (p.type !== "forge.hosted.lifecycle" &&
+            p.type !== "forge.issue.write" &&
             p.type !== "forge.issue.reconcile" &&
             p.type !== "forge.hosted.review" &&
             (!id || !canReadThread(ThreadId.parse(id))))
@@ -105,7 +106,8 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
           () =>
             connected() &&
             authorize(p.type === "forge.pr.status" ? "read" : "operate") &&
-            (p.type === "forge.issue.write" ||
+            (p.type === "forge.hosted.lifecycle" ||
+              p.type === "forge.issue.write" ||
               p.type === "forge.issue.reconcile" ||
               p.type === "forge.hosted.review" ||
               (id !== undefined && canReadThread(ThreadId.parse(id)))),

@@ -22,16 +22,15 @@ Example:
 
 ```json
 {
-  "at": 9,
+  "at": 2,
   "id": "example",
   "payload": {
     "agentId": "example",
-    "append": "example",
-    "field": "reasoning",
-    "itemId": "example",
-    "type": "item.delta"
+    "commandId": "example",
+    "nativeInputId": "example",
+    "type": "input.admitted"
   },
-  "seq": 4,
+  "seq": 7,
   "threadId": "example"
 }
 ```
@@ -52,38 +51,23 @@ Example:
 ```json
 {
   "changes": {
-    "activityAt": 6,
-    "activitySeq": 9,
+    "activitySeq": 1,
     "autoSettleAt": null,
     "details": {
-      "base": {
-        "fetch": "unreachable",
-        "head": "ac178accc6efec1fa257df0561d7cd0a02970e443c71994b",
-        "ref": "example"
-      },
-      "baseBranch": "example",
+      "behind": 8,
       "diff": {
         "additions": 4,
         "deletions": 8,
         "files": 1
       },
-      "head": "e162570fb87457604523e11a8c8f568544dd729766bae",
-      "worktreeCreation": {
-        "actions": [],
-        "attempt": 7,
-        "cleanupComplete": false,
-        "commandId": "example",
-        "details": [],
-        "elapsedMs": 8,
-        "startedAt": 7,
-        "state": "local",
-        "step": "creating",
-        "steps": []
-      }
+      "linkedPr": {
+        "number": 7,
+        "state": "closed"
+      },
+      "worktree": "example"
     },
     "pinned": true,
-    "readAt": 9,
-    "snoozedUntil": 0,
+    "settledReason": "inactivity",
     "unread": false
   },
   "type": "thread.client.updated"
