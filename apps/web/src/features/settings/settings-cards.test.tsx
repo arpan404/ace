@@ -92,3 +92,13 @@ test("a cleanup preview that finds nothing says so, with no remove action", asyn
   expect(await within(preview).findByText(/^Nothing to clean up/)).toBeTruthy();
   expect(within(preview).queryByRole("button", { name: /^Remove/ })).toBeNull();
 });
+
+test("an expired sign-in is said once on a provider's page, with the account's own action", async () => {
+  await harness().open("/settings/providers/cursor");
+  const accounts = await screen.findByRole("region", { name: "Accounts" });
+  expect(await within(accounts).findByRole("button", { name: /Reconnect/ })).toBeTruthy();
+  expect(await screen.findAllByText("Cursor sign-in has expired.")).toHaveLength(1);
+  // The Behaviour card leaves signing in to the account row.
+  const behaviour = await screen.findByRole("region", { name: "Behaviour" });
+  expect(within(behaviour).queryByRole("button", { name: /^Sign in/ })).toBeNull();
+});

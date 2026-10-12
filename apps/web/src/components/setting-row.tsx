@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { useRender } from "@base-ui/react/use-render";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { InCard } from "@/components/ui/surface-context.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -231,22 +232,24 @@ export function SettingList({ className, ...props }: ComponentProps<"ul">) {
 }
 
 /** One row of a `SettingList`: the row's height and inset, whatever it holds. */
-export function SettingListItem({ className, id, ...props }: ComponentProps<"li">) {
-  const ref = useRef<HTMLLIElement>(null);
-  const flashing = useHashFlash(id, ref);
-  return (
-    <li
-      ref={ref}
-      id={id}
-      data-flash={flashing || undefined}
-      className={cn(
+export function SettingListItem({ className, id, ref, ...props }: ComponentProps<"li">) {
+  const own = useRef<HTMLLIElement>(null);
+  const flashing = useHashFlash(id, own);
+  // useRender joins the row's own ref (for the flash) with a caller's.
+  return useRender({
+    defaultTagName: "li",
+    ref: ref ? [own, ref] : own,
+    props: {
+      ...props,
+      id,
+      "data-flash": flashing || undefined,
+      className: cn(
         "flex min-h-(--setting-row-height) items-center gap-2 px-4 py-(--setting-row-y) transition-colors duration-(--motion-slow)",
         flashing && "bg-accent",
         className,
-      )}
-      {...props}
-    />
-  );
+      ),
+    },
+  });
 }
 
 /**
@@ -258,25 +261,27 @@ export function SettingAction({
   className,
   id,
   type = "button",
+  ref,
   ...props
 }: ComponentProps<"button">) {
-  const ref = useRef<HTMLButtonElement>(null);
-  const flashing = useHashFlash(id, ref);
-  return (
-    <button
-      {...slot}
-      ref={ref}
-      id={id}
-      type={type}
-      data-flash={flashing || undefined}
-      className={cn(
+  const own = useRef<HTMLButtonElement>(null);
+  const flashing = useHashFlash(id, own);
+  return useRender({
+    defaultTagName: "button",
+    ref: ref ? [own, ref] : own,
+    props: {
+      ...props,
+      ...slot,
+      id,
+      type,
+      "data-flash": flashing || undefined,
+      className: cn(
         "flex min-h-(--setting-row-height) w-full items-center gap-2 px-4 text-left text-ui font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-fill hover:text-foreground disabled:opacity-50",
         flashing && "bg-accent",
         className,
-      )}
-      {...props}
-    />
-  );
+      ),
+    },
+  });
 }
 
 /**

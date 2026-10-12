@@ -200,6 +200,11 @@ export function LegacyToggle(props: {
 /** Discovery problems that signing in fixes: not set up or signed out. */
 const fixedBySignIn = new Set<ModelProblem["code"]>(["not_configured", "auth_expired"]);
 
+/** Whether signing in is the fix, so the account's own row can offer it instead. */
+export function isSignInProblem(problem: ModelProblem): boolean {
+  return problem.actionId === "provider.sign_in" || fixedBySignIn.has(problem.code);
+}
+
 /**
  * Why a group's list may be out of date, in the daemon's words, with what to do: "OpenRouter
  * could not be reached. Check your network and refresh models." Its last models still list.
@@ -239,7 +244,7 @@ export function GroupProblem(props: {
           Refresh
         </Button>
       ) : (
-        (problem.actionId === "provider.sign_in" || fixedBySignIn.has(problem.code)) && (
+        isSignInProblem(problem) && (
           <SignInButton
             className="-my-0.5 shrink-0"
             target={{
