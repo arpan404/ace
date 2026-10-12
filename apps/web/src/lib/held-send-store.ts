@@ -14,10 +14,8 @@ interface HeldRecord extends Metadata {
   /** Kept raw until the staged-send owner validates the full message for rendering or retry. */
   value: unknown;
 }
-const key = "ace.sends.staged";
 const limit = 32;
-const prefix = `${key}\0`;
-const RawEntries = z.array(z.unknown());
+const prefix = "ace.sends.staged\0";
 const all = new Observable<readonly HeldRecord[]>([]);
 let storage: KeyValueStorage | undefined;
 let loaded = false;
@@ -36,8 +34,7 @@ function entries(values: readonly unknown[]): readonly HeldRecord[] {
   });
 }
 function read(): readonly HeldRecord[] {
-  const legacy = readJson(storage, key, RawEntries, []);
-  if (!storage?.key || storage.length === undefined) return entries(legacy);
+  if (!storage?.key || storage.length === undefined) return [];
   const values: unknown[] = [];
   for (let index = 0; index < storage.length; index++) {
     const name = storage.key(index);
@@ -46,9 +43,7 @@ function read(): readonly HeldRecord[] {
       if (record !== undefined) values.push(record);
     }
   }
-  const records = new Map(entries(legacy).map((entry) => [entry.commandId, entry]));
-  for (const entry of entries(values)) records.set(entry.commandId, entry);
-  return [...records.values()];
+  return entries(values);
 }
 function view(): readonly HeldRecord[] {
   const durable = read();
@@ -69,7 +64,7 @@ export function retainHeldSend(value: Metadata, settled: unknown): void {
 }
 
 function changed(event: StorageEvent): void {
-  if (event.key === null || event.key === key || event.key.startsWith(prefix)) all.set(view());
+  if (event.key === null || event.key.startsWith(prefix)) all.set(view());
 }
 
 /** The one persisted hold store, shared by recovery metadata and deferred payload readers. */
@@ -88,36 +83,14 @@ export function refreshHeldSends(): void {
   all.set(view());
 }
 
-function migrate(): void {
-  if (!storage?.key || storage.length === undefined) return;
-  for (const entry of entries(readJson(storage, key, RawEntries, []))) {
-    const name = prefix + entry.commandId;
-    if (storage.getItem(name) === null) storage.setItem(name, JSON.stringify(entry.value));
-  }
-  // Only remove the old aggregate after every record is independently durable.
-  storage.removeItem?.(key);
-}
-
 /** Change just this command's durable record. Other tabs never replace its neighbours. */
 export function saveHeldSend(value: Metadata, persisted: unknown): boolean {
-  if (!storage || storage.durable === false) return false;
+  if (!storage?.key || storage.length === undefined || storage.durable === false) return false;
   try {
     const current = read();
     if (current.length >= limit && !current.some((entry) => entry.commandId === value.commandId))
       return false;
-    migrate();
-    if (storage.key && storage.length !== undefined)
-      storage.setItem(prefix + value.commandId, JSON.stringify(persisted));
-    else
-      storage.setItem(
-        key,
-        JSON.stringify([
-          ...current
-            .filter((entry) => entry.commandId !== value.commandId)
-            .map((entry) => entry.value),
-          persisted,
-        ]),
-      );
+    storage.setItem(prefix + value.commandId, JSON.stringify(persisted));
     retained.delete(value.commandId);
     all.set(view());
     return true;
@@ -127,23 +100,9 @@ export function saveHeldSend(value: Metadata, persisted: unknown): boolean {
 }
 
 export function deleteHeldSend(commandId: string): boolean {
-  if (!storage) return false;
+  if (!storage?.removeItem) return false;
   try {
-    migrate();
-    if (storage.key && storage.length !== undefined) {
-      // A null tombstone also works with injected stores without removeItem.
-      storage.setItem(prefix + commandId, "null");
-      storage.removeItem?.(prefix + commandId);
-    } else {
-      storage.setItem(
-        key,
-        JSON.stringify(
-          read()
-            .filter((entry) => entry.commandId !== commandId)
-            .map((entry) => entry.value),
-        ),
-      );
-    }
+    storage.removeItem(prefix + commandId);
     retained.delete(commandId);
     all.set(view());
     return true;

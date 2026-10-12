@@ -192,6 +192,10 @@ test.each([false, true])(
       get length() {
         return backing.data.size;
       },
+      removeItem(key: string) {
+        if (full && key.startsWith("ace.sends.staged")) throw new Error("quota");
+        backing.removeItem?.(key);
+      },
       setItem(key: string, value: string) {
         if (
           full &&

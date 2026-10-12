@@ -7,6 +7,11 @@ import { memoryStorage } from "@/boot/client.ts";
 function harness() {
   const data = new Map<string, string>();
   const storage = {
+    get length() {
+      return data.size;
+    },
+    key: (index: number) => [...data.keys()][index] ?? null,
+    removeItem: (key: string) => void data.delete(key),
     getItem: (key: string) => data.get(key) ?? null,
     setItem: (key: string, value: string) => void data.set(key, value),
   };
@@ -93,6 +98,11 @@ test("a rejected staged write refuses the handoff and a later retry survives rel
   const app = harness();
   let fail = true;
   const storage = {
+    get length() {
+      return app.storage.length;
+    },
+    key: app.storage.key,
+    removeItem: app.storage.removeItem,
     getItem: app.storage.getItem,
     setItem: (key: string, value: string) => {
       if (fail) throw new Error("quota");
@@ -197,6 +207,11 @@ test("completion write failures preserve the durable original and completed hash
   const app = harness();
   let full = false;
   const storage = {
+    get length() {
+      return app.storage.length;
+    },
+    key: app.storage.key,
+    removeItem: app.storage.removeItem,
     getItem: app.storage.getItem,
     setItem(key: string, value: string) {
       if (full) throw new Error("quota");
@@ -207,7 +222,7 @@ test("completion write failures preserve the durable original and completed hash
   expect(
     stage(makeStaged("completed", "Keep the completed upload"), { files: [], previews: [] }),
   ).toBe(true);
-  const original = app.storage.getItem("ace.sends.staged");
+  const original = app.storage.getItem("ace.sends.staged\0completed");
   full = true;
   expect(
     await sendWhenUploaded(app.client, "completed", Promise.resolve([{ sha256: "c".repeat(64) }])),
@@ -216,7 +231,7 @@ test("completion write failures preserve the durable original and completed hash
   expect(failed?.failed).toContain("This device couldn't save the upload results");
   if (!failed) throw new Error("accepted message disappeared");
   expect(canRetry(failed)).toBe(true);
-  expect(app.storage.getItem("ace.sends.staged")).toBe(original);
+  expect(app.storage.getItem("ace.sends.staged\0completed")).toBe(original);
 
   // Completion outcomes remain usable through subsequent refreshes and storage refusals.
   expect(await retryStaged(app.client, "completed", unavailableUpload)).toBe(false);
@@ -241,6 +256,11 @@ test("closing after a completion write refusal leaves the original message avail
   const app = harness();
   let full = false;
   const storage = {
+    get length() {
+      return app.storage.length;
+    },
+    key: app.storage.key,
+    removeItem: app.storage.removeItem,
     getItem: app.storage.getItem,
     setItem(key: string, value: string) {
       if (full) throw new Error("quota");
