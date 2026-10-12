@@ -33,6 +33,31 @@ function content(id: string, text: string) {
     row: itemRow(item, 0),
   }));
 }
+function visualization(id: string, title: string) {
+  const item = Item.parse({
+    id,
+    agentId: "agent",
+    createdAt: host.now(),
+    complete: true,
+    type: "html",
+    visualization: {
+      title,
+      document: {
+        sha256: "a".repeat(64),
+        bytes: 128,
+        mimeType: "text/html",
+        name: "visualization.html",
+      },
+    },
+  });
+  pump.put(`thread:item:${id}`, () => ({
+    type: "thread.item",
+    threadId: "thread",
+    epoch: 1,
+    id,
+    row: itemRow(item, 0),
+  }));
+}
 function status() {
   pump.put("inbox:status", () => ({
     type: "inbox.row",
@@ -103,6 +128,7 @@ Object.assign(globalThis, {
   updateLarge: () => content(largeId, `revision ${++revision}`),
   queueSibling: () => content("sibling", "A later content row"),
   queueStatus: status,
+  queueVisualization: () => visualization("visualization", "Latency by region"),
   queueApproval: () => approval(false),
   replaceApproval: () => approval(false, "replacement-action-"),
   queueBrokenApproval: () => approval(true),

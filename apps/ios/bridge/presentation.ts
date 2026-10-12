@@ -34,7 +34,8 @@ export function itemRow(item: Item, index?: number, sourceTruncated = false) {
       .map((part) => part.text)
       .join("");
     role = item.role;
-  } else if (item.type === "tool_call") text = item.call.title;
+  } else if (item.type === "html") text = item.visualization.title;
+  else if (item.type === "tool_call") text = item.call.title;
   else if (item.type === "reasoning" || item.type === "notice") text = item.text;
   else if (item.type === "delegation.started") text = item.title;
   else text = item.type;
