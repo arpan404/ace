@@ -1,3 +1,4 @@
+import { killAll } from "./kill-all.ts";
 import {
   AgentId,
   CliTree,
@@ -13,6 +14,21 @@ import type { SocketContext, SocketService } from "./socket.ts";
 export function cliControl(context: ServiceContext) {
   return async (operation: CliOperation, signal: AbortSignal): Promise<AgentControlResult> => {
     const { store, services } = context;
+    if (operation.op === "capabilities")
+      return {
+        ok: true,
+        data: {
+          mcp: services.mcp?.toolNames() ?? [],
+          externalMcp: services.externalMcp?.tools ?? [],
+        },
+      };
+    if (operation.op === "process.kill_all") return { ok: false, code: "forbidden" };
+    if (
+      operation.op === "mcp.enroll" ||
+      operation.op === "mcp.list" ||
+      operation.op === "mcp.revoke"
+    )
+      return services.externalMcp?.execute(operation) ?? { ok: false, code: "unsupported" };
     const owner = services.agentControl;
     const threadId = operation.op === "task.spawn" ? operation.parentId : operation.threadId;
     const thread = store.getThread(threadId);
@@ -41,6 +57,8 @@ export function cliControl(context: ServiceContext) {
             uncertain: snapshot?.messages.some((message) => message.state === "uncertain") ?? false,
           },
           attention: threadAttention({ queue }),
+          cancelled:
+            queue?.lastFailure?.code === "cancelled" || edge?.outcome?.outcome === "cancelled",
         };
       });
       return { ok: true, data: CliTree.parse(data) };
@@ -91,17 +109,34 @@ export function createCliControlSession(context: SocketContext): SocketService {
     async handle(message) {
       if (message.type !== "cli.request") return false;
       const operation = message.operation;
-      const threadId = operation.op === "task.spawn" ? operation.parentId : operation.threadId;
-      const scope = ["thread.tree", "task.status"].includes(operation.op) ? "read" : "operate";
+      const global = operation.op === "process.kill_all" || operation.op.startsWith("mcp.");
+      const threadId =
+        "parentId" in operation
+          ? operation.parentId
+          : "threadId" in operation
+            ? operation.threadId
+            : undefined;
+      const scope = global
+        ? "admin"
+        : ["thread.tree", "task.status", "capabilities"].includes(operation.op)
+          ? "read"
+          : "operate";
       let result: AgentControlResult;
-      if (!context.authorize(scope) || !context.canReadThread(threadId))
+      if (
+        !context.authorize(scope) ||
+        (operation.op.startsWith("mcp.") && !context.hostCredential?.()) ||
+        (threadId && !context.canReadThread(threadId))
+      )
         result = { ok: false, code: "forbidden" };
       else if (pending >= 8) result = { ok: false, code: "limit" };
       else if (!context.options.cliControl) result = { ok: false, code: "unsupported" };
       else {
         pending++;
         try {
-          result = await context.options.cliControl(operation, lifetime.signal);
+          result =
+            operation.op === "process.kill_all"
+              ? await killAll(context, operation)
+              : await context.options.cliControl(operation, lifetime.signal);
         } catch {
           result = { ok: false, code: "unavailable" };
         } finally {

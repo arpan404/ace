@@ -47,3 +47,52 @@ work running. An acknowledgement timeout is uncertain; retry the identical mutat
 with its printed idempotency key. The SDK persists pending commands before sending
 and validates daemon identity before replay. No disconnect is treated as completion.
 Never reuse a key with different input. Task receipts are scoped to their parent.
+
+## Process and provider control
+
+```
+ace stop --json
+ace kill-all --provider claude --json
+ace capabilities --json
+ace providers status --json
+ace login codex --stream jsonl
+ace login claude --json
+ace mcp enroll --scope read --ttl 1h --project WORKSPACE
+ace mcp list --json
+ace mcp revoke ENROLLMENT --json
+```
+
+`stop` waits for a correlated cleanup receipt and reports cleanup failures. A closed
+listener alone does not prove shutdown completion. `kill-all` records cancellation;
+subsequent waits return failed with the cancelled thread IDs. Provider and project
+filters apply to every terminated thread. `--thread` selects its subtree.
+Idle provider sessions are closed without changing completed work outcomes.
+Only unfinished selected work receives cancellation metadata; subtree cleanup
+also preserves the results of completed descendants.
+Without filters it also stops owned supervised groups. Retrying its key returns the
+receipt and does not terminate a later generation. Unfinished receipts are uncertain.
+The shared process supervisor journals kernel start identity, owner identity and
+non-secret labels in `processes.sqlite`. Startup kills verified orphan groups;
+recycled or unverifiable live groups fail closed. Existing terminal guardians retain
+PTY session ownership and already clean up on daemon death.
+
+MCP enrollment is a separate loopback `/mcp` endpoint built on ace's existing MCP
+server. Its lease identity is external and grants no internal agent impersonation.
+Read leases expose bounded project inspection. Operate adds thread starts/messages
+and delegated task control. Neither exposes approvals or administration. TTL is at
+most 24 hours; revoke aborts active tools, and restart invalidates all bearers.
+Only local host administrators can enroll/list/revoke. Enrollment writes the ace
+bearer to a private 0600 file. The setup command loads `ACE_MCP_TOKEN` from that file;
+Claude and Codex config reference the variable. The paste-ready commands and config
+contain no token literals. Revocation and expiry remove the current credential file.
+Launch the provider from the shell where the variable is exported. JSON output also
+includes the ace bearer once. No provider credential is read or persisted.
+The snippets use [Claude HTTP MCP configuration](https://code.claude.com/docs/en/mcp)
+and [Codex HTTP MCP configuration](https://developers.openai.com/codex/mcp).
+
+Login uses the reviewed supervised native CLI device/browser flow. Verification
+URLs and device codes go to stderr, or typed JSONL records. Providers without an
+SSH-compatible reviewed flow return needs-human with native terminal instructions.
+ace cancels and drains an active supervised session before printing fallback
+instructions, so a new login can start immediately.
+The CLI never accepts provider API keys or performs a token exchange.

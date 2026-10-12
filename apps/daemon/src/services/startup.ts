@@ -270,24 +270,33 @@ export class ServiceStartup {
     }
   }
   async listening(server: Awaited<ReturnType<typeof startServer>>): Promise<void> {
-    for (const definition of this.deferred) await this.startOne(definition);
-    for (const listener of this.listeners) {
-      if (this.statuses.get(listener.name)?.state === "degraded") continue;
-      try {
-        await bounded(
-          listener.name,
-          async () => {
-            await listener.start(server);
-          },
-          this.runtime,
-          this.context.signal,
-        );
-        this.record(listener.name, { name: listener.name, state: "ready" });
-      } catch (error) {
-        listener.disable();
-        this.degraded(listener.name, error);
-        this.context.signal.throwIfAborted();
+    let next = 0;
+    const drainListeners = async () => {
+      while (next < this.listeners.length) {
+        const listener = this.listeners[next++];
+        if (!listener) continue;
+        if (this.statuses.get(listener.name)?.state === "degraded") continue;
+        try {
+          await bounded(
+            listener.name,
+            async () => {
+              await listener.start(server);
+            },
+            this.runtime,
+            this.context.signal,
+          );
+          this.record(listener.name, { name: listener.name, state: "ready" });
+        } catch (error) {
+          listener.disable();
+          this.degraded(listener.name, error);
+          this.context.signal.throwIfAborted();
+        }
       }
+    };
+    await drainListeners();
+    for (const definition of this.deferred) {
+      await this.startOne(definition);
+      await drainListeners();
     }
   }
 }

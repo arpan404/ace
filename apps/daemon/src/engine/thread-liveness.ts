@@ -6,6 +6,7 @@ import type { IntentWorkers } from "./workers.ts";
 import type { Recovery } from "./recovery.ts";
 import type { Sessions } from "./sessions.ts";
 import { lostWork } from "./lost-work.ts";
+import { threadAttention } from "@ace/projection";
 
 /** Live engine work in a thread tree; durable records alone never count. */
 export interface LiveWork {
@@ -122,11 +123,49 @@ export class ThreadLiveness {
     return { agentsRunning, operationsRunning };
   }
   /** Called after the durable cleanup fence has denied all new execution. */
-  async stop(id: ThreadId): Promise<void> {
+  stop(id: ThreadId): Promise<void> {
+    return this.stopOwned(id, () => {});
+  }
+  /** Idle retained sessions need cleanup, but have no unfinished outcome to cancel. */
+  unfinished(id: ThreadId): boolean {
+    const { repo } = this.ports;
+    const thread = repo.store.getThread(id);
+    if (!thread) return false;
+    const queue = repo.queue.snapshot(id);
+    return (
+      !["done", "failed"].includes(thread.status.state) ||
+      (queue.pendingCount ?? 0) > 0 ||
+      queue.messages.some((message) => message.state === "uncertain") ||
+      threadAttention({ queue }) !== undefined ||
+      repo.pending.running(id) ||
+      repo.sessionOpening(id)
+    );
+  }
+  stopCancelled(id: ThreadId): Promise<void> {
+    if (!this.unfinished(id)) return this.stop(id);
+    if (!this.ports.repo.state(id)) return Promise.resolve();
+    const markCancelled = () => {
+      const { repo, clock } = this.ports;
+      repo.queue.set(
+        id,
+        { paused: true, reason: "stopped", resumeAt: null, timerAction: null },
+        clock.now(),
+      );
+      repo.queue.set(
+        id,
+        { lastFailure: { code: "cancelled", title: "Work cancelled by kill-all" } },
+        clock.now(),
+      );
+    };
+    return this.stopOwned(id, markCancelled);
+  }
+  private async stopOwned(id: ThreadId, beforeExit: () => void): Promise<void> {
     const { repo, sessions, clock } = this.ports;
     if (!repo.state(id)) return;
     this.ports.recovery.discard(id);
     retireThreadIntents(repo, id, clock.now(), "Retired for thread deletion");
+    // Session close can publish terminal facts before the final cleanup fold.
+    beforeExit();
     const actor = this.ports.actor(id);
     actor?.lifetime?.abort();
     if (actor) await sessions.close(actor, "user");
@@ -138,6 +177,7 @@ export class ThreadLiveness {
     await actor?.flush();
     // Opening can finish during cancellation. Close that session as well.
     if (actor?.session) await sessions.close(actor, "user");
+    beforeExit();
     repo.apply(
       id,
       [

@@ -1,3 +1,4 @@
+import { startExternalMcp } from "./external-mcp.ts";
 import { startStorage } from "./storage.ts";
 import { startSourceControl } from "./source-control.ts";
 import { startProviderInstalls } from "./provider-install.ts";
@@ -152,6 +153,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: ["engine"],
     after: ["accounts", "context", "notifications"],
     start: startAgentControl,
+  },
+  {
+    name: "externalMcp",
+    phase: "listener",
+    requires: ["agentControl"],
+    after: ["agentControl"],
+    start: startExternalMcp,
   },
   { name: "previewClient", phase: "listener", requires: [], after: [], start: startPreviewClient },
   {

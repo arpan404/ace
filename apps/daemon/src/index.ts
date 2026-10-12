@@ -1,7 +1,9 @@
+import { ProcessInventory, observeProcessGroups } from "@ace/provider-kit/process";
 import { cliControl } from "./services/cli-control.ts";
 export { StorageService } from "./storage/service.ts";
 export { planStorageItem, type StorageCandidate } from "./storage/planner.ts";
 import { shutdownDeadline } from "./shutdown.ts";
+import { shutdownControl } from "./shutdown-receipt.ts";
 import { connectedDoctorReport } from "./diagnostics-report.ts";
 import { detectToolchains } from "@ace/diagnostics";
 export { runDaemonProcess } from "./process-daemon.ts";
@@ -92,6 +94,19 @@ export async function startDaemon(options: DaemonOptions = {}) {
   }
   const unlock = acquireLock(config.dataDir);
   const resources = new Resources();
+  const inventory = new ProcessInventory(join(config.dataDir, "processes.sqlite"));
+  try {
+    inventory.recover();
+  } catch (error) {
+    inventory.close();
+    unlock();
+    throw error;
+  }
+  const stopInventory = observeProcessGroups(inventory);
+  resources.own(() => {
+    stopInventory();
+    inventory.close();
+  });
   const lifetime = new AbortController();
   resources.onShutdown(() => lifetime.abort());
   let initialized = false;
@@ -230,6 +245,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const socketReady = Promise.withResolvers<void>();
     resources.onShutdown(() => socketReady.resolve());
     const serverOptions: ServerOptions = {
+      shutdown: shutdownControl(config.dataDir, { id: randomUUID, now, close: closeResources }),
       ...services,
       get promptFiles() {
         return services.promptFiles;

@@ -226,6 +226,9 @@ export class ToolRegistry {
       (this.availability?.(principal.scope)(name, entry.capability) ?? true)
     );
   }
+  names(): string[] {
+    return [...this.entries.keys()];
+  }
   list(principal: Principal): Tool[] {
     if (principal.signal.aborted) return [];
     const tools: Tool[] = [];

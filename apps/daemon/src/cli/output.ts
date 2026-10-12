@@ -33,7 +33,11 @@ export function treeOutcome(members: CliTree): Outcome | undefined {
     )
   )
     return "uncertain";
-  if (members.some((member) => member.status.state === "needs_you" || member.attention))
+  if (
+    members.some(
+      (member) => member.status.state === "needs_you" || (member.attention && !member.cancelled),
+    )
+  )
     return "needs-human";
   if (
     members.some(
@@ -44,7 +48,9 @@ export function treeOutcome(members: CliTree): Outcome | undefined {
     )
   )
     return undefined;
-  return members.some((member) => member.status.state === "failed") ? "failed" : "ok";
+  return members.some((member) => member.status.state === "failed" || member.cancelled)
+    ? "failed"
+    : "ok";
 }
 export function formatOutput(value: unknown, json: boolean): string {
   if (!json && typeof value === "string") return `${value}\n`;

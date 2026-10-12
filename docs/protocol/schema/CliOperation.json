@@ -5,6 +5,104 @@
     {
       "properties": {
         "op": {
+          "const": "capabilities",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "key": {
+          "pattern": "^[a-zA-Z0-9_.-]{1,128}$",
+          "type": "string"
+        },
+        "op": {
+          "const": "process.kill_all",
+          "type": "string"
+        },
+        "project": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        },
+        "provider": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "key"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "mcp.enroll",
+          "type": "string"
+        },
+        "project": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        },
+        "scope": {
+          "enum": [
+            "read",
+            "operate"
+          ],
+          "type": "string"
+        },
+        "ttlMs": {
+          "exclusiveMinimum": 0,
+          "maximum": 86400000,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "op",
+        "scope",
+        "ttlMs"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "mcp.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "op": {
+          "const": "mcp.revoke",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
           "const": "thread.tree",
           "type": "string"
         },

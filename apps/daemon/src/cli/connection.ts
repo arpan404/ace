@@ -82,6 +82,9 @@ export async function connectCli(home: string, args: Args) {
   const connection = hostConnection(home);
   const persistence = cliStorage(home);
   const lifetime = new AbortController();
+  const interrupt = () => lifetime.abort();
+  process.once("SIGINT", interrupt);
+  process.once("SIGTERM", interrupt);
   const timer = setTimeout(() => lifetime.abort(), timeoutMs(args));
   const client = new Client({
     deviceId: DeviceId.parse("ace-cli"),
@@ -100,6 +103,8 @@ export async function connectCli(home: string, args: Args) {
     now: Date.now,
   });
   const close = async () => {
+    process.removeListener("SIGINT", interrupt);
+    process.removeListener("SIGTERM", interrupt);
     clearTimeout(timer);
     lifetime.abort();
     await client.close();
