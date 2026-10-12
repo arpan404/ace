@@ -132,6 +132,14 @@ export async function openSession(
             },
           }
         : {}),
+      ...(ctx.builtinSkills
+        ? {
+            plugins: ctx.builtinSkills.directories.map((path) => ({
+              type: "local" as const,
+              path,
+            })),
+          }
+        : {}),
       cwd: ctx.cwd,
       ...(ctx.model ? { model: ctx.model } : {}),
       ...(ctx.fork
