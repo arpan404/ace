@@ -88,7 +88,9 @@ test.each(["content", "rows", "row deletion", "rotation", "new content"])(
     hold = true;
     await userEvent.keyboard("{Enter}");
     await entered.promise;
-    const recoveryKey = [...backing.data.keys()].find((key) => key.startsWith("ace.createAttempt:"));
+    const recoveryKey = [...backing.data.keys()].find((key) =>
+      key.startsWith("ace.createAttempt:"),
+    );
     if (!recoveryKey) throw new Error("create recovery was not reserved");
     if (refusal === "new content") full = true;
     if (refusal === "rotation" || refusal === "new content")

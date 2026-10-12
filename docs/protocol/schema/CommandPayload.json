@@ -1034,6 +1034,46 @@
     },
     {
       "properties": {
+        "action": {
+          "enum": [
+            "merge",
+            "rebase",
+            "continue",
+            "abort",
+            "push"
+          ],
+          "type": "string"
+        },
+        "expected": {
+          "$ref": "https://ace.local/protocol/v1/ForgeStackExpected.json"
+        },
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "method": {
+          "enum": [
+            "merge",
+            "squash",
+            "rebase"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "forge.pr.stack.change",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link",
+        "expected",
+        "action",
+        "method"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "link": {
           "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
         },

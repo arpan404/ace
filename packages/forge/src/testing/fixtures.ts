@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { createCommandRunner, GitHubForge } from "../index.ts";
-import type { ForgeRepository } from "@ace/protocol/forge";
+import { repository, sha } from "./identities.ts";
 
 // A completion safeguard, not a performance assertion. Allow the real runner's
 // 30-second command deadline to finish before Vitest aborts the enclosing test.
@@ -14,14 +14,7 @@ if (process.env.VITEST === "true") {
   vi.setConfig({ testTimeout: 60_000 });
 }
 
-export const repository: ForgeRepository = {
-  forge: "github",
-  host: "github.com",
-  owner: "octo",
-  name: "ace",
-};
-export const sha = "a".repeat(40);
-export const nextSha = "b".repeat(40);
+export { repository, sha, nextSha } from "./identities.ts";
 export const pr = {
   number: 7,
   node_id: "PR_7",
@@ -226,6 +219,15 @@ export function lifecycleFixtures(records = [lifecycleRecord()]): Fixtures {
   };
 }
 
+export {
+  stackChecksFixture,
+  stackUuid,
+  thirdSha,
+  stackLayers,
+  stackResponse,
+  localStack,
+  expectedStack,
+} from "./stack-fixtures.ts";
 const reviewPr = {
   id: "PR_7",
   headRefOid: sha,

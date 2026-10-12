@@ -14,7 +14,16 @@ const args = process.argv.slice(2);
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const body = input ? JSON.parse(input) : undefined;
-const path = args[0] === "api" ? args[1] : "auto-merge";
+const path =
+  args[0] === "api"
+    ? args[1] === "graphql" && body?.query?.includes("query StackChecks(")
+      ? "stack-checks"
+      : args[1] === "graphql" && body?.query?.includes("query StackMergeScope(")
+        ? "stack-scope"
+        : args[1]
+    : args[0] === "stack"
+      ? `stack-${args[1]}${args.includes("--continue") ? "-continue" : args.includes("--abort") ? "-abort" : ""}`
+      : "auto-merge";
 const fixturePath =
   path === "graphql"
     ? (Object.keys(config).find(

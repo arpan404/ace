@@ -41,9 +41,9 @@ export function forgeError(code: string): string {
     forge_rate_limit: "GitHub's rate limit was reached. Wait before refreshing.",
     forge_limit:
       "GitHub returned more data than ace can safely display. Open GitHub for the complete resource.",
-    forge_conflict:
-      "GitHub could not apply the action, or the pull request changed. Refresh and review its current state.",
-    forge_unsupported: "This forge or GitHub host does not support the requested action.",
+    forge_conflict: "The pull request changed while reading. Refresh before continuing.",
+    forge_unsupported:
+      "This host or GitHub capability is not supported. Open GitHub for this action.",
     forge_invalid_data: "GitHub returned an unreadable response. Refresh to try again.",
   };
   return messages[code] ?? actionErrorText(code);

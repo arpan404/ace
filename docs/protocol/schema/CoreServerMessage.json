@@ -377,6 +377,9 @@
         "review": {
           "$ref": "https://ace.local/protocol/v1/ReviewData.json"
         },
+        "stackOperation": {
+          "$ref": "https://ace.local/protocol/v1/ForgeStackOperation.json"
+        },
         "terminalId": {
           "maxLength": 128,
           "minLength": 1,

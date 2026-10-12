@@ -6,6 +6,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { Input } from "@/components/ui/input.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { PrStackGroups } from "./pr-stack-groups.tsx";
 import { PrList } from "./pr-list.tsx";
 import { PrDetail } from "./pr-detail.tsx";
 import { QueryState } from "./query-state.tsx";
@@ -161,6 +162,9 @@ export function PrScreen(props: { location: PrLocation; onLocation(location: PrL
                   repository={repository}
                   number={location.number}
                   tab={location.tab}
+                  onOpen={(number) =>
+                    props.onLocation({ ...location, number, tab: "conversation" })
+                  }
                   onTab={(tab) => {
                     if (
                       tab === "conversation" ||
@@ -175,6 +179,20 @@ export function PrScreen(props: { location: PrLocation; onLocation(location: PrL
             ) : (
               <>
                 <QueryState query={query} />
+                {query.data && (
+                  <PrStackGroups
+                    workspaceId={workspaceId}
+                    refs={query.data.items.map((pr) => pr.ref)}
+                    onOpen={(ref) =>
+                      props.onLocation({
+                        ...location,
+                        project: workspaceId,
+                        number: ref.number,
+                        tab: "conversation",
+                      })
+                    }
+                  />
+                )}
                 <PrList
                   key={`${workspaceId}/${location.repo}/${location.search}/${location.author}/${location.reviewer}`}
                   value={query.data}

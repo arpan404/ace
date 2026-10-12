@@ -19,6 +19,7 @@ import * as protocol from "@ace/protocol";
 import * as forgeLifecycle from "@ace/protocol/forge-lifecycle";
 import * as forgeReview from "@ace/protocol/forge-review";
 import * as forgeBrowser from "@ace/protocol/forge-browser";
+import * as forgeStacks from "@ace/protocol/forge-stacks";
 import * as forge from "@ace/protocol/forge";
 import {
   builtinToolCatalog,
@@ -46,6 +47,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./forge", forge],
   ["./forge-browser", forgeBrowser],
   ["./forge-lifecycle", forgeLifecycle],
+  ["./forge-stacks", forgeStacks],
   ["./forge-review", forgeReview],
   ["./plugins", plugins],
   ["./preview", preview],

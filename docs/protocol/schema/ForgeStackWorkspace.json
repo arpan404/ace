@@ -1,0 +1,54 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeStackWorkspace.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "local": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ForgeLocalStack.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "localUnavailable": {
+      "anyOf": [
+        {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "operation": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ForgeStackOperation.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stack": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ForgeStack.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "stack",
+    "local",
+    "localUnavailable",
+    "operation"
+  ],
+  "type": "object"
+}

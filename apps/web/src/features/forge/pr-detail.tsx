@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { PrLifecycle } from "./pr-lifecycle.tsx";
+import { PrStack } from "./pr-stack.tsx";
 import { PrReviewWorkspace } from "./pr-review-context.tsx";
 import {
   PrReviewSubmission,
@@ -28,6 +29,7 @@ export function PrDetail(props: {
   number: number;
   tab: string;
   onTab(tab: string): void;
+  onOpen(number: number): void;
 }) {
   const toast = useToast();
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -96,6 +98,7 @@ export function PrDetail(props: {
             </div>
           </div>
           <PrActions
+            workspaceId={props.workspaceId}
             key={JSON.stringify(status.ref)}
             detail={detail}
             writeReady={!query.isError && !query.isFetching}
@@ -107,6 +110,13 @@ export function PrDetail(props: {
             detail={detail}
             refreshVersion={refreshVersion}
             onRefresh={() => void refresh()}
+          />
+          <PrStack
+            key={JSON.stringify(status.ref)}
+            workspaceId={props.workspaceId}
+            detail={detail}
+            onRefresh={() => void refresh()}
+            onOpen={props.onOpen}
           />
           <PrReviewWorkspace
             key={JSON.stringify(status.ref)}
