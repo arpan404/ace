@@ -44,7 +44,6 @@ import { Route as SettingsPromptsRouteImport } from "./routes/settings.prompts"
 import { Route as SettingsRemoteRouteImport } from "./routes/settings.remote"
 import { Route as SettingsSourceControlRouteImport } from "./routes/settings.source-control"
 import { Route as SettingsStorageRouteImport } from "./routes/settings.storage"
-import { Route as SettingsThemeEditorRouteImport } from "./routes/settings.theme-editor"
 import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
 import { Route as SkillsSkillIdRouteImport } from "./routes/skills.$skillId"
 import { Route as HomeTThreadIdRouteImport } from "./routes/_home.t.$threadId"
@@ -227,11 +226,6 @@ const SettingsStorageRoute = SettingsStorageRouteImport.update({
   path: "/storage",
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsThemeEditorRoute = SettingsThemeEditorRouteImport.update({
-  id: "/theme-editor",
-  path: "/theme-editor",
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SkillsIndexRoute = SkillsIndexRouteImport.update({
   id: "/",
   path: "/",
@@ -303,7 +297,6 @@ export interface FileRoutesByFullPath {
   "/settings/remote": typeof SettingsRemoteRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
-  "/settings/theme-editor": typeof SettingsThemeEditorRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/activity/": typeof ActivityIndexRoute
   "/automations/": typeof AutomationsIndexRoute
@@ -342,7 +335,6 @@ export interface FileRoutesByTo {
   "/settings/remote": typeof SettingsRemoteRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
-  "/settings/theme-editor": typeof SettingsThemeEditorRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/": typeof HomeIndexRoute
   "/activity": typeof ActivityIndexRoute
@@ -388,7 +380,6 @@ export interface FileRoutesById {
   "/settings/remote": typeof SettingsRemoteRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
-  "/settings/theme-editor": typeof SettingsThemeEditorRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/_home/": typeof HomeIndexRoute
   "/activity/": typeof ActivityIndexRoute
@@ -435,7 +426,6 @@ export interface FileRouteTypes {
     | "/settings/remote"
     | "/settings/source-control"
     | "/settings/storage"
-    | "/settings/theme-editor"
     | "/skills/$skillId"
     | "/activity/"
     | "/automations/"
@@ -474,7 +464,6 @@ export interface FileRouteTypes {
     | "/settings/remote"
     | "/settings/source-control"
     | "/settings/storage"
-    | "/settings/theme-editor"
     | "/skills/$skillId"
     | "/"
     | "/activity"
@@ -519,7 +508,6 @@ export interface FileRouteTypes {
     | "/settings/remote"
     | "/settings/source-control"
     | "/settings/storage"
-    | "/settings/theme-editor"
     | "/skills/$skillId"
     | "/_home/"
     | "/activity/"
@@ -797,13 +785,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsStorageRouteImport
       parentRoute: typeof SettingsRoute
     }
-    "/settings/theme-editor": {
-      id: "/settings/theme-editor"
-      path: "/theme-editor"
-      fullPath: "/settings/theme-editor"
-      preLoaderRoute: typeof SettingsThemeEditorRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     "/skills/": {
       id: "/skills/"
       path: "/"
@@ -956,7 +937,6 @@ interface SettingsRouteChildren {
   SettingsRemoteRoute: typeof SettingsRemoteRoute
   SettingsSourceControlRoute: typeof SettingsSourceControlRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
-  SettingsThemeEditorRoute: typeof SettingsThemeEditorRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsProvidersProviderRoute: typeof SettingsProvidersProviderRoute
   SettingsProvidersIndexRoute: typeof SettingsProvidersIndexRoute
@@ -973,7 +953,6 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsRemoteRoute: SettingsRemoteRoute,
   SettingsSourceControlRoute: SettingsSourceControlRoute,
   SettingsStorageRoute: SettingsStorageRoute,
-  SettingsThemeEditorRoute: SettingsThemeEditorRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsProvidersProviderRoute: SettingsProvidersProviderRoute,
   SettingsProvidersIndexRoute: SettingsProvidersIndexRoute,

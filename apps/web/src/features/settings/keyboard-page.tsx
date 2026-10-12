@@ -383,7 +383,7 @@ function ShortcutRow(props: {
             aria-pressed={recording}
             onClick={() => props.onRecord(!recording)}
             onKeyDown={props.onKeyDown}
-            className="rounded-sm px-1 py-0.5 transition-shadow duration-(--dur-1) hover:bg-accent focus-ring aria-pressed:bg-accent"
+            className="rounded-sm px-1 py-0.5 transition-shadow duration-(--motion-fast) hover:bg-accent focus-ring aria-pressed:bg-accent"
           >
             {recording ? (
               <Kbd className="h-5 px-2 text-sm">Press keys…</Kbd>

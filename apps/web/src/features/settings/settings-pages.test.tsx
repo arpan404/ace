@@ -173,31 +173,19 @@ test("searching Settings finds a single setting and opens its page at that row",
     Element.prototype.scrollIntoView = scrollIntoView;
   });
   await harness().open("/settings/general");
-  await userEvent.type(await screen.findByRole("searchbox", { name: "Search settings" }), "accent");
+  await userEvent.type(await screen.findByRole("searchbox", { name: "Search settings" }), "glass");
   const results = screen.getByRole("region", { name: "Matching settings" });
-  await userEvent.click(within(results).getByRole("link", { name: /^Accent colour/ }));
+  await userEvent.click(within(results).getByRole("link", { name: /^Surfaces/ }));
 
   await screen.findByRole("heading", { level: 2, name: "Appearance" });
-  const row = document.getElementById("appearance.accent");
-  // The page scrolls to that row, the one holding the accent picker.
+  const row = document.getElementById("appearance.surfaces");
+  // The page scrolls to that row, the one holding the Surfaces choice.
   await waitFor(() => expect(scrolled).toContain(row));
-  expect(screen.getByRole("radiogroup", { name: "Accent colour" })).toBeTruthy();
+  expect(screen.getByRole("group", { name: "Surfaces" })).toBeTruthy();
   const nav = screen.getByRole("navigation", { name: "Settings pages" });
   expect(within(nav).getByRole("link", { name: "Appearance" }).getAttribute("aria-current")).toBe(
     "page",
   );
-});
-
-test("the Theme editor is reached from Appearance and keeps Appearance selected in the nav", async () => {
-  await harness().open("/settings/appearance");
-  await userEvent.click(await screen.findByRole("link", { name: "Open theme editor" }));
-  await screen.findByRole("heading", { name: "Theme editor" });
-  const nav = screen.getByRole("navigation", { name: "Settings pages" });
-  expect(within(nav).getByRole("link", { name: "Appearance" }).getAttribute("aria-current")).toBe(
-    "page",
-  );
-  await userEvent.click(screen.getByRole("link", { name: "Appearance", current: false }));
-  await screen.findByRole("heading", { name: "Appearance" });
 });
 
 test("⌘K finds a single setting and opens its page at that row", async () => {
@@ -206,14 +194,14 @@ test("⌘K finds a single setting and opens its page at that row", async () => {
   await userEvent.keyboard("{Control>}k{/Control}");
   const input = await screen.findByRole("combobox", { name: "Search commands" });
   // Not listed until asked for: an empty palette stays short.
-  expect(screen.queryByRole("option", { name: /^Accent colour/ })).toBeNull();
-  await userEvent.type(input, "accent");
-  const option = await screen.findByRole("option", { name: /^Accent colour/ });
+  expect(screen.queryByRole("option", { name: /^Reduce motion/ })).toBeNull();
+  await userEvent.type(input, "reduce motion");
+  const option = await screen.findByRole("option", { name: /^Reduce motion/ });
   expect(option.textContent).toContain("Appearance");
   await userEvent.keyboard("{Enter}");
 
   await screen.findByRole("heading", { level: 2, name: "Appearance" });
-  expect(document.getElementById("appearance.accent")).toBeTruthy();
+  expect(document.getElementById("appearance.reduceMotion")).toBeTruthy();
 });
 
 test("web offers in-app notifications in settings and search while hiding desktop-only controls", async () => {
