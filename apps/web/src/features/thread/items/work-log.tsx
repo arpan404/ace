@@ -22,12 +22,16 @@ export function WorkLog(props: {
   until?: number | undefined;
   /** Time the agent sat idle between two of its runs inside the log. */
   idle?: number | undefined;
+  startedAt?: number | undefined;
+  outcome?: "completed" | "interrupted" | "failed" | "paused" | undefined;
 }) {
   const headline = useWorkLog(props.threadId, props.itemIds, {
     live: props.live,
     ongoing: props.ongoing,
     until: props.until,
     idle: props.idle,
+    startedAt: props.startedAt,
+    outcome: props.outcome,
   });
   const [toggled, setOpen] = useState<boolean>();
   const jumped = use(JumpedItem);
@@ -41,7 +45,9 @@ export function WorkLog(props: {
     <div>
       <WorkLogHeader
         headline={
-          headline.awaiting ? { ...headline, label: "Working", current: undefined } : headline
+          headline.awaiting
+            ? { ...headline, label: "Waiting for your approval", current: undefined }
+            : headline
         }
         open={open}
         panel={panel}
@@ -51,7 +57,12 @@ export function WorkLog(props: {
         props.itemIds.map((itemId) => (
           <WorkLogImage key={itemId} threadId={props.threadId} itemId={itemId} />
         ))}
-      {open && (
+      {open && props.itemIds.length === 0 && (
+        <p id={panel} className="px-1.5 py-2 text-xs text-muted-foreground">
+          No tool steps in this turn.
+        </p>
+      )}
+      {open && props.itemIds.length > 0 && (
         <Suspense fallback={null}>
           <Steps threadId={props.threadId} itemIds={props.itemIds} panel={panel} />
         </Suspense>

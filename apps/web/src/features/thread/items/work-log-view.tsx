@@ -1,6 +1,5 @@
 import { CaretRightIcon } from "@phosphor-icons/react";
 import type { WorkLogHeadline } from "@ace/ui-core";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 
 /*
@@ -17,7 +16,7 @@ export function WorkLogHeader(props: {
 }) {
   const { headline, open } = props;
   return (
-    <>
+    <div className="border-t border-border pt-1">
       <button
         type="button"
         aria-expanded={open}
@@ -38,12 +37,6 @@ export function WorkLogHeader(props: {
           <span className="ml-1 truncate text-xs text-subtle-foreground">{headline.counts}</span>
         )}
       </button>
-      {headline.current && !open && (
-        <p className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-          <Spinner />
-          <span className="truncate">{headline.current}</span>
-        </p>
-      )}
-    </>
+    </div>
   );
 }

@@ -159,10 +159,11 @@ export function readTurnActivity(
   ).length;
   const workingTree = subagents > 0 || backgroundCommands > 0;
   const stretch = ledgerOf(reader).currentStretch(reader);
-  const run = stretch.runId ? reader.run(stretch.runId) : undefined;
-  if (stretch.runId) watch.push(`run:${stretch.runId}`);
+  const runId = reader.thread?.live?.rootRunId ?? stretch.runId;
+  const run = runId ? reader.run(runId) : undefined;
+  if (runId) watch.push(`run:${runId}`);
   // The server's turn start survives snapshots, partial messages and child work outliving it.
-  const from = run?.startedAt ?? stretch.start;
+  const from = run?.startedAt ?? reader.thread?.live?.workingSince ?? stretch.start;
   const active = activity?.tone === "working" || workingTree;
   const shown =
     active &&
@@ -174,6 +175,7 @@ export function readTurnActivity(
       activity.label.startsWith("Waiting on"))
       ? {
           ...activity,
+          code: undefined,
           label: options.stopping ? "Stopping…" : "Working",
           tone: "working" as const,
           elapsedFrom:

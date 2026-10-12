@@ -60,14 +60,13 @@ export function SubagentElapsed(props: {
   const now = useTicker(props.running && props.fresh);
   const end = props.running ? (props.fresh ? now : undefined) : props.endedAt;
   const elapsed = end === undefined ? undefined : end - props.startedAt;
+  if (elapsed === undefined || elapsed < 1000 || elapsed >= 7 * 24 * 3_600_000) return null;
   return (
     <span
       aria-label="Elapsed time"
       className="shrink-0 text-xs text-subtle-foreground tabular-nums"
     >
-      {elapsed !== undefined && elapsed >= 0 && elapsed < 7 * 24 * 3_600_000
-        ? formatElapsed(elapsed)
-        : "—"}
+      {formatElapsed(elapsed)}
     </span>
   );
 }

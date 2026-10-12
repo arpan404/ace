@@ -112,6 +112,8 @@ export function createBlockReader(
       },
     };
     const built = buildBlocks({
+      task: (id) => reader.task(id),
+      pending: [...ledger.pending()].length > 0,
       order,
       item: (id) => reader.item(id),
       background: ledger.background,

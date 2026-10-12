@@ -339,8 +339,11 @@ export class ThreadLedger {
     const item = id === undefined ? undefined : reader.item(id);
     if (!item) return;
     this.track(reader, id);
-    if (closesStretch(item) && rootRunOf(reader, item.runId)?.id !== this.stretch.run) {
-      this.stretch = newStretch(undefined);
+    const incoming = rootRunOf(reader, item.runId);
+    if (closesStretch(item)) {
+      // A steer belongs to the active turn; it must not restart that turn's timer.
+      if (!incoming || incoming.id !== this.stretch.run || incoming.state !== "active")
+        this.stretch = newStretch(incoming?.id);
       return;
     }
     const run = rootRunOf(reader, item.runId)?.id;

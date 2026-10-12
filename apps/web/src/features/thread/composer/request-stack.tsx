@@ -84,7 +84,7 @@ export function RequestStack(props: {
       <InteractionCard
         threadId={props.threadId}
         interactionId={id}
-        frame={request?.request.kind === "approval" ? "inline" : "attached"}
+        frame={request?.request.kind === "approval" ? "card" : "attached"}
         aside={pager}
       />
     </Suspense>
