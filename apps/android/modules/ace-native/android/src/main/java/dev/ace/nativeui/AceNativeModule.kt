@@ -8,6 +8,7 @@ import expo.modules.kotlin.functions.Queues
 
 class AceNativeModule : Module() {
   private val metrics = InputMetrics()
+  private val probe = InputProbe(metrics)
   override fun definition() = ModuleDefinition {
     Name("AceNative")
     AsyncFunction("watchInput") { tag: Int ->
@@ -17,6 +18,9 @@ class AceNativeModule : Module() {
     }.runOnQueue(Queues.MAIN)
     AsyncFunction("commitInput") { length: Int -> metrics.commit(length) }.runOnQueue(Queues.MAIN)
     AsyncFunction("inputMetrics") { metrics.summary() }.runOnQueue(Queues.MAIN)
+    AsyncFunction("probeInput") { count: Int ->
+      probe.run(appContext.currentActivity ?: throw IllegalStateException("Activity is unavailable"), count)
+    }
     AsyncFunction("fontEvidence") { metrics.fontEvidence(appContext.reactContext ?: throw IllegalStateException("React is unavailable")) }.runOnQueue(Queues.MAIN)
     AsyncFunction("stopInputMetrics") { metrics.close() }.runOnQueue(Queues.MAIN)
     OnDestroy { appContext.currentActivity?.runOnUiThread { metrics.close() } }

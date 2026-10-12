@@ -6,17 +6,25 @@ const native = requireNativeModule<{
   fontEvidence(): Promise<unknown>;
   commitInput(length: number): Promise<void>;
   inputMetrics(): Promise<unknown>;
+  probeInput(count: number): Promise<unknown>;
 }>("AceNative");
 const Metrics = z.object({
   samples: z.number().int().nonnegative(),
   p95Ms: z.number().nonnegative(),
   maxMs: z.number().nonnegative(),
+  keys: z.number().int().nonnegative(),
+  mutations: z.number().int().nonnegative(),
+  commits: z.number().int().nonnegative(),
+  draws: z.number().int().nonnegative(),
 });
 export const commitInput = native.commitInput;
 export const watchInput = native.watchInput;
 export const stopInputMetrics = native.stopInputMetrics;
 export async function inputMetrics() {
   return Metrics.parse(await native.inputMetrics());
+}
+export async function probeInput() {
+  return Metrics.parse(await native.probeInput(120));
 }
 
 const FontEvidence = z.object({

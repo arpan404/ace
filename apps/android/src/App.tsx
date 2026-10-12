@@ -3,6 +3,7 @@ import { View, Text, useColorScheme } from "react-native";
 import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SnackbarHost, Snackbar, type SnackbarHostRef } from "@expo/ui/jetpack-compose";
@@ -132,23 +133,25 @@ export function App() {
   return (
     <ThemeContext.Provider value={scheme}>
       <SafeAreaProvider>
-        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
-        {runtime && fonts ? (
-          <Ready runtime={runtime} />
-        ) : (
-          <View
-            style={{
-              flex: 1,
-              justifyContent: "center",
-              padding: tokens.spacing.xl,
-              backgroundColor: c.background,
-            }}
-          >
-            <Text style={{ ...textStyle("body"), color: c.foreground }}>
-              {failure ?? (error ? "The bundled font could not load." : "Opening ace…")}
-            </Text>
-          </View>
-        )}
+        <KeyboardProvider>
+          <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+          {runtime && fonts ? (
+            <Ready runtime={runtime} />
+          ) : (
+            <View
+              style={{
+                flex: 1,
+                justifyContent: "center",
+                padding: tokens.spacing.xl,
+                backgroundColor: c.background,
+              }}
+            >
+              <Text style={{ ...textStyle("body"), color: c.foreground }}>
+                {failure ?? (error ? "The bundled font could not load." : "Opening ace…")}
+              </Text>
+            </View>
+          )}
+        </KeyboardProvider>
       </SafeAreaProvider>
     </ThemeContext.Provider>
   );

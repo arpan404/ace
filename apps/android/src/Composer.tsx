@@ -9,6 +9,7 @@ import {
   watchInput,
   stopInputMetrics,
   inputMetrics,
+  probeInput,
 } from "./input-metrics.ts";
 import { ComposerDraft } from "./composer-draft.ts";
 import { useSelection } from "./selection.ts";
@@ -31,6 +32,7 @@ export function Composer({
   );
   const theme = useTheme();
   const [inputHeight, setInputHeight] = useState<number>(tokens.dimensions.touchTarget);
+  const [probing, setProbing] = useState(false);
   const model = useMemo(
     () =>
       new ComposerDraft((text) =>
@@ -45,6 +47,7 @@ export function Composer({
   );
   const { text: draft, saving } = useSelection(model.selection);
   useLayoutEffect(() => {
+    if (!__DEV__) return;
     void commitInput(draft.length);
     if (__DEV__ && draft.length > 0 && draft.length % 20 === 0) {
       void Promise.all([inputMetrics(), fontEvidence()])
@@ -60,6 +63,24 @@ export function Composer({
         notify(client.state === "ready" ? "Message saved" : "Will send when reconnected");
     } catch {
       notify("Message could not be saved. Your draft is still here.");
+    }
+  }
+  async function measure() {
+    if (!__DEV__ || probing) return;
+    console.info("AceSpikeProbe started");
+    setProbing(true);
+    try {
+      const [m, font] = await Promise.all([probeInput(), fontEvidence()]);
+      console.info("AceSpikeMetrics", JSON.stringify({ input: m, font }));
+      notify(`${m.samples} edits · p95 ${m.p95Ms.toFixed(1)} ms end to end`);
+    } catch (error: unknown) {
+      console.info(
+        "AceSpikeProbe failed",
+        error instanceof Error ? error.message : "Native probe rejected",
+      );
+      notify("Input coverage was incomplete. Focus the composer first.");
+    } finally {
+      setProbing(false);
     }
   }
   return (
@@ -78,6 +99,7 @@ export function Composer({
       <TextInput
         ref={input}
         onFocus={() => {
+          if (!__DEV__) return;
           const tag = findNodeHandle(input.current);
           if (tag !== null)
             void watchInput(tag).catch(() => notify("Input measurement is unavailable"));
@@ -100,6 +122,8 @@ export function Composer({
         underlineColorAndroid="transparent"
         placeholderTextColor={theme.colours.mutedForeground}
         multiline
+        submitBehavior={__DEV__ ? "submit" : "newline"}
+        onSubmitEditing={__DEV__ ? () => void measure() : undefined}
         value={draft}
         onChangeText={(text) => model.edit(text)}
         style={{
@@ -112,23 +136,26 @@ export function Composer({
         }}
       />
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+        <Text
+          style={{
+            ...textStyle("caption"),
+            color: theme.colours.mutedForeground,
+            flex: 1,
+            paddingRight: tokens.spacing.sm,
+          }}
+        >
           Steer · queues if unavailable
         </Text>
         <AceHost>
           <Row>
-            <AceButton
-              label="Metrics"
-              kind="secondary"
-              onPress={() => {
-                void Promise.all([inputMetrics(), fontEvidence()])
-                  .then(([m, font]) => {
-                    console.info("AceSpikeMetrics", JSON.stringify({ input: m, font }));
-                    notify(`${m.samples} edits · p95 ${m.p95Ms.toFixed(1)} ms end to end`);
-                  })
-                  .catch(() => notify("Focus the composer before measuring"));
-              }}
-            />
+            {__DEV__ ? (
+              <AceButton
+                label="Probe"
+                kind="secondary"
+                enabled={!probing}
+                onPress={() => void measure()}
+              />
+            ) : null}
             <AceButton label="↑" onPress={() => void send()} enabled={!!draft.trim() && !saving} />
           </Row>
         </AceHost>

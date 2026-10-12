@@ -11,7 +11,6 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.Choreographer
 import android.view.FrameMetrics
-import android.view.KeyEvent
 import android.view.ViewTreeObserver
 import android.view.Window
 import android.widget.EditText
@@ -20,8 +19,7 @@ import android.widget.EditText
 class InputMetrics {
   private var view: EditText? = null
   private var window: Window? = null
-  private var originalCallback: Window.Callback? = null
-  private var callback: Window.Callback? = null
+  private var completion: java.util.concurrent.CountDownLatch? = null
   private var eventNs = 0L
   private var mutated = false
   private var committed = false
@@ -34,16 +32,21 @@ class InputMetrics {
   }
   private var drawVsyncNs = 0L
   private val samples = ArrayDeque<Double>()
+  private var keys = 0
+  private var mutations = 0
+  private var commits = 0
+  private var draws = 0
   private val watcher = object : TextWatcher {
     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
     override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-      if (eventNs > 0 && count > 0) mutated = true
+      if (eventNs > 0 && count > 0) { mutated = true; mutations++ }
     }
     override fun afterTextChanged(s: Editable?) {}
   }
   private val draw = ViewTreeObserver.OnDrawListener {
     if (eventNs > 0 && mutated && committed && drawVsyncNs == 0L) {
       drawVsyncNs = currentVsyncNs
+      draws++
     }
   }
   private val frame = Window.OnFrameMetricsAvailableListener { _, metrics, _ ->
@@ -53,7 +56,10 @@ class InputMetrics {
       if (latency >= 0) {
         if (samples.size == 256) samples.removeFirst()
         samples.addLast(latency)
+        if (samples.size % 20 == 0) android.util.Log.i("AceSpikeInput", org.json.JSONObject(summary()).toString())
       }
+      completion?.countDown()
+      completion = null
       resetEvent()
     }
   }
@@ -62,34 +68,44 @@ class InputMetrics {
     view = next
     window = targetWindow
     samples.clear()
-    val original = targetWindow.callback
-    originalCallback = original
-    val proxy = object : Window.Callback by original {
-      override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (next.hasFocus() && event.action == KeyEvent.ACTION_DOWN && event.unicodeChar != 0) {
-          resetEvent()
-          eventNs = event.eventTime * 1_000_000
-        }
-        return original.dispatchKeyEvent(event)
-      }
-    }
-    callback = proxy
-    targetWindow.callback = proxy
+    keys = 0
+    mutations = 0
+    commits = 0
+    draws = 0
     Choreographer.getInstance().postFrameCallback(tick)
     next.addTextChangedListener(watcher)
     next.viewTreeObserver.addOnDrawListener(draw)
     targetWindow.addOnFrameMetricsAvailableListener(frame, Handler(Looper.getMainLooper()))
+    android.util.Log.i("AceSpikeFont", org.json.JSONObject(fontEvidence(next.context)).toString())
+  }
+  fun resetSamples() {
+    check(view?.hasFocus() == true) { "Focus the composer before probing input" }
+    samples.clear()
+    keys = 0
+    mutations = 0
+    commits = 0
+    draws = 0
+    resetEvent()
+  }
+  fun beginInput(timeMs: Long, finished: java.util.concurrent.CountDownLatch) {
+    check(view?.hasFocus() == true) { "Composer focus was lost" }
+    resetEvent()
+    eventNs = timeMs * 1_000_000
+    keys++
+    completion = finished
   }
   fun commit(textLength: Int) {
     if (eventNs > 0 && mutated && view?.text?.length == textLength) {
       committed = true
+      commits++
       view?.invalidate()
     }
   }
   fun summary(): Map<String, Any> {
     val sorted = samples.sorted()
     val p95 = if (sorted.isEmpty()) 0.0 else sorted[kotlin.math.ceil(sorted.size * 0.95).toInt() - 1]
-    return mapOf("samples" to sorted.size, "p95Ms" to p95, "maxMs" to (sorted.lastOrNull() ?: 0.0))
+    return mapOf("samples" to sorted.size, "p95Ms" to p95, "maxMs" to (sorted.lastOrNull() ?: 0.0),
+      "keys" to keys, "mutations" to mutations, "commits" to commits, "draws" to draws)
   }
   fun fontEvidence(context: Context): Map<String, Any> {
     val input = view ?: throw IllegalStateException("Focus the composer before reading font evidence")
@@ -114,11 +130,10 @@ class InputMetrics {
     view?.removeTextChangedListener(watcher)
     view?.viewTreeObserver?.takeIf { it.isAlive }?.removeOnDrawListener(draw)
     window?.removeOnFrameMetricsAvailableListener(frame)
-    if (window?.callback === callback) window?.callback = originalCallback
+    completion?.countDown()
+    completion = null
     view = null
     window = null
-    callback = null
-    originalCallback = null
     resetEvent()
   }
 }

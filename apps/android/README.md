@@ -31,6 +31,9 @@ A prebuild plugin binds developer support to the app's `BuildConfig.DEBUG`. Nati
 source is a local Expo module; generated `android/` and Gradle output are ignored.
 Standard core-js array-copy polyfills load before the SDK because this Hermes build
 lacks `Array.toSorted`. Client correctness has no Android-specific implementation.
+Keyboard Controller owns keyboard avoidance and inherits Expo's edge-to-edge mode.
+The app pins Babel 7 because the Worklets transform's TypeScript preset requires it;
+resolving its broad peer range to Babel 8 fails bundling.
 
 ## Measurement
 
@@ -58,6 +61,7 @@ Capture light and dark screenshots on two density/text-scale profiles. A Samsung
 geometry profile on a stock Android system image is not an actual One UI runtime.
 Physical Samsung, Xiaomi, OnePlus and Pixel checks remain release requirements.
 
-The gate remains pending until numbers and replay evidence are recorded. Static
+See [the measurement report](../../docs/verification/android-phase0/README.md).
+The gate remains pending until all measurements pass. Static
 checks are scoped format/lint and `bun run typecheck` here. Run no Vitest or root
 checks on the shared machine. See [ADR 0073](../../docs/adr/0073-native-mobile-clients.md).

@@ -1,5 +1,6 @@
 import { useMemo, useEffect, memo, useState } from "react";
-import { View, Text, KeyboardAvoidingView } from "react-native";
+import { View, Text } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { FlashList } from "@shopify/flash-list";
 import type { ClientApi, ThreadSource } from "@ace/client";
@@ -111,7 +112,7 @@ export function ThreadScreen({
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
-      behavior="height"
+      behavior="padding"
       keyboardVerticalOffset={headerHeight}
     >
       <View style={{ paddingHorizontal: tokens.spacing.lg, paddingVertical: tokens.spacing.sm }}>
