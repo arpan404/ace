@@ -35,13 +35,6 @@ import type { ServiceContext, Services } from "./types.ts";
 import type { ServiceDefinition } from "./startup.ts";
 /** Dependencies are explicit; optional integration failures do not disable the engine. */
 export const serviceFactories: readonly ServiceDefinition[] = [
-  {
-    name: "externalMcp",
-    phase: "listener",
-    requires: ["agentControl"],
-    after: ["agentControl"],
-    start: startExternalMcp,
-  },
   { name: "screen", phase: "core", requires: [], after: [], start: startScreen },
   { name: "settings", phase: "core", requires: [], after: [], start: startSettings },
   {
@@ -159,6 +152,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: ["engine"],
     after: ["accounts", "context", "notifications"],
     start: startAgentControl,
+  },
+  {
+    name: "externalMcp",
+    phase: "listener",
+    requires: ["agentControl"],
+    after: ["agentControl"],
+    start: startExternalMcp,
   },
   { name: "previewClient", phase: "listener", requires: [], after: [], start: startPreviewClient },
   {

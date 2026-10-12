@@ -1,6 +1,7 @@
 import { ProcessInventory, observeProcessGroups } from "@ace/provider-kit/process";
 import { cliControl } from "./services/cli-control.ts";
 import { shutdownDeadline } from "./shutdown.ts";
+import { shutdownControl } from "./shutdown-receipt.ts";
 import { connectedDoctorReport } from "./diagnostics-report.ts";
 import { detectToolchains } from "@ace/diagnostics";
 export { runDaemonProcess } from "./process-daemon.ts";
@@ -242,11 +243,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const socketReady = Promise.withResolvers<void>();
     resources.onShutdown(() => socketReady.resolve());
     const serverOptions: ServerOptions = {
-      shutdown: () => {
-        void closeResources().catch((error: unknown) =>
-          log.log("error", "CLI shutdown failed", logError(error)),
-        );
-      },
+      shutdown: shutdownControl(config.dataDir, { id: randomUUID, now, close: closeResources }),
       ...services,
       get promptFiles() {
         return services.promptFiles;

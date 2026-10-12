@@ -36,7 +36,7 @@ function crossOrigin(path: string): boolean {
   );
 }
 export interface AccessHttpOptions {
-  shutdown?: () => void;
+  shutdown?: import("./shutdown-receipt.ts").ShutdownControl;
   auth: RemoteAuth;
   authenticate: (token: string) => Device | undefined;
   pairing: () => { origin: string; fingerprint: string } | undefined;
@@ -111,8 +111,8 @@ export function accessHttp({
         else if (path === "/v1/stop" && request.method === "POST" && shutdown) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
           maintenance?.enter();
-          result = { stopping: true };
-          response.once("finish", shutdown);
+          result = shutdown.request();
+          response.once("finish", () => shutdown.start());
         } else if (path === "/v1/maintenance" && maintenance) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
           if (request.method === "POST") result = maintenance.enter();
