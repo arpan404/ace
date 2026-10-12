@@ -22,6 +22,7 @@ import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { WorkspaceId } from "@ace/protocol";
 import {
+  readJson,
   defaultWorktreeBase,
   permissionUnavailable,
   permissionCoverage,
@@ -36,6 +37,8 @@ import { ModelPicker } from "./model-picker.tsx";
 import { useBaseRefs } from "@/lib/branches.ts";
 import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import * as z from "zod/mini";
 import { SignInNotice } from "@/features/sign-in/index.ts";
 
 /** Where the thread runs, below the composer. */
@@ -97,9 +100,7 @@ export function NewThreadPage(props: {
   const [baseChoice, setBase] = useState<WorktreeBase | string | undefined>(props.base);
   const page = useRef<HTMLDivElement>(null);
   const composer = useRef<ComposerHandle>(null);
-  const { create, error, recovering } = useCreateThread((payload) => {
-    if (payload.workspaceId === project) composer.current?.discardIfSubmitted(payload);
-  });
+  const [scopeSaveFailed, setScopeSaveFailed] = useState(false);
   useEffect(() => whenIdle(() => void preloadComposerParts()), []);
 
   // Until the starting provider is known, show models loading rather than a provider to undo.
@@ -168,29 +169,63 @@ export function NewThreadPage(props: {
   }, [upgraded, choices, storage]);
   // Mentions, uploads and slash commands go to a draft scope on the daemon before the thread
   // exists; the new thread adopts it. A draft ref's id is that scope.
-  const scope = useDraftScope(project);
+  const host = useHostIdentity()?.hostId;
+  const scopeKey =
+    host && project
+      ? `ace.composer.scope:${JSON.stringify([host, draftKeyFor(project)])}`
+      : undefined;
+  const readScope = () =>
+    scopeKey ? readJson(storage, scopeKey, z.string(), undefined) : undefined;
+  const saveScope = (value: string | null): boolean => {
+    if (!scopeKey || !storage || storage.durable === false) return false;
+    try {
+      storage.setItem(scopeKey, JSON.stringify(value));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const scope = useDraftScope(host ? project : undefined, {
+    read: readScope,
+    granted(id) {
+      setScopeSaveFailed(!saveScope(id));
+    },
+    owns: (id) => readScope() === id,
+  });
+  const { create, error, recovering } = useCreateThread((payload) => {
+    if (payload.context?.draftId) {
+      scope.retire(payload.context.draftId);
+      if (payload.workspaceId === project && readScope() === payload.context.draftId)
+        setScopeSaveFailed(!saveScope(null));
+    }
+    if (payload.workspaceId === project) composer.current?.discardIfSubmitted(payload);
+  });
   const accountId = resolved.account?.id;
   const draftThread = useDraftThreadRef(scope.draftId, project, provider, accountId, scope.retry);
   const waitingForAdmission =
-    !start.loaded || !provider || defaultMode === undefined || permissions.loading;
+    !start.loaded ||
+    options === undefined ||
+    (!!provider && (defaultMode === undefined || permissions.loading));
   const admissionProblem = recovering
     ? "Recovering the previous thread start…"
     : waitingForAdmission
       ? "Checking provider settings…"
       : permissions.failed
         ? "Couldn't check provider permissions. Reconnect and try again."
-        : !resolved.model
-          ? "Choose an available model before sending."
-          : admitted.fallback;
+        : !scope.draftId
+          ? "Preparing attachment storage…"
+          : !resolved.model
+            ? "No model selected. Open the model menu to refresh or sign in."
+            : admitted.fallback;
   const send = async (draft: Draft) => {
-    if (!project || !resolved.model || admissionProblem) return false;
+    if (!project || !resolved.model || admissionProblem || !scope.draftId) return false;
     choose({ project });
     const draftId = scope.draftId;
     // The new thread takes the draft scope over: keep it when this page closes, which is now.
     scope.adopt();
     // Its first bubble shows the files as they were attached, until the daemon echoes them.
     void draft.files.settled.then((ready) => rememberAttachments(draft.files.local, ready));
-    return create({
+    const sent = await create({
       project,
       draftKey: draftKeyFor(project),
       scope: resolved.model.scope,
@@ -209,6 +244,13 @@ export function NewThreadPage(props: {
         attachments: draft.attachments,
       },
     });
+    // Durable admission hands this scope to the thread. Later composition must allocate its own.
+    // A refused save still needs the original scope to restore and resubmit its files.
+    if (sent) {
+      scope.retire(draftId);
+      if (readScope() === draftId) setScopeSaveFailed(!saveScope(null));
+    }
+    return sent;
   };
 
   const toMessage = () =>
@@ -264,10 +306,11 @@ export function NewThreadPage(props: {
               ref={composer}
               key={project}
               onPlan={() => {
-                if (provider) setPermission("plan");
+                if (provider === "claude") setPermission("plan");
               }}
               thread={draftThread}
               draftKey={project ? draftKeyFor(project) : undefined}
+              keepsAttachments
               initialText={props.skill ? `/${props.skill} ` : undefined}
               busy={false}
               sendBlocked={
@@ -361,6 +404,12 @@ export function NewThreadPage(props: {
             {error && (
               <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
                 {error}
+              </p>
+            )}
+            {scopeSaveFailed && (
+              <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
+                Couldn't save attachment storage ownership. Keep this editor open until this device
+                has free space.
               </p>
             )}
           </div>

@@ -1,5 +1,10 @@
 /** The subset of Web Storage the app uses; injected so tests and Electron can swap it. */
 export interface KeyValueStorage {
+  /** Native Web Storage enumeration, for independent durable records. */
+  readonly length?: number;
+  key?(index: number): string | null;
+  /** False for the browser's memory-only fallback. */
+  readonly durable?: boolean;
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem?(key: string): void;
