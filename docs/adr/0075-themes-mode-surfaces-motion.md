@@ -1,4 +1,4 @@
-# 0075: Six themes, separate mode, surfaces, motion tokens and liquid glass
+# 0075: Eight themes on one neutral ramp, separate mode, surfaces, motion tokens and liquid glass
 
 Date: 2026-10-12. Status: accepted.
 Supersedes the "Design tokens" section of [ADR 0045](0045-web-client-stack.md) and its reduced
@@ -85,8 +85,8 @@ The theme provider stores `ace.boot-appearance`: the settings plus the chosen th
 
 ### Native status hues
 
-Native status markers (`packages/design-tokens`) use the default theme's values (Graphite shares Ace's statuses). A parity test keeps all six
-statuses equal to what the web renders in Ace.
+Native status markers (`packages/design-tokens`) use the status colours every theme shares; status never changes with the theme. A parity test keeps all six
+statuses equal to what the web renders in every theme.
 
 ### Old names
 
@@ -101,5 +101,5 @@ parallel UI streams have merged, and are then removed.
   editing both palettes of a theme together and running the same contrast checks.
 - Liquid glass costs one canvas render per new layer geometry, at most 24 cached filters, and a
   ResizeObserver callback per resize. Nothing runs per frame.
-- The desktop window paints a solid background in Ace's page colour and composites no platform
+- The desktop window paints a solid background in Graphite's page colour and composites no platform
   material.

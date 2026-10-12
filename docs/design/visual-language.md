@@ -36,7 +36,8 @@ Mode and theme are separate settings.
 
 Every theme shares one **neutral ramp** per scheme: twelve near-true greys generated in OKLCH
 (`palettes.ts`). Only Paper and Ember warm the greys, and only slightly (chroma 0.006). A theme's
-identity is its accent; Mono's accent is the text colour itself. Graphite is pure grey with a
+identity is its accent; Mono's accent is the text colour itself. Status colours never change with
+the theme: working is always blue, needs-you amber, waiting violet, failed red and done green. Graphite is pure grey with a
 restrained blue, close to T3 Code and Codex.
 
 | Step | Name           | Light   | Dark    | For                                      |
