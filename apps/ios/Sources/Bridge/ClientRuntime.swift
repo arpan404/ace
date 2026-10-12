@@ -83,8 +83,8 @@ final class ClientRuntime: @unchecked Sendable {
     func invoke(_ name: String, json: String) {
         execute { context in context.objectForKeyedSubscript(name)?.call(withArguments: [json]) }
     }
-    func acknowledge() {
-        execute { context in context.objectForKeyedSubscript("aceAck")?.call(withArguments: []) }
+    func acknowledge(accepted: Bool) {
+        execute { context in context.objectForKeyedSubscript("aceAck")?.call(withArguments: [accepted]) }
     }
     func stop(completion: @escaping @Sendable () -> Void = {}) {
         let runLoop = lock.withLock {

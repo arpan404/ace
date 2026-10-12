@@ -2,6 +2,23 @@ import XCTest
 
 @MainActor final class SpikeUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
+    func testManyLargeApprovalActionsStayVisibleAndSelectable() async throws {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:9841/review/many")))
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(ManyScenario(id: "ios-many-menu"))
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        let app = launch()
+        XCTAssertTrue(app.buttons["thread.ios-many-menu"].waitForExistence(timeout: 25))
+        app.buttons["thread.ios-many-menu"].tap()
+        XCTAssertTrue(app.buttons["approval.more"].waitForExistence(timeout: 25))
+        screenshot("many-approval")
+        app.buttons["approval.more"].tap()
+        XCTAssertTrue(app.buttons["Choice 2"].waitForExistence(timeout: 10))
+        app.buttons["Choice 2"].tap()
+        let closed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["approval.more"])
+        await fulfillment(of: [closed], timeout: 15)
+    }
     func testInboxThreadAndApprovalScreens() {
         let app = launch()
         XCTAssertTrue(app.buttons["thread.ios-approval"].waitForExistence(timeout: 25))
@@ -110,6 +127,7 @@ import XCTest
 }
 
 private struct OnlineControl: Encodable { let online: Bool }
+private struct ManyScenario: Encodable { let id: String }
 private struct TranscriptState: Decodable {
     struct Entry: Decodable { struct Part: Decodable { let text: String? }; let parts: [Part]? }
     let items: [String: Entry]

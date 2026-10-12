@@ -211,7 +211,7 @@ Object.assign(globalThis, {
     void start(json).catch(error);
   },
   aceAction: action,
-  aceAck: () => pump.ack(),
+  aceAck: (accepted: boolean) => pump.ack(accepted),
   aceSocket: (id: string, type: string, value: string) => {
     const socket = sockets.get(id);
     if (!socket) return;

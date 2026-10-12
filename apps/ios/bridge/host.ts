@@ -9,6 +9,7 @@ export interface NativeHost {
   uuid(): string;
   random(): number;
   encode(text: string): number[];
+  utf8Base64(text: string): string;
   decode(bytes: number[], encoding: string, fatal: boolean): string;
   randomBytes(count: number): number[];
   base64(text: string, decode: boolean): string;

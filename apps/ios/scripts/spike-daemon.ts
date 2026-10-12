@@ -4,6 +4,7 @@ import type { ServerWebSocket } from "bun";
 import { z } from "zod";
 import { ThreadId } from "@ace/protocol";
 import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts";
+import { manyActions, snapshotFrames } from "./many-actions.ts";
 
 const daemon = new FakeDaemon({
   clock: Date.now,
@@ -135,12 +136,25 @@ let deltas = 0;
 let commands = 0;
 let snapshots = 0;
 let replays = 0;
+let fragmentParts = 0;
 const Control = z.object({ online: z.boolean() });
 const server = Bun.serve<undefined>({
   hostname: "127.0.0.1",
   port: 9841,
   async fetch(request, listener) {
     const path = new URL(request.url).pathname;
+    if (path === "/review/many" && request.method === "POST") {
+      const input = z
+        .object({
+          id: z
+            .string()
+            .regex(/^ios-many-[a-z]+$/)
+            .max(64),
+        })
+        .parse(await request.json());
+      manyActions(daemon, input.id);
+      return Response.json({ ok: true });
+    }
     if (path === "/review/approval" && request.method === "POST") {
       approvalRetryScenario(
         daemon,
@@ -153,7 +167,14 @@ const server = Bun.serve<undefined>({
       return Response.json({ ok: true });
     }
     if (path === "/health")
-      return Response.json({ head: daemon.head, deltas, commands, snapshots, replays });
+      return Response.json({
+        head: daemon.head,
+        deltas,
+        commands,
+        snapshots,
+        replays,
+        fragmentParts,
+      });
     if (path === "/control" && request.method === "POST") {
       online = Control.parse(await request.json()).online;
       if (!online) for (const socket of connections.keys()) socket.close(1001);
@@ -177,7 +198,10 @@ const server = Bun.serve<undefined>({
           send: (text) => {
             if (text.includes('"type":"snapshot"')) snapshots++;
             if (text.includes('"type":"events"')) replays++;
-            socket.send(text);
+            for (const frame of snapshotFrames(text)) {
+              if (frame.includes('"type":"snapshot.part"')) fragmentParts++;
+              socket.send(frame);
+            }
           },
           close: (code) => socket.close(code),
         }),

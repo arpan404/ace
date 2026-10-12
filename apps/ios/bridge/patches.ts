@@ -4,16 +4,29 @@ import { threadRow, itemRow, approvalRow } from "./presentation.ts";
 
 /** One in-flight frame, at most 32 KiB UTF-8. Keep dirty keys, never queued transcript copies. */
 export class PatchPump {
-  #inFlight = false;
+  #inFlight: (() => void) | undefined;
   #timer: (() => void) | undefined;
   #tasks = new Map<string, () => unknown | undefined>();
-  #fragment: { id: string; bytes: number[]; offset: number; index: number } | undefined;
+  #fragment:
+    | {
+        key: string;
+        read: () => unknown | undefined;
+        id: string;
+        data: string;
+        offset: number;
+        index: number;
+      }
+    | undefined;
   put(key: string, read: () => unknown | undefined): void {
     this.#tasks.set(key, read);
     this.#schedule();
   }
-  ack(): void {
-    this.#inFlight = false;
+  ack(accepted: boolean): void {
+    const commit = this.#inFlight;
+    if (!commit) return;
+    this.#inFlight = undefined;
+    if (accepted) commit();
+    else this.#fragment = undefined; // Native reset its assembly. Re-read the still-dirty key.
     this.#schedule();
   }
   clear(prefix: string): void {
@@ -33,6 +46,7 @@ export class PatchPump {
       return;
     }
     const frame: unknown[] = [];
+    const delivered: { key: string; read: () => unknown | undefined }[] = [];
     let bytes = 2;
     for (const [key, read] of this.#tasks) {
       const patch = read();
@@ -41,37 +55,50 @@ export class PatchPump {
         continue;
       }
       const json = JSON.stringify(patch);
-      const encoded = host.encode(json);
-      const size = encoded.length;
+      // Native UTF-8/base64 conversion avoids a boxed JS number for every payload byte.
+      const encoded = host.utf8Base64(json);
+      const size =
+        (encoded.length / 4) * 3 - (encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0);
       if (size > 32760) {
         if (frame.length) break;
-        this.#tasks.delete(key);
-        this.#fragment = { id: host.uuid(), bytes: encoded, offset: 0, index: 0 };
+        this.#fragment = { key, read, id: host.uuid(), data: encoded, offset: 0, index: 0 };
         this.#emitFragment();
         return;
       }
       if (bytes + size + 1 > 32768 || frame.length >= 32) break;
-      this.#tasks.delete(key);
+      delivered.push({ key, read });
       frame.push(patch);
       bytes += size + 1;
     }
     if (frame.length) {
-      this.#inFlight = true;
+      this.#inFlight = () => {
+        for (const { key, read } of delivered) this.#confirm(key, read);
+      };
       host.emit(JSON.stringify(frame));
     }
   }
   #emitFragment(): void {
     const fragment = this.#fragment;
     if (!fragment) return;
-    // Decimal byte arrays take at most four JSON bytes per byte. No UTF-16 boundary cuts.
-    const bytes = fragment.bytes.slice(fragment.offset, fragment.offset + 4096);
-    fragment.offset += bytes.length;
-    const last = fragment.offset === fragment.bytes.length;
-    this.#inFlight = true;
+    // 24 KiB base64 represents 18 KiB UTF-8 and leaves room inside the 32 KiB frame.
+    const data = fragment.data.slice(fragment.offset, fragment.offset + 24576);
+    const last = fragment.offset + data.length === fragment.data.length;
+    this.#inFlight = () => {
+      if (last) {
+        this.#confirm(fragment.key, fragment.read);
+        this.#fragment = undefined;
+      } else {
+        fragment.offset += data.length;
+        fragment.index++;
+      }
+    };
     host.emit(
-      JSON.stringify([{ type: "fragment", id: fragment.id, index: fragment.index++, last, bytes }]),
+      JSON.stringify([{ type: "fragment", id: fragment.id, index: fragment.index, last, data }]),
     );
-    if (last) this.#fragment = undefined;
+  }
+  #confirm(key: string, read: () => unknown | undefined): void {
+    // An SDK update received during delivery replaces the reader and stays dirty.
+    if (this.#tasks.get(key) === read) this.#tasks.delete(key);
   }
 }
 export function followInbox(store: SidebarSource, pump: PatchPump): () => void {

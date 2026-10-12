@@ -4,7 +4,7 @@ struct BridgeFragment: Decodable, Sendable {
     let id: String
     let index: Int
     let last: Bool
-    let bytes: [UInt8]
+    let data: String
 }
 
 /// One acknowledged transfer at a time; fragments never expose a partially updated row.
@@ -25,10 +25,14 @@ struct BridgeFrames {
                         guard fragment.index == 0 else { throw FrameError.order }
                         transferId = fragment.id
                     }
+                    // SDK reassembly admits 64 MiB UTF-16, independently of its 2 MiB
+                    // physical frames. Allow UTF-8 expansion, duplicated DTO identities
+                    // and a separately retained scope ID. No capacity is preallocated.
                     guard transferId == fragment.id, nextIndex == fragment.index,
-                          fragment.bytes.count <= 4096,
-                          assembly.count + fragment.bytes.count <= 8 * 1024 * 1024 else { throw FrameError.budget }
-                    assembly.append(contentsOf: fragment.bytes)
+                          fragment.data.utf8.count <= 24576,
+                          let bytes = Data(base64Encoded: fragment.data), bytes.count <= 18432,
+                          assembly.count + bytes.count <= 512 * 1024 * 1024 else { throw FrameError.budget }
+                    assembly.append(bytes)
                     nextIndex += 1
                     if fragment.last {
                         let assembled = try JSONDecoder().decode(BridgePatch.self, from: assembly)

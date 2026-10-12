@@ -46,18 +46,18 @@ import CryptoKit
         let runtime = ClientRuntime(target: target, storageURL: directory.appendingPathComponent(scope + ".sqlite"), receive: { [weak self] data in
             Task { @MainActor in
                 guard let self else { return }
-                self.receive(data)
-                self.runtime?.acknowledge()
+                let accepted = self.receive(data)
+                self.runtime?.acknowledge(accepted: accepted)
             }
         }, fail: { [weak self] message in Task { @MainActor in self?.error = message } })
         self.runtime = runtime
         runtime.start(itemLimit: itemLimit)
     }
-    func receive(_ data: Data) {
+    @discardableResult func receive(_ data: Data) -> Bool {
         largestFrame = max(largestFrame, data.count)
         guard let patches = try? frames.decode(data) else {
             error = "Could not read a client update"
-            return
+            return false
         }
         var reorder = false
         for patch in patches {
@@ -116,6 +116,7 @@ import CryptoKit
                 (thread.positions[$0] ?? 0) < (thread.positions[$1] ?? 0)
             }
         }
+        return true
     }
     func open(_ id: String) {
         generation += 1
