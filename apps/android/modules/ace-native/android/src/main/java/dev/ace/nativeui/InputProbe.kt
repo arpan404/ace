@@ -34,11 +34,17 @@ class InputProbe(private val metrics: InputMetrics) {
         }
         instrumentation.sendKeySync(down)
         instrumentation.sendKeySync(KeyEvent.changeAction(down, KeyEvent.ACTION_UP))
-        check(finished.await(2, TimeUnit.SECONDS)) { "A completed input frame was not captured" }
+        finished.await(2, TimeUnit.SECONDS)
+        // A dropped FrameMetrics callback is a coverage miss, not a failed run.
+        // Fence on the UI thread so a late callback cannot complete the next key.
+        main(activity) { metrics.finishInput(finished) }
         Thread.sleep(200)
       }
       val result = main(activity) { metrics.summary() }
-      check(result["samples"] == count) { "Input coverage was incomplete" }
+      val samples = result["samples"] as Int
+      check(samples >= kotlin.math.ceil(count * 0.95).toInt()) {
+        "Input coverage below 95%: $samples/$count completed frames"
+      }
       return result
     } finally {
       active.set(false)

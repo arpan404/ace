@@ -16,7 +16,8 @@
       "expo-font",
       "expo-secure-store",
       "./plugins/with-ace-host.ts",
-      "./plugins/with-ace-network.ts"
+      "./plugins/with-ace-network.ts",
+      "./plugins/with-ace-probe.ts"
     ]
   }
 }

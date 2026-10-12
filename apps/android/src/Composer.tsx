@@ -33,6 +33,7 @@ export function Composer({
   const theme = useTheme();
   const [inputHeight, setInputHeight] = useState<number>(tokens.dimensions.touchTarget);
   const [probing, setProbing] = useState(false);
+  const probeActive = useRef(false);
   const model = useMemo(
     () =>
       new ComposerDraft((text) =>
@@ -66,7 +67,8 @@ export function Composer({
     }
   }
   async function measure() {
-    if (!__DEV__ || probing) return;
+    if (!__DEV__ || probeActive.current) return;
+    probeActive.current = true;
     console.info("AceSpikeProbe started");
     setProbing(true);
     try {
@@ -80,6 +82,7 @@ export function Composer({
       );
       notify("Input coverage was incomplete. Focus the composer first.");
     } finally {
+      probeActive.current = false;
       setProbing(false);
     }
   }

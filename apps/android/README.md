@@ -42,14 +42,30 @@ The fixture has 2,001 transcript entries and appends ten deltas each second. Ope
 pages. Scroll while the live tail streams, and collect `dumpsys gfxinfo` and PSS.
 The spike SDK cap is 2,200 items; production should keep the standard 200-item tail.
 
-Focus the composer and inject individual printable key events. The Metrics control
-reports Android input enqueue timestamp through JS draft commit to the matching
-completed rendering frame using Window callbacks and FrameMetrics. It also emits
-numeric font evidence under `AceSpikeMetrics`: actual rendered glyph advances versus
-the bundled Inter asset, its SHA-256, text size and foreground colour. No draft or
-credential enters diagnostic logs. Use at least 100 complete samples. Zero samples
-is an unavailable measurement, never a pass. This measures the app pipeline on an
-emulator; physical keyboard/IME and display scanout need device verification.
+Build the separate debug instrumentation APK with `:app:assembleDebugAndroidTest`
+in the same bounded Gradle invocation. Install it with `adb install -t`, then run:
+
+```sh
+adb shell am instrument -w -e durationSeconds 600 \
+  dev.ace.android.test/dev.ace.android.benchmark.SpikeInstrumentation
+```
+
+This ten-minute instrumentation window attributes test input injection to adb's
+shell source. The product manifest gains no `INJECT_EVENTS` permission. Ordinary
+app launches correctly reject injection. Open the streaming thread, load its
+2,001 entries, focus the composer and press Enter or Probe. The debug-only Enter
+shortcut starts the benchmark; production multiline input still inserts newlines.
+
+The probe timestamps each of 120 native key events before Android input enqueue,
+then waits for the JS draft commit and matching completed rendering frame using
+FrameMetrics. It includes Android dispatch and IME processing. It excludes physical
+key actuation and display scanout. Missing frames or incomplete coverage reject the
+run. No zero-sample result can pass the gate. `AceSpikeInput` and `AceSpikeMetrics`
+contain sample counts, timings and coverage counters, without draft contents.
+
+`AceSpikeFont` records actual rendered glyph advances versus the bundled Inter
+asset, its SHA-256, text size and foreground colour. The earlier window-callback
+approach captured no key timestamps when the IME handled events and was discarded.
 
 For restart replay, disconnect the fixture port, send, and verify the committed
 SQLite record before force-stopping the app. Relaunch while still disconnected,

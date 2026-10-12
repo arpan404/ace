@@ -94,6 +94,12 @@ class InputMetrics {
     keys++
     completion = finished
   }
+  fun finishInput(finished: java.util.concurrent.CountDownLatch) {
+    if (completion === finished) {
+      completion = null
+      resetEvent()
+    }
+  }
   fun commit(textLength: Int) {
     if (eventNs > 0 && mutated && view?.text?.length == textLength) {
       committed = true
@@ -104,7 +110,12 @@ class InputMetrics {
   fun summary(): Map<String, Any> {
     val sorted = samples.sorted()
     val p95 = if (sorted.isEmpty()) 0.0 else sorted[kotlin.math.ceil(sorted.size * 0.95).toInt() - 1]
-    return mapOf("samples" to sorted.size, "p95Ms" to p95, "maxMs" to (sorted.lastOrNull() ?: 0.0),
+    val allAttemptRank = kotlin.math.ceil(keys * 0.95).toInt() - 1
+    // Uncaptured attempts are censored at the 2-second capture timeout.
+    val allAttemptP95 = sorted.getOrNull(allAttemptRank) ?: if (keys == 0) 0.0 else 2000.0
+    return mapOf("misses" to (keys - sorted.size),
+      "coverage" to (if (keys == 0) 0.0 else sorted.size.toDouble() / keys),
+      "minimumCoverage" to 0.95, "allAttemptP95LowerBoundMs" to allAttemptP95, "samples" to sorted.size, "p95Ms" to p95, "maxMs" to (sorted.lastOrNull() ?: 0.0),
       "keys" to keys, "mutations" to mutations, "commits" to commits, "draws" to draws)
   }
   fun fontEvidence(context: Context): Map<String, Any> {
