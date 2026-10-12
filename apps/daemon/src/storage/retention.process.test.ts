@@ -160,7 +160,7 @@ test("the scheduled hook uses the ordinary protected plan and never forces a ret
   expect(await readFile(current, "utf8")).toBe("keep current");
 });
 
-test("requesting disabled compaction still removes reviewed bytes and leaves durable writes available", async () => {
+test("cleanup removes reviewed bytes and leaves durable writes available", async () => {
   const f = await setup();
   const path = await f.file("logs/ace.1.jsonl");
   const thread = f.thread("retained");
@@ -173,8 +173,8 @@ test("requesting disabled compaction still removes reviewed bytes and leaves dur
     "owner",
     {
       type: "storage.request",
-      requestId: "disabled-compaction",
-      operation: { op: "cleanup.apply", planId: plan.id, revision: plan.revision, compact: true },
+      requestId: "cleanup-writes",
+      operation: { op: "cleanup.apply", planId: plan.id, revision: plan.revision },
     },
     () => true,
   );
@@ -182,8 +182,6 @@ test("requesting disabled compaction still removes reviewed bytes and leaves dur
     kind: "apply",
     apply: {
       state: "complete",
-      compaction: "deferred",
-      compactionReason: "disabled",
       items: [{ state: "removed" }],
     },
   });
@@ -194,7 +192,7 @@ test("requesting disabled compaction still removes reviewed bytes and leaves dur
     2,
   );
   expect(f.store.getThread(thread.id)?.title).toBe("Still writable");
-  expect(await f.storage.apply("owner", plan.id, plan.revision, true)).toEqual(
+  expect(await f.storage.apply("owner", plan.id, plan.revision)).toEqual(
     f.storage.status("owner", plan.id),
   );
 });

@@ -138,8 +138,6 @@ export class StorageService {
           plan,
           owner: device,
           state: "review",
-          compact: false,
-          compaction: "not_requested",
           entries: bounded.map(({ item, candidate }) => ({
             item,
             fingerprint: candidate.fingerprint,
@@ -164,7 +162,6 @@ export class StorageService {
     device: string,
     planId: string,
     revision: string,
-    compact = false,
     allowed = () => true,
   ): Promise<StorageApply> {
     return this.serial(async () => {
@@ -207,7 +204,6 @@ export class StorageService {
           return this.journal.result(journal);
         }
         journal.state = "applying";
-        journal.compact = compact;
         this.journal.save(journal);
       }
       return this.run(journal, allowed);
@@ -231,7 +227,7 @@ export class StorageService {
       if (journal) return this.journal.result(journal);
     }
     const plan = await this.plan("storage:scheduler");
-    return this.apply("storage:scheduler", plan.id, plan.revision, false, allowed);
+    return this.apply("storage:scheduler", plan.id, plan.revision, allowed);
   }
   async resume(allowed: (reviewer: string) => boolean = () => true): Promise<void> {
     for (const id of this.journal.pending()) {
@@ -255,7 +251,7 @@ export class StorageService {
         case "cleanup.apply":
           result = {
             kind: "apply",
-            apply: await this.apply(device, op.planId, op.revision, op.compact, allowed),
+            apply: await this.apply(device, op.planId, op.revision, allowed),
           };
           break;
         case "cleanup.status":

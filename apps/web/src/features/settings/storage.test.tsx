@@ -37,7 +37,6 @@ test("storage shows protected data and waits for confirmation before removing re
   expect(within(list).getByText("Keep · Currently in use")).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Remove 1 items" }));
   const dialog = await screen.findByRole("dialog");
-  expect(within(dialog).queryByRole("checkbox", { name: /compact/i })).toBeNull();
   await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(within(list).queryByText("Removed")).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Remove 1 items" }));

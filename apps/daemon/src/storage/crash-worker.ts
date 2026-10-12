@@ -6,5 +6,5 @@ const [root, planId, revision] = z
 const fixture = await storageFixture(root, async () => {
   process.exit(86);
 });
-await fixture.storage.apply("owner", planId, revision, true);
+await fixture.storage.apply("owner", planId, revision);
 await fixture.close();
