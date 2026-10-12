@@ -91,6 +91,17 @@ private struct TranscriptItemView: View {
                     .background(row.role == "user" ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.bubble))
                 if row.truncated { Text("Showing a bounded preview").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
             }.frame(maxWidth: .infinity, alignment: row.role == "user" ? .trailing : .leading)
+        } else if row.type == "html" {
+            // The sandboxed renderer is desktop/web only; show what was published and where to see it.
+            HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+                Image(systemName: "chart.bar.doc.horizontal")
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                    Text(row.text).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
+                    Text("Visualization — view on desktop or web")
+                }
+                Spacer(minLength: AceTheme.Spacing.none)
+            }.aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+            .accessibilityElement(children: .combine)
         } else {
             HStack(spacing: AceTheme.Spacing.sm) {
                 Image(systemName: row.type == "tool_call" ? "wrench.and.screwdriver" : "text.alignleft")

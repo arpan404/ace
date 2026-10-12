@@ -124,6 +124,16 @@ import Testing
         #expect(harness.model.thread?.items["sibling"]?.row.text == "A later content row")
         #expect(!harness.hasScheduledWork)
     }
+    @Test func anHTMLVisualizationArrivesAsItsTitleRatherThanTheBareItemType() throws {
+        let harness = try DeliveryHarness()
+        harness.call("queueVisualization")
+        try harness.step()
+        let row = try #require(harness.model.thread?.items["visualization"]?.row)
+        #expect(row.type == "html")
+        #expect(row.text == "Latency by region")
+        #expect(row.complete)
+        #expect(harness.rejected == 0)
+    }
 
 }
 
