@@ -8,7 +8,7 @@ const Search = z.object({
     z.string().check(z.regex(/^(?:[\w.-]+\/)?[\w.-]+\/[\w.-]+$/), z.maxLength(1024)),
     "",
   ),
-  number: z.catch(z.optional(z.coerce.number().check(z.int(), z.minimum(1))), undefined),
+  number: z.catch(z.optional(z.coerce.number().check(z.int(), z.gte(1))), undefined),
   state: z.catch(z.enum(["open", "closed"]), "open"),
   search: z.catch(z.string().check(z.maxLength(256)), ""),
   author: z.catch(z.string().check(z.regex(/^[\w-]*$/), z.maxLength(100)), ""),
@@ -20,7 +20,7 @@ const Search = z.object({
   milestone: z.catch(z.string().check(z.maxLength(100)), ""),
   sort: z.catch(z.enum(["created", "updated", "comments"]), "updated"),
   order: z.catch(z.enum(["asc", "desc"]), "desc"),
-  page: z.catch(z.coerce.number().check(z.int(), z.minimum(1), z.maximum(40)), 1),
+  page: z.catch(z.coerce.number().check(z.int(), z.gte(1), z.lte(40)), 1),
 });
 export const Route = createFileRoute("/issues")({
   validateSearch: (search: SearchSchemaInput & Record<string, unknown>) => Search.parse(search),
