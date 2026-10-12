@@ -199,6 +199,11 @@ function PreparationPage(props: {
     return previous;
   });
   const [initialChoices] = useState<Choices>(() => restored?.choices ?? loadChoices(storage));
+  const [preserveSourceDraft, setPreserveSourceDraft] = useState(
+    () => readDraft(storage, draftKey) !== undefined,
+  );
+  const awaitingSource =
+    !!(props.pullRequest || props.issue) && !prSource.selection && !issueSource.ref;
   const [selection, setChoices] = useState<Choices | undefined>(undefined);
   const choices =
     selection ?? preparation(storage, props.host, draftKey)?.choices ?? initialChoices;
@@ -655,7 +660,7 @@ function PreparationPage(props: {
           <div className="shrink-0">
             <Composer
               ref={composer}
-              key={project}
+              key={`${project}:${JSON.stringify(preserveSourceDraft ? null : (prSource.selection?.ref ?? issueSource.ref ?? null))}`}
               onPlan={() => {
                 if (provider === "claude") setPermission("plan");
               }}
@@ -666,9 +671,15 @@ function PreparationPage(props: {
                 const current = preparation(storage, props.host, draftKey);
                 return !current || current.owner === editorOwner;
               }}
-              onFilesAdded={() => remember({ title: "Attached files" })}
+              onFilesAdded={() => {
+                if (awaitingSource) setPreserveSourceDraft(true);
+                remember({ title: "Attached files" });
+              }}
               onDraftChange={(content) => {
                 latestContent.current = content;
+                // Preserve edits made while metadata loads, including unsaved storage refusals.
+                if (awaitingSource && (content.text.length || content.attachments.length))
+                  setPreserveSourceDraft(true);
                 if (
                   (!submitting.current || content.text.trim() || content.attachments.length) &&
                   !writeDraft(storage, draftKey, content)
