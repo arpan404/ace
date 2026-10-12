@@ -1,4 +1,5 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { repository, git } from "../thread-creation-test-support.ts";
 import { shellQuote } from "../workspace-scripts.ts";
@@ -123,4 +124,12 @@ export async function partialCloneWorkspace() {
   if (!result.ok || !result.threadId) throw new Error("Caller missing");
   await h.engine.flush();
   return { h, caller: h.caller(result.threadId), marker };
+}
+
+
+export async function addLocalRemote(project: string) {
+  const remote = join(project, "remote.git");
+  await git("git", ["init", "--bare", remote]);
+  await git("git", ["-C", project, "remote", "add", "origin", pathToFileURL(remote).href]);
+  return remote;
 }

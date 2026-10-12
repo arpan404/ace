@@ -1,14 +1,14 @@
 import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { AgentControlOperation } from "@ace/protocol";
+import { AgentControlOperation, Command } from "@ace/protocol";
 import { createAgentControlPort } from "@ace/daemon";
 import { WorkspaceRuntime } from "../workspace-runtime.ts";
 import { repository, git } from "../thread-creation-test-support.ts";
 import { shellQuote } from "../workspace-scripts.ts";
 import { createWorkspaceDelegations } from "./workspaces.ts";
 import { setup } from "./test-support.ts";
-import { hostileWorkspace, partialCloneWorkspace } from "./workspace-security-test-support.ts";
+import { hostileWorkspace, partialCloneWorkspace, addLocalRemote } from "./workspace-security-test-support.ts";
 
 test("a plan-mode delegation's selected ref cannot execute Git filters, LFS, hooks, fsmonitor or setup scripts, including after owner restart", async () => {
   const { h, markers, caller } = await hostileWorkspace();
@@ -178,4 +178,28 @@ test("plan-mode delegation from a cached partial-clone base fails on missing obj
   } finally {
     await runtime.close();
   }
+});
+
+
+test("a user can push a retained plan-mode child checkout without executing its hooks or filters", async () => {
+  const { h, caller, markers } = await hostileWorkspace();
+  const remote = await addLocalRemote(h.home);
+  const runtime = new WorkspaceRuntime(h.store, join(h.home, "owned"), h.clock.now, { git: { transportProtocols: ["file"] } });
+  try {
+    const port = createAgentControlPort(h.store, h.service, { delegateWorkspace: createWorkspaceDelegations(
+      { store: h.store, services: { workspaceActions: runtime }, signal: new AbortController().signal }, h.service,
+    ) });
+    expect((await port.execute(caller, AgentControlOperation.parse({
+      op: "delegate_task", requestId: "push-child", provider: "claude", permissionMode: "plan", role: "Inspect", task: "Inspect",
+      workspace: { kind: "new_worktree", base: { ref: "main" } },
+    }), new AbortController().signal)).ok).toBe(true);
+    await h.engine.flush();
+    const child = h.store.listThreads().find(thread => thread.id !== caller.threadId);
+    if (!child?.details?.branch) throw new Error("Child checkout missing");
+    expect(await runtime.execute(Command.parse({ id: "user-push-child", deviceId: "desktop",
+      payload: { type: "git.push", threadId: child.id, remote: "origin" } }))).toMatchObject({ ok: true });
+    const { stdout } = await git("git", ["-C", remote, "rev-parse", `refs/heads/${child.details.branch}`]);
+    expect(stdout.trim()).toBe(await runtime.git.resolveCommit({ worktree: runtime.root(child.id), ref: "HEAD" }));
+    for (const marker of markers) await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally { await runtime.close(); }
 });
