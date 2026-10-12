@@ -109,6 +109,16 @@ export function StorageSettings() {
                 {storageBytes(usage.data.databaseBytes)}
               </span>
             </SettingRow>
+            {/* Compaction gives those unused pages back; it sits beside the size it changes. */}
+            <StorageCompactAction
+              result={compaction}
+              busy={busy}
+              disabled={!ready}
+              onCompact={() => void compact({ op: "cleanup.compact" })}
+              onAbandon={(compactionId) =>
+                void compact({ op: "cleanup.compactAbandon", compactionId })
+              }
+            />
             <SettingNote>
               Thread sizes count stored payloads. Database disk usage is shown separately.
               {!usage.data.complete ? " This measurement covers a bounded batch." : ""}
@@ -140,17 +150,6 @@ export function StorageSettings() {
                 : "Preview cleanup"}
           </Button>
         </SettingFooter>
-        {usage.data && (
-          <StorageCompactAction
-            result={compaction}
-            busy={busy}
-            disabled={!ready}
-            onCompact={() => void compact({ op: "cleanup.compact" })}
-            onAbandon={(compactionId) =>
-              void compact({ op: "cleanup.compactAbandon", compactionId })
-            }
-          />
-        )}
         {error && (
           <SettingNote role="alert" className="text-destructive">
             {error}

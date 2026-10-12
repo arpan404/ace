@@ -13,6 +13,7 @@ import {
   SettingFooter,
   SettingList,
   SettingNote,
+  SettingRow,
   SettingSection,
 } from "@/components/setting-row.tsx";
 import { storageBytes, storageReasons } from "./storage-copy.ts";
@@ -159,7 +160,10 @@ export function StoragePlanPreview(props: {
   );
 }
 
-/** Incremental database compaction; there is no full rebuild to confirm. */
+/**
+ * Incremental database compaction, as a row of the Usage card: its state reads under the title
+ * and its actions sit where a row's control does. There is no full rebuild to confirm.
+ */
 export function StorageCompactAction(props: {
   result?: StorageCompaction | undefined;
   busy: boolean;
@@ -168,39 +172,39 @@ export function StorageCompactAction(props: {
   onAbandon(id: string): void;
 }) {
   const result = props.result;
+  const status = !result
+    ? undefined
+    : result.incrementalUnavailable
+      ? "This database was created before compaction was available and can't shrink in place."
+      : result.state === "complete"
+        ? `Compacted from ${storageBytes(result.databaseBytesBefore)} to ${storageBytes(result.databaseBytes)}.`
+        : result.state === "pending"
+          ? "Compaction paused. Resume to continue."
+          : "Compaction stopped.";
   return (
-    <div className="mt-4">
-      <div className="flex flex-wrap gap-2">
+    <SettingRow
+      title="Compaction"
+      description={status && <span role="status">{status}</span>}
+      inline
+    >
+      {result?.state === "pending" && (
         <Button
           size="sm"
           variant="ghost"
           disabled={props.busy || props.disabled}
-          onClick={props.onCompact}
+          onClick={() => props.onAbandon(result.id)}
         >
-          {result?.state === "pending" ? "Resume compaction" : "Compact database"}
+          Stop compaction
         </Button>
-        {result?.state === "pending" && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={props.busy || props.disabled}
-            onClick={() => props.onAbandon(result.id)}
-          >
-            Stop compaction
-          </Button>
-        )}
-      </div>
-      {result && (
-        <p role="status" className="mt-2 text-xs text-muted-foreground">
-          {result.incrementalUnavailable
-            ? "This database was created before compaction was available and can't shrink in place."
-            : result.state === "complete"
-              ? `Compacted from ${storageBytes(result.databaseBytesBefore)} to ${storageBytes(result.databaseBytes)}.`
-              : result.state === "pending"
-                ? "Compaction paused. Resume to continue."
-                : "Compaction stopped."}
-        </p>
       )}
-    </div>
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={props.busy || props.disabled}
+        onClick={props.onCompact}
+      >
+        {result?.state === "pending" ? "Resume compaction" : "Compact database"}
+      </Button>
+    </SettingRow>
   );
 }
