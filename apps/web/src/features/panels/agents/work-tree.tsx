@@ -304,7 +304,8 @@ function AgentRow(props: {
       style={{ marginLeft: props.depth * 16 }}
       className={cn("group/agent mb-1 flex flex-wrap items-center gap-1", capsule)}
     >
-      {/* The row is the tree item: Enter or a click opens the agent as its own tab. */}
+      {/* The row is the tree item: Enter or a click opens the agent as its own tab; a click on
+          its chevron, or anywhere on the main agent (which has no tab), folds its subagents. */}
       <div
         role="treeitem"
         data-agent={agent.id}
@@ -315,13 +316,16 @@ function AgentRow(props: {
         aria-description={root ? undefined : `Opens ${name}`}
         tabIndex={tree.active === agent.id ? 0 : -1}
         onFocus={() => tree.setActive(agent.id)}
-        // The main agent has no tab of its own: a click folds its subagents instead.
-        onClick={
-          root ? () => props.expanded !== undefined && tree.fold(agent.id, !props.expanded) : open
-        }
+        onClick={(event) => {
+          const onChevron =
+            event.target instanceof Element && event.target.closest("[data-capsule-fold]");
+          if (props.expanded !== undefined && (root || onChevron))
+            return tree.fold(agent.id, !props.expanded);
+          open();
+        }}
         className={cn(
           "focus-ring-inset relative flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[10px] pr-1 pl-2.5 text-left text-ui",
-          !root && "cursor-pointer",
+          (!root || props.expanded !== undefined) && "cursor-pointer",
         )}
       >
         {body}
@@ -403,8 +407,8 @@ function TaskRow(props: { threadId: string; taskId: string }) {
 }
 
 /**
- * A capsule's chevron, drawn inside its tree item and doing nothing itself: ⌄ on an agent with
- * subagents (folded with ← →, or a click on the main agent), › on one that opens as its own tab.
+ * A capsule's chevron, drawn inside its tree item, whose click handles it: ⌄ on an agent with
+ * subagents folds them (as ← → do), › on one that opens as its own tab.
  */
 function CapsuleChevron(props: { expanded: boolean | undefined; opens: boolean }) {
   if (props.expanded === undefined && !props.opens) return null;
@@ -412,7 +416,8 @@ function CapsuleChevron(props: { expanded: boolean | undefined; opens: boolean }
   return (
     <span
       aria-hidden
-      className="mr-1 grid size-7 shrink-0 place-items-center text-muted-foreground"
+      data-capsule-fold={props.expanded === undefined ? undefined : ""}
+      className="mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:text-foreground"
     >
       <Glyph
         size={14}

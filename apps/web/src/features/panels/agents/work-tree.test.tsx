@@ -246,6 +246,28 @@ const nested: Scenario = {
   ],
 };
 
+test("a click on a nested agent's chevron folds its subagents without opening it; the rest of the row opens it", async () => {
+  const app = harness();
+  app.play(nested).runUntilBlocked();
+  const panel = await openAgents(app, "/t/thread-nested");
+  const sweep = await within(panel).findByRole("treeitem", { name: /^resume-sweep:/ });
+  expect(sweep.getAttribute("aria-expanded")).toBe("true");
+  // The chevron is a pointer target only (the row folds with ← → from the keyboard).
+  const chevron = sweep.querySelector("[data-capsule-fold]");
+  if (!(chevron instanceof HTMLElement)) throw new Error("No chevron on a row with subagents");
+  await userEvent.click(chevron);
+  expect(sweep.getAttribute("aria-expanded")).toBe("false");
+  expect(within(panel).queryByRole("treeitem", { name: /^web-probe:/ })).toBeNull();
+  expect(within(panel).queryByRole("tab", { name: "resume-sweep" })).toBeNull();
+  await userEvent.click(chevron);
+  expect(await within(panel).findByRole("treeitem", { name: /^web-probe:/ })).toBeTruthy();
+
+  await userEvent.click(within(sweep).getByText("resume-sweep"));
+  expect(
+    await within(panel).findByRole("tab", { name: "resume-sweep", selected: true }),
+  ).toBeTruthy();
+});
+
 test("Stop on an agent with subagents says how many go with it and asks first", async () => {
   const app = harness();
   app.play(nested).runUntilBlocked();
