@@ -1,4 +1,4 @@
-import { DotsThreeIcon, FileTextIcon, GlobeIcon } from "@phosphor-icons/react";
+import { FileTextIcon, GlobeIcon } from "@phosphor-icons/react";
 import {
   useCallback,
   useEffect,
@@ -8,7 +8,6 @@ import {
   type KeyboardEvent,
 } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { keymap } from "@/lib/keymap.ts";
@@ -18,11 +17,9 @@ import {
   type OpenTab,
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
-import { AddressBar } from "../browser/address-bar.tsx";
-import { PageNav, PageToolbar, toolbarButton } from "../browser/page-toolbar.tsx";
 import { useTurns } from "@/lib/diffs/use-turns.ts";
 import type { PreviewSource } from "../sources.ts";
-import { useLoadedServices, usePanelServices } from "../services.ts";
+import { usePanelServices } from "../services.ts";
 import { WithServices } from "../with-services.tsx";
 import {
   fileSuggestions,
@@ -94,7 +91,6 @@ export function LauncherTab(props: TabViewProps) {
   };
   return (
     <div className="@container flex h-full flex-col">
-      {kindFor("fromUrl") && <LauncherAddress threadId={props.scope} onGo={openUrl} />}
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto flex w-full max-w-[640px] flex-col px-6 pt-10 pb-12">
           <h2 className={heading}>Tools</h2>
@@ -142,50 +138,6 @@ export function LauncherTab(props: TabViewProps) {
         </div>
       </div>
     </div>
-  );
-}
-
-/** Why a new tab's page controls are off: there is no page yet. */
-const noPage = "open a page first";
-
-/**
- * The new tab's toolbar: the browser page's own, shape for shape, so it doesn't move when the
- * tab becomes a page. An address opens the Browser in this tab's place; it suggests the
- * thread's dev servers once the panel services have loaded.
- */
-function LauncherAddress(props: { threadId: string; onGo(url: string): void }) {
-  const services = useLoadedServices();
-  const known = usePreviewSuggestions(services?.preview, props.threadId);
-  return (
-    <PageToolbar
-      nav={
-        <PageNav
-          back={{ reason: noPage }}
-          forward={{ reason: noPage }}
-          reload={{ reason: noPage }}
-        />
-      }
-      address={
-        <AddressBar
-          url={undefined}
-          known={known.map((each) => ({ url: each.url, label: each.label, detail: each.detail }))}
-          loading={false}
-          autoFocus
-          onGo={props.onGo}
-        />
-      }
-      actions={
-        <>
-          <IconButton
-            icon={DotsThreeIcon}
-            label={`Browser options · ${noPage}`}
-            disabled
-            focusableWhenDisabled
-            className={toolbarButton}
-          />
-        </>
-      }
-    />
   );
 }
 

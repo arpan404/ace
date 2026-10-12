@@ -120,7 +120,7 @@ export const browserKind = defineTabKind({
     </span>
   ),
   launcher: 45,
-  title: (tab) => addressHost(field(tab.data, "url") ?? "") ?? "New page",
+  title: (tab) => addressHost(field(tab.data, "url") ?? "") ?? "Browser",
   Badge: LoadingBadge,
   load: () => import("./browser/browser-tab.tsx"),
   fromUrl: (url) => ({

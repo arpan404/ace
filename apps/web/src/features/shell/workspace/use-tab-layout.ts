@@ -72,7 +72,11 @@ export function useTabFit(
  * (it is narrower until then), and whenever the strip resizes. Scrolls the list itself, so no
  * outer scroller moves, and clears the edge fade.
  */
-export function useRevealShown(list: RefObject<HTMLElement | null>, shown: string | undefined) {
+export function useRevealShown(
+  list: RefObject<HTMLElement | null>,
+  shown: string | undefined,
+  order: string,
+) {
   useEffect(() => {
     const element = list.current;
     if (!element || !shown) return;
@@ -101,5 +105,5 @@ export function useRevealShown(list: RefObject<HTMLElement | null>, shown: strin
       element.removeEventListener("animationend", reveal);
       element.removeEventListener("transitionend", reveal);
     };
-  }, [list, shown]);
+  }, [list, shown, order]);
 }

@@ -260,7 +260,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         view={view}
         onView={(next) => setView(file.path, next)}
         mode={mode}
-        wrap={width < 640 || prefs.wrap}
+        wrap={prefs.wrap}
         viewed={isViewed}
         actions={
           <FileActions

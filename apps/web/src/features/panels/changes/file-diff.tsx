@@ -2,12 +2,13 @@ import { DiffCode, DiffCodeScope } from "./diff-code.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { CaretDownIcon, CodeIcon, PlusIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { Fragment, lazy, Suspense, useState, type PointerEvent } from "react";
+import { lazy, Suspense, useMemo, useState, type PointerEvent } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import type { ReactNode } from "react";
 import { pairRows, type DiffLine, type DiffRow, type SplitRow, type FileDiff } from "@ace/ui-core";
 import { LongRows } from "@/components/virtual-rows.tsx";
 import { DiffStat } from "./diff-stat.tsx";
+import { createPairedRowHeights } from "./paired-row-heights.ts";
 import { useDiffRenderer } from "./diff-renderer.ts";
 
 const GpuDiff = lazy(() => import("./gpu-diff.tsx"));
@@ -24,9 +25,6 @@ export const targetOf = (line: DiffLine): LineTarget | undefined =>
     : line.new === undefined
       ? undefined
       : { side: "new", line: line.new };
-const sameTarget = (a: LineTarget | undefined, b: LineTarget | undefined) =>
-  !!a && !!b && a.side === b.side && a.line === b.line;
-
 /** Lines on one side of a diff, first to last: what a comment is about. */
 export interface LineRange {
   side: "old" | "new";
@@ -187,7 +185,10 @@ export function FileDiffBlock(props: {
           <div
             className={cn(
               "font-mono text-sm leading-5",
-              props.wrap ? "whitespace-pre-wrap break-all" : "overflow-x-auto whitespace-pre",
+              props.wrap
+                ? "whitespace-pre-wrap [word-break:normal] [overflow-wrap:normal]"
+                : "whitespace-pre",
+              props.mode === "unified" && "overflow-x-auto overflow-y-hidden",
             )}
           >
             {props.mode === "unified" ? (
@@ -273,62 +274,64 @@ const pairKey = (pair: SplitRow) =>
     ? lineKey(pair.row)
     : `pair:${pair.left?.old ?? ""}:${pair.right?.new ?? ""}`;
 
+/** Each version scrolls horizontally on its own; paired rows keep one vertical rhythm. */
 function Split(props: RowsProps) {
+  const pairs = useMemo(() => keyed(pairRows(props.rows), pairKey), [props.rows]);
+  const heights = useMemo(() => createPairedRowHeights(), []);
   return (
-    <Rows
-      items={keyed(pairRows(props.rows), pairKey)}
-      render={(pair) => <SplitRowView pair={pair} {...props} />}
-    />
+    <div className="grid min-w-0 grid-cols-2">
+      {(["old", "new"] as const).map((side) => (
+        <div
+          key={side}
+          role="region"
+          aria-label={`${props.file.path} ${side === "old" ? "before" : "after"}`}
+          tabIndex={0}
+          data-diff-side={side}
+          className={cn(
+            "min-w-0 overflow-x-auto overflow-y-hidden focus-ring-inset",
+            side === "new" && "border-l",
+          )}
+        >
+          <Rows
+            items={pairs}
+            render={(pair, key) => (
+              <div data-diff-row>
+                <div ref={(node) => heights.attach(key, node)}>
+                  <SplitSideRow pair={pair} side={side} {...props} />
+                </div>
+              </div>
+            )}
+          />
+        </div>
+      ))}
+    </div>
   );
 }
 
-function SplitRowView(props: RowsProps & { pair: SplitRow }) {
-  const { pair } = props;
+function SplitSideRow(props: RowsProps & { pair: SplitRow; side: "old" | "new" }) {
+  const { pair, side } = props;
   if (pair.kind === "fold") return <Fold row={pair.row} expand={props.expand} />;
-  const sides = [
-    { side: "left", line: pair.left, number: pair.left?.old },
-    { side: "right", line: pair.right, number: pair.right?.new },
-  ] as const;
-  const targets = sides
-    .map(({ line }) => line && targetOf(line))
-    .filter(
-      (target, i, all): target is LineTarget =>
-        !!target && !all.slice(0, i).some((other) => sameTarget(other, target)),
-    );
+  const line = side === "old" ? pair.left : pair.right;
+  const number = side === "old" ? line?.old : line?.new;
+  const target = number === undefined ? undefined : { side, line: number };
   return (
     <>
-      {/* One visual row: the old line beside the new one. */}
-      <div data-diff-row className="grid min-w-0 grid-cols-2">
-        {sides.map(({ side, line, number }) => {
-          const target = line && targetOf(line);
-          return (
-            <div
-              key={side}
-              className={cn(
-                "group/line relative grid min-w-0 grid-cols-[40px_minmax(0,1fr)] overflow-hidden",
-                side === "right" && "border-l",
-                line ? tone(line) : empty,
-                target && props.highlighted(target) && commented,
-              )}
-            >
-              {line && (
-                <>
-                  <Gutter line={line} value={number} />
-                  <Code
-                    line={line}
-                    target={target}
-                    onComment={props.onComment}
-                    onPick={props.onPick}
-                  />
-                </>
-              )}
-            </div>
-          );
-        })}
+      <div
+        className={cn(
+          "group/line relative grid min-h-5 min-w-full w-max grid-cols-[40px_max-content]",
+          props.wrap && "w-full min-w-0 grid-cols-[40px_minmax(0,1fr)]",
+          line ? tone(line) : empty,
+          target && props.highlighted(target) && commented,
+        )}
+      >
+        {line && (
+          <>
+            <Gutter line={line} value={number} />
+            <Code line={line} target={target} onComment={props.onComment} onPick={props.onPick} />
+          </>
+        )}
       </div>
-      {targets.map((target) => (
-        <Fragment key={`${target.side}:${target.line}`}>{props.renderAnnotation(target)}</Fragment>
-      ))}
+      {target && props.renderAnnotation(target)}
     </>
   );
 }
