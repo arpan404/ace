@@ -716,29 +716,6 @@ function PreparationPage(props: {
               autoFocus
               placeholder="Describe the change, a bug, or a question. @ to mention a file"
               shortPlaceholder="Describe a change or a bug"
-              environment={
-                <Suspense fallback={null}>
-                  <DeferredEnvironment.Component
-                    pullRequest={
-                      props.pullRequest
-                        ? {
-                            number: prSource.selection?.ref.number,
-                            headSha: prSource.selection?.headSha,
-                          }
-                        : undefined
-                    }
-                    mode={resolved.mode}
-                    onMode={(mode) => choose({ mode })}
-                    branches={branches}
-                    base={base}
-                    onBase={(next) => {
-                      setBase(next);
-                      remember({ base: next });
-                      toMessage();
-                    }}
-                  />
-                </Suspense>
-              }
               trailing={
                 <ModelPicker
                   options={options}
@@ -763,28 +740,51 @@ function PreparationPage(props: {
                 />
               }
               controls={
-                <PermissionPicker
-                  current={
-                    waitingForAdmission
-                      ? undefined
-                      : permissionOption(admitted.mode ?? null, permissions.capabilities)
-                  }
-                  detail={
-                    admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
-                  }
-                  inherited={!chosen}
-                  menu={{
-                    options: permissionOptions(permissions.capabilities),
-                    value: admitted.mode,
-                    loading: waitingForAdmission,
-                    unavailable: permissions.failed
-                      ? "Couldn't load permission modes. Reconnect and try again."
-                      : undefined,
+                <>
+                  <PermissionPicker
+                    current={
+                      waitingForAdmission
+                        ? undefined
+                        : permissionOption(admitted.mode ?? null, permissions.capabilities)
+                    }
+                    detail={
+                      admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
+                    }
+                    inherited={!chosen}
+                    menu={{
+                      options: permissionOptions(permissions.capabilities),
+                      value: admitted.mode,
+                      loading: waitingForAdmission,
+                      unavailable: permissions.failed
+                        ? "Couldn't load permission modes. Reconnect and try again."
+                        : undefined,
 
-                    fallback: admitted.fallback,
-                  }}
-                  onChange={(id) => setPermission(id ?? undefined)}
-                />
+                      fallback: admitted.fallback,
+                    }}
+                    onChange={(id) => setPermission(id ?? undefined)}
+                  />
+                  <Suspense fallback={null}>
+                    <DeferredEnvironment.Component
+                      pullRequest={
+                        props.pullRequest
+                          ? {
+                              number: prSource.selection?.ref.number,
+                              headSha: prSource.selection?.headSha,
+                            }
+                          : undefined
+                      }
+                      mode={resolved.mode}
+                      onMode={(mode) => choose({ mode })}
+                      branches={branches}
+                      base={base}
+                      onBase={(next) => {
+                        setBase(next);
+                        remember({ base: next });
+                        toMessage();
+                      }}
+                    />
+                  </Suspense>
+                </>
               }
             />
             {(admissionProblem || issueSource.problem || prSource.problem) && (
