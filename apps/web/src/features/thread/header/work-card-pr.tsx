@@ -1,167 +1,48 @@
-import type { ForgePrStatus } from "@ace/protocol";
+import type { CheckoutPr } from "@ace/ui-core";
+import { prOverview } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
-import { PrStackGroups } from "@/features/forge/index.ts";
-import { PrUnlinkDialog } from "./pr-unlink-dialog.tsx";
-import { PullRequestGlyph, pullRequestTone as prTone } from "@/components/pull-request-state.tsx";
-import { prOverview, pullRequestUrl, type CheckoutPr } from "@ace/ui-core";
-import {
-  ArrowClockwiseIcon,
-  ArrowSquareOutIcon,
-  DotsThreeIcon,
-  PlusIcon,
-} from "@phosphor-icons/react";
-import { useId, useState } from "react";
-import { Tip } from "@/components/ui/tooltip.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Menu, MenuContent, MenuTrigger, MenuItem } from "@/components/ui/menu.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { useState } from "react";
+import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { type useGitFlow } from "./use-git-flow.tsx";
-import { PrLinkForm } from "./pr-link-form.tsx";
-import { PrDetails } from "./work-card-pr-details.tsx";
-import { openPullRequestLink as open } from "./work-card-pr-link.ts";
-import { TruncatedText, RowButton, RowNote } from "./work-card-parts.tsx";
-import { useWorkState } from "./work-state.tsx";
+import { failure, type useGitFlow } from "./use-git-flow.tsx";
+import { RowAction, RowStatic, RowSub } from "./work-card-parts.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
 
-const prState: Record<CheckoutPr["state"], string> = {
-  open: "open",
-  draft: "draft",
-  merged: "merged",
-  closed: "closed",
+const checks: Partial<Record<NonNullable<CheckoutPr["ci"]>, string>> = {
+  success: "checks passed",
+  failure: "checks failing",
+  pending: "checks running",
 };
 
-/** Compact links; the validated field appears only when requested. */
-export function PullRequestsSection(props: {
-  git: GitFlow;
-  workspaceId: string;
-  linking: boolean;
-  onLinkClose(): void;
-}) {
-  const { git } = props;
-  const navigate = useNavigate();
-  const checkout = git.checkout;
-
-  const [confirm, setConfirm] = useState(false);
-  const { state, update } = useWorkState();
-  const expanded = state.sections["pull-requests"] ?? false;
-  const seen = new Set<string>();
-  const links = (git.linkedPrs?.length ? git.linkedPrs : checkout?.pr ? [checkout.pr] : []).filter(
-    (pr) => {
-      const repo = pr.repo ?? checkout?.repository;
-      const key = `${repo?.host}/${repo?.owner}/${repo?.name}/${pr.number}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    },
-  );
-  return (
-    <section aria-label="Pull requests">
-      <PrStackGroups
-        workspaceId={props.workspaceId}
-        refs={links.flatMap((pr) => {
-          const repository = pr.repo ?? checkout?.repository;
-          return repository ? [{ repository, number: pr.number }] : [];
-        })}
-        onOpen={(ref) =>
-          void navigate({
-            to: "/pull-requests",
-            search: {
-              project: props.workspaceId,
-              repo: `${ref.repository.host}/${ref.repository.owner}/${ref.repository.name}`,
-              number: ref.number,
-            },
-          })
-        }
-      />
-      {(expanded ? links : links.slice(0, 1)).map((pr) => (
-        <PrDisclosure
-          key={`${pr.repo?.host}/${pr.repo?.owner}/${pr.repo?.name}/${pr.number}`}
-          git={git}
-          workspaceId={props.workspaceId}
-          pr={pr}
-          base={checkout?.baseBranch ?? "main"}
-          onUnlinkAll={() => setConfirm(true)}
-        />
-      ))}
-      {links.length > 1 && (
-        <RowButton
-          className="text-muted-foreground"
-          aria-expanded={expanded}
-          onClick={() => update({ sections: { "pull-requests": !expanded } })}
-        >
-          <PlusIcon aria-hidden size={16} />
-          {expanded ? "Show fewer pull requests" : `Show ${links.length - 1} more`}
-        </RowButton>
-      )}
-      {props.linking && checkout?.repository?.forge !== "gitlab" && (
-        <PrLinkForm
-          repository={checkout?.repository}
-          pending={git.pending}
-          onDone={props.onLinkClose}
-          onLink={(number, repository) =>
-            git.submit({ kind: "link-pr", number, ...(repository ? { repository } : {}) })
-          }
-        />
-      )}
-      {confirm && (
-        <PrUnlinkDialog
-          onClose={() => setConfirm(false)}
-          onUnlink={() => git.submit({ kind: "unlink-pr", all: true })}
-        />
-      )}
-    </section>
-  );
+/** "open · checks passed", in words a screen reader hears too. */
+export function prSummary(pr: CheckoutPr): string {
+  const ci = pr.ci && checks[pr.ci];
+  return ci ? `${pr.state} · ${ci}` : pr.state;
 }
 
-function PrDisclosure(props: {
-  workspaceId: string;
-  git: GitFlow;
-  pr: CheckoutPr;
-  base: string;
-  onUnlinkAll(): void;
-}) {
-  const { git, pr } = props;
+/**
+ * The thread's pull request on one line: `#214 open · checks passed · Merge`. The number opens
+ * the PR workspace; Merge reads the PR again, then asks before merging, as every merge does.
+ */
+export function PrLine(props: { git: GitFlow; workspaceId: string; onClose(): void }) {
+  const { git } = props;
+  const pr = git.checkout?.pr;
   const navigate = useNavigate();
-  const id = useId();
-  const primary = !git.linkedPrs?.length || git.linkedPrs[0] === pr;
   const toast = useToast();
-  const [refreshing, setRefreshing] = useState(false);
-  const [openNow, setOpen] = useState(false);
-  const [error, setError] = useState<unknown>();
-  const [checked, setChecked] = useState<ForgePrStatus>();
+  const [checking, setChecking] = useState(false);
+  if (!pr) return null;
   const repository = pr.repo ?? git.checkout?.repository;
-  const url = pr.url ?? (repository && pullRequestUrl(repository, pr.number));
-  const refresh = () => {
-    setRefreshing(true);
-    git
-      .refreshPr(repository ? { repository, number: pr.number } : undefined)
-      .then(
-        (status) => {
-          setChecked(status);
-          setError(undefined);
-          return status;
-        },
-        (reason: unknown) => setError(reason ?? "failed"),
-      )
-      .finally(() => setRefreshing(false));
-  };
-  const current = checked ?? (primary ? git.status : undefined);
+  const base = git.checkout?.baseBranch ?? "main";
+  const live = pr.state === "open" || pr.state === "draft";
   const merge = async () => {
-    if (!repository || refreshing || git.pending) return;
-    setRefreshing(true);
+    if (!repository || checking || git.pending) return;
+    setChecking(true);
     try {
       const status = await git.refreshPr({ repository, number: pr.number });
       if (!status) throw new Error("Couldn't read the pull request");
-      setChecked(status);
-      setError(undefined);
-      const blocked = prOverview(status, props.base).mergeBlocked;
-      if (blocked) {
-        setOpen(true);
-        toast.error({ title: blocked });
-        return;
-      }
+      const blocked = prOverview(status, base).mergeBlocked;
+      if (blocked) return void toast.error({ title: blocked });
       git.run({
         kind: "merge",
         method: "squash",
@@ -169,161 +50,49 @@ function PrDisclosure(props: {
         headSha: status.headSha,
         pr: status.ref,
       });
-    } catch (reason) {
-      setError(reason);
-      setOpen(true);
+    } catch (error) {
+      toast.error({ title: "Couldn't merge", description: failure(error) });
     } finally {
-      setRefreshing(false);
+      setChecking(false);
     }
   };
-  const title = pr.title ?? current?.title;
-  const state = error !== undefined ? "Unavailable" : refreshing ? "Checking…" : prState[pr.state];
-  const ci = error === undefined && !refreshing && pr.ci && pr.ci !== "unknown" ? pr.ci : undefined;
   return (
-    <div>
-      <div className="group/pr relative flex min-h-(--row-height) min-w-0 items-center">
-        <RowButton
-          className="flex-1"
-          aria-expanded={openNow}
-          aria-controls={id}
-          onClick={() => {
-            setOpen(!openNow);
-            if (!openNow) refresh();
-          }}
-          aria-label={`Pull request #${pr.number}${title ? `: ${title}` : ""}, ${state}${ci && ci !== "none" ? `, checks ${ci === "success" ? "passed" : ci === "failure" ? "failing" : "running"}` : ""}`}
+    <RowStatic label={`Pull request #${pr.number}`} className="hover:bg-accent">
+      <PullRequestGlyph state={pr.state} size={16} />
+      <button
+        type="button"
+        className="focus-ring min-w-0 shrink-0 rounded-sm text-left"
+        aria-label={`Open pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${prSummary(pr)}`}
+        title={pr.title}
+        disabled={!repository}
+        onClick={() => {
+          if (!repository) return;
+          props.onClose();
+          void navigate({
+            to: "/pull-requests",
+            search: {
+              project: props.workspaceId,
+              repo: `${repository.host}/${repository.owner}/${repository.name}`,
+              number: pr.number,
+            },
+          });
+        }}
+      >
+        #{pr.number}
+      </button>
+      <RowSub aria-hidden className="flex-1">
+        {checking ? "checking…" : prSummary(pr)}
+      </RowSub>
+      {live && (
+        <RowAction
+          disabled={git.pending || checking || pr.state === "draft" || !repository}
+          aria-label={`Merge pull request #${pr.number}`}
+          title={pr.state === "draft" ? "Mark this PR ready on GitHub before merging" : undefined}
+          onClick={() => void merge()}
         >
-          <PullRequestGlyph state={pr.state} size={14} />
-          <Tip label={title ?? `Pull request #${pr.number}`}>
-            <TruncatedText>{title ? `#${pr.number} ${title}` : `#${pr.number}`}</TruncatedText>
-          </Tip>
-        </RowButton>
-        <span className={`${prTone(pr.state)} shrink-0 px-1 text-xs`}>{state}</span>
-        {url && (
-          <IconButton
-            icon={ArrowSquareOutIcon}
-            label={`Open PR #${pr.number} on GitHub`}
-            size="sm"
-            onClick={() => open(url, () => toast.error({ title: "Couldn’t open the PR" }))}
-          />
-        )}
-        <span className="absolute right-6 hidden bg-panel group-focus-within/pr:inline-flex group-hover/pr:inline-flex [@media(pointer:coarse)]:inline-flex">
-          <Menu>
-            <MenuTrigger
-              render={
-                <IconButton icon={DotsThreeIcon} label={`PR #${pr.number} actions`} size="sm" />
-              }
-            />
-            <MenuContent align="end">
-              {repository && (
-                <MenuItem
-                  onClick={() =>
-                    void navigate({
-                      to: "/pull-requests",
-                      search: {
-                        project: props.workspaceId,
-                        repo: `${repository.host}/${repository.owner}/${repository.name}`,
-                        number: pr.number,
-                      },
-                    })
-                  }
-                >
-                  Open full PR workspace
-                </MenuItem>
-              )}
-              {url && repository?.forge === "github" && (
-                <MenuItem
-                  onClick={() =>
-                    void navigate({
-                      to: "/new",
-                      search: { project: props.workspaceId, pullRequest: url },
-                    })
-                  }
-                >
-                  Work on PR in a new task
-                </MenuItem>
-              )}
-              <MenuItem
-                disabled={git.pending}
-                onClick={() =>
-                  git.run({
-                    kind: "unlink-pr",
-                    number: pr.number,
-                    ...(pr.repo ? { repo: pr.repo } : {}),
-                  })
-                }
-              >
-                Unlink PR #{pr.number}
-              </MenuItem>
-              <MenuItem onClick={props.onUnlinkAll}>Unlink all</MenuItem>
-            </MenuContent>
-          </Menu>
-        </span>
-        {(pr.state === "open" || pr.state === "draft") && (
-          <button
-            type="button"
-            className="focus-ring touch-hit shrink-0 rounded-sm px-2 text-xs text-link hover:underline disabled:text-muted-foreground"
-            disabled={git.pending || refreshing || pr.state === "draft" || !repository}
-            aria-label={`Merge PR #${pr.number}`}
-            title={
-              pr.state === "draft"
-                ? "Mark this PR ready on GitHub before merging"
-                : "Review and confirm merge"
-            }
-            onClick={() => void merge()}
-          >
-            {refreshing ? "Checking…" : "Merge"}
-          </button>
-        )}
-      </div>
-      {openNow && (
-        <section id={id} aria-label={`Pull request #${pr.number}`}>
-          <div className="flex min-h-(--row-height) items-center gap-1 pr-1 pl-2.5">
-            <Tip label={title ?? `Pull request #${pr.number}`}>
-              <h3 className="min-w-0 flex-1 truncate text-ui">
-                <span className="text-subtle-foreground">#{pr.number}</span> {pr.title}
-              </h3>
-            </Tip>
-            {refreshing ? (
-              <Spinner label="Reading the pull request" className="mx-1.5" />
-            ) : (
-              <IconButton
-                icon={ArrowClockwiseIcon}
-                label="Refresh"
-                size="sm"
-                className="size-7"
-                onClick={refresh}
-              />
-            )}
-          </div>
-          {error !== undefined ? (
-            <>
-              <p role="alert" className="px-2.5 py-1 text-sm text-status-failed">
-                Couldn't read this pull request. Check the connection, then refresh.
-              </p>
-            </>
-          ) : current && current.ref.number === pr.number ? (
-            <PrDetails
-              git={git}
-              status={current}
-              workspaceId={props.workspaceId}
-              onRefresh={refresh}
-              base={props.base}
-              onRequestReview={
-                primary
-                  ? () => {
-                      setOpen(false);
-                      git.open("request-review");
-                    }
-                  : undefined
-              }
-            />
-          ) : (
-            <RowNote>
-              {refreshing ? "Reading the pull request…" : "No status from GitHub yet"}
-            </RowNote>
-          )}
-        </section>
+          Merge
+        </RowAction>
       )}
-    </div>
+    </RowStatic>
   );
 }

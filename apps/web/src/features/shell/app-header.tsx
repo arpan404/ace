@@ -62,8 +62,8 @@ export function HeaderNav() {
 
 /**
  * The one header every screen uses: sidebar toggle, then the title and its
- * subtitle; on the right the actions, the ⋯ menu, the screen's tools and the side panel's
- * toggle. 44px, a drag region in Electron, hairline only once the content scrolls. Every control
+ * subtitle; on the right the actions, the ⋯ menu, the screen's tools (a thread's Work icon) and
+ * the side panel's toggle, with no rule between them. 44px, a drag region in Electron, hairline only once the content scrolls. Every control
  * is a 30px box on one centre line. On a phone it keeps the sidebar toggle, the title (two lines
  * if need be), the status mark, screen tools and one ⋯; the panel toggle moves into that ⋯.
  */
@@ -134,7 +134,6 @@ export function AppHeader(
             {props.menu}
           </HeaderMenu>
         )}
-        {props.tools}
         {/* Narrower, the actions and the title menu fold into one ⋯. */}
         {(folded || (phone && (props.menu || tools))) && (
           <Overflow
@@ -143,14 +142,9 @@ export function AppHeader(
             menu={titleMenu ? undefined : props.menu}
           />
         )}
-        {props.trailing && !phone && (
-          <>
-            {(titleMenu || props.tools || (props.actions && wide)) && (
-              <span aria-hidden className="mx-1 h-4 w-px bg-border" />
-            )}
-            {props.trailing}
-          </>
-        )}
+        {/* Always after the ⋯: [title] [⋯] [tools] [panel toggle]. */}
+        {props.tools}
+        {props.trailing && !phone && props.trailing}
       </div>
     </header>
   );
