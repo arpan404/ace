@@ -1,7 +1,6 @@
 import { readJson, type KeyValueStorage } from "@ace/ui-core";
 import * as z from "zod/mini";
 import { Observable } from "./observable.ts";
-import { maintainUploadLease, type UploadLeaseClock } from "./upload-owner-lease.ts";
 
 /** Recovery facts are readable before the composer loads its complete payload schemas. */
 const Metadata = z.object({
@@ -9,6 +8,8 @@ const Metadata = z.object({
   threadId: z.string(),
   owner: z.string(),
   preparing: z.optional(z.boolean()),
+  uploadStartedAt: z.optional(z.number().check(z.int(), z.gte(0), z.lte(Number.MAX_SAFE_INTEGER))),
+  uploadInterrupted: z.optional(z.boolean()),
   failed: z.optional(z.string()),
   submissionOrder: z.optional(z.number().check(z.int(), z.gte(0), z.lte(Number.MAX_SAFE_INTEGER))),
 });
@@ -27,25 +28,6 @@ let loaded = false;
 const retained = new Map<string, { owner: string; record: HeldRecord }>();
 
 export let pageId: string = crypto.randomUUID();
-const ownerLock = (owner: string) => `ace-staged-${owner}`;
-let holdingLock = false;
-let lease: ReturnType<typeof maintainUploadLease>;
-const uploading = new Set<string>();
-let stopLeaseSubscription: (() => void) | undefined;
-
-export function startUploadLease(commandId: string, clock: UploadLeaseClock): boolean {
-  lease ??= maintainUploadLease(storage, pageId, clock);
-  if (!lease) return false;
-  uploading.add(commandId);
-  return true;
-}
-export function finishUploadLease(commandId: string): void {
-  uploading.delete(commandId);
-  if (uploading.size) return;
-  lease?.stop();
-  lease = undefined;
-}
-
 function entries(values: readonly unknown[]): readonly HeldRecord[] {
   return values.flatMap((value, index) => {
     const metadata = Metadata.safeParse(value);
@@ -94,15 +76,6 @@ export function heldSendStore(store: KeyValueStorage | undefined): typeof all {
     loaded = true;
     storage = store;
     all.seed(view());
-    stopLeaseSubscription = all.subscribe(() => {
-      const owned = new Set(
-        all
-          .get()
-          .filter((record) => record.owner === pageId)
-          .map((record) => record.commandId),
-      );
-      for (const id of uploading) if (!owned.has(id)) finishUploadLease(id);
-    });
     if (typeof addEventListener === "function") addEventListener("storage", changed);
   }
   return all;
@@ -147,40 +120,12 @@ export function deleteHeldSend(commandId: string): boolean {
   }
 }
 
-export function holdPageLock(): void {
-  if (!holdingLock && typeof navigator === "object" && navigator.locks) {
-    holdingLock = true;
-    void navigator.locks.request(ownerLock(pageId), () => new Promise<void>(() => {}));
-  }
-}
-
-export async function liveOwners(): Promise<ReadonlySet<string> | undefined> {
-  if (typeof navigator !== "object" || !navigator.locks) return undefined;
-  try {
-    const state = await navigator.locks.query();
-    return new Set(
-      (state.held ?? []).flatMap((lock) =>
-        lock.name?.startsWith("ace-staged-") ? [lock.name.slice("ace-staged-".length)] : [],
-      ),
-    );
-  } catch {
-    // Denied ownership inspection falls back to the uploading page's durable lease.
-    return undefined;
-  }
-}
-
-/** Reload releases the page's views and lock; persisted holds remain owned by this store. */
+/** Reload releases the page's views; persisted holds remain owned by this store. */
 export function reloadHeldStore(): void {
-  lease?.abandon();
-  lease = undefined;
-  uploading.clear();
-  stopLeaseSubscription?.();
-  stopLeaseSubscription = undefined;
   if (typeof removeEventListener === "function") removeEventListener("storage", changed);
   storage = undefined;
   loaded = false;
   retained.clear();
   all.seed([]);
-  holdingLock = false;
   pageId = crypto.randomUUID();
 }

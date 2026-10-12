@@ -1,6 +1,6 @@
 import { useContext, useRef, useState } from "react";
 import { TimeContext } from "@/lib/time.ts";
-import { uploadLeaseClock } from "@/lib/upload-owner-lease.ts";
+import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
 import { tokensFromInput } from "@ace/ui-core";
 import type { PendingSend } from "@ace/client";
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
@@ -16,7 +16,9 @@ import { draftOf, restoreReturnedDraft, type SendPayload } from "../composer/ret
 import { returnDraft, saveOpenDraft, leasable } from "../composer/send-store.ts";
 import {
   canRetry,
-  canRecoverStaged,
+  hasLocalStaged,
+  isInterrupted,
+  removeStagedUpload,
   retryStaged,
   unstage,
   type StagedSend,
@@ -190,15 +192,14 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
   const inFlight = useRef(false);
   const [editing, setEditing] = useState(false);
   const retry = () => {
-    if (!meta || inFlight.current || !canRecoverStaged(staged.commandId, storage, time.read()))
-      return;
+    if (!meta || inFlight.current || isInterrupted(staged, time.read())) return;
     inFlight.current = true;
     const thread = { id: props.threadId, workspaceId: meta.workspaceId, title: meta.title };
     void retryStaged(
       client,
       staged.commandId,
       (file) => sources.context.upload(thread, file, () => {}),
-      uploadLeaseClock(time.read),
+      uploadClock(time.read),
     )
       .then((sent) => {
         if (!sent) toast.error({ title: "It still didn't go", description: "It is still here." });
@@ -208,7 +209,7 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
       });
   };
   const edit = () => {
-    if (!canRecoverStaged(staged.commandId, storage, time.read())) return;
+    if (!hasLocalStaged(staged.commandId) || isInterrupted(staged, time.read())) return;
     const draft = {
       text: staged.text,
       tokens: staged.input ? tokensFromInput(staged.input).tokens : [],
@@ -236,27 +237,33 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
     dismissSend(storage, staged.commandId);
   };
   const remove = () => {
-    if (!canRecoverStaged(staged.commandId, storage, time.read())) return;
-    if (!unstage(staged.commandId)) {
-      toast.error({ title: "Couldn't remove the message", description: "It is still here." });
-      return;
-    }
-    dismissSend(storage, staged.commandId);
+    if (inFlight.current) return;
+    inFlight.current = true;
+    void removeStagedUpload(client, staged.commandId, storage, uploadClock(time.read))
+      .then((removed) => {
+        if (!removed)
+          toast.error({ title: "Couldn't remove the message", description: "It is still here." });
+      })
+      .finally(() => {
+        inFlight.current = false;
+      });
   };
   return (
     <div role="alert" className="mt-[5px] flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-      <NotSent reason={staged.failed} />
+      <NotSent reason={staged.uploadInterrupted ? "Upload interrupted" : staged.failed} />
       <span className="flex gap-1">
-        {!editing && canRetry(staged) && (
+        {!staged.uploadInterrupted && !editing && canRetry(staged) && (
           <Button size="sm" variant="ghost" onClick={retry}>
             <Icon icon={ArrowClockwiseIcon} size={12} />
             Retry
           </Button>
         )}
-        <Button size="sm" variant="ghost" onClick={edit}>
-          <Icon icon={PencilSimpleIcon} size={12} />
-          {editing ? "Save edit" : "Edit"}
-        </Button>
+        {!staged.uploadInterrupted && hasLocalStaged(staged.commandId) && (
+          <Button size="sm" variant="ghost" onClick={edit}>
+            <Icon icon={PencilSimpleIcon} size={12} />
+            {editing ? "Save edit" : "Edit"}
+          </Button>
+        )}
         <Button size="sm" variant="ghost" onClick={remove}>
           Remove
         </Button>

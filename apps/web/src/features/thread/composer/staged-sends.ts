@@ -13,28 +13,22 @@ import {
   retainHeldSend,
   deleteHeldSend,
   refreshHeldSends,
-  holdPageLock,
   reloadHeldStore,
   pageId as currentPageId,
-  startUploadLease,
-  finishUploadLease,
 } from "@/lib/held-send-store.ts";
-export { pageId, liveOwners } from "@/lib/held-send-store.ts";
+export { pageId } from "@/lib/held-send-store.ts";
 import { z } from "zod";
+import { readDraft } from "./draft-store.ts";
+import { releaseUploadFiles } from "./release-upload-files.ts";
 import { rememberAttachments, type StagedSend } from "./send-store.ts";
 import {
-  browserUploadLeaseClock,
-  uploadOwnerAlive,
-  type UploadLeaseClock,
-} from "@/lib/upload-owner-lease.ts";
+  browserUploadClock,
+  uploadIsInterrupted,
+  type UploadClock,
+} from "./upload-interruption.ts";
 
-/*
- * Messages held back until their files upload (UX audit SY-2, AT-2; review of #126). The person
- * pressed Enter and the composer emptied, so this is the only copy of the message until it is
- * enqueued: it is kept on this device (localStorage) and survives a reload. A message whose
- * upload failed, or whose page closed mid-upload, stays as a failed bubble with Retry and Edit,
- * whatever the composer holds by then. Files and image previews only live in the page that
- * attached them; Retry can upload a file again only there.
+/* Messages reserve their place before uploading. Files and previews stay in this tab.
+ * Reloads and timeouts leave an interrupted message with Remove only; they never resend it.
  */
 
 const StoredFile = z.object({
@@ -50,6 +44,8 @@ const Stored = z.object({
   threadId: z.string(),
   submissionOrder: z.number().int().nonnegative().safe().optional(),
   preparing: z.boolean().optional(),
+  uploadStartedAt: z.number().int().nonnegative().safe().optional(),
+  uploadInterrupted: z.boolean().optional(),
   text: z.string(),
   mentions: z.array(z.string()),
   input: z.array(ContentPart).optional(),
@@ -69,6 +65,7 @@ export type { StagedSend };
 interface Held {
   files: (File | undefined)[];
   previews: (string | undefined)[];
+  clock: UploadClock;
 }
 const held = new Map<string, Held>();
 let generation = 0;
@@ -109,17 +106,22 @@ export function stagedSends(store: KeyValueStorage | undefined): typeof all {
 /** Hold a message while its files upload; `files` and `previews` stay in this page. */
 export function stage(
   send: Omit<StagedSend, "owner">,
-  local: Held,
-  clock: UploadLeaseClock = browserUploadLeaseClock,
+  local: Pick<Held, "files" | "previews">,
+  clock: UploadClock = browserUploadClock,
 ): boolean {
   const uploading = send.preparing || send.attachments.some((file) => !file.sha256);
-  if (uploading && !startUploadLease(send.commandId, clock)) return false;
-  if (!save({ ...send, preparing: !!uploading, owner: currentPageId })) {
-    finishUploadLease(send.commandId);
+  held.set(send.commandId, { ...local, clock });
+  if (
+    !save({
+      ...send,
+      preparing: !!uploading,
+      uploadStartedAt: uploading ? clock.now() : undefined,
+      owner: currentPageId,
+    })
+  ) {
+    held.delete(send.commandId);
     return false;
   }
-  held.set(send.commandId, local);
-  holdPageLock();
   return true;
 }
 
@@ -148,7 +150,6 @@ function patch(commandId: string, change: Partial<StagedSend>): boolean {
  */
 export function unstage(commandId: string, keepPreviews = false): boolean {
   if (!deleteHeldSend(commandId)) return false;
-  finishUploadLease(commandId);
   const local = held.get(commandId);
   held.delete(commandId);
   if (local && !keepPreviews) for (const url of local.previews) if (url) URL.revokeObjectURL(url);
@@ -161,20 +162,12 @@ export function canRetry(send: StagedSend): boolean {
   return send.attachments.every((file, index) => !!file.sha256 || !!local?.files[index]);
 }
 
-/** Re-check the durable lease at the action boundary, including a heartbeat since render. */
-export function canRecoverStaged(
-  commandId: string,
-  storage: KeyValueStorage | undefined,
-  now: number,
-): boolean {
-  refreshHeldSends();
-  const send = all.get().find((entry) => entry.commandId === commandId);
-  if (!send) return false;
-  return (
-    send.owner === currentPageId ||
-    (!send.preparing && send.attachments.every((file) => !!file.sha256)) ||
-    !uploadOwnerAlive(storage, send.owner, now)
-  );
+/** Only this page's retained files can be edited back into its composer. */
+export function hasLocalStaged(commandId: string): boolean {
+  return held.has(commandId);
+}
+export function isInterrupted(send: StagedSend, now: number): boolean {
+  return uploadIsInterrupted(send, held.has(send.commandId), now);
 }
 
 /** The held message's files, with this page's previews where it has them. */
@@ -190,14 +183,6 @@ export function withPreviews(send: StagedSend): StagedSend {
   };
 }
 
-/** Why a held message from a page that closed can't go as it is. */
-export function interrupted(send: StagedSend): string {
-  const missing = send.attachments.filter((file) => !file.sha256).map((file) => file.name);
-  return missing.length
-    ? `The page closed before ${missing.join(", ")} finished uploading`
-    : "The page closed before it was sent";
-}
-
 /** Record how each file's upload ended; true when every file is now held by the daemon. */
 function settle(
   commandId: string,
@@ -206,9 +191,9 @@ function settle(
   refreshHeldSends();
   const send = all.get().find((entry) => entry.commandId === commandId);
   if (!send) {
-    finishUploadLease(commandId);
     return false;
   }
+  const stopped = isInterrupted(send, held.get(commandId)?.clock.now() ?? 0);
   const attachments = send.attachments.map((file, index) => {
     const outcome = outcomes[index];
     return outcome && "sha256" in outcome
@@ -222,11 +207,11 @@ function settle(
   );
   const saved = patch(commandId, {
     preparing: false,
+    uploadInterrupted: stopped || undefined,
     attachments,
     failed: failed.length ? failed.join(" · ") : undefined,
   });
-  finishUploadLease(commandId);
-  return saved && !failed.length;
+  return saved && !failed.length && !stopped;
 }
 
 /**
@@ -238,10 +223,23 @@ export async function sendWhenUploaded(
   client: ClientApi,
   commandId: string,
   outcomes: Promise<readonly ({ sha256: string } | { error: string })[]>,
+  storage?: KeyValueStorage,
 ): Promise<boolean> {
   const epoch = generation;
+  const original = all.get().find((send) => send.commandId === commandId);
   const uploaded = await outcomes;
-  if (epoch !== generation || !settle(commandId, uploaded)) return false;
+  if (epoch !== generation) return false;
+  refreshHeldSends();
+  if (original && !all.get().some((send) => send.commandId === commandId)) {
+    await releaseUploadFiles(
+      client,
+      original.threadId,
+      uploaded.flatMap((file) => ("sha256" in file ? [file.sha256] : [])),
+      () => retainedHashes(client, original, storage),
+    );
+    return false;
+  }
+  if (!settle(commandId, uploaded)) return false;
   return enqueueStaged(client, commandId);
 }
 
@@ -285,6 +283,7 @@ async function drainThread(client: ClientApi, threadId: string, epoch: number): 
     if (
       pending?.state === "saving" ||
       send.preparing ||
+      send.uploadInterrupted ||
       send.failed ||
       send.attachments.some((file) => !file.sha256)
     )
@@ -305,7 +304,8 @@ export async function enqueueStaged(client: ClientApi, commandId: string): Promi
 async function enqueueReady(client: ClientApi, commandId: string): Promise<boolean> {
   refreshHeldSends();
   const send = all.get().find((entry) => entry.commandId === commandId);
-  if (!send || send.attachments.some((file) => !file.sha256)) return false;
+  if (!send || send.uploadInterrupted || send.attachments.some((file) => !file.sha256))
+    return false;
   const payload: CommandPayload = {
     type: "thread.send",
     threadId: ThreadId.parse(send.threadId),
@@ -345,18 +345,24 @@ export async function retryStaged(
   client: ClientApi,
   commandId: string,
   upload: (file: File) => Promise<{ sha256: string }>,
-  clock: UploadLeaseClock = browserUploadLeaseClock,
+  clock: UploadClock = browserUploadClock,
 ): Promise<boolean> {
   const epoch = generation;
   refreshHeldSends();
   const send = all.get().find((entry) => entry.commandId === commandId);
   const local = held.get(commandId);
   if (!send) return false;
-  if (!startUploadLease(commandId, clock)) return false;
-  if (!patch(commandId, { preparing: true, failed: undefined, owner: currentPageId })) {
-    finishUploadLease(commandId);
+  if (isInterrupted(send, clock.now())) return false;
+  if (local) local.clock = clock;
+  if (
+    !patch(commandId, {
+      preparing: true,
+      uploadStartedAt: clock.now(),
+      failed: undefined,
+      owner: currentPageId,
+    })
+  )
     return false;
-  }
   const outcomes = await Promise.all(
     send.attachments.map(async (file, index) => {
       if (file.sha256) return { sha256: file.sha256 };
@@ -370,6 +376,54 @@ export async function retryStaged(
     }),
   );
   return epoch === generation && settle(commandId, outcomes) && enqueueStaged(client, commandId);
+}
+
+function retainedHashes(
+  client: ClientApi,
+  removed: StagedSend,
+  storage: KeyValueStorage | undefined,
+): ReadonlySet<string> {
+  refreshHeldSends();
+  return new Set([
+    ...all
+      .get()
+      .filter((send) => send.commandId !== removed.commandId && send.threadId === removed.threadId)
+      .flatMap((send) => send.attachments.flatMap((file) => (file.sha256 ? [file.sha256] : []))),
+    ...(readDraft(storage, `thread:${removed.threadId}`)?.attachments.map((file) => file.sha256) ??
+      []),
+    ...client
+      .pendingSends(removed.threadId)
+      .getSnapshot()
+      .flatMap((send) =>
+        send.payload.type === "thread.send"
+          ? (send.payload.context?.attachments.map((file) => file.sha256) ?? [])
+          : [],
+      ),
+  ]);
+}
+
+/** Remove one interrupted/failed submission. Repeated removal cannot touch its successors. */
+export async function removeStagedUpload(
+  client: ClientApi,
+  commandId: string,
+  storage: KeyValueStorage | undefined,
+  clock: UploadClock = browserUploadClock,
+): Promise<boolean> {
+  refreshHeldSends();
+  const send = all.get().find((entry) => entry.commandId === commandId);
+  if (!send) return true;
+  // A stale Remove from another tab must not delete a message that has already finished.
+  if (!send.failed && !isInterrupted(send, clock.now())) return true;
+  if (!patch(commandId, { uploadInterrupted: true })) return false;
+  const released = await releaseUploadFiles(
+    client,
+    send.threadId,
+    send.attachments.flatMap((file) => (file.sha256 ? [file.sha256] : [])),
+    () => retainedHashes(client, send, storage),
+  );
+  if (!released || !unstage(commandId)) return false;
+  await drainStaged(client, send.threadId);
+  return true;
 }
 
 /** Test seam: what a reload does to this page (its files, previews and id go; storage stays). */

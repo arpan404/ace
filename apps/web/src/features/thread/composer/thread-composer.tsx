@@ -12,7 +12,7 @@ import {
 } from "@ace/ui-core";
 import { Suspense, useContext, useEffect, useRef, useState, type Ref } from "react";
 import { TimeContext } from "@/lib/time.ts";
-import { uploadLeaseClock } from "@/lib/upload-owner-lease.ts";
+import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 // The catalog alone: the models feature is also loaded lazily, so importing its index would bring
 // its pickers into this route.
@@ -176,7 +176,7 @@ export function ThreadComposer({
     const ok = await sendMessage({
       client,
       storage,
-      clock: uploadLeaseClock(time.read),
+      clock: uploadClock(time.read),
       threadId: props.thread.id,
       commandId,
       draft,

@@ -4,7 +4,7 @@ import type { KeyValueStorage } from "@ace/ui-core";
 import type { Draft } from "./draft.ts";
 import { type StagedSend } from "./send-store.ts";
 import { sendWhenUploaded, stage, stagedSends } from "./staged-sends.ts";
-import type { UploadLeaseClock } from "@/lib/upload-owner-lease.ts";
+import type { UploadClock } from "@/features/thread/composer/upload-interruption.ts";
 
 /*
  * Sending one message from the thread's composer (UX audit SY-2, AT-2). Loaded with the
@@ -14,7 +14,7 @@ import type { UploadLeaseClock } from "@/lib/upload-owner-lease.ts";
 export interface SendRequest {
   client: ClientApi;
   storage: KeyValueStorage | undefined;
-  clock?: UploadLeaseClock;
+  clock?: UploadClock;
   threadId: string;
   commandId: string;
   draft: Draft;
@@ -43,7 +43,7 @@ export async function sendMessage(request: SendRequest): Promise<boolean> {
     )
   )
     return refuseStage(request);
-  void sendWhenUploaded(client, commandId, files.outcomes);
+  void sendWhenUploaded(client, commandId, files.outcomes, request.storage);
   return true;
 }
 

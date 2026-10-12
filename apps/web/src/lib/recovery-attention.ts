@@ -1,46 +1,17 @@
 import { usePendingSends } from "@ace/client-react";
 import type { CatalogModel, ThreadListEntry } from "@ace/protocol";
 import { recoveryAttention as attention, type RecoveryAttention } from "@ace/ui-core";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { dismissedSends, loadDismissed } from "./dismissed-sends.ts";
 import { useLayout } from "./layout.tsx";
-import { liveOwners, pageId, heldSendStore } from "./held-send-store.ts";
-import { useSeconds } from "./time.ts";
-import { uploadOwnerAlive } from "./upload-owner-lease.ts";
+import { heldSendStore } from "./held-send-store.ts";
 
 /** Saved holds survive the outbox's memory cache and the page that started them. */
 function useHeldFailures() {
   const { storage } = useLayout();
   const store = heldSendStore(storage);
   const all = useSyncExternalStore(store.subscribe, store.get, store.get);
-  const [owners, setOwners] = useState<ReadonlySet<string> | null>();
-  const foreign = all.some(
-    (send) => send.owner !== pageId && send.preparing !== false && !send.failed,
-  );
-  const now = useSeconds(foreign);
-  useEffect(() => {
-    if (!all.some((send) => send.owner !== pageId && !send.failed)) return;
-    let active = true;
-    void liveOwners().then((live) => {
-      if (active) setOwners(live ?? null);
-    });
-    return () => {
-      active = false;
-    };
-  }, [all]);
-  return useMemo(
-    () =>
-      all.filter(
-        (send) =>
-          !!send.failed ||
-          (send.owner !== pageId &&
-            send.preparing !== false &&
-            owners !== undefined &&
-            !owners?.has(send.owner) &&
-            !uploadOwnerAlive(storage, send.owner, now)),
-      ),
-    [all, owners, storage, now],
-  );
+  return useMemo(() => all.filter((send) => !!send.failed || send.uploadInterrupted), [all]);
 }
 
 export function useFailedSendThreads(): ReadonlySet<string> {

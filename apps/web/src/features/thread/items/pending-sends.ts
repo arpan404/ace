@@ -1,22 +1,20 @@
 import type { PendingSend, ThreadKey, ThreadReader } from "@ace/client";
 import { arrayEqual, useThread, usePendingSends, useClient } from "@ace/client-react";
 import type { QueuePage } from "@ace/protocol";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { useLayout } from "@/lib/layout.tsx";
 import { useSeconds } from "@/lib/time.ts";
-import { uploadOwnerAlive } from "@/lib/upload-owner-lease.ts";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { dismissedSends, loadDismissed } from "../composer/dismissed-sends.ts";
 import {
   drainStaged,
-  interrupted,
-  liveOwners,
-  pageId,
+  isInterrupted,
   stagedSends,
   unstage,
   withPreviews,
   type StagedSend,
 } from "../composer/staged-sends.ts";
+import { uploadPending } from "../composer/upload-interruption.ts";
 import type { Block } from "../transcript/blocks.ts";
 
 /*
@@ -138,28 +136,7 @@ export function useStaged(threadId: string): readonly StagedSend[] {
       return;
     void drainStaged(client, threadId);
   }, [client, threadId, here, outbox, owned]);
-  // Other pages' holds: alive while their pages hold their locks.
-  const otherOwners = useMemo(
-    () =>
-      new Set(
-        here.filter((send) => send.owner !== pageId && !send.failed).map((send) => send.owner),
-      ),
-    [here],
-  );
-  // null means Web Locks cannot be queried; a fresh durable lease still protects the owner.
-  const [live, setLive] = useState<ReadonlySet<string> | null>();
-  const now = useSeconds(otherOwners.size > 0);
-  useEffect(() => {
-    if (!otherOwners.size) return;
-    let current = true;
-    void liveOwners().then((owners) => {
-      if (current)
-        setLive(owners ? new Set([...otherOwners].filter((owner) => owners.has(owner))) : null);
-    });
-    return () => {
-      current = false;
-    };
-  }, [otherOwners]);
+  const now = useSeconds(here.some(uploadPending));
   return useMemo(
     () =>
       here
@@ -170,23 +147,9 @@ export function useStaged(threadId: string): readonly StagedSend[] {
         )
         .map((send, index) => {
           const shown = Object.assign({}, withPreviews(send), { waitingForEarlier: index > 0 });
-          const gone =
-            send.owner !== pageId &&
-            !send.failed &&
-            (send.preparing || send.attachments.some((file) => !file.sha256)) &&
-            live !== undefined &&
-            !live?.has(send.owner) &&
-            !uploadOwnerAlive(storage, send.owner, now);
-          return gone
-            ? Object.assign({}, shown, {
-                failed:
-                  live === null
-                    ? "The uploading page stopped responding. Edit or remove to unblock the queue."
-                    : interrupted(send),
-              })
-            : shown;
+          return Object.assign({}, shown, { uploadInterrupted: isInterrupted(send, now) });
         }),
-    [here, live, outbox, owned, storage, now],
+    [here, outbox, owned, now],
   );
 }
 

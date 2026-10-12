@@ -67,7 +67,8 @@ export function SendStatus(props: {
       : undefined;
   const worktree = useWorktreeCreation(creating).state?.progress;
   if (worktree) return props.otherwise;
-  if (staged?.failed) return <FailedHeld threadId={props.threadId} staged={staged} />;
+  if (staged?.failed || staged?.uploadInterrupted)
+    return <FailedHeld threadId={props.threadId} staged={staged} />;
   if (staged)
     return (
       <Line>

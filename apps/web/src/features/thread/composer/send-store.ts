@@ -25,6 +25,8 @@ export interface StagedSend {
   submissionOrder?: number | undefined;
   /** Outcomes are still being prepared, including an in-flight Retry. */
   preparing?: boolean | undefined;
+  uploadStartedAt?: number | undefined;
+  uploadInterrupted?: boolean | undefined;
   text: string;
   mentions: string[];
   input?: ContentPart[] | undefined;
