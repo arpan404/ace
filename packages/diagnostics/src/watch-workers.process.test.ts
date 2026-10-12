@@ -47,7 +47,7 @@ test.each(["watch:import", "watch:require"])(
       db.close();
     }
     const lines: string[] = [];
-    for await (const line of recentThreadEvents(path, await watchWorker(home, kind)))
+    for await (const line of recentThreadEvents(path, {}, await watchWorker(home, kind)))
       lines.push(line);
     expect(lines.map((line) => JSON.parse(line).payload.text)).toEqual(
       Array.from({ length: 33 }, (_, index) => `exported-${index + 1}`),

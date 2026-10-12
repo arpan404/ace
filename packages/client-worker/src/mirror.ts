@@ -124,6 +124,9 @@ export class MirrorThread implements ThreadSource {
   ): Selection<T> {
     return this.notifications.select(keys, () => selector(this), equal);
   }
+  observe(tap: ChangeTap): () => void {
+    return this.notifications.tap(tap);
+  }
   reset(copy: ThreadExport): void {
     const view = copy.view;
     this.failure = errorOf(copy.error);

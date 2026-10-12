@@ -1,5 +1,5 @@
 import { facts, workbench, type Scenario } from "@ace/fake-daemon";
-import { ForgePrStatus, ThreadId, WorkspaceId } from "@ace/protocol";
+import { ForgePrStatus, ThreadId, WorkspaceId, type CommandPayload } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
@@ -471,6 +471,68 @@ test("explicit PR addresses can link another repository and unlink only that ass
     expect(snapshot && "thread" in snapshot && snapshot.thread.details?.linkedPrs).toMatchObject([
       { number: 283, repo: repository },
     ]);
+  });
+});
+
+test("the work card links a configured Enterprise address through the worker connection", async () => {
+  const app = harness({ throughWorker: true });
+  app.play(idle("thread-pr", checkout)).runUntilBlocked();
+  await app.open("/t/thread-pr");
+  await app.client.request({
+    type: "settings.set",
+    key: "sourceControl.preferences",
+    layer: { kind: "global" },
+    value: {
+      hosts: [{ host: "github.com" }, { host: "git.example.com" }],
+      host: "git.example.com",
+      remote: "upstream",
+    },
+  });
+  const card = await openCard();
+  await userEvent.type(await linkField(card), "https://git.example.com/octo/ace/pull/7{Enter}");
+  await waitFor(() => {
+    const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
+    expect(view && "thread" in view && view.thread.details?.linkedPrs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          number: 7,
+          repo: { forge: "github", host: "git.example.com", owner: "octo", name: "ace" },
+        }),
+      ]),
+    );
+  });
+});
+
+test("Create PR sends the selected remote and the same reviewed head to push and PR creation", async () => {
+  const app = harness({ throughWorker: true });
+  app.play(idle("selected-remote", checkout)).runUntilBlocked();
+  app.daemon.services.settings.seed({
+    "sourceControl.preferences": {
+      hosts: [{ host: "github.com", account: "ada" }],
+      host: "github.com",
+      remote: "upstream",
+    },
+  });
+  const frames: CommandPayload[] = [];
+  const receive = app.daemon.command.bind(app.daemon);
+  app.daemon.command = (command) => {
+    frames.push(command.payload);
+    return receive(command);
+  };
+  await app.open("/t/selected-remote");
+  const card = await openCard();
+  await userEvent.click(await within(card).findByRole("button", { name: "Create PR" }));
+  const dialog = await screen.findByRole("dialog", { name: "Open a pull request" });
+  await userEvent.click(within(dialog).getByRole("button", { name: /^Create PR/ }));
+  await waitFor(() =>
+    expect(frames.find((frame) => frame.type === "forge.pr.create")).toMatchObject({
+      repository,
+      input: { branch: checkout.branch, expectedHead: checkout.head },
+    }),
+  );
+  expect(frames.find((frame) => frame.type === "git.push")).toMatchObject({
+    remote: "upstream",
+    target: { repository, branch: checkout.branch, head: checkout.head },
   });
 });
 

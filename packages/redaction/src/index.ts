@@ -1,3 +1,9 @@
+import { redactOriginalText, sensitiveSpans } from "./literal-spans.ts";
+export { sensitiveSpans };
+import { redactRecordEnvironment } from "./record-environment.ts";
+import { createEnvironmentMatcher, type EnvironmentMatcher } from "./environment.ts";
+import { redactEmbeddedText } from "./embedded-text.ts";
+
 export type RedactionContext = {
   workspace?: string | undefined;
   home?: string | undefined;
@@ -68,18 +74,6 @@ function sensitiveEnvironment(ctx: RedactionContext): Array<[string, string]> {
 }
 
 const EMAIL = /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
-const SECRETS: readonly RegExp[] = [
-  /\bAIza[A-Za-z0-9_-]{35}/g,
-  /\bxox[baprs]-[A-Za-z0-9-]{10,}/g,
-  /\bnpm_[A-Za-z0-9]{20,}/g,
-  /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}/g,
-  /\bgithub_pat_[A-Za-z0-9_]{16,}/g,
-  /\bAKIA[A-Z0-9]{16}\b/g,
-  /\bsk-[A-Za-z0-9_-]{16,}/g,
-  /\bgh[opsur]_[A-Za-z0-9]{20,}/g,
-  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
-  /\b(?:Bearer|Basic)\s+[A-Za-z0-9+/=._-]+/gi,
-];
 /** JSON string fields that identify a device, account or organisation. */
 const IDENTIFYING_KEYS =
   /"(installationId|deviceId|accountId|account_uuid|userId|user_id|organizationId|organization_uuid|orgId)":"[^"]*"/g;
@@ -87,6 +81,14 @@ const KEEP_EMAILS = new Set(["recorder@ace.invalid", "noreply@anthropic.com"]);
 
 function escape(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function environmentMatcher(ctx: RedactionContext): EnvironmentMatcher {
+  return createEnvironmentMatcher(
+    sensitiveEnvironment(ctx)
+      .filter(([key, value]) => value.length >= 4 || isSecretKey(key))
+      .map(([, value]) => value),
+  );
 }
 
 /** Lexical rules are shared by literal diagnostics and recursive JSON redaction. */
@@ -110,31 +112,16 @@ function createLexicalRedactor(ctx: RedactionContext): (text: string) => string 
   const shortValues = new Set(
     environmentValues.map(([, value]) => value).filter((value) => value.length < 4),
   );
-  const values = [
-    ...new Set(
-      environmentValues
-        .filter(([key, value]) => value.length >= 4 || isSecretKey(key))
-        .flatMap(([, value]) => [value, JSON.stringify(value).slice(1, -1)]),
-    ),
-  ].toSorted((a, b) => b.length - a.length);
-  const environment = values.length ? new RegExp(values.map(escape).join("|"), "g") : undefined;
+  const environment = environmentMatcher(ctx);
   return (line: string): string => {
     if (shortValues.has(line)) return "<ENV>";
-    let out = line;
+    let out = redactOriginalText(line, environment);
     for (const [pattern, replacement] of paths) {
       if (pattern.source !== "(?:)") out = out.replace(pattern, replacement);
     }
     out = out.replace(/(\bfile:\/\/[^/\s"'<>]*)\/(?:Users|home)\/[^/\s"'<>?#]+/gi, "$1<HOME>");
     out = out.replace(/(?<![\w./\\-])\/(?:Users|home)\/[^/\s"'<>]+/g, "<HOME>");
     out = out.replace(/\/(?:private\/)?var\/folders\/[^/\s"'<>]+\/[^/\s"'<>]+\/[TC]\//g, "<TEMP>/");
-    if (environment) out = out.replace(environment, "<ENV>");
-    out = out.replace(/([#&](?:code|ticket|token)=)[^&#\s]+/gi, "$1<SECRET>");
-    for (const pattern of SECRETS) out = out.replace(pattern, "<SECRET>");
-    out = out.replace(
-      /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)[^"\n]*"\s*:\s*)"(?:[^"\\]|\\.)*"/gi,
-      '$1"<SECRET>"',
-    );
-    out = out.replace(/\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi, "<SECRET>");
     out = out.replace(IDENTIFYING_KEYS, (_match, key: string) => `"${key}":"<ID>"`);
     out = out.replace(EMAIL, (match) => (KEEP_EMAILS.has(match) ? match : "<EMAIL>"));
     if (user) out = out.replace(user, "<USER>");
@@ -169,10 +156,12 @@ export function createRedactor(
     text: string,
     scrubPlain: (text: string) => string,
     scrubRecord: (record: string) => string,
+    environment?: EnvironmentMatcher,
   ) => string,
 ): (line: string) => string {
   const literalFields = new Set(literalTextFields);
   const scrub = createLexicalRedactor(ctx);
+  const environment = environmentMatcher(ctx);
   const identity =
     /^(installationId|deviceId|accountId|account_uuid|userId|user_id|organizationId|organization_uuid|orgId)$/;
   return (line) => {
@@ -182,20 +171,34 @@ export function createRedactor(
       if (--remaining < 0 || depth > 32) return "<OMITTED>";
       if (typeof value === "string") {
         if (field !== undefined && literalFields.has(field)) return scrub(value);
+        if (redactText)
+          return redactText(
+            value,
+            scrub,
+            (record) =>
+              JSON.stringify(
+                clean(JSON.parse(redactRecordEnvironment(record, environment)), depth + 1),
+              ),
+            environment,
+          );
         const text = value.trimStart();
         if (text.startsWith("{") || text.startsWith("[") || text.startsWith('"')) {
           try {
-            const embedded: unknown = JSON.parse(value);
+            const embedded: unknown = JSON.parse(redactRecordEnvironment(value, environment));
             return JSON.stringify(clean(embedded, depth + 1));
           } catch {
             return "<INVALID STRUCTURED DATA OMITTED>";
           }
         }
-        return redactText
-          ? redactText(value, scrub, (record) =>
-              JSON.stringify(clean(JSON.parse(record), depth + 1)),
-            )
-          : scrub(value);
+        return redactEmbeddedText(
+          value,
+          scrub,
+          (record) =>
+            JSON.stringify(
+              clean(JSON.parse(redactRecordEnvironment(record, environment)), depth + 1),
+            ),
+          environment,
+        );
       }
       if (Array.isArray(value))
         return value.slice(0, remaining).map((item) => clean(item, depth + 1));
@@ -219,13 +222,32 @@ export function createRedactor(
       }
       return value;
     }
+    if (redactText) {
+      try {
+        return redactText(
+          line,
+          scrub,
+          (record) =>
+            JSON.stringify(clean(JSON.parse(redactRecordEnvironment(record, environment)), 0)),
+          environment,
+        );
+      } catch {
+        return '"<REDACTION FAILED: RECORD OMITTED>"';
+      }
+    }
     let value: unknown;
     try {
-      value = JSON.parse(line);
+      value = JSON.parse(redactRecordEnvironment(line, environment));
     } catch {
       // A damaged structured record must never fall back to weaker lexical rules.
       if (/^\s*[[{"]/.test(line)) return '"<INVALID STRUCTURED DATA OMITTED>"';
-      return scrub(line);
+      return redactEmbeddedText(
+        line,
+        scrub,
+        (record) =>
+          JSON.stringify(clean(JSON.parse(redactRecordEnvironment(record, environment)), 0)),
+        environment,
+      );
     }
     try {
       return JSON.stringify(clean(value, 0));
@@ -238,17 +260,11 @@ export function createRedactor(
 /** Preserve token matches across bounded chunks without rescanning the remaining text. */
 export function createStreamingRedactor(ctx: RedactionContext): (text: string) => Iterable<string> {
   const scrub = createTextRedactor(ctx);
-  const values = sensitiveEnvironment(ctx).map(([, value]) => value);
-  const sources = [
-    ...SECRETS,
-    EMAIL,
-    IDENTIFYING_KEYS,
-    /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)[^"\n]*"\s*:\s*)"(?:[^"\\]|\\.)*"/gi,
-    /\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi,
-    /([#&](?:code|ticket|token)=)[^&#\s]+/gi,
-    ...(values.length ? [new RegExp(values.map(escape).join("|"), "g")] : []),
-  ];
+  const environment = environmentMatcher(ctx);
+  const sources = [EMAIL, IDENTIFYING_KEYS];
   return function* (text: string) {
+    const spans = sensitiveSpans(text, environment);
+    let sensitive = spans.next().value;
     const scans = sources.map((pattern) => {
       const regex = new RegExp(pattern.source, pattern.flags);
       return { regex, match: regex.exec(text) };
@@ -256,6 +272,8 @@ export function createStreamingRedactor(ctx: RedactionContext): (text: string) =
     let start = 0;
     while (start < text.length) {
       let end = Math.min(text.length, start + 4096);
+      const parts: string[] = [];
+      let plain = start;
       for (const scan of scans) {
         while (scan.match && scan.match.index + scan.match[0].length <= start)
           scan.match = scan.regex.exec(text);
@@ -263,6 +281,15 @@ export function createStreamingRedactor(ctx: RedactionContext): (text: string) =
       let changed = true;
       while (changed) {
         changed = false;
+        while (sensitive && sensitive.start < end) {
+          parts.push(text.slice(plain, sensitive.start), sensitive.replacement);
+          plain = sensitive.end;
+          if (sensitive.end > end) {
+            end = sensitive.end;
+            changed = true;
+          }
+          sensitive = spans.next().value;
+        }
         for (const scan of scans) {
           while (scan.match && scan.match.index < end) {
             const matchEnd = scan.match.index + scan.match[0].length;
@@ -279,7 +306,10 @@ export function createStreamingRedactor(ctx: RedactionContext): (text: string) =
         low = text.charCodeAt(end);
       if (end < text.length && high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff)
         end++;
-      yield scrub(text.slice(start, end));
+      // Apply the original-input union before scrubbing a chunk: retained JSON
+      // keys or URL prefixes can lie in the previous chunk, outside its context.
+      parts.push(text.slice(plain, end));
+      yield scrub(parts.join(""));
       start = end;
     }
   };

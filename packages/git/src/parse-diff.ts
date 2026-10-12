@@ -1,3 +1,4 @@
+import { numstatRecord } from "./parse-numstat.ts";
 import { z } from "zod";
 import {
   count,
@@ -57,27 +58,14 @@ export function parseDiff(buffer: Buffer): DiffFile[] {
   const counted = new Set<string>();
   while (!records.done()) {
     const record = records.next();
-    const first = record.indexOf("\t");
-    const second = record.indexOf("\t", first + 1);
-    if (first < 0 || second < 0) throw malformed("numstat arity");
-    const added = record.slice(0, first);
-    const removed = record.slice(first + 1, second);
-    let path = record.slice(second + 1);
-    let oldPath = "";
-    if (!path) {
-      oldPath = decode(pathSchema, records.next(), "numstat source");
-      path = records.next();
-    }
-    path = decode(pathSchema, path, "numstat path");
+    const { path, oldPath, additions, deletions, binary } = numstatRecord(record, records);
     const key = JSON.stringify([oldPath, path]);
     const entry = byPath.get(key);
     if (!entry || counted.has(key)) throw malformed("numstat path correspondence");
     counted.add(key);
-    if (added === "-" && removed === "-") entry.binary = true;
-    else {
-      entry.additions = count(added);
-      entry.deletions = count(removed);
-    }
+    entry.binary = binary;
+    entry.additions = additions;
+    entry.deletions = deletions;
   }
   if (counted.size !== files.length) throw malformed("missing numstat records");
   return files;

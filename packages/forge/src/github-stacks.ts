@@ -13,6 +13,7 @@ import {
 } from "@ace/protocol/forge-stacks";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import type { GhApi } from "./http.ts";
+import { ForgeMutationOutcome } from "./mutation.ts";
 import { ForgeError } from "./errors.ts";
 import type { MergeMethod } from "./api.ts";
 const text = z.string().max(65_536);
@@ -203,18 +204,17 @@ export class GitHubStacks {
     if (scope.some((entry) => entry.state !== "OPEN" && entry.state !== "MERGED"))
       throw new ForgeError("conflict");
     // One native host operation includes the downstack, applies rules, and uses its queue.
-    return mergeOperation(
-      (
-        await this.#api.request(
-          `${this.#root}/pulls/${number}/merge-async`,
-          signal,
-          { sha: head, merge_method: method, merge_action: "default", bypass_rules: false },
-          "PUT",
-          dispatch,
-        )
-      ).body,
+    const response = await this.#api.request(
+      `${this.#root}/pulls/${number}/merge-async`,
+      signal,
+      { sha: head, merge_method: method, merge_action: "default", bypass_rules: false },
+      "PUT",
+      dispatch,
     );
+    if (response.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
+    return mergeOperation(response.body);
   }
+
   async mergeResult(number: number, uuid: string, signal: AbortSignal) {
     positive.parse(number);
     z.uuid().parse(uuid);

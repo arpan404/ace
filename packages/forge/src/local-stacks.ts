@@ -7,6 +7,7 @@ import {
 } from "@ace/protocol/forge-stacks";
 import type { CommandRunner } from "./command.ts";
 import { redactData } from "./redact.ts";
+import { ForgeMutationOutcome } from "./mutation.ts";
 import { ForgeError } from "./errors.ts";
 
 import {
@@ -77,7 +78,6 @@ export class LocalStacks {
     if (!allowed()) throw new ForgeError("forbidden");
     if (action === "push")
       return { action, state: "push_partial", message: stackPublicationUnavailable };
-    dispatch.begin();
     let response;
     try {
       response = await this.#runner({
@@ -89,11 +89,13 @@ export class LocalStacks {
         ],
         mode: "json",
         signal,
+        dispatch,
       });
     } catch (error) {
       dispatch.reject(error);
       throw error;
     }
+    if (response.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
     if (response.code === 3 || response.code === 7)
       return {
         action,

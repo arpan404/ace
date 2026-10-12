@@ -19,6 +19,14 @@ const Binding = z.object({
     input: [z.number().int(), z.string(), z.number().int()],
     output: z.number().int().nonnegative(),
   }),
+  openMetadataAt: z.function({
+    input: [z.number().int(), z.string()],
+    output: z.number().int().nonnegative(),
+  }),
+  chmodMetadata: z.function({
+    input: [z.number().int().nonnegative(), z.number().int().min(0).max(0o777)],
+    output: z.void(),
+  }),
   unlinkAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
   renameAt: z.function({ input: [z.number().int(), z.string(), z.string()], output: z.void() }),
   mkdirAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
@@ -77,6 +85,13 @@ export function openAt(parent: number, name: string, flags: number): Descriptor 
     return nativeFailure(error);
   }
 }
+export function openMetadataAt(parent: number, name: string): Descriptor {
+  try {
+    return new Descriptor(binding().openMetadataAt(parent, name));
+  } catch (error) {
+    return nativeFailure(error);
+  }
+}
 export function mkdirAt(parent: number, name: string): void {
   try {
     binding().mkdirAt(parent, name);
@@ -96,6 +111,13 @@ export class Descriptor {
   readonly fd: number;
   constructor(fd: number) {
     this.fd = fd;
+  }
+  chmod(mode: number): void {
+    try {
+      binding().chmodMetadata(this.fd, mode);
+    } catch (error) {
+      nativeFailure(error);
+    }
   }
   stat(): Promise<Stats> {
     return new Promise((resolve, reject) =>

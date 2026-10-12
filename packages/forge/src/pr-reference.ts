@@ -2,7 +2,7 @@ import { ForgePrRef, ForgeRepository } from "@ace/protocol/forge";
 import { ForgeError } from "./errors.ts";
 
 /** Only an HTTPS PR address, never a credential-bearing or arbitrary remote URL. */
-export function prFromUrl(value: string): ForgePrRef {
+export function prFromUrl(value: string, hosts: readonly string[] = ["github.com"]): ForgePrRef {
   let url: URL;
   try {
     url = new URL(value);
@@ -14,7 +14,7 @@ export function prFromUrl(value: string): ForgePrRef {
   );
   if (
     url.protocol !== "https:" ||
-    url.hostname !== "github.com" ||
+    !hosts.includes(url.hostname.toLowerCase()) ||
     url.username ||
     url.password ||
     url.port ||

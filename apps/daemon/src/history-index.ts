@@ -1,3 +1,5 @@
+import { HistorySearchReplay } from "./history-search-replay.ts";
+import type { SearchReplayItem } from "@ace/search";
 import { z } from "zod";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { Event, Item, ItemId, ThreadId, type TextSource, type ItemsPage } from "@ace/protocol";
@@ -30,6 +32,7 @@ type ArchiveOutput = (
 
 /** Immutable metadata and stream lengths. Deltas write one small indexed row. */
 export class HistoryIndex {
+  private readonly searchReplay: HistorySearchReplay;
   private db: DatabaseSync;
   private statement: (sql: string) => StatementSync;
   private texts: ItemTextStore;
@@ -42,6 +45,16 @@ export class HistoryIndex {
     archiveOutput: ArchiveOutput,
   ) {
     this.db = db;
+    this.searchReplay = new HistorySearchReplay(db, {
+      source: (thread, item, stream, through) => {
+        const source = this.latest(stream, through);
+        if (!source) return;
+        if (source.thread_id !== thread || source.item_id !== item)
+          throw new Error("search_replay_source_owner");
+        return { bytes: source.size, encoding: source.encoding };
+      },
+      read: (_thread, stream, offset, limit) => this.readBytes(stream, offset, limit).bytes,
+    });
     this.statement = statement;
     this.readBytes = readBytes;
     this.archiveOutput = archiveOutput;
@@ -132,6 +145,30 @@ export class HistoryIndex {
       "SELECT item FROM history_item_revisions WHERE item_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
     ).get(id, through);
     return row ? Item.parse(JSON.parse(String(row.item))) : undefined;
+  }
+  /** A replay revision refers to durable text streams, never a full canonical message body. */
+  searchItem(
+    threadId: ThreadId,
+    itemId: ItemId,
+    through: number,
+    maxBytes: number,
+  ): Item | SearchReplayItem | undefined {
+    const size = this.statement(
+      "SELECT seq,length(CAST(item AS BLOB)) AS bytes FROM history_item_revisions WHERE item_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
+    ).get(itemId, through);
+    if (!size) return;
+    if (Number(size.bytes) > maxBytes)
+      return this.searchReplay.item(threadId, itemId, Number(size.seq), through);
+    const item = this.itemAt(itemId, through);
+    return item ? this.preview(threadId, item, through) : undefined;
+  }
+  readSearchBytes(
+    thread: ThreadId,
+    stream: string,
+    offset: number,
+    limit: number,
+  ): Buffer | undefined {
+    return this.searchReplay.read(thread, stream, offset, limit);
   }
   private sources(event: Event, item: Item): void {
     const sources: TextSource[] = [];

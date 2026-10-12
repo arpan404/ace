@@ -8,7 +8,7 @@
     "./human": "./src/human.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
     "@ace/projection": "workspace:*",

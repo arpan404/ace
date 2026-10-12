@@ -8,7 +8,7 @@ import { Project } from "./projects.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import { ForgeBrowserOperations, ForgeBrowserResult } from "./forge-browser.ts";
-import { ForgePrStatus } from "./forge.ts";
+import { ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { Run } from "./thread.ts";
 import { ThreadDetails } from "./thread-client.ts";
 import { BranchRef } from "./worktree-base.ts";
@@ -180,6 +180,17 @@ export const WorkspaceCommands = [
     type: z.literal("git.push"),
     threadId: ThreadId,
     remote: z.string().min(1).max(128).default("origin"),
+    /** Pin a PR's pushed head and repository to the checkout the person reviewed. */
+    target: z
+      .object({
+        repository: ForgeRepository,
+        branch: z.string().min(1).max(256),
+        head: z
+          .string()
+          .regex(/^[a-f0-9]{40,64}$/)
+          .nullable(),
+      })
+      .optional(),
   }),
 ] as const;
 

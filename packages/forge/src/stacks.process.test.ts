@@ -1,3 +1,4 @@
+import { GitHubForge, WriteDispatch } from "./index.ts";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
@@ -10,6 +11,7 @@ import {
   expectedStack,
   localStack,
   nextSha,
+  repository,
 } from "./testing/fixtures.ts";
 const signal = () => new AbortController().signal;
 const allowed = () => true;
@@ -514,6 +516,34 @@ test("recorded PR queue facts can be read without native stack membership", asyn
       { number: 7, state: "MERGED", queueState: null, raw: { future: "kept" } },
       { number: 8, state: "OPEN", queueState: "AWAITING_CHECKS" },
     ]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+
+test("a native 409 acknowledgement cannot lose its uncertainty when the mutation identity changes", async () => {
+  const f = await fakeGh({
+    ...stackChecksFixture,
+    graphql: [stackResponse()],
+    "repos/octo/ace/pulls/8/merge-async": [
+      { status: 409, code: 1, body: { status: "pending", details: { uuid: stackUuid } } },
+    ],
+  });
+  const backend = new GitHubForge({
+    repository,
+    now: () => 1000,
+    runner: async (request) => {
+      const result = await f.runner({ ...request, command: f.executable });
+      return request.args.includes("PUT") ? { ...result, identityChanged: true } : result;
+    },
+  });
+  const dispatch = new WriteDispatch();
+  try {
+    await expect(
+      backend.mergeStack(8, expectedStack, "squash", signal(), allowed, dispatch),
+    ).rejects.toMatchObject({ kind: "outcome_uncertain" });
+    expect(dispatch.definitelyFailed).toBe(false);
   } finally {
     await f.cleanup();
   }
