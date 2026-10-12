@@ -141,7 +141,13 @@ export async function connectCli(home: string, args: Args) {
       lifetime.signal,
     );
     if (state === "fatal") throw client.error ?? new ClientError("auth");
-    return { client, signal: lifetime.signal, close, remote: profile !== undefined };
+    return {
+      client,
+      signal: lifetime.signal,
+      close,
+      remote: profile !== undefined,
+      origin: profile?.origin ?? connection?.origin ?? "",
+    };
   } catch (error) {
     await close();
     throw error;

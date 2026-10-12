@@ -7,7 +7,7 @@ import { spawnTextSupervised } from "@ace/provider-kit/process";
 import { secureDataDir } from "../local-files.ts";
 import { type Args, timeoutMs } from "./args.ts";
 import { cloudPlan } from "./cloud-plan.ts";
-import { key } from "./work.ts";
+import { key } from "./mutations.ts";
 import { prompt, result } from "./io.ts";
 import { CliFailure } from "./output.ts";
 const Receipt = z.object({

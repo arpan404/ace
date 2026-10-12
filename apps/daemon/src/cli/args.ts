@@ -12,6 +12,8 @@ const switches = new Set([
   "include-threads",
   "follow",
   "f",
+  "archive-threads",
+  "web",
 ]);
 /** Pure parsing. `--` preserves prompt text, including strings beginning with a dash. */
 export function parseArgs(input: readonly string[]): Args {

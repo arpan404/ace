@@ -2,7 +2,7 @@ import { CliTree, Interaction, ThreadId, InteractionId } from "@ace/protocol";
 import type { Client } from "@ace/client";
 import { option, validateArgs, type Args } from "./args.ts";
 import { waitSelection, waitSelectionOrRefresh } from "./connection.ts";
-import { command, key } from "./work.ts";
+import { command, key } from "./mutations.ts";
 import { prompt, print, result, mutationResult } from "./io.ts";
 import { CliFailure, treeOutcome } from "./output.ts";
 export async function listThreads(args: Args, client: Client, signal: AbortSignal) {

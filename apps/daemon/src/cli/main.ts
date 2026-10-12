@@ -16,6 +16,8 @@ import { connectCli } from "./connection.ts";
 import { runCommand } from "./work.ts";
 import { listThreads, threadCommand, waitThread } from "./threads.ts";
 import { taskCommand } from "./tasks.ts";
+import { projectCommand } from "./projects.ts";
+import { openCommand } from "./open.ts";
 const help = `ace run [PROMPT|-] [--provider codex|claude] [--project ID|PATH] [--worktree] [--model MODEL]
 ace threads list [--project ID]
 ace thread read|send|steer|wait|approve|deny|cancel|interrupt ID [TEXT]
@@ -37,6 +39,8 @@ ace cloud codex exec|list|status|diff|apply [PROMPT|TASK_ID]
 ace logs [-f]
 ace browser shot|record THREAD [--url URL] [--output PATH]
 ace automation list|run ID
+ace add [PATH]|project add|list|rename|remove|open
+ace open [PATH] [--web]
 
 All commands: --json, --jq EXPR, --timeout DURATION
 Mutations: --idempotency-key KEY. Waits: --tree. Run: --stream jsonl.
@@ -53,6 +57,8 @@ export async function main(input: string[]): Promise<void> {
     }
     const command = args.words[0] ?? "start";
     const config = readConfig();
+    if (command === "open" || (command === "project" && args.words[1] === "open"))
+      return await openCommand(args, config);
     if (command === "accounts") {
       const { runAccountsCommand } = await import("@ace/accounts");
       const lines: string[] = [];
@@ -117,12 +123,16 @@ export async function main(input: string[]): Promise<void> {
         "login",
         "browser",
         "automation",
+        "add",
+        "project",
       ].includes(command)
     )
       throw new CliFailure("refused", "Unknown command. See ace --help.");
     const session = await connectCli(config.dataDir, args);
     try {
-      if (command === "browser") await browserCommand(args, session.client, session.signal);
+      if (command === "add" || command === "project")
+        await projectCommand(args, session.client, session.signal, session.remote);
+      else if (command === "browser") await browserCommand(args, session.client, session.signal);
       else if (command === "automation")
         await automationCommand(args, session.client, session.signal);
       else if (command === "kill-all" || command === "mcp")

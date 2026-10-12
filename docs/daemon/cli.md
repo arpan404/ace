@@ -94,6 +94,33 @@ ace cancels and drains an active supervised session before printing fallback
 instructions, so a new login can start immediately.
 The CLI never accepts provider API keys or performs a token exchange.
 
+## Projects and opening ace
+
+```
+ace add
+ace project add ./another-repository --json
+ace project list --limit 50 --json
+ace project list --after WORKSPACE_ID --json
+ace project rename WORKSPACE_ID "A clearer name"
+ace project remove WORKSPACE_ID
+ace project open WORKSPACE_ID
+ace open ./repository --web
+```
+
+`add` defaults to the current directory. The daemon applies its project policy and
+canonicalizes the path, so aliases register the same project. Listing includes
+projects with no threads and returns a bounded page with a `next` cursor. Removal
+unregisters a project and preserves its files and thread history. Active trees
+require explicit `--archive-threads`, using the same policy as the GUI.
+
+`open` registers the path and opens its project. `project open` selects an existing
+registered ID. Local opening starts the daemon if needed, then dispatches the
+existing `ace://open?folder=...` deep link; `--web` selects the web route. An unavailable
+desktop handler falls back to the web route. Opening requires an OS URL handler;
+headless hosts receive needs-human with the URL. No token is placed in the URL.
+Remote project paths must be absolute paths on the remote host. Remote opening uses
+that host's web app after the CLI verifies the profile connection.
+
 ## Server and remote profiles
 
 ```

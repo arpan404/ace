@@ -2,7 +2,7 @@ import type { Client } from "@ace/client";
 import { option, validateArgs, type Args } from "./args.ts";
 import { TriggerVariables } from "@ace/protocol";
 import { result } from "./io.ts";
-import { key } from "./work.ts";
+import { key } from "./mutations.ts";
 import { CliFailure } from "./output.ts";
 export async function automationCommand(args: Args, client: Client, signal: AbortSignal) {
   const verb = args.words[1];

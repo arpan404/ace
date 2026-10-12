@@ -1,41 +1,12 @@
-import { CommandPayload, CommandId, ProviderKind, WorkspaceId, ThreadId } from "@ace/protocol";
-import { createHash, randomUUID } from "node:crypto";
-import { resolve, basename } from "node:path";
+import { ProviderKind, WorkspaceId, ThreadId } from "@ace/protocol";
+import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 import type { Client } from "@ace/client";
 import { option, validateArgs, type Args } from "./args.ts";
 import { prompt, mutationResult } from "./io.ts";
 import { CliFailure } from "./output.ts";
-export function key(args: Args): string {
-  const value = option(args, "idempotency-key") ?? randomUUID();
-  if (!/^[a-zA-Z0-9_.-]{1,128}$/.test(value))
-    throw new CliFailure(
-      "refused",
-      "Idempotency key must be 1-128 letters, digits, dots, underscores or hyphens",
-    );
-  return value;
-}
-export async function command(client: Client, payload: unknown, id: string, signal: AbortSignal) {
-  try {
-    const receipt = await client.command(
-      CommandPayload.parse(payload),
-      { signal },
-      CommandId.parse(id),
-    );
-    if (!receipt.ok)
-      throw new CliFailure(
-        receipt.error?.includes("uncertain") ? "uncertain" : "refused",
-        receipt.error ?? receipt.code ?? "Command refused",
-      );
-    return { ...receipt, idempotencyKey: id };
-  } catch (error) {
-    if (signal.aborted)
-      throw new CliFailure(
-        "uncertain",
-        `Command acknowledgement unavailable; retry with --idempotency-key ${id}`,
-      );
-    throw error;
-  }
-}
+import { command, key } from "./mutations.ts";
+import { addProject } from "./projects.ts";
 export async function runCommand(args: Args, client: Client, signal: AbortSignal) {
   validateArgs(
     args,
@@ -53,9 +24,9 @@ export async function runCommand(args: Args, client: Client, signal: AbortSignal
     workspaceId = WorkspaceId.parse(project);
   else {
     const path = resolve(project ?? process.cwd());
-    const receipt = await command(
+    const receipt = await addProject(
       client,
-      { type: "workspace.add", path, name: basename(path) },
+      path,
       `project-${createHash("sha256").update(path).digest("hex")}`,
       signal,
     );

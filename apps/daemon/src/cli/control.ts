@@ -1,7 +1,7 @@
 import { CliOperation } from "@ace/protocol";
 import type { Client } from "@ace/client";
 import { option, timeoutMs, validateArgs, type Args } from "./args.ts";
-import { key } from "./work.ts";
+import { key } from "./mutations.ts";
 import { result, mutationResult } from "./io.ts";
 import { CliFailure } from "./output.ts";
 import { hostConnection } from "./connection.ts";

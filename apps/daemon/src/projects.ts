@@ -437,7 +437,24 @@ export class Projects {
       this.check(allowed);
       const op = request.operation;
       let result: ProjectsResult["result"];
-      if (op.op === "fs.search") result = await this.picker.search(op, signal, allowed);
+      if (op.op === "workspace.list") {
+        const page = this.catalog.page(op.after, op.limit);
+        const projects = [];
+        for (const project of page.projects) {
+          signal.throwIfAborted();
+          try {
+            await this.paths.directory(project.path);
+            projects.push(project);
+          } catch {
+            /* Registrations outside the current policy remain hidden. */
+          }
+        }
+        result = { kind: "projects", projects, next: page.next };
+      } else if (op.op === "workspace.get") {
+        const project = this.catalog.get(op.workspaceId);
+        await this.paths.directory(project.path);
+        result = { kind: "project", project };
+      } else if (op.op === "fs.search") result = await this.picker.search(op, signal, allowed);
       else if (op.op === "fs.complete")
         result = await this.picker.complete(op, this.home, signal, allowed);
       else if (op.op === "workspace.clone.validate") {
@@ -478,7 +495,10 @@ export class Projects {
       } else result = await browseProjects(this.paths, op);
       if (result.kind !== "home" && result.kind !== "cancelled" && result.kind !== "cloneUrl") {
         const roots = await this.paths.roots();
-        if (result.kind === "recentFolders")
+        if (result.kind === "project") assertProjectPath(result.project.path, roots);
+        else if (result.kind === "projects")
+          for (const project of result.projects) assertProjectPath(project.path, roots);
+        else if (result.kind === "recentFolders")
           for (const folder of result.folders) assertProjectPath(folder.path, roots);
         else if (result.kind === "search" || result.kind === "completion") {
           for (const entry of result.kind === "search" ? result.entries : result.candidates)

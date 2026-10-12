@@ -1,7 +1,7 @@
 import { CliTaskStatus, CliOperation, ThreadId } from "@ace/protocol";
 import type { Client } from "@ace/client";
 import { option, validateArgs, type Args } from "./args.ts";
-import { key } from "./work.ts";
+import { key } from "./mutations.ts";
 import { waitThread } from "./threads.ts";
 import { prompt, result, mutationResult } from "./io.ts";
 import { CliFailure } from "./output.ts";
