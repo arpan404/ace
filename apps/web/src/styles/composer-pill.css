@@ -18,16 +18,25 @@
 [data-slot="composer"][data-pill] [data-slot="composer-add"] {
   order: 1;
 }
-/* The message keeps room for its placeholder; the model chip gives way first, its name truncating. */
+/*
+ * The model chip takes the width its name needs and the message the rest, never less than
+ * 5.5rem; only when both can't fit does the chip's name give way. A placeholder longer than
+ * its room ends in an ellipsis.
+ */
 [data-slot="composer"][data-pill] > [data-slot="composer-input"] {
   order: 2;
   min-width: 5.5rem;
-  flex: 1 1 5.5rem;
+  flex: 1 1 0;
   padding: 0 0.25rem;
+}
+[data-slot="composer"][data-pill] .message-input::before {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 [data-slot="composer"][data-pill] [data-slot="composer-trailing"] {
   order: 3;
-  max-width: 45%;
+  flex: 0 1 auto;
 }
 [data-slot="composer"][data-pill] [data-slot="composer-primary"] {
   order: 4;
