@@ -44,6 +44,7 @@ export { publicationRemote } from "./publication-remote.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
 export { GitError, isMutationUnavailable } from "./types.ts";
 export { spawnGitProcess } from "./process-runtime.ts";
+export { repositoryScope } from "./mutation-leases.ts";
 export type * from "./types.ts";
 export type { MutationState } from "./mutation-state.ts";
 export type { CreateWorktreeOptions, WorktreeProgress } from "./worktrees.ts";
@@ -125,7 +126,9 @@ export class GitService {
     return attachPublicationOrigin(this.repository, input);
   }
   pushPublication(input: PublicationGitInput & { url: string }, policy?: ProjectGitPolicy) {
-    return pushPublication(this.repository, input, policy);
+    return this.repository.cli.withAuthorizedTransfer(input.worktree, () =>
+      pushPublication(this.repository, input, policy),
+    );
   }
   resourceUsage(): { checkpointCounters: number; activeCalls: number } {
     return {
@@ -191,7 +194,9 @@ export class GitService {
     return changeSummary(this.repository, worktree);
   }
   push(options: PushOptions): Promise<void> {
-    return pushBranch(this.repository, options);
+    return this.repository.cli.withAuthorizedTransfer(options.worktree, () =>
+      pushBranch(this.repository, options),
+    );
   }
   switchBranch(options: {
     worktree: string;
@@ -217,7 +222,9 @@ export class GitService {
   }
   /** Fetch one branch into its remote-tracking ref only, bounded by `timeoutMs`. */
   fetchBranch(options: FetchBranchOptions): Promise<void> {
-    return fetchBranch(this.repository, options);
+    return this.repository.cli.withAuthorizedTransfer(options.repo, () =>
+      fetchBranch(this.repository, options),
+    );
   }
   async repositoryInfo(repo: string) {
     const root = await this.repository.root(repo);

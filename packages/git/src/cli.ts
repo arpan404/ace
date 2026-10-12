@@ -4,6 +4,7 @@ import {
   captureMutationOwnership,
   recoverMutationLeases,
   mutationState,
+  repositoryScope,
 } from "./mutation-leases.ts";
 import type { CleanupResult } from "@ace/provider-kit/cleanup";
 import { z } from "zod";
@@ -63,6 +64,7 @@ export class GitCli {
   >();
   private readonly transportProtocols: readonly string[];
   private readonly credentialHelperLookup: GitCredentialHelperLookup | undefined;
+  private readonly withRepositoryTransfer: GitOptions["withRepositoryTransfer"];
   private readonly credentialConfigPaths: {
     system: string | undefined;
     xdg: string;
@@ -83,6 +85,7 @@ export class GitCli {
   constructor(options: GitOptions) {
     this.transportProtocols = options.transportProtocols ?? ["http", "https", "ssh"];
     this.credentialHelperLookup = options.credentialHelperLookup;
+    this.withRepositoryTransfer = options.withRepositoryTransfer;
     const home = process.env.HOME || homedir();
     const paths = {
       system: options.credentialConfigPaths?.system,
@@ -190,8 +193,10 @@ export class GitCli {
   fetch(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (args[0] !== "fetch")
       return Promise.reject(new GitError("invalid_argument", "Explicit fetch requires fetch"));
-    return this.executionPolicy.run({ protocols: this.transportProtocols }, () =>
-      this.call(cwd, args, options),
+    return this.withAuthorizedTransfer(cwd, () =>
+      this.executionPolicy.run({ protocols: this.transportProtocols }, () =>
+        this.call(cwd, args, options),
+      ),
     );
   }
   /** Publishing has its own admission path; local plumbing never inherits transport permission. */
@@ -203,9 +208,19 @@ export class GitCli {
   ): Promise<Output> {
     if (args[0] !== "push")
       return Promise.reject(new GitError("invalid_argument", "Explicit push requires push"));
-    return this.executionPolicy.run({ protocols }, () =>
-      this.call(cwd, ["push", "--no-verify", "--signed=false", ...args.slice(1)], options),
+    return this.withAuthorizedTransfer(cwd, () =>
+      this.executionPolicy.run({ protocols }, () =>
+        this.call(
+          cwd,
+          ["push", "--no-verify", "--signed=false", "--recurse-submodules=no", ...args.slice(1)],
+          options,
+        ),
+      ),
     );
+  }
+  async withAuthorizedTransfer<T>(cwd: string, operation: () => Promise<T>): Promise<T> {
+    if (!this.withRepositoryTransfer) return operation();
+    return this.withRepositoryTransfer(await repositoryScope(cwd), operation);
   }
   /** Cancellable I/O-bound retry pause, using the same injected clock as calls. */
   pause(milliseconds: number): Promise<void> {

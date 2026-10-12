@@ -4,6 +4,7 @@ import { expect, test } from "vitest";
 import { GitService } from "./index.ts";
 import { git, repository, scalar } from "./test-repo.ts";
 import { quote } from "./credential-test-fixtures.ts";
+import { supportsNamedHooks } from "./hook-test-fixtures.ts";
 
 test("an authorized push never executes repo-configured signing even when the remote advertises push certificates", async () => {
   const repo = await repository();
@@ -40,35 +41,6 @@ test("an authorized push never executes repo-configured signing even when the re
     await service.close();
   }
 });
-
-async function supportsNamedHooks(repo: string) {
-  const marker = join(dirname(repo), "named-hook-probe");
-  await scalar(repo, "config", "hook.ace-policy-probe.event", "pre-push");
-  await scalar(
-    repo,
-    "config",
-    "hook.ace-policy-probe.command",
-    `printf supported > ${quote(marker)}`,
-  );
-  try {
-    await git(
-      repo,
-      "-c",
-      "hook.pre-push.enabled=true",
-      "-c",
-      "hook.ace-policy-probe.enabled=true",
-      "hook",
-      "run",
-      "pre-push",
-    ).catch(() => {});
-    return await access(marker).then(
-      () => true,
-      () => false,
-    );
-  } finally {
-    await scalar(repo, "config", "--remove-section", "hook.ace-policy-probe");
-  }
-}
 
 test("configured hooks stay disabled during authorized push, protected commit, checkout, merge and worktree cleanup", async (context) => {
   const repo = await repository();

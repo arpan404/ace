@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { GitError } from "./types.ts";
 
-// Event switches also prevent a concurrently added named hook from bypassing inspection.
+// Event switches apply only when no configured friendly name shadows the event.
 const hookEvents = [
   "applypatch-msg",
   "pre-applypatch",
@@ -45,23 +45,33 @@ const fixed: readonly (readonly [string, string])[] = [
   ...hookEvents.map((event): readonly [string, string] => [`hook.${event}.enabled`, "false"]),
 ];
 const FilterKey = z.string().regex(/^filter\.[^\0\n]+\.(?:clean|smudge|process|required)$/);
-const HookKey = z.string().regex(/^hook\.[^\0\n]+\.(?:event|command)$/);
+const HookKey = z.string().regex(/^hook\.[^\0\n]+\.[^\0\n.]+$/);
 
 export const executionKeyQuery = [
   "config",
   "--null",
   "--name-only",
+  "--show-scope",
   "--get-regexp",
-  "^(filter\\..*\\.(clean|smudge|process|required)|hook\\..*\\.(event|command))$",
+  "^(filter\\..*\\.(clean|smudge|process|required)|hook\\..*\\.[^.]+)$",
 ];
 
 /** Config inspection is read-only. It receives the same fixed execution guards. */
 export function nonExecutingEnv(keys: string = ""): Record<string, string> {
   if (keys && !keys.endsWith("\0"))
     throw new GitError("malformed_output", "Invalid Git execution configuration");
-  const parsed = z
-    .array(z.union([FilterKey, HookKey]))
-    .safeParse(keys ? keys.slice(0, -1).split("\0") : []);
+  const records = keys ? keys.slice(0, -1).split("\0") : [];
+  const configured: string[] = [];
+  for (let index = 0; index < records.length; index += 2) {
+    const scope = records[index],
+      key = records[index + 1];
+    if (!scope || key === undefined)
+      throw new GitError("malformed_output", "Invalid Git execution configuration");
+    // The inspection itself carries our event switches at command scope. Only file-backed
+    // entries can introduce an untrusted friendly name or filter driver.
+    if (scope !== "command") configured.push(key);
+  }
+  const parsed = z.array(z.union([FilterKey, HookKey])).safeParse(configured);
   if (!parsed.success)
     throw new GitError("malformed_output", "Invalid Git execution configuration");
   const drivers = new Set(
@@ -74,6 +84,13 @@ export function nonExecutingEnv(keys: string = ""): Record<string, string> {
       .filter((key) => key.startsWith("hook."))
       .map((key) => key.slice(0, key.lastIndexOf("."))),
   );
+  for (const name of hooks) {
+    if (hookEvents.includes(name.slice("hook.".length)))
+      throw new GitError(
+        "unsupported_repository",
+        "A configured hook shadows a reserved event; remove it before continuing",
+      );
+  }
   if (drivers.size > 512 || hooks.size > 512)
     throw new GitError("unsupported_repository", "Too many execution extensions");
   const pairs = [
