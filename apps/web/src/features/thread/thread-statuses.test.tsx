@@ -65,13 +65,15 @@ test.each([
   },
 );
 
-test("a thread that asked a question keeps the waiting state in the thread and row", async () => {
+test("a thread that asked a question keeps the waiting state in the thread, row and Work icon", async () => {
   const { header, row } = await open(askingQuestion());
   expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
   expect(screen.getByRole("status", { name: "Waiting for your answer" })).toBeTruthy();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
   expect(within(header).queryByRole("status")).toBeNull();
-  expect(within(header).queryByRole("button", { name: /^Work card/ })).toBeNull();
+  expect(
+    await within(header).findByRole("button", { name: "Work, something needs you" }),
+  ).toBeTruthy();
 });
 
 test("a thread running tests names its current action in the transcript live line", async () => {

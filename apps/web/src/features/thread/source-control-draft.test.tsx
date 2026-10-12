@@ -1,4 +1,4 @@
-import { openWorkPanel } from "@/test/open-work.ts";
+import { gitAction } from "@/test/open-work.ts";
 import { facts, type Scenario } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { act, configure, screen, waitFor, within } from "@testing-library/react";
@@ -48,14 +48,7 @@ async function open(kind: "commit" | "pr" = "commit", details: Partial<ThreadDet
   app.daemon.workspace.setGitDiff("draft-thread", "+selected change\n");
   await app.open("/t/draft-thread");
   await screen.findByRole("heading", { level: 1, name: "Person's initial text" });
-  await openWorkPanel();
-  const card = await screen.findByRole("tabpanel", { name: "Work" });
-  await userEvent.click(await within(card).findByRole("button", { name: "Git actions" }));
-  await userEvent.click(
-    await screen.findByRole("menuitem", {
-      name: kind === "commit" ? /^Commit & push/ : /^Create PR(?:…)?$/,
-    }),
-  );
+  await gitAction(kind === "commit" ? /^Commit & push/ : /^Create PR(?:…)?$/);
   const dialog = await screen.findByRole("dialog", {
     name: kind === "commit" ? /^Commit to/ : "Open a pull request",
   });

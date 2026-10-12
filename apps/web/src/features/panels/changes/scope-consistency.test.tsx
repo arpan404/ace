@@ -1,4 +1,4 @@
-import { openWorkPanel } from "@/test/open-work.ts";
+import { openWorkCard } from "@/test/open-work.ts";
 import { coldStartReplay } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -41,10 +41,9 @@ test("the Changes toolbar counts the selected turn and keeps it when another tab
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
   expect(within(panel).getByRole("button", { name: "Scope: Turn 1" })).toBeTruthy();
   await waitFor(() => expectTotal(panel, 8, 2));
-  await openWorkPanel();
-  const card = await screen.findByRole("tabpanel", { name: "Work" });
+  const card = await openWorkCard();
   expect(
-    within(card).getByRole("button", { name: "Changes, 2 files: 38 added, 6 removed" }),
+    await within(card).findByRole("button", { name: "Changes, 2 files: 38 added, 6 removed" }),
   ).toBeTruthy();
 });
 

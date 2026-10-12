@@ -3,6 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { openWorkCard } from "@/test/open-work.ts";
 
 async function renameMachine(button: string, name: string, icon: string) {
   const edit = await screen.findByRole("button", { name: button });
@@ -20,7 +21,7 @@ async function renameMachine(button: string, name: string, icon: string) {
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 }
 
-test("editing this machine updates Settings and the new-thread environment while the card omits its local name", async () => {
+test("editing this machine updates Settings, the new-thread environment and the thread's Work card", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   let view = await app.open("/settings/remote");
@@ -40,10 +41,9 @@ test("editing this machine updates Settings and the new-thread environment while
   view.unmount();
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(await screen.findByRole("button", { name: /^Work card/ }));
-  const card = await screen.findByRole("complementary", { name: "Work card" });
-  expect(card.textContent).not.toContain("Workshop Mac");
-  expect(within(card).getByRole("heading", { level: 2 }).textContent).toContain("· Local");
+  const card = await openWorkCard();
+  expect(within(card).getByRole("button", { name: /^Workshop Mac, / })).toBeTruthy();
+  expect(within(card).getByRole("button", { name: "Checkout: Local" })).toBeTruthy();
 });
 
 test("editing a paired machine saves on that host and replaces stale thread labels", async () => {

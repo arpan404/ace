@@ -39,8 +39,7 @@ test("operational plans show the current step in the live line and their full li
   expect(await screen.findByRole("tab", { name: "Work" })).toBeTruthy();
   const work = await screen.findByRole("tabpanel", { name: "Work" });
   const list = await within(work).findByRole("list", { name: "Plan" });
-  await within(work).findByRole("region", { name: "Environment" });
-  expect(within(work).getByRole("tree", { name: "Agent tree" })).toBeTruthy();
+  expect(await within(work).findByRole("tree", { name: "Agent tree" })).toBeTruthy();
   await within(work).findByRole("region", { name: "Automations" });
   expect(screen.getAllByRole("tab", { name: "Work" })).toHaveLength(1);
   expect(screen.queryByRole("tab", { name: "Agents" })).toBeNull();

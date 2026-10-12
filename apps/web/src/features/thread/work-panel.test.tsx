@@ -1,4 +1,10 @@
-import { openWorkPanel } from "@/test/open-work.ts";
+import {
+  gitAction,
+  machineRow,
+  openMachineMenu,
+  openWorkCard,
+  openWorkPanel,
+} from "@/test/open-work.ts";
 import { facts, workCardScenario } from "@ace/fake-daemon";
 import { Automation, ThreadId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
@@ -12,6 +18,18 @@ async function openWork(app: ReturnType<typeof harness>, threadId: string) {
   await app.open(`/t/${threadId}`);
   await openWorkPanel();
   return screen.findByRole("tabpanel", { name: "Work" });
+}
+
+/** Open the Work card on `threadId` from the header's Work icon. */
+async function openCard(app: ReturnType<typeof harness>, threadId: string) {
+  await app.open(`/t/${threadId}`);
+  return openWorkCard();
+}
+
+/** The machine menu's Project scripts submenu: the checkout's script files and a new one. */
+async function openScripts() {
+  const menu = await openMachineMenu();
+  await userEvent.click(await within(menu).findByRole("menuitem", { name: /^Project scripts/ }));
 }
 
 test("a child keeps working through a non-blocking question and requests attention after its turn ends", async () => {
@@ -81,18 +99,44 @@ test.each(["completed", "interrupted"] as const)(
   },
 );
 
-test("Escape from Project actions restores focus to its trigger and keeps Work open", async () => {
+test("Escape from the machine menu restores focus to its row and keeps the card open", async () => {
   const app = harness();
   const fixture = workCardScenario("worktree");
   app.play(fixture).runUntilBlocked();
-  const card = await openWork(app, fixture.thread.id);
-  const trigger = within(card).getByRole("button", { name: "Project actions" });
+  const card = await openCard(app, fixture.thread.id);
+  const trigger = within(card).getByRole("button", { name: machineRow });
   act(() => trigger.focus());
   await userEvent.keyboard("{Enter}");
   await screen.findByRole("menu");
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(document.activeElement).toBe(trigger));
-  expect(screen.getByRole("tabpanel", { name: "Work" })).toBe(card);
+  expect(screen.getByRole("dialog", { name: "Work" })).toBe(card);
+});
+
+test("a retrying child remains active while it waits on its provider", async () => {
+  const app = harness();
+  const fixture = workCardScenario("changes");
+  app.play(fixture).runUntilBlocked();
+  const work = await openWork(app, fixture.thread.id);
+  act(() =>
+    app.daemon.apply(fixture.thread.id, [{ type: "retry", agent: "worker-0", on: "rate_limit" }]),
+  );
+  await within(work).findByRole("treeitem", { name: "Write retry tests: Waiting on rate limit" });
+  expect(within(work).queryByRole("treeitem", { name: "Write retry tests: Done" })).toBeNull();
+});
+
+test("a failed child opens its own work without leaking its raw error into the tree", async () => {
+  const app = harness();
+  const fixture = workCardScenario("failed");
+  app.play(fixture).runUntilBlocked();
+  const work = await openWork(app, fixture.thread.id);
+  expect(within(work).queryByText("The test command failed. Check its output.")).toBeNull();
+  await userEvent.click(
+    within(work).getByRole("treeitem", { name: "Check supervisor logs: Failed" }),
+  );
+  expect(
+    await screen.findByRole("tab", { name: /Check supervisor logs/, selected: true }),
+  ).toBeTruthy();
 });
 
 test("an ended parent remains active until its nested child settles", async () => {
@@ -174,7 +218,7 @@ test("push waits for confirmation and cancellation leaves the branch unchanged",
   const fixture = workCardScenario("worktree");
   fixture.thread.details = { ...fixture.thread.details, ahead: 1 };
   app.play(fixture).runUntilBlocked();
-  const card = await openWork(app, fixture.thread.id);
+  await openCard(app, fixture.thread.id);
   const ahead = () => {
     const snapshot = app.daemon.snapshot({
       kind: "thread",
@@ -182,14 +226,12 @@ test("push waits for confirmation and cancellation leaves the branch unchanged",
     });
     return snapshot && "thread" in snapshot ? snapshot.thread.details?.ahead : undefined;
   };
-  await userEvent.click(within(card).getByRole("button", { name: "Commit and push options" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Push" }));
+  await gitAction("Push");
   const confirm = await screen.findByRole("dialog", { name: "Push fix/restart-retry?" });
   expect(ahead()).toBe(1);
   await userEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
   expect(ahead()).toBe(1);
-  await userEvent.click(within(card).getByRole("button", { name: "Commit and push options" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Push" }));
+  await gitAction("Push");
   await userEvent.click(
     within(await screen.findByRole("dialog", { name: "Push fix/restart-retry?" })).getByRole(
       "button",
@@ -203,8 +245,8 @@ test("the script menu offers only configurations in the checkout", async () => {
   const app = harness();
   const fixture = workCardScenario("worktree");
   app.play(fixture).runUntilBlocked();
-  const card = await openWork(app, fixture.thread.id);
-  await userEvent.click(within(card).getByRole("button", { name: "Add project script" }));
+  await openCard(app, fixture.thread.id);
+  await openScripts();
   await screen.findByRole("menuitem", { name: "Edit package.json scripts" });
   expect(screen.queryByRole("menuitem", { name: "Edit Makefile" })).toBeNull();
   expect(screen.queryByRole("menuitem", { name: "Edit justfile" })).toBeNull();
@@ -214,16 +256,16 @@ test("the script menu offers only configurations in the checkout", async () => {
   expect(
     await within(panel).findByRole("tab", { name: /package.json/, selected: true }),
   ).toBeTruthy();
-  expect(screen.queryByRole("tabpanel", { name: "Work" })).toBeNull();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Work" })).toBeNull());
 });
 
-test("a new script file is created, edited and saved through Work", async () => {
+test("a new script file is created, edited and saved through the Work card", async () => {
   const user = userEvent.setup();
   const app = harness();
   const fixture = workCardScenario("worktree");
   app.play(fixture).runUntilBlocked();
-  const card = await openWork(app, fixture.thread.id);
-  await user.click(within(card).getByRole("button", { name: "Add project script" }));
+  await openCard(app, fixture.thread.id);
+  await openScripts();
   await user.click(await screen.findByRole("menuitem", { name: "New script file…" }));
   const dialog = await screen.findByRole("dialog", { name: "New file" });
   await user.type(within(dialog).getByRole("textbox", { name: "Path" }), "justfile");
@@ -248,12 +290,7 @@ test("a new script file is created, edited and saved through Work", async () => 
   }))
     chunks.push(new Uint8Array(chunk));
   expect(new TextDecoder().decode(await new Blob(chunks).arrayBuffer())).toBe(script);
-  await openWorkPanel();
-  await user.click(
-    within(await screen.findByRole("tabpanel", { name: "Work" })).getByRole("button", {
-      name: "Add project script",
-    }),
-  );
+  await openScripts();
   expect(await screen.findByRole("menuitem", { name: "Edit justfile" })).toBeTruthy();
 });
 
@@ -261,16 +298,18 @@ test("the branch menu switches branches without repeating environment actions", 
   const app = harness();
   const fixture = workCardScenario("worktree");
   app.play(fixture).runUntilBlocked();
-  const card = await openWork(app, fixture.thread.id);
+  const card = await openCard(app, fixture.thread.id);
   await userEvent.click(
     within(card).getByRole("button", { name: "Branch fix/restart-retry, switch branch" }),
   );
   const branch = await screen.findByRole("menuitem", { name: "develop" });
   const menu = screen.getByRole("menu");
   expect(within(menu).queryByRole("menuitem", { name: "Open terminal" })).toBeNull();
-  expect(within(menu).queryByRole("menuitem", { name: "Open in…" })).toBeNull();
+  expect(within(menu).queryByRole("menuitem", { name: /^Copy path/ })).toBeNull();
   expect(within(menu).queryByRole("menuitem", { name: /^Run / })).toBeNull();
   await userEvent.click(branch);
   expect(await screen.findByText("Switched to develop")).toBeTruthy();
-  expect(within(card).getByRole("button", { name: "Branch develop, switch branch" })).toBeTruthy();
+  expect(
+    within(await openWorkCard()).getByRole("button", { name: "Branch develop, switch branch" }),
+  ).toBeTruthy();
 });
