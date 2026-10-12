@@ -83,6 +83,9 @@ test("the chip opens Tune first: speed, effort and the model's levels with its d
   expect(slider.getAttribute("aria-valuetext")).toBe("High");
   expect(slider.getAttribute("aria-valuemax")).toBe("4");
   expect(slider.querySelectorAll("[data-default]")).toHaveLength(1);
+  // The ring names the default for assistive tech too.
+  const described = document.getElementById(slider.getAttribute("aria-describedby") ?? "");
+  expect(described?.textContent).toContain("The model's default is Medium.");
   const speed = within(popover).getByRole("radiogroup", { name: "Speed" });
   expect(
     within(speed)

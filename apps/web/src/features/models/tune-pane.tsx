@@ -115,6 +115,7 @@ export function TunePane(props: {
           />
           <p id={description} className="sr-only">
             {view.effortReason ?? reasoningDescription(view.effort)}
+            {view.defaultEffort && ` The model's default is ${effortLabel(view.defaultEffort)}.`}
           </p>
         </>
       )}

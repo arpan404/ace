@@ -149,6 +149,7 @@ function StepSlider(props: {
             key={step}
             aria-hidden
             data-default={index === props.defaultIndex ? "" : undefined}
+            title={index === props.defaultIndex ? "Default" : undefined}
             className={cn(
               "absolute top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full",
               selected && index < value ? "bg-white/70" : "bg-current opacity-30",
@@ -182,9 +183,12 @@ function StepSlider(props: {
           {props.steps.map((step, index) => (
             <span
               key={step}
+              title={index === props.defaultIndex ? "Default" : undefined}
               className={cn(
                 "absolute top-0 whitespace-nowrap transition-colors duration-(--motion-fast)",
                 selected && index === value && "font-medium text-foreground",
+                // The default stop reads as one under its ring: a dotted underline.
+                index === props.defaultIndex && "underline decoration-dotted underline-offset-4",
               )}
               style={tickStyle(index, count)}
             >
