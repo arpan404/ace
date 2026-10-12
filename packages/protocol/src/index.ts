@@ -127,6 +127,8 @@ export * from "./remote-context.ts";
 export * from "./agent-orchestration.ts";
 
 export * from "./forge-browser.ts";
+
+export * from "./forge-lifecycle.ts";
 export * from "./source-control.ts";
 export * from "./source-control-draft.ts";
 

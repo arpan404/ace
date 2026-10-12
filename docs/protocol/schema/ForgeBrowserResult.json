@@ -5,6 +5,22 @@
     {
       "properties": {
         "resource": {
+          "const": "prLifecycle",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeLifecycleState.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
           "const": "issueList",
           "type": "string"
         },

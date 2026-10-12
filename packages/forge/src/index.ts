@@ -12,6 +12,8 @@ export * from "./pr-reference.ts";
 export * from "./tail.ts";
 export { StatusRevisions } from "./revisions.ts";
 
+export * from "./github-lifecycle.ts";
+
 export * from "./write-dispatch.ts";
 export { GhApi } from "./http.ts";
 export { mergeStateChangeObserved } from "./merge-state.ts";

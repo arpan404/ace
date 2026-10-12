@@ -1,0 +1,46 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgePrMetadata.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "assignees": {
+      "items": {
+        "maxLength": 100,
+        "pattern": "^[\\w-]+$",
+        "type": "string"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "baseBranch": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "body": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "labels": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "title": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "body",
+    "baseBranch",
+    "labels",
+    "assignees"
+  ],
+  "type": "object"
+}

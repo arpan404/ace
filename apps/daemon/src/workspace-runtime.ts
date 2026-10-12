@@ -225,6 +225,7 @@ export class WorkspaceRuntime {
       result,
     });
     if (
+      op.op === "forge.pr.lifecycle" ||
       op.op === "forge.issue.list" ||
       op.op === "forge.issue.detail" ||
       op.op === "forge.issue.timeline" ||
@@ -385,6 +386,11 @@ export class WorkspaceRuntime {
     return this.commands.run(command, async () => {
       if (!allowed()) return commandNotDispatched(command, "forbidden");
       const p = command.payload;
+      if (p.type === "forge.hosted.lifecycle") {
+        const cwd = this.store.getWorkspacePath(p.workspaceId);
+        if (!cwd) return { ok: false, error: "workspace_not_found" };
+        return this.forge.hostedLifecycle({ ...command, payload: p }, cwd, allowed);
+      }
       if (p.type === "forge.issue.write" || p.type === "forge.issue.reconcile") {
         const cwd = this.store.getWorkspacePath(p.workspaceId);
         if (!cwd) return commandNotDispatched(command, "workspace_not_found");

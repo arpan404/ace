@@ -1,5 +1,6 @@
 import { ForgePrCheckout } from "@ace/protocol/forge-worktree";
 import { BrowserPr } from "./github-browser-schemas.ts";
+import { GitHubLifecycle } from "./github-lifecycle.ts";
 import type { WriteDispatch } from "./write-dispatch.ts";
 import { GitHubIssues } from "./github-issues.ts";
 import type { ForgeIssueSearch, ForgeIssueWrite } from "@ace/protocol/forge-issues";
@@ -34,6 +35,7 @@ const shaSchema = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
 const mergeSchema = z.enum(["merge", "squash", "rebase"]);
 export class GitHubForge implements Forge, ForgeBrowser {
   readonly repository: ForgeRepository;
+  readonly lifecycle: GitHubLifecycle;
   readonly reviews: GitHubReviews;
   readonly #api: GhApi;
   readonly revisions = new StatusRevisions();
@@ -62,6 +64,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     this.#stacks = new GitHubStacks(this.#api, this.repository);
     this.#localStacks = new LocalStacks(options.runner, options.command);
     this.#browser = new GitHubBrowser(this.#api, this.repository);
+    this.lifecycle = new GitHubLifecycle(this.#api, this.repository);
     this.reviews = new GitHubReviews(this.#api, (number) => this.#ref(number));
     this.#issues = new GitHubIssues(this.#api, this.repository);
   }

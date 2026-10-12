@@ -4,6 +4,7 @@ import { actionErrorCode } from "./action-errors.ts";
 import { IssueActions } from "./issue-actions.ts";
 import type { Command } from "@ace/protocol";
 import { ForgeResourceOwner } from "./forge-resource-owner.ts";
+import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
 import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
@@ -36,6 +37,7 @@ import type { PrOwnerOperation } from "./agent-control/tools.ts";
 export class WorkspaceForge {
   private owner = new ForgeResourceOwner();
   private store: Store;
+  private lifecycle: WorkspaceForgeLifecycle;
   private replyReceipts: ForgeReplyReceipts;
   private git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>;
   private issueLinks: WorkspaceIssueLinks;
@@ -59,6 +61,7 @@ export class WorkspaceForge {
     sourceControl?: import("./source-control.ts").SourceControl,
   ) {
     this.store = store;
+    this.lifecycle = new WorkspaceForgeLifecycle(store, this.owner);
     this.issueLinks = new WorkspaceIssueLinks(store);
     this.issueActions = new IssueActions(store);
     this.stacks = new WorkspaceForgeStacks(store, now);
@@ -113,6 +116,17 @@ export class WorkspaceForge {
     const repository = operation.repository ?? (await this.repository(cwd));
     signal.throwIfAborted();
     const backend = await this.backend(cwd, repository);
+    if (operation.op === "forge.pr.lifecycle") {
+      const ref = { repository, number: operation.number };
+      const revision = this.owner.capture(ref);
+      const value = await this.lifecycle.state(
+        { repository, number: operation.number },
+        backend,
+        signal,
+      );
+      if (this.owner.current(ref, revision)) this.publishLifecycle(value.snapshot);
+      return { resource: "prLifecycle", value };
+    }
     if (operation.op === "forge.issue.list")
       return { resource: "issueList", value: await backend.listIssues(operation.query, signal) };
     if (operation.op === "forge.issue.timeline")
@@ -168,10 +182,13 @@ export class WorkspaceForge {
       };
     if (operation.op === "forge.pr.files")
       return { resource: "prFiles", value: await backend.prFiles(operation, signal) };
+    const ref = { repository, number: operation.number };
+    const revision = this.owner.capture(ref);
     const { value, writeState } = await this.actions.readDetail(
       { repository, number: operation.number },
       () => backend.prDetail(operation.number, signal),
     );
+    if (this.owner.current(ref, revision)) this.publishStatus(value.status);
     const threads = this.store
       .atomic((db) =>
         db
@@ -265,18 +282,24 @@ export class WorkspaceForge {
     const pr = ForgePrRef.parse(input);
     signal.throwIfAborted();
     if (!allowed()) throw new Error("forbidden");
+    const revision = this.owner.capture(pr);
     const existing = this.links.getLinkState(id, pr);
     if (existing) {
       try {
         const status = await (await this.backend(cwd, pr.repository)).status(pr.number, signal);
         signal.throwIfAborted();
         if (!allowed()) throw new Error("forbidden");
-        this.projection.update(id, status, existing.generation);
+        if (this.owner.current(pr, revision))
+          this.projection.update(id, status, existing.generation);
         return status;
       } catch (error) {
         signal.throwIfAborted();
         if (!allowed()) throw new Error("forbidden", { cause: error });
-        if (error instanceof ForgeError && error.kind === "not_found")
+        if (
+          error instanceof ForgeError &&
+          error.kind === "not_found" &&
+          this.owner.current(pr, revision)
+        )
           this.projection.deleted(id, pr, existing.generation);
         else if (
           error instanceof ForgeError &&
@@ -326,7 +349,7 @@ export class WorkspaceForge {
           },
           generation,
         );
-      else this.projection.update(id, status, generation);
+      else if (this.owner.current(pr, revision)) this.projection.update(id, status, generation);
       this.projection.publish(id);
     });
     return status;
@@ -394,17 +417,18 @@ export class WorkspaceForge {
     const state = this.links.getLinkState(id);
     if (!state) return null;
     const { link, generation } = state;
+    const revision = this.owner.capture(link.pr);
     try {
       const status = await (
         await this.backend(cwd, link.pr.repository)
       ).status(link.pr.number, this.lifetime.signal);
       check?.();
-      this.projection.update(id, status, generation);
+      if (this.owner.current(link.pr, revision)) this.projection.update(id, status, generation);
       return status;
     } catch (error) {
       check?.();
       if (error instanceof ForgeError && error.kind === "not_found") {
-        this.projection.deleted(id, link.pr, generation);
+        if (this.owner.current(link.pr, revision)) this.projection.deleted(id, link.pr, generation);
         return this.projection.fallback(
           link.pr,
           this.links.summaries(id).find((pr) => pr.number === link.pr.number),
@@ -442,10 +466,14 @@ export class WorkspaceForge {
         if (!backend.states) continue;
         for (let offset = 0; offset < numbers.length; offset += 100) {
           const batch = numbers.slice(offset, offset + 100);
+          const revisions = new Map(
+            batch.map((number) => [number, this.owner.capture({ repository: group.repo, number })]),
+          );
           const summaries = await backend.states(batch, this.lifetime.signal);
           check?.();
           for (const entry of group.entries) {
-            if (!batch.includes(entry.pr.number)) continue;
+            const revision = revisions.get(entry.pr.number);
+            if (!revision || !this.owner.current(entry.pr, revision)) continue;
             const summary = summaries.get(entry.pr.number);
             if (summary === null) this.projection.deleted(entry.id, entry.pr, entry.generation);
             else if (
@@ -629,6 +657,57 @@ export class WorkspaceForge {
     return { ok: true };
   }
 
+  private publishStatus(status: ForgePrStatus): void {
+    const ids = this.store.atomic((db) =>
+      db
+        .prepare("SELECT thread_id FROM forge_links WHERE repo=? AND number=?")
+        .all(repositoryKey(status.ref.repository), status.ref.number),
+    );
+    for (const row of ids) {
+      const id = ThreadId.parse(row.thread_id);
+      this.projection.update(id, status, this.links.getLinkState(id, status.ref)?.generation);
+    }
+  }
+  private publishLifecycle(snapshot: import("@ace/protocol").ForgeLifecycleSnapshot): void {
+    this.publishStatus({
+      ref: snapshot.pr,
+      title: snapshot.metadata.title,
+      url: prUrl(snapshot.pr),
+      state: snapshot.state,
+      headSha: snapshot.headSha,
+      mergeability: "unknown",
+      ci: "unknown",
+      checks: [],
+      comments: [],
+      reviewThreads: [],
+      raw: {},
+    });
+  }
+  async hostedLifecycle(
+    command: import("@ace/protocol").Command & {
+      payload: import("zod").z.infer<typeof import("@ace/protocol").ForgeHostedLifecycleCommand>;
+    },
+    cwd: string,
+    allowed: () => boolean,
+  ) {
+    const p = command.payload;
+    const backend = await this.backend(cwd, p.pr.repository);
+    const receipt = await this.lifecycle.execute(
+      p,
+      command.id,
+      backend,
+      this.lifetime.signal,
+      allowed,
+    );
+    const revision = this.owner.capture(p.pr);
+    try {
+      const snapshot = await backend.lifecycle.snapshot(p.pr.number, this.lifetime.signal);
+      if (this.owner.current(p.pr, revision)) this.publishLifecycle(snapshot);
+    } catch {
+      /* The write receipt is durable even when the follow-up projection read is unavailable. */
+    }
+    return { ok: true, forgeLifecycle: receipt };
+  }
   close(): void {
     this.stopPreferences?.();
     this.lifetime.abort();

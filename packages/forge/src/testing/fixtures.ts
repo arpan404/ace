@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { createCommandRunner, GitHubForge } from "../index.ts";
-import { repository, sha } from "./identities.ts";
+import { repository, sha, nextSha } from "./identities.ts";
 
 // A completion safeguard, not a performance assertion. Allow the real runner's
 // 30-second command deadline to finish before Vitest aborts the enclosing test.
@@ -119,6 +119,9 @@ export async function fakeGh(
     runner,
     forge,
     executable,
+    async replace(records: Fixtures) {
+      await writeFile(config, JSON.stringify(records));
+    },
     async release(barrier: string) {
       await writeFile(join(dir, barrier), "released");
     },
@@ -145,9 +148,6 @@ export async function fakeGh(
       } finally {
         observer.close();
       }
-    },
-    async replace(records: Fixtures) {
-      await writeFile(config, JSON.stringify(records));
     },
     async requests() {
       return z
@@ -190,6 +190,62 @@ export function mergeStateResponse(overrides: Record<string, unknown> = {}): Res
         },
       },
     },
+  };
+}
+
+const lifecycleBase = {
+  id: "PR_7",
+  number: 7,
+  title: "Fix build",
+  body: "Original description",
+  state: "OPEN",
+  isDraft: false,
+  headRefOid: sha,
+  baseRefOid: nextSha,
+  baseRefName: "main",
+  updatedAt: "2026-10-10T00:00:00Z",
+  mergeCommit: null as { oid: string } | null,
+  viewerCanUpdate: true,
+  viewerCanClose: true,
+  viewerCanReopen: true,
+  viewerCanUpdateBranch: true,
+  viewerCanLabel: true,
+  viewerCanAssign: true,
+  canBeRebased: true,
+  labels: { nodes: [{ id: "L_1", name: "bug" }], pageInfo: { hasNextPage: false } },
+  assignees: { nodes: [{ id: "U_1", login: "octo" }], pageInfo: { hasNextPage: false } },
+};
+export function lifecycleRecord(overrides: Partial<typeof lifecycleBase> = {}) {
+  return { ...lifecycleBase, ...overrides };
+}
+export function lifecycleFixtures(records = [lifecycleRecord()]): Fixtures {
+  return {
+    "graphql:query AceLifecycleSnapshot": records.map((pullRequest) => ({
+      body: {
+        data: {
+          repository: { isArchived: false, viewerPermission: "WRITE", pullRequest },
+        },
+      },
+    })),
+    "graphql:mutationType:__type": [
+      {
+        body: {
+          data: {
+            mutationType: {
+              fields: [
+                "updatePullRequest",
+                "markPullRequestReadyForReview",
+                "convertPullRequestToDraft",
+                "closePullRequest",
+                "reopenPullRequest",
+                "updatePullRequestBranch",
+                "revertPullRequest",
+              ].map((name) => ({ name })),
+            },
+          },
+        },
+      },
+    ],
   };
 }
 

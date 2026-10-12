@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
+import { PrLifecycle } from "./pr-lifecycle.tsx";
 import { PrSummary } from "./pr-summary.tsx";
 import { PrComposer } from "./pr-composer.tsx";
 import { PrChecksPill } from "./pr-presentation.tsx";
@@ -34,6 +35,7 @@ export function PrDetail(props: {
   onOpen(number: number): void;
   extensions?: PrWorkspaceExtensions | undefined;
 }) {
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const [order, setOrder] = useState<"newest" | "oldest">("newest");
   const [actionsOpen, setActionsOpen] = useState(false);
   const ready = useConnectionState() === "ready";
@@ -63,12 +65,16 @@ export function PrDetail(props: {
   useEffect(() => {
     if (detail) onState?.(detail.status.state);
   }, [detail, onState]);
+  const refresh = async () => {
+    setRefreshVersion((version) => version + 1);
+    return !(await query.refetch()).isError;
+  };
   const context: PrWorkspaceContext | undefined = detail
     ? {
         workspaceId: props.workspaceId,
         detail,
         disabled: !ready || query.isError || query.isFetching || detail.writeState !== undefined,
-        refresh: async () => !(await query.refetch()).isError,
+        refresh,
       }
     : undefined;
   const onOpen = props.onOpen;
@@ -86,7 +92,7 @@ export function PrDetail(props: {
           workspaceId={props.workspaceId}
           detail={context.detail}
           disabled={context.disabled}
-          onRefresh={() => void query.refetch()}
+          onRefresh={() => void refresh()}
           header={
             <PrHeader
               context={context}
@@ -164,6 +170,16 @@ export function PrDetail(props: {
                 extensions={props.extensions}
                 onReviewers={() => setActionsOpen(true)}
                 onOpen={onOpen}
+                lifecycle={
+                  <PrLifecycle
+                    key={JSON.stringify(context.detail.status.ref)}
+                    workspaceId={props.workspaceId}
+                    detail={context.detail}
+                    refreshVersion={refreshVersion}
+                    writeDisabled={context.disabled}
+                    onRefresh={() => void refresh()}
+                  />
+                }
               />
             </TabsPanel>
             <TabsPanel value="timeline" className="overflow-auto">

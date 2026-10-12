@@ -647,6 +647,9 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ForgeHostedLifecycleCommand.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ForgeHostedReviewCommand.json"
     },
     {

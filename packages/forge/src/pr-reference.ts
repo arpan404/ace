@@ -43,6 +43,11 @@ export function prRepository(value: string, fallback: ForgeRepository): ForgeRep
   });
 }
 
+export function prUrl(pr: ForgePrRef): string {
+  const repo = pr.repository;
+  return `https://${repo.host}/${repo.owner}/${repo.name}/${repo.forge === "github" ? "pull" : "-/merge_requests"}/${pr.number}`;
+}
+
 /** Browser-safe issue identity uses the same repository restrictions as PR addresses. */
 export function issueFromUrl(value: string): import("@ace/protocol/forge-issues").ForgeIssueRef {
   let url: URL;
