@@ -162,7 +162,7 @@ function SpeedSegment(props: { view: ModelControlView; onSpeed(speed: Speed): vo
               tabIndex={checked ? 0 : -1}
               onClick={() => choose(tier.speed)}
               className={cn(
-                "grid size-7 place-items-center rounded-full text-muted-foreground focus-ring-inset transition-[background-color,color] duration-(--dur-1) hover:text-foreground aria-disabled:opacity-40",
+                "grid size-7 place-items-center rounded-full pointer-coarse:size-8 text-muted-foreground focus-ring-inset transition-[background-color,color] duration-(--dur-1) hover:text-foreground aria-disabled:opacity-40",
                 checked && "bg-popover text-foreground shadow-raised",
               )}
             >
