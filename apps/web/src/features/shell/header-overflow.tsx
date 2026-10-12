@@ -15,7 +15,7 @@ import { Menu, MenuContent, MenuTrigger, MenuSeparator, MenuItem } from "@/compo
 const row = "flex flex-wrap items-center gap-1.5";
 
 /**
- * The folded header's ⋯: the actions in a row, the header's tools (on a phone: the work card
+ * The folded header's ⋯: the actions in a row, the header's tools (on a phone: the panel action
  * and the side panel's toggle) in another, then the title menu behind one more tap. Loaded when
  * a header first folds (`AppHeader`), so a wide window never fetches the popover. With tools it
  * stays mounted while closed, so their shortcuts keep working.
@@ -76,7 +76,7 @@ function labelTools(nodes: ReactNode): ReactNode {
           {...(node.props.shortcut ? { shortcut: node.props.shortcut } : {})}
           render={<button type="button" className="text-left" onClick={node.props.onClick} />}
         >
-          {node.props.label === "Work card" ? "Details" : node.props.label}
+          {node.props.label}
         </MenuItem>
       );
     return node.props.children

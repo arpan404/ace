@@ -24,3 +24,17 @@ test("Activity and Home's organizer judge unread against the same first launch",
   expect(new Organizer(other, launch).getState().baseline).toBe(launch);
   expect(firstLaunch(other, now)).toBe(launch);
 });
+
+test("Snoozed remembers its disclosure across reloads and older storage defaults closed", () => {
+  const storage = memory();
+  storage.setItem(
+    "ace.home.organizer",
+    JSON.stringify({ baseline: launch, project: null, settledOpen: true }),
+  );
+  const organizer = new Organizer(storage, now);
+  expect(organizer.getState().snoozedOpen).toBe(false);
+  organizer.setSnoozedOpen(true);
+  expect(new Organizer(storage, now).getState().snoozedOpen).toBe(true);
+  organizer.setSnoozedOpen(false);
+  expect(new Organizer(storage, now).getState().snoozedOpen).toBe(false);
+});

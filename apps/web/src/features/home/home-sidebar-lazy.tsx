@@ -25,7 +25,7 @@ export function ThreadsSidebar() {
               <Skeleton className="h-3 w-24" />
               <Skeleton className="size-7" />
             </div>
-            <ListSkeleton label="threads" shape="thread" className="px-2" />
+            <ListSkeleton label="threads" shape="thread" />
           </>
         }
       >

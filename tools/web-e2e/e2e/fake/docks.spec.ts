@@ -27,13 +27,13 @@ test("the + launcher becomes the tool picked from it, and tabs reorder and close
 }) => {
   await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
   await page.getByRole("button", { name: "Right panel" }).click();
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Files"]);
+  await expect(tabs(page)).toHaveText(["Work", /^Changes/, "Files"]);
 
   await launch(page, "Preview");
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Files", preview]);
+  await expect(tabs(page)).toHaveText(["Work", /^Changes/, "Files", preview]);
   await expect(sidePanel(page).getByRole("tab", { name: preview, selected: true })).toBeVisible();
   await launch(page, "Devices");
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Files", preview, "Devices"]);
+  await expect(tabs(page)).toHaveText(["Work", /^Changes/, "Files", preview, "Devices"]);
 
   // Drag Devices before Preview; the showing tab stays Devices.
   await sidePanel(page)
@@ -41,12 +41,12 @@ test("the + launcher becomes the tool picked from it, and tabs reorder and close
     .dragTo(sidePanel(page).getByRole("tab", { name: preview }), {
       targetPosition: { x: 4, y: 8 },
     });
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Files", "Devices", preview]);
+  await expect(tabs(page)).toHaveText(["Work", /^Changes/, "Files", "Devices", preview]);
   await expect(sidePanel(page).getByRole("tab", { name: "Devices", selected: true })).toBeVisible();
 
   // Closing the showing tab shows its neighbour; the others stay.
   await sidePanel(page).getByRole("button", { name: "Close Devices" }).click();
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Files", preview]);
+  await expect(tabs(page)).toHaveText(["Work", /^Changes/, "Files", preview]);
   await expect(sidePanel(page).getByRole("tab", { name: preview, selected: true })).toBeVisible();
 });
 
@@ -60,7 +60,7 @@ test("each thread keeps its own tabs, showing tab and panel, and gets them back 
   await open(page, "/t/thread-install-page", /./);
   await expect(sidePanel(page)).toHaveCount(0);
   await page.getByRole("button", { name: "Right panel" }).click();
-  await expect(tabs(page)).toHaveText([/^Changes/, "Agents", "Files"]);
+  await expect(tabs(page)).toHaveText(["Work", /^Changes/, "Files"]);
 
   await page.goBack();
   await expect(
@@ -143,42 +143,26 @@ test("with five tabs in the side panel, the showing tab stays whole inside the s
   await inside("Devices");
   // The first tab, folded or not, comes back whole when shown.
   await strip.getByRole("tab").first().click();
-  await inside(/^Changes/);
+  await inside("Work");
   await strip.getByRole("tab").last().click();
   await inside("Devices");
 });
 
-test("with the side panel open at its default width, the work card and ⋯ stay beside a readable title", async ({
+test("the header keeps a readable title and a single menu beside the Work panel", async ({
   page,
 }) => {
   await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
   await page.getByRole("button", { name: "Right panel" }).click();
-  await expect(sidePanel(page)).toBeVisible();
-  const title = page.getByRole("heading", { level: 1 });
-  // Beside a narrow column the header keeps its two tools one click away: the work card and a
-  // single ⋯.
   const header = page.getByRole("banner");
-  const card = header.getByRole("button", { name: "Work card" });
-  await expect(card).toBeVisible();
-  // Its icon alone: a square 32px box.
-  expect((await card.boundingBox())?.width).toBeLessThanOrEqual(32);
+  await expect(header.getByRole("button", { name: /^Work card/ })).toHaveCount(0);
   await expect(header.getByRole("button", { name: "More actions" })).toHaveCount(1);
+  const title = page.getByRole("heading", { level: 1 });
   const room = await title.evaluate((element) => ({
     shown: element.clientWidth,
     whole: element.scrollWidth,
   }));
-  // The tools share the row, so the title keeps a readable 160px rather than 280.
   expect(room.shown).toBeGreaterThanOrEqual(Math.min(160, room.whole));
-  const box = await title.boundingBox();
-  expect(box && Math.round(box.width)).toBeGreaterThanOrEqual(Math.min(160, room.whole));
-  // The card opens over the conversation, not over the panel.
-  await card.click();
-  const workCard = page.getByRole("dialog", { name: "Work card" });
-  await expect(workCard).toBeVisible();
-  const opened = await workCard.boundingBox();
-  const panel = await sidePanel(page).boundingBox();
-  if (!opened || !panel) throw new Error("missing layout");
-  expect(opened.x + opened.width).toBeLessThanOrEqual(panel.x);
+  await expect(sidePanel(page).getByRole("tab", { name: "Work", selected: true })).toBeVisible();
 });
 
 test("at the default 520px panel, address suggestions show their detail beside the address", async ({
@@ -187,6 +171,10 @@ test("at the default 520px panel, address suggestions show their detail beside t
   await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
   await page.getByRole("button", { name: "Right panel" }).click();
   await sidePanel(page).getByRole("button", { name: "New tab" }).click();
+  await sidePanel(page)
+    .getByRole("list", { name: "Tools", exact: true })
+    .getByRole("button", { name: /^Browser(?: |$)/ })
+    .click();
   await sidePanel(page)
     .getByRole("combobox", { name: /Address/ })
     .click();

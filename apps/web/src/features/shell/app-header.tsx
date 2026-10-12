@@ -1,4 +1,4 @@
-import { CaretLeftIcon, CaretRightIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { Suspense, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -7,7 +7,6 @@ import { HeaderMenu } from "./sidebar-menu.tsx";
 import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { useHistoryNav } from "@/lib/history-nav.ts";
 import { useViewFrame } from "./sidebar-frame.tsx";
 
 export interface HeaderProps {
@@ -18,7 +17,7 @@ export interface HeaderProps {
   breadcrumb?: ReactNode;
   /** Items for the header's ⋯ menu, at its right. */
   menu?: ReactNode;
-  /** After the ⋯ menu: the screen's own tool buttons (a thread's work card). */
+  /** After the ⋯ menu: the screen's own tool buttons. */
   tools?: ReactNode;
   /** Right-hand actions, before the ⋯ menu (Mark all read, …). */
   actions?: ReactNode;
@@ -28,13 +27,10 @@ export interface HeaderProps {
 }
 
 /**
- * The sidebar toggle, then history back and forward: always the first controls of the window's
- * top row, in the same place whether the sidebar shows or not (and in full view, where the
- * side panel's strip carries them). On a phone it is one back caret to the list (CMP-7).
+ * The sidebar toggle, also available in full view. On a phone it returns to the thread list.
  */
 export function HeaderNav() {
   const frame = useViewFrame();
-  const nav = useHistoryNav();
   // A phone leaves history to the system.
   const phone = usePhone();
   return (
@@ -58,30 +54,12 @@ export function HeaderNav() {
             shortcut="toggleSidebar"
           />
         ))}
-      {!phone && (
-        <>
-          <IconButton
-            icon={CaretLeftIcon}
-            label="Back"
-            shortcut="back"
-            disabled={!nav.canGoBack}
-            onClick={nav.back}
-          />
-          <IconButton
-            icon={CaretRightIcon}
-            label="Forward"
-            shortcut="forward"
-            disabled={!nav.canGoForward}
-            onClick={nav.forward}
-          />
-        </>
-      )}
     </div>
   );
 }
 
 /**
- * The one header every screen uses: sidebar toggle and history, then the title and its
+ * The one header every screen uses: sidebar toggle, then the title and its
  * subtitle; on the right the actions, the ⋯ menu, the screen's tools and the side panel's
  * toggle. 44px, a drag region in Electron, hairline only once the content scrolls. Every control
  * is a 30px box on one centre line. On a phone it keeps the sidebar toggle, the title (two lines

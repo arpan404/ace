@@ -42,15 +42,21 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       await expect(
         row("Build replay recovery").getByText("Waiting", { exact: true }),
       ).toBeVisible();
-      await expect(row("Build replay recovery").getByText("⑂ 2", { exact: true })).toBeVisible();
+      await expect(
+        row("Build replay recovery").getByRole("img", { name: "Codex · 2 subagents running" }),
+      ).toBeVisible();
       await expect(
         row("Build replay recovery").getByRole("img", { name: "draft pull request #283" }),
       ).toBeVisible();
-      await expect(row("Build replay recovery").getByText("+24", { exact: true })).toBeVisible();
+      await expect(row("Build replay recovery").getByText("+24", { exact: true })).toHaveCount(0);
       await expect(
         row("Publish the release").getByText("Build server", { exact: true }),
-      ).toBeHidden();
-      await expect(row("Retry workspace sync").getByText(/^Limited/)).toBeVisible();
+      ).toBeVisible();
+      await expect(
+        row("Retry workspace sync")
+          .getByText(/^Limited/)
+          .first(),
+      ).toBeVisible();
       await expect(
         row("Fix a flaky browser test").getByText("Failed", { exact: true }),
       ).toBeVisible();
@@ -63,15 +69,21 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
         "Retry workspace sync",
         "Tidy the README",
       ]) {
-        expect(await ink(row(title).getByText(title, { exact: true }))).toBe(muted);
+        expect(await ink(row(title).getByText(title, { exact: true }))).toBe(foreground);
       }
-      expect(await ink(row("Build replay recovery").getByText("Waiting", { exact: true }))).toBe(
-        muted,
-      );
-      expect(await ink(row("Run the mobile checks").getByText("Working", { exact: true }))).toBe(
-        muted,
-      );
-      expect(await ink(row("Retry workspace sync").getByText(/^Limited/))).toBe(muted);
+      expect(
+        await ink(row("Build replay recovery").getByText("Waiting", { exact: true })),
+      ).not.toBe(muted);
+      expect(
+        await ink(row("Run the mobile checks").getByText("Working", { exact: true })),
+      ).not.toBe(muted);
+      expect(
+        await ink(
+          row("Retry workspace sync")
+            .getByText(/^Limited/)
+            .first(),
+        ),
+      ).not.toBe(muted);
       for (const title of [
         "Review the release plan",
         "Choose a retry policy",
@@ -87,44 +99,43 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       await row("Write the install guide").click({ button: "right" });
       await page.getByRole("menuitem", { name: /^Mark unread/ }).click();
       await page.mouse.move(width - 2, 840);
-      await expect(
-        row("Write the install guide").getByRole("img", { name: "Unread activity" }),
-      ).toBeVisible();
+      await expect(row("Write the install guide")).toHaveAccessibleName(/unread/);
       expect(
         await ink(
           row("Write the install guide").getByText("Write the install guide", { exact: true }),
         ),
       ).toBe(foreground);
-      await expect(nav.getByText("Workshop Mac", { exact: true })).toHaveCount(0);
+      await expect(
+        row("Build replay recovery").getByText("Workshop Mac", { exact: true }),
+      ).toBeVisible();
       await expect(nav.getByText("New thread", { exact: true })).toHaveCount(0);
       await nav.getByRole("button", { name: /^Settled/ }).click();
       await expect(row("Bump the client SDK")).toBeVisible();
-      await paintedProviders(nav);
       await nav.locator("[data-virtual-viewport]").evaluate((element) => element.scrollTo(0, 0));
       await page.mouse.move(width - 2, 840);
       await page.screenshot({ path: `${shots}/tasks-${theme}-${width}.png` });
       const remote = row("Publish the release");
       await remote.hover();
-      await expect(remote.getByText("Build server", { exact: true })).toBeVisible();
-      await expect(page.getByRole("tooltip")).toContainText("Running on Build server");
+      const remoteDetails = page.getByLabel("Details for Publish the release", { exact: true });
+      await expect(remoteDetails).toContainText("Build server");
+      const sidebarBox = await nav.boundingBox();
+      const hoverBox = await remoteDetails.boundingBox();
+      if (!sidebarBox || !hoverBox) throw new Error("Missing sidebar hover bounds");
+      expect(hoverBox.x).toBeGreaterThanOrEqual(sidebarBox.x);
+      expect(hoverBox.x + hoverBox.width).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width);
       await page.screenshot({ path: `${shots}/machine-hover-${theme}-${width}.png` });
-      await page.mouse.move(width - 2, 840);
-      await expect(remote.getByText("Build server", { exact: true })).toBeHidden();
       await remote.focus();
-      await expect(remote.getByText("Build server", { exact: true })).toBeVisible();
-      await row("Review the release plan").focus();
-      await expect(remote.getByText("Build server", { exact: true })).toBeHidden();
+      await expect(remoteDetails).toContainText("Build server");
       const work = row("Build replay recovery");
       await work.hover();
-      await expect(nav.getByRole("button", { name: "Settle Build replay recovery" })).toBeVisible();
-      await expect(work.getByText("Waiting", { exact: true })).toBeHidden();
-      await expect(work.getByText("+24", { exact: true })).toBeVisible();
       await expect(
-        page.getByRole("tooltip").filter({ hasText: "Build replay recovery" }),
-      ).toContainText("Build replay recovery");
-      await expect(
-        page.getByRole("tooltip").filter({ hasText: "Build replay recovery" }),
-      ).toContainText("Waiting on 2 subagents");
+        nav.getByRole("button", { name: "Actions for Build replay recovery" }),
+      ).toBeVisible();
+      await expect(work.getByText("Waiting", { exact: true })).toBeVisible();
+      await expect(work.getByText("+24", { exact: true })).toHaveCount(0);
+      const workDetails = page.getByLabel("Details for Build replay recovery", { exact: true });
+      await expect(workDetails).toContainText("Waiting on 2 subagents");
+      await expect(workDetails.getByText("+24", { exact: true })).toBeVisible();
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
       ).toBe(true);
@@ -163,16 +174,17 @@ for (const theme of ["light", "dark", "midnight", "graphite", "paper", "slate", 
       await page.screenshot({ path: `${shots}/picker-${theme}-${width}.png` });
     });
 
-test("working elapsed time advances without streaming resetting it", async ({ page }) => {
+test("finished tasks show relative age without a Done word", async ({ page }) => {
   await page.clock.install();
   await stageInformativeSidebar(page, "dark");
   await page.goto("/new");
   const row = page
     .getByRole("navigation", { name: "Threads" })
-    .getByRole("link", { name: /^Run the mobile checks/ });
-  await expect(row.getByText("1m", { exact: true })).toBeVisible();
-  await page.clock.fastForward(60_000);
-  await expect(row.getByText("2m", { exact: true })).toBeVisible();
+    .getByRole("link", { name: /^Tidy the README/ });
+  await expect(row.getByText("2d", { exact: true })).toBeVisible();
+  await expect(row.getByText("Done", { exact: true })).toHaveCount(0);
+  await page.clock.fastForward(86_400_000);
+  await expect(row.getByText("3d", { exact: true })).toBeVisible();
 });
 
 test("unread work brightens only the title, while statuses fit without clipping", async ({
@@ -185,20 +197,21 @@ test("unread work brightens only the title, while statuses fit without clipping"
   await work.click({ button: "right" });
   await page.getByRole("menuitem", { name: /^Mark unread/ }).click();
   await page.mouse.move(1400, 840);
-  await expect(work.getByRole("img", { name: "Unread activity" })).toBeVisible();
+  await expect(work).toHaveAccessibleName(/unread/);
   expect(await ink(work.getByText("Run the mobile checks", { exact: true }))).toBe(
     await themeInk(page, "foreground"),
   );
-  expect(await ink(work.getByText("Working", { exact: true }))).toBe(
+  expect(await ink(work.getByText("Working", { exact: true }))).not.toBe(
     await themeInk(page, "muted-foreground"),
   );
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     if (width === 390) await page.getByRole("button", { name: "Back to threads" }).click();
-    await page.getByRole("heading", { name: "Threads", exact: true }).click();
+    await nav.locator("[data-virtual-viewport]").evaluate((element) => element.scrollTo(0, 0));
     await page.mouse.move(width - 2, 2);
     for (const words of ["Approve", "Answer", "Waiting", "Working", "Failed"]) {
       const status = nav.getByText(words, { exact: true }).first();
+      await status.scrollIntoViewIfNeeded();
       await expect(status).toBeVisible();
       // The rendered text must fit its own box, rather than hiding behind an ellipsis.
       expect(
@@ -211,3 +224,43 @@ test("unread work brightens only the title, while statuses fit without clipping"
     }
   }
 });
+
+for (const theme of ["light", "dark"])
+  test(`read, unread and settled titles retain foreground ink in ${theme}`, async ({ page }) => {
+    await stageInformativeSidebar(page, theme);
+    await page.goto("/new");
+    const nav = page.getByRole("navigation", { name: "Threads" });
+    const done = nav.getByRole("link", { name: /^Tidy the README/ });
+    await done.click({ button: "right" });
+    const markRead = page.getByRole("menuitem", { name: /^Mark read/ });
+    if (await markRead.count()) await markRead.click();
+    else await page.keyboard.press("Escape");
+    await expect(done).not.toHaveAccessibleName(/unread/);
+    const title = done.getByText("Tidy the README", { exact: true });
+    const foreground = await themeInk(page, "foreground");
+    expect(await ink(title)).toBe(foreground);
+    await expect(title).toHaveCSS("font-weight", "400");
+    await done.click({ button: "right" });
+    await page.getByRole("menuitem", { name: /^Mark unread/ }).click();
+    await expect(done).toHaveAccessibleName(/unread/);
+    expect(await ink(title)).toBe(foreground);
+    await expect(title).toHaveCSS("font-weight", "500");
+    await done.click({ button: "right" });
+    await page.getByRole("menuitem", { name: /^Mark read/ }).click();
+    await done.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Settle", exact: true }).click();
+    await nav.getByRole("button", { name: /^Settled/ }).click();
+    await expect(title).toBeVisible();
+    expect(await ink(title)).toBe(foreground);
+    await expect(title).toHaveCSS("font-weight", "400");
+    await expect(done).not.toHaveAccessibleName(/unread/);
+    const attention = nav.getByRole("link", { name: /^Review the release plan/ });
+    await attention.scrollIntoViewIfNeeded();
+    expect(await ink(attention.getByText("Review the release plan", { exact: true }))).toBe(
+      foreground,
+    );
+    await expect(attention.getByText("Review the release plan", { exact: true })).toHaveCSS(
+      "font-weight",
+      "500",
+    );
+  });

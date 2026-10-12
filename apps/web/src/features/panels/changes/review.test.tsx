@@ -147,7 +147,7 @@ test("a comment from another device shows with its replies, and a reply here rea
 });
 
 test.each([false, true])(
-  "Approve completes a no-comment review with an existing session: %s",
+  "a local diff with no comments hides review controls even with an existing session: %s",
   async (existing) => {
     const { panel, remote } = await openChanges();
     if (existing) {
@@ -163,14 +163,10 @@ test.each([false, true])(
       await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
       await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh comments" }));
     }
-    const review = await within(panel).findByRole("region", { name: "Review" });
-    await userEvent.click(within(review).getByRole("button", { name: "Approve" }));
-    await waitFor(() =>
-      expect(within(review).getByRole("status").textContent).toMatch(/^Approved/),
-    );
-    expect(
-      remote({ type: "review.list", threadId, cursor: "", limit: 20 }).review?.sessions,
-    ).toEqual([expect.objectContaining({ status: "approved" })]);
+    expect(within(panel).queryByRole("region", { name: "Review" })).toBeNull();
+    expect(within(panel).queryByText(/No comments.*pick lines/)).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Request changes" })).toBeNull();
   },
   30000,
 );

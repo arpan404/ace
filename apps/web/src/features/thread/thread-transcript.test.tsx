@@ -119,7 +119,7 @@ test("subagents open inline as the agents started, and the agent tree is one cli
   await userEvent.click(await within(feed).findByRole("button", { name: "Subagent actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Agents");
+  expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Work");
 });
 
 test("the composer status counts the root and its working subagents without a duplicate live line", async () => {
@@ -169,7 +169,7 @@ test("returning to a thread marks where the new activity starts", async () => {
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
   await act(async () => script.runThrough("finding"));
 
-  await userEvent.click(screen.getByRole("button", { name: "Back" }));
+  await userEvent.keyboard("{Meta>}[{/Meta}");
   const again = await screen.findByRole("feed", { name: "Transcript" });
   const divider = await within(again).findByRole("separator", { name: "New activity" });
   const article = divider.closest("[role=article]");

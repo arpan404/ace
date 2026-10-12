@@ -273,32 +273,54 @@ const browserInputs: Record<string, unknown[]> = {
   ShellLayout: [{}, { sidebarOpen: false }, { sidebarOpen: "yes" }],
   ScopeWorkspaceSchema: [
     {
-      tabs: [],
+      tabs: [
+        { key: "work", kind: "work", id: "work", pinned: true, ui: { sections: {}, scrollTop: 0 } },
+      ],
       open: true,
       size: 320,
       expanded: false,
-      workCard: { open: true, sections: {}, search: "", scrollTop: 0 },
     },
     {
-      tabs: [],
+      tabs: [
+        {
+          key: "work",
+          kind: "work",
+          id: "work",
+          pinned: true,
+          ui: { sections: {}, scrollTop: 10_000_000 },
+        },
+      ],
       open: true,
       size: 320,
       expanded: false,
-      workCard: { open: true, sections: {}, search: "", scrollTop: 10_000_000 },
     },
     {
-      tabs: [],
+      tabs: [
+        {
+          key: "work",
+          kind: "work",
+          id: "work",
+          pinned: true,
+          ui: { sections: {}, scrollTop: -1 },
+        },
+      ],
       open: true,
       size: 320,
       expanded: false,
-      workCard: { open: true, sections: {}, search: "", scrollTop: -1 },
     },
     {
-      tabs: [],
+      tabs: [
+        {
+          key: "work",
+          kind: "work",
+          id: "work",
+          pinned: true,
+          ui: { sections: {}, scrollTop: 10_000_001 },
+        },
+      ],
       open: true,
       size: 320,
       expanded: false,
-      workCard: { open: true, sections: {}, search: "", scrollTop: 10_000_001 },
     },
   ],
   Choices: [

@@ -46,14 +46,14 @@ export const keymap = {
   // The side panel (features/shell/workspace). One map for tooltips, launcher and palette.
   rightPanel: { keys: "shift+mod+b", nonApple: "alt+mod+b", label: "Show or hide the side panel" },
   fullView: { keys: "shift+mod+f", label: "Full view" },
-  workCard: { keys: "alt+mod+o", label: "Show or hide the thread's work card" },
+  workCard: { keys: "alt+mod+o", label: "Show or hide Work" },
   newTab: { keys: "alt+mod+t", label: "New tab" },
   closeTab: { keys: "alt+mod+w", label: "Close tab" },
   reopenTab: { keys: "shift+alt+mod+t", label: "Reopen closed tab" },
   nextTab: { keys: "shift+mod+]", label: "Next tab" },
   previousTab: { keys: "shift+mod+[", label: "Previous tab" },
   changes: { keys: "shift+mod+d", label: "Changes" },
-  agents: { keys: "ctrl+shift+a", label: "Agents" },
+  agents: { keys: "ctrl+shift+a", label: "Work and agents" },
   // ⌘J showed the bottom panel, where terminals lived; it now shows the side panel's terminal.
   terminal: { keys: "ctrl+`", also: ["mod+j"], label: "Terminal" },
   files: { keys: "mod+p", label: "Open a file" },

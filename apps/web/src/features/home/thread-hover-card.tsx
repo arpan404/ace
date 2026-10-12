@@ -6,13 +6,12 @@ import { HoverCardContent } from "@/components/ui/hover-card.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useAccountViews } from "@/lib/account-views.ts";
-import { ProjectMark, PullRequest } from "./row-parts.tsx";
+import { PullRequest, RowStatus } from "./row-parts.tsx";
 
 /** Metadata already in the row and shared account cache; no history or per-thread fetch. */
 export function ThreadHoverContent(props: {
   card: ThreadCard;
   entry: ThreadListEntry;
-  icon: string | null | undefined;
   instance: string | undefined;
 }) {
   const { card, entry } = props;
@@ -25,19 +24,28 @@ export function ThreadHoverContent(props: {
     entry.switch?.state === "queued" && entry.switch.selection.instanceId === account?.id;
   return (
     <HoverCardContent
-      side="right"
-      sideOffset={4}
+      side="bottom"
+      sideOffset={6}
       align="start"
+      collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
       aria-label={`Details for ${card.title}`}
-      className="w-[248px] max-w-[calc(100vw-24px)] max-h-[min(400px,calc(100dvh-24px))] space-y-2 overflow-y-auto px-3 py-2.5 break-words"
+      className="w-[calc(var(--anchor-width)-16px)] max-w-[calc(100vw-24px)] max-h-[min(var(--available-height),400px,calc(100dvh-24px))] space-y-2 overflow-y-auto px-3 py-2.5 break-words"
     >
-      <p className="text-ui leading-4 font-medium text-foreground">{card.title}</p>
-      <p className="text-xs text-muted-foreground">{card.status.label}</p>
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        <span
+          className="rounded-sm bg-secondary px-2 py-1 font-medium text-foreground"
+          aria-label={`Project ${card.project}`}
+        >
+          {card.project}
+        </span>
+        <span aria-hidden>·</span>
+        <RowStatus card={card} />
+      </div>
+      <p className="text-ui leading-5 font-medium text-foreground">{card.title}</p>
+      <p className="text-xs text-muted-foreground">
+        {card.status.label} · {card.age}
+      </p>
       <div className="space-y-1.5 text-xs leading-4 text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <ProjectMark badge={card.badge} icon={props.icon} />
-          <span>{card.project}</span>
-        </div>
         <div className="flex items-center gap-2">
           <MachineMark icon={card.machineIcon} />
           <span>{card.machine ?? "This machine"}</span>

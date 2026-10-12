@@ -67,23 +67,27 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
       close();
       action();
     };
-    const threads = [...order.pinned, ...order.active, ...order.recent, ...order.settled].flatMap(
-      (id): PaletteCommand[] => {
-        const entry = byId.get(id);
-        if (!entry) return [];
-        const branch = entry.details?.branch;
-        return [
-          {
-            id: `thread-${id}`,
-            label: entry.title,
-            detail: projectName(entry.workspaceId),
-            ...(branch ? { more: branch } : {}),
-            icon: "thread",
-            run: run(() => void navigate({ to: "/t/$threadId", params: { threadId: id } })),
-          },
-        ];
-      },
-    );
+    const threads = [
+      ...order.pinned,
+      ...order.active,
+      ...order.recent,
+      ...order.snoozed,
+      ...order.settled,
+    ].flatMap((id): PaletteCommand[] => {
+      const entry = byId.get(id);
+      if (!entry) return [];
+      const branch = entry.details?.branch;
+      return [
+        {
+          id: `thread-${id}`,
+          label: entry.title,
+          detail: projectName(entry.workspaceId),
+          ...(branch ? { more: branch } : {}),
+          icon: "thread",
+          run: run(() => void navigate({ to: "/t/$threadId", params: { threadId: id } })),
+        },
+      ];
+    });
     const seen = new Set(threads.map((thread) => thread.id));
     for (const hit of found.data ?? []) {
       const id = `thread-${hit.threadId}`;

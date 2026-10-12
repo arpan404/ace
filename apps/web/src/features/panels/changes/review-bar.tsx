@@ -55,14 +55,13 @@ export function ReviewBar(props: {
   const pending = props.drafts.filter(isPending);
   const status = props.session?.status ?? "open";
   // Changes requested reads from its pressed icon and the comments waiting for the agent.
-  const summary =
-    [status === "approved" && "Approved", reviewSummary(props.drafts)]
-      .filter(Boolean)
-      .join(" · ") || "No comments · pick lines to comment on them";
+  const summary = [status === "approved" && "Approved", reviewSummary(props.drafts)]
+    .filter(Boolean)
+    .join(" · ");
   const act = (next: "approved" | "changes-requested") =>
     void props.onReview(next).then(
       () => setError(undefined),
-      (failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)),
+      () => setError("Couldn't update this review. Try again."),
     );
   return (
     <section
@@ -81,10 +80,7 @@ export function ReviewBar(props: {
         onClick={() =>
           void props.onReview("changes-requested").then(
             () => props.onSend(pending.map((draft) => draft.key)),
-            (failure: unknown) =>
-              setError(
-                failure instanceof Error ? failure.message : "Couldn't request changes. Try again.",
-              ),
+            () => setError("Couldn't request changes. Try again."),
           )
         }
       >

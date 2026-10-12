@@ -101,5 +101,5 @@ export function useRevealShown(list: RefObject<HTMLElement | null>, shown: strin
       element.removeEventListener("animationend", reveal);
       element.removeEventListener("transitionend", reveal);
     };
-  }, [list, shown]);
+  });
 }

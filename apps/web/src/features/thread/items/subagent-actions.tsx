@@ -12,7 +12,7 @@ export function SubagentActions(props: { threadId: string }) {
         <MenuItem
           icon={<TreeStructureIcon aria-hidden />}
           shortcut="agents"
-          onClick={() => workspace.open({ kind: "agents" })}
+          onClick={() => workspace.open({ kind: "work" })}
         >
           Open agent tree
         </MenuItem>
