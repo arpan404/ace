@@ -199,6 +199,9 @@ export class IntentDelivery {
       this.dependencies.repo.beginSend(intent, intent.id);
       const session = actor.session;
       if (!session) throw new Error("Provider exited before continuation");
+      await this.dependencies.sessions.assertWorkspaceAvailable(
+        this.dependencies.repo.session(actor.id).cwd,
+      );
       const key = `input:${intent.command.id}`;
       this.dependencies.repo.syntheticInput(
         actor.id,

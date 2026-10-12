@@ -1,11 +1,16 @@
 import { ProjectCommands, ProjectsResult } from "@ace/protocol";
 import { Projects } from "../projects.ts";
+import { repositoryTransferGuard } from "./repository-transfers.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 export function startProjects({ store, services, options, now, resources }: ServiceContext): void {
   const projects = new Projects(store, now, {
     ...options.projects,
+    git: {
+      ...options.projects?.git,
+      withRepositoryTransfer: repositoryTransferGuard({ services }),
+    },
     ...(services.sourceControl ? { sourceControl: services.sourceControl } : {}),
     roots:
       options.projects?.roots ??

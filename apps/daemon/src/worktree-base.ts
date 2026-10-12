@@ -1,4 +1,4 @@
-import type { ThreadDetails, WorktreeBase } from "@ace/protocol";
+import type { ThreadDetails, WorktreeBase, ForgePrWorktree } from "@ace/protocol";
 
 /**
  * What a `thread.create` / `thread.prepare` payload asks its worktree to start from: a branch
@@ -7,12 +7,15 @@ import type { ThreadDetails, WorktreeBase } from "@ace/protocol";
  */
 export type RequestedBase =
   | { kind: "branch"; ref: string; remote?: string }
-  | { kind: "revision"; revision: string };
+  | { kind: "revision"; revision: string }
+  | { kind: "pull-request"; selection: ForgePrWorktree };
 
 export function requestedBase(payload: {
+  pullRequest?: ForgePrWorktree | undefined;
   base?: WorktreeBase | undefined;
   baseBranch?: string | undefined;
 }): RequestedBase {
+  if (payload.pullRequest) return { kind: "pull-request", selection: payload.pullRequest };
   const { base } = payload;
   if (base)
     return { kind: "branch", ref: base.ref, ...(base.remote ? { remote: base.remote } : {}) };
@@ -24,6 +27,7 @@ export function requestedBase(payload: {
  * against the payload being accepted. Remote names can't contain `:`, so keys never collide.
  */
 export function requestedBaseKey(requested: RequestedBase): string {
+  if (requested.kind === "pull-request") return `pr:${JSON.stringify(requested.selection)}`;
   if (requested.kind === "revision") return `revision:${requested.revision}`;
   return requested.remote === undefined
     ? `local:${requested.ref}`

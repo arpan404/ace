@@ -1,5 +1,7 @@
 import { commandNotDispatched } from "../command-not-dispatched.ts";
 import { createWritingCli } from "../source-control-cli.ts";
+import type { CreationProgress } from "../creation-progress.ts";
+import { repositoryTransferGuard } from "./repository-transfers.ts";
 import { loadHostId } from "../local-files.ts";
 import { computerName } from "../computer-name.ts";
 import { cleanRetiredWorktrees } from "../retired-worktrees.ts";
@@ -34,6 +36,10 @@ export async function startWorkspaceActions({
   );
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     ...options.workspaceActions,
+    git: {
+      ...options.workspaceActions?.git,
+      withRepositoryTransfer: repositoryTransferGuard({ services }),
+    },
     ...(services.sourceControl ? { sourceControl: services.sourceControl } : {}),
     writingCli:
       options.workspaceActions?.writingCli ??
@@ -71,11 +77,13 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
   let reads = 0;
   const lifetime = new AbortController();
   const generations = new Map<string, { threadId: string; controller: AbortController }>();
+  const preparations = new Set<CreationProgress>();
   return {
     close() {
       lifetime.abort();
       for (const entry of generations.values()) entry.controller.abort();
       generations.clear();
+      for (const progress of preparations) if (!progress.action) progress.stop("cancel");
     },
     command: {
       types: [
@@ -99,6 +107,76 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
             type: "commandResult",
             ...commandNotDispatched(command, "workspace_unavailable"),
           });
+          return;
+        }
+        if (p.type === "forge.pr.worktree") {
+          const runtime = options.workspaceActions;
+          const receipt = context.options.store.commandReceipt(command.id, command.deviceId);
+          if (receipt && receipt.error !== "client_action_pending") {
+            send({ type: "commandResult", ...receipt });
+            return;
+          }
+          const existing = runtime.creationDrafts.get(command.id, command.deviceId);
+          if (existing?.operation?.active) {
+            send({ type: "worktree.creation.progress", ...existing.progress });
+            const replay = runtime
+              .execute(
+                command,
+                () => connected() && authorize("operate") && canReadThread(p.threadId),
+                existing.operation,
+              )
+              .then((result) => {
+                if (connected()) send({ type: "commandResult", ...result });
+              })
+              .finally(() => tasks.delete(replay));
+            tasks.add(replay);
+            return;
+          }
+          let progress: CreationProgress;
+          try {
+            progress = await runtime.creationDrafts.begin(command, command.deviceId, (message) => {
+              if (connected()) send(message);
+            });
+          } catch (error) {
+            send({
+              type: "commandResult",
+              commandId: command.id,
+              ok: false,
+              error: actionErrorCode(error),
+            });
+            return;
+          }
+          preparations.add(progress);
+          const task = runtime
+            .execute(
+              command,
+              () => connected() && authorize("operate") && canReadThread(p.threadId),
+              progress,
+            )
+            .then((result) => {
+              progress.finish(
+                result.ok ? "done" : progress.action === "cancel" ? "cancelled" : "failed",
+                result.error !== "git_quarantined" && result.error !== "workspace_cleanup_required",
+              );
+              runtime.creationDrafts.release(command.id, result.ok);
+              if (connected()) send({ type: "commandResult", ...result });
+            })
+            .catch((error: unknown) => {
+              progress.finish("failed", false);
+              runtime.creationDrafts.release(command.id, false);
+              if (connected())
+                send({
+                  type: "commandResult",
+                  commandId: command.id,
+                  ok: false,
+                  error: actionErrorCode(error),
+                });
+            })
+            .finally(() => {
+              preparations.delete(progress);
+              tasks.delete(task);
+            });
+          tasks.add(task);
           return;
         }
         const result = await options.workspaceActions.execute(

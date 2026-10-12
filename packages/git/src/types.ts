@@ -16,6 +16,12 @@ export interface GitProcessRuntime {
 }
 
 export interface GitOptions {
+  /** Host admission owns the whole discovery/execution lifetime across linked worktrees. */
+  withRepositoryTransfer?: <T>(repository: string, operation: () => Promise<T>) => Promise<T>;
+  /** Reads helper names only from the user's system/global files, never repository config. */
+  credentialHelperLookup?: GitCredentialHelperLookup;
+  /** Daemon-owned config paths. Global files are read in XDG, then home order. */
+  credentialConfigPaths?: { system?: string; xdg?: string; global?: string };
   /** Tests may inject file transport for local remotes; production uses http/https/ssh. */
   transportProtocols?: readonly ("http" | "https" | "ssh" | "file")[];
   leaseId?: () => string;
@@ -29,7 +35,18 @@ export interface GitOptions {
   checkpointCounterCacheSize?: number;
 }
 
+export type GitCredentialScope = "system" | "global";
+export interface GitCredentialHelper {
+  key: string;
+  value: string;
+}
+export type GitCredentialHelperLookup = (
+  scope: GitCredentialScope,
+  signal?: AbortSignal,
+) => Promise<readonly GitCredentialHelper[]>;
+
 export type GitErrorCode =
+  | "repository_agent_running"
   | "sensitive_publication"
   | "publication_scan_incomplete"
   | "git_missing"

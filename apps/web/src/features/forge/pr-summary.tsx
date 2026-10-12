@@ -1,3 +1,4 @@
+import { PrTaskActions } from "./pr-task-actions.tsx";
 import { useState, type ReactNode } from "react";
 import {
   CaretDownIcon,
@@ -122,6 +123,14 @@ export function PrSummary(props: {
           extensions={props.extensions}
           onOpen={props.onOpen}
           text={detail.body || "No description provided."}
+        />
+      </PrSection>
+      <PrSection title="Agent tasks">
+        <PrTaskActions
+          key={prKey}
+          workspaceId={props.context.workspaceId}
+          detail={detail}
+          onRefresh={() => void props.context.refresh()}
         />
       </PrSection>
       {props.extensions?.summary?.(props.context)}

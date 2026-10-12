@@ -1,3 +1,5 @@
+import { creationResourceId } from "./creation-resource-id.ts";
+import type { PreparePrBase } from "./pr-worktree-resolution.ts";
 import type { CreationProgress } from "./creation-progress.ts";
 import { listScripts } from "./workspace-scripts.ts";
 import { GitError } from "@ace/git";
@@ -23,6 +25,7 @@ type Prepared = NonNullable<CommandContext["preparedWorkspace"]>;
 export interface CreationWorkspace {
   workspace: Prepared;
   release(): Promise<void>;
+  verify?(): Promise<void>;
 }
 /** Physical worktree ownership lasts through acceptance, cancellation and cleanup. */
 export class WorkspaceCreations {
@@ -36,14 +39,27 @@ export class WorkspaceCreations {
   private git: WorkspaceGit;
   private directory: string;
   private fetchTimeoutMs: number;
-  constructor(store: Store, git: WorkspaceGit, directory: string, fetchTimeoutMs: number) {
+  private preparePr: PreparePrBase | undefined;
+  constructor(
+    store: Store,
+    git: WorkspaceGit,
+    directory: string,
+    fetchTimeoutMs: number,
+    preparePr?: PreparePrBase,
+  ) {
+    this.preparePr = preparePr;
     this.store = store;
     this.git = git;
     this.directory = directory;
     this.fetchTimeoutMs = fetchTimeoutMs;
     this.journal = new CreationWorkspaceJournal(store);
+    // Backfill pre-policy leases and admitted PR bindings. Retained checkouts keep their
+    // protection across workspace switches and restarts, even after their lease is released.
     for (const resource of this.journal.list())
       if (resource.non_executing) this.journal.remember(resource.path);
+    for (const thread of store.listThreads())
+      if (thread.details?.pullRequestWorkspace && thread.details.worktree)
+        this.journal.remember(thread.details.worktree);
     for (const path of this.journal.protectedRoots()) this.git.protectWorktree(path);
     this.recovery = this.recover();
     void this.recovery.catch(() => {});
@@ -76,7 +92,43 @@ export class WorkspaceCreations {
     if (this.closing || this.pending.size >= 16) throw new Error("workspace_busy");
     const project = this.store.getWorkspacePath(p.workspaceId);
     if (!project) throw new Error("workspace_not_found");
-    const task = this.create(id, project, requestedBase(p), progress, signal, setup);
+    const requested = requestedBase(p);
+    const task =
+      requested.kind === "pull-request"
+        ? this.git.nonExecuting(() =>
+            this.create(id, project, requested, progress, {
+              signal,
+              preparePr: setup ? this.preparePr : undefined,
+            }),
+          )
+        : this.create(id, project, requested, progress, { signal, setup });
+    this.pending.set(id, task);
+    try {
+      return await task;
+    } catch (error) {
+      this.pending.delete(id);
+      throw error;
+    }
+  }
+  async prepareExisting(command: Command, progress?: CreationProgress): Promise<CreationWorkspace> {
+    const p = command.payload;
+    if (p.type !== "forge.pr.worktree") throw new Error("invalid_command");
+    const thread = this.store.getThread(p.threadId);
+    if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
+    const project = this.store.getWorkspacePath(thread.workspaceId);
+    if (!project) throw new Error("workspace_not_found");
+    const requested: RequestedBase = { kind: "pull-request", selection: p.pullRequest };
+    const id = creationResourceId(command);
+    if (!id) throw new Error("invalid_command");
+    await this.ready(id);
+    if (this.closing || this.pending.size >= 16 || this.pending.has(id))
+      throw new Error("workspace_busy");
+    const task = this.git.nonExecuting(() =>
+      this.create(id, project, requested, progress, {
+        ownerId: p.threadId,
+        preparePr: this.preparePr,
+      }),
+    );
     this.pending.set(id, task);
     try {
       return await task;
@@ -90,9 +142,15 @@ export class WorkspaceCreations {
     root: string,
     requested: RequestedBase,
     progress?: CreationProgress,
-    callerSignal?: AbortSignal,
-    setup?: Setup,
+    context: {
+      signal?: AbortSignal | undefined;
+      setup?: Setup | undefined;
+      preparePr?: PreparePrBase | undefined;
+      ownerId?: ThreadId;
+    } = {},
   ): Promise<CreationWorkspace> {
+    const { signal: callerSignal, setup } = context;
+    const ownerId = context.ownerId ?? id;
     const signal =
       progress && callerSignal
         ? AbortSignal.any([progress.controller.signal, callerSignal])
@@ -115,15 +173,30 @@ export class WorkspaceCreations {
     }
     // Only host-authorized preparation may fetch. Agents resolve existing local refs.
     signal?.throwIfAborted();
-    if (setup && requested.kind === "branch" && requested.remote) progress?.update("fetching");
-    const { head, record } = setup
-      ? await resolveWorktreeBase(this.git, project, requested, this.fetchTimeoutMs, {
-          ...(signal ? { signal } : {}),
-          ...(progress ? { stderr: progress.stderr } : {}),
-        })
-      : await resolveAgentWorktreeBase(this.git, project, requested);
+    const io = {
+      ...(signal ? { signal } : {}),
+      ...(progress ? { stderr: progress.stderr } : {}),
+    };
+    if (
+      requested.kind === "pull-request" ||
+      (setup && requested.kind === "branch" && requested.remote)
+    )
+      progress?.update("fetching");
+    const preparedPr =
+      requested.kind === "pull-request"
+        ? await context.preparePr?.(project, requested.selection, io)
+        : undefined;
+    if (requested.kind === "pull-request" && !preparedPr)
+      throw new Error("forge_recovery_unavailable");
+    const { head, record } =
+      requested.kind === "pull-request"
+        ? { head: preparedPr?.head ?? "", record: undefined }
+        : setup
+          ? await resolveWorktreeBase(this.git, project, requested, this.fetchTimeoutMs, io)
+          : await resolveAgentWorktreeBase(this.git, project, requested);
     const resource: CreationResource = {
       id,
+      owner_id: ownerId,
       repo: project,
       path,
       branch,
@@ -158,6 +231,7 @@ export class WorkspaceCreations {
         this.journal.setup(id);
         resource.ran_setup = 1;
       });
+      await preparedPr?.verify(path);
       signal?.throwIfAborted();
     } catch (error) {
       if (
@@ -179,14 +253,27 @@ export class WorkspaceCreations {
     // The new branch starts at the commit, not the base's ref, so it gets no upstream: its
     // first push sets a same-named one and can never land on the base branch.
     const workspace: Prepared = {
-      id,
+      id: ownerId,
       path,
       branch,
       project,
       requestedBase: requestedBaseKey(requested),
       ...(record ? { base: record } : {}),
+      ...(preparedPr
+        ? { pullRequestWorkspace: preparedPr.pullRequestWorkspace, prStatus: preparedPr.prStatus }
+        : {}),
     };
-    const lease: CreationWorkspace = { workspace, release: () => this.cleanup(resource) };
+    const lease: CreationWorkspace = {
+      workspace,
+      release: async () => {
+        try {
+          await this.cleanup(resource);
+        } catch (error) {
+          throw new Error("workspace_cleanup_required", { cause: error });
+        }
+      },
+      ...(preparedPr ? { verify: () => this.git.nonExecuting(() => preparedPr.verify(path)) } : {}),
+    };
     if (this.closing) {
       await lease.release();
       throw new Error("workspace_closed");
@@ -242,7 +329,8 @@ export class WorkspaceCreations {
     resource: CreationResource,
     options: { force?: boolean },
   ): Promise<void> {
-    const retained = this.store.getThread(resource.id)?.details?.worktree === resource.path;
+    const retained =
+      this.store.getThread(resource.owner_id ?? resource.id)?.details?.worktree === resource.path;
     if (!retained) {
       await cleanupOwnedWorktree(
         this.git,
@@ -272,6 +360,10 @@ export class WorkspaceCreations {
     const resources = this.journal.list();
     if (resources.length > 16) throw new Error("workspace_busy");
     await Promise.allSettled(resources.map((resource) => this.cleanup(resource)));
+  }
+  cleanupComplete(command: Command): boolean {
+    const id = creationResourceId(command);
+    return !id || !this.journal.list().some((resource) => resource.id === id);
   }
   async ready(id?: ThreadId): Promise<void> {
     await this.recovery;
