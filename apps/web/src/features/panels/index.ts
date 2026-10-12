@@ -2,6 +2,8 @@
  * The thread's workspace: its tab kinds (Changes, Terminal, Preview, Devices, Agents, Logs, the
  * new-tab launcher) and the definition the thread screen hands to `<Screen workspace>`.
  */
+import { deferredComponent } from "@/lib/deferred-component.tsx";
+
 export { threadWorkspace } from "./thread-workspace.ts";
 /** Other slices' views the workspace tabs draw with (agent transcripts). */
 export { ThreadPartsProvider, useThreadParts, type ThreadParts } from "./agents/thread-parts.ts";
@@ -24,13 +26,16 @@ export type { AuthTerminalProps } from "./terminal/auth-terminal.tsx";
 
 export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");
 
-/** Shared, bounded diff rendering for hosted and local changes. */
-export {
-  FileDiffBlock,
-  freshView,
-  type FileView,
-  type LineRange,
-  type LineTarget,
-} from "./changes/file-diff.tsx";
-export { FileTree } from "./changes/file-tree.tsx";
+/**
+ * Shared, bounded diff rendering for hosted and local changes. Its code loads with the view that
+ * shows a diff: re-exported from here it would join the first paint, which never draws one.
+ */
+export const DeferredFileDiffBlock = deferredComponent(() =>
+  import("./changes/file-diff.tsx").then((module) => module.FileDiffBlock),
+);
+export const DeferredFileTree = deferredComponent(() =>
+  import("./changes/file-tree.tsx").then((module) => module.FileTree),
+);
+export { freshView, type FileView } from "./changes/file-view.ts";
+export type { LineRange, LineTarget } from "./changes/file-diff.tsx";
 export { bindTerminalEndDelivery } from "./terminal/end-delivery.ts";
