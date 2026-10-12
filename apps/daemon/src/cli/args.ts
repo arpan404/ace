@@ -14,6 +14,15 @@ const switches = new Set([
   "f",
   "archive-threads",
   "web",
+  "dry-run",
+  "yes",
+  // `ace clean` kind selection; one switch per storage kind.
+  "threads",
+  "attachments",
+  "artifacts",
+  "logs",
+  "worktrees",
+  "caches",
 ]);
 /** Pure parsing. `--` preserves prompt text, including strings beginning with a dash. */
 export function parseArgs(input: readonly string[]): Args {

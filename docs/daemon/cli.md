@@ -230,19 +230,37 @@ considered for this phase.
 
 ```
 ace storage --json
-ace clean --kinds logs,artifacts --json
+ace clean --dry-run --worktrees --older-than 7d --json
+ace clean --logs --yes
 ace clean apply PLAN_ID --revision REVISION --json
 ace clean status PLAN_ID --json
 ```
 
-`storage` measures bounded daemon-owned usage. `clean` only previews a reviewed
-batch; it never applies implicitly. Inspect the plan's removal and protection
-reasons, then pass its exact ID and revision to `apply`. This ID is the durable
-retry key. Read `status` after an uncertain reply or apply the identical plan
-again. Pending effects return uncertain; stale previews return refused and need
-a new plan. Force requires individual IDs from a preview via `--force-items`
-JSON, which creates another preview. `--retention` accepts the daemon's six-key
-retention JSON object without changing saved settings.
+`storage` measures bounded daemon-owned usage. `clean` asks the daemon for a
+reviewed plan, prints it, then applies that exact plan ID and revision. On a
+terminal it asks for confirmation first; answering anything but `y`, closing
+input or interrupting the prompt removes nothing and exits refused (4). Without
+a terminal it requires `--yes` and otherwise refuses (exit 4) before planning.
+A bare `ace clean` therefore applies after confirmation; it no longer previews
+only. `--dry-run` stops after printing the plan.
+
+Select kinds with `--threads`, `--attachments`, `--artifacts`, `--logs`,
+`--worktrees` and `--caches` (or `--kinds logs,artifacts`); no selection plans
+every kind under the saved retention. `--older-than 30d` requires at least one
+selected kind: it judges those kinds against that many days and disables removal
+for the rest, so it never re-enables a kind disabled in settings that you didn't
+name. `--retention` instead accepts the daemon's six-key retention JSON object.
+Neither changes saved settings.
+
+JSON output of an applied clean is `{ plan, apply }`; `apply` is `null` when the
+plan removes nothing. The plan ID is the durable retry key. If the connection
+drops during apply, `clean` exits uncertain (5) and prints the plan ID and
+revision: read `clean status PLAN_ID` or run `clean apply` with the same pair.
+Pending effects return uncertain; stale plans return refused and need a new
+plan. Forcing protected items is preview-only: `--force-items` takes individual
+IDs from an earlier preview as JSON and requires `--dry-run`; review the forced
+plan, then apply it with `clean apply`. `storage plan` takes the same selection
+options and only previews.
 
 The CLI calls #554's [retention API](storage-cleanup.md); it has no filesystem
 inventory or deletion implementation. Whole-tree protection, reviewed file

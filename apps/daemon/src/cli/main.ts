@@ -43,7 +43,8 @@ ace automation list|run ID
 ace add [PATH]|project add|list|rename|remove|open
 ace open [PATH] [--web]
 ace chat [--project ID|PATH] [--provider PROVIDER] [--thread ID] [--model MODEL]
-ace storage [usage]|clean [plan] [--kinds logs,artifacts]
+ace storage [usage]|storage plan [--kinds logs,artifacts] [--older-than 30d]
+ace clean [--dry-run] [--threads] [--worktrees] [--artifacts] [--logs] [--attachments] [--caches] [--older-than 30d] [--yes]
 ace clean apply PLAN_ID --revision REVISION|clean status PLAN_ID
 
 All commands: --json, --jq EXPR, --timeout DURATION

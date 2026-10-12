@@ -21,7 +21,7 @@ test("clean previews daemon retention and applies the reviewed batch durably wit
     expect(StorageUsage.parse(JSON.parse(usage.stdout)).categories).toContainEqual(
       expect.objectContaining({ kind: "logs", items: expect.any(Number) }),
     );
-    const preview = await invoke(home, ["clean", "--kinds", "logs", "--json"]);
+    const preview = await invoke(home, ["clean", "--dry-run", "--kinds", "logs", "--json"]);
     expect(preview.code, preview.stderr).toBe(0);
     const plan = StoragePlan.parse(JSON.parse(preview.stdout));
     expect(plan.items).toContainEqual(
@@ -58,7 +58,7 @@ test("clean refuses a changed reviewed file and requires a new preview", async (
     await writeFile(path, "old");
     await utimes(path, 0, 0);
     f.h.clock.advance(30 * 86400000);
-    const preview = await invoke(home, ["clean", "--kinds", "logs", "--json"]);
+    const preview = await invoke(home, ["clean", "--dry-run", "--kinds", "logs", "--json"]);
     const plan = StoragePlan.parse(JSON.parse(preview.stdout));
     await writeFile(path, "replacement");
     const output = await invoke(home, [
