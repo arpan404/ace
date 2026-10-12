@@ -224,8 +224,9 @@ export class ThreadActor {
   }
   private async runWhenWritable(run: () => void): Promise<void> {
     while (!this.poisoned) {
-      await this.repo.store.writable();
       try {
+        // Maintenance holds writers; a busy admission retries and never fails the session.
+        await this.repo.store.writable();
         // Reserve SQLite before translating: translators can consume native sequence state.
         this.repo.store.atomic(run);
         return;

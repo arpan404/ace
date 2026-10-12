@@ -113,6 +113,22 @@ export const StorageApply = z.object({
     .max(256),
 });
 export type StorageApply = z.infer<typeof StorageApply>;
+/**
+ * Incremental compaction hands SQLite's free pages back to the file system. A full VACUUM is
+ * never offered: rebuilding renumbers rows in tables without an INTEGER PRIMARY KEY.
+ */
+export const StorageCompaction = z.object({
+  id,
+  state: z.enum(["complete", "pending", "abandoned"]),
+  /** The file predates incremental vacuum and cannot shrink in place; nothing was changed. */
+  incrementalUnavailable: z.boolean(),
+  databaseBytesBefore: bytes,
+  databaseBytes: bytes,
+  reclaimableDatabaseBytes: bytes,
+  /** False when a reader kept the WAL from being truncated. */
+  checkpointed: z.boolean(),
+});
+export type StorageCompaction = z.infer<typeof StorageCompaction>;
 export const StorageRequest = z.object({
   type: z.literal("storage.request"),
   requestId: z.string().min(1).max(128),
@@ -130,6 +146,8 @@ export const StorageRequest = z.object({
       revision: StoragePlan.shape.revision,
     }),
     z.object({ op: z.literal("cleanup.status"), planId: id }),
+    z.object({ op: z.literal("cleanup.compact") }),
+    z.object({ op: z.literal("cleanup.compactAbandon"), compactionId: id }),
   ]),
 });
 export type StorageRequest = z.infer<typeof StorageRequest>;
@@ -140,6 +158,7 @@ export const StorageResult = z.object({
     z.object({ kind: z.literal("usage"), usage: StorageUsage }),
     z.object({ kind: z.literal("plan"), plan: StoragePlan }),
     z.object({ kind: z.literal("apply"), apply: StorageApply }),
+    z.object({ kind: z.literal("compaction"), compaction: StorageCompaction }),
     z.object({
       kind: z.literal("error"),
       code: z.enum(["forbidden", "busy", "not_found", "invalid_request", "unavailable"]),

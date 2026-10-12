@@ -6,10 +6,13 @@ import { CliFailure } from "./output.ts";
 import { planOperation, planOptions } from "./clean-options.ts";
 import { cleanCommand, printPlan, printReceipt, terminalConfirmation } from "./clean.ts";
 import { applyCleanup, planCleanup, storageRequest } from "./retention-request.ts";
+import { compactCommand } from "./compact.ts";
 
 /** The daemon owns inventory, protection rules, reviewed identities and all effects. */
 export async function retentionCommand(args: Args, client: Client, signal: AbortSignal) {
   const clean = args.words[0] === "clean";
+  // Compaction is not a cleanup plan; it dispatches before the plan/apply flow.
+  if (clean && args.flags.compact === true) return compactCommand(args, client, signal);
   const verb = args.words[1] ?? (clean ? "clean" : "usage");
   if (verb === "clean") return cleanCommand(args, client, signal, terminalConfirmation());
   if (verb === "usage") {

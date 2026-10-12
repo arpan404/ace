@@ -89,6 +89,36 @@
             "planId"
           ],
           "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "cleanup.compact",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "compactionId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "op": {
+              "const": "cleanup.compactAbandon",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "compactionId"
+          ],
+          "type": "object"
         }
       ]
     },

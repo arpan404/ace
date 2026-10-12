@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { useQuery } from "@tanstack/react-query";
-import type { StorageApply, StoragePlan, StorageRequest } from "@ace/protocol";
+import type { StorageApply, StorageCompaction, StoragePlan, StorageRequest } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { StorageRetentionControls } from "./storage-retention.tsx";
-import { StoragePlanPreview } from "./storage-plan.tsx";
+import { StorageCompactAction, StoragePlanPreview } from "./storage-plan.tsx";
 import { storageBytes, storageLabels } from "./storage-copy.ts";
 
 export function StorageSettings() {
@@ -14,6 +14,7 @@ export function StorageSettings() {
   const [plan, setPlan] = useState<StoragePlan>();
   const [result, setResult] = useState<StorageApply>();
   const [forceItems, setForceItems] = useState<string[]>([]);
+  const [compaction, setCompaction] = useState<StorageCompaction>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const request = async (operation: StorageRequest["operation"]) => {
@@ -64,6 +65,20 @@ export function StorageSettings() {
           ? cause.message
           : "Cleanup could not finish. Resume this plan to retry.",
       );
+    } finally {
+      setBusy(false);
+    }
+  };
+  const compact = async (operation: StorageRequest["operation"]) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const response = await request(operation);
+      if (response.kind !== "compaction") throw new Error("Unexpected compaction response.");
+      setCompaction(response.compaction);
+      await usage.refetch();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Compaction could not finish.");
     } finally {
       setBusy(false);
     }
@@ -120,6 +135,17 @@ export function StorageSettings() {
                 : "Preview cleanup"}
           </Button>
         </div>
+        {usage.data && (
+          <StorageCompactAction
+            result={compaction}
+            busy={busy}
+            disabled={!ready}
+            onCompact={() => void compact({ op: "cleanup.compact" })}
+            onAbandon={(compactionId) =>
+              void compact({ op: "cleanup.compactAbandon", compactionId })
+            }
+          />
+        )}
         {error && (
           <p role="alert" className="mt-3 text-sm text-destructive">
             {error}

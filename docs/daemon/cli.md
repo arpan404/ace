@@ -265,5 +265,16 @@ options and only previews.
 The CLI calls #554's [retention API](storage-cleanup.md); it has no filesystem
 inventory or deletion implementation. Whole-tree protection, reviewed file
 identities and recovery remain with that owner. Plans and application require
-host administration; paired read authority can see usage. The API and CLI expose
-no database compaction operation.
+host administration; paired read authority can see usage.
+
+```
+ace clean --compact --json
+ace clean --compact --abandon COMPACTION_ID --json
+```
+
+`--compact` runs incremental database compaction, which needs host administration
+and is never part of a cleanup plan. A run that hits its chunk limit returns
+`pending` with uncertain exit status; repeat `--compact` to resume it, or pass
+`--abandon` to stop it. A database created before incremental vacuum reports
+`incrementalUnavailable` and is left unchanged. There is no full rebuild; see
+[Compaction](storage-cleanup.md#compaction).

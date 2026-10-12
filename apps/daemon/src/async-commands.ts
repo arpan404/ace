@@ -62,7 +62,9 @@ export class AsyncCommands {
               error: actionErrorCode(error),
             }))
           : { ok: false, error: "action_outcome_uncertain" };
-        return this.store.completeAsyncCommand(command.id, { commandId: command.id, ...outcome });
+        return this.store.write(() =>
+          this.store.completeAsyncCommand(command.id, { commandId: command.id, ...outcome }),
+        );
       })
       .finally(() => {
         this.flights.delete(command.id);

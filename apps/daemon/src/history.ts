@@ -368,7 +368,7 @@ export class DaemonHistory {
       const resumePersistence = await this.continuation.pausePersistence(signal);
       try {
         signal.throwIfAborted();
-        this.store.setHistoryWriting(true);
+        await this.store.startHistoryWriting(signal);
         try {
           await this.store.notifyHistory();
         } finally {

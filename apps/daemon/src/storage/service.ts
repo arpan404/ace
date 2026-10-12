@@ -1,20 +1,22 @@
 import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
+import { setImmediate } from "node:timers/promises";
 import {
   StorageKind,
   StoragePlan,
   StorageRequest,
   StorageRetention,
   type StorageApply,
+  type StorageCompaction,
   type StorageUsage,
   type StorageResult,
 } from "@ace/protocol";
 import { initializeThreadCleanup } from "../thread-cleanup-journal.ts";
 import { StorageInventory } from "./inventory.ts";
-import { StorageJournal, type CleanupJournal } from "./journal.ts";
+import { StorageJournal, type CleanupJournal, type CompactionJournal } from "./journal.ts";
 import { planStorageItem } from "./planner.ts";
-import { applyStorageItems } from "./apply.ts";
+import { applyStorageItems, compactStorage, type CompactionLimits } from "./apply.ts";
 import type { StorageOwner } from "./types.ts";
 
 const missing = (error: unknown) =>
@@ -27,8 +29,10 @@ export class StorageService {
   private tail: Promise<unknown> = Promise.resolve();
   private queued = 0;
   private closed = false;
-  constructor(owner: StorageOwner) {
+  private limits: CompactionLimits;
+  constructor(owner: StorageOwner, limits: Partial<CompactionLimits> = {}) {
     this.owner = owner;
+    this.limits = { chunkPages: 256, maxChunks: 4096, pause: () => setImmediate(), ...limits };
     initializeThreadCleanup(owner.store);
     this.journal = new StorageJournal(owner.store);
     this.inventory = new StorageInventory(owner);
@@ -50,17 +54,6 @@ export class StorageService {
   usage(): Promise<StorageUsage> {
     return this.serial(async () => {
       const { candidates, complete } = await this.inventory.scan();
-      let databaseBytes = 0;
-      for (const name of ["events.sqlite", "events.sqlite-wal"]) {
-        try {
-          databaseBytes += (await stat(join(this.owner.root, name))).size;
-        } catch (error) {
-          if (!missing(error)) throw error;
-        }
-      }
-      const store = this.owner.store;
-      const page = Number(store.statement("PRAGMA page_size").get()?.page_size);
-      const free = Number(store.statement("PRAGMA freelist_count").get()?.freelist_count);
       return {
         categories: StorageKind.options.map((kind) => {
           const items = candidates.filter((candidate) => candidate.kind === kind);
@@ -70,12 +63,76 @@ export class StorageService {
             items: items.length,
           };
         }),
-        databaseBytes,
-        reclaimableDatabaseBytes: page * free,
+        ...(await this.database()),
         measuredAt: this.owner.now(),
         complete,
       };
     });
+  }
+  /** File and WAL bytes on disk, plus free pages SQLite could hand back. */
+  private async database() {
+    let databaseBytes = 0;
+    for (const name of ["events.sqlite", "events.sqlite-wal"]) {
+      try {
+        databaseBytes += (await stat(join(this.owner.root, name))).size;
+      } catch (error) {
+        if (!missing(error)) throw error;
+      }
+    }
+    const store = this.owner.store;
+    const page = Number(store.statement("PRAGMA page_size").get()?.page_size);
+    const free = Number(store.statement("PRAGMA freelist_count").get()?.freelist_count);
+    return { databaseBytes, reclaimableDatabaseBytes: page * free };
+  }
+  /**
+   * Admin-only incremental compaction. Never part of retention apply. An unfinished
+   * journal entry is resumed rather than replaced.
+   */
+  compact(device: string, allowed = () => true): Promise<StorageCompaction> {
+    return this.serial(async () => {
+      if (!allowed()) throw new Error("storage_forbidden");
+      const state = this.journal.unfinishedCompaction() ?? {
+        id: this.owner.id(),
+        owner: device,
+        state: "running" as const,
+        phase: "vacuum" as const,
+        chunks: 0,
+        databaseBytesBefore: (await this.database()).databaseBytes,
+        incrementalUnavailable: false,
+        checkpointed: false,
+      };
+      await this.owner.store.write(() => this.journal.saveCompaction(state));
+      await compactStorage(
+        this.owner,
+        this.journal,
+        state,
+        this.limits,
+        () => !this.closed && allowed(),
+      );
+      return this.compaction(state);
+    });
+  }
+  /** Stop resuming an unfinished compaction. Chunks already released stay released. */
+  abandonCompaction(id: string): Promise<StorageCompaction> {
+    return this.serial(async () => {
+      const state = this.journal.compaction(id);
+      if (!state) throw new Error("storage_plan_not_found");
+      if (state.state === "running") {
+        state.state = "abandoned";
+        await this.owner.store.write(() => this.journal.saveCompaction(state));
+      }
+      return this.compaction(state);
+    });
+  }
+  private async compaction(state: CompactionJournal): Promise<StorageCompaction> {
+    return {
+      id: state.id,
+      state: state.state === "running" ? "pending" : state.state,
+      incrementalUnavailable: state.incrementalUnavailable,
+      databaseBytesBefore: state.databaseBytesBefore,
+      ...(await this.database()),
+      checkpointed: state.checkpointed,
+    };
   }
   plan(
     device: string,
@@ -234,6 +291,11 @@ export class StorageService {
       const journal = this.journal.get(id);
       if (journal) await this.serial(() => this.run(journal, () => allowed(journal.owner)));
     }
+    const compaction = this.journal.unfinishedCompaction();
+    if (compaction?.state === "running" && allowed(compaction.owner))
+      await this.serial(() =>
+        compactStorage(this.owner, this.journal, compaction, this.limits, () => !this.closed),
+      );
   }
   async handle(device: string, value: unknown, allowed: () => boolean): Promise<StorageResult> {
     const request = StorageRequest.parse(value);
@@ -257,6 +319,15 @@ export class StorageService {
         case "cleanup.status":
           result = { kind: "apply", apply: this.status(device, op.planId) };
           break;
+        case "cleanup.compact":
+          result = { kind: "compaction", compaction: await this.compact(device, allowed) };
+          break;
+        case "cleanup.compactAbandon":
+          result = {
+            kind: "compaction",
+            compaction: await this.abandonCompaction(op.compactionId),
+          };
+          break;
       }
       if (!allowed()) throw new Error("storage_forbidden");
     } catch (error) {
@@ -264,7 +335,7 @@ export class StorageService {
       result = {
         kind: "error",
         code:
-          message === "storage_busy"
+          message === "storage_busy" || message === "Store is busy"
             ? "busy"
             : message === "storage_forbidden"
               ? "forbidden"

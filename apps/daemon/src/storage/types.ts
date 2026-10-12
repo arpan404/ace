@@ -7,6 +7,8 @@ export type StorageOwner = Pick<ServiceContext, "store" | "services" | "now" | "
   root: string;
   cleanupPlanId?: string;
   afterRemove?(id: string): Promise<void>;
+  /** Runs after each durable compaction step, before the next one starts. */
+  afterCompactionStep?(): Promise<void>;
 };
 export const StorageTarget = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thread"), threadId: z.string() }),

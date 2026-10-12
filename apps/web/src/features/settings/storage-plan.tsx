@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { StorageApply, StoragePlan } from "@ace/protocol";
+import type { StorageApply, StorageCompaction, StoragePlan } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -143,5 +143,51 @@ export function StoragePlanPreview(props: {
         </DialogContent>
       </Dialog>
     </SettingSection>
+  );
+}
+
+/** Incremental database compaction; there is no full rebuild to confirm. */
+export function StorageCompactAction(props: {
+  result?: StorageCompaction | undefined;
+  busy: boolean;
+  disabled: boolean;
+  onCompact(): void;
+  onAbandon(id: string): void;
+}) {
+  const result = props.result;
+  return (
+    <div className="mt-4">
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={props.busy || props.disabled}
+          onClick={props.onCompact}
+        >
+          {result?.state === "pending" ? "Resume compaction" : "Compact database"}
+        </Button>
+        {result?.state === "pending" && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={props.busy || props.disabled}
+            onClick={() => props.onAbandon(result.id)}
+          >
+            Stop compaction
+          </Button>
+        )}
+      </div>
+      {result && (
+        <p role="status" className="mt-2 text-xs text-muted-foreground">
+          {result.incrementalUnavailable
+            ? "This database was created before compaction was available and can't shrink in place."
+            : result.state === "complete"
+              ? `Compacted from ${storageBytes(result.databaseBytesBefore)} to ${storageBytes(result.databaseBytes)}.`
+              : result.state === "pending"
+                ? "Compaction paused. Resume to continue."
+                : "Compaction stopped."}
+        </p>
+      )}
+    </div>
   );
 }

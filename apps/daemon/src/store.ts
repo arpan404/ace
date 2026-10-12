@@ -70,6 +70,7 @@ import { PayloadStore } from "./payload-store.ts";
 import { SearchIndex, SearchQueries, type SearchWorkerFactory } from "@ace/search";
 import { createSearchMaintenance, scheduleSearch, type SearchScheduler } from "./search-runtime.ts";
 import { BoundedCache } from "@ace/provider-kit/bounded-cache";
+import { StoreWriteGate, type StoreWriteGateOptions } from "./store-write-gate.ts";
 
 export interface StoreOptions extends Partial<CredentialRuntime> {
   /** Store owns and closes this SQLite connection when supplied. */
@@ -78,6 +79,7 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   now?: () => number;
   searchScheduler?: SearchScheduler;
   searchWorkerFactory?: SearchWorkerFactory;
+  writeGate?: StoreWriteGateOptions;
 }
 type Listener = (events: Event[]) => void;
 export class Store {
@@ -111,6 +113,8 @@ export class Store {
   private depth = 0;
   private installingHistory = false;
   private historyWriting = false;
+  private historyWriter: (() => void) | undefined;
+  private readonly writes: StoreWriteGate;
   private listeners = new Set<Listener>();
   private caches = new Map<ThreadId, { view: ThreadView; refs: number }>();
   private sidebarRevision = "";
@@ -142,11 +146,13 @@ export class Store {
     this.db = options.database ?? new DatabaseSync(path);
     this.nextId = options.nextId ?? randomUUID;
     this.now = options.now ?? Date.now;
+    this.writes = new StoreWriteGate(options.writeGate);
     this.payloads = new PayloadStore(this.db, this.nextId, (sql) => this.statement(sql));
     this.status = new StatusStore(this.db, (sql) => this.statement(sql));
     try {
       this.db.exec(
-        "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;",
+        // auto_vacuum only takes effect before a new file's first page or through VACUUM.
+        "PRAGMA auto_vacuum=INCREMENTAL; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;",
       );
       migrate(this.db);
       migrateSidebarRevisions(this.db);
@@ -410,9 +416,15 @@ export class Store {
   isHistoryWriting(): boolean {
     return this.historyWriting;
   }
+  /** Wait until neither history publication nor maintenance holds writes. */
   async writable(signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
-    while (this.historyWriting) {
+    for (;;) {
+      if (this.writes.isHeld()) {
+        await this.writes.open(signal);
+        continue;
+      }
+      if (!this.historyWriting) return;
       await new Promise<void>((resolve, reject) => {
         const ready = () => {
           signal?.removeEventListener("abort", abort);
@@ -428,11 +440,47 @@ export class Store {
       signal?.throwIfAborted();
     }
   }
+  /**
+   * The write boundary: every mutation path awaits admission here. The commit itself stays
+   * synchronous, so ownership checks inside `run` see the same state they commit against.
+   */
+  async write<T>(run: (db: DatabaseSync) => T, signal?: AbortSignal): Promise<T> {
+    for (;;) {
+      await this.writable(signal);
+      // Recheck in the same turn as the commit; maintenance may have started meanwhile.
+      if (!this.writes.isHeld() && !this.historyWriting) return this.atomic(run);
+    }
+  }
+  /** Register a writer whose commits span awaits. Maintenance drains it before starting. */
+  writer(): () => void {
+    return this.writes.enter();
+  }
+  /**
+   * Hold new writers with a bounded wait, drain in-flight ones, then run work exclusively.
+   * Work receives the connection; it must leave no transaction open across its awaits.
+   */
+  maintenance<T>(work: (db: DatabaseSync) => Promise<T>, signal?: AbortSignal): Promise<T> {
+    return this.writes.exclusive(async () => {
+      if (this.closing) throw new Error("Store is closed");
+      if (this.transactionEvents || this.installingHistory) throw new Error("Store is busy");
+      return work(this.db);
+    }, signal);
+  }
+  /** Begin history publication once maintenance releases writers; queues rather than fails. */
+  async startHistoryWriting(signal?: AbortSignal): Promise<void> {
+    for (;;) {
+      await this.writes.open(signal);
+      // Same turn as the registration, so maintenance cannot start in between.
+      if (!this.writes.isHeld()) return this.setHistoryWriting(true);
+    }
+  }
   setHistoryWriting(active: boolean): void {
     if (active && this.historyWriting) throw new Error("History publication in progress");
     // Metadata writers wait for the worker lock rather than failing at the first contention.
     this.db.exec("PRAGMA busy_timeout=5000");
     if (active) {
+      // The publication worker writes on its own connection, so maintenance must drain it.
+      this.historyWriter = this.writes.enter();
       this.historyWriting = true;
       this.deferredAfter = this.publishedSeq;
       return;
@@ -461,6 +509,8 @@ export class Store {
       }
     } finally {
       this.historyWriting = false;
+      this.historyWriter?.();
+      this.historyWriter = undefined;
       this.deferredAfter = undefined;
       if (this.search.hasPendingWrites()) this.searchMaintenance.wake();
       for (const resolve of this.historyWaiters) resolve();
