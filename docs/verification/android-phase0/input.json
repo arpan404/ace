@@ -1,0 +1,31 @@
+{
+  "input": {
+    "misses": 0,
+    "coverage": 1,
+    "minimumCoverage": 0.95,
+    "allAttemptP95ConservativeMs": 56.17188,
+    "samples": 120,
+    "p95Ms": 56.17188,
+    "maxMs": 66.818008,
+    "keys": 120,
+    "mutations": 480,
+    "commits": 120,
+    "draws": 120
+  },
+  "font": {
+    "assetSha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
+    "actualAdvance": 490,
+    "bundledAdvance": 490,
+    "foreground": "#0B0B0C",
+    "textSizePx": 56
+  },
+  "items": 2001,
+  "streamDeltasPerSecond": 10,
+  "profile": {
+    "api": "36.1",
+    "densityDpi": 450,
+    "fontScale": 1.3,
+    "gpu": "host",
+    "build": "debug arm64"
+  }
+}
