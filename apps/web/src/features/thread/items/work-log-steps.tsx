@@ -130,7 +130,7 @@ export function StepRow(props: {
       aria-label={[step.verb, step.target, step.note].filter(Boolean).join(" ")}
       title={step.ace?.problem?.hint}
       onClick={props.expandable === false ? undefined : props.onToggle}
-      className="flex min-h-8 w-full min-w-0 items-center gap-2.5 text-left text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground"
+      className="flex min-h-8 w-full min-w-0 items-center gap-2.5 text-left text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground"
     >
       <StepGlyph
         threadId={props.threadId}
@@ -169,7 +169,7 @@ export function StepRow(props: {
  * folders when space runs short; a command or query truncates at its end.
  */
 function TargetChip(props: { target: string }) {
-  const chip = "flex min-w-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground";
+  const chip = "flex min-w-0 rounded-md bg-fill px-1.5 py-0.5 font-mono text-xs text-foreground";
   const slash = props.target.lastIndexOf("/");
   const path = slash > 0 && slash < props.target.length - 1 && !/\s/.test(props.target);
   if (!path)

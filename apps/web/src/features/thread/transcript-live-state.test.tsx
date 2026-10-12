@@ -148,7 +148,7 @@ test("a parent answer stays working until its subagent finishes and its line ope
   );
   expect(live().textContent).toContain("1 subagent");
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
-  await userEvent.click(within(live()).getByRole("button", { name: "Open summary" }));
+  await userEvent.click(within(live()).getByRole("button", { name: "Open the summary" }));
   expect(await screen.findByRole("region", { name: "Thread panel" })).toBeTruthy();
   act(() => app.daemon.apply(id, [facts.toolDone("audit", "audit-check"), facts.endTurn("audit")]));
   expect(await screen.findByRole("button", { name: /^Worked for 1m 14s/ })).toBeTruthy();

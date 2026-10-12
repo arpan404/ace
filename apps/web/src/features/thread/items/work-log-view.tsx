@@ -22,14 +22,14 @@ export function WorkLogHeader(props: {
         aria-expanded={props.open}
         aria-controls={props.panel}
         onClick={props.onToggle}
-        className="group inline-flex min-w-0 items-center gap-1.5 text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground pointer-coarse:min-h-10"
+        className="group inline-flex min-w-0 items-center gap-1.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground pointer-coarse:min-h-11"
       >
         <span className="truncate">{props.label}</span>
         <CaretRightIcon
           aria-hidden
           size={14}
           className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
+            "shrink-0 text-subtle-foreground transition-transform duration-(--motion-base) ease-spring",
             props.open && "rotate-90",
           )}
         />

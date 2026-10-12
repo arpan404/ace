@@ -1,7 +1,7 @@
 import { formatElapsed, timedWords } from "@ace/ui-core";
 import { useContext, useLayoutEffect, useRef } from "react";
 import { cn } from "@/lib/cn.ts";
-import { useMotionReduced } from "@/lib/motion.ts";
+import { useReducedMotion } from "@/lib/motion.ts";
 import { TimeContext } from "@/lib/time.ts";
 
 /*
@@ -20,7 +20,7 @@ const still = new Set([0, 2, 4, 6, 8]);
 function WorkingGlyph(props: { moving?: boolean; className?: string }) {
   const grid = useRef<HTMLSpanElement>(null);
   const { seconds } = useContext(TimeContext);
-  const reduced = useMotionReduced();
+  const reduced = useReducedMotion();
   const moving = (props.moving ?? true) && !reduced;
   useLayoutEffect(() => {
     const cells = [...(grid.current?.children ?? [])].filter(

@@ -625,7 +625,7 @@ export function Feed(props: FeedProps) {
           </div>
         </div>
         {livePinned && working && (
-          <div className="ace-floating-solid absolute inset-x-0 top-0 z-[5] bg-background pb-1">
+          <div className="absolute inset-x-0 top-0 z-[5] bg-reading pb-1">
             <div className={readingColumn}>
               <LiveHead threadId={threadId} />
             </div>

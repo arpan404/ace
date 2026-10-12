@@ -34,7 +34,7 @@ export function RailMark(props: { state: RailState }) {
     <span
       aria-hidden
       className={cn(
-        "absolute top-2.5 -left-6 grid size-3 place-items-center rounded-full bg-background",
+        "absolute top-2.5 -left-6 grid size-3 place-items-center rounded-full bg-reading",
         props.state === "failed" ? "text-status-failed" : "text-subtle-foreground",
       )}
     >

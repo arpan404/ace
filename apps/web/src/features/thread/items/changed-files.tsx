@@ -31,7 +31,7 @@ function Stat(props: { added: number | undefined; removed: number | undefined })
 /** Chips shown before the rest fold into "+N more". */
 const shown = 4;
 const chip =
-  "inline-flex h-7 max-w-full min-w-0 items-center gap-2 rounded-md bg-muted px-2 font-mono text-xs text-foreground transition-colors duration-(--dur-1) hover:bg-accent focus-ring";
+  "inline-flex h-7 max-w-full min-w-0 items-center gap-2 rounded-md bg-fill px-2 font-mono text-xs text-foreground transition-colors duration-(--motion-fast) hover:bg-fill-strong focus-ring";
 
 /**
  * The files a turn changed, as wrapping chips: each file's name with its `+N −M`, then "+2 more".
@@ -64,7 +64,7 @@ export function ChangedFiles(props: { threadId: string; itemIds: readonly string
         <button
           type="button"
           onClick={open}
-          className="h-7 px-1 font-mono text-xs text-subtle-foreground transition-colors duration-(--dur-1) hover:text-foreground focus-ring"
+          className="h-7 px-1 font-mono text-xs text-subtle-foreground transition-colors duration-(--motion-fast) hover:text-foreground focus-ring"
         >
           +{rest} more
         </button>

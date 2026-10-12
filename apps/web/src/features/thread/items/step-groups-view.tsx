@@ -269,7 +269,7 @@ const GroupView = memo(function GroupView(props: {
         onClick={() => setOpen(!open)}
         className={cn(
           row,
-          "text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground",
+          "text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground",
         )}
       >
         <Icon icon={groupIcons[group.icon]} size={16} className="text-subtle-foreground" />
