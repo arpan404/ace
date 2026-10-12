@@ -51,7 +51,6 @@ import { useHostIdentity } from "@/lib/host-name.ts";
 import {
   preparation,
   preparationSaveFailed,
-  legacyDraftScope,
   retirePreparationScope,
   retainPromotedPreparation,
   preparationKey,
@@ -164,27 +163,12 @@ function PreparationPage(props: {
   const project = props.project;
   const draftKey = preparationKey(props.host, project, props.skill);
   const [restored] = useState<Preparation | undefined>(() => {
-    // Move the existing per-project content into its daemon-scoped identity once.
-    const legacyKey = `new:${project}${props.skill ? `:skill:${props.skill}` : ""}`;
-    const legacy = readDraft(storage, legacyKey);
-    if (legacy && !readDraft(storage, draftKey)) {
-      if (writeDraft(storage, draftKey, legacy)) writeDraft(storage, legacyKey, undefined);
-    }
     const previous = preparation(storage, props.host, draftKey);
     if (previous?.discardRecovery) {
       if (readDraft(storage, draftKey) || writeDraft(storage, draftKey, previous.discardRecovery))
         savePreparation(storage, props.host, draftKey, { ...previous, discardRecovery: undefined });
     }
-    if (previous || !legacy) return previous;
-    const migrated = {
-      project,
-      skill: props.skill,
-      choices: loadChoices(storage),
-      draftId: legacyDraftScope(storage, props.host, legacyKey),
-      title: legacy.text.trim().split("\n")[0]?.slice(0, 100) || "Attached files",
-    };
-    if (readDraft(storage, draftKey)) savePreparation(storage, props.host, draftKey, migrated);
-    return migrated;
+    return previous;
   });
   const [initialChoices] = useState<Choices>(() => restored?.choices ?? loadChoices(storage));
   const [selection, setChoices] = useState<Choices | undefined>(undefined);
@@ -287,7 +271,7 @@ function PreparationPage(props: {
       skill: props.skill,
       choices: { ...snapshot(selection ?? previous?.choices ?? choices, resolved), project },
       settingsResolved: completed || !!resolved.model,
-      provider: selection ? provider : previous?.provider ?? provider,
+      provider: selection ? provider : (previous?.provider ?? provider),
       permission:
         permissionChoice?.provider === provider
           ? permission
@@ -403,7 +387,7 @@ function PreparationPage(props: {
         ...saved,
         choices: next,
         settingsResolved: true,
-        provider: selection ? provider : saved.provider ?? provider,
+        provider: selection ? provider : (saved.provider ?? provider),
       });
     }
   });
@@ -576,9 +560,7 @@ function PreparationPage(props: {
       </Screen>
     );
   const recoverable =
-    readDraft(storage, draftKey) ??
-    readDraft(storage, `new:${project}${props.skill ? `:skill:${props.skill}` : ""}`) ??
-    preparation(storage, props.host, draftKey)?.discardRecovery;
+    readDraft(storage, draftKey) ?? preparation(storage, props.host, draftKey)?.discardRecovery;
   const promoted = preparation(storage, props.host, draftKey)?.handoffCleanupPending;
   if (promoted || (recoverable && !readDraft(storage, draftKey)))
     return (
@@ -757,8 +739,8 @@ function PreparationPage(props: {
             {(saveFailed || preparationSaveFailed(storage, draftKey)) && (
               <div role="alert" className="mt-3 px-2 text-ui text-status-failed">
                 <p>
-                  Couldn't save this preparation on this device. Keep this page open and free space or
-                  discard an older draft before leaving.
+                  Couldn't save this preparation on this device. Keep this page open and free space
+                  or discard an older draft before leaving.
                 </p>
                 <Button
                   type="button"

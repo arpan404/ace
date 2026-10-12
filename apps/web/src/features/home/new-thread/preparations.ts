@@ -181,17 +181,3 @@ export function retainPromotedPreparation(
 ): boolean {
   return saveRetirement(storage, host, key, id, { handoffCleanupPending: true });
 }
-
-/** #524 retained pre-preparation uploads under their original project-scoped draft key. */
-export function legacyDraftScope(
-  storage: KeyValueStorage | undefined,
-  host: string,
-  key: string,
-): string | undefined {
-  return readJson(
-    storage,
-    `ace.composer.scope:${JSON.stringify([host, key])}`,
-    z.string().optional(),
-    undefined,
-  );
-}

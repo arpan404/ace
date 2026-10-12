@@ -1,5 +1,5 @@
 import { WorkspaceId } from "@ace/protocol";
-import { fixtureImage, workbench } from "@ace/fake-daemon";
+import { workbench } from "@ace/fake-daemon";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -290,78 +290,4 @@ test("a refused content write keeps the live preparation and shows that it is no
   );
   expect((await message()).textContent).toBe("Keep this editor open");
   expect(drafts()).toBeNull();
-});
-
-test("a recovered draft from the parent branch keeps its original uploaded file when migrated into a visible preparation", async () => {
-  const made = app();
-  await made.client.start();
-  const host = (await made.client.request({ type: "host.identity" })).identity.hostId;
-  const draft = await made.client.request({
-    type: "context.request",
-    operation: { op: "draft.create", workspaceId: WorkspaceId.parse("relay") },
-  });
-  if (draft.result.kind !== "draft") throw new Error("draft scope was not granted");
-  const begun = await made.client.request({
-    type: "context.request",
-    operation: {
-      op: "draft.upload.begin",
-      draftId: draft.result.draftId,
-      sha256: fixtureImage.sha256,
-      bytes: atob(fixtureImage.data).length,
-      mimeType: "image/png",
-      name: fixtureImage.name,
-    },
-  });
-  if (begun.result.kind !== "upload") throw new Error("upload was not granted");
-  await made.client.request({
-    type: "context.request",
-    operation: {
-      op: "upload.chunk",
-      uploadId: begun.result.uploadId,
-      offset: begun.result.offset,
-      data: fixtureImage.data,
-    },
-  });
-  const committed = await made.client.request({
-    type: "context.request",
-    operation: { op: "upload.commit", uploadId: begun.result.uploadId },
-  });
-  expect(committed.result.kind).toBe("attachment");
-  writeDraft(made.storage, "new:relay", {
-    text: "Recovered legacy upload",
-    mentions: [],
-    attachments: [{ sha256: fixtureImage.sha256, name: fixtureImage.name }],
-  });
-  made.storage.setItem(
-    `ace.composer.scope:${JSON.stringify([host, "new:relay"])}`,
-    JSON.stringify(draft.result.draftId),
-  );
-  await made.open("/new?project=relay");
-  expect((await message()).textContent).toBe("Recovered legacy upload");
-  expect(await screen.findByRole("button", { name: "Remove fixture.png" })).toBeTruthy();
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
-      "true",
-    ),
-  );
-  await userEvent.click(screen.getByRole("button", { name: "Send" }));
-  await waitFor(() => {
-    const view = made.daemon.snapshot({ kind: "threads" });
-    expect(
-      view?.kind === "threads" &&
-        Object.values(view.threads).some((thread) => thread.title === "Recovered legacy upload"),
-    ).toBe(true);
-  });
-  const view = made.daemon.snapshot({ kind: "threads" });
-  const created =
-    view?.kind === "threads" &&
-    Object.values(view.threads).find((thread) => thread.title === "Recovered legacy upload");
-  if (!created) throw new Error("legacy preparation was not delivered");
-  const reply = await made.client.request({
-    type: "context.request",
-    operation: { op: "attachment.list", threadId: created.id },
-  });
-  expect(
-    reply.result.kind === "attachments" && reply.result.attachments.map((file) => file.sha256),
-  ).toEqual([fixtureImage.sha256]);
 });
