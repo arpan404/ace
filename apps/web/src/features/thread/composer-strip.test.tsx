@@ -77,3 +77,51 @@ test("a new approval reclaims the strip after the person switched to the queue",
   await waitFor(() => expect(screen.queryByRole("region", { name: "Message queue" })).toBeNull());
   expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
 });
+
+const ask = (app: ReturnType<typeof harness>, id: string) =>
+  act(() =>
+    app.daemon.apply(threadId, [
+      {
+        type: "interaction.opened",
+        agent: "root",
+        interaction: id,
+        blocking: true,
+        request: {
+          kind: "question",
+          questions: [
+            {
+              id: "scope",
+              text: "Include generated files?",
+              options: [],
+              allowOther: true,
+              multiSelect: false,
+            },
+          ],
+        },
+      },
+    ]),
+  );
+
+test("Enter answers a question only while the strip shows it", async () => {
+  const app = await open();
+  await queueMessage("Also cover the mobile path");
+  ask(app, "ask-1");
+  const card = await screen.findByRole("region", { name: "Waiting for you" });
+  await userEvent.click(within(card).getByRole("button", { name: "Show 1 queued message" }));
+  await screen.findByRole("region", { name: "Message queue" });
+  const message = screen.getByRole("combobox", { name: "Message" });
+  // With the queue showing, Enter queues the message and the question stays open.
+  await userEvent.type(message, "Then log the cap{Enter}");
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("list", { name: "Queued messages" })).getAllByRole("listitem"),
+    ).toHaveLength(2),
+  );
+  expect(app.daemon.isPending(threadId, "ask-1")).toBe(true);
+  // Back on the question, Enter answers it with the message.
+  await userEvent.click(screen.getByRole("button", { name: "Show 1 request waiting for you" }));
+  await screen.findByRole("region", { name: "Waiting for you" });
+  await userEvent.type(message, "No, skip them{Enter}");
+  await waitFor(() => expect(app.daemon.isPending(threadId, "ask-1")).toBe(false));
+  expect(JSON.stringify(app.daemon.resolution(threadId, "ask-1"))).toContain("No, skip them");
+});
