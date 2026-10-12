@@ -7,40 +7,31 @@ const mdn: ToolIcon = { kind: "site", origin: "https://developer.mozilla.org" };
 const nothing: ToolIcon = { kind: "site", origin: "https://example.com" };
 const ref = (letter: string) => letter.repeat(64);
 
+/** A daemon that knows two sites sharing one icon; `offline` fails resolving. */
 function daemon() {
   const calls: string[] = [];
+  const state = { offline: false };
   const known: Record<string, string> = {
     "https://github.com": ref("a"),
     "https://developer.mozilla.org": ref("a"),
   };
-  async function request(input: {
-    type: "icons.resolve";
-    icons: ToolIcon[];
-  }): Promise<IconsResolveResponse>;
-  async function request(input: { type: "icons.read"; ref: string }): Promise<IconsReadResponse>;
-  async function request(
-    input: { type: "icons.resolve"; icons: ToolIcon[] } | { type: "icons.read"; ref: string },
-  ): Promise<IconsResolveResponse | IconsReadResponse> {
-    if (input.type === "icons.resolve") {
-      calls.push(`resolve:${input.icons.length}`);
+  return {
+    calls,
+    state,
+    async resolve(icons: ToolIcon[]): Promise<IconsResolveResponse> {
+      calls.push(`resolve:${icons.length}`);
+      if (state.offline) throw new Error("offline");
       return {
         type: "icons.resolve",
         requestId: "r",
-        refs: input.icons.map((icon) =>
-          icon.kind === "site" ? (known[icon.origin] ?? null) : null,
-        ),
+        refs: icons.map((icon) => (icon.kind === "site" ? (known[icon.origin] ?? null) : null)),
       };
-    }
-    calls.push(`read:${input.ref.slice(0, 1)}`);
-    return {
-      type: "icons.read",
-      requestId: "r",
-      ref: input.ref,
-      mimeType: "image/png",
-      data: "UE5H",
-    };
-  }
-  return { calls, request };
+    },
+    async read(id: string): Promise<IconsReadResponse> {
+      calls.push(`read:${id.slice(0, 1)}`);
+      return { type: "icons.read", requestId: "r", ref: id, mimeType: "image/png", data: "UE5H" };
+    },
+  };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -48,7 +39,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 // Mutations: one request per row, or reading the same PNG twice.
 test("rows shown together resolve in one batch and share one read per image", async () => {
   const d = daemon();
-  const cache = new ToolIconCache({ request: d.request });
+  const cache = new ToolIconCache(d);
   let changes = 0;
   cache.subscribe(() => changes++);
   for (const icon of [github, mdn, nothing, github]) cache.load(icon);
@@ -66,7 +57,7 @@ test("rows shown together resolve in one batch and share one read per image", as
 
 test("a step that already carries its icon's hash skips resolving", async () => {
   const d = daemon();
-  const cache = new ToolIconCache({ request: d.request });
+  const cache = new ToolIconCache(d);
   cache.load(github, ref("b"));
   await settle();
   expect(d.calls).toEqual(["read:b"]);
@@ -75,25 +66,13 @@ test("a step that already carries its icon's hash skips resolving", async () => 
 
 // Mutation: caching a failed answer as "no icon" for the session.
 test("an unanswered batch is asked again the next time a row shows the icon", async () => {
-  let fail = true;
   const d = daemon();
-  async function request(input: {
-    type: "icons.resolve";
-    icons: ToolIcon[];
-  }): Promise<IconsResolveResponse>;
-  async function request(input: { type: "icons.read"; ref: string }): Promise<IconsReadResponse>;
-  async function request(
-    input: { type: "icons.resolve"; icons: ToolIcon[] } | { type: "icons.read"; ref: string },
-  ): Promise<IconsResolveResponse | IconsReadResponse> {
-    if (input.type === "icons.read") return d.request(input);
-    if (fail) throw new Error("offline");
-    return d.request(input);
-  }
-  const cache = new ToolIconCache({ request });
+  d.state.offline = true;
+  const cache = new ToolIconCache(d);
   cache.load(github);
   await settle();
   expect(cache.image(github)).toBeUndefined();
-  fail = false;
+  d.state.offline = false;
   cache.load(github);
   await settle();
   expect(cache.image(github)).toMatch(/^data:image\/png/);

@@ -1,5 +1,4 @@
 import type { IconRef, IconsReadResponse, IconsResolveResponse, ToolIcon } from "@ace/protocol";
-import type { ServiceRequest } from "./service-requests.ts";
 
 /*
  * The site and app icons browser and computer-use rows show, as the daemon resolved them on its
@@ -7,13 +6,11 @@ import type { ServiceRequest } from "./service-requests.ts";
  * (`icons.read`) and kept as a data URL in a bounded cache. Never fetched from the site itself.
  */
 
-type Request = {
-  (input: Extract<ServiceRequest, { type: "icons.resolve" }>): Promise<IconsResolveResponse>;
-  (input: Extract<ServiceRequest, { type: "icons.read" }>): Promise<IconsReadResponse>;
-};
-
 export interface ToolIconCacheOptions {
-  request: Request;
+  /** `icons.resolve` for up to 32 icons. */
+  resolve(icons: ToolIcon[]): Promise<IconsResolveResponse>;
+  /** `icons.read` for one resolved icon. */
+  read(ref: IconRef): Promise<IconsReadResponse>;
   /** Icons kept at once; the least recently shown go first. */
   maxIcons?: number;
   /** Run a batch soon (after the rows that ask for icons in one render have asked). */
@@ -77,12 +74,7 @@ export class ToolIconCache {
       for (const [id] of batch) this.queue.delete(id);
       let refs: readonly (IconRef | null)[] = [];
       try {
-        refs = (
-          await this.options.request({
-            type: "icons.resolve",
-            icons: batch.map(([, icon]) => icon),
-          })
-        ).refs;
+        refs = (await this.options.resolve(batch.map(([, icon]) => icon))).refs;
       } catch {
         // Unanswered: asked again the next time a row shows it.
         for (const [id] of batch) this.loading.delete(id);
@@ -100,7 +92,7 @@ export class ToolIconCache {
     let pending = this.byRef.get(ref);
     if (!pending) {
       pending = this.options
-        .request({ type: "icons.read", ref })
+        .read(ref)
         .then((reply) => `data:${reply.mimeType};base64,${reply.data}`)
         .catch(() => {
           this.byRef.delete(ref);
