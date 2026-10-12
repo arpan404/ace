@@ -1,6 +1,6 @@
 import { facts } from "@ace/fake-daemon";
-import { WorkspaceId } from "@ace/protocol";
-import { screen, within } from "@testing-library/react";
+import { ThreadId, WorkspaceId } from "@ace/protocol";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
@@ -96,4 +96,88 @@ test("the project filter also narrows unsent starts without hiding matching work
     });
   expect(await nav.findByRole("link", { name: /^ace pending task/ })).toBeTruthy();
   expect(nav.queryByRole("link", { name: /^relay pending task/ })).toBeNull();
+});
+
+test("arrows and j/k cross the pinned boundary in both directions", async () => {
+  const app = harness();
+  seed(app);
+  await app.open("/new");
+  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  await nav.findByRole("link", { name: /^Last task/ });
+  await app.client.command({ type: "thread.pin", threadId: ThreadId.parse("first"), pinned: true });
+  const pinned = await nav.findByRole("link", { name: /^First task.*Pinned/ });
+  const next = nav.getByRole("link", { name: /^Last task/ });
+  pinned.focus();
+  await userEvent.keyboard("{ArrowDown}");
+  await waitFor(() => expect(document.activeElement).toBe(next));
+  await userEvent.keyboard("{ArrowUp}");
+  await waitFor(() => expect(document.activeElement).toBe(pinned));
+  await userEvent.keyboard("j");
+  await waitFor(() => expect(document.activeElement).toBe(next));
+  await userEvent.keyboard("k");
+  await waitFor(() => expect(document.activeElement).toBe(pinned));
+});
+
+test("navigation includes every Unsent link in both directions", async () => {
+  const app = harness();
+  seed(app);
+  await app.open("/new");
+  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  await nav.findByRole("link", { name: /^First task/ });
+  app.client.networkOnline(false);
+  for (const title of ["First offline task", "Second offline task"])
+    await app.client.enqueue({
+      type: "thread.create",
+      workspaceId: WorkspaceId.parse("ace"),
+      provider: "codex",
+      title,
+      input: [{ type: "text", text: title }],
+    });
+  await nav.findByRole("link", { name: /^Second offline task/ });
+  const links = nav.getAllByRole("link");
+  const lastTask = links[2];
+  if (!lastTask) throw new Error("Missing admitted task");
+  lastTask.focus();
+  for (const next of links.slice(3)) {
+    await userEvent.keyboard("j");
+    await waitFor(() => expect(document.activeElement).toBe(next));
+  }
+  for (const previous of links.slice(2, -1).toReversed()) {
+    await userEvent.keyboard("{ArrowUp}");
+    await waitFor(() => expect(document.activeElement).toBe(previous));
+  }
+});
+
+test("Snoozed folds quiet tasks away but leaves a request in the main list", async () => {
+  const now = 100_000;
+  const app = harness({ clock: () => now, uiClock: () => now });
+  seed(app);
+  await app.open("/new");
+  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  await nav.findByRole("link", { name: /^Last task/ });
+  for (const id of ["first", "last"])
+    await app.client.command({
+      type: "thread.snooze",
+      threadId: ThreadId.parse(id),
+      until: now + 3_600_000,
+    });
+  await nav.findByRole("button", { name: "Snoozed (2)" });
+  app.daemon.apply("last", [
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "ask",
+      blocking: true,
+      request: {
+        kind: "approval",
+        title: "Proceed?",
+        options: [{ id: "allow", label: "Approve", kind: "allow_once" }],
+      },
+    },
+  ]);
+  const snoozed = await nav.findByRole("button", { name: "Snoozed (1)" });
+  await waitFor(() => expect(nav.queryByRole("link", { name: /^First task/ })).toBeNull());
+  expect(nav.getByRole("link", { name: /^Last task/ })).toBeTruthy();
+  await userEvent.click(snoozed);
+  expect(await nav.findByRole("link", { name: /^First task/ })).toBeTruthy();
 });

@@ -55,7 +55,8 @@ export const pinOrderOf = (entry: ThreadListEntry): number => entry.pinOrder ?? 
 
 /**
  * Home order: pinned threads first in their own order; then by rank, most recent first within
- * a rank, split into the work in hand and the Recent threads at rest; Settled by recency.
+ * a rank, split into the work in hand and the Recent threads at rest; Snoozed and Settled
+ * apart by recency. Pinned tasks stay in the person's order; snoozed requests stay exposed.
  */
 export function arrange(
   entries: readonly ThreadListEntry[],

@@ -1,7 +1,7 @@
 /*
  * The Home list as the sidebar draws it: the Pinned group under its heading, in the person's
  * own order, then the work in hand in Home order (what needs you, work in motion, trouble, most
- * recent first within each), then threads at rest, then the collapsible Settled
+ * recent first within each), then threads at rest, then the collapsible Snoozed and Settled
  * section. Pure: the caller passes the arrangement.
  */
 

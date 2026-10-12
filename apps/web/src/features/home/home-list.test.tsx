@@ -58,7 +58,7 @@ test("Home keeps attention and active tasks ahead across projects, with settled 
   ]);
   expect(within(threads()).queryByRole("button", { name: /^Show more/ })).toBeNull();
   // The finished thread's PR merged, so the daemon has settled it out of the way.
-  const settled = screen.getByRole("button", { name: "Settled 1" });
+  const settled = screen.getByRole("button", { name: "Settled (1)" });
   expect(settled.getAttribute("aria-expanded")).toBe("false");
   await userEvent.click(settled);
   expect(order().at(-1)).toBe("Bump Codex app-server to 0.48");
@@ -109,7 +109,7 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
 
 /** Bring the settled thread back to the list, done and at rest. */
 async function unsettleBump() {
-  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
   await rowAction("Unsettle", "Bump Codex app-server to 0.48");
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
 }
@@ -140,7 +140,7 @@ test("Up and Down (and j and k) move between rows, past the Settled heading", as
   const last = rows.at(-1);
   last?.focus();
   await userEvent.keyboard("j");
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Settled 1" }));
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Settled (1)" }));
   await userEvent.keyboard("{Enter}{ArrowDown}");
   expect(document.activeElement).toBe(card(/^Bump Codex app-server to 0.48/));
 });
@@ -182,14 +182,14 @@ test("a row's actions offer Settle for finished work and hide it while work cont
 test("Settled stays open or closed as the person left it, across a reload", async () => {
   const storage = memoryKeyValue();
   const view = await openHome(workbenchApp({ storage }));
-  const toggle = await screen.findByRole("button", { name: "Settled 1" });
+  const toggle = await screen.findByRole("button", { name: "Settled (1)" });
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   await userEvent.click(toggle);
   expect(card(/^Bump Codex app-server to 0.48/)).toBeTruthy();
   view.unmount();
 
   await openHome(workbenchApp({ storage }));
-  const reopened = await screen.findByRole("button", { name: "Settled 1" });
+  const reopened = await screen.findByRole("button", { name: "Settled (1)" });
   expect(reopened.getAttribute("aria-expanded")).toBe("true");
   expect(card(/^Bump Codex app-server to 0.48/)).toBeTruthy();
   await userEvent.click(reopened);
@@ -216,14 +216,14 @@ test("hovering a row's link shows what its marks mean in a tooltip", async () =>
 test("Settle drops a finished thread into Settled on the daemon and Undo puts it back", async () => {
   const app = workbenchApp();
   await openHome(app);
-  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
   await rowAction("Unsettle", "Bump Codex app-server to 0.48");
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
   expect(order()).toContain("Bump Codex app-server to 0.48");
 
   await rowAction("Settle", "Bump Codex app-server to 0.48");
   expect(await screen.findByText("Settled · Bump Codex app-server to 0.48")).toBeTruthy();
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 1" })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (1)" })).toBeTruthy());
   const settledAt = () => {
     const view = app.daemon.snapshot({ kind: "threads" });
     return view?.kind === "threads" ? view.threads["thread-bump-codex"]?.settledAt : undefined;
@@ -241,11 +241,11 @@ test("Settle drops a finished thread into Settled on the daemon and Undo puts it
 test("a settled thread comes back to the list as soon as it moves again", async () => {
   const app = workbenchApp();
   await openHome(app);
-  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
   await rowAction("Unsettle", "Bump Codex app-server to 0.48");
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
   await rowAction("Settle", "Bump Codex app-server to 0.48");
-  await waitFor(() => expect(screen.getByRole("button", { name: "Settled 1" })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (1)" })).toBeTruthy());
 
   // New work on it: the agent starts another turn and the thread is working again.
   app.daemon.apply("thread-bump-codex", [
@@ -258,7 +258,7 @@ test("a settled thread comes back to the list as soon as it moves again", async 
 test("Settled lists settled threads without the settle rule, which lives in Settings", async () => {
   const app = workbenchApp();
   await openHome(app);
-  await userEvent.click(await screen.findByRole("button", { name: "Settled 1" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
   expect(card(/^Bump Codex/)).toBeTruthy();
   expect(screen.queryByText(/Threads that need you never settle/)).toBeNull();
   expect(screen.queryByRole("button", { name: "When done threads settle" })).toBeNull();

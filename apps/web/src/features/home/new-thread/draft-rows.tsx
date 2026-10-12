@@ -36,6 +36,7 @@ export function DraftRows() {
             className="group/draft relative border-b border-sidebar-border hover:bg-foreground/3"
           >
             <Link
+              data-row-focus=""
               to="/new"
               search={{
                 project: row.project,

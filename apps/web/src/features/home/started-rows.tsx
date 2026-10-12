@@ -109,6 +109,7 @@ function StartedRow(props: { send: PendingSend }) {
   return (
     <li>
       <Link
+        data-row-focus=""
         to="/t/$threadId"
         params={{ threadId: realId(send) ?? `pending:${send.commandId}` }}
         aria-label={`${titleOf(send)}. ${label}, ${provider}, Project ${project}`}

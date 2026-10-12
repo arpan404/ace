@@ -20,7 +20,9 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { matchesChord } from "@/lib/hotkeys.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
+import { focusListRow, rowFocusSelector } from "./list-focus.ts";
 import { ThreadRow } from "./thread-row.tsx";
+import { UnsentRows } from "./unsent-rows.tsx";
 import type { HomeList } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
 import {
@@ -40,6 +42,8 @@ const estimates: Record<HomeRow["kind"], number> = {
   "pinned-end": 9,
   thread: 84,
   unsent: 0,
+  "snoozed-header": 37,
+  snoozed: 84,
   "settled-header": 37,
   settled: 84,
 };
@@ -51,10 +55,6 @@ const steps: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, j: 1, k: -1 }
 const loadDrag = () => import("./list-drag.ts");
 /** The bar for the picked threads, loaded once something is picked. */
 const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) => module.BulkBar));
-
-const UnsentRows = deferredComponent(() =>
-  import("./unsent-rows.tsx").then((module) => module.UnsentRows),
-);
 
 const header =
   "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-2 text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--dur-1)";
@@ -87,20 +87,21 @@ function HeadingText(props: { label: string; count?: number | undefined }) {
  * group, being theirs to order, never holds.
  */
 export function ThreadList(props: { list: HomeList; settledTotal?: number | undefined }) {
-  const { pinned, active, recent, settled } = props.list;
-  const { settledOpen } = useOrganizerState();
+  const { pinned, active, recent, snoozed, settled } = props.list;
+  const { snoozedOpen, settledOpen } = useOrganizerState();
   const organizer = useOrganizer();
   const [moving, setMoving] = useState<readonly string[]>();
   const rows = useMemo(() => {
     return homeRows(
-      { pinned, active, recent, settled },
+      { pinned, active, recent, snoozed, settled },
       {
+        snoozedOpen,
         settledOpen,
         includeUnsent: true,
         pinZone: moving !== undefined,
       },
     );
-  }, [pinned, active, recent, settled, settledOpen, moving]);
+  }, [pinned, active, recent, snoozed, settled, snoozedOpen, settledOpen, moving]);
   const hold = useListHold();
   const held = useHeldRows(rows, hold.state, props.list.needsYou);
   const { rows: drawn, moving: sliding } = useListMotion(held, homeRowKey);
@@ -189,22 +190,6 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
     });
   };
 
-  /** Focus the row at `index` (or the next one that isn't leaving), mounting it first if needed. */
-  const focusRow = (from: number, step: number): string | undefined => {
-    let index = from + step;
-    while (drawn[index]?.phase === "exit" || drawn[index]?.item.kind === "unsent") index += step;
-    if (index < 0 || index >= drawn.length) return undefined;
-    const target = () =>
-      viewport.current?.querySelector<HTMLElement>(
-        `[data-index="${index}"] [data-row-focus], [data-index="${index}"] [data-settled-toggle]`,
-      );
-    virtualizer.scrollToIndex(index, { align: "auto" });
-    const now = target();
-    if (now) now.focus();
-    else requestAnimationFrame(() => target()?.focus());
-    const row = drawn[index]?.item;
-    return row && homeRowThread(row);
-  };
   const pressed = (event: KeyboardEvent, id: "home.pin" | "home.select" | "home.move") =>
     matchesChord(event.nativeEvent, parseChord(keys[id]));
   /** A keyboard move takes every key first, before a row's tooltip or menu can claim Escape. */
@@ -236,7 +221,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
       return;
     }
     // Only from a row itself: never while renaming, or inside a menu or the hover actions.
-    if (!event.target.matches("[data-row-focus], [data-settled-toggle]")) return;
+    if (!event.target.matches(rowFocusSelector)) return;
     const from = event.target.closest<HTMLElement>("[data-index]");
     if (!from) return;
     const id = event.target.closest<HTMLElement>("[data-thread-row]")?.dataset.threadRow;
@@ -259,12 +244,21 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
     const step = steps[event.key];
     if (!step || event.altKey || event.metaKey || event.ctrlKey) return;
     event.preventDefault();
-    const next = focusRow(Number(from.dataset.index), step);
-    // Shift+↑↓ picks every row from the last one picked to the next.
-    if (event.shiftKey && next) {
-      if (id && !picked.length) selection.toggle(id);
-      selection.range(order, next);
-    }
+    const shifted = event.shiftKey;
+    void focusListRow({
+      viewport: viewport.current,
+      rows: drawn,
+      from: event.target,
+      index: Number(from.dataset.index),
+      step,
+      mount: (index) => virtualizer.scrollToIndex(index, { align: "auto" }),
+    }).then((next) => {
+      // Shift+↑↓ picks admitted tasks, while Unsent links and disclosures only move focus.
+      if (shifted && next) {
+        if (id && !picked.length) selection.toggle(id);
+        selection.range(order, next);
+      }
+    });
   };
   /** ⌘- or Ctrl-click picks a row, Shift-click a range; a plain click lets the pick go. */
   const onClickCapture = (event: MouseEvent<HTMLDivElement>) => {
@@ -364,17 +358,13 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                 }}
               >
                 <div className={rowMotion(entry.phase)}>
-                  {(row.kind === "thread" || row.kind === "pinned") && (
+                  {(row.kind === "thread" || row.kind === "pinned" || row.kind === "snoozed") && (
                     <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
                   )}
                   {row.kind === "settled" && (
                     <ThreadRow threadId={row.id} settled leaving={leaving} />
                   )}
-                  {row.kind === "unsent" && (
-                    <Suspense fallback={null}>
-                      <UnsentRows.Component />
-                    </Suspense>
-                  )}
+                  {row.kind === "unsent" && <UnsentRows />}
                   {row.kind === "pinned-end" && (
                     <div className="mx-2 my-1 h-px bg-sidebar-border" />
                   )}
@@ -387,15 +377,32 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                       )}
                     </div>
                   )}
+                  {row.kind === "snoozed-header" && (
+                    <button
+                      type="button"
+                      aria-expanded={snoozedOpen}
+                      data-section-toggle=""
+                      onClick={() => organizer.setSnoozedOpen(!snoozedOpen)}
+                      className={cn(header, "hover:text-muted-foreground")}
+                    >
+                      <span>Snoozed ({row.count})</span>
+                      <span aria-hidden className="h-px flex-1 bg-sidebar-border" />
+                      <CaretDownIcon
+                        aria-hidden
+                        size={12}
+                        className={cn(!snoozedOpen && "-rotate-90")}
+                      />
+                    </button>
+                  )}
                   {row.kind === "settled-header" && (
                     <button
                       type="button"
                       aria-expanded={settledOpen}
-                      data-settled-toggle=""
+                      data-section-toggle=""
                       onClick={() => organizer.setSettledOpen(!settledOpen)}
                       className={cn(header, "hover:text-muted-foreground")}
                     >
-                      <HeadingText label="Settled" count={props.settledTotal ?? row.count} />
+                      <span>Settled ({props.settledTotal ?? row.count})</span>
                       <CaretDownIcon
                         aria-hidden
                         size={12}

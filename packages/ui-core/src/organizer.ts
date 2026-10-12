@@ -5,8 +5,8 @@ import { readJson, writeJson, type KeyValueStorage } from "./storage.ts";
 /*
  * How this device shows the Home list. Settle, snooze, pin, read state, titles and deletion
  * belong to the daemon (ADR 0057) and arrive on each thread list entry; what stays here is
- * view state: the unread baseline of a first launch, the project filter and whether Settled
- * is open.
+ * view state: the unread baseline of a first launch, the project filter and which disclosures
+ * are open.
  */
 
 /** The daemon's auto-settle window (`threads.autoSettleAfter`). */
