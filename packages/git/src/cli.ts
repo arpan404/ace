@@ -10,7 +10,7 @@ import { z } from "zod";
 import { isUtf8 } from "node:buffer";
 import { dirname, resolve as resolvePath } from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { filterKeyQuery, nonExecutingEnv } from "./non-executing.ts";
+import { filterKeyQuery, nonExecutingEnv, nonExecutingTransportEnv } from "./non-executing.ts";
 import { Readable, type Writable } from "node:stream";
 import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
@@ -45,7 +45,8 @@ export interface Output {
 
 export class GitCli {
   private readonly protectedWorktrees = new Set<string>();
-  private readonly executionPolicy = new AsyncLocalStorage<"non-executing">();
+  private readonly executionPolicy = new AsyncLocalStorage<"non-executing" | { protocols: readonly string[] }>();
+  private readonly transportProtocols: readonly string[];
   readonly leaseId: () => string;
   readonly leaseSchedule: GitProcessRuntime["scheduleTimeout"];
   readonly binary: string;
@@ -59,6 +60,7 @@ export class GitCli {
   private closing: Promise<void> | undefined;
 
   constructor(options: GitOptions) {
+    this.transportProtocols = options.transportProtocols ?? ["http", "https", "ssh"];
     this.runtime = processRuntime(options.processRuntime);
     this.leaseId = options.leaseId ?? mutationLeaseId;
     this.leaseSchedule = this.runtime.scheduleTimeout;
@@ -143,6 +145,25 @@ export class GitCli {
     );
     return result;
   }
+  /** A user-admitted fetch retains all tree execution guards, including in protected roots. */
+  fetch(cwd: string, args: string[], options: CallOptions): Promise<Output> {
+    if (args[0] !== "fetch")
+      return Promise.reject(new GitError("invalid_argument", "Explicit fetch requires fetch"));
+    return this.executionPolicy.run({ protocols: this.transportProtocols }, () =>
+      this.call(cwd, args, options),
+    );
+  }
+  /** Publishing has its own admission path; local plumbing never inherits transport permission. */
+  push(
+    cwd: string,
+    args: string[],
+    options: CallOptions,
+    protocols: readonly string[] = this.transportProtocols,
+  ): Promise<Output> {
+    if (args[0] !== "push")
+      return Promise.reject(new GitError("invalid_argument", "Explicit push requires push"));
+    return this.executionPolicy.run({ protocols }, () => this.call(cwd, args, options));
+  }
   /** Cancellable I/O-bound retry pause, using the same injected clock as calls. */
   pause(milliseconds: number): Promise<void> {
     if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
@@ -197,7 +218,9 @@ export class GitCli {
   }
 
   private async execute(cwd: string, args: string[], options: CallOptions): Promise<Output> {
-    if (!this.executionDisabledAt(cwd)) return this.executeRaw(cwd, args, options);
+    const policy = this.executionPolicy.getStore();
+    const transport = typeof policy === "object" ? policy : undefined;
+    if (!this.executionDisabledAt(cwd) && !transport) return this.executeRaw(cwd, args, options);
     // Inspect effective driver names only, never commands or credential values. Every nested
     // call is guarded here, including temporary-index writes, status and branch cleanup.
     const filters = await this.executeRaw(cwd, ["-c", "protocol.allow=never", ...filterKeyQuery], {
@@ -216,7 +239,12 @@ export class GitCli {
       throw new GitError("malformed_output", "Invalid filter configuration encoding");
     return this.executeRaw(cwd, ["-c", "protocol.allow=never", ...args], {
       ...options,
-      env: { ...options.env, ...nonExecutingEnv(filters.stdout.toString("utf8")) },
+      env: {
+        ...options.env,
+        ...(transport
+          ? nonExecutingTransportEnv(filters.stdout.toString("utf8"), transport.protocols)
+          : nonExecutingEnv(filters.stdout.toString("utf8"))),
+      },
     });
   }
 

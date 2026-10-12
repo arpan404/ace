@@ -16,6 +16,8 @@ export interface GitProcessRuntime {
 }
 
 export interface GitOptions {
+  /** Tests may inject file transport for local remotes; production uses http/https/ssh. */
+  transportProtocols?: readonly ("http" | "https" | "ssh" | "file")[];
   leaseId?: () => string;
   processRuntime?: Partial<GitProcessRuntime>;
   gitBinary?: string;

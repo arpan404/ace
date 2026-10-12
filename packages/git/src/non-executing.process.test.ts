@@ -107,6 +107,8 @@ test.each(["lazy-fetch suppression", "inherited transport denial"])(
     await scalar(repo, "config", "remote.origin.url", "ssh://example.invalid/objects.git");
     await scalar(repo, "config", "remote.origin.promisor", "true");
     await scalar(repo, "config", "remote.origin.partialclonefilter", "blob:none");
+    await scalar(repo, "config", "protocol.ssh.allow", "always");
+    await scalar(repo, "config", "protocol.file.allow", "always");
     await scalar(repo, "config", "core.sshCommand", `${quote(process.execPath)} ${quote(ssh)}`);
     await rm(join(repo, ".git", "objects", blob.slice(0, 2), blob.slice(2)));
     const service = new GitService({
@@ -140,3 +142,37 @@ test.each(["lazy-fetch suppression", "inherited transport denial"])(
     }
   },
 );
+
+
+test("authorized push and fetch from a protected checkout preserve hooks, fsmonitor and filter suppression", async () => {
+  const repo = await repository({ "tracked.txt": "Raw filtered bytes\n", ".gitattributes": "tracked.txt filter=hostile\n" });
+  const remote = join(dirname(repo), "remote.git");
+  await scalar(repo, "init", "--bare", remote);
+  await scalar(repo, "remote", "add", "origin", `file://${remote}`);
+  const marker = join(dirname(repo), "push-executed");
+  const script = join(dirname(repo), "hostile.cjs");
+  await writeFile(script, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed'); process.stdin.pipe(process.stdout);\n`);
+  const command = `${quote(process.execPath)} ${quote(script)}`;
+  const hooks = join(dirname(repo), "hooks");
+  await mkdir(hooks);
+  for (const name of ["pre-push", "reference-transaction", "post-index-change"])
+    await writeFile(join(hooks, name), `#!/bin/sh\nexec ${command}\n`, { mode: 0o755 });
+  await scalar(repo, "config", "core.hooksPath", hooks);
+  await scalar(repo, "config", "core.fsmonitor", command);
+  for (const key of ["clean", "smudge", "process"])
+    await scalar(repo, "config", `filter.hostile.${key}`, command);
+  await scalar(repo, "config", "filter.hostile.required", "true");
+  const service = new GitService({ transportProtocols: ["file"] });
+  service.protectWorktree(repo);
+  try {
+    const head = await scalar(repo, "rev-parse", "HEAD");
+    const branch = await scalar(repo, "symbolic-ref", "--short", "HEAD");
+    await service.push({ worktree: repo, remote: "origin" });
+    expect(await scalar(remote, "rev-parse", `refs/heads/${branch}`)).toBe(head);
+    await service.fetchBranch({ repo, remote: "origin", branch, timeoutMs: 10000 });
+    expect(await service.branchHead({ repo, remote: "origin", branch })).toBe(head);
+    await writeFile(join(repo, "tracked.txt"), "Changed after push\n");
+    expect((await service.status(repo)).unstaged).toEqual(expect.arrayContaining([expect.objectContaining({ path: "tracked.txt" })]));
+    await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally { await service.close(); }
+});
