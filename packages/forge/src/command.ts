@@ -49,10 +49,13 @@ export function createCommandRunner(options: {
     delete env.GH_DEBUG;
     delete env.DEBUG;
     request.dispatch?.prepare?.();
-    const launch = () => spawn(request.command, [...request.args], {
-      cwd: options.cwd, env, stdio: ["pipe", "pipe", "pipe"],
-      detached: process.platform !== "win32",
-    });
+    const launch = () =>
+      spawn(request.command, [...request.args], {
+        cwd: options.cwd,
+        env,
+        stdio: ["pipe", "pipe", "pipe"],
+        detached: process.platform !== "win32",
+      });
     let child: ReturnType<typeof launch>;
     try {
       child = launch();
