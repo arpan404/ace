@@ -41,6 +41,44 @@ const samples = [
     path: "config/runtime.conf",
     text: 'token_url = "unfinished\nDB_PASSWORD=opaque-value\n',
   },
+  {
+    label: "secret-suffixed endpoint name",
+    path: "config/settings.json",
+    text: '{"api_token_url_secret":"opaque-value"}\n',
+  },
+  {
+    label: "literal token in an exempt endpoint value",
+    path: "config/settings.json",
+    text: JSON.stringify({ token_url: "github_pat_" + "a".repeat(32) }) + "\n",
+  },
+  {
+    label: "literal token in an empty field's name",
+    path: "config/settings.json",
+    text: JSON.stringify({ ["ghp_" + "a".repeat(32)]: "" }) + "\n",
+  },
+  {
+    label: "private-key block in an exempt policy field",
+    path: "config/settings.json",
+    text:
+      JSON.stringify({
+        token_file: "-----BEGIN PRIVATE KEY-----\nsynthetic\n-----END PRIVATE KEY-----",
+      }) + "\n",
+  },
+  {
+    label: "credential-bearing URI outside assignments",
+    path: "config/runtime.conf",
+    text: "https://octo:opaque-value@example.invalid\n",
+  },
+  {
+    label: "credential after an empty placeholder",
+    path: "config/runtime.conf",
+    text: 'DB_PASSWORD=""\napi_token=opaque-value\n',
+  },
+  {
+    label: "value concatenated onto an empty quote",
+    path: "config/runtime.conf",
+    text: 'DB_PASSWORD=""opaque-value\n',
+  },
 ];
 for (const sample of samples) {
   for (const deleted of [false, true]) {
@@ -107,6 +145,36 @@ const ordinary = [
     label: "long non-credential scalar values",
     path: "config/runtime.conf",
     text: 'banner = "' + "a".repeat(20000) + '"\nexample = ' + "a".repeat(20000) + "\n",
+  },
+  {
+    label: "JSON endpoint settings",
+    path: "config/settings.json",
+    text: '{"token_url":"https://example.invalid"}\n',
+  },
+  {
+    label: "quoted YAML endpoint settings",
+    path: "config/settings.yaml",
+    text: '"token_url": "https://example.invalid"\n',
+  },
+  {
+    label: "empty double- and single-quoted environment placeholders",
+    path: "config/runtime.conf",
+    text: "DB_PASSWORD=\"\"\nAPI_TOKEN=''\n",
+  },
+  {
+    label: "empty quoted TOML placeholders",
+    path: "config/settings.toml",
+    text: '[settings]\n"token" = ""\n\'password\' = \'\'\n"tok\\u0065n" = ""\n',
+  },
+  {
+    label: "empty JSON password placeholder",
+    path: "config/settings.json",
+    text: '{"password":""}\n',
+  },
+  {
+    label: "empty quoted YAML placeholders",
+    path: "config/settings.yaml",
+    text: "\"password\": \"\"\n'token': ''\n",
   },
 ];
 for (const sample of ordinary) {

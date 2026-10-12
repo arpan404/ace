@@ -13,9 +13,16 @@ function boundary(character: string | undefined): boolean {
   return character === undefined || /[\s;{,(]/.test(character);
 }
 
+type PublicationAssignment = {
+  keys: string[];
+  keyStart: number;
+  keyEnd: number;
+  populated: boolean;
+};
+
 /** A forward-only cursor consumes each key once, even when no separator follows it.
- * Limits apply to unfinished keys too. Quoted components are returned without values. */
-export function* publicationAssignmentKeys(text: string): Generator<string[]> {
+ * Limits apply to unfinished keys too. Values are inspected without retaining them. */
+export function* publicationAssignments(text: string): Generator<PublicationAssignment> {
   let position = 0;
   let assignments = 0;
   while (position < text.length) {
@@ -32,6 +39,7 @@ export function* publicationAssignmentKeys(text: string): Generator<string[]> {
       while (horizontal(text[position])) advance();
     };
     const parts: string[] = [];
+    let keyEnd = position;
     let valid = true;
     while (valid) {
       if (parts.length >= 64) incomplete();
@@ -66,6 +74,7 @@ export function* publicationAssignmentKeys(text: string): Generator<string[]> {
         }
       }
       parts.push(text.slice(component, position));
+      keyEnd = position;
       spaces();
       if (text[position] !== ".") break;
       advance();
@@ -74,19 +83,25 @@ export function* publicationAssignmentKeys(text: string): Generator<string[]> {
     if (valid && (text[position] === "=" || text[position] === ":")) {
       advance();
       spaces();
-      if (text[position] !== undefined && !/\s/.test(text[position] ?? "")) {
-        if (++assignments > 100000) incomplete();
-        yield parts;
+      if (++assignments > 100000) incomplete();
+      let populated = false;
+      if (text[position] !== undefined && !/[\s;,}\]]/.test(text[position] ?? "")) {
         // A scalar value is not another candidate key. Leave collection delimiters
         // for the outer cursor so inline JSON objects still expose their fields.
         const quote = text[position];
         if (quote === '"' || quote === "'") {
           position++;
+          const valueStart = position;
+          let closed = false;
           while (position < text.length) {
             const character = text[position];
             if (character === "\r" || character === "\n") break;
             position++;
-            if (character === quote) break;
+            if (character === quote) {
+              populated = position - 1 > valueStart;
+              closed = true;
+              break;
+            }
             if (
               quote === '"' &&
               character === "\\" &&
@@ -96,10 +111,15 @@ export function* publicationAssignmentKeys(text: string): Generator<string[]> {
             )
               position++;
           }
+          // A malformed or concatenated quote is not an empty placeholder.
+          if (!closed || (text[position] !== undefined && !/[\s;,}\])]/.test(text[position] ?? "")))
+            populated = true;
         } else {
+          populated = true;
           while (position < text.length && !/[\s;,{}()]/.test(text[position] ?? "")) position++;
         }
       }
+      yield { keys: parts, keyStart: start, keyEnd, populated };
     }
     // Failed candidates resume here, never at an earlier space or component.
   }
