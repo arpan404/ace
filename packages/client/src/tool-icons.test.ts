@@ -1,31 +1,32 @@
-import type { IconsReadResponse, IconsResolveResponse, ToolIcon } from "@ace/protocol";
+import {
+  IconsResolveResponse,
+  ThreadId,
+  type IconResult,
+  type IconsReadResponse,
+} from "@ace/protocol";
 import { expect, test } from "vitest";
 import { ToolIconCache } from "./tool-icons.ts";
 
-const github: ToolIcon = { kind: "site", origin: "https://github.com" };
-const mdn: ToolIcon = { kind: "site", origin: "https://developer.mozilla.org" };
-const nothing: ToolIcon = { kind: "site", origin: "https://example.com" };
+const thread = ThreadId.parse("t");
 const ref = (letter: string) => letter.repeat(64);
 
-/** A daemon that knows two sites sharing one icon; `offline` fails resolving. */
-function daemon() {
+/** A daemon that answers per step from `answers`; `offline` fails resolving outright. */
+function daemon(answers: Record<string, IconResult>) {
   const calls: string[] = [];
-  const state = { offline: false };
-  const known: Record<string, string> = {
-    "https://github.com": ref("a"),
-    "https://developer.mozilla.org": ref("a"),
-  };
+  const state = { offline: false, now: 0 };
   return {
     calls,
     state,
-    async resolve(icons: ToolIcon[]): Promise<IconsResolveResponse> {
-      calls.push(`resolve:${icons.length}`);
+    now: () => state.now,
+    async resolve(threadId: ThreadId, itemIds: string[]) {
+      calls.push(`resolve:${itemIds.join(",")}`);
       if (state.offline) throw new Error("offline");
-      return {
+      return IconsResolveResponse.parse({
         type: "icons.resolve",
         requestId: "r",
-        refs: icons.map((icon) => (icon.kind === "site" ? (known[icon.origin] ?? null) : null)),
-      };
+        threadId,
+        icons: itemIds.map((id) => answers[id] ?? { state: "none" }),
+      });
     },
     async read(id: string): Promise<IconsReadResponse> {
       calls.push(`read:${id.slice(0, 1)}`);
@@ -38,42 +39,64 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 // Mutations: one request per row, or reading the same PNG twice.
 test("rows shown together resolve in one batch and share one read per image", async () => {
-  const d = daemon();
+  const d = daemon({
+    open: { state: "found", ref: ref("a") },
+    click: { state: "found", ref: ref("a") },
+  });
   const cache = new ToolIconCache(d);
   let changes = 0;
   cache.subscribe(() => changes++);
-  for (const icon of [github, mdn, nothing, github]) cache.load(icon);
-  expect(cache.image(github)).toBeUndefined();
+  for (const id of ["open", "click", "shell", "open"]) cache.load(thread, id);
+  expect(cache.image(thread, "open")).toBeUndefined();
   await settle();
-  expect(d.calls).toEqual(["resolve:3", "read:a"]);
-  expect(cache.image(github)).toBe("data:image/png;base64,UE5H");
-  expect(cache.image(mdn)).toBe("data:image/png;base64,UE5H");
-  expect(cache.image(nothing)).toBeNull();
+  expect(d.calls).toEqual(["resolve:open,click,shell", "read:a"]);
+  expect(cache.image(thread, "open")).toBe("data:image/png;base64,UE5H");
+  expect(cache.image(thread, "click")).toBe("data:image/png;base64,UE5H");
+  expect(cache.image(thread, "shell")).toBeNull();
   expect(changes).toBeGreaterThan(0);
-  cache.load(github);
+  cache.load(thread, "open");
   await settle();
   expect(d.calls).toHaveLength(2);
 });
 
 test("a step that already carries its icon's hash skips resolving", async () => {
-  const d = daemon();
+  const d = daemon({});
   const cache = new ToolIconCache(d);
-  cache.load(github, ref("b"));
+  cache.load(thread, "open", ref("b"));
   await settle();
   expect(d.calls).toEqual(["read:b"]);
-  expect(cache.image(github)).toMatch(/^data:image\/png/);
+  expect(cache.image(thread, "open")).toMatch(/^data:image\/png/);
 });
 
-// Mutation: caching a failed answer as "no icon" for the session.
-test("an unanswered batch is asked again the next time a row shows the icon", async () => {
-  const d = daemon();
+// Mutation: caching a passing failure as "no icon" for the session.
+test("an icon that may come later is asked again after a while, not remembered as none", async () => {
+  const answers: Record<string, IconResult> = { open: { state: "later" } };
+  const d = daemon(answers);
+  const cache = new ToolIconCache({ ...d, retryMs: 1000 });
+  cache.load(thread, "open");
+  await settle();
+  expect(cache.image(thread, "open")).toBeUndefined();
+  // Too soon: not asked again.
+  cache.load(thread, "open");
+  await settle();
+  expect(d.calls).toHaveLength(1);
+  answers.open = { state: "found", ref: ref("c") };
+  d.state.now = 1001;
+  cache.load(thread, "open");
+  await settle();
+  expect(cache.image(thread, "open")).toMatch(/^data:image\/png/);
+});
+
+test("an unanswered batch is asked again later too", async () => {
+  const d = daemon({ open: { state: "found", ref: ref("a") } });
   d.state.offline = true;
-  const cache = new ToolIconCache(d);
-  cache.load(github);
+  const cache = new ToolIconCache({ ...d, retryMs: 1000 });
+  cache.load(thread, "open");
   await settle();
-  expect(cache.image(github)).toBeUndefined();
+  expect(cache.image(thread, "open")).toBeUndefined();
   d.state.offline = false;
-  cache.load(github);
+  d.state.now = 2000;
+  cache.load(thread, "open");
   await settle();
-  expect(cache.image(github)).toMatch(/^data:image\/png/);
+  expect(cache.image(thread, "open")).toMatch(/^data:image\/png/);
 });

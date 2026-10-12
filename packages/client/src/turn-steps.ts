@@ -7,7 +7,7 @@ import type { RequestOptions } from "./types.ts";
  * while something shows them. A turn on screen is retained; one released (collapsed, scrolled
  * far away, its thread closed) is dropped after a grace period, and the unretained ones together
  * never hold more than `maxSteps` steps. A turn read before it last changed (its `endSeq` moved
- * on) is read again.
+ * on) is read again. A very long turn reads `maxTurnSteps` at a time; `loadMore` reads on.
  */
 
 export interface TurnStepsEntry {
@@ -15,7 +15,7 @@ export interface TurnStepsEntry {
   steps: readonly TurnStep[];
   /** The turn's end when read; a summary past it means the turn changed since. */
   endSeq: number | undefined;
-  /** The turn has more steps than one read holds. */
+  /** The turn has more steps than have been read; `loadMore` reads the next part. */
   more: boolean;
 }
 
@@ -28,7 +28,7 @@ export interface TurnStepsCacheOptions {
   read: Read;
   /** Steps the unretained turns may hold together. */
   maxSteps?: number;
-  /** Steps one turn's read stops at. */
+  /** Steps one read of a turn stops at, until `loadMore`. */
   maxTurnSteps?: number;
   /** How long a released turn stays, in case it shows again. */
   graceMs?: number;
@@ -37,9 +37,9 @@ export interface TurnStepsCacheOptions {
 
 interface Slot {
   entry: TurnStepsEntry;
-  holders: number;
+  /** Where the next read continues, when the turn has more. */
+  cursor: number | undefined;
   abort: AbortController | undefined;
-  cancelExpiry: (() => void) | undefined;
 }
 
 const key = (threadId: string, ordinal: number) => `${threadId}\u0000${ordinal}`;
@@ -50,6 +50,9 @@ const defaultSchedule = (run: () => void, ms: number) => {
 
 export class TurnStepsCache {
   private readonly slots = new Map<string, Slot>();
+  /** Holds by turn, apart from slots: a turn read again keeps the holds it had. */
+  private readonly holds = new Map<string, number>();
+  private readonly expiries = new Map<string, () => void>();
   private readonly listeners = new Set<() => void>();
   private readonly options: Required<Omit<TurnStepsCacheOptions, "read">> & { read: Read };
   constructor(options: TurnStepsCacheOptions) {
@@ -83,36 +86,43 @@ export class TurnStepsCache {
    */
   retain(threadId: string, ordinal: number, endSeq?: number): () => void {
     const id = key(threadId, ordinal);
-    let slot = this.slots.get(id);
+    const slot = this.slots.get(id);
     const stale =
       slot !== undefined &&
       slot.entry.state !== "loading" &&
       (slot.entry.state === "failed" ||
         (endSeq !== undefined && (slot.entry.endSeq ?? -1) < endSeq));
-    if (!slot || stale) {
-      slot?.abort?.abort();
-      slot = {
-        entry: { state: "loading", steps: slot?.entry.steps ?? [], endSeq: undefined, more: false },
-        holders: slot?.holders ?? 0,
-        abort: new AbortController(),
-        cancelExpiry: slot?.cancelExpiry,
-      };
-      this.slots.set(id, slot);
-      void this.load(id, threadId, ordinal, slot);
-    }
-    slot.holders++;
-    slot.cancelExpiry?.();
-    slot.cancelExpiry = undefined;
+    if (!slot || stale) this.read(id, threadId, ordinal, slot?.entry.steps ?? []);
+    this.holds.set(id, (this.holds.get(id) ?? 0) + 1);
+    this.expiries.get(id)?.();
+    this.expiries.delete(id);
     let released = false;
-    const held = slot;
     return () => {
       if (released) return;
       released = true;
-      held.holders--;
-      if (held.holders > 0 || this.slots.get(id) !== held) return;
-      held.cancelExpiry = this.options.schedule(() => this.evict(id, held), this.options.graceMs);
+      const left = (this.holds.get(id) ?? 1) - 1;
+      if (left > 0) {
+        this.holds.set(id, left);
+        return;
+      }
+      this.holds.delete(id);
+      this.expiries.set(
+        id,
+        this.options.schedule(() => this.evict(id), this.options.graceMs),
+      );
       this.trim();
     };
+  }
+
+  /** Read the next part of a turn that has more than one read holds. */
+  loadMore(threadId: string, ordinal: number): void {
+    const id = key(threadId, ordinal);
+    const slot = this.slots.get(id);
+    if (!slot || slot.entry.state !== "ready" || !slot.entry.more) return;
+    slot.entry = { ...slot.entry, state: "loading" };
+    slot.abort = new AbortController();
+    this.emit();
+    void this.load(id, threadId, ordinal, slot, [...slot.entry.steps], slot.cursor);
   }
 
   /** The thread closed: none of its turns are needed. */
@@ -121,17 +131,39 @@ export class TurnStepsCache {
     for (const [id, slot] of this.slots)
       if (id.startsWith(prefix)) {
         slot.abort?.abort();
-        slot.cancelExpiry?.();
         this.slots.delete(id);
       }
+    for (const [id, cancel] of this.expiries)
+      if (id.startsWith(prefix)) {
+        cancel();
+        this.expiries.delete(id);
+      }
+    for (const id of this.holds.keys()) if (id.startsWith(prefix)) this.holds.delete(id);
     this.emit();
   }
 
-  private async load(id: string, threadId: string, ordinal: number, slot: Slot): Promise<void> {
-    const steps: TurnStep[] = [];
-    let after: number | undefined;
-    let endSeq: number | undefined;
-    let more = false;
+  private read(id: string, threadId: string, ordinal: number, shown: readonly TurnStep[]): void {
+    this.slots.get(id)?.abort?.abort();
+    const slot: Slot = {
+      entry: { state: "loading", steps: shown, endSeq: undefined, more: false },
+      cursor: undefined,
+      abort: new AbortController(),
+    };
+    this.slots.set(id, slot);
+    void this.load(id, threadId, ordinal, slot, [], undefined);
+  }
+
+  private async load(
+    id: string,
+    threadId: string,
+    ordinal: number,
+    slot: Slot,
+    steps: TurnStep[],
+    from: number | undefined,
+  ): Promise<void> {
+    let after = from;
+    let endSeq = slot.entry.endSeq;
+    const stop = steps.length + this.options.maxTurnSteps;
     try {
       do {
         const page = await this.options.read(
@@ -147,10 +179,10 @@ export class TurnStepsCache {
         endSeq = page.endSeq;
         steps.push(...page.steps);
         after = page.after ?? undefined;
-        more = after !== undefined && steps.length >= this.options.maxTurnSteps;
-      } while (after !== undefined && !more);
+      } while (after !== undefined && steps.length < stop);
       if (this.slots.get(id) !== slot) return;
-      slot.entry = { state: "ready", steps, endSeq, more };
+      slot.entry = { state: "ready", steps, endSeq, more: after !== undefined };
+      slot.cursor = after;
     } catch {
       if (this.slots.get(id) !== slot || slot.abort?.signal.aborted) return;
       slot.entry = { ...slot.entry, state: "failed" };
@@ -160,24 +192,25 @@ export class TurnStepsCache {
     this.emit();
   }
 
-  private evict(id: string, slot: Slot): void {
-    if (this.slots.get(id) !== slot || slot.holders > 0) return;
-    slot.abort?.abort();
-    this.slots.delete(id);
-    this.emit();
+  private evict(id: string): void {
+    this.expiries.delete(id);
+    if (this.holds.get(id)) return;
+    this.slots.get(id)?.abort?.abort();
+    if (this.slots.delete(id)) this.emit();
   }
 
   /** Oldest unretained turns go first until the rest fit. */
   private trim(): void {
     let total = 0;
-    for (const slot of this.slots.values()) if (!slot.holders) total += slot.entry.steps.length;
+    for (const [id, slot] of this.slots) if (!this.holds.get(id)) total += slot.entry.steps.length;
     if (total <= this.options.maxSteps) return;
     for (const [id, slot] of this.slots) {
       if (total <= this.options.maxSteps) break;
-      if (slot.holders) continue;
+      if (this.holds.get(id)) continue;
       total -= slot.entry.steps.length;
       slot.abort?.abort();
-      slot.cancelExpiry?.();
+      this.expiries.get(id)?.();
+      this.expiries.delete(id);
       this.slots.delete(id);
     }
     this.emit();

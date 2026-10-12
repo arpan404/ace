@@ -147,3 +147,37 @@ test("closing a thread drops its turns", async () => {
   cache.dropThread("t");
   expect(cache.get("t", 1)).toBeUndefined();
 });
+
+// Mutation: a slot read again inheriting holds its old releases never take back.
+test("a turn read again while shown is still dropped once nothing shows it", async () => {
+  const d = daemon(() => 2, 10);
+  const clock = timers();
+  const cache = new TurnStepsCache({ read: d.read, schedule: clock.schedule });
+  const first = cache.retain("t", 1, 10);
+  await settle();
+  // The turn changed while shown: a second viewer's summary makes it read again.
+  const second = cache.retain("t", 1, 12);
+  await settle();
+  first();
+  second();
+  clock.fire();
+  expect(cache.get("t", 1)).toBeUndefined();
+});
+
+// Mutation: a long turn stopping for good at the first read's cap.
+test("a turn longer than one read says so and reads on when asked", async () => {
+  const d = daemon(() => 450);
+  const cache = new TurnStepsCache({ read: d.read, maxTurnSteps: 200 });
+  const release = cache.retain("t", 1);
+  await settle();
+  expect(cache.get("t", 1)).toMatchObject({ state: "ready", more: true });
+  expect(cache.get("t", 1)?.steps).toHaveLength(200);
+  cache.loadMore("t", 1);
+  await settle();
+  expect(cache.get("t", 1)?.steps).toHaveLength(400);
+  cache.loadMore("t", 1);
+  await settle();
+  expect(cache.get("t", 1)).toMatchObject({ state: "ready", more: false });
+  expect(cache.get("t", 1)?.steps.at(-1)?.item.id).toBe("1-450");
+  release();
+});
