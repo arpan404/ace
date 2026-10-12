@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { DaemonHealth } from "@ace/protocol";
+import { ClientError } from "@ace/client";
 import { secureDataDir } from "../local-files.ts";
 import { accessRequest } from "../client-access.ts";
 import { hostConnection } from "./connection.ts";
@@ -76,9 +77,10 @@ export async function ensureDaemon(home: string, args: Args, runtime: OpenRuntim
     } catch (error) {
       if (
         !(
-          error instanceof Error &&
-          "code" in error &&
-          ["ENOENT", "ECONNREFUSED"].includes(String(error.code))
+          (error instanceof ClientError && error.code === "offline") ||
+          (error instanceof Error &&
+            "code" in error &&
+            ["ENOENT", "ECONNREFUSED"].includes(String(error.code)))
         )
       )
         throw error;

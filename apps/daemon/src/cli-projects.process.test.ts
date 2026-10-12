@@ -1,53 +1,78 @@
 import { mkdir, stat, writeFile, readFile, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createServer } from "node:net";
+import { once } from "node:events";
 import { z } from "zod";
 import { expect, test } from "vitest";
 import { Project } from "@ace/protocol";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { invoke } from "./cli-test-support.ts";
 
-test("ace open starts a real local daemon before registering its project", async () => {
-  const root = await mkdtemp(join(tmpdir(), "ace-open-start-"));
-  const home = join(root, "daemon"),
-    folder = join(root, "project"),
-    bin = join(root, "bin");
-  await mkdir(folder);
-  await mkdir(bin);
-  for (const name of ["open", "xdg-open"])
-    await writeFile(join(bin, name), `#!${process.execPath}\nprocess.exit(0);\n`, { mode: 0o700 });
-  const env = {
-    HOME: root,
-    PATH: bin,
-    ACE_PORT: "0",
-    ACE_LISTEN: "local",
-    ACE_LOG_LEVEL: "silent",
-    ACE_MODEL_INSTANCES: "[]",
-    ACE_HISTORY_INSTANCES: "[]",
-    ACE_WORKSPACE_ROOT: "",
-    ACE_DEV: "0",
-    ACE_VERSION: "development",
-    ACE_ACCOUNTS_DB: join(home, "accounts.sqlite"),
-  };
-  try {
-    const opened = await invoke(
-      home,
-      ["open", folder, "--web", "--json", "--timeout", "20s"],
-      "",
-      env,
-    );
-    expect(opened.code, opened.stderr).toBe(0);
-    expect(JSON.parse(opened.stdout)).toMatchObject({ accepted: true, project: { path: folder } });
-    const listed = await invoke(home, ["project", "list", "--json"], "", env);
-    expect(listed.code, listed.stderr).toBe(0);
-    expect(JSON.parse(listed.stdout)).toMatchObject({
-      projects: [expect.objectContaining({ path: folder })],
-    });
-  } finally {
-    await invoke(home, ["stop", "--json", "--timeout", "10s"], "", env);
-    await rm(root, { recursive: true, force: true });
-  }
-});
+test.each(["missing", "stale"])(
+  "ace open starts a real local daemon with %s endpoint files",
+  async (endpoint) => {
+    const root = await mkdtemp(join(tmpdir(), "ace-open-start-"));
+    const home = join(root, "daemon"),
+      folder = join(root, "project"),
+      bin = join(root, "bin");
+    await mkdir(folder);
+    await mkdir(bin);
+    if (endpoint === "stale") {
+      await mkdir(home, { mode: 0o700 });
+      const abandoned = createServer();
+      abandoned.listen(0, "127.0.0.1");
+      await once(abandoned, "listening");
+      const address = abandoned.address();
+      if (!address || typeof address === "string") throw new Error("Missing stale endpoint port");
+      await new Promise<void>((resolve, reject) =>
+        abandoned.close((error) => (error ? reject(error) : resolve())),
+      );
+      await writeFile(join(home, "daemon-endpoint"), `http://127.0.0.1:${address.port}/`, {
+        mode: 0o600,
+      });
+      await writeFile(join(home, "daemon-token"), "a".repeat(64), { mode: 0o600 });
+    }
+    for (const name of ["open", "xdg-open"])
+      await writeFile(join(bin, name), `#!${process.execPath}\nprocess.exit(0);\n`, {
+        mode: 0o700,
+      });
+    const env = {
+      HOME: root,
+      PATH: bin,
+      ACE_PORT: "0",
+      ACE_LISTEN: "local",
+      ACE_LOG_LEVEL: "silent",
+      ACE_MODEL_INSTANCES: "[]",
+      ACE_HISTORY_INSTANCES: "[]",
+      ACE_WORKSPACE_ROOT: "",
+      ACE_DEV: "0",
+      ACE_VERSION: "development",
+      ACE_ACCOUNTS_DB: join(home, "accounts.sqlite"),
+    };
+    try {
+      const opened = await invoke(
+        home,
+        ["open", folder, "--web", "--json", "--timeout", "20s"],
+        "",
+        env,
+      );
+      expect(opened.code, opened.stderr).toBe(0);
+      expect(JSON.parse(opened.stdout)).toMatchObject({
+        accepted: true,
+        project: { path: folder },
+      });
+      const listed = await invoke(home, ["project", "list", "--json"], "", env);
+      expect(listed.code, listed.stderr).toBe(0);
+      expect(JSON.parse(listed.stdout)).toMatchObject({
+        projects: [expect.objectContaining({ path: folder })],
+      });
+    } finally {
+      await invoke(home, ["stop", "--json", "--timeout", "10s"], "", env);
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test("project CLI registration, paging, rename and removal use the daemon catalog and preserve folders", async () => {
   const f = await daemonFixture();
