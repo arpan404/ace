@@ -203,5 +203,11 @@ test("fake provider variants identify themselves before the repeated task text",
     links.map((link) => link.getAttribute("aria-label")?.split(". ")[0]),
   );
   expect(new Set(names).size).toBe(6);
-  await expect(variants.filter({ hasText: /^Capture the document window/ })).toHaveCount(0);
+  expect(
+    names.every((name) =>
+      /^(Claude Code|Codex|OpenCode|Pi|Cursor|ACP agent) · Capture the document window/.test(
+        name ?? "",
+      ),
+    ),
+  ).toBe(true);
 });
