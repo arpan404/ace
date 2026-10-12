@@ -45,7 +45,7 @@ export function NotificationPreferences() {
   const [prefs, update] = useNotificationPrefs();
   const id = useId();
   return (
-    <div>
+    <>
       <BrowserRow on={prefs.browser} set={(browser) => update({ browser })} />
       {rows.map((row) => (
         <SettingRow
@@ -62,7 +62,7 @@ export function NotificationPreferences() {
           />
         </SettingRow>
       ))}
-    </div>
+    </>
   );
 }
 

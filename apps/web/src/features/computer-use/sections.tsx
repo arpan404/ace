@@ -9,7 +9,7 @@ import {
 } from "@ace/ui-core/computer-use";
 import { MonitorIcon, StopCircleIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useState } from "react";
-import { SettingRow } from "@/components/setting-row.tsx";
+import { SettingNote, SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { RowMenu } from "@/components/ui/row-menu.tsx";
@@ -258,7 +258,7 @@ export function Permissions(props: { use: ComputerUse }) {
     </button>
   );
   return (
-    <div>
+    <>
       {(["screenRecording", "accessibility"] as const).map((key) => {
         const granted = reading.state === "known" ? reading.permissions[key] : undefined;
         return (
@@ -289,16 +289,14 @@ export function Permissions(props: { use: ComputerUse }) {
         );
       })}
       {reading.state === "unavailable" ? (
-        <p id={note} role="status" className="mt-2 text-xs text-muted-foreground">
+        <SettingNote id={note} role="status">
           <span className="font-medium text-foreground">{reading.reason}.</span> {reading.next}{" "}
           {recheck}
-        </p>
+        </SettingNote>
       ) : reading.state === "known" &&
         (!reading.permissions.screenRecording || !reading.permissions.accessibility) ? (
-        <p className="mt-2 text-xs text-subtle-foreground">
-          Granted it in System Settings? {recheck}
-        </p>
+        <SettingNote>Granted it in System Settings? {recheck}</SettingNote>
       ) : null}
-    </div>
+    </>
   );
 }
