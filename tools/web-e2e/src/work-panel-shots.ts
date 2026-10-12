@@ -169,6 +169,22 @@ try {
             for (const step of scenario.steps)
               if (step.kind === "facts") daemon.apply(scenario.thread.id, step.facts);
             daemon.apply(scenario.thread.id, [end]);
+            const snapshot = daemon.snapshot.bind(daemon);
+            daemon.snapshot = (scope) => {
+              const view = snapshot(scope);
+              if (view?.kind !== "thread" || view.thread.id !== scenario.thread.id) return view;
+              return {
+                ...view,
+                agents: Object.fromEntries(
+                  Object.entries(view.agents).map(([id, agent]) => [
+                    id,
+                    agent.name === "Write retry tests"
+                      ? { ...agent, status: { state: "idle" as const } }
+                      : agent,
+                  ]),
+                ),
+              };
+            };
             daemon.refuseCommands(
               "private_server_detail_571",
               "forge.pr.status",
@@ -197,6 +213,23 @@ try {
     const nestedPath = `${out}/${theme}-09-parent-waiting.png`;
     await nestedPage.screenshot({ path: nestedPath, animations: "disabled" });
     files.push(nestedPath);
+    await nestedWork.getByRole("treeitem", { name: /^Write retry tests:/ }).click();
+    const parentDetail = nestedPage.getByRole("tabpanel", {
+      name: "Write retry tests",
+      exact: true,
+    });
+    await expect(parentDetail.getByText("Waiting on work", { exact: true })).toBeVisible();
+    await expect(parentDetail.getByText("Done", { exact: true })).toHaveCount(0);
+    await expect(
+      parentDetail.getByRole("button", {
+        name: "Stop Write retry tests and its 1 subagent",
+        exact: true,
+      }),
+    ).toBeVisible();
+    const parentPath = `${out}/${theme}-16-parent-detail-active.png`;
+    await nestedPage.screenshot({ path: parentPath, animations: "disabled" });
+    files.push(parentPath);
+    await parentDetail.getByRole("button", { name: /Back to agents/ }).click();
     await nestedWork.getByRole("treeitem", { name: /^Check supervisor logs:/ }).hover();
     await nestedWork
       .getByRole("button", { name: "Stop Check supervisor logs", exact: true })
