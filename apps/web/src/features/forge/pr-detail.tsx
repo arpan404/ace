@@ -1,4 +1,5 @@
 import { PrMergeState } from "./pr-merge-state.tsx";
+import { PrStack } from "./pr-stack.tsx";
 import { PrReviewWorkspace } from "./pr-review-context.tsx";
 import {
   PrReviewSubmission,
@@ -27,6 +28,7 @@ export function PrDetail(props: {
   number: number;
   tab: string;
   onTab(tab: string): void;
+  onOpen(number: number): void;
 }) {
   const toast = useToast();
   const query = useDaemonQuery({
@@ -90,6 +92,7 @@ export function PrDetail(props: {
             </div>
           </div>
           <PrActions
+            workspaceId={props.workspaceId}
             key={JSON.stringify(status.ref)}
             detail={detail}
             writeReady={!query.isError && !query.isFetching}
@@ -100,6 +103,13 @@ export function PrDetail(props: {
             workspaceId={props.workspaceId}
             detail={detail}
             onRefresh={() => void query.refetch()}
+          />
+          <PrStack
+            key={JSON.stringify(status.ref)}
+            workspaceId={props.workspaceId}
+            detail={detail}
+            onRefresh={() => void query.refetch()}
+            onOpen={props.onOpen}
           />
           <PrReviewWorkspace
             key={JSON.stringify(status.ref)}

@@ -318,6 +318,15 @@ async function linkedControls(state: ForgeMergeState) {
     });
   seed(state);
   app.daemon.workspace.setForgeRead(
+    {
+      op: "forge.pr.stack-memberships",
+      workspaceId: WorkspaceId.parse("relay"),
+      repository,
+      numbers: [42],
+    },
+    { resource: "prStackMemberships", value: [{ number: 42, stack: null }] },
+  );
+  app.daemon.workspace.setForgeRead(
     { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("relay"), number: 42 },
     {
       resource: "prDetail",

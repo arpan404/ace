@@ -207,6 +207,8 @@ export class WorkspaceRuntime {
     });
     if (
       op.op === "forge.pr.merge-state" ||
+      op.op === "forge.pr.stack" ||
+      op.op === "forge.pr.stack-memberships" ||
       op.op === "forge.pr.review-state" ||
       op.op === "forge.pr.activity" ||
       op.op === "forge.pr.list" ||
@@ -214,7 +216,16 @@ export class WorkspaceRuntime {
       op.op === "forge.pr.commits" ||
       op.op === "forge.pr.files"
     ) {
-      const root = this.store.getWorkspacePath(op.workspaceId);
+      if (
+        op.op === "forge.pr.stack" &&
+        op.threadId &&
+        this.store.getThread(op.threadId)?.workspaceId !== op.workspaceId
+      )
+        throw new Error("workspace_not_found");
+      const root =
+        op.op === "forge.pr.stack" && op.threadId
+          ? this.root(op.threadId)
+          : this.store.getWorkspacePath(op.workspaceId);
       if (!root) throw new Error("workspace_not_found");
       return wrap({ kind: "forge", data: await this.forge.browse(root, op, signal) });
     }

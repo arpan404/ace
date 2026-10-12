@@ -23,6 +23,7 @@ import {
 } from "@ace/protocol";
 import type { GitService } from "@ace/git";
 import type { Store } from "./store.ts";
+import { WorkspaceForgeStacks } from "./workspace-forge-stacks.ts";
 import { WorkspacePrLinks } from "./workspace-pr-links.ts";
 import { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
 import type { PrOwnerOperation } from "./agent-control/tools.ts";
@@ -38,6 +39,7 @@ export class WorkspaceForge {
   private projection: WorkspacePrLinks;
   private links: WorkspacePrLinks["links"];
   private actions: WorkspaceForgeActions;
+  private stacks: WorkspaceForgeStacks;
   private backends = new Map<string, GitHubForge>();
   private lifetime = new AbortController();
   private stopPreferences: (() => void) | undefined;
@@ -50,6 +52,7 @@ export class WorkspaceForge {
     sourceControl?: import("./source-control.ts").SourceControl,
   ) {
     this.store = store;
+    this.stacks = new WorkspaceForgeStacks(store, now);
     this.reviews = new WorkspaceForgeReviews(store, this.owner);
     this.replyReceipts = new ForgeReplyReceipts(store);
     this.git = git;
@@ -108,6 +111,16 @@ export class WorkspaceForge {
       );
       return { resource: "prMergeState", value: { ...value, writeState } };
     }
+    if (operation.op === "forge.pr.stack")
+      return {
+        resource: "prStack",
+        value: await this.stacks.read(cwd, backend, operation.number, signal),
+      };
+    if (operation.op === "forge.pr.stack-memberships")
+      return {
+        resource: "prStackMemberships",
+        value: await backend.stackMemberships(operation.numbers, signal),
+      };
     if (operation.op === "forge.pr.review-state")
       return {
         resource: "prReviewState",
@@ -479,6 +492,30 @@ export class WorkspaceForge {
       generation === undefined
     )
       return { ok: false, error: "forge_not_found" };
+    if (p.type === "forge.pr.stack.change") {
+      if (generation === undefined) return { ok: false, error: "forge_not_found" };
+      if (
+        p.action !== "merge" &&
+        repositoryKey(p.link.pr.repository) !== repositoryKey(await this.repository(cwd))
+      )
+        throw new ForgeError("conflict");
+      const operation = await this.stacks.change(
+        cwd,
+        backend,
+        p.link.pr.number,
+        p.expected,
+        p.action,
+        p.method,
+        this.lifetime.signal,
+        () => allowed() && this.links.getLinkState(id, p.link.pr)?.generation === generation,
+      );
+      return {
+        ok: operation.state !== "failed",
+        ...(operation.state === "failed" ? { error: "forge_conflict" } : {}),
+        pr: p.link.pr,
+        stackOperation: operation,
+      };
+    }
     if (p.type !== "forge.pr.status")
       return this.actions.execute(
         p,

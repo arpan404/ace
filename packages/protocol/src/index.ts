@@ -131,5 +131,6 @@ export * from "./source-control.ts";
 export * from "./source-control-draft.ts";
 
 export * from "./forge-merge-state.ts";
+export * from "./forge-stacks.ts";
 export * from "./forge-review.ts";
 export * from "./hosted-repositories.ts";

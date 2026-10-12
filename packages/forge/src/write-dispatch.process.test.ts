@@ -208,7 +208,7 @@ test("structured auto-merge keeps its admitted outcome when the identity probe c
       { body: { login: "bob" } },
     ],
     graphql: [
-      { body: mergeStateResponse() },
+      mergeStateResponse(),
       { body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
     ],
   });

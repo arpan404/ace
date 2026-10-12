@@ -7,6 +7,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { readForge, forgeError } from "./source.ts";
 import { QueryState } from "./query-state.tsx";
+import { useStackMemberships } from "./pr-stack-groups.tsx";
 
 export function MergeStateSummary({ state }: { state: ForgeMergeState }) {
   return (
@@ -58,6 +59,7 @@ export function PrMergeControls(props: {
   const client = useClient();
   const ready = useConnectionState() === "ready";
   const ref = props.pr;
+  const membership = useStackMemberships(props.workspaceId, ref.repository, [ref.number]);
   const [threadId, setThread] = useState(props.relatedThreads[0]?.id ?? "");
   const [method, setMethod] = useState<"merge" | "squash" | "rebase">("squash");
   const [pending, setPending] = useState(false);
@@ -97,7 +99,7 @@ export function PrMergeControls(props: {
     uncertain ||
     state.writeState !== undefined;
   const run = async (action: "enable" | "disable" | "dequeue") => {
-    if (disabled || !state) return;
+    if (disabled || !state || (action === "enable" && membership.mergeBlocker)) return;
     setPending(true);
     setMessage("");
     try {
@@ -190,7 +192,10 @@ export function PrMergeControls(props: {
             <option value="rebase">Rebase</option>
           </select>
         </label>
-        <Button disabled={disabled || !!autoMergeBlocker(state)} onClick={() => void run("enable")}>
+        <Button
+          disabled={disabled || !!autoMergeBlocker(state) || !!membership.mergeBlocker}
+          onClick={() => void run("enable")}
+        >
           Enable auto-merge
         </Button>
         <Button
@@ -206,6 +211,7 @@ export function PrMergeControls(props: {
           Leave merge queue
         </Button>
       </div>
+      {membership.mergeBlocker && <p>{membership.mergeBlocker}</p>}
       {message && <p role="status">{message}</p>}
     </section>
   );

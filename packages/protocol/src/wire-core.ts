@@ -7,6 +7,7 @@ import { Command } from "./commands.ts";
 import { ContextMeter } from "./context-meter.ts";
 import { DiagnosticsHealth } from "./diagnostics.ts";
 import { Event, UsageUpdated } from "./events.ts";
+import { ForgeStackOperation } from "./forge-stacks.ts";
 import { ForgePrRef, ForgePrStatus } from "./forge.ts";
 import { CommandId, DeviceId, HostId, ThreadId } from "./ids.ts";
 import { Interaction } from "./interactions.ts";
@@ -156,6 +157,7 @@ export const CommandResult = z.object({
   review: ReviewData.optional(),
   pr: ForgePrRef.optional(),
   prStatus: ForgePrStatus.optional(),
+  stackOperation: ForgeStackOperation.optional(),
   editor: EditorLaunch.optional(),
   terminalId: z.string().min(1).max(128).optional(),
   commit: z

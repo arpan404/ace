@@ -1,5 +1,6 @@
 import { SourceControlContext } from "./source-control-draft.ts";
 import { ForgeMergeState } from "./forge-merge-state.ts";
+import { ForgeStackExpected } from "./forge-stacks.ts";
 import { z } from "zod";
 
 const text = z.string().max(65_536);
@@ -131,6 +132,13 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     link: ForgeThreadLink,
     headSha: z.string().regex(/^[a-fA-F0-9]{40,64}$/),
     action: z.enum(["enable", "disable", "dequeue"]),
+    method: z.enum(["merge", "squash", "rebase"]),
+  }),
+  z.object({
+    type: z.literal("forge.pr.stack.change"),
+    link: ForgeThreadLink,
+    expected: ForgeStackExpected,
+    action: z.enum(["merge", "rebase", "continue", "abort", "push"]),
     method: z.enum(["merge", "squash", "rebase"]),
   }),
   z.object({ type: z.literal("forge.pr.status"), link: ForgeThreadLink }),
