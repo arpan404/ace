@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { cn } from "@/lib/cn.ts";
+import { floatingControl, floatingMotion } from "./floating.ts";
 import { useTurnHead } from "./turn-index.ts";
 
 /*
@@ -19,9 +21,12 @@ export function JumpBar(props: {
   reading: number | undefined;
   threadId: string;
   failed: string | undefined;
+  /** Leaving: it plays its exit and takes no input. */
+  phase?: "enter" | "exit";
   onLive(): void;
 }) {
   const count = useTurnHead(props.threadId)?.count;
+  const leaving = props.phase === "exit";
   const where =
     props.turn === undefined
       ? "Viewing earlier history"
@@ -30,10 +35,16 @@ export function JumpBar(props: {
   const moved = at !== undefined && at !== props.turn;
   return (
     <div
-      role="status"
-      aria-label="Jumped"
-      style={{ pointerEvents: "auto" }}
-      className="ace-floating fx-rise-in flex h-8 items-center gap-2 rounded-full pr-1 pl-3 text-sm text-muted-foreground"
+      role={leaving ? undefined : "status"}
+      aria-label={leaving ? undefined : "Jumped"}
+      aria-hidden={leaving || undefined}
+      inert={leaving}
+      style={{ pointerEvents: leaving ? "none" : "auto" }}
+      className={cn(
+        floatingControl,
+        floatingMotion(props.phase ?? "enter"),
+        "gap-2 pr-1 pl-3 text-muted-foreground",
+      )}
     >
       <ClockCounterClockwiseIcon aria-hidden size={14} className="shrink-0" />
       <span className="font-medium text-foreground">{where}</span>
@@ -98,7 +109,7 @@ export function JumpFailed(props: { message: string; onDismiss(): void }) {
     <p
       role="alert"
       style={{ pointerEvents: "auto" }}
-      className="ace-floating flex h-8 items-center gap-2 rounded-full pr-1 pl-3 text-sm text-status-failed"
+      className={cn(floatingControl, floatingMotion("enter"), "gap-2 pr-1 pl-3 text-status-failed")}
     >
       {props.message}
       <Button variant="ghost" size="sm" onClick={props.onDismiss}>

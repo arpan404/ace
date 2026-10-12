@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useTopFade } from "@/lib/edge-fade.ts";
-import { scrollToEnd as glideToEnd, useListMotion } from "@/lib/motion.ts";
+import { scrollToEnd as glideToEnd, useListMotion, usePresence } from "@/lib/motion.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import {
   DeferredFoldedTurn,
@@ -497,6 +497,9 @@ export function Feed(props: FeedProps) {
     [],
   );
   const lastWindowOrdinal = window ? ordinalOf(window.items.at(-1)?.id ?? "") : undefined;
+  // The floating controls stay mounted through their exit.
+  const livePill = usePresence(!pinned || detached);
+  const jumpBar = usePresence(!!window);
   const fadeTop = useTopFade(viewport);
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -622,9 +625,10 @@ export function Feed(props: FeedProps) {
               <DeferredSearchBar.Component nav={nav} />
             </Suspense>
           )}
-          {window && (
+          {jumpBar.mounted && (
             <Suspense fallback={null}>
               <DeferredJumpBar.Component
+                phase={jumpBar.phase}
                 turn={jump.turn}
                 reading={reading}
                 threadId={threadId}
@@ -657,9 +661,10 @@ export function Feed(props: FeedProps) {
           toLive={toLive}
         />
       </Suspense>
-      {(!pinned || detached) && (
+      {livePill.mounted && (
         <Suspense fallback={null}>
           <DeferredLivePill.Component
+            phase={livePill.phase}
             newItems={props.fresh.count}
             more={props.fresh.more}
             paused={activity?.tone === "working"}
