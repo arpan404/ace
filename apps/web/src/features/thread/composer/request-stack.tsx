@@ -26,6 +26,7 @@ export function RequestStack(props: {
   const [picked, setPicked] = useState<string>();
   const frame = useRef<HTMLDivElement>(null);
   const ownsFocus = useRef(false);
+  const [controlsRevision, setControlsRevision] = useState(0);
   const leave = useRef(props.onLeave);
   useLayoutEffect(() => {
     leave.current = props.onLeave;
@@ -54,11 +55,11 @@ export function RequestStack(props: {
   const pending = usePendingAnswer(id);
   useLayoutEffect(() => {
     if (!id || !ownsFocus.current) return;
-    if (pending || !frame.current?.contains(document.activeElement))
-      (frame.current?.querySelector<HTMLElement>("article") ?? frame.current)?.focus({
-        preventScroll: true,
-      });
-  }, [id, pending]);
+    (frame.current?.querySelector<HTMLElement>("article") ?? frame.current)?.focus({
+      preventScroll: true,
+    });
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Control replacement and submission signals require a focus handoff after commit.
+  }, [id, pending, controlsRevision]);
   if (!id) return null;
   const go = (step: number) => {
     setPicked(props.ids[(at + step + count) % count]);
@@ -110,10 +111,11 @@ export function RequestStack(props: {
         frame="attached"
         aside={pager}
         onControlsChange={() => {
-          if (frame.current?.contains(document.activeElement))
-            (frame.current.querySelector<HTMLElement>("article") ?? frame.current).focus({
-              preventScroll: true,
-            });
+          if (!frame.current?.contains(document.activeElement)) return;
+          // Question submission/reopening swaps article components. Hold focus outside them
+          // until the new controls commit, then move into the replacement article.
+          frame.current.focus({ preventScroll: true });
+          setControlsRevision((revision) => revision + 1);
         }}
       />
     </Suspense>

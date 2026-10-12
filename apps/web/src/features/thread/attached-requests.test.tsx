@@ -526,3 +526,84 @@ test("reopening a remembered approval keeps its decision controls reachable by k
   );
   expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" }));
 });
+
+test("skipping a question keeps keyboard focus in its sending card and returns it to the composer", async () => {
+  const storage = memoryStorage();
+  const saved = Promise.withResolvers<void>();
+  let hold = false;
+  const app = harness({
+    outbox: {
+      load: storage.load,
+      save: async (value) => {
+        if (hold) await saved.promise;
+        await storage.save(value);
+      },
+    },
+  });
+  app.play(twoQuestions()).runUntilBlocked();
+  await app.open("/t/thread-two");
+  const region = await stack();
+  within(region).getByRole("button", { name: "Skip" }).focus();
+  hold = true;
+  try {
+    await userEvent.keyboard("{Enter}");
+    await within(region).findByText("Sending…");
+    expect(document.activeElement).toBe(within(region).getByRole("article"));
+    await userEvent.keyboard("{Escape}");
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" }));
+    // The deck can be reached again while sending and restores focus when it disappears.
+    within(region).getByRole("article").focus();
+    hold = false;
+    saved.resolve();
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull(),
+    );
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" }));
+    expect(app.daemon.resolution("thread-two", "store")).toEqual({
+      kind: "question",
+      answers: {},
+      dismissed: true,
+    });
+  } finally {
+    saved.resolve();
+  }
+});
+
+test("reopening a remembered question keeps its new form reachable by keyboard", async () => {
+  const app = harness();
+  app.play(twoQuestions()).runUntilBlocked();
+  await app.open("/t/thread-two");
+  await stack();
+  const lease = app.client.thread("thread-two");
+  const request = lease.store.interaction(lease.store.interactionIds()[0] ?? "");
+  if (!request) throw new Error("Missing replayed question");
+  act(() =>
+    answerStore.remember(
+      request.id,
+      {
+        kind: "question",
+        answers: { engine: ["sqlite"], ttl: ["day"] },
+      },
+      requestIdentity(request),
+    ),
+  );
+  lease.release();
+  await userEvent.click(await screen.findByRole("button", { name: "Answer again" }));
+  const region = await stack();
+  expect(document.activeElement).toBe(within(region).getByRole("article"));
+  for (
+    let index = 0;
+    index < 10 && document.activeElement !== within(region).getByRole("button", { name: "Skip" });
+    index++
+  )
+    await userEvent.tab();
+  expect(document.activeElement).toBe(within(region).getByRole("button", { name: "Skip" }));
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull());
+  expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" }));
+  expect(app.daemon.resolution("thread-two", "store")).toEqual({
+    kind: "question",
+    answers: {},
+    dismissed: true,
+  });
+});
