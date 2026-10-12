@@ -29,6 +29,7 @@ export class StorageService {
   private tail: Promise<unknown> = Promise.resolve();
   private queued = 0;
   private closed = false;
+  private closing: Promise<void> | undefined;
   private limits: CompactionLimits;
   constructor(owner: StorageOwner, limits: Partial<CompactionLimits> = {}) {
     this.owner = owner;
@@ -350,9 +351,9 @@ export class StorageService {
   stop(): void {
     this.closed = true;
   }
-  async close(): Promise<void> {
+  /** Idempotent: closing the pinned root again could close a descriptor number reused elsewhere. */
+  close(): Promise<void> {
     this.stop();
-    await this.tail;
-    await this.inventory.files.close();
+    return (this.closing ??= this.tail.then(() => this.inventory.files.close()));
   }
 }
