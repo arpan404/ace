@@ -47,6 +47,7 @@ export { isOneWayMessage } from "./one-way.ts";
 export type { OneWayMessage } from "./one-way.ts";
 export { AccessClient } from "./access.ts";
 export type { AccessOptions } from "./access.ts";
+export { accessResponseError } from "./access-http.ts";
 export {
   PermissionClient,
   threadPermission,

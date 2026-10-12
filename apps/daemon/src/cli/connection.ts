@@ -1,5 +1,5 @@
 import { selectedProfile } from "./profiles.ts";
-import { accessRequest, ticketSocket } from "../client-access.ts";
+import { accessRequest, pinnedSocketTransport } from "../client-access.ts";
 import { z } from "zod";
 import {
   Client,
@@ -51,7 +51,11 @@ export function waitSelection<T>(
     };
     const abort = () => {
       finish();
-      reject(new CliFailure("timeout", "Observation timed out"));
+      reject(
+        signal.reason instanceof CliFailure
+          ? signal.reason
+          : new CliFailure("timeout", "Observation timed out"),
+      );
     };
     const check = () => {
       const value = selection.getSnapshot();
@@ -116,11 +120,9 @@ async function connectWithLifetime(home: string, args: Args, duration: number | 
   const client = new Client({
     deviceId: profile?.deviceId ?? DeviceId.parse("ace-cli"),
     transport: () =>
-      webSocketTransport(() =>
-        profile
-          ? ticketSocket(profile.origin.replace("https:", "wss:"), profile.fingerprint)
-          : new WebSocket(connection?.origin.replace("http:", "ws:") ?? ""),
-      ),
+      profile
+        ? pinnedSocketTransport(profile.origin.replace("https:", "wss:"), profile.fingerprint)
+        : webSocketTransport(() => new WebSocket(connection?.origin.replace("http:", "ws:") ?? "")),
     credential: profile
       ? ticketCredential(
           async () => profile.token,
