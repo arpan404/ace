@@ -3,6 +3,11 @@
 `ace` connects to the daemon in `ACE_HOME`, defaulting to the existing ace home.
 Start it with `ace start` before sending work. Providers use your installed CLIs.
 
+Published releases include a target-specific npm tarball for `npx`, for example
+`npx --yes https://github.com/arpan404/ace/releases/download/vVERSION/ace-cli-VERSION-linux-x64.tgz --help`.
+Choose the matching OS and architecture. It runs the same packaged CLI and Node
+runtime with no service installation. See [release publication](../../tools/release/README.md).
+
 ```
 ace run "Fix the parser" --provider codex --project /path/to/repo --json
 printf 'Review the diff' | ace run --provider claude --worktree --stream jsonl

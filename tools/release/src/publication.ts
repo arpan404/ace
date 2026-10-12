@@ -4,6 +4,7 @@ import { z } from "zod";
 import { verifyManifest, hashFile, installableVersion } from "@ace/service";
 import { ReleaseTarget } from "@ace/protocol";
 import { validateReleaseArchive } from "./archive.ts";
+import { createNpxPackage } from "./npx-package.ts";
 const [directory, base, keyFile] = process.argv.slice(2);
 if (!directory || !base || !keyFile)
   throw new Error("Usage: publication DIST HTTPS_RELEASE_URL PUBLIC_KEY");
@@ -44,4 +45,19 @@ await mkdir(join(directory, "homebrew"), { recursive: true });
 await writeFile(join(directory, "homebrew/ace.rb"), formula);
 const digest = await hashFile(join(directory, "install.sh"));
 await writeFile(join(directory, "install.sh.sha256"), `${digest}  install.sh\n`);
+const npx = [];
+for (const manifest of manifests.values()) npx.push(await createNpxPackage(directory, manifest));
+await writeFile(
+  join(directory, "npx.json"),
+  JSON.stringify(
+    npx.map((artifact) => ({
+      target: artifact.target,
+      file: artifact.file,
+      sha256: artifact.sha256,
+      command: `npx --yes ${base}/${artifact.file} --help`,
+    })),
+    null,
+    2,
+  ) + "\n",
+);
 process.stdout.write(`Installer SHA-256: ${digest}\nReview and publish these files together.\n`);
