@@ -346,7 +346,12 @@ export async function retryStaged(
   refreshHeldSends();
   const send = all.get().find((entry) => entry.commandId === commandId);
   const local = held.get(commandId);
-  if (!send) return false;
+  if (!send || send.uploadInterrupted) return false;
+  // A complete durable payload needs no in-tab uploader, including after reload.
+  if (send.attachments.every((file) => !!file.sha256)) {
+    if (!patch(commandId, { preparing: false, failed: undefined })) return false;
+    return enqueueStaged(client, commandId);
+  }
   if (isInterrupted(send, clock.now())) return false;
   if (local) local.clock = clock;
   if (

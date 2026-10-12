@@ -321,39 +321,58 @@ test("an unfinished image submission keeps a later text message behind it throug
   }
 });
 
-test("a failed predecessor preserves submission order through reload and resumes its ready followers on Retry", async () => {
-  const outbox = memoryStorage();
-  let refuse = false;
-  const heldOutbox = {
-    load: outbox.load,
-    save: async (value: string) => {
-      if (refuse) throw new Error("device full");
-      await outbox.save(value);
-    },
-  };
-  const { app, message } = await openBusy({ outbox: heldOutbox });
-  refuse = true;
-  await userEvent.type(message, "First waiting on device storage{Enter}");
-  await screen.findByRole("button", { name: "Retry" });
-  await userEvent.type(message, "Second behind the first{Enter}");
-  await screen.findByText("Waiting for an earlier message…");
-  expect((await readQueue(app)).total).toBe(0);
-  const retained = stagedSends(app.storage).get();
-  const ids = retained.map((entry) => entry.commandId);
-  cleanup();
-  await app.client.close();
-  reloadPage();
-  resetSendStore();
-  refuse = false;
-  const again = harness({ daemon: app.daemon, storage: app.storage, outbox });
-  await again.open(`/t/${threadId}`);
-  await userEvent.click(await screen.findByRole("button", { name: "Retry" }));
-  await waitFor(async () => {
-    const queue = await readQueue(again);
-    expect(queue.messages.map((entry) => entry.input)).toEqual([
-      [{ type: "text", text: "First waiting on device storage" }],
-      [{ type: "text", text: "Second behind the first" }],
-    ]);
-    expect(queue.messages.map((entry) => entry.id)).toEqual(ids);
-  });
-});
+test.each(["text-only", "uploaded attachment"])(
+  "Retry after a failed outbox save and reload delivers a %s predecessor and its successors in order",
+  async (payload) => {
+    const outbox = memoryStorage();
+    let refuse = false;
+    const heldOutbox = {
+      load: outbox.load,
+      save: async (value: string) => {
+        if (refuse) throw new Error("device full");
+        await outbox.save(value);
+      },
+    };
+    const { app, message } = await openBusy({ outbox: heldOutbox });
+    let uploadedHash: string | undefined;
+    if (payload === "uploaded attachment") {
+      await userEvent.upload(screen.getByLabelText("Files to attach"), image());
+      await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
+      const { result } = await app.client.request({
+        type: "context.request",
+        operation: { op: "attachment.list", threadId },
+      });
+      if (result.kind !== "attachments") throw new Error("Missing uploaded attachment list");
+      uploadedHash = result.attachments.find((file) => file.name === "pasted.png")?.sha256;
+      if (!uploadedHash) throw new Error("Image did not finish uploading");
+    }
+    refuse = true;
+    await userEvent.type(message, "First waiting on device storage{Enter}");
+    await screen.findByRole("button", { name: "Retry" });
+    await userEvent.type(message, "Second behind the first{Enter}");
+    await screen.findByText("Waiting for an earlier message…");
+    expect((await readQueue(app)).total).toBe(0);
+    const retained = stagedSends(app.storage).get();
+    const ids = retained.map((entry) => entry.commandId);
+    cleanup();
+    await app.client.close();
+    reloadPage();
+    resetSendStore();
+    refuse = false;
+    const again = harness({ daemon: app.daemon, storage: app.storage, outbox });
+    await again.open(`/t/${threadId}`);
+    await userEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    await waitFor(async () => {
+      const queue = await readQueue(again);
+      expect(queue.messages.map((entry) => entry.input)).toEqual([
+        [{ type: "text", text: "First waiting on device storage" }],
+        [{ type: "text", text: "Second behind the first" }],
+      ]);
+      expect(queue.messages.map((entry) => entry.id)).toEqual(ids);
+      expect(queue.messages[0]?.context?.attachments).toEqual(
+        uploadedHash ? [{ sha256: uploadedHash }] : [],
+      );
+    });
+    expect(screen.queryByText(/Upload interrupted$/)).toBeNull();
+  },
+);
