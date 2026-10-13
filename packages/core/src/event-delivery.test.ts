@@ -133,6 +133,7 @@ describe("client-visible agent activity", () => {
       type: "agent.status",
       agentId: h.agent("root")?.id,
       status: { state: "working", activity: "compacting" },
+      completionRelevant: true,
     });
     expect(h.view.status.state).toBe("working");
     h.end();
