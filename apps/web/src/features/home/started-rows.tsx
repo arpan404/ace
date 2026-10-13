@@ -120,7 +120,7 @@ function StartedRow(props: { send: PendingSend }) {
         )}
       >
         <span className="flex w-full min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          <ProjectMark badge={projectBadge({ id: projectId, name: project })} />
+          <ProjectMark id={projectId} badge={projectBadge({ id: projectId, name: project })} />
           <span className="min-w-0 flex-1 truncate">{project}</span>
           {failed ? (
             <StatusLabel tone="failed" label={label} mark={false} className="font-normal" />

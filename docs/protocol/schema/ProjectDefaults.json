@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectDefaults.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "baseBranch": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "worktree": {
+      "type": "boolean"
+    }
+  },
+  "type": "object",
+  "x-ace-constraint": "`model` is present only together with `provider`."
+}

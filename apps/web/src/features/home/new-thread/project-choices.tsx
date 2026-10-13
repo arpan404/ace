@@ -24,7 +24,6 @@ export interface Choice {
   id: string;
   name: string;
   path: string;
-  icon: string | null | undefined;
 }
 
 /** A project to pick, or the typed folder to create and add. */
@@ -132,7 +131,7 @@ export function ProjectChoices(props: {
                       }}
                       className="h-auto min-h-9 text-ui"
                     >
-                      <ProjectMark badge={projectBadge(item)} icon={item.icon} />
+                      <ProjectMark id={item.id} badge={projectBadge(item)} />
                       <span className="min-w-0 flex-1 truncate">{item.name}</span>
                       {item.id === props.project && <CheckIcon aria-hidden size={14} />}
                     </CommandItem>

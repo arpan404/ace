@@ -68,12 +68,9 @@ test("the project menu edits the name of a project without threads", async () =>
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit project…" }));
 
   const dialog = await screen.findByRole("dialog", { name: "Edit project" });
-  expect(within(dialog).getByText(/The folder on disk keeps its name/)).toBeTruthy();
   const field = within(dialog).getByRole("textbox", { name: "Name" });
   await userEvent.clear(field);
   await userEvent.type(field, "Marketing site");
-  expect(within(dialog).queryByRole("textbox", { name: "Icon URL" })).toBeNull();
-  expect(within(dialog).queryByRole("button", { name: "Upload image" })).toBeNull();
   await userEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
 
   await screen.findByRole("button", { name: "Project filter: Marketing site" });
@@ -202,7 +199,7 @@ test("a refused edit keeps its draft and retries the name", async () => {
   const name = within(dialog).getByRole("textbox", { name: "Name" });
   await userEvent.clear(name);
   await userEvent.type(name, "Documentation");
-  made.daemon.refuseCommands("project_failed", "workspace.rename");
+  made.daemon.refuseCommands("project_failed", "workspace.update");
   await userEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
   await within(dialog).findByRole("alert");
   expect(name).toHaveProperty("value", "Documentation");
@@ -216,7 +213,7 @@ test("a refused edit keeps its draft and retries the name", async () => {
   ).toBeUndefined();
 });
 
-test("renaming a project keeps its detected favicon and offers no artwork editing", async () => {
+test("renaming a project keeps its detected favicon", async () => {
   const made = harness();
   const favicon = "data:image/png;base64,aGVsbG8=";
   made.daemon.projects.seedFolders("/home/dev", [{ path: "/home/dev/site", favicon }]);
@@ -229,8 +226,6 @@ test("renaming a project keeps its detected favicon and offers no artwork editin
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit project…" }));
   const dialog = await screen.findByRole("dialog", { name: "Edit project" });
   expect(dialog.querySelector("img")?.getAttribute("src")).toBe(favicon);
-  expect(within(dialog).queryByRole("textbox", { name: "Icon URL" })).toBeNull();
-  expect(within(dialog).queryByRole("button", { name: "Upload image" })).toBeNull();
   const name = within(dialog).getByRole("textbox", { name: "Name" });
   await userEvent.clear(name);
   await userEvent.type(name, "Website");

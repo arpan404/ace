@@ -5,7 +5,7 @@ import {
 } from "@ace/protocol/accounts";
 import type { ProviderKind } from "@ace/protocol";
 import { TextAaIcon } from "@phosphor-icons/react";
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import { Tip } from "./tooltip.tsx";
 import { Input } from "./input.tsx";
 import { Button } from "./button.tsx";
@@ -109,37 +109,68 @@ function BadgeIcons(props: BadgeProps) {
   );
 }
 
-function BadgeColours(props: BadgeProps) {
+/**
+ * One swatch per curated badge colour, each drawn by `swatch` as the badge it would make, so
+ * accounts and projects pick colours the same way.
+ */
+export function BadgeColourGroup<T extends string>(props: {
+  label: string;
+  options: readonly T[];
+  value: T | undefined;
+  onChange(value: T): void;
+  /** "Use blue badge". */
+  name(value: T): string;
+  renderSwatch(value: T): ReactNode;
+  /** The ring's colour for a swatch; the text colour otherwise. */
+  ring?: ((value: T) => string | undefined) | undefined;
+}) {
   return (
-    props.onColorChange && (
-      <div role="group" aria-label="Badge colours" className="flex gap-2">
-        {AccountBadgeColor.options.map((color) => (
-          <Tip key={color} label={`Use ${color} badge`}>
-            <button
-              type="button"
-              aria-label={`Use ${color} badge`}
-              aria-pressed={props.color === color}
-              onClick={() => props.onColorChange?.(color)}
-              className="rounded-full p-1 focus-ring hover:bg-accent active:bg-accent"
-              style={{
-                color: accountColors[color],
-                outline: props.color === color ? "1px solid currentColor" : undefined,
-              }}
-            >
-              <AccountBadge
-                colorPreview
-                decorative
-                account={{
-                  label: props.name ?? "Account",
-                  shortLabel: props.value,
-                  badgeColor: color,
-                  badgeIcon: props.icon,
-                }}
-              />
-            </button>
-          </Tip>
-        ))}
-      </div>
+    <div role="group" aria-label={props.label} className="flex flex-wrap gap-2">
+      {props.options.map((option) => (
+        <Tip key={option} label={props.name(option)}>
+          <button
+            type="button"
+            aria-label={props.name(option)}
+            aria-pressed={props.value === option}
+            onClick={() => props.onChange(option)}
+            className="inline-flex rounded-full p-1 focus-ring hover:bg-accent active:bg-accent"
+            style={{
+              color: props.ring?.(option),
+              outline: props.value === option ? "1px solid currentColor" : undefined,
+            }}
+          >
+            {props.renderSwatch(option)}
+          </button>
+        </Tip>
+      ))}
+    </div>
+  );
+}
+
+function BadgeColours(props: BadgeProps) {
+  const { onColorChange } = props;
+  return (
+    onColorChange && (
+      <BadgeColourGroup
+        label="Badge colours"
+        options={AccountBadgeColor.options}
+        value={props.color}
+        onChange={onColorChange}
+        name={(color) => `Use ${color} badge`}
+        ring={(color) => accountColors[color]}
+        renderSwatch={(color) => (
+          <AccountBadge
+            colorPreview
+            decorative
+            account={{
+              label: props.name ?? "Account",
+              shortLabel: props.value,
+              badgeColor: color,
+              badgeIcon: props.icon,
+            }}
+          />
+        )}
+      />
     )
   );
 }

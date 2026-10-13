@@ -87,7 +87,7 @@ export function ThreadRow(props: {
           !renaming && "group-hover/row:pr-28 group-focus-within/row:pr-28",
         )}
       >
-        <ProjectMark badge={card.badge} />
+        <ProjectMark id={entry.workspaceId} badge={card.badge} />
         <span className="min-w-0 flex-1 truncate">{card.project}</span>
         <span
           className={cn(

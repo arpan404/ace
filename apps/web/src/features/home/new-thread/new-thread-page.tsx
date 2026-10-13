@@ -24,7 +24,7 @@ import { cn } from "@/lib/cn.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { useRegisteredProjects } from "@/lib/projects.ts";
+import { useProjectMetadata, useRegisteredProjects } from "@/lib/projects.ts";
 import { useStartingProvider } from "@/lib/provider-statuses.ts";
 import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
@@ -44,8 +44,10 @@ import {
   shownPreparationChoices,
   loadChoices,
   pickProject,
+  projectBaseBranch,
   resolve,
   saveChoices,
+  withProjectDefaults,
   type Choices,
 } from "./choices.ts";
 import { ModelPicker } from "./model-picker.tsx";
@@ -219,8 +221,12 @@ function PreparationPage(props: {
   const awaitingSource =
     !!(props.pullRequest || props.issue) && !prSource.selection && !issueSource.ref;
   const [selection, setChoices] = useState<Choices | undefined>(undefined);
+  const projectDefaults = useProjectMetadata()(project ?? "")?.defaults;
+  const catalog = useNewThreadOptions();
   const choices =
-    selection ?? preparation(storage, props.host, draftKey)?.choices ?? initialChoices;
+    selection ??
+    preparation(storage, props.host, draftKey)?.choices ??
+    withProjectDefaults(initialChoices, projectDefaults, catalog?.models);
   const [baseChoice, setBase] = useState<WorktreeBase | string | undefined>(
     props.base ?? restored?.base,
   );
@@ -254,14 +260,13 @@ function PreparationPage(props: {
 
   // Until the starting provider is known, show models loading rather than a provider to undo.
   const start = useStartingProvider();
-  const catalog = useNewThreadOptions();
   const options = start.loaded ? catalog : undefined;
   const [picked, setPicked] = useState<ProviderKind | undefined>(restored?.provider);
   const [useWorktree] = useDaemonSetting("threads.useWorktree");
   const selected = resolve(
     options,
     choices,
-    picked ?? start.provider,
+    picked ?? projectDefaults?.provider ?? start.provider,
     useWorktree === false ? "local" : "worktree",
   );
   const resolved = props.pullRequest ? { ...selected, mode: "worktree" as const } : selected;
@@ -275,7 +280,10 @@ function PreparationPage(props: {
       ? savedBase
       : savedBase !== undefined
         ? namedBase(savedBase, branches.refs)
-        : defaultWorktreeBase(branches.refs, branches.defaultBranch);
+        : defaultWorktreeBase(
+            branches.refs,
+            projectBaseBranch(projectDefaults, branches.refs) ?? branches.defaultBranch,
+          );
   const provider = resolved.provider;
 
   // An explicit choice holds across account and provider changes, shown as unavailable where

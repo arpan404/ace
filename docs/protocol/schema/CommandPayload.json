@@ -1013,6 +1013,26 @@
     },
     {
       "properties": {
+        "badge": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ProjectBadgeStyle.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "defaults": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ProjectDefaults.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "icon": {
           "anyOf": [
             {

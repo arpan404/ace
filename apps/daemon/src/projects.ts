@@ -1,6 +1,7 @@
 import { RepositoryPublications } from "./repository-publications.ts";
 import type { SourceControl } from "./source-control.ts";
 import { discoverProjectFavicon } from "./project-favicon.ts";
+import { assertProjectImage } from "./project-image.ts";
 import { parseCloneUrl } from "@ace/project-picker";
 import type { PickerFilesystem } from "./project-picker-filesystem.ts";
 import { ProjectPicker } from "./project-picker.ts";
@@ -125,7 +126,7 @@ export class Projects {
             project.path === directory.path &&
             (project.defaultIcon ?? null) !== defaultIcon
           )
-            this.catalog.update(id, project.name, undefined, "updated", defaultIcon);
+            this.catalog.update(id, project.name, { defaultIcon });
         } catch {
           /* A missing favicon or changed project path never prevents daemon startup. */
         } finally {
@@ -304,6 +305,7 @@ export class Projects {
       try {
         this.check(allowed);
         const p = ProjectCommand.parse(input.payload);
+        if ("icon" in p) assertProjectImage(p.icon);
         if (p.type === "workspace.add") return await this.add(p, allowed);
         if (p.type === "workspace.root.add") return await this.addRoot(p, allowed);
         if (
@@ -320,7 +322,12 @@ export class Projects {
             this.check(allowed);
             return {
               ok: true,
-              workspace: this.catalog.update(p.workspaceId, p.name, p.icon, "updated", defaultIcon),
+              workspace: this.catalog.update(p.workspaceId, p.name, {
+                icon: p.icon,
+                defaultIcon,
+                badge: p.badge,
+                defaults: p.defaults,
+              }),
             };
           }
           if (p.type === "workspace.rename")
@@ -357,13 +364,9 @@ export class Projects {
             if (publication.error)
               return { ok: false, error: publication.error, publication, workspace: project };
             const inspection = await this.inspectDirectory(directory);
-            const workspace = this.catalog.update(
-              p.workspaceId,
-              project.name,
-              undefined,
-              "updated",
-              inspection.defaultIcon,
-            );
+            const workspace = this.catalog.update(p.workspaceId, project.name, {
+              defaultIcon: inspection.defaultIcon,
+            });
             return {
               ok: publication.error === null,
               ...(publication.error ? { error: publication.error } : {}),

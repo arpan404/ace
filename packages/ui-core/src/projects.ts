@@ -230,6 +230,7 @@ const problems: Record<string, ProjectProblem> = {
   project_path_changed: { message: "The folder changed while ace was adding it. Try again." },
   projects_closed: { message: "ace is closing. Try again once it restarts." },
   workspace_not_found: { message: "That project is gone." },
+  project_icon_invalid: { message: "That file isn't a PNG, JPEG, WebP or GIF image." },
   workspace_threads_running: { message: "Threads in this project are still running." },
   clone_cancelled: { message: "Clone cancelled." },
   clone_not_repository: { message: "That address didn't give a Git repository." },

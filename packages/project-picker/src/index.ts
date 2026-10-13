@@ -127,3 +127,4 @@ export function completionParts(input: string, home: string, separator: string) 
     display: input === "~" ? "~/" : input.slice(0, input.lastIndexOf(separator) + 1),
   };
 }
+export * from "./project-image.ts";

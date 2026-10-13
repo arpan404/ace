@@ -33,7 +33,6 @@ export function ProjectPicker(props: {
       id,
       name: props.projectName(id),
       path: metadata?.path ?? "",
-      icon: metadata?.icon ?? metadata?.defaultIcon,
     };
   });
   const selected = choices.find((choice) => choice.id === props.project);
@@ -52,7 +51,7 @@ export function ProjectPicker(props: {
       >
         {props.variant !== "inline" &&
           (selected ? (
-            <ProjectMark badge={projectBadge(selected)} icon={selected.icon} />
+            <ProjectMark id={selected.id} badge={projectBadge(selected)} />
           ) : (
             <FolderSimpleIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
           ))}

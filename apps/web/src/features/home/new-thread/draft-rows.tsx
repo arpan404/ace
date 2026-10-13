@@ -48,6 +48,7 @@ export function DraftRows() {
             >
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <ProjectMark
+                  id={row.project}
                   badge={projectBadge({ id: row.project, name: directory.name(row.project) })}
                 />
                 <span className="min-w-0 flex-1 truncate">{directory.name(row.project)}</span>

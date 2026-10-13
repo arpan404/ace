@@ -1,6 +1,13 @@
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
-import { Project, ThreadId, type WorkspaceId, type WorkspaceChanged } from "@ace/protocol";
+import {
+  Project,
+  ProjectBadgeStyle,
+  ProjectDefaults,
+  ThreadId,
+  type WorkspaceId,
+  type WorkspaceChanged,
+} from "@ace/protocol";
 import type { Store } from "./store.ts";
 import { ProjectError } from "./project-policy.ts";
 
@@ -23,7 +30,31 @@ export function migrateProjects(db: DatabaseSync): void {
       .some((column) => column.name === "default_icon")
   )
     db.exec("ALTER TABLE workspace_metadata ADD COLUMN default_icon TEXT");
+  const columns = new Set(
+    db
+      .prepare("PRAGMA table_info(workspace_metadata)")
+      .all()
+      .map((column) => column.name),
+  );
+  if (!columns.has("badge")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN badge TEXT");
+  if (!columns.has("defaults")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN defaults TEXT");
 }
+
+/** Every project column a `Project` decodes from (`decodeProjectRow`), with `w` the workspace. */
+export const projectSelect =
+  "SELECT w.id,w.name,w.path,m.icon,m.default_icon AS defaultIcon,m.badge,m.defaults FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id";
+
+/** What a project edit changes besides its name; each omitted field keeps the saved value. */
+export interface ProjectEdit {
+  icon?: string | null | undefined;
+  defaultIcon?: string | null | undefined;
+  badge?: ProjectBadgeStyle | null | undefined;
+  defaults?: ProjectDefaults | null | undefined;
+}
+/** A JSON column's text, or NULL for a cleared value. */
+const json = (value: object | null | undefined) =>
+  value === undefined || value === null ? null : JSON.stringify(value);
+
 export class ProjectStorage {
   private store: Store;
   private now: () => number;
@@ -51,7 +82,7 @@ export class ProjectStorage {
     return this.store.atomic((db) => {
       const row = db
         .prepare(
-          "SELECT id,name,path,(SELECT icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS icon,(SELECT default_icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS defaultIcon FROM workspaces WHERE id=? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id)",
+          `${projectSelect} WHERE w.id=? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id)`,
         )
         .get(id);
       if (!row) throw new ProjectError("workspace_not_found");
@@ -75,7 +106,7 @@ export class ProjectStorage {
       const id = existingId ?? this.store.createWorkspace(path, name, this.now());
       db.prepare("UPDATE workspaces SET path=? WHERE id=?").run(path, id);
       if (icon !== undefined || defaultIcon !== undefined)
-        this.saveMetadata(db, id, icon, defaultIcon);
+        this.saveMetadata(db, id, { icon, defaultIcon });
       db.prepare("DELETE FROM workspace_unregistered WHERE workspace_id=?").run(id);
       db.prepare(
         "INSERT INTO workspace_recent VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET opened_at=excluded.opened_at",
@@ -90,13 +121,13 @@ export class ProjectStorage {
         workspace,
       });
     if (!added && (icon !== undefined || defaultIcon !== undefined))
-      return this.update(workspace.id, workspace.name, icon, "updated", defaultIcon);
+      return this.update(workspace.id, workspace.name, { icon, defaultIcon });
     return workspace;
   }
   recent(limit: number): Project[] {
     return this.store.atomic((db) =>
       db
-        .prepare(`SELECT w.id,w.name,w.path,(SELECT icon FROM workspace_metadata WHERE workspace_id=w.id) AS icon,(SELECT default_icon FROM workspace_metadata WHERE workspace_id=w.id) AS defaultIcon FROM workspace_recent r JOIN workspaces w ON w.id=r.workspace_id
+        .prepare(`${projectSelect} JOIN workspace_recent r ON w.id=r.workspace_id
       WHERE NOT EXISTS (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
       ORDER BY r.opened_at DESC,w.id LIMIT ?`)
         .all(limit)
@@ -106,10 +137,7 @@ export class ProjectStorage {
   page(after: WorkspaceId | undefined, limit: number) {
     const rows = this.store.atomic((db) =>
       db
-        .prepare(`SELECT w.id,w.name,w.path,
-      (SELECT icon FROM workspace_metadata WHERE workspace_id=w.id) AS icon,
-      (SELECT default_icon FROM workspace_metadata WHERE workspace_id=w.id) AS defaultIcon
-      FROM workspaces w WHERE w.id>? AND NOT EXISTS
+        .prepare(`${projectSelect} WHERE w.id>? AND NOT EXISTS
       (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
       ORDER BY w.id LIMIT ?`)
         .all(after ?? "", limit + 1)
@@ -150,37 +178,39 @@ export class ProjectStorage {
       ...(decoded?.opened_at == null ? {} : { lastOpened: decoded.opened_at }),
     };
   }
-  private saveMetadata(
-    db: DatabaseSync,
-    id: WorkspaceId,
-    icon?: string | null,
-    defaultIcon?: string | null,
-  ): void {
+  private saveMetadata(db: DatabaseSync, id: WorkspaceId, edit: ProjectEdit): void {
     db.prepare(
-      "INSERT INTO workspace_metadata(workspace_id,icon,default_icon) VALUES (?,?,?) ON CONFLICT(workspace_id) DO UPDATE SET icon=CASE WHEN ? THEN excluded.icon ELSE workspace_metadata.icon END,default_icon=CASE WHEN ? THEN excluded.default_icon ELSE workspace_metadata.default_icon END",
+      `INSERT INTO workspace_metadata(workspace_id,icon,default_icon,badge,defaults) VALUES (?,?,?,?,?) ON CONFLICT(workspace_id) DO UPDATE SET
+      icon=CASE WHEN ? THEN excluded.icon ELSE workspace_metadata.icon END,
+      default_icon=CASE WHEN ? THEN excluded.default_icon ELSE workspace_metadata.default_icon END,
+      badge=CASE WHEN ? THEN excluded.badge ELSE workspace_metadata.badge END,
+      defaults=CASE WHEN ? THEN excluded.defaults ELSE workspace_metadata.defaults END`,
     ).run(
       id,
-      icon ?? null,
-      defaultIcon ?? null,
-      Number(icon !== undefined),
-      Number(defaultIcon !== undefined),
+      edit.icon ?? null,
+      edit.defaultIcon ?? null,
+      json(edit.badge),
+      json(edit.defaults),
+      Number(edit.icon !== undefined),
+      Number(edit.defaultIcon !== undefined),
+      Number(edit.badge !== undefined),
+      Number(edit.defaults !== undefined),
     );
   }
   rename(id: WorkspaceId, name: string): Project {
-    return this.update(id, name, undefined, "renamed");
+    return this.update(id, name, {}, "renamed");
   }
   update(
     id: WorkspaceId,
     name: string,
-    icon?: string | null,
+    edit: ProjectEdit,
     change: "updated" | "renamed" = "updated",
-    defaultIcon?: string | null,
   ): Project {
+    const { icon, defaultIcon } = edit;
     const workspace = this.store.atomic((db) => {
       this.get(id);
       db.prepare("UPDATE workspaces SET name=? WHERE id=?").run(name, id);
-      if (icon !== undefined || defaultIcon !== undefined)
-        this.saveMetadata(db, id, icon, defaultIcon);
+      if (Object.values(edit).some((value) => value !== undefined)) this.saveMetadata(db, id, edit);
       this.forThreads(id, (threadId) => {
         const thread = this.store.getThread(threadId);
         const details = thread?.details;
@@ -254,10 +284,32 @@ export class ProjectStorage {
   }
 }
 
-/** Old projects omit the optional icon rather than adding null fields to their wire shape. */
+const storedRow = Project.extend({
+  badge: z.unknown().optional(),
+  defaults: z.unknown().optional(),
+});
+
+/** A saved JSON column, or undefined when it is empty or no longer reads as `schema`. */
+function stored<T>(schema: z.ZodType<T>, value: unknown): T | undefined {
+  if (typeof value !== "string") return undefined;
+  try {
+    const parsed = schema.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Projects omit unset optional fields rather than adding null fields to their wire shape. */
 export function decodeProjectRow(row: unknown): Project {
-  const project = Project.parse(row);
+  const { badge, defaults, ...project } = storedRow.parse(row);
   if (project.icon === null) delete project.icon;
   if (project.defaultIcon === null) delete project.defaultIcon;
-  return project;
+  const style = stored(ProjectBadgeStyle, badge);
+  const preferences = stored(ProjectDefaults, defaults);
+  return {
+    ...project,
+    ...(style ? { badge: style } : {}),
+    ...(preferences ? { defaults: preferences } : {}),
+  };
 }

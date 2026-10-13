@@ -8,7 +8,7 @@ import {
   type AccountOption,
   type ModelOption,
 } from "@ace/ui-core";
-import type { ProviderKind } from "@ace/protocol";
+import type { BranchRef, ProjectDefaults, ProviderKind } from "@ace/protocol";
 
 export interface NewThreadOptions {
   models: readonly ModelOption[];
@@ -101,6 +101,37 @@ export function resolve(
         : model.defaultSpeed,
     ...(legacy ? { upgradedModel: legacy.key } : {}),
   };
+}
+
+/**
+ * A project's own defaults over the choices remembered on this device: its worktree setting
+ * and its model, by the catalog option of that provider and id. A saved preparation's choices
+ * are the person's own and never pass through here.
+ */
+export function withProjectDefaults(
+  choices: Choices,
+  defaults: ProjectDefaults | undefined,
+  models: readonly ModelOption[] | undefined,
+): Choices {
+  if (!defaults) return choices;
+  const option =
+    defaults.provider && defaults.model
+      ? models?.find((m) => m.provider === defaults.provider && m.id === defaults.model)
+      : undefined;
+  return {
+    ...choices,
+    ...(defaults.worktree === undefined ? {} : { mode: defaults.worktree ? "worktree" : "local" }),
+    ...(option ? { model: option.key } : {}),
+  };
+}
+
+/** The branch a project names as its base, while the repository still has it. */
+export function projectBaseBranch(
+  defaults: ProjectDefaults | undefined,
+  refs: readonly BranchRef[],
+): string | undefined {
+  const name = defaults?.baseBranch;
+  return name !== undefined && refs.some((ref) => ref.name === name) ? name : undefined;
 }
 
 /**

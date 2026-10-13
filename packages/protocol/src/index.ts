@@ -100,6 +100,7 @@ export * from "./machines.ts";
 
 export * from "./history.ts";
 
+export * from "./badge-color.ts";
 export * from "./projects.ts";
 export * from "./project-commands.ts";
 export * from "./project-requests.ts";

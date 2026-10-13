@@ -1,3 +1,4 @@
+import type { ProjectBadgeStyle, ProjectDefaults } from "@ace/protocol";
 import { useClient } from "@ace/client-react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -11,6 +12,8 @@ import { useEffect } from "react";
 export interface Project {
   icon?: string | null | undefined;
   defaultIcon?: string | null | undefined;
+  badge?: ProjectBadgeStyle | undefined;
+  defaults?: ProjectDefaults | undefined;
   id: string;
   name: string;
   path: string;
