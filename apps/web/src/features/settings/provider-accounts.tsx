@@ -345,7 +345,7 @@ function RemoveAccount(props: {
           <Button variant="ghost" onClick={props.onCancel}>
             Cancel
           </Button>
-          <Button variant="ghost" tone="danger" onClick={props.onConfirm}>
+          <Button variant="danger" onClick={props.onConfirm}>
             Remove
           </Button>
         </DialogFooter>

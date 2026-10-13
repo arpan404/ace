@@ -146,8 +146,7 @@ export function StoragePlanPreview(props: {
               Cancel
             </Button>
             <Button
-              variant="ghost"
-              tone="danger"
+              variant="danger"
               onClick={() => {
                 setConfirm(false);
                 props.onApply();

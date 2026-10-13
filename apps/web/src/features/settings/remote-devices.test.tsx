@@ -20,7 +20,12 @@ test("machines and paired devices are listed; revoking a device removes it after
   await userEvent.click(within(devices).getByRole("button", { name: "Actions for iPhone 16 Pro" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Revoke" }));
   const dialog = await screen.findByRole("dialog", { name: "Revoke iPhone 16 Pro?" });
-  await userEvent.click(within(dialog).getByRole("button", { name: "Revoke" }));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Cancel" })),
+  );
+  const revoke = within(dialog).getByRole("button", { name: "Revoke" });
+  expect(revoke.dataset.variant).toBe("danger");
+  await userEvent.click(revoke);
   await waitFor(() => expect(within(devices).queryByText("iPhone 16 Pro")).toBeNull());
   expect(within(devices).getByText("iPad Air")).toBeTruthy();
   expect(await screen.findByText("iPhone 16 Pro can no longer reach this computer")).toBeTruthy();

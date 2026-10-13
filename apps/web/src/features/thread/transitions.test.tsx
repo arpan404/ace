@@ -104,8 +104,14 @@ test("a running thread asks what will stop before deletion", async () => {
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
   const dialog = await screen.findByRole("dialog", { name: "Delete thread?" });
   expect(dialog.textContent).toMatch(/agent.*running/);
-  expect(within(dialog).getByRole("button", { name: "Stop and delete" })).toBeTruthy();
-  await userEvent.keyboard("{Escape}");
+  // Deleting is the danger action; focus starts on Cancel, so Enter deletes nothing.
+  const stopAndDelete = within(dialog).getByRole("button", { name: "Stop and delete" });
+  expect(stopAndDelete.dataset.variant).toBe("danger");
+  await waitFor(() =>
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Cancel" })),
+  );
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete thread?" })).toBeNull());
   expect(thread(app, "thread-replay-cursor")).toBeDefined();
 }, 15_000);
 

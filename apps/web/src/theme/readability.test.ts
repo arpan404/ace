@@ -87,6 +87,23 @@ test("status marks, the accent and its label stand out in every theme", () => {
     }
 });
 
+test("a danger button's label reads at AA on its fill at rest, hovered and pressed, in every theme", () => {
+  for (const id of themeIds)
+    for (const scheme of schemes) {
+      const tokens = themeDeclarations(id, scheme);
+      expect([
+        id,
+        scheme,
+        below(
+          tokens,
+          ["--danger-foreground"],
+          ["--danger", "--danger-hover", "--danger-pressed"],
+          4.5,
+        ),
+      ]).toEqual([id, scheme, []]);
+    }
+});
+
 test("code and diff text read at AA on the code background and on added and removed lines", () => {
   const syntax = ["--syn-kw", "--syn-fn", "--syn-str", "--syn-num", "--syn-type", "--syn-com"];
   for (const id of themeIds)

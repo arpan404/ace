@@ -1,3 +1,5 @@
+import { focusOnBehalf } from "@/lib/auto-focus.ts";
+
 /**
  * Focus Deny for a deliberate approval, otherwise the first answer to the open request
  * once its card has rendered. Cards load after the transcript paints, so this looks again on
@@ -8,16 +10,7 @@ export function focusOpenRequest(root: Element, tries = 60): () => void {
   let left = tries;
   let release: (() => void) | undefined;
   const focus = (element: HTMLElement) => {
-    element.setAttribute("data-auto-focused", "");
-    const clear = () => {
-      element.removeAttribute("data-auto-focused");
-      element.ownerDocument.removeEventListener("keydown", clear, true);
-      element.removeEventListener("blur", clear);
-    };
-    element.ownerDocument.addEventListener("keydown", clear, { capture: true, once: true });
-    element.addEventListener("blur", clear, { once: true });
-    release = clear;
-    element.focus({ preventScroll: true });
+    release = focusOnBehalf(element);
   };
   const look = () => {
     // A request arriving while a modal is open must not take its keyboard focus.

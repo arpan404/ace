@@ -88,7 +88,12 @@ test("removing a project keeps its files and stops listing it", async () => {
   await userEvent.click(await screen.findByRole("menuitem", { name: "Remove…" }));
   const dialog = await screen.findByRole("dialog", { name: "Remove docs?" });
   expect(within(dialog).getByText(/This won't delete any files/)).toBeTruthy();
-  await userEvent.click(within(dialog).getByRole("button", { name: "Remove project" }));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Cancel" })),
+  );
+  const remove = within(dialog).getByRole("button", { name: "Remove project" });
+  expect(remove.dataset.variant).toBe("danger");
+  await userEvent.click(remove);
 
   // With the last project gone, the toolbar offers adding one.
   await within(await screen.findByRole("complementary", { name: "Threads" })).findByRole("button", {

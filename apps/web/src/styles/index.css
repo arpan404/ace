@@ -68,6 +68,11 @@
   --color-tint-hover: var(--ring-hover);
   --color-tint-pressed: var(--ring-pressed);
   --color-tint-foreground: var(--ring-foreground);
+  /* The danger fill: the confirming button of a destructive action (theme/danger.ts). */
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-pressed: var(--danger-pressed);
+  --color-danger-foreground: var(--danger-foreground);
   /* The accent as text: links and the current view, AA on every surface (theme/accent.ts). */
   --color-link: var(--ring-text);
   --color-code: var(--code);
@@ -278,6 +283,10 @@
     box-shadow:
       0 0 0 2px var(--background),
       0 0 0 4px var(--focus, var(--ring));
+  }
+  /* Focus a dialog placed on opening (a confirmation's Cancel): a hairline until a key is pressed. */
+  [data-slot="dialog-content"] &:focus-visible[data-auto-focused] {
+    box-shadow: 0 0 0 1px var(--border-strong);
   }
 }
 @utility focus-ring-inset {
