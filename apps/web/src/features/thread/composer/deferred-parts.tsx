@@ -26,6 +26,10 @@ export const DeferredSendStatus = deferredComponent(() =>
 export const DeferredLocalSends = deferredComponent(() =>
   import("../items/local-sends.tsx").then((module) => module.LocalSends),
 );
+/** A message whose send failed, kept in the held queue: shown at the transcript's end. */
+export const DeferredHeldSend = deferredComponent(() =>
+  import("../items/held-send.tsx").then((module) => module.HeldSend),
+);
 
 export function preloadComposerParts(): Promise<unknown> {
   return Promise.all([
@@ -37,6 +41,7 @@ export function preloadComposerParts(): Promise<unknown> {
     DeferredSuggestionList.preload(),
     DeferredSendStatus.preload(),
     DeferredLocalSends.preload(),
+    DeferredHeldSend.preload(),
     preloadAttachmentChips(),
     import("./send-message.ts"),
   ]);

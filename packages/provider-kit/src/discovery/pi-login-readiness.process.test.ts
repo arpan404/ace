@@ -36,7 +36,7 @@ async function fixture(version: string, configured: boolean) {
   return { executable, env: { HOME: root, PI_CODING_AGENT_DIR: profile, PATH: root } };
 }
 
-test.each(["0.85.1", "1.1.0"])(
+test.each(["0.85.1", "1.1.0", "1.2.0"])(
   "Pi %s notices a first OAuth login without a settings file",
   async (version) => {
     expect(await discoverPiStatus(await fixture(version, false))).toMatchObject({
@@ -49,8 +49,8 @@ test.each(["0.85.1", "1.1.0"])(
 test("Pi stays usable through Codex while its configured Claude service is signed out", async () => {
   expect(await discoverPiStatus(await fixture("1.1.0", true))).toMatchObject({ auth: "logged_in" });
 });
-test("an unreviewed Pi release remains unknown without running an auth command", async () => {
-  expect(await discoverPiStatus(await fixture("9.0.0", false))).toMatchObject({
+test("a Pi release older than 0.85.1 remains unknown without running an auth command", async () => {
+  expect(await discoverPiStatus(await fixture("0.84.4", false))).toMatchObject({
     auth: "unknown",
     error: "Pi auth status is unsupported for this version",
   });

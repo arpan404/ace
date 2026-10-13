@@ -7,7 +7,7 @@ import { startDaemon, readConfig } from "@ace/daemon";
 import { Command, DeviceId } from "@ace/protocol";
 import { Client } from "../socket-test-support.ts";
 import { until } from "./test-support.ts";
-test.each(["0.85.1", "1.0.0"])(
+test.each(["0.85.1", "1.2.0", "0.84.4"])(
   "Pi %s discovery gates thread admission without launching a provider",
   async (version) => {
     const home = await mkdtemp(join(tmpdir(), "ace-pi-discovery-"));
@@ -77,7 +77,7 @@ test.each(["0.85.1", "1.0.0"])(
       });
       expect(await until(client, (message) => message.type === "commandResult")).toMatchObject({
         ok: false,
-        error: version === "0.85.1" ? "workspace_unavailable" : "provider_unavailable",
+        error: version === "0.84.4" ? "provider_unavailable" : "workspace_unavailable",
       });
       expect(daemon.store.listThreads()).toEqual([]);
     } finally {

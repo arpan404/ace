@@ -50,6 +50,19 @@ export function handleQueue(
     } else if (p.type === "queue.remove" && entry) {
       dependencies.repo.queue.remove(entry.id);
       dependencies.repo.removeInput(p.threadId, entry.command.id, dependencies.clock.now());
+      // Removing (or taking back) the last message a failed send kept leaves nothing to retry:
+      // release that hold, or the next message would wait behind a failure that is gone.
+      if (
+        queue.paused &&
+        (queue.reason === "not_sent" || queue.reason === "model_unavailable") &&
+        !queue.continuation &&
+        dependencies.repo.queue.count(p.threadId) === 0
+      )
+        dependencies.repo.queue.set(
+          p.threadId,
+          { paused: false, reason: null },
+          dependencies.clock.now(),
+        );
       if (["thread.resume", "queue.resume", "thread.limit"].includes(entry.command.payload.type)) {
         dependencies.repo.pending.finishContinuation(p.threadId);
         dependencies.repo.queue.set(

@@ -33,7 +33,7 @@ import {
 } from "../deferred.ts";
 import { BlockView } from "../items/block-view.tsx";
 import { JumpedItem } from "../items/jumped-item.ts";
-import { DeferredLocalSends } from "../composer/deferred-parts.tsx";
+import { DeferredHeldSend, DeferredLocalSends } from "../composer/deferred-parts.tsx";
 import { useLocalSendsView } from "../composer/send-store.ts";
 import { readingColumn } from "../lib/column.ts";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
@@ -647,6 +647,7 @@ export function Feed(props: FeedProps) {
             {!detached && (
               <Suspense fallback={null}>
                 <DeferredLocalSends.Component threadId={threadId} />
+                <DeferredHeldSend.Component threadId={threadId} />
               </Suspense>
             )}
           </div>

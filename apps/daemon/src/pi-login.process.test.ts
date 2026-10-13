@@ -124,7 +124,7 @@ export class ModelRuntime {
   return { root, command, manager, sessions, events, wait, choose, connected };
 }
 
-test.each(["0.85.1", "1.1.0"])(
+test.each(["0.85.1", "1.1.0", "1.2.0"])(
   "Pi %s relays its own device login and completes without leaking credentials",
   async (version) => {
     const f = await setup(version);

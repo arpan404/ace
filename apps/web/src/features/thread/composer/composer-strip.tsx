@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useClaimConnectionNotice } from "@/features/shell/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
+import { failedHead, withoutMessage } from "./failed-head.ts";
 import { useHeldQueue } from "./queue-notice.tsx";
 import { QueueStrip } from "./queue-strip.tsx";
 import { queuedCount } from "./queued.tsx";
@@ -35,9 +36,15 @@ export function ComposerStrip(props: {
   const daemon = useDaemonConnection();
   const requests = useInteractions(props.threadId) ?? noRequests;
   const connection = useConnectionState();
-  const queue = useQueue(props.threadId);
-  const pending = useQueuedPending(props.threadId, queue.page, queue.retained);
-  const held = useHeldQueue(props.threadId, props.status, queue);
+  const all = useQueue(props.threadId);
+  const allHeld = useHeldQueue(props.threadId, props.status, all);
+  // A message that wasn't sent is in the transcript with its reason; the strip lists the rest.
+  const failed = failedHead(allHeld, all);
+  const queue = withoutMessage(all, failed?.id);
+  const held = allHeld?.notice.kind === "not_sent" ? undefined : allHeld;
+  const pending = useQueuedPending(props.threadId, all.page, all.retained).filter(
+    (message) => message.id !== failed?.id,
+  );
   const plan = useShownPlans(props.threadId)[0]?.progress;
   const queued = queuedCount(queue, pending);
   const offline = connection === "offline";

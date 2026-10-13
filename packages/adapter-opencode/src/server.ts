@@ -7,7 +7,8 @@ import { z } from "zod";
 import type { DiscoveryOptions } from "@ace/provider-kit/discovery";
 import type { SupervisedProcess } from "@ace/provider-kit/process";
 import { runtime, type Runtime } from "./runtime.ts";
-import { NativeEvent, loopback, validateSpec, version } from "./boundaries.ts";
+import { NativeEvent, loopback } from "./boundaries.ts";
+import { validateSpec, version, versionRefusal } from "./contract.ts";
 import { observedFetch, sanitize, type Observe } from "./observation.ts";
 import { Routes } from "./routes.ts";
 import { RecentMap } from "./cache.ts";
@@ -169,13 +170,7 @@ export class OpenCodeServer {
         if (!cli.installed || !cli.path)
           throw Object.assign(new Error("OpenCode is not installed"), { code: "not_configured" });
         expected = cli.version ?? "";
-        if (!version(expected))
-          throw Object.assign(
-            new Error(
-              "OpenCode 2.0.22 or 2.0.26 is required; upgrade v1 or review the new contract",
-            ),
-            { code: "cli_too_old" },
-          );
+        if (!version(expected)) throw versionRefusal(cli.version);
         const password = this.runtime.entropy(32);
         this.authorization = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`;
         this.secrets = [
@@ -247,10 +242,7 @@ export class OpenCodeServer {
           if (this.controller.signal.aborted) abort();
         });
       }
-      if (!version(expected))
-        throw Object.assign(new Error("OpenCode 2.0.22 or 2.0.26 is required"), {
-          code: "cli_too_old",
-        });
+      if (!version(expected)) throw versionRefusal(expected);
       this.factory = (await import("@opencode/client")).OpenCode;
       this.controller.signal.throwIfAborted();
       this.client = this.scoped("", this.frame, this.controller.signal);
@@ -263,7 +255,7 @@ export class OpenCodeServer {
         () => {},
       );
       const spec = await (await fetch(new URL("/openapi.json", this.base))).json();
-      validateSpec(spec);
+      validateSpec(spec, expected);
       let connected: (() => void) | undefined;
       let failed: ((error: unknown) => void) | undefined;
       const handshake = new Promise<void>((resolve, reject) => {
@@ -285,7 +277,7 @@ export class OpenCodeServer {
       await handshake;
     } catch (error) {
       const failure = new SessionOpenError(
-        "OpenCode startup failed: requires a reviewed OpenCode v2 release and matching JSON API contract",
+        "OpenCode startup failed",
         metadataFailure(error),
         { env: this.options.discovery?.env },
         (value) => this.redact(value),
@@ -309,7 +301,8 @@ export class OpenCodeServer {
       (this.process?.pid !== undefined && info.pid !== this.process.pid)
     )
       throw Object.assign(new Error("OpenCode process/version identity mismatch"), {
-        code: info.version !== expected ? "cli_too_old" : "unreachable",
+        // The binary changed between discovery and start (e.g. an update): rediscover and retry.
+        code: "unreachable",
       });
     this.identity = info;
   }

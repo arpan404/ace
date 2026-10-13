@@ -2,6 +2,7 @@
 import { createInterface } from "node:readline";
 import { createServer } from "node:http";
 import { z } from "zod";
+import { openApiDocument } from "@ace/adapter-opencode/contract";
 import { registerAcePiExtension, type PiExtensionApi } from "@ace/adapter-pi";
 import { join } from "node:path";
 import { availability } from "./provider-mcp-availability.ts";
@@ -113,34 +114,7 @@ if (mode === "opencode") {
         return;
       }
       if (path === "/openapi.json") {
-        const operations = [
-          "server.info",
-          "event.subscribe",
-          "session.create",
-          "session.get",
-          "session.switchModel",
-          "session.list",
-          "session.active",
-          "session.prompt",
-          "session.interrupt",
-          "session.message.list",
-          "session.permission.list",
-          "session.permission.reply",
-          "session.form.list",
-          "session.form.reply",
-          "session.form.cancel",
-          "session.inbox.list",
-          "shell.list",
-          "shell.get",
-          "shell.remove",
-          "model.list",
-        ];
-        reply({
-          openapi: "3.1.0",
-          paths: Object.fromEntries(
-            operations.map((operationId, index) => [`/api/${index}`, { get: { operationId } }]),
-          ),
-        });
+        reply(openApiDocument());
         return;
       }
       if (path === "/api/event") {

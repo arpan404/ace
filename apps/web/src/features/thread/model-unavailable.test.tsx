@@ -52,7 +52,9 @@ async function blocked(reason: "model_unavailable" | "not_sent") {
   if (reason === "model_unavailable")
     app.daemon.services.models = app.daemon.services.models.filter((row) => row.id !== model);
   await app.open(`/t/${id}`);
-  await screen.findByRole("list", { name: "Queued messages" });
+  if (reason === "not_sent")
+    await within(await screen.findByRole("region", { name: "Message not sent" })).findByText("hi");
+  else await screen.findByRole("list", { name: "Queued messages" });
   return app;
 }
 
@@ -93,7 +95,7 @@ test("a vanished model shows one actionable notice and picking a replacement sen
   expect(snapshot?.kind === "thread" && snapshot.thread.status.state).toBe("working");
 });
 
-test("a not-sent message has one retry notice and no active work until retried", async () => {
+test("a not-sent message is one item in the transcript, with no active work until retried", async () => {
   const app = await blocked("not_sent");
   const correction = "The attachments exceed the message limit; send them in separate messages.";
   act(() =>
@@ -116,14 +118,17 @@ test("a not-sent message has one retry notice and no active work until retried",
   );
   // A repeated pre-delivery failure keeps the same message and its actionable correction.
   act(() => app.daemon.sessionOpenFailed(id, "not_sent"));
-  const notice = await screen.findByRole("region", { name: "Message not sent" });
-  expect(await within(notice).findByText(correction)).toBeTruthy();
+  const item = await screen.findByRole("region", { name: "Message not sent" });
+  expect(await within(item).findByText(correction)).toBeTruthy();
   expect(screen.getAllByText(correction)).toHaveLength(1);
-  expect(within(screen.getByRole("main")).queryByText("Not sent")).toBeNull();
+  expect(within(screen.getByRole("main")).getAllByText("Not sent")).toHaveLength(1);
+  expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   expect(screen.queryByText("Working")).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-  await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
+  await userEvent.click(within(item).getByRole("button", { name: "Try again" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("region", { name: "Message not sent" })).toBeNull(),
+  );
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
   expect(screen.queryByText(correction)).toBeNull();
 });
