@@ -53,6 +53,19 @@ Scripts run. The isolation is layered, and its boundary differs by client.
    pages per transcript (most recently revealed first). The rest keep their height and reload
    when they return.
 
+6. **Agent-chosen mode.** The owner's decision is "interactive and static, the agent will
+   decide". `ace_html_render` takes `mode: "interactive" | "static"`, which the agent picks for each
+   page. An omitted mode is `static` when the page has no script element or inline handler, and
+   `interactive` otherwise. The daemon stores the resolved mode on the item, so it survives reload
+   and reaches every client.
+   - **Static.** Authored scripts and handlers are stripped, and the page's CSP admits only the
+     bridge by hash. It renders as a plain themed page.
+   - **Interactive.** Scripts run under layers 1–4.
+
+   Desktop and web honour the agent's choice alike. On the web client an interactive page runs
+   with layers 1–2 only. By letting agents choose interactive there, the owner accepted the
+   residual DNS-hint risk in layer 4. The UI shows no mode label.
+
 ## Consequences
 
 - **Rendering.** The visualize skill and the MCP tool descriptions now steer agents toward

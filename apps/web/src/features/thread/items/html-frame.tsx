@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { HtmlHeightMessage } from "@ace/protocol";
+import { HtmlHeightMessage, type HtmlMode } from "@ace/protocol";
 import {
   heightFromTitle,
   themeMessage,
@@ -24,6 +24,8 @@ interface SurfaceProps {
  */
 export function HtmlFrame(props: {
   html: string;
+  /** The agent's choice: `static` strips and blocks the page's scripts. */
+  mode: HtmlMode;
   title: string;
   theme: HtmlTheme;
   maxHeight: number;
@@ -35,13 +37,18 @@ export function HtmlFrame(props: {
   measured: number | undefined;
   onHeight(height: number): void;
 }) {
-  // A new document only for new HTML; the theme then updates live.
+  // A new document only for new HTML or mode; the theme then updates live.
   const [built, setBuilt] = useState(() => ({
     html: props.html,
-    source: visualizationUrl(props.html, props.theme),
+    mode: props.mode,
+    source: visualizationUrl(props.html, props.theme, props.mode),
   }));
-  if (built.html !== props.html)
-    setBuilt({ html: props.html, source: visualizationUrl(props.html, props.theme) });
+  if (built.html !== props.html || built.mode !== props.mode)
+    setBuilt({
+      html: props.html,
+      mode: props.mode,
+      source: visualizationUrl(props.html, props.theme, props.mode),
+    });
   const height = props.fill
     ? "100%"
     : `${Math.max(48, Math.min(props.maxHeight, props.measured ?? 160))}px`;

@@ -1,6 +1,8 @@
 import { parse, parseFragment, serialize, type DefaultTreeAdapterMap } from "parse5";
+import type { HtmlMode } from "@ace/protocol";
 import { validateHtml } from "./validation.ts";
-import { frameBridge, pageBridge, themeProperties } from "./scripts.ts";
+import { withoutScripts } from "./mode.ts";
+import { frameBridge, pageBridge, pageBridgeHash, themeProperties } from "./scripts.ts";
 
 /**
  * Inline scripts and styles only; no endpoints, storage, workers, frames, forms, eval or
@@ -9,6 +11,11 @@ import { frameBridge, pageBridge, themeProperties } from "./scripts.ts";
  */
 export const htmlCsp =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'; trusted-types default ace-raw; webrtc 'block'";
+/** A static page runs only the bridge: no authored script, handler or `javascript:` URL. */
+export const staticHtmlCsp = htmlCsp.replace(
+  "script-src 'unsafe-inline'",
+  `script-src ${pageBridgeHash}`,
+);
 export { themeProperties };
 export type ThemeProperty = (typeof themeProperties)[number];
 export type HtmlTheme = Partial<Record<ThemeProperty, string>> & {
@@ -51,8 +58,9 @@ export function themeMessage(theme: HtmlTheme): HtmlThemeMessage {
     ...(theme.colorScheme ? { scheme: theme.colorScheme } : {}),
   };
 }
-function themedDocument(html: string, theme: HtmlTheme): string {
-  const document = parse(html);
+function themedDocument(html: string, theme: HtmlTheme, mode: HtmlMode): string {
+  const document = parse(mode === "static" ? withoutScripts(html) : html);
+  const policy = mode === "static" ? staticHtmlCsp : htmlCsp;
   const root = document.childNodes.find(
     (node): node is DefaultTreeAdapterMap["element"] =>
       "tagName" in node && node.tagName === "html",
@@ -66,7 +74,7 @@ function themedDocument(html: string, theme: HtmlTheme): string {
     .map(([key, value]) => `--${key}:${value}`)
     .join(";");
   const prefix = parseFragment(
-    `${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(htmlCsp)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>:root{${tokens}}html{color:var(--foreground);font-family:var(--font-sans,system-ui);background:transparent}body{margin:0;display:flow-root}*{box-sizing:border-box}</style><script>${pageBridge}</script>`,
+    `${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>:root{${tokens}}html{color:var(--foreground);font-family:var(--font-sans,system-ui);background:transparent}body{margin:0;display:flow-root}*{box-sizing:border-box}</style><script>${pageBridge}</script>`,
   );
   head.childNodes.unshift(...prefix.childNodes);
   return serialize(document);
@@ -74,22 +82,22 @@ function themedDocument(html: string, theme: HtmlTheme): string {
 /**
  * A trusted outer document owns frame-src, so even script-driven child navigation is blocked.
  * Each frame has a separate opaque origin. Height crosses out and the theme crosses in; nothing
- * else does.
+ * else does. A static page has its scripts stripped and blocked; an interactive one runs them.
  */
-export function visualizationDocument(html: string, theme: HtmlTheme): string {
+export function visualizationDocument(html: string, theme: HtmlTheme, mode: HtmlMode): string {
   if (!validateHtml(html).valid) throw new Error("Invalid visualization document");
-  const page = themedDocument(html, theme);
+  const page = themedDocument(html, theme, mode);
   return `<!doctype html><html><head>${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(htmlCsp)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>html,body{margin:0}iframe{width:100%;border:0;display:block}</style></head><body><template id="ace-page"><iframe title="Visualization content" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(page)}"></iframe></template><script>${frameBridge}</script></body></html>`;
 }
 /** A data URL starts with an opaque origin. */
-export function visualizationUrl(html: string, theme: HtmlTheme): string {
-  return `data:text/html;charset=utf-8,${encodeURIComponent(visualizationDocument(html, theme).toWellFormed())}`;
+export function visualizationUrl(html: string, theme: HtmlTheme, mode: HtmlMode): string {
+  return `data:text/html;charset=utf-8,${encodeURIComponent(visualizationDocument(html, theme, mode).toWellFormed())}`;
 }
 /**
  * The downloadable and web new-window form: the same sandbox inside a standalone page. Outside
  * the desktop app's visualization session, network hints are limited only by the page bridge.
  */
-export function visualizationWindow(html: string, theme: HtmlTheme): string {
+export function visualizationWindow(html: string, theme: HtmlTheme, mode: HtmlMode): string {
   const policy = htmlCsp.replace("frame-src 'none'", "frame-src data:");
-  return `<!doctype html><html><head>${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><title>ace visualization</title>${schemeMeta(theme)}<style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style></head><body><iframe title="Visualization" sandbox="allow-scripts" referrerpolicy="no-referrer" src="${attribute(visualizationUrl(html, theme))}"></iframe></body></html>`;
+  return `<!doctype html><html><head>${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><title>ace visualization</title>${schemeMeta(theme)}<style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style></head><body><iframe title="Visualization" sandbox="allow-scripts" referrerpolicy="no-referrer" src="${attribute(visualizationUrl(html, theme, mode))}"></iframe></body></html>`;
 }

@@ -236,6 +236,13 @@
                     "minimum": 80,
                     "type": "integer"
                   },
+                  "mode": {
+                    "enum": [
+                      "interactive",
+                      "static"
+                    ],
+                    "type": "string"
+                  },
                   "title": {
                     "maxLength": 160,
                     "minLength": 1,

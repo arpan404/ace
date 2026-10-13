@@ -129,6 +129,12 @@ export const pageBridge = `(() => {
 })();`;
 
 /**
+ * CSP source for `pageBridge`. A static page's policy admits only this script, so an authored
+ * script or handler that survived stripping still cannot run. `mode.test.ts` keeps it current.
+ */
+export const pageBridgeHash = "'sha256-ezP0I/7RKpjUGrpDUustiVXiCv2YUnlKI8nT1xjLqwU='";
+
+/**
  * Runs in the trusted outer document. Attaches the page frame, relays only its height out, and
  * relays only theme messages in. Inside an iframe it talks to the app by `postMessage`; as the
  * top document of a desktop `<webview>` (which has no preload) it reports height through its

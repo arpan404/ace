@@ -9,6 +9,9 @@
     "html": {
       "$ref": "https://ace.local/protocol/v1/HtmlDocument.json"
     },
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/HtmlMode.json"
+    },
     "title": {
       "maxLength": 160,
       "minLength": 1,

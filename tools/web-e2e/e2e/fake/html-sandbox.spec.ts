@@ -44,7 +44,7 @@ test("a published page's scripts run but cannot reach the app, navigate, open po
       document.getElementById('result').textContent = failures.length ? failures.join(',') : 'isolated and interactive';
       setTimeout(() => location.replace('${origin}/frame-navigation'), 100);
     </script></body></html>`;
-    const url = visualizationUrl(html, { foreground: "rgb(0, 0, 0)" });
+    const url = visualizationUrl(html, { foreground: "rgb(0, 0, 0)" }, "interactive");
     await page.evaluate((src) => {
       const frame = document.createElement("iframe");
       frame.title = "Published chart";
@@ -71,9 +71,41 @@ test("an exported visualization runs its handlers inside the same sandbox", asyn
     visualizationWindow(
       '<!doctype html><html><body><button onclick="this.textContent=42">Count</button></body></html>',
       {},
+      "interactive",
     ),
   );
   const button = page.frameLocator("iframe").frameLocator("iframe").getByRole("button");
   await button.click();
   await expect(button).toHaveText("42");
+});
+
+const scripted = `<!doctype html><html><body style="height:300px">
+  <p id="ran">not run</p>
+  <button onclick="this.textContent='clicked'">Press</button>
+  <a id="link" href="#">Link</a>
+  <script>document.getElementById('ran').textContent = 'script ran';</script>
+  <svg><script>document.getElementById('ran').textContent = 'svg script ran';</script></svg>
+</body></html>`;
+
+test("a static visualization never runs its scripts but still fits its height", async ({
+  page,
+}) => {
+  await page.setContent(visualizationWindow(scripted, {}, "static"));
+  const outer = page.frameLocator("iframe");
+  const inner = outer.frameLocator("iframe");
+  await expect(inner.getByRole("button")).toBeVisible();
+  // Height crossing out proves the bridge ran under the static policy.
+  await expect(outer.locator("iframe")).toHaveCSS("height", "300px");
+  await inner.getByRole("button").click();
+  await page.waitForTimeout(200);
+  await expect(inner.locator("#ran")).toHaveText("not run");
+  await expect(inner.getByRole("button")).toHaveText("Press");
+});
+
+test("an interactive visualization runs the same page's scripts", async ({ page }) => {
+  await page.setContent(visualizationWindow(scripted, {}, "interactive"));
+  const inner = page.frameLocator("iframe").frameLocator("iframe");
+  await expect(inner.locator("#ran")).toHaveText("svg script ran");
+  await inner.getByRole("button").click();
+  await expect(inner.getByRole("button")).toHaveText("clicked");
 });
