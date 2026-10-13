@@ -30,7 +30,7 @@ function clock() {
 
 test.each([
   { text: "quota", state: "waiting" },
-  { text: "quota-with-late-boundaries", state: "running" },
+  { text: "quota-with-late-boundaries", state: "working" },
 ])(
   "a missing start acknowledgement retires a live provider and settles unresolved completion ($text)",
   async ({ text, state }) => {
