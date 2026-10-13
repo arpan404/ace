@@ -31,7 +31,8 @@ test("an unavailable offline detail chunk retries successfully without losing th
     </ClientProvider>,
   );
   act(() => client.networkOnline(false));
-  await screen.findByText("Couldn't show offline actions");
+  // The toast's heading; the toast also announces it in a hidden live region.
+  await screen.findByRole("heading", { name: "Couldn't show offline actions" });
   expect(screen.getByLabelText("Draft")).toHaveProperty("value", "Keep this draft");
   expect(screen.getByText("Cached answer")).toBeTruthy();
   expect(screen.getByText("Offline")).toBeTruthy();

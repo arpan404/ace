@@ -52,7 +52,11 @@ export function SourceControlSettings() {
         </SettingRow>
       </SettingCard>
       {machine?.client ? (
-        <MachineSourceControl key={machine.id} client={machine.client} />
+        // The primary machine keeps its key while its host identity loads, so edits survive.
+        <MachineSourceControl
+          key={machine.primary ? "primary" : machine.id}
+          client={machine.client}
+        />
       ) : (
         <p role="status" className="py-3 text-sm text-muted-foreground">
           Connect to this machine to inspect its source control CLI.

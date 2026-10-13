@@ -62,19 +62,16 @@ test.each(["content", "row", "final row and rollback"])(
     expect(
       screen.getByRole("link", { name: "Retain refused discard. Draft, Project relay" }),
     ).toBeTruthy();
-    if (refusal === "final row and rollback") {
-      expect((await screen.findByLabelText("Saved message")).textContent).toBe(
-        "Retain refused discard",
-      );
-      expect(screen.getByRole("list", { name: "Saved attachments" }).textContent).toBe(
-        "retained.txt",
-      );
-    } else {
-      expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
-        "Retain refused discard",
-      );
-      expect(screen.getByRole("button", { name: "Remove retained.txt" })).toBeTruthy();
-    }
+    // The editor keeps the prompt and its file; when even the rollback was refused, this page
+    // holds the only editable copy and says so.
+    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+      "Retain refused discard",
+    );
+    expect(screen.getByRole("button", { name: "Remove retained.txt" })).toBeTruthy();
+    if (refusal === "final row and rollback")
+      expect(
+        screen.getByText(/^Couldn't save this preparation on this device\. Keep this page open/),
+      ).toBeTruthy();
     // Reload after storage becomes writable. The same daemon must still own the original file.
     cleanup();
     fail = false;

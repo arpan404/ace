@@ -58,6 +58,8 @@ test("completed rows announce unread results and retain full status after markin
     screen.getByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: "Settle" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
+  // Settled was left open above, so the settled row shows there at once.
+  const settled = await screen.findByRole("button", { name: "Settled (1)" });
+  expect(settled.getAttribute("aria-expanded")).toBe("true");
   await waitFor(() => expect(card(done).getAttribute("aria-label")).not.toContain(", unread"));
 });

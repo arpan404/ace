@@ -6,7 +6,12 @@ import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { writeDraft } from "@/features/thread/index.ts";
 import { saveChoices } from "./choices.ts";
-import { chooseModel, closeModelControl } from "@/test/model-control.ts";
+import {
+  chooseEffortLevel,
+  chooseModel,
+  closeModelControl,
+  openEffortControl,
+} from "@/test/model-control.ts";
 
 function app(storage = memoryKeyValue()) {
   const made = harness({ storage });
@@ -27,20 +32,12 @@ test("text and settings preparations in two projects reopen independently after 
   await first.open("/new?project=relay");
   await userEvent.type(await message(), "Investigate relay reconnects");
   await chooseModel("GPT-5 Codex", "Codex");
-  await userEvent.click(
-    within(await screen.findByRole("dialog", { name: "Model and effort" })).getByRole("button", {
-      name: "High",
-    }),
-  );
+  await chooseEffortLevel(await openEffortControl(), "High");
   await closeModelControl();
   await project("billing-api");
   await userEvent.type(await message(), "Check billing retries");
   await chooseModel("GPT-5 Codex", "Codex");
-  await userEvent.click(
-    within(await screen.findByRole("dialog", { name: "Model and effort" })).getByRole("button", {
-      name: "Low",
-    }),
-  );
+  await chooseEffortLevel(await openEffortControl(), "Low");
   await closeModelControl();
   await waitFor(() =>
     expect(
@@ -215,6 +212,8 @@ test("typing before model discovery pins the settings shown when discovery finis
   await userEvent.type(await message(), "Typed before discovery");
   await screen.findByRole("link", { name: "Typed before discovery. Draft, Project relay" });
   made.daemon.restoreRequests();
+  // Discovery finishing: the daemon announces a changed catalog, and the page reads it again.
+  await made.client.request({ type: "models.refresh", filter: {} });
   const shown = await screen.findByRole("button", { name: /^Model: GPT-6\.1 Sol/ });
   const settingsShown = shown.getAttribute("aria-label");
   if (!settingsShown) throw new Error("model settings were not shown");

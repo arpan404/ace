@@ -12,6 +12,8 @@ beforeEach(() => localStorage.clear());
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 const offline = /^Offline/;
+/** The header's notice; an activity card can also say "Offline" about its own connection. */
+const inHeader = { selector: "header *" };
 
 async function openHome() {
   const app = harness();
@@ -24,7 +26,7 @@ async function openHome() {
 test("offline, the inline notice counts and lists waiting actions and offers Retry", async () => {
   const app = await openHome();
   app.client.networkOnline(false);
-  expect((await screen.findByText(offline)).textContent).not.toContain("waiting");
+  expect((await screen.findByText(offline, inHeader)).textContent).not.toContain("waiting");
 
   // A message and an archive made while offline wait for the daemon.
   void app.client.command({
@@ -49,7 +51,7 @@ test("offline, the inline notice counts and lists waiting actions and offers Ret
 
   // Back online, both go out and the notice leaves.
   app.client.networkOnline(true);
-  await waitFor(() => expect(screen.queryByText(offline)).toBeNull());
+  await waitFor(() => expect(screen.queryByText(offline, inHeader)).toBeNull());
   await waitFor(() => {
     const view = app.daemon.snapshot({ kind: "threads" });
     expect(view?.kind === "threads" && view.threads["thread-fan-out"]?.archivedAt).toBeTruthy();
@@ -59,7 +61,7 @@ test("offline, the inline notice counts and lists waiting actions and offers Ret
 test("offline, the project's Add action explains why it is unavailable and works after reconnect", async () => {
   const app = await openHome();
   app.client.networkOnline(false);
-  await screen.findByText(offline);
+  await screen.findByText(offline, inHeader);
   await userEvent.click(screen.getByRole("button", { name: /^Project filter:/ }));
   const add = await screen.findByRole("menuitem", { name: /^Add project/ });
   expect(add.getAttribute("aria-disabled")).toBe("true");
