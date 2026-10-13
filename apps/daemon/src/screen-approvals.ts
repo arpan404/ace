@@ -71,12 +71,8 @@ export class ScreenApprovals {
   async request(bundleId: string, reason: string, caller: ScreenAgentScope, signal: AbortSignal) {
     if (!this.options.grants.enabled())
       throw new ScreenApprovalError("screen_disabled", "Screen access is disabled");
-    if (browserApp(bundleId) && !this.options.grants.allows(bundleId, caller))
-      throw new ScreenApprovalError(
-        "approval_required",
-        "Web browsers must be granted by the person from ace's UI; use ace_browser_open for websites",
-      );
     if (!sensitiveApp(bundleId) && this.options.grants.allows(bundleId, caller)) return;
+    // Browsers ask like any app; the person's answer can't be Always (ScreenGrants refuses it).
     await this.ask("app", bundleId, reason, caller, signal);
   }
   async device(deviceId: string, name: string, caller: ScreenAgentScope, signal: AbortSignal) {

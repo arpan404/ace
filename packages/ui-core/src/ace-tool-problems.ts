@@ -105,6 +105,11 @@ const screen: Record<string, Wording> = {
     title: `${app} isn't approved yet`,
     hint: "Allow it when the agent asks.",
   }),
+  screen_approval_required: (app) => ({
+    title: `${app} isn't approved yet`,
+    hint: "Allow it when the agent asks.",
+  }),
+  screen_approval_denied: (app) => ({ title: `You didn't allow ${app}` }),
   denied: (app) => ({ title: `You didn't allow ${app}` }),
   screen_disabled: () => ({
     title: "Computer use is off",

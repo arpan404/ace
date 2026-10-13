@@ -97,6 +97,8 @@ const texts = (value: unknown) =>
 
 interface ToolCopy {
   title: string;
+  /** The card's question, when it differs from the title ("Allow Claude to control Safari?"). */
+  heading?: string | undefined;
   app?: string | undefined;
   bundleId?: string | undefined;
   reason?: string | undefined;
@@ -108,12 +110,17 @@ interface ToolCopy {
   labels?: Partial<Record<string, string>>;
 }
 
-function screenApp(input: Record<string, unknown>, description: string | undefined): ToolCopy {
+function screenApp(
+  input: Record<string, unknown>,
+  description: string | undefined,
+  agent: string | undefined,
+): ToolCopy {
   const bundleId = text(input["bundleId"]) ?? "";
   const name = appName(bundleId);
   const sensitive = alwaysAsks(bundleId);
   return {
     title: `Let an agent use ${name}`,
+    heading: `Allow ${agent ?? "the agent"} to control ${name}?`,
     app: name,
     bundleId,
     reason: description,
@@ -208,13 +215,13 @@ function browserUpload(input: Record<string, unknown>): ToolCopy {
   };
 }
 
-function toolCopy(request: ApprovalRequest): ToolCopy | undefined {
+function toolCopy(request: ApprovalRequest, agent: string | undefined): ToolCopy | undefined {
   const target = request.target;
   if (target?.origin !== "ace" && !target?.tool.startsWith("screen_")) return undefined;
   const input = record(target?.input);
   switch (target?.tool) {
     case "screen_request_app":
-      return screenApp(input, request.description);
+      return screenApp(input, request.description, agent);
     case "screen_request_foreground":
       return screenForeground(input, request.description);
     case "browser.evaluate":
@@ -331,9 +338,11 @@ export function approvalCopy(
     command?: string | undefined;
     /** ace's review, whose reason is the card's when the request gives none. */
     review?: Pick<PermissionReview, "reason" | "decision"> | undefined;
+    /** Who asks, by name ("Claude"), for a heading that names them. */
+    agent?: string | undefined;
   } = {},
 ): ApprovalCopy {
-  const copy = toolCopy(request);
+  const copy = toolCopy(request, context.agent);
   const defaultToNo = request.defaultToNo === true;
   const options = copy ? request.options : offeredOptions(request.options, context.mode).options;
   const target = request.target?.command;
@@ -344,7 +353,7 @@ export function approvalCopy(
   return {
     tool: copy ? request.target?.tool : undefined,
     title,
-    heading: copy ? title : heading(title, command),
+    heading: copy ? (copy.heading ?? title) : heading(title, command),
     command,
     app: copy?.app,
     bundleId: copy?.bundleId,

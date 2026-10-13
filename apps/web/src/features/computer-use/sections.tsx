@@ -162,9 +162,9 @@ export function ApprovedApps(props: { use: ComputerUse; threadId?: string | unde
   const grants = read?.grants;
   if (grants === undefined) return null;
   const rows = grantRows(grants);
-  const picker = threadId ? (
+  const picker = (
     <ApproveApp use={use} threadId={threadId} onApproved={() => setVersion((value) => value + 1)} />
-  ) : null;
+  );
   if (rows.length === 0)
     return (
       <>

@@ -359,4 +359,4 @@ export function permissionsReading(input: {
   return { state: "checking" };
 }
 
-export { alwaysAsks, appName } from "./app-names.ts";
+export { alwaysAsks, appName, threadOnly } from "./app-names.ts";

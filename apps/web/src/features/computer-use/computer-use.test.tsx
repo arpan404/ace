@@ -305,7 +305,7 @@ test("a person grants Safari's native UI for one thread from Computer use, then 
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   const tools = await within(panel).findByRole("list", { name: "Tools" });
   await userEvent.click(within(tools).getByRole("button", { name: /^Computer use/ }));
-  await userEvent.click(await within(panel).findByRole("button", { name: "Approve an app" }));
+  await userEvent.click(await within(panel).findByRole("button", { name: "Add an app" }));
   await userEvent.click(await within(panel).findByRole("combobox", { name: "App to approve" }));
   await userEvent.click(await screen.findByRole("option", { name: "Safari" }));
   expect(within(panel).queryByRole("button", { name: /Always/ })).toBeNull();

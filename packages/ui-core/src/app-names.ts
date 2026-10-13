@@ -1,4 +1,4 @@
-import { sensitiveApp } from "@ace/screen/sensitive-app";
+import { browserApp, sensitiveApp } from "@ace/screen/sensitive-app";
 
 /*
  * What people call a macOS app, from its bundle id. Computer-use approvals, grants and live
@@ -44,4 +44,9 @@ export function appName(bundleId: string): string {
  */
 export function alwaysAsks(bundleId: string): boolean {
   return sensitiveApp(bundleId);
+}
+
+/** Web browsers: allowed for a thread at most, never always. The same rule the daemon applies. */
+export function threadOnly(bundleId: string): boolean {
+  return browserApp(bundleId);
 }

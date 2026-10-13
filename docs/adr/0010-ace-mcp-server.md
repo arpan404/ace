@@ -136,7 +136,7 @@ enter the plugin or its readiness RPC.
 
 ## Amendment: native guidance and changing availability (2026-10-07)
 
-Capabilities on a lease are an immutable ceiling. Runtime enablement, read-only thread mode and app grants further restrict both discovery and execution. Disabled screen/device groups are absent; enabled screen initially exposes only `screen_request_app`. `ace_status` explains unavailable groups. Browser computer use requires a person's turn/thread grant in ace's UI, never an Always grant or an agent-initiated approval.
+Capabilities on a lease are an immutable ceiling. Runtime enablement, read-only thread mode and app grants further restrict both discovery and execution. Disabled screen/device groups are absent; enabled screen initially exposes only `screen_request_app`. `ace_status` explains unavailable groups. Browser computer use needs a person's turn or thread grant, never an Always grant. An agent's `screen_request_app` for a browser opens the same approval in the thread as any app (Allow once, Allow for this thread, Deny) and waits for the answer.
 
 Deliver guidance through each provider's native instruction mechanism. Codex opts out of MCP discovery instructions with `X-Ace-Instructions: native` because it otherwise prefixes every tool description. Cursor loads an always-applied rule from a private temporary additional workspace rather than replacing its system prompt. ACP has no portable system-instruction field, so its native prompt carries labeled guidance context.
 

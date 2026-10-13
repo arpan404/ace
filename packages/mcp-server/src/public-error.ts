@@ -5,6 +5,7 @@ import { z } from "zod";
 // never become this catalog. Only intentional failures can cross the MCP boundary.
 export const PublicToolCode = z.enum([
   "screen_disabled",
+  "screen_approval_required",
   "screen_approval_denied",
   "screen_approval_timeout",
   "screen_read_only",
@@ -71,6 +72,10 @@ const candidateIds = z
   .max(128);
 const dispatchPhase = z.enum(["rejected-before-dispatch", "dispatched", "partial"]);
 const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
+  screen_approval_required: {
+    message: "App requires approval",
+    hint: "Call screen_request_app with this app's bundle id and a reason; it waits for the person to decide.",
+  },
   screen_approval_denied: {
     message: "Screen access approval denied",
     hint: "Ask the person to approve this app or screen mode before retrying.",

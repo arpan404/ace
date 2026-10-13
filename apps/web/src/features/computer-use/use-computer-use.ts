@@ -142,9 +142,12 @@ export function useComputerUse() {
       ),
     stop: (sessionId: string) =>
       run({ op: "stop", sessionId }, { failure: "Couldn't stop it", sessionId }),
-    approveApp: (bundleId: string, threadId: string) =>
+    /** For one thread, or always (for every thread) without one. */
+    approveApp: (bundleId: string, threadId?: string) =>
       run(
-        { op: "approve", bundleId, allowed: true, scope: "thread", threadId },
+        threadId
+          ? { op: "approve", bundleId, allowed: true, scope: "thread", threadId }
+          : { op: "approve", bundleId, allowed: true, scope: "always" },
         { failure: "Couldn't approve this app" },
       ),
     revoke: (grant: Pick<ScreenGrant, "bundleId" | "scope" | "threadId">) =>
