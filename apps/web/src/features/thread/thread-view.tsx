@@ -21,10 +21,14 @@ import { useLatestForkPoint } from "./transitions/use-fork-point.ts";
 
 const ThreadBrowser = lazy(loadThreadBrowser);
 
-// Loaded on first open, off the route's first paint.
-const PendingThreadView = lazy(() =>
-  import("./pending-thread.tsx").then((m) => ({ default: m.PendingThreadView })),
+/**
+ * A thread being started, off the thread route's first paint. New thread warms it as it opens
+ * and waits for it before it moves here, so the move never shows an empty pane.
+ */
+const DeferredPendingThread = deferredComponent(() =>
+  import("./pending-thread.tsx").then((m) => m.PendingThreadView),
 );
+export const preloadPendingThread = DeferredPendingThread.preload;
 const AttachmentsSheet = lazy(() =>
   import("./attachments-sheet.tsx").then((module) => ({ default: module.AttachmentsSheet })),
 );
@@ -39,6 +43,7 @@ import { useLayout } from "@/lib/layout.tsx";
 import { findInThread } from "./long/nav-keys.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
 import { whenIdle } from "@/lib/idle.ts";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import {
   DeferredThreadHotkeys,
   DeferredThreadMenu,
@@ -68,7 +73,7 @@ function PendingThread(props: { threadId: string }) {
   const commandId = props.threadId.slice("pending:".length);
   return (
     <Suspense fallback={null}>
-      <PendingThreadView
+      <DeferredPendingThread.Component
         threadId={props.threadId}
         parts={{
           column: readingColumn,

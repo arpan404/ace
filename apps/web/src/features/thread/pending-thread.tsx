@@ -139,7 +139,8 @@ export function PendingThreadView(props: {
             )}
           </div>
         </div>
-        {isWorktreeCreate(payload) && (
+        {/* The composer stays where New thread had it from Enter until the thread opens. */}
+        {isCreate(payload) && (
           <PendingComposer
             thread={{
               id: payload.context?.draftId ?? "",
@@ -154,6 +155,7 @@ export function PendingThreadView(props: {
             model={payload.model}
             options={payload.options}
             permission={payload.permissionMode}
+            worktree={isWorktreeCreate(payload)}
             progress={progress}
           />
         )}
@@ -162,10 +164,15 @@ export function PendingThreadView(props: {
   );
 }
 
+const isCreate = (
+  payload: PendingSend["payload"] | undefined,
+): payload is Extract<PendingSend["payload"], { type: "thread.create" }> =>
+  payload?.type === "thread.create";
+
 const isWorktreeCreate = (
   payload: PendingSend["payload"] | undefined,
 ): payload is Extract<PendingSend["payload"], { type: "thread.create" }> =>
-  payload?.type === "thread.create" && payload.mode === "worktree";
+  isCreate(payload) && payload.mode === "worktree";
 
 const never = async () => false;
 
@@ -180,6 +187,7 @@ function PendingComposer({
   model,
   options,
   permission,
+  worktree,
   progress,
 }: {
   thread: ThreadRef;
@@ -188,6 +196,8 @@ function PendingComposer({
   model: string | undefined;
   options: Readonly<Record<string, unknown>> | undefined;
   permission: PermissionMode | undefined;
+  /** The thread starts in a worktree being made: the strip says how far it got. */
+  worktree: boolean;
   progress: WorktreeCreationProgress | undefined;
 }) {
   const reason = useId();
@@ -227,6 +237,7 @@ function PendingComposer({
         }
         environment={
           // Only while the worktree is made: once it stops, its card above says how it ended.
+          worktree &&
           (!progress || progress.state === "running" || progress.state === "cancelling") && (
             <section aria-label="Environment" className={environmentSurface}>
               <div className={environmentRow}>
@@ -238,7 +249,11 @@ function PendingComposer({
             </section>
           )
         }
-        placeholder="Draft your next message while the worktree is prepared"
+        placeholder={
+          worktree
+            ? "Draft your next message while the worktree is prepared"
+            : "Draft your next message while the thread starts"
+        }
         shortPlaceholder="Draft your next message"
         sendBlocked={{
           reason: "The thread is still starting",

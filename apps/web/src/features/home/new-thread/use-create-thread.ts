@@ -8,10 +8,15 @@ import {
   type PermissionMode,
   type WorktreeBase,
 } from "@ace/protocol";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { baseName, provisionalTitle } from "@ace/ui-core";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { rememberTitle, sameSubmittedDraft, type SubmittedDraft } from "@/features/thread/index.ts";
+import {
+  preloadPendingThread,
+  rememberTitle,
+  sameSubmittedDraft,
+  type SubmittedDraft,
+} from "@/features/thread/index.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { withBrowserLock } from "@/boot/web-locks.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
@@ -123,6 +128,12 @@ export function useCreateThread(
       mounted.current = false;
     };
   }, []);
+  // The thread route and its pending view load with New thread, so Enter moves there in place.
+  const router = useRouter();
+  useEffect(() => {
+    void preloadPendingThread().catch(() => {});
+    void router.loadRouteChunk(router.routesById["/_home/t/$threadId"])?.catch(() => {});
+  }, [router]);
   const flight = useRef<{ payload: SubmittedDraft; promise: Promise<boolean> } | undefined>(
     undefined,
   );
@@ -172,6 +183,8 @@ export function useCreateThread(
         void settleCreateAttempt(client, storage, recoveryKey, attempt).catch(() => {
           /* Reconnect recovers the saved payload under its original ID. */
         });
+        // Its view drawn at once on arrival: no empty frame between New thread and the thread.
+        await preloadPendingThread().catch(() => {});
         if (mounted.current && canNavigate?.() !== false)
           void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
         return sameSubmittedDraft(requested, attempt.payload);

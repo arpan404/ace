@@ -9,6 +9,7 @@ import {
   Composer,
   PermissionPicker,
   preloadComposerParts,
+  readingColumn,
   rememberAttachments,
   readDraft,
   writeDraft,
@@ -661,9 +662,11 @@ function PreparationPage(props: {
     <Screen title="New thread">
       <div
         ref={page}
-        className="flex h-full min-h-0 flex-col overflow-y-auto px-5 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-8"
+        className="flex h-full min-h-0 flex-col overflow-y-auto pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]"
       >
-        <div className="mx-auto flex h-full min-h-0 w-full max-w-(--column) flex-col">
+        {/* The thread's reading column: the composer keeps its place and width when Enter
+            opens the thread. */}
+        <div className={cn(readingColumn, "flex h-full min-h-0 flex-col")}>
           <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto text-center">
             <div className="my-auto shrink-0 py-8">
               <div
