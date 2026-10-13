@@ -1,4 +1,6 @@
+import { useId, type ReactNode } from "react";
 import { AccentPicker } from "./accent-picker.tsx";
+import { ModePicker } from "./mode-picker.tsx";
 import { ThemeChooser } from "./theme-chooser.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
@@ -7,18 +9,12 @@ import {
   TranscriptSize,
   transcriptSizes,
   type Density,
-  type Mode,
   type ReduceMotion,
   type SurfaceSetting,
 } from "@/theme/appearance.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
-import { settingRow } from "./settings-index.ts";
+import { settingRow, type SettingId } from "./settings-index.ts";
 
-const modeOptions: { value: Mode; label: string }[] = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-  { value: "system", label: "System" },
-];
 const surfaceOptions: { value: SurfaceSetting; label: string }[] = [
   { value: "translucent", label: "Translucent" },
   { value: "solid", label: "Solid" },
@@ -37,27 +33,34 @@ const sizeOptions = TranscriptSize.options.map((value) => ({
   label: transcriptSizes[value].label,
 }));
 
+/** A titled group of picker cards, outside the row cards; its id is the settings deep link. */
+function PickerGroup(props: { id: SettingId; children: ReactNode }) {
+  const titleId = useId();
+  return (
+    <section id={props.id} aria-labelledby={titleId} className="mt-8 flex flex-col gap-3">
+      <h3 id={titleId} className="px-1 text-ui font-medium text-foreground">
+        {settingRow(props.id).title}
+      </h3>
+      {props.children}
+    </section>
+  );
+}
+
 /** Mode, theme, surfaces, motion, density and transcript size. Every change applies at once. */
 export function AppearanceSettings() {
   const { appearance, update, systemReducesTransparency } = useTheme();
   return (
     <>
-      <SettingSection label="Look" card scope="device">
-        <SettingRow {...settingRow("appearance.mode")}>
-          <SegmentedControl
-            label="Mode"
-            value={appearance.mode}
-            options={modeOptions}
-            onValueChange={(mode) => update({ mode })}
-          />
-        </SettingRow>
-        <div data-setting-slot="" id="appearance.theme" className="flex flex-col gap-3 px-4 py-3.5">
-          <div className="text-ui font-medium">{settingRow("appearance.theme").title}</div>
-          <ThemeChooser />
-        </div>
-        <SettingRow {...settingRow("appearance.accent")}>
-          <AccentPicker />
-        </SettingRow>
+      <PickerGroup id="appearance.mode">
+        <ModePicker />
+      </PickerGroup>
+      <PickerGroup id="appearance.theme">
+        <ThemeChooser />
+      </PickerGroup>
+      <PickerGroup id="appearance.accent">
+        <AccentPicker />
+      </PickerGroup>
+      <SettingSection label="Display" card scope="device">
         <SettingRow
           {...settingRow("appearance.surfaces")}
           description={
@@ -81,8 +84,6 @@ export function AppearanceSettings() {
             onValueChange={(reduceMotion) => update({ reduceMotion })}
           />
         </SettingRow>
-      </SettingSection>
-      <SettingSection label="Display" card scope="device">
         <SettingRow
           {...settingRow("appearance.density")}
           description="Spacing in settings, lists and details."
