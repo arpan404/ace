@@ -70,11 +70,9 @@
         border-radius: 30%;
         background: var(--foreground, #f0f0f0);
         color: var(--background, #0d0d0d);
-        /* A slow breath while ace starts (fx-breathe in styles/motion.css carries it on). */
+        /* A slow breath while ace starts, under reduced motion too (opacity only; fx-breathe in
+           styles/motion.css carries it on). */
         animation: boot-breathe 1.6s ease-in-out infinite alternate;
-      }
-      html[data-reduce-motion] #boot .mark {
-        animation: none;
       }
       @keyframes boot-breathe {
         to {

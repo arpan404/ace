@@ -7,8 +7,8 @@ import { packagedPolicy } from "./csp.ts";
 /*
  * The packaged window's first paint: the web app's real index.html under the policy the packaged
  * renderer serves it with. Its inline boot script sets the theme and motion attributes before the
- * app loads, so a policy whose hash no longer matches the file would freeze the boot mark and drop
- * the Reduce motion setting.
+ * app loads, so a policy whose hash no longer matches the file would drop the Reduce motion
+ * setting.
  */
 
 let server: Server;
@@ -81,13 +81,14 @@ it("the boot script runs under the packaged policy and the mark breathes when th
   expect(shown.animations).toBeGreaterThan(0);
 });
 
-it("the boot mark holds still when the OS asks for reduced motion under System", async () => {
+it("the boot mark keeps breathing while ace starts when the OS asks for reduced motion", async () => {
+  // Reduced motion drops movement, not the sign that ace is starting: the breath is opacity only.
   const shown = await firstPaint({ reducedMotion: "reduce" });
   expect(shown.reduced).toBe(true);
-  expect(shown.animations).toBe(0);
+  expect(shown.animations).toBeGreaterThan(0);
 });
 
-it("Reduce motion Off keeps the boot mark moving even when the OS asks for reduced motion", async () => {
+it("Reduce motion Off overrides the OS asking for reduced motion at first paint", async () => {
   const shown = await firstPaint({
     reducedMotion: "reduce",
     stored: { css: "", theme: "ace", reduceMotion: "off" },

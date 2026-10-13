@@ -83,7 +83,7 @@ const themeAnimations = () =>
 const animationOf = (body: string) =>
   /(?:^|;)\s*animation(?:-name)?:([^;]+)/.exec(body)?.[1]?.replace("!important", "");
 const reducedOnly = (selector: string) =>
-  selector.includes("data-reduce-motion") || selector.includes("data-connection");
+  selector.includes("data-reduce-motion") || selector.includes("data-live-held");
 
 /** Every `animate-<name>` utility class written in the app's runtime source. */
 function animateUtilities(): string[] {
@@ -114,6 +114,28 @@ test("every animation the production stylesheet plays has its keyframes", () => 
       .map((name) => `${rule.selector}: ${name}`);
   });
   expect(missing).toEqual([]);
+});
+
+test("reduced motion keeps every live indicator animating, so loading never looks hung", () => {
+  const live = [
+    "spin-ring",
+    "fx-spin-slow",
+    "fx-walk",
+    "fx-breathe",
+    "fx-indeterminate",
+    "animate-pulse",
+  ];
+  const defined = keyframes();
+  const theme = themeAnimations();
+  const stopped = rules().flatMap(({ selector, body }) => {
+    const value = animationOf(body);
+    if (value === undefined || !selector.includes("data-reduce-motion")) return [];
+    if (namesIn(value, theme).some((name) => defined.has(name))) return [];
+    return live
+      .filter((name) => new RegExp(`\\.${name}(?![\\w-])`).test(selector))
+      .map((name) => `.${name} stops under ${selector}`);
+  });
+  expect(stopped).toEqual([]);
 });
 
 test("live indicators and every animate-* utility the app uses animate unless motion is reduced", () => {

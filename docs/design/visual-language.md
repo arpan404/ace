@@ -246,7 +246,10 @@ Animate only `transform` and `opacity`. JS timers read `motionMs` from `@ace/ui-
 Only live-activity indicators run forever: the spinner, the working glyph's walk, the sidebar's
 dashed working mark, the startup mark's breath, the indeterminate progress sweep and Tailwind's
 `animate-pulse`. Each shows work happening right now and goes away when it ends. They move only
-transform or opacity, pause while the daemon is unreachable and hold still under reduced motion.
+transform or opacity and pause and dim only while the daemon is unreachable (reconnecting,
+offline or failed), never while it connects or starts. They keep running under reduced motion, as
+macOS keeps its own activity indicators: a still spinner reads as a hung app. The progress sweep,
+the one that travels, breathes in place instead.
 `bun run check:ui` refuses any other `infinite` animation, and `apps/web/motion-css.test.ts`
 builds the stylesheet to check every animation it names has keyframes.
 
@@ -255,6 +258,7 @@ On, or when it's System and the OS prefers reduced motion. Under it:
 
 - Fades stay. Distances (`--rise`, `--slide`) become 0, `--ease-spring` falls back to `--ease-out`,
   and Base UI popups don't scale.
+- Live activity indicators keep running (see above).
 - Anything marked `.fx-flourish` stops. Use it for sheens, glows and trails such as the Ultra
   effort sheen.
 - Fixed slides opt out with `motion-reduce:` utilities. For example, sheets don't slide in from

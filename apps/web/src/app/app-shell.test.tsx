@@ -77,6 +77,21 @@ test.each(["trigger", "item"])(
   },
 );
 
+const shell = () => document.querySelector("[data-connection]");
+
+test("live spinners keep moving while connected and hold still only while the daemon is unreachable", async () => {
+  const app = harness();
+  await app.open("/new");
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
+  await waitFor(() => expect(shell()?.getAttribute("data-connection")).toBe("ready"));
+  expect(shell()?.hasAttribute("data-live-held")).toBe(false);
+  act(() => app.daemon.refuseConnections(true));
+  await waitFor(() => expect(shell()?.hasAttribute("data-live-held")).toBe(true));
+  act(() => app.daemon.refuseConnections(false));
+  await waitFor(() => expect(shell()?.getAttribute("data-connection")).toBe("ready"));
+  expect(shell()?.hasAttribute("data-live-held")).toBe(false);
+});
+
 test("a control clicked before the new view's title settles keeps focus", async () => {
   await harness().open("/new");
   await screen.findByRole("heading", { level: 1, name: "New thread" });

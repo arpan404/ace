@@ -101,7 +101,8 @@ for controls floating above content, never for content, and never glass on glass
   `--motion-exit` (140ms).
 - Curves: `--ease-out`, a `linear()` spring `--ease-spring`, `--ease-sheet` and `--ease-exit`.
 - Reduce motion is System, On or Off. It sets `data-reduce-motion` on `<html>`, which keeps fades
-  and drops movement, scaling and flourishes.
+  and drops movement, scaling and flourishes. Live activity indicators (spinners, the working
+  glyph, pulses) keep running under it; the progress sweep breathes in place.
 - The static motion policy (`bun run check:ui`, which refuses perpetual animations) is unchanged.
 
 ### First paint
