@@ -180,3 +180,49 @@ test("a frame decoded after its preview owner retires is released without being 
   await waitFor(() => expect(releases).toBe(1));
   expect(preview.frame("thread-settings")).toBeUndefined();
 });
+
+test("a watched thread lists its detected dev servers and follows the daemon's pushed changes", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  new ScenarioPlayer(daemon, failingSubagent()).step();
+  const client = fakeClient(daemon);
+  await client.start();
+  await waitFor(() => expect(client.state).toBe("ready"));
+  const preview = daemonPreview(client, { schedule: manualTimers().schedule, visibility: page() });
+  let changes = 0;
+  preview.subscribe(() => changes++, "thread-settings");
+  const stop = preview.watch("thread-settings");
+  await waitFor(() =>
+    expect(preview.suggestions("thread-settings").map((server) => server.title)).toEqual([
+      "Vite + React + TS",
+      "Next.js",
+    ]),
+  );
+  expect(preview.suggestions("thread-settings")[0]).toMatchObject({
+    url: "http://localhost:5173/",
+    source: "terminal",
+  });
+
+  const before = changes;
+  // A source this client doesn't know still decodes, as a found listener.
+  daemon.services.pushPreviewSuggestions("thread-settings", [
+    { port: 4321, url: "http://localhost:4321/", title: "Astro", source: "a-newer-source" },
+  ]);
+  await waitFor(() =>
+    expect(preview.suggestions("thread-settings")).toEqual([
+      {
+        port: 4321,
+        url: "http://localhost:4321/",
+        title: "Astro",
+        iconUrl: undefined,
+        source: "listener",
+      },
+    ]),
+  );
+  expect(changes).toBeGreaterThan(before);
+  // Another thread's push changes nothing here.
+  daemon.services.pushPreviewSuggestions("thread-other", []);
+  await client.request({ type: "browser.origins.list", threadId: "thread-settings" });
+  expect(preview.suggestions("thread-settings").map((server) => server.port)).toEqual([4321]);
+  stop();
+  preview.dispose();
+});

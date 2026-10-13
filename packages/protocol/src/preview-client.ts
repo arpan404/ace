@@ -1,13 +1,20 @@
 import { z } from "zod";
 import { ThreadId } from "./ids.ts";
-import { PreviewDescriptor, PreviewPort } from "./preview.ts";
+import { PreviewDescriptor, PreviewPort, PreviewSuggestion } from "./preview.ts";
 const id = z.string().min(1).max(128);
 export const PreviewRequest = z.object({
   type: z.literal("preview.request"),
   requestId: id,
   threadId: ThreadId,
   operation: z.discriminatedUnion("op", [
-    z.object({ op: z.literal("list") }),
+    z.object({
+      op: z.literal("list"),
+      /**
+       * Also report the thread's detected dev servers, and push `preview.suggestions` to this
+       * connection when they change for a while after (each list renews that).
+       */
+      suggestions: z.boolean().optional(),
+    }),
     z.object({ op: z.literal("forward"), port: PreviewPort }),
     z.object({ op: z.literal("unforward"), port: PreviewPort }),
     /** A single-use sign-in link for a port this thread previews (needs `operate`). */
@@ -43,9 +50,21 @@ export const PreviewResult = z.object({
   error: z.string().max(128).optional(),
   previews: z.array(PreviewDescriptor).max(64).optional(),
   link: PreviewLink.optional(),
+  /** Detected dev servers, on a `list` that asked for them. */
+  suggestions: z.array(PreviewSuggestion).max(64).optional(),
+});
+/**
+ * A thread's detected dev servers changed: the full current list. Sent only to a connection
+ * whose recent `list` asked for suggestions for that thread.
+ */
+export const PreviewSuggestions = z.object({
+  type: z.literal("preview.suggestions"),
+  threadId: ThreadId,
+  suggestions: z.array(PreviewSuggestion).max(64),
 });
 
 export type PreviewRequest = z.infer<typeof PreviewRequest>;
 export type PreviewResult = z.infer<typeof PreviewResult>;
+export type PreviewSuggestions = z.infer<typeof PreviewSuggestions>;
 export type PreviewLink = z.infer<typeof PreviewLink>;
 export type PreviewErrorCode = z.infer<typeof PreviewErrorCode>;

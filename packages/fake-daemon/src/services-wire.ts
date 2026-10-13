@@ -24,6 +24,7 @@ import { FakeContextWire } from "./context-wire.ts";
 import { FakeWorkspaceWire } from "./workspace-wire.ts";
 import { FakeAutomationWire, type AutomationSeed } from "./automation-wire.ts";
 import { FakePluginsWire, type PluginSeed } from "./plugins-wire.ts";
+import { fakePreviewSuggestions } from "./preview-suggestions.ts";
 import type { FakeServiceContext, FakeWireSession } from "./service-context.ts";
 export type { FakeWireSession } from "./service-context.ts";
 import type { FakeSettings } from "./services/settings.ts";
@@ -522,6 +523,9 @@ export class FakeServicesWire {
               requestId: message.requestId,
               ok: true,
               previews: [...this.browser.servers(message.threadId)],
+              ...(op.op === "list" && op.suggestions
+                ? { suggestions: fakePreviewSuggestions() }
+                : {}),
             });
             return;
           }

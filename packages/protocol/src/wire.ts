@@ -63,7 +63,7 @@ import {
   MachinesRequest,
   MachinesResult,
 } from "./machines.ts";
-import { PreviewRequest, PreviewResult } from "./preview-client.ts";
+import { PreviewRequest, PreviewResult, PreviewSuggestions } from "./preview-client.ts";
 import { AutomationRequest, AutomationResponse } from "./automations.ts";
 import {
   TerminalRequest,
@@ -279,6 +279,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   OnboardingResult,
   ProvidersChanged,
   PreviewResult,
+  PreviewSuggestions,
   AutomationResponse,
   ActivityReadsResult,
   ActivityReadsChanged,

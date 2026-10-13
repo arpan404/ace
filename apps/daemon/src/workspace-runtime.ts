@@ -79,6 +79,7 @@ export class WorkspaceRuntime {
   private manager: TerminalManager;
   private terminals = new Map<string, { threadId: ThreadId; terminal: Terminal }>();
   private pendingOpens = 0;
+  private opened = new Set<(threadId: ThreadId, terminalId: string) => void>();
   private terminalId: () => string;
   private writing = new Set<AbortController>();
   constructor(
@@ -153,6 +154,11 @@ export class WorkspaceRuntime {
       .filter(([, entry]) => entry.threadId === id)
       .map(([key]) => this.describe(key, id));
   }
+  /** Hear about every terminal opened from now on (actions and scripts included). */
+  onTerminalOpened(listener: (threadId: ThreadId, terminalId: string) => void): () => void {
+    this.opened.add(listener);
+    return () => this.opened.delete(listener);
+  }
   hasOwnedWork(id: ThreadId): boolean {
     return this.liveTerminalCount(id) > 0;
   }
@@ -204,6 +210,12 @@ export class WorkspaceRuntime {
       const terminal = this.manager.openTerminal({ cwd: this.root(threadId), name, cols, rows });
       const id = `terminal-${this.terminalId()}`;
       this.terminals.set(id, { threadId, terminal });
+      for (const listener of this.opened)
+        try {
+          listener(threadId, id);
+        } catch {
+          // A watcher's failure never fails the terminal.
+        }
       return id;
     } finally {
       this.pendingOpens--;

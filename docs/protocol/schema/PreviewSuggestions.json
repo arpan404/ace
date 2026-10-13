@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/PreviewSuggestions.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "suggestions": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PreviewSuggestion.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "preview.suggestions",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "threadId",
+    "suggestions"
+  ],
+  "type": "object"
+}

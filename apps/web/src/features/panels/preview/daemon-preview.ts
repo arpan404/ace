@@ -21,6 +21,7 @@ import { schedule as defaultSchedule, type Schedule } from "../schedule.ts";
 import { documentVisibility, type PageVisibility } from "@/lib/page-visibility.ts";
 import { decodeFrame, type FrameDecoder } from "./frames.ts";
 import { previewControl } from "./preview-control.ts";
+import { SuggestionStore } from "./preview-suggestions.ts";
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
 const retryMs = 5_000;
@@ -122,6 +123,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   const views = new Map<string, BrowserView>();
   const frames = new Map<string, Shown>();
   const servers = new Map<string, readonly PreviewServer[]>();
+  const suggestions = new SuggestionStore();
   const watches = new Map<string, Watch>();
   /** Threads no view shows any more, oldest first; their state goes past `keptThreads`. */
   const unwatched = new Set<string>();
@@ -143,6 +145,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     frames.delete(threadId);
     views.delete(threadId);
     servers.delete(threadId);
+    suggestions.delete(threadId);
   };
   const invalidate = (threadId: string, watch: Watch) => {
     watch.generation++;
@@ -177,7 +180,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   });
   const previews = async (
     threadId: string,
-    operation: { op: "list" } | { op: "forward" | "unforward"; port: number },
+    operation: { op: "list"; suggestions: true } | { op: "forward" | "unforward"; port: number },
   ) => {
     const reply = await request({
       type: "preview.request",
@@ -190,12 +193,17 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       gateway = available;
       changed();
     }
+    const kept = watches.has(threadId) || unwatched.has(threadId);
+    // Detection doesn't need the gateway, so a refusal can still carry the thread's servers.
+    if (kept && reply.suggestions && suggestions.set(threadId, reply.suggestions))
+      changed(threadId);
     if (!reply.ok) throw new Error(reply.error ?? "preview_failed");
-    if (!watches.has(threadId) && !unwatched.has(threadId)) return;
+    if (!kept) return;
     servers.set(threadId, reply.previews ?? []);
     changed(threadId);
   };
-  const readServers = (threadId: string) => previews(threadId, { op: "list" });
+  /** Also holds the thread's detected dev servers, so the daemon pushes their changes. */
+  const readServers = (threadId: string) => previews(threadId, { op: "list", suggestions: true });
   const link = async (threadId: string, port: number): Promise<PreviewLink> => {
     const reply = await request({
       type: "preview.request",
@@ -277,6 +285,12 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   };
   const receive = (message: ServerMessage) => {
     if (disposed) return;
+    if (message.type === "preview.suggestions") {
+      const { threadId } = message;
+      if (!watches.has(threadId) && !unwatched.has(threadId)) return;
+      if (suggestions.set(threadId, message.suggestions)) changed(threadId);
+      return;
+    }
     if (message.type === "browser.download.progress") {
       download =
         message.phase === "ready"
@@ -379,6 +393,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       for (const threadId of frames.keys()) release(threadId);
       views.clear();
       servers.clear();
+      suggestions.clear();
       unwatched.clear();
       control.reset();
       listeners.clear();
@@ -438,6 +453,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     view: (threadId) => views.get(threadId),
     frame: (threadId) => frames.get(threadId),
     servers: (threadId) => servers.get(threadId) ?? [],
+    suggestions: (threadId) => suggestions.get(threadId),
     download: () => download,
     canForward: () => gateway,
     forward: (threadId, port) => previews(threadId, { op: "forward", port }),
