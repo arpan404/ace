@@ -36,6 +36,8 @@ export function ModelPicker(props: {
   onAccount(id: string): void;
   onEffort(effort: string | undefined): void;
   onSpeed(speed: Speed): void;
+  /** The saved model is gone and the one shown stands in: picking it, too, confirms it. */
+  unconfirmed?: boolean | undefined;
 }) {
   const { model, account, effort, provider } = props.resolved;
   const compact = useComposerCompact();
@@ -99,7 +101,7 @@ export function ModelPicker(props: {
       error ?? (details ? modelControlName({ ...details, provider: model.provider }) : empty.label),
     // An account without models can still move to another model or account.
     disabled: !!error || props.options === undefined,
-    modelKey: model?.key,
+    modelKey: props.unconfirmed ? undefined : model?.key,
     instance: model?.account,
     efforts,
     effort,

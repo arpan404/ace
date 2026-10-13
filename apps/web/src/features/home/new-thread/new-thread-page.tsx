@@ -79,6 +79,11 @@ function namedBase(name: string, refs: readonly BranchRef[]): WorktreeBase {
   return remote?.remote ? { ref: remote.name, remote: remote.remote } : { ref: name };
 }
 
+/** What a draft holds for the person: its words and files. */
+function draftText(draft: { text: string; attachments: readonly unknown[] } | undefined): string {
+  return JSON.stringify([draft?.text ?? "", draft?.attachments ?? []]);
+}
+
 /** Keep the draft identity stable without borrowing mutable resolution objects. */
 function useDraftThreadRef(
   draftId: string | undefined,
@@ -178,6 +183,9 @@ function PreparationPage(props: {
   issue?: string | undefined;
   onProject(project: string): void;
 }) {
+  // Kept out of the compiler: the page reads saved preparations and drafts from storage while
+  // rendering, by version (`usePreparationsChanged`), and a memoized read would show stale rows.
+  "use no memo";
   const { storage } = useLayout();
   const readinessId = useId();
   const { ids: projects, name, loaded } = useRegisteredProjects();
@@ -223,6 +231,8 @@ function PreparationPage(props: {
   }, [storage, props.host, draftKey, editorOwner]);
   const scopeId = useRef(restored?.draftId);
   const latestContent = useRef(readDraft(storage, draftKey));
+  const opened = useRef(draftText(latestContent.current));
+  const editedHere = useRef(false);
   const submitting = useRef(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const contentSaveRefused = useRef(false);
@@ -257,20 +267,15 @@ function PreparationPage(props: {
         : defaultWorktreeBase(branches.refs, branches.defaultBranch);
   const provider = resolved.provider;
 
-  // A selection belongs to this provider; omission retains its configured native default.
-  const [permissionChoice, setPermissionChoice] = useState<
-    | {
-        provider: ProviderKind | undefined;
-        id: PermissionMode | undefined;
-      }
-    | undefined
-  >(restored ? { provider: restored.provider, id: restored.permission } : undefined);
-  if (provider && permissionChoice && permissionChoice.provider !== provider)
-    setPermissionChoice(undefined);
-  const permission = permissionChoice?.provider === provider ? permissionChoice?.id : undefined;
-  const setPermission = (id: PermissionMode | undefined) => {
-    setPermissionChoice({ provider, id });
-    remember({ permission: id });
+  // An explicit choice holds across account and provider changes, shown as unavailable where
+  // the new one doesn't offer it, until the person replaces it; null is an explicit reset to
+  // the provider's default. Omission retains the configured native default (ADR 0069).
+  const [permission, setPermissionState] = useState<PermissionMode | null | undefined>(
+    restored?.permission,
+  );
+  const setPermission = (id: PermissionMode | null) => {
+    setPermissionState(id);
+    remember({ permission: id ?? undefined });
   };
   const [defaultMode] = useDaemonSetting(
     "permissions.providerModes",
@@ -278,8 +283,8 @@ function PreparationPage(props: {
   );
   const permissions = usePermissionModes(provider, {
     instanceId: resolved.account?.id,
-    currentId: permission ?? (provider ? defaultMode?.[provider] : undefined),
-    setCurrentId: (id) => setPermissionChoice({ provider, id: id ?? undefined }),
+    currentId: permission !== undefined ? permission : provider ? defaultMode?.[provider] : null,
+    setCurrentId: setPermissionState,
   });
   const admitted = {
     mode: permissions.currentId ?? undefined,
@@ -309,21 +314,19 @@ function PreparationPage(props: {
       choices: { ...snapshot(selection ?? previous?.choices ?? choices, resolved), project },
       settingsResolved: completed || !!resolved.model,
       provider: selection ? provider : (previous?.provider ?? provider),
-      permission:
-        permissionChoice?.provider === provider
-          ? permission
-          : previous && previous.provider === provider
-            ? previous.permission
-            : undefined,
+      permission: permission === undefined ? previous?.permission : (permission ?? undefined),
       base: baseChoice ?? base,
       scopeEpoch: previous?.scopeEpoch,
       attachmentsUnavailable: previous?.attachmentsUnavailable && !!content?.attachments.length,
       discardRecovery: previous?.discardRecovery,
       handoffCleanupPending: previous?.handoffCleanupPending,
+      // The scope this editor holds stays named while the daemon has yet to grant it again
+      // (just reopened, or offline), so a reload resumes it with its files.
       draftId:
         previous?.draftId && previous.draftId !== scopeId.current && content?.attachments.length
           ? previous.draftId
-          : scope.draftId === scopeId.current
+          : scope.draftId === scopeId.current ||
+              (scope.draftId === undefined && !claimed(scopeId.current))
             ? scopeId.current
             : undefined,
       title:
@@ -348,11 +351,7 @@ function PreparationPage(props: {
     saveChoices(storage, next);
     const nextProvider =
       options?.models.find((row) => row.key === next.model)?.provider ?? provider;
-    remember({
-      choices: next,
-      provider: nextProvider,
-      ...(nextProvider !== provider ? { permission: undefined } : {}),
-    });
+    remember({ choices: next, provider: nextProvider });
   };
   const chooseProject = props.onProject;
   // A model remembered as a bare id (before option keys) is saved under its option key, again
@@ -365,7 +364,10 @@ function PreparationPage(props: {
   // exists; the new thread adopts it. A draft ref's id is that scope.
   const scope = useDraftScope(project, {
     epoch: preparation(storage, props.host, draftKey)?.scopeEpoch,
-    read: () => preparation(storage, props.host, draftKey)?.draftId,
+    read: () => {
+      const id = preparation(storage, props.host, draftKey)?.draftId;
+      return claimed(id) ? undefined : id;
+    },
     granted(id) {
       scopeId.current = id;
       const saved = preparation(storage, props.host, draftKey);
@@ -383,13 +385,21 @@ function PreparationPage(props: {
       if (!retirePreparationScope(storage, props.host, draftKey, id)) setSaveFailed(true);
     },
   });
-  const { create, error, recovering } = useCreateThread(
+  // A recovered start opens its thread unless the person is writing other work in this editor.
+  const recoveryMayLeave = useRef(true);
+  const {
+    create,
+    error,
+    recovering,
+    claims: claimed,
+  } = useCreateThread(
     (payload) => {
       const matched =
         !metadataSaveRefused.current &&
         !contentSaveRefused.current &&
         payload.workspaceId === project &&
         composer.current?.discardIfSubmitted(payload);
+      recoveryMayLeave.current = !!matched || !editedHere.current;
       if (payload.context?.draftId) {
         scope.retire(payload.context.draftId);
         if (payload.workspaceId === project) {
@@ -405,6 +415,7 @@ function PreparationPage(props: {
       }
     },
     () =>
+      recoveryMayLeave.current &&
       !contentSaveRefused.current &&
       !metadataSaveRefused.current &&
       !preparationSaveFailed(storage, draftKey),
@@ -524,6 +535,9 @@ function PreparationPage(props: {
     )
       return false;
     submitting.current = true;
+    recoveryMayLeave.current = true;
+    // ⌘N opens the project of the thread started last.
+    saveChoices(storage, { ...loadChoices(storage), project });
     const submittedRevision = preparation(storage, props.host, draftKey)?.revision;
     const submittedContent = JSON.stringify(readDraft(storage, draftKey));
     const draftId = scope.draftId;
@@ -684,6 +698,7 @@ function PreparationPage(props: {
               }}
               onDraftChange={(content) => {
                 latestContent.current = content;
+                if (draftText(content) !== opened.current) editedHere.current = true;
                 // Preserve edits made while metadata loads, including unsaved storage refusals.
                 if (awaitingSource && (content.text.length || content.attachments.length))
                   setPreserveSourceDraft(true);
@@ -770,6 +785,7 @@ function PreparationPage(props: {
                 <ModelPicker
                   options={options}
                   resolved={resolved}
+                  unconfirmed={!!missingSelection}
                   onModel={(model, listed) => {
                     const rows = options?.models.filter((m) => m.key === model) ?? [];
                     setPicked(rows[0]?.provider);
@@ -811,7 +827,7 @@ function PreparationPage(props: {
 
                       fallback: admitted.fallback,
                     }}
-                    onChange={(id) => setPermission(id ?? undefined)}
+                    onChange={(id) => setPermission(id ?? null)}
                   />
                   <Suspense fallback={null}>
                     <DeferredEnvironment.Component
