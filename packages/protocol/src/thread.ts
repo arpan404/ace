@@ -8,6 +8,7 @@ import {
   ExecutionSelection,
   ThreadSwitch,
   ExecutionSource,
+  DelegatedBy,
 } from "./thread-transitions.ts";
 import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
 import { RunCheckpoints } from "./run-client.ts";
@@ -102,6 +103,11 @@ export const Thread = z.object({
   archivedAt: Timestamp.optional(),
   imported: ImportedProvenance.optional(),
   lineage: ThreadLineage.optional(),
+  /**
+   * The thread whose agent delegated this one through ace, from the parent the daemon stamped on
+   * the message that launched it. Absent for a thread a person started.
+   */
+  delegatedBy: DelegatedBy,
   execution: ExecutionSelection.optional(),
   switch: ThreadSwitch.optional(),
 });
