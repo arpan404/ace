@@ -64,6 +64,12 @@ export async function changeEngineWorkspace(
       ],
       now(),
     );
+  // Any core fact turns a never-started root into an agent starting a turn, which would make
+  // the thread look live and refuse this change. Such a thread has no turn to show as waiting.
+  const publishQueue = () => {
+    if (repo.requireState(id).initialRoot === undefined)
+      repo.apply(id, [{ type: "queue.changed", count: repo.queuedCount(id) }], now());
+  };
   const roots = repo.store.workspaceReservations.roots(id, reservation.roots);
   const rootOwners = repo.store.workspaceReservations.owners(roots);
   const owners = [...new Set([id, ...(reservation.threads ?? rootOwners)])];
@@ -81,7 +87,7 @@ export async function changeEngineWorkspace(
     repo.store.workspaceReservations.reserve(id, commandId, roots);
     for (const owner of owners) repo.transitions.guard(owner, commandId);
     status("preparing", thread.details ?? {});
-    repo.apply(id, [{ type: "queue.changed", count: repo.queuedCount(id) }], now());
+    publishQueue();
   });
   let safeToRelease = false;
   try {
@@ -123,7 +129,7 @@ export async function changeEngineWorkspace(
   } finally {
     if (safeToRelease) repo.store.workspaceReservations.release(commandId);
     repo.transitions.releaseGuards(commandId);
-    repo.apply(id, [{ type: "queue.changed", count: repo.queuedCount(id) }], now());
+    publishQueue();
     for (const owner of new Set([id, ...rootOwners])) wake(owner);
   }
 }
