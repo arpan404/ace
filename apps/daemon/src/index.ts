@@ -267,6 +267,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       token,
       hostId,
       store,
+      cliControl: cliControl(serviceContext),
       ...(options.preview ? { preview: options.preview } : {}),
       health: health.collect,
       doctor: sharedDiagnostics.doctor,
