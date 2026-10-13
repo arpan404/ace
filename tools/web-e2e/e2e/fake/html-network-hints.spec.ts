@@ -36,7 +36,8 @@ test("published and exported pages run scripts but cannot resolve runtime networ
     `<!doctype html><html><head><script>${hintScript(suffix, label)}</script></head><body style="min-height:431px"><h1>Report</h1><button onclick="this.textContent='ran'">Details</button></body></html>`;
   const server = createServer((request, response) => {
     response.setHeader("content-type", "text/html");
-    if (request.url === "/export") response.end(visualizationWindow(page("export"), {}));
+    if (request.url === "/export")
+      response.end(visualizationWindow(page("export"), {}, "interactive"));
     else response.end("<!doctype html><html><body></body></html>");
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -61,7 +62,7 @@ test("published and exported pages run scripts but cannot resolve runtime networ
         frame.src = src;
         document.body.append(frame);
       },
-      visualizationUrl(page("render"), {}),
+      visualizationUrl(page("render"), {}, "interactive"),
     );
     const rendered = tab.frameLocator("iframe").frameLocator("iframe");
     await rendered.getByRole("button", { name: "Details" }).click();

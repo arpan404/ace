@@ -1,5 +1,5 @@
 import { useClient } from "@ace/client-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ArrowSquareOutIcon,
   CheckIcon,
@@ -11,6 +11,7 @@ import {
 import type { HtmlVisualization } from "@ace/protocol";
 import {
   maxHtmlBytes,
+  resolveHtmlMode,
   themeProperties,
   validateHtml,
   visualizationUrl,
@@ -125,6 +126,10 @@ export function HtmlVisualizationView(props: {
   const [copied, setCopied] = useState(false);
   const { html, failed, retry } = usePageHtml(props.threadId, visualization);
   const desktop = desktopVisualizations();
+  const mode = useMemo(
+    () => (html === undefined ? "static" : resolveHtmlMode(html, visualization.mode)),
+    [html, visualization.mode],
+  );
   useEffect(() => {
     const changed = () => setFullscreen(document.fullscreenElement === stage.current);
     document.addEventListener("fullscreenchange", changed);
@@ -142,7 +147,7 @@ export function HtmlVisualizationView(props: {
     if (!html) return;
     // The export keeps the same sandbox and CSP around the page.
     const url = URL.createObjectURL(
-      new Blob([visualizationWindow(html, theme)], { type: "text/html" }),
+      new Blob([visualizationWindow(html, theme, mode)], { type: "text/html" }),
     );
     const link = document.createElement("a");
     link.href = url;
@@ -154,12 +159,12 @@ export function HtmlVisualizationView(props: {
     if (!html) return;
     if (desktop) {
       void desktop
-        .open({ title, url: visualizationUrl(html, theme) })
+        .open({ title, url: visualizationUrl(html, theme, mode) })
         .catch(() => toast.error({ title: "Couldn't open the visualization" }));
       return;
     }
     const url = URL.createObjectURL(
-      new Blob([visualizationWindow(html, theme)], { type: "text/html" }),
+      new Blob([visualizationWindow(html, theme, mode)], { type: "text/html" }),
     );
     window.open(url, "_blank", "noopener,noreferrer");
     setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -177,6 +182,7 @@ export function HtmlVisualizationView(props: {
         ) : html && live ? (
           <HtmlFrame
             html={html}
+            mode={mode}
             title={title}
             theme={theme}
             maxHeight={maxHeight}

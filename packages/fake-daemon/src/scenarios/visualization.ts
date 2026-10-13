@@ -12,6 +12,7 @@ interface PublishedPage {
   /** SHA-256 of the UTF-8 html; the fake attachment store serves it by this hash. */
   sha256: string;
   title: string;
+  mode: "interactive" | "static";
   threadTitle: string;
   ask: string;
   reply: string;
@@ -22,6 +23,7 @@ export const fixtureVisualization: PublishedPage = {
   html: glacierHtml,
   sha256: "140787ad272ad7f66a107953a7e407448f11335548eb77c605471b130f87ddd3",
   title: "Glacier mass loss",
+  mode: "static",
   threadTitle: "Chart glacier mass loss",
   ask: "Create an HTML visualisation of glacier mass loss.",
   reply: "Losses accelerate after 2010; the 2023 bar is the largest annual loss on record.",
@@ -33,6 +35,7 @@ export const fixtureExplainer: PublishedPage = {
   html: explainerHtml,
   sha256: "95bd1269754fbcc3bbc5b3f75c79bea3709ae0f7a3f5b3974c5fb8c96ec520b7",
   title: "Binary search, step by step",
+  mode: "interactive",
   threadTitle: "Explain binary search",
   ask: "Explain how binary search works. Make it interactive so I can try it.",
   reply:
@@ -66,7 +69,11 @@ function published(page: PublishedPage): Scenario {
           turn("root"),
           message("root", "ask", "user", page.ask),
           ...aceCall("preview", "ace_html_preview", { html: "…" }),
-          ...aceCall("render", "ace_html_render", { title: page.title, html: "…" }),
+          ...aceCall("render", "ace_html_render", {
+            title: page.title,
+            html: "…",
+            mode: page.mode,
+          }),
           {
             type: "item.upsert",
             agent: "root",
@@ -76,6 +83,7 @@ function published(page: PublishedPage): Scenario {
               complete: true,
               visualization: {
                 title: page.title,
+                mode: page.mode,
                 document: {
                   sha256: page.sha256,
                   bytes,

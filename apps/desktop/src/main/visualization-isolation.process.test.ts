@@ -169,7 +169,11 @@ async function run(mode: "protected" | "control") {
   const target = await listen(targetServer);
   const page = leakingPage(target, suffix);
   const raw = `data:text/html;charset=utf-8,${encodeURIComponent(page)}`;
-  const visual = visualizationUrl(page, { colorScheme: "dark", foreground: "rgb(240,240,240)" });
+  const visual = visualizationUrl(
+    page,
+    { colorScheme: "dark", foreground: "rgb(240,240,240)" },
+    "interactive",
+  );
   const index = "<!doctype html><html><head></head><body></body></html>";
   const policy = packagedPolicy({ index, daemonOrigins: [], dynamicDaemons: false });
   // The app's visualization and, beside it, the same page with none of the in-page defences.

@@ -1,11 +1,11 @@
 ---
 name: visualize
-description: Show an interactive HTML page inline in ace chat when seeing or trying something explains it better than prose. Use for explanations and step-throughs, interactive learning (sliders, quizzes, simulations, small games), comparisons, diagrams, UI mockups, and charts.
+description: Show an interactive or static HTML page inline in ace chat when seeing or trying something explains it better than prose. Use for explanations and step-throughs, interactive learning (sliders, quizzes, simulations, small games), comparisons, diagrams, UI mockups, and charts.
 ---
 
 # Visualize in ace chat
 
-`ace_html_render` puts a self-contained HTML page inline in your reply. It renders at the full width of the message column, on the chat's own background, and grows to fit its content. Its scripts run.
+`ace_html_render` puts a self-contained HTML page inline in your reply. It renders at the full width of the message column, on the chat's own background, and grows to fit its content. In `interactive` mode its scripts run; in `static` mode they are stripped.
 
 ## When to use it
 
@@ -18,18 +18,27 @@ Use a page when the reader learns faster by seeing or doing:
 - **Mockups:** a clickable sketch of a UI under discussion.
 - **Data:** charts with hover detail or a control for the range.
 
+## Interactive or static
+
+Choose a `mode` for every page:
+
+- **`interactive`** when the reader manipulates it: sliders, step-throughs, quizzes, simulations, sandboxes, sortable or filterable tables, clickable mockups.
+- **`static`** for read-only explanations, charts and diagrams. Scripts and event handlers are removed. A static page is lighter, and it loses nothing when it is unloaded offscreen. Draw it with HTML, CSS and inline SVG.
+
+If you leave `mode` out, a page with no script is static and a page with a script is interactive. Choose static even when a script only draws something once; render the result as markup instead.
+
 Use prose for a single fact, a one-step action, or a short list that is already clear. Use one page per idea, not a page for every reply.
 
 ## How
 
-1. Write one complete HTML document with inline `<style>` and `<script>`. Keep it at or below 256 KiB of UTF-8. Draw with HTML, inline SVG or `<canvas>`. Embed raster images as base64 `data:` PNG, JPEG, GIF or WebP.
+1. Write one complete HTML document with inline `<style>`, plus inline `<script>` for an interactive page. Keep it at or below 256 KiB of UTF-8. Draw with HTML, inline SVG or `<canvas>`. Embed raster images as base64 `data:` PNG, JPEG, GIF or WebP.
 2. Call `ace_html_preview` with `{ html }`. Claude Code exposes it as `mcp__ace__ace_html_preview`; Codex uses the ace MCP server's tool name. Fix every diagnostic until `valid` is true.
-3. Call `ace_html_render` with `{ title, html, height? }`. The title is short and descriptive. `height` is an optional maximum (80–2000 CSS px); a taller page scrolls inside it.
+3. Call `ace_html_render` with `{ title, html, mode, height? }`. The title is short and descriptive. `height` is an optional maximum (80–2000 CSS px); a taller page scrolls inside it.
 4. In the reply, say only what the page doesn't already show.
 
 ## The sandbox
 
-The page runs in an opaque-origin sandbox. It cannot read the app, its storage, cookies, the daemon token or the parent page.
+Both modes use the same sandbox; a static page also runs no authored script. The page runs in an opaque-origin sandbox. It cannot read the app, its storage, cookies, the daemon token or the parent page.
 
 - **No network.** `fetch`, XHR, WebSocket, beacons, external images, fonts, scripts, stylesheets, `<link>` elements and frames are refused. Put every library, data set and asset inside the document.
 - **No navigation.** Links to other pages, forms, pop-ups, downloads and dialogs (`alert`, `confirm`) do nothing. Use in-page state for steps and tabs.
@@ -37,7 +46,7 @@ The page runs in an opaque-origin sandbox. It cannot read the app, its storage, 
 - **Storage.** `localStorage`, cookies and IndexedDB are unavailable; keep state in variables.
 - **Inserting HTML.** `innerHTML` works, but `<link>`, `<meta>`, `<base>` and frame elements are dropped from it. `document.createElement` refuses those elements.
 
-The page can be unloaded while it is scrolled far out of view and rebuilt when it returns, so derive what it shows from its own state.
+The page can be unloaded while it is scrolled far out of view and rebuilt when it returns. An interactive page loses its in-memory state then, so derive what it shows from its own state.
 
 ## Look like ace
 

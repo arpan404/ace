@@ -1,7 +1,7 @@
 # HTML visualizations in chat
 
 Agents use `ace_html_preview({ html })` to validate a page, then
-`ace_html_render({ title, html, height? })` to publish it inline in their reply.
+`ace_html_render({ title, html, mode?, height? })` to publish it inline in their reply.
 Preview returns size, nesting and unsupported-feature diagnostics. It does not execute
 scripts or publish an item. HTML in a normal message remains text.
 
@@ -10,7 +10,7 @@ The document cap is 256 KiB of UTF-8, with a 160-character title and an optional
 budget. The HTTP and stdio request envelopes allow up to 2 MiB for JSON escaping;
 other tools retain their 64 KiB argument budget.
 
-A canonical `html` item contains title, height and an attachment reference. The
+A canonical `html` item contains title, height, mode and an attachment reference. The
 exact document bytes use the existing chunked, thread-scoped attachment store,
 outside replay events and snapshots. An indexed canonical reference retains the
 attachment for the life of the thread, including after daemon restart. The
@@ -21,8 +21,25 @@ Remote and relay clients fetch through their owning connection's attachment API.
 ## Browser execution
 
 A visualization is a page, not a picture: explainers, step-throughs, quizzes, simulations,
-comparisons, diagrams, mockups and charts. Authored scripts run. The decision and its proof
-are in [ADR 0077](../adr/0077-interactive-visualizations.md).
+comparisons, diagrams, mockups and charts. The decision and its proof are in
+[ADR 0077](../adr/0077-interactive-visualizations.md).
+
+### Interactive and static
+
+The agent picks a `mode` for each page:
+
+- **`interactive`** runs the page's scripts. Use it for something the user manipulates: sliders,
+  step-throughs, quizzes and simulations.
+- **`static`** suits read-only explanations, charts and diagrams. `@ace/html` strips every
+  script element (HTML and SVG, including template contents) and inline event handler. The
+  page's CSP then admits only the page bridge by hash (`staticHtmlCsp`), so a script that
+  survived stripping still cannot run. The page keeps the same sandbox, theme and height
+  bridge. It is lighter and loses nothing when it is unloaded offscreen.
+
+An omitted mode is resolved by `resolveHtmlMode`: `static` when the page has no script element
+or inline handler, otherwise `interactive`. The daemon stores the resolved mode on the item. An
+item without one gets the same rule from the client. Desktop and web honour the stored mode;
+"Open in window" and downloads keep it. The UI shows no mode label.
 
 `@ace/html` owns the pure validator, the document builder and the two fixed bridge scripts
 (`@ace/html/scripts`). The validator parses with parse5 and rejects authored frames, forms,
@@ -89,7 +106,8 @@ disabling the session guards makes the test fail.
 ### Web client: residual risk
 
 A browser offers a page no equivalent of a session network layer, and the daemon serves the
-web client from the person's own machine without a proxy. The web client still runs scripts:
+web client from the person's own machine without a proxy. The web client still runs the
+scripts of interactive pages (a static page runs none):
 it is how the owner uses visualizations away from the desktop app, and the remaining channel
 is narrow. With the page bridge, a script has no known way to create a hint element in
 Chromium. `html-network-hints.spec.ts` tries direct creation, namespaced creation, markup sinks,
@@ -188,7 +206,8 @@ provider and verifies reclamation. Additional guards cover pending spawn records
 missing evidence, denied inspection, failed recovery and fresh projections.
 
 The skill teaches when a page helps (explanations, interactive learning, comparisons,
-diagrams, mockups and charts) and how to write one: self-contained, theme variables, no
+diagrams, mockups and charts), when to choose each mode,
+and how to write one: self-contained, theme variables, no
 network, fluid width, content-driven height, accessible controls. It covers preview before
 render and concise prose after publication. Native provider skill discovery sees it as part
 of the `ace-builtins` plugin.

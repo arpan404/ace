@@ -9,6 +9,7 @@ function Frame() {
   return (
     <HtmlFrame
       html="<!doctype html><html><body>Chart</body></html>"
+      mode="static"
       title="Chart"
       theme={{}}
       maxHeight={600}

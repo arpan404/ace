@@ -11,7 +11,7 @@ import { startDaemonMcp } from "./mcp.ts";
 import { htmlPublication, retainsHtml } from "./html-publication.ts";
 import { invoke, Result } from "./browser-mcp-test-support.ts";
 
-test("preview does not publish; rendered HTML replays after daemon restart with its exact bytes", async () => {
+test("preview does not publish; rendered HTML replays after daemon restart with its exact bytes and chosen mode", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-html-"));
   const path = join(home, "store.sqlite");
   let store = new Store(path);
@@ -68,6 +68,27 @@ test("preview does not publish; rendered HTML replays after daemon restart with 
       ).json(),
     );
     expect(rendered.result.isError).not.toBe(true);
+    const scripted = `<!doctype html><html><body><input type="range"><script>draw()</script></body></html>`;
+    for (const args of [
+      { title: "Slider", html: scripted },
+      { title: "Chart", html: scripted, mode: "static" },
+    ])
+      expect(
+        Result.parse(await (await invoke(connection, "ace_html_render", args)).json()).result
+          .isError,
+      ).not.toBe(true);
+    const modes = () =>
+      store
+        .readItemPage(thread.id, store.headSeq() + 1, 200)
+        .items.flatMap((entry) =>
+          entry.type === "html" ? [[entry.visualization.title, entry.visualization.mode]] : [],
+        );
+    const published = [
+      ["Replay <EMAIL>", "static"],
+      ["Slider", "interactive"],
+      ["Chart", "static"],
+    ];
+    expect(modes()).toEqual(published);
     const before = store.readItemPage(thread.id, store.headSeq() + 1, 200).items;
     const item = before.find((entry) => entry.type === "html");
     if (item?.type !== "html") throw new Error("Missing visualization");
@@ -82,6 +103,7 @@ test("preview does not publish; rendered HTML replays after daemon restart with 
     store = new Store(path);
     context = await openContext();
     expect(store.readItemPage(thread.id, store.headSeq() + 1, 200).items).toEqual(before);
+    expect(modes()).toEqual(published);
     const chunks: Buffer[] = [];
     for (let offset = 0; offset < item.visualization.document.bytes; offset += 65536) {
       const content = await context.readAttachment(

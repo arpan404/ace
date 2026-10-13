@@ -1,6 +1,7 @@
 import { createTextRedactor } from "@ace/redaction";
 import { htmlToolkit, type HtmlPublicationPort } from "@ace/mcp-server";
 import { ItemId } from "@ace/protocol";
+import { resolveHtmlMode } from "@ace/html";
 import type { ContextService } from "@ace/context";
 import type { Store } from "./store.ts";
 import { toolAttachment } from "./tool-result-content.ts";
@@ -53,6 +54,7 @@ export function htmlPublication(runtime: {
                   ) || "Visualization",
                 document,
                 ...(input.height === undefined ? {} : { height: input.height }),
+                mode: resolveHtmlMode(input.html, input.mode),
               },
             },
           },
