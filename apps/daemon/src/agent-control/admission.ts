@@ -37,6 +37,14 @@ export class DelegationAdmission {
   validate(caller: McpAttribution, input: DelegationRequest) {
     if (!this.admits()) throw new AgentControlError("admission_closed", "Admission closed");
     callerThread(this.deps.store, caller);
+    // A missing or disabled provider is the actionable cause; its policy is not checkable.
+    if (this.deps.providerEnabled?.(input.provider, input.accountId ?? input.instanceId) === false)
+      throw new AgentControlError("provider_disabled", `Provider ${input.provider} is disabled`);
+    if (!this.deps.engine.providerAvailability(input.provider).installed)
+      throw new AgentControlError(
+        "provider_unavailable",
+        `No installed provider adapter for ${input.provider}`,
+      );
     try {
       this.deps.engine.childPermissionMode(
         caller.threadId,
@@ -52,13 +60,6 @@ export class DelegationAdmission {
       throw new AgentControlError(
         "delegation_denied",
         "Incoming remote tasks cannot allocate children without a durable source subtree budget",
-      );
-    if (this.deps.providerEnabled?.(input.provider, input.accountId ?? input.instanceId) === false)
-      throw new AgentControlError("provider_disabled", `Provider ${input.provider} is disabled`);
-    if (!this.deps.engine.providerAvailability(input.provider).installed)
-      throw new AgentControlError(
-        "provider_unavailable",
-        `No installed provider adapter for ${input.provider}`,
       );
 
     if (

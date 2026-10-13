@@ -564,7 +564,13 @@ export class WorkspaceRuntime {
       await prepared?.release();
     }
   }
-  async close(): Promise<void> {
+  private closed: Promise<void> | undefined;
+  /** Idempotent: a second close (e.g. a cleanup path after shutdown) does not touch SQLite again. */
+  close(): Promise<void> {
+    this.closed ??= this.shutdown();
+    return this.closed;
+  }
+  private async shutdown(): Promise<void> {
     for (const lifetime of this.writing) lifetime.abort();
     this.prLifetime.abort();
     this.forge.close();

@@ -281,3 +281,36 @@ test("a binding-only change preserves a peer's live tree and execution root", as
     await h.close();
   }
 });
+
+test("a never-started thread has no live work and can change workspace before its first turn", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames);
+  try {
+    const id = ThreadId.parse("never-started");
+    expect(
+      h.command({
+        type: "thread.prepare",
+        threadId: id,
+        workspaceId: h.workspace,
+        provider: "codex",
+        title: "Prepared",
+      }),
+    ).toMatchObject({ ok: true });
+    // An unrelated change reaches the thread before any turn.
+    expect(
+      h.command({ type: "thread.permission.set", threadId: id, permissionMode: ":read-only" }),
+    ).toMatchObject({ ok: true });
+    await h.engine.flush();
+    expect(h.engine.liveWork(id)).toEqual({ agentsRunning: 0, operationsRunning: 0 });
+    const root = join(h.home, "prepared-worktree");
+    await mkdir(root);
+    await h.engine.changeWorkspace(id, "move-before-first-turn", async () => ({
+      mode: "worktree",
+      worktree: root,
+      branch: "feature",
+    }));
+    expect(h.store.executionWorkspace(id)).toMatchObject({ path: root, ready: true });
+  } finally {
+    await h.close();
+  }
+});

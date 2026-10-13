@@ -392,7 +392,8 @@ test("scope, cancellation fence and disconnected relay never start a task or exp
 
 test("text context uses relay; transient target stop retries and deleted admitted tasks settle", async () => {
   const f = await world();
-  const task = await f.delegate();
+  // Claude scripts stay working until stopped, so the target task is still live to cancel.
+  const task = await f.delegate(undefined, "work", "claude");
   expect(await f.targetWire.request({ type: "delegation.remote.start", task })).toMatchObject({
     ok: false,
     error: "not_ready",

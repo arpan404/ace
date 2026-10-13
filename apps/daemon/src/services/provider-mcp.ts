@@ -14,10 +14,16 @@ import type { ServiceContext } from "./types.ts";
 /** All providers share scoped authority and cleanup; adapters encode their native MCP config. */
 export function withDaemonMcp(
   context: Pick<ServiceContext, "services" | "store" | "id"> &
-    Partial<Pick<ServiceContext, "config">>,
+    Partial<Pick<ServiceContext, "config" | "resources">>,
   adapter: ProviderAdapter,
 ): ProviderAdapter {
   if (adapter.backend === "cursor-sdk") return adapter;
+  // A provider that exits on its own starts skill cleanup outside any close call.
+  // Daemon shutdown waits for those removals instead of leaving them running.
+  const cleanups = new Set<Promise<void>>();
+  context.resources?.own(async () => {
+    await Promise.allSettled(cleanups);
+  });
   return {
     ...adapter,
     async openSession(session) {
@@ -40,13 +46,22 @@ export function withDaemonMcp(
         }
       }
       let cleanup: Promise<void> | undefined;
-      const closeSkills = () =>
-        (cleanup ??= (async () => {
+      const closeSkills = () => {
+        if (cleanup) return cleanup;
+        const started = (async () => {
           lease?.close();
           if (root && !builtinSkillRootUnused(root)) return;
           await skills?.close();
           if (root) await rm(root, { recursive: true, force: true });
-        })());
+        })();
+        cleanup = started;
+        cleanups.add(started);
+        void started.then(
+          () => cleanups.delete(started),
+          () => cleanups.delete(started),
+        );
+        return started;
+      };
       try {
         const opened = await bindMcpSession(
           adapter,

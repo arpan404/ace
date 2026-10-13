@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { AgentControlOperation, AgentCatalogPage } from "@ace/protocol";
 import { createAgentControlPort } from "@ace/daemon";
 import { setup, wakes } from "./test-support.ts";
-import { question, end } from "../engine/test-support.ts";
+import { question } from "../engine/test-support.ts";
 
 test("catalog reads retain composer identities without exposing account homes or raw provider data", async () => {
   const h = setup();
@@ -31,7 +31,8 @@ test("a child result stays unavailable while a grandchild waits for a person", a
   await h.engine.flush();
   const grandchild = h.delegate(h.caller(child.childId), "grandchild");
   await h.engine.flush();
-  await h.emit(grandchild.childId, question, end);
+  // The grandchild stays blocked on the approval; a turn end would cancel it (core cleanup).
+  await h.emit(grandchild.childId, question);
   await h.complete(child.childId, "foreground answer");
   const port = createAgentControlPort(h.store, h.service);
   const signal = new AbortController().signal;

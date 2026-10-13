@@ -166,16 +166,9 @@ export class ItemStore {
           id: ItemId,
           created_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
           size: z.number().int().nonnegative(),
-          item_type: z.enum([
-            "message",
-            "reasoning",
-            "notice",
-            "tool_call",
-            "compaction",
-            "delegation.started",
-            "delegation.settled",
-            "artifact",
-          ]),
+          // Only text previews are special-cased below; any other item type, including ones
+          // added after this reader, pages by its stored size.
+          item_type: z.string().min(1).max(64),
         }),
       )
       .max(201)

@@ -99,7 +99,13 @@ export function parseStatus(buffer: Buffer): {
           throw malformed("status header");
       }
     } else if (record.startsWith("? ")) {
-      status.untracked.push(decode(pathSchema, record.slice(2), "untracked path"));
+      // Even with --untracked-files=all, Git lists a nested repository or a linked worktree
+      // inside this one as one directory entry with a trailing slash. It still makes the
+      // worktree dirty; record it by its directory path.
+      const path = record.slice(2);
+      status.untracked.push(
+        decode(pathSchema, path.endsWith("/") ? path.slice(0, -1) : path, "untracked path"),
+      );
     } else {
       const kind = record[0];
       if (kind !== "1" && kind !== "2" && kind !== "u") throw malformed("status record kind");

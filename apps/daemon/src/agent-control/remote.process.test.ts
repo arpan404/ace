@@ -258,7 +258,7 @@ test("permission changes before admission cancel queued work; remote roots canno
     f.service.command("narrow-parent", {
       type: "thread.permission.set",
       threadId: f.caller.threadId,
-      permissionMode: "full-access",
+      permissionMode: ":read-only",
     }).ok,
   ).toBe(true);
   expect(f.remote.poll("window", f.lease)).toMatchObject([
@@ -634,7 +634,7 @@ test.each(["stop", "duration", "permission"])(
         f.service.command("change-policy", {
           type: "thread.permission.set",
           threadId: f.caller.threadId,
-          permissionMode: "full-access",
+          permissionMode: ":read-only",
         }).ok,
       ).toBe(true);
     else f.clock.advance(f.clock.now() + f.service.policy.durationMs);

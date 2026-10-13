@@ -33,6 +33,7 @@ export function consumedRecordEnd(text: string, start: number, end: number): num
     // This cursor is in unquoted prose. Backslashes cannot escape openers;
     // embeddedRecordEnd handles escapes only after entering a quoted token.
     if (char !== "{" && char !== "[" && char !== '"') continue;
+    if (char === "[" && text[cursor - 1] === "\u001b") continue;
     if (char === "{") {
       let next = cursor + 1;
       while (next < text.length && /\s/.test(text[next] ?? "")) next++;

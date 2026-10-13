@@ -92,6 +92,8 @@ export class ThreadSearchWriter {
     )
       return;
     const item = payload.item;
+    // An item type search has no kind for yet stays unindexed; it must never fail the append.
+    if (!SearchKind.safeParse(item.type).success) return;
     this.sql.run(
       `INSERT INTO search_full_items(thread,item,seq,kind,tool_kind) VALUES(?,?,?,?,?)
       ON CONFLICT(thread,item) DO UPDATE SET kind=excluded.kind,tool_kind=excluded.tool_kind,delta_segment=NULL`,

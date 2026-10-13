@@ -5,7 +5,9 @@ import { z } from "zod";
 import { Command, AgentControlResult, ThreadId } from "@ace/protocol";
 import { cliDaemon } from "./cli-test-support.ts";
 
-for (const parent of ["opencode", "claude", "codex"] as const)
+// OpenCode's build/plan agents follow the user's own permission rules, so an OpenCode
+// root cannot vouch for another provider's child (ADR 0013); it is covered as a child.
+for (const parent of ["claude", "codex"] as const)
   for (const provider of ["opencode", "claude", "codex"] as const) {
     if (parent === provider) continue;
     test(`${parent} can wait for ${provider}'s result through MCP after stopping and restarting the root`, async () => {
@@ -68,7 +70,7 @@ for (const parent of ["opencode", "claude", "codex"] as const)
   }
 
 test("all creation tools disclose actionable failures and keep diagnostic detail out of MCP and notices", async () => {
-  const f = await cliDaemon();
+  const f = await cliDaemon("codex");
   for (const name of ["delegate_task", "ace_spawn_agent", "ace_thread_create"]) {
     const args =
       name === "ace_thread_create"
@@ -188,7 +190,8 @@ test("legacy spawn and separate create/launch/wait tools work on a restarted Ope
   ).toBe(true);
   await f.engine.flush();
   await f.settled();
-  for (const provider of ["claude", "opencode"] as const) {
+  // Children stay on OpenCode: its root can only vouch for its own exact policy (ADR 0013).
+  for (const provider of ["opencode"] as const) {
     const spawned = await f.call("ace_spawn_agent", { provider, task: "Hello", name: "greeter" });
     const accepted = z
       .object({ intentId: ThreadId, accepted: z.literal(true) })
@@ -205,7 +208,7 @@ test("legacy spawn and separate create/launch/wait tools work on a restarted Ope
     (
       await f.call("ace_thread_create", {
         requestId: "created",
-        provider: "claude",
+        provider: "opencode",
         title: "greeter",
       })
     ).structuredContent,
@@ -221,5 +224,5 @@ test("legacy spawn and separate create/launch/wait tools work on a restarted Ope
   const result = AgentControlResult.parse(
     (await f.call("ace_thread_wait", { threadId: childId })).structuredContent,
   );
-  expect(result.data).toMatchObject({ outcome: "completed", result: "Claude delegated result" });
+  expect(result.data).toMatchObject({ outcome: "completed", result: "OpenCode delegated result" });
 });
