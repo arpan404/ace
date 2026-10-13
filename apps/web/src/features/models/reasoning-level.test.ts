@@ -1,15 +1,16 @@
 import { expect, test } from "vitest";
 import { isDeepReasoning, reasoningDescription } from "./reasoning-level.ts";
 
-test.each(["ultra", "xhigh", "extra_high", "max"])(
+test.each(["ultra", "max"])(
   "only an explicitly supported %s level gets the deep accent",
   (level) => {
     expect(isDeepReasoning(level, ["low", "high", level])).toBe(true);
     expect(isDeepReasoning(level, ["low", "high"])).toBe(false);
   },
 );
-test("High never becomes Ultra just because it is the final capability", () => {
+test("High and Extra high never become Ultra just because they are the final capability", () => {
   expect(isDeepReasoning("high", ["low", "medium", "high"])).toBe(false);
+  expect(isDeepReasoning("xhigh", ["low", "high", "xhigh"])).toBe(false);
   expect(isDeepReasoning(undefined, ["high", "max"])).toBe(false);
 });
 

@@ -5,11 +5,7 @@ import { useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import {
-  composerStrip,
-  composerEnvironmentRow,
-  useComposerCompact,
-} from "@/features/thread/index.ts";
+import { composerStrip, useComposerCompact } from "@/features/thread/index.ts";
 import type { BaseRefs } from "@/lib/branches.ts";
 import { cn } from "@/lib/cn.ts";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
@@ -18,11 +14,12 @@ import { BasePicker } from "./base-picker.tsx";
 import type { WorkMode } from "./choices.ts";
 
 /**
- * Where a new thread runs, below the composer: the machine, a
- * Worktree toggle (a branch and folder of its own, or the project's checkout as it is) and, for
- * a worktree, the branch it starts from, local or on a remote, found by typing. The remote's
- * copy of the default branch is offered first; it is fetched just before the worktree is made.
- * Below 480px, one Environment control opens these same choices.
+ * Where a new thread runs, on the composer's own control row (nothing sits below the composer):
+ * a Worktree toggle (a branch and folder of its own, or the project's checkout as it is; its
+ * tooltip names the machine) and, for a worktree, the branch it starts from, local or on a
+ * remote, found by typing. The remote's copy of the default branch is offered first; it is
+ * fetched just before the worktree is made. Below 480px, one Environment icon opens these same
+ * choices, with the machine.
  */
 export function NewThreadEnvironment(props: {
   pullRequest?: { number?: number | undefined; headSha?: string | undefined } | undefined;
@@ -34,13 +31,15 @@ export function NewThreadEnvironment(props: {
 }) {
   const compact = useComposerCompact();
   return (
-    <section aria-label="Where this thread runs">
-      <div className={cn(composerEnvironmentRow, "flex-wrap")}>
+    <section aria-label="Where this thread runs" className="flex min-w-0 items-center">
+      <div className="flex min-w-0 items-center text-xs text-muted-foreground">
         {compact ? (
           <Popover>
-            <PopoverTrigger className={cn(composerStrip, "w-fit max-w-full justify-start")}>
-              Environment <CaretDownIcon aria-hidden size={12} />
-            </PopoverTrigger>
+            <Tip label="Environment" side="top">
+              <PopoverTrigger aria-label="Environment" className={cn(composerStrip, "shrink-0")}>
+                <GitBranchIcon aria-hidden size={14} />
+              </PopoverTrigger>
+            </Tip>
             <PopoverContent
               side="top"
               align="start"
@@ -66,30 +65,27 @@ function EnvironmentControls(
   const worktree = props.mode === "worktree";
   const base = props.base ? baseName(props.base) : "Current branch";
   return (
-    <div
-      className={cn(
-        "flex w-full min-w-0 max-w-full items-center gap-1",
-        props.compact && "flex-wrap",
+    <div className={cn("flex min-w-0 items-center gap-1", props.compact && "w-full flex-wrap")}>
+      {props.compact && (
+        <Tip label={`Runs on ${host.name}`} side="top">
+          <span className="flex h-7 min-w-0 items-center gap-1.5 px-2">
+            <MachineLabel name={host.name} icon={host.icon} />
+          </span>
+        </Tip>
       )}
-    >
-      <Tip label={`Runs on ${host.name}`} side="top">
-        <span className="flex h-7 min-w-0 items-center gap-1.5 px-2">
-          <MachineLabel name={host.name} icon={host.icon} />
-        </span>
-      </Tip>
       {props.pullRequest ? (
-        <p className="ml-auto text-xs text-muted-foreground">
+        <p className={cn("truncate text-xs text-muted-foreground", props.compact && "ml-auto")}>
           Isolated worktree · PR #{props.pullRequest.number ?? "…"} ·{" "}
           {props.pullRequest.headSha?.slice(0, 12) ?? "Resolving head…"}
         </p>
       ) : (
-        <div className="ml-auto flex min-w-0 items-center gap-1">
+        <div className={cn("flex min-w-0 items-center gap-0.5", props.compact && "ml-auto")}>
           <Tip
-            label={
+            label={`Runs on ${host.name} · ${
               worktree
-                ? "A branch and folder of its own; your checkout stays as it is"
-                : "Works in the project's folder, on its current branch"
-            }
+                ? "a branch and folder of its own; your checkout stays as it is"
+                : "in the project's folder, on its current branch"
+            }`}
             side="top"
           >
             <label className={cn(composerStrip, "shrink-0 cursor-default")}>

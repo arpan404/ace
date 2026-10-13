@@ -1,0 +1,43 @@
+/*
+ * The pill composer: on a narrow width an empty composer is one row, + · message · model ·
+ * send, its other controls (approvals, environment) waiting until it opens. Typing or a file
+ * opens it to the usual message-over-controls layout. Only the layout changes; every element
+ * stays mounted, so the caret and focus never move.
+ */
+[data-slot="composer"][data-pill] {
+  min-height: 3rem;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.125rem;
+  border-radius: 9999px;
+  padding-inline: 0.375rem;
+}
+[data-slot="composer"][data-pill] > [data-slot="composer-footer"] {
+  display: contents;
+}
+[data-slot="composer"][data-pill] [data-slot="composer-add"] {
+  order: 1;
+}
+/*
+ * The model chip takes the width its name needs and the message the rest, never less than
+ * 5.5rem; only when both can't fit does the chip's name give way. A placeholder longer than
+ * its room ends in an ellipsis.
+ */
+[data-slot="composer"][data-pill] > [data-slot="composer-input"] {
+  order: 2;
+  min-width: 5.5rem;
+  flex: 1 1 0;
+  padding: 0 0.25rem;
+}
+[data-slot="composer"][data-pill] .message-input::before {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-slot="composer"][data-pill] [data-slot="composer-trailing"] {
+  order: 3;
+  flex: 0 1 auto;
+}
+[data-slot="composer"][data-pill] [data-slot="composer-primary"] {
+  order: 4;
+}

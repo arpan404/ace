@@ -1,0 +1,10 @@
+{
+  "$id": "https://ace.local/protocol/v1/KnownSpeed.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "standard",
+    "fast",
+    "ultrafast"
+  ],
+  "type": "string"
+}

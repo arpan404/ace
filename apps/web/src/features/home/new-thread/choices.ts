@@ -3,6 +3,8 @@ import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import {
   resolveEffort,
   selectNewThreadModel,
+  speedOrder,
+  type Speed,
   type AccountOption,
   type ModelOption,
 } from "@ace/ui-core";
@@ -24,8 +26,8 @@ export const Choices = z.object({
   account: z.string().min(1).optional().catch(undefined),
   mode: WorkMode.optional().catch(undefined),
   effort: z.string().min(1).optional().catch(undefined),
-  /** Run on the model's faster tier, where it has one. */
-  fast: z.boolean().optional().catch(undefined),
+  /** The model's service speed, where it offers more than one. */
+  speed: z.enum(speedOrder).optional().catch(undefined),
 });
 export type Choices = z.infer<typeof Choices>;
 
@@ -46,8 +48,8 @@ export interface Resolved {
   mode: WorkMode;
   /** One of the model's efforts: the chosen one, else the model's default. */
   effort: string | undefined;
-  /** On the model's faster tier: as chosen, else as the catalog runs it by default. */
-  fast: boolean;
+  /** One of the model's speeds: as chosen, else as the catalog runs it by default. */
+  speed: Speed;
 }
 
 /**
@@ -92,7 +94,11 @@ export function resolve(
     account,
     mode: choices.mode ?? defaultMode,
     effort,
-    fast: model?.fastTier !== undefined && (choices.fast ?? model.fastDefault),
+    speed: !model
+      ? "standard"
+      : model.speeds.some((tier) => tier.speed === choices.speed)
+        ? (choices.speed ?? model.defaultSpeed)
+        : model.defaultSpeed,
     ...(legacy ? { upgradedModel: legacy.key } : {}),
   };
 }
@@ -119,7 +125,7 @@ export function completePreparationChoices(saved: Choices, resolved: Resolved): 
     model: resolved.upgradedModel ?? saved.model ?? resolved.model?.key,
     account: saved.account ?? resolved.account?.id,
     effort: saved.effort ?? resolved.effort,
-    fast: saved.fast ?? (resolved.model ? resolved.fast : undefined),
+    speed: saved.speed ?? (resolved.model ? resolved.speed : undefined),
     mode: saved.mode ?? resolved.mode,
   };
 }
@@ -132,7 +138,7 @@ export function shownPreparationChoices(saved: Choices, resolved: Resolved): Cho
       model: resolved.model?.key ?? saved.model,
       account: resolved.account?.id ?? saved.account,
       effort: resolved.effort ?? saved.effort,
-      fast: resolved.model ? resolved.fast : saved.fast,
+      speed: resolved.model ? resolved.speed : saved.speed,
     },
     resolved,
   );

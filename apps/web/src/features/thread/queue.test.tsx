@@ -479,38 +479,6 @@ test("a held queue explains why steering is disabled", async () => {
   expect(await daemonQueue(app)).toEqual(["Wait here"]);
 });
 
-test("collapse survives remount for its thread while another thread starts expanded", async () => {
-  const app = harness();
-  app.play(replayCursor()).runThrough("finding");
-  app.play(longHistory(2)).runUntilBlocked();
-  const view = await app.open(`/t/${threadId}`);
-  await userEvent.type(
-    await screen.findByRole("combobox", { name: "Message" }),
-    "Keep queued{Enter}",
-  );
-  await screen.findByRole("list", { name: "Queued messages" });
-  await userEvent.click(screen.getByRole("button", { name: "Collapse queued messages" }));
-  expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
-  view.unmount();
-  const reopened = await app.open(`/t/${threadId}`);
-  await screen.findByRole("button", { name: "Expand queued messages" });
-  expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
-  reopened.unmount();
-  await app.open("/t/thread-router");
-  // An active run keeps the second thread's follow-up queued.
-  act(() =>
-    app.daemon.apply("thread-router", [
-      { type: "turn.started", agent: "root", nativeTurnId: "second-run", trigger: "user" },
-    ]),
-  );
-  await userEvent.type(
-    await screen.findByRole("combobox", { name: "Message" }),
-    "Second thread{Enter}",
-  );
-  await screen.findByRole("button", { name: "Collapse queued messages" });
-  expect(await screen.findByRole("list", { name: "Queued messages" })).toBeTruthy();
-});
-
 test("loading more keeps every queued message beyond the first page reachable", async () => {
   const { app } = await openBusy();
   await act(async () => {

@@ -9,12 +9,9 @@ export { usePermissionCapabilities, usePermissionModes } from "./composer/permis
 export {
   chipControl as composerChip,
   stripControl as composerStrip,
-  stripRow as composerStripRow,
-  environmentRow as composerEnvironmentRow,
-  environmentSurface as composerEnvironmentSurface,
+  noticeSurface as composerNoticeSurface,
 } from "./composer/composer-styles.ts";
 /** The tab attached to the composer's top edge. */
-export { AttachedCard } from "./composer/attached-card.tsx";
 export { preloadComposerParts } from "./composer/deferred-parts.tsx";
 export { useComposerCompact } from "./composer/composer-compact.ts";
 export { ThreadView, type ThreadTarget } from "./thread-view.tsx";

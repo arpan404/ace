@@ -16,6 +16,7 @@ import {
   usePermissionModes,
   type Draft,
   type ComposerHandle,
+  composerNoticeSurface,
 } from "@/features/thread/index.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { whenIdle } from "@/lib/idle.ts";
@@ -32,7 +33,7 @@ import {
   permissionOption,
   permissionOptions,
   providerNames,
-  speedOffTier,
+  speedOption,
 } from "@ace/ui-core";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import {
@@ -340,7 +341,7 @@ function PreparationPage(props: {
       account: resolved.account?.id ?? choices.account,
       mode: resolved.mode,
       effort: resolved.effort,
-      fast: resolved.fast,
+      speed: resolved.speed,
       ...patch,
     };
     setChoices(next);
@@ -433,7 +434,7 @@ function PreparationPage(props: {
         resolved.model.key,
         resolved.account?.id,
         resolved.effort,
-        resolved.fast,
+        resolved.speed,
         resolved.mode,
       ])
     : undefined;
@@ -467,7 +468,9 @@ function PreparationPage(props: {
       (choices.effort !== undefined &&
         resolved.model &&
         !resolved.model.efforts?.includes(choices.effort)) ||
-      (choices.fast === true && !resolved.model?.fastTier));
+      (choices.speed !== undefined &&
+        choices.speed !== "standard" &&
+        !resolved.model?.speeds.some((tier) => tier.speed === choices.speed)));
   const missingPermission =
     permission &&
     permissions.capabilities &&
@@ -538,7 +541,7 @@ function PreparationPage(props: {
       mode: resolved.mode,
       base,
       effort: resolved.effort,
-      serviceTier: resolved.fast ? resolved.model.fastTier : speedOffTier(resolved.model),
+      serviceTier: speedOption(resolved.model.speeds, resolved.speed),
       permission: chosen,
       input: draft.input,
       text: draft.text,
@@ -656,6 +659,10 @@ function PreparationPage(props: {
                 ?
               </h2>
             </div>
+            {/* Past sessions sit under the question, never below the composer. */}
+            <div className="w-full shrink-0 px-2 pb-4 text-left">
+              <ProjectPastSessions projectId={project} />
+            </div>
           </div>
           <div className="shrink-0">
             <Composer
@@ -713,29 +720,51 @@ function PreparationPage(props: {
               onSubmit={send}
               autoFocus
               placeholder="Describe the change, a bug, or a question. @ to mention a file"
-              shortPlaceholder="Describe a change or a bug"
-              environment={
-                <Suspense fallback={null}>
-                  <DeferredEnvironment.Component
-                    pullRequest={
-                      props.pullRequest
-                        ? {
-                            number: prSource.selection?.ref.number,
-                            headSha: prSource.selection?.headSha,
+              shortPlaceholder="Describe a task"
+              // Nothing renders below the composer: its notices sit in the strip's place above.
+              attached={
+                <div className={composerNoticeSurface}>
+                  {(admissionProblem || issueSource.problem || prSource.problem) && (
+                    <p id={readinessId} role="status" className="text-xs text-muted-foreground">
+                      {admissionProblem || issueSource.problem || prSource.problem}
+                    </p>
+                  )}
+                  <SignInNotice provider={provider} />
+                  {(saveFailed || preparationSaveFailed(storage, draftKey)) && (
+                    <div role="alert" className="text-ui text-status-failed">
+                      <p>
+                        Couldn't save this preparation on this device. Keep this page open and free
+                        space or discard an older draft before leaving.
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          const content = latestContent.current;
+                          if (!content || !writeDraft(storage, draftKey, content)) {
+                            contentSaveRefused.current = true;
+                            setSaveFailed(true);
+                            return;
                           }
-                        : undefined
-                    }
-                    mode={resolved.mode}
-                    onMode={(mode) => choose({ mode })}
-                    branches={branches}
-                    base={base}
-                    onBase={(next) => {
-                      setBase(next);
-                      remember({ base: next });
-                      toMessage();
-                    }}
-                  />
-                </Suspense>
+                          contentSaveRefused.current = false;
+                          remember({
+                            title:
+                              content.text.trim().split("\n")[0]?.slice(0, 100) ||
+                              "New preparation",
+                          });
+                        }}
+                      >
+                        Save draft
+                      </Button>
+                    </div>
+                  )}
+                  {error && (
+                    <p role="alert" className="text-ui text-status-failed">
+                      {error}
+                    </p>
+                  )}
+                </div>
               }
               trailing={
                 <ModelPicker
@@ -752,79 +781,62 @@ function PreparationPage(props: {
                       model,
                       account: under ? listed : stays ? choices.account : undefined,
                       effort: undefined,
-                      fast: undefined,
+                      speed: undefined,
                     });
                   }}
                   onAccount={(account) => choose({ account })}
                   onEffort={(effort) => choose({ effort })}
-                  onFast={(fast) => choose({ fast })}
-                  onReset={() => choose({ effort: undefined, fast: undefined })}
+                  onSpeed={(speed) => choose({ speed })}
                 />
               }
               controls={
-                <PermissionPicker
-                  current={
-                    waitingForAdmission
-                      ? undefined
-                      : permissionOption(admitted.mode ?? null, permissions.capabilities)
-                  }
-                  detail={
-                    admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
-                  }
-                  inherited={!chosen}
-                  menu={{
-                    options: permissionOptions(permissions.capabilities),
-                    value: admitted.mode,
-                    loading: waitingForAdmission,
-                    unavailable: permissions.failed
-                      ? "Couldn't load permission modes. Reconnect and try again."
-                      : undefined,
+                <>
+                  <PermissionPicker
+                    current={
+                      waitingForAdmission
+                        ? undefined
+                        : permissionOption(admitted.mode ?? null, permissions.capabilities)
+                    }
+                    detail={
+                      admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
+                    }
+                    inherited={!chosen}
+                    menu={{
+                      options: permissionOptions(permissions.capabilities),
+                      value: admitted.mode,
+                      loading: waitingForAdmission,
+                      unavailable: permissions.failed
+                        ? "Couldn't load permission modes. Reconnect and try again."
+                        : undefined,
 
-                    fallback: admitted.fallback,
-                  }}
-                  onChange={(id) => setPermission(id ?? undefined)}
-                />
+                      fallback: admitted.fallback,
+                    }}
+                    onChange={(id) => setPermission(id ?? undefined)}
+                  />
+                  <Suspense fallback={null}>
+                    <DeferredEnvironment.Component
+                      pullRequest={
+                        props.pullRequest
+                          ? {
+                              number: prSource.selection?.ref.number,
+                              headSha: prSource.selection?.headSha,
+                            }
+                          : undefined
+                      }
+                      mode={resolved.mode}
+                      onMode={(mode) => choose({ mode })}
+                      branches={branches}
+                      base={base}
+                      onBase={(next) => {
+                        setBase(next);
+                        remember({ base: next });
+                        toMessage();
+                      }}
+                    />
+                  </Suspense>
+                </>
               }
             />
-            {(admissionProblem || issueSource.problem || prSource.problem) && (
-              <p id={readinessId} role="status" className="mt-2 px-4 text-xs text-muted-foreground">
-                {admissionProblem || issueSource.problem || prSource.problem}
-              </p>
-            )}
-            <SignInNotice provider={provider} />
-            <ProjectPastSessions projectId={project} />
-            {(saveFailed || preparationSaveFailed(storage, draftKey)) && (
-              <div role="alert" className="mt-3 px-2 text-ui text-status-failed">
-                <p>
-                  Couldn't save this preparation on this device. Keep this page open and free space
-                  or discard an older draft before leaving.
-                </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    const content = latestContent.current;
-                    if (!content || !writeDraft(storage, draftKey, content)) {
-                      contentSaveRefused.current = true;
-                      setSaveFailed(true);
-                      return;
-                    }
-                    contentSaveRefused.current = false;
-                    remember({
-                      title: content.text.trim().split("\n")[0]?.slice(0, 100) || "New preparation",
-                    });
-                  }}
-                >
-                  Save draft
-                </Button>
-              </div>
-            )}
-            {error && (
-              <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
-                {error}
-              </p>
-            )}
           </div>
         </div>
       </div>

@@ -1,18 +1,32 @@
+import type { ThreadReader } from "@ace/client";
+import type { QueuedMessage } from "@ace/protocol";
+import { useThread, useThreadMeta } from "@ace/client-react";
+import type { ReactNode } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useThreadSources } from "../sources/index.ts";
+import { QueueNotice, type HeldQueue } from "./queue-notice.tsx";
 import { QueuedTray } from "./queued.tsx";
-import { useThread, useThreadMeta } from "@ace/client-react";
-import type { ThreadReader } from "@ace/client";
+import type { PendingQueued } from "./queued-pending.ts";
 import { useActiveRootRun, useStopping } from "./stop-state.ts";
-import { useQueuedPending } from "./queued-pending.ts";
-import { useQueue } from "./use-queue.ts";
+import type { QueueControls } from "./use-queue.ts";
 
 const queueOf = (reader: ThreadReader) => reader.queue;
 
-/** Pending sends and daemon entries share the tray, keeping their stable command ids. */
-export function QueuedMessages(props: { threadId: string }) {
-  const queue = useQueue(props.threadId);
-  const pending = useQueuedPending(props.threadId, queue.page, queue.retained);
+/**
+ * The queue in the composer's strip: why it is held, then its messages, this window's pending
+ * sends among them under their stable command ids, with their file previews.
+ */
+export function QueueStrip(props: {
+  threadId: string;
+  queue: QueueControls;
+  pending: readonly PendingQueued[];
+  held: HeldQueue | undefined;
+  indicators: ReactNode;
+  editing: QueuedMessage | undefined;
+  onEdit(message: QueuedMessage | undefined): void;
+  onChooseModel(): void;
+}) {
+  const { queue, pending } = props;
   const sources = useThreadSources();
   const hashes = [
     ...new Set(
@@ -53,6 +67,19 @@ export function QueuedMessages(props: { threadId: string }) {
       pending={pending}
       attachments={attachments.data ?? []}
       steerReason={steerReason}
+      indicators={props.indicators}
+      editing={props.editing}
+      onEdit={props.onEdit}
+      notice={
+        props.held && (
+          <QueueNotice
+            threadId={props.threadId}
+            held={props.held}
+            queue={queue}
+            onChooseModel={props.onChooseModel}
+          />
+        )
+      }
     />
   );
 }

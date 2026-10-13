@@ -17,7 +17,7 @@ export function SignInNotice(props: { provider: ProviderKind | undefined }) {
   if (!signIn || !provider || view?.primary !== "sign_in") return null;
   const name = providerNames[provider];
   return (
-    <p role="status" className="mt-3 flex items-center gap-2 px-2 text-ui text-muted-foreground">
+    <p role="status" className="flex items-center gap-2 text-ui text-muted-foreground">
       <WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
       <span className="min-w-0 flex-1">{`${name} isn't signed in. Sign in to start this thread.`}</span>
       <SignInButton variant="primary" target={{ provider }}>

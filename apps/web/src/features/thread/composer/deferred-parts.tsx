@@ -3,8 +3,8 @@ import { preloadAttachmentChips } from "./attachments.tsx";
 import { preloadComposerMenus } from "./deferred-menus.tsx";
 
 /*
- * Composer parts that aren't the bare input and footer: the thread's footer controls, the queue
- * above it and the suggestion list, plus the menus. Their code loads after the thread has
+ * Composer parts that aren't the bare input and footer: the thread's footer controls and the
+ * suggestion list, plus the menus (the strip above it is in `deferred-cards.ts`). Their code loads after the thread has
  * painted, warmed while idle with the rest of `preloadDeferred`, which keeps the thread route
  * inside its ADR 0056 budget.
  */
@@ -13,12 +13,6 @@ export const DeferredPermissionControl = deferredComponent(() =>
 );
 export const DeferredModelControl = deferredComponent(() =>
   import("./thread-controls.tsx").then((module) => module.ThreadModelControl),
-);
-export const DeferredQueueArea = deferredComponent(() =>
-  import("./queue-area.tsx").then((module) => module.QueueArea),
-);
-export const DeferredQueuedMessages = deferredComponent(() =>
-  import("./queued-messages.tsx").then((module) => module.QueuedMessages),
 );
 export const DeferredSuggestionList = deferredComponent(() =>
   import("./suggestion-list.tsx").then((module) => module.SuggestionList),
@@ -40,8 +34,6 @@ export function preloadComposerParts(): Promise<unknown> {
     import("@/features/models/index.ts").then((models) => models.preloadModelControl()),
     DeferredPermissionControl.preload(),
     DeferredModelControl.preload(),
-    DeferredQueueArea.preload(),
-    DeferredQueuedMessages.preload(),
     DeferredSuggestionList.preload(),
     DeferredSendStatus.preload(),
     DeferredLocalSends.preload(),

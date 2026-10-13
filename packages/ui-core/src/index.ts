@@ -35,6 +35,7 @@ export * from "./inline-markdown.ts";
 export * from "./limits.ts";
 export * from "./models.ts";
 export * from "./model-picker.ts";
+export * from "./speed.ts";
 export * from "./model-groups.ts";
 export * from "./model-label.ts";
 export * from "./lru.ts";

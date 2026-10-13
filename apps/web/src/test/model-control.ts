@@ -5,7 +5,7 @@ import { expect } from "vitest";
 /** Open the composer's model chip and return its popover. */
 export async function openModelControl(chip: RegExp | string = /^Model: /): Promise<HTMLElement> {
   await userEvent.click(await screen.findByRole("button", { name: chip }));
-  return screen.findByRole("dialog", { name: "Choose model" });
+  return screen.findByRole("dialog", { name: "Model and effort" });
 }
 
 /** From the open popover, go to the model picker (it opens there when no model is chosen). */
@@ -31,14 +31,16 @@ export async function chooseModel(label: string, provider: string, chip?: RegExp
     });
   if (!row) throw new Error(`No ${label} under ${provider} in the model picker`);
   await userEvent.click(row);
+  // A picked model lands on Tune; the pick is done, so put the popover away.
+  await closeModelControl();
 }
 
 /** Close the popover and wait for it to leave, so the next control can open. */
 export async function closeModelControl() {
-  if (!screen.queryByRole("dialog", { name: /^(Choose model|Effort and speed)$/ })) return;
+  if (!screen.queryByRole("dialog", { name: "Model and effort" })) return;
   await userEvent.keyboard("{Escape}");
   await waitFor(() =>
-    expect(screen.queryByRole("dialog", { name: /^(Choose model|Effort and speed)$/ })).toBeNull(),
+    expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull(),
   );
 }
 
@@ -60,6 +62,25 @@ export async function chooseAccount(popover: HTMLElement, name: string) {
     .find((entry) => entry.getAttribute("aria-label")?.startsWith(`${model},`));
   if (!option) throw new Error(`No ${model} on ${name}`);
   await userEvent.click(option);
+  await closeModelControl();
+}
+
+/**
+ * A model source's tab, "Codex · Team": the rail's own tab when the provider has one account,
+ * else the account's tab in the list header once the provider's rail tab is selected.
+ */
+export async function sourceTab(popover: HTMLElement, name: string): Promise<HTMLElement> {
+  const rail = within(popover).getByRole("tablist", { name: "Model sources" });
+  const direct = within(rail).queryByRole("tab", { name });
+  if (direct) return direct;
+  await userEvent.click(within(rail).getByRole("tab", { name: name.split(" · ")[0] ?? name }));
+  const accounts = within(popover).getByRole("tablist", { name: "Accounts" });
+  return within(accounts).getByRole("tab", { name });
+}
+
+/** Show a model source's models: "Codex · Team". */
+export async function chooseSource(popover: HTMLElement, name: string) {
+  await userEvent.click(await sourceTab(popover, name));
 }
 
 /** Choose an account within the selected provider. */
@@ -67,15 +88,20 @@ export async function selectAccount(popover: HTMLElement, name: string) {
   const rail = within(popover).getByRole("tablist", { name: "Model sources" });
   const selected = within(rail).getByRole("tab", { selected: true });
   const provider = selected.getAttribute("aria-label")?.split(" · ")[0];
-  await userEvent.click(within(rail).getByRole("tab", { name: `${provider} · ${name}` }));
+  await chooseSource(popover, `${provider} · ${name}`);
 }
 
-/** Open the separate effort and speed popover from the composer's chip. */
-export async function openEffortControl(): Promise<HTMLElement> {
-  await userEvent.click(await screen.findByRole("button", { name: /^Reasoning: / }));
-  const popover = await screen.findByRole("dialog", { name: "Effort and speed" });
+/** Open the model chip on its Tune pane, where effort and speed are. */
+export async function openEffortControl(chip: RegExp | string = /^Model: /): Promise<HTMLElement> {
+  const popover = await openModelControl(chip);
   await within(popover).findByRole("slider", { name: "Effort" });
   return popover;
+}
+
+/** Choose a speed in the open Tune pane's segment. */
+export async function chooseSpeed(popover: HTMLElement, speed: "Standard" | "Fast" | "Ultrafast") {
+  const segment = within(popover).getByRole("radiogroup", { name: "Speed" });
+  await userEvent.click(within(segment).getByRole("radio", { name: speed }));
 }
 
 /** Choose a catalog level through the slider's keyboard interface. */

@@ -47,6 +47,8 @@ function StepSlider(props: {
   deepReasoning?: boolean;
   /** Use the existing accent gradient at every supported level. */
   gradient?: boolean;
+  /** The step that is the default: a ring on its dot and "default" under its label. */
+  defaultIndex?: number | undefined;
 }) {
   // The pointer dragging the thumb, if any: a second finger can neither move nor end its drag.
   const [pointer, setPointer] = useState<number>();
@@ -134,7 +136,7 @@ function StepSlider(props: {
             style={{ width: `calc(${at(value, count)} + ${inset}px)` }}
           >
             {props.deepReasoning && (
-              <span className="step-slider-convergence">
+              <span className="step-slider-convergence fx-flourish">
                 <span />
                 <span />
                 <span />
@@ -146,9 +148,12 @@ function StepSlider(props: {
           <span
             key={step}
             aria-hidden
+            data-default={index === props.defaultIndex ? "" : undefined}
             className={cn(
               "absolute top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full",
               selected && index < value ? "bg-white/70" : "bg-current opacity-30",
+              // The default stop: a ring around its dot, so a person can find their way back.
+              "data-default:size-2 data-default:bg-transparent data-default:opacity-60 data-default:ring-[1.5px] data-default:ring-current",
             )}
             style={{ left: at(index, count) }}
           />
@@ -161,12 +166,13 @@ function StepSlider(props: {
               props.quietFocus
                 ? "group-focus-visible:scale-110"
                 : "group-focus-visible:shadow-[0_0_0_2px_var(--popover),0_0_0_4px_var(--ring)]",
+              props.deepReasoning && "step-slider-glow",
               glide,
             )}
             style={{ left: at(value, count) }}
           >
             {props.deepReasoning && (
-              <AceMark className="step-slider-ace absolute inset-0 m-auto size-4 text-ring" />
+              <AceMark className="step-slider-ace fx-flourish absolute inset-0 m-auto size-4 text-ring" />
             )}
           </span>
         )}
@@ -185,6 +191,20 @@ function StepSlider(props: {
               {props.stepLabel(step)}
             </span>
           ))}
+        </div>
+      )}
+      {/* The default stop, said in words under its ring; the slider's description says it too. */}
+      {props.showLabels !== false && props.defaultIndex !== undefined && (
+        <div
+          aria-hidden
+          className="relative -mt-1.5 h-3.5 text-2xs leading-3.5 text-subtle-foreground"
+        >
+          <span
+            className="absolute top-0 whitespace-nowrap"
+            style={tickStyle(props.defaultIndex, count)}
+          >
+            default
+          </span>
         </div>
       )}
     </div>

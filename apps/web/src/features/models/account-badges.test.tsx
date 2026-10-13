@@ -70,7 +70,7 @@ test("the composer shows a separate account marker only when the provider has mu
   await closeModelControl();
 });
 
-test("each account has a rail entry and selecting it switches the catalog", async () => {
+test("each account has an entry under its provider and selecting it switches the catalog", async () => {
   const app = harness();
   const team = app.daemon.services.accounts.find((account) => account.id === "codex-team");
   if (!team) throw new Error("Missing team account");
@@ -80,8 +80,14 @@ test("each account has a rail entry and selecting it switches the catalog", asyn
     if (account.provider === "codex" && account !== team) account.isDefault = false;
   const { popover, list } = await open(app);
   const rail = within(popover).getByRole("tablist", { name: "Model sources" });
-  expect(within(rail).getAllByRole("tab", { name: /^Codex · / })).toHaveLength(2);
-  await userEvent.click(within(rail).getByRole("tab", { name: "Codex · Team" }));
+  await userEvent.click(within(rail).getByRole("tab", { name: "Codex" }));
+  const accounts = within(popover).getByRole("tablist", { name: "Accounts" });
+  expect(
+    within(accounts)
+      .getAllByRole("tab")
+      .map((tab) => tab.getAttribute("aria-label")),
+  ).toEqual(["Codex · Team", "Codex · Your CLI login", "Codex · Personal"]);
+  await userEvent.click(within(accounts).getByRole("tab", { name: "Codex · Team" }));
   expect(within(list).getByRole("option", { name: /^GPT-6\.2 Sol/ })).toBeTruthy();
   await selectAccount(popover, "Personal");
   expect(within(list).getByRole("option", { name: /^GPT-6 Luna/ })).toBeTruthy();

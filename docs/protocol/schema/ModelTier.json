@@ -35,11 +35,16 @@
       "x-ace-constraint": "At most 16 entries."
     },
     "speed": {
-      "enum": [
-        "standard",
-        "fast"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/KnownSpeed.json"
+        },
+        {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      ]
     }
   },
   "required": [

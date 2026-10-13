@@ -1,4 +1,5 @@
 import { currentCheckout, gitAction, openWorkCard } from "@/test/open-work.ts";
+import { sourceTab } from "@/test/model-control.ts";
 import { chooseAccount } from "@/test/model-control.ts";
 import { fixtureImage, longHistory, replayCursor } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
@@ -149,7 +150,7 @@ test("the account row moves the thread to another account and blocks one at its 
   await userEvent.click(within(dialog).getByRole("button", { name: /^Switch to/ }));
   const codex = await openModelControl(/^Model: GPT-5 Codex, Personal/);
   await openModelPicker(codex);
-  const team = within(codex).getByRole("tab", { name: "Codex · Team" });
+  const team = await sourceTab(codex, "Codex · Team");
   expect(team.getAttribute("aria-disabled")).toBe("true");
   await userEvent.click(team);
   expect(screen.getByRole("button", { name: /^Model: GPT-5 Codex, Personal/ })).toBeTruthy();
@@ -213,7 +214,9 @@ test("a wide composer spells out the @ and / hints", async () => {
 
 test("approvals and predefined effort keep their readable modes on a phone", async () => {
   layoutWidth(358);
-  await open("busy");
+  const { message } = await open("busy");
+  // The empty phone composer is a pill; typing opens it to its approvals control.
+  await userEvent.type(message, "x");
   const approvals = await screen.findByRole("button", { name: /^Approvals: Provider default/ });
   expect(approvals.getAttribute("aria-label")).toBe("Approvals: Provider default");
   await userEvent.click(approvals);
@@ -228,9 +231,26 @@ test("approvals and predefined effort keep their readable modes on a phone", asy
   expect(model.textContent).toContain("Opus 5.5");
   expect(within(model).getByRole("img", { name: "Claude Code · Personal" })).toBeTruthy();
   expect(model.getAttribute("aria-label")).toContain("Personal");
-  expect(
-    within(screen.getByRole("button", { name: "Reasoning: Medium" })).getByRole("img", {
-      name: "Medium reasoning · default",
-    }),
-  ).toBeTruthy();
+  // A phone's chip names the effort briefly; its full name stays in the accessible name.
+  expect(model.querySelector("[data-slot=model-effort]")?.textContent).toBe("Med");
+  expect(model.getAttribute("aria-label")).toContain("Medium effort (default)");
+});
+
+test("an empty composer on a phone is one pill row that opens while typing", async () => {
+  layoutWidth(358);
+  const { message } = await open("busy");
+  // The pill keeps +, the message, the model and send; approvals wait until it opens.
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^Approvals: / })).toBeNull());
+  expect(screen.getByRole("button", { name: /^Model: / })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /^Add / })).toBeTruthy();
+  await userEvent.type(message, "Cap");
+  expect(await screen.findByRole("button", { name: /^Approvals: / })).toBeTruthy();
+  await userEvent.clear(message);
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^Approvals: / })).toBeNull());
+});
+
+test("a wide composer never collapses into the pill", async () => {
+  layoutWidth(900);
+  await open("busy");
+  expect(await screen.findByRole("button", { name: /^Approvals: / })).toBeTruthy();
 });

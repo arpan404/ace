@@ -1,10 +1,12 @@
-/** Explicit provider capabilities, never inferred from being the last choice. */
+import { effortLabel } from "@ace/ui-core";
+
+/**
+ * Ultra and Max: the deepest reasoning a provider names, which gets the accent sheen and the
+ * animated thumb. Explicit provider capabilities, never inferred from being the last choice
+ * (Extra high stays an ordinary level).
+ */
 export function isDeepReasoning(effort: string | undefined, supported: readonly string[]): boolean {
-  return (
-    effort !== undefined &&
-    supported.includes(effort) &&
-    /^(ultra|xhigh|extra_high|max)$/i.test(effort)
-  );
+  return effort !== undefined && supported.includes(effort) && /^(ultra|max)$/i.test(effort);
 }
 
 export function reasoningDescription(effort: string | undefined): string {
@@ -30,19 +32,13 @@ export function reasoningDescription(effort: string | undefined): string {
   }
 }
 
-/** Compact names, without relabelling an ordinary High capability as Max. */
+/** A short name for a compact chip ("Med"), without relabelling an ordinary High as Max. */
 export function reasoningShortLabel(effort: string): string {
   const labels: Record<string, string> = {
     minimal: "Min",
-    low: "Low",
-    light: "Light",
     medium: "Med",
-    high: "High",
-    xhigh: "Max",
-    extra_high: "Max",
-    max: "Max",
-    ultra: "Ultra",
-    none: "Off",
+    xhigh: "X-High",
+    extra_high: "X-High",
   };
-  return labels[effort.toLowerCase()] ?? effort;
+  return labels[effort.toLowerCase()] ?? effortLabel(effort);
 }

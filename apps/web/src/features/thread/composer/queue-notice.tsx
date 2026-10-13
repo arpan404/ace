@@ -36,41 +36,59 @@ const icons: Record<Notice["kind"], typeof PauseIcon> = {
 
 const holdOf = (reader: ThreadReader) => reader.queue;
 
+/** Why the queue is held, with what the notice needs to say it; undefined while it isn't. */
+export interface HeldQueue {
+  notice: Notice;
+  account: ReturnType<typeof useThreadAccount>["account"];
+  unavailable: ReturnType<typeof useThreadModelAvailability>["unavailable"];
+}
+
 /**
- * Above the composer while the queue is held: a usage limit (with when it resets, and resume
- * now, resume at reset, snooze until reset or move to the account with the most room, named), a
- * restart that stopped the agent, or a manual pause, each with its way out.
+ * Whether the queue is held: a usage limit (with when it resets), a restart that stopped the
+ * agent, a manual pause, a model that went away, or a message that wasn't sent.
  */
-export function QueueNotice(props: {
-  threadId: string;
-  status: ThreadStatus | undefined;
-  queue: QueueControls;
-  onChooseModel(): void;
-}) {
-  const live = useThread(props.threadId, ["queue"], holdOf);
+export function useHeldQueue(
+  threadId: string,
+  status: ThreadStatus | undefined,
+  queue: QueueControls,
+): HeldQueue | undefined {
+  const live = useThread(threadId, ["queue"], holdOf);
   const now = useNow();
   // What accounts.list says about the account it ran out on: its reset, and where Move goes.
-  const { account, accounts } = useThreadAccount(props.threadId);
+  const { account, accounts } = useThreadAccount(threadId);
   const context = account && accounts ? limitContext(accounts, account.id, now) : undefined;
-  const { unavailable } = useThreadModelAvailability(props.threadId);
+  const { unavailable } = useThreadModelAvailability(threadId);
   const notice = queueNotice(
-    props.status,
+    status,
     {
-      ...(live ?? props.queue.page),
-      pendingCount: live?.pendingCount ?? props.queue.page?.total ?? props.queue.messages.length,
-      paused: live?.paused ?? props.queue.page?.paused ?? false,
+      ...(live ?? queue.page),
+      pendingCount: live?.pendingCount ?? queue.page?.total ?? queue.messages.length,
+      paused: live?.paused ?? queue.page?.paused ?? false,
       reason:
-        (live?.reason ?? props.queue.page?.reason) === "model_unavailable" && !unavailable
+        (live?.reason ?? queue.page?.reason) === "model_unavailable" && !unavailable
           ? "not_sent"
-          : (live?.reason ?? props.queue.page?.reason ?? null),
-      resumeAt: live?.resumeAt ?? props.queue.page?.resumeAt ?? null,
+          : (live?.reason ?? queue.page?.reason ?? null),
+      resumeAt: live?.resumeAt ?? queue.page?.resumeAt ?? null,
     },
     now,
     undefined,
     context,
     unavailable,
   );
-  if (!notice) return null;
+  return notice ? { notice, account, unavailable } : undefined;
+}
+
+/**
+ * In the queue's strip while the queue is held: the reason and its way out (resume now, resume
+ * at reset, snooze until reset, move to the account with the most room, or choose a model).
+ */
+export function QueueNotice(props: {
+  threadId: string;
+  held: HeldQueue;
+  queue: QueueControls;
+  onChooseModel(): void;
+}) {
+  const { notice, account, unavailable } = props.held;
   const replacement = unavailable?.replacement;
   const detail =
     notice.kind === "model"
@@ -80,7 +98,7 @@ export function QueueNotice(props: {
   return (
     <section
       aria-label={notice.title}
-      className="fx-rise-in mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 px-2 py-1 text-ui"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1 py-1 text-ui"
     >
       <div className="flex min-w-0 basis-full items-start gap-2">
         {notice.kind === "model" || notice.kind === "not_sent" ? (

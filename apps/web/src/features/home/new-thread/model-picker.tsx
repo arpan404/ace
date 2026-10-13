@@ -5,8 +5,9 @@ import {
   pickerModel,
   pickerProviders,
   speedControl,
-  speedOffTier,
+  speedOption,
   type PickerModel,
+  type Speed,
 } from "@ace/ui-core";
 import {
   ModelControl,
@@ -34,10 +35,9 @@ export function ModelPicker(props: {
   onModel(key: string, account: string | undefined): void;
   onAccount(id: string): void;
   onEffort(effort: string | undefined): void;
-  onFast(on: boolean): void;
-  onReset(): void;
+  onSpeed(speed: Speed): void;
 }) {
-  const { model, account, effort, fast, provider } = props.resolved;
+  const { model, account, effort, provider } = props.resolved;
   const compact = useComposerCompact();
   const readError = useProviderReadError();
   const statuses = useProviderStatuses();
@@ -69,17 +69,17 @@ export function ModelPicker(props: {
     model: model && {
       label: model.label,
       provider: model.provider,
-      fastTier: model.fastTier,
-      fastDefault: model.fastDefault,
+      speeds: model.speeds,
+      defaultSpeed: model.defaultSpeed,
     },
-    current: fast ? model?.fastTier : speedOffTier(model),
+    current: model && speedOption(model.speeds, props.resolved.speed),
   });
   const details = model && {
     model: model.label,
     account: tag,
     effort,
     hasEfforts: efforts.length > 0,
-    fast: speed.on,
+    speed: speed.speed,
   };
   const name = details && modelControlName(details);
   // Each account's rows: the picker groups them by account and source.
@@ -88,7 +88,6 @@ export function ModelPicker(props: {
   );
   const view: ModelControlView = {
     provider,
-    side: "top",
     accountLabel:
       (props.options?.accounts.filter((option) => option.provider === provider).length ?? 0) > 1
         ? tag
@@ -104,11 +103,13 @@ export function ModelPicker(props: {
     instance: model?.account,
     efforts,
     effort,
+    defaultEffort: model?.defaultEffort,
     effortDefault: false,
     effortReason: model && !efforts.length ? `${model.label} has no effort levels` : undefined,
-    fast: speed.on,
-    fastReason: speed.reason,
-    canReset: effort !== model?.defaultEffort || speed.on !== !!model?.fastDefault,
+    speeds: speed.tiers,
+    speed: speed.speed,
+    speedReason: speed.reason,
+    canReset: effort !== model?.defaultEffort,
     accounts: (props.options?.accounts ?? [])
       .filter((option) => option.provider === provider)
       .map((option) => ({
@@ -133,8 +134,7 @@ export function ModelPicker(props: {
         compact={compact}
         actions={{
           onEffort: props.onEffort,
-          onFast: props.onFast,
-          onReset: props.onReset,
+          onSpeed: props.onSpeed,
           onModel: (key, listed) => {
             props.onModel(key, listed);
             return true;

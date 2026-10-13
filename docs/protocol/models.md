@@ -495,7 +495,7 @@ Example:
 | --- | --- | --- | --- |
 | id | yes | string | {"minLength":1,"maxLength":256} |
 | name | yes | string | {"minLength":1,"maxLength":256} |
-| speed | no | ["standard","fast"] |  |
+| speed | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/KnownSpeed.json"},{"type":"string","minLength":1,"maxLength":256}]} |
 | parameters | no | object | {"default":{},"maxProperties":16,"x-ace-constraint":"At most 16 entries.","propertyNames":{"type":"string","minLength":1,"maxLength":256},"additionalProperties":{"anyOf":[{"type":"string","maxLength":256},{"type":"boolean"}]}} |
 
 Example:

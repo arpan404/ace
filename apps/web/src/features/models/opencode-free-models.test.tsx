@@ -1,3 +1,4 @@
+import { chooseSource } from "@/test/model-control.ts";
 import { replayCursor } from "@ace/fake-daemon";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -52,7 +53,7 @@ test("signed-out OpenCode offers selectable Free rows in the Zen group", async (
   await screen.findByRole("feed", { name: "Transcript" });
   const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
   const list = await openModelPicker(popover);
-  await userEvent.click(within(popover).getByRole("tab", { name: "OpenCode · Your CLI login" }));
+  await chooseSource(popover, "OpenCode · Your CLI login");
   await selectAccount(popover, "Your CLI login");
   const zen = within(list).getByRole("group", { name: "OpenCode Zen" });
   const model = within(zen).getByRole("option", { name: /^Big Pickle, Free/ });
@@ -79,12 +80,12 @@ test("new and free metadata stays readable without crowding the model name and s
   await screen.findByRole("feed", { name: "Transcript" });
   const popover = await openModelControl(/^Model: Opus 5\.5, Personal/);
   const list = await openModelPicker(popover);
-  await userEvent.click(within(popover).getByRole("tab", { name: "OpenCode · Your CLI login" }));
+  await chooseSource(popover, "OpenCode · Your CLI login");
   const model = within(list).getByRole("option", {
     name: /^Big Pickle, New, Free, Preview snapshot with extended context/,
   });
   expect(model.textContent).toContain("Big Pickle");
-  expect(model.textContent).toContain("OpenCode · OpenCode Zen");
+  expect(model.getAttribute("aria-label")).toContain("OpenCode · OpenCode Zen");
   expect(model.textContent).not.toMatch(/NEW|New|Free|Preview snapshot/);
   expect(model.getAttribute("title")).toContain(
     "New, Free, Preview snapshot with extended context",

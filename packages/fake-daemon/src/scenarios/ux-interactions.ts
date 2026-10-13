@@ -91,6 +91,62 @@ export function question(answered: boolean): Scenario {
         },
   );
 }
+/** One of the formatting questions: three options and a free answer. */
+const formatQuestion = (id: string, text: string, labels: readonly [string, string, string]) => ({
+  id,
+  text,
+  multiSelect: false,
+  allowOther: true,
+  options: labels.map((label) => ({ id: label.toLowerCase().replace(/\W+/g, "-"), label })),
+});
+
+/** Claude asks three questions at once, each taking a free answer, and waits on them. */
+export function formattingQuestions(): Scenario {
+  return scenario(
+    "formatting-questions",
+    "Claude asks how to format the relay module",
+    [
+      tool(root, "ask-format", {
+        kind: "ask_user",
+        title: "How should the relay module be formatted?",
+        detail: { kind: "ask_user" },
+      }),
+      {
+        type: "interaction.opened",
+        agent: root,
+        interaction: "format",
+        item: "ask-format",
+        blocking: true,
+        request: {
+          kind: "question",
+          questions: [
+            formatQuestion("indent", "How should the relay module indent?", [
+              "Two spaces",
+              "Four spaces",
+              "Tabs",
+            ]),
+            formatQuestion("quotes", "Which quotes should strings use?", [
+              "Double",
+              "Single",
+              "Backticks",
+            ]),
+            formatQuestion("width", "Where should long lines wrap?", [
+              "80 columns",
+              "100 columns",
+              "120 columns",
+            ]),
+          ],
+        },
+      },
+    ],
+    {
+      provider: "claude",
+      pending: true,
+      after: [{ kind: "await", interaction: "format" }],
+    },
+  );
+}
+
 export function delegation(): Scenario[] {
   const parentId = "thread-ux-delegation-results";
   const childId = "thread-ux-delegated-model-error";

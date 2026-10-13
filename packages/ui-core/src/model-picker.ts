@@ -1,8 +1,9 @@
-import type { Capabilities, ModelSource, ProviderKind } from "@ace/protocol";
+import type { ModelSource, ProviderKind } from "@ace/protocol";
 import { modelLine } from "./model-label.ts";
 import { effortLabel, type ModelChoice, type ModelPlacement } from "./models.ts";
 import type { ProviderState } from "./provider-status.ts";
 import { providerNames } from "./providers.ts";
+import type { Speed, SpeedTier } from "./speed.ts";
 
 /** One model on one account (or source) as the model picker lists it. */
 export interface PickerModel {
@@ -158,63 +159,6 @@ export function pickerProviders(
   return out;
 }
 
-/**
- * The `serviceTier` that asks for a model's standard speed: "default" where the catalog runs it
- * fast unless asked otherwise, else none (leaving the tier out is already standard).
- */
-export function speedOffTier(
-  model: { fastTier: string | undefined; fastDefault?: boolean | undefined } | undefined,
-): string | undefined {
-  return model?.fastTier !== undefined && model.fastDefault ? "default" : undefined;
-}
-
-/** The speed toggle: the fast tier on offer, whether it is on, or why it can't change. */
-export interface SpeedControl {
-  tier: string | undefined;
-  /** The `serviceTier` that turns speed off: none when the model is standard by default. */
-  off: string | undefined;
-  on: boolean;
-  reason: string | undefined;
-}
-
-/**
- * Speed for a model: on when the selection names its fast tier, or names none and the catalog
- * runs the model fast by default. A thread that already exists also needs its provider to take
- * `serviceTier` as a session option.
- */
-export function speedControl(input: {
-  model:
-    | {
-        label: string;
-        provider: ProviderKind;
-        fastTier: string | undefined;
-        fastDefault?: boolean | undefined;
-      }
-    | undefined;
-  /** What the selection asks for now (`options.serviceTier`). */
-  current: unknown;
-  /** A running thread's capabilities; omitted for a thread that hasn't started. */
-  capabilities?: Pick<Capabilities, "sessionOptions" | "launchOptions"> | undefined;
-  running?: boolean;
-}): SpeedControl {
-  const { model } = input;
-  const tier = model?.fastTier;
-  const off = speedOffTier(model);
-  const on =
-    tier !== undefined &&
-    (input.current === undefined ? off !== undefined : input.current === tier);
-  const blocked = (reason: string): SpeedControl => ({ tier, off, on, reason });
-  if (!model) return blocked("Choose a model first");
-  if (!tier) return blocked(`${model.label} has no faster tier`);
-  if (
-    input.running &&
-    (!input.capabilities?.sessionOptions ||
-      !input.capabilities.launchOptions?.includes("serviceTier"))
-  )
-    return blocked(`${providerNames[model.provider]} sets speed only when a thread starts`);
-  return { tier, off, on, reason: undefined };
-}
-
 type Options = Readonly<Record<string, string | number | boolean | null>>;
 
 /**
@@ -251,7 +195,7 @@ export function modelControlName(input: {
   /** `effort` is the default as far as ace knows, not what the daemon reported. */
   effortDefault?: boolean;
   hasEfforts: boolean;
-  fast?: boolean;
+  speed?: Speed | undefined;
 }): string {
   const effort = input.effort
     ? `${effortLabel(input.effort)} effort${input.effortDefault ? " (default)" : ""}`
@@ -259,7 +203,8 @@ export function modelControlName(input: {
       ? "provider default effort"
       : undefined;
   const model = input.provider ? modelLine(input.provider, input.model) : input.model;
-  return [model, input.account, effort, input.fast ? "fast" : undefined].filter(Boolean).join(", ");
+  const speed = input.speed && input.speed !== "standard" ? input.speed : undefined;
+  return [model, input.account, effort, speed].filter(Boolean).join(", ");
 }
 
 /** A choice or New thread option as a picker row. */
@@ -340,7 +285,8 @@ export function reconcileNextOptions(input: {
   efforts: readonly string[];
   /** Effort can change on the thread now (`threadEffortControl` gave no reason). */
   effortAllowed: boolean;
-  fastTier: string | undefined;
+  /** The model's speeds (`speedTiers`); a tier it doesn't offer is dropped. */
+  speeds: readonly SpeedTier[];
   speedAllowed: boolean;
 }): {
   options: Record<string, string | number | boolean | null> | undefined;
@@ -355,8 +301,8 @@ export function reconcileNextOptions(input: {
   }
   const tier = input.pending["serviceTier"];
   if (typeof tier === "string" && tier !== input.base["serviceTier"]) {
-    const known = tier === input.fastTier || tier === "default";
-    if (input.speedAllowed && input.fastTier !== undefined && known) patch["serviceTier"] = tier;
+    const known = input.speeds.length > 1 && input.speeds.some((entry) => entry.value === tier);
+    if (input.speedAllowed && known) patch["serviceTier"] = tier;
     else dropped.push("speed");
   }
   return { options: nextOptions(input.base, input.base, patch), dropped };

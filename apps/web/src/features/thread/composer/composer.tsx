@@ -31,7 +31,6 @@ import { composerSurface, inputLine, inputMinLines } from "./composer-styles.ts"
 import { useLayout } from "@/lib/layout.tsx";
 import type { ThreadRef } from "../sources/index.ts";
 import { AddButton, type AddHandle } from "./add-button.tsx";
-import { useShareMessage, type ComposerAnswer } from "./answer-slot.ts";
 import { AttachmentChips, maxAttachmentsPerMessage, useAttachments } from "./attachments.tsx";
 import { ComposerCompact } from "./composer-compact.ts";
 import { accept, insertAt, triggerAt, type Draft, type Trigger } from "./draft.ts";
@@ -82,8 +81,8 @@ const terseWidth = 640;
  * line count (SPEC "Composer"). Text keeps one inset from empty to many lines and grows upward a
  * line at a time up to seven visible lines. The action row keeps + and approvals on
  * the left and model/effort beside send/stop on the right.
- * A card the agent or the person opens
- * (`attached`) sits behind its top edge like the next card of a deck. + opens the Add menu, `@` completes files,
+ * The one strip (`attached`) sits behind its top edge; nothing sits below it. + opens the Add
+ * menu, `@` completes files,
  * a leading `/` completes commands, and paste or drop attach files. Enter empties it at once:
  * the message shows as its bubble straight away (UX audit SY-2) and comes back here only if
  * this device couldn't even save it. The unsent draft is kept per `draftKey` across navigation,
@@ -132,15 +131,11 @@ function ComposerContent({
    * `useComposerCompact()` too.
    */
   attached?: ReactNode;
-  /** The queue unfolds below the input within the same composer surface. */
-  queued?: ReactNode;
-  /** Quiet environment controls below the box, sharing its compact-width context. */
-  environment?: ReactNode;
   /**
-   * The question card above: while it asks, the primary action and Enter answer it ("Answer",
-   * "Submit", "Next"), and where it takes a typed answer the message is that answer.
+   * Where the thread runs (New thread's machine, worktree and base): attached above the box when
+   * nothing else is, sharing its compact-width context. Nothing renders below the composer.
    */
-  answer?: ComposerAnswer | undefined;
+  environment?: ReactNode;
   /**
    * Provider/model information for the surrounding composer controls. Attachments always
    * have a daemon file-path fallback, including when native media input is unavailable.
@@ -340,7 +335,9 @@ function ComposerBody({
       takeText(next);
     } else props.onReplaced(next);
   });
-  useAutosize(input, text, width);
+  // An empty composer on a narrow width is one pill row: + · message · model · send.
+  const pill = compact && empty && !props.unavailable && suggestions.state === "closed";
+  useAutosize(input, text, width, pill ? 1 : inputMinLines);
   useTypeToFocus(input, !!props.typeToFocus && !props.unavailable);
   // After an inserted suggestion or mention has rendered, put the caret after it.
   useLayoutEffect(() => {
@@ -539,23 +536,6 @@ function ComposerBody({
             : undefined;
   // Enter empties the composer at once; the message is the parent's from here on. Only a
   // message this device couldn't save comes back, and only into an untouched composer.
-  // While a question asks, sending answers it; a message it can't take as its answer (a question
-  // without free text) still goes as a message.
-  const answer = props.answer && (empty || props.answer.invitesText) ? props.answer : undefined;
-  // The composer is always in view; scrolling to it could drag the shell up mid-animation.
-  useShareMessage(props.answer ? props.thread.id : undefined, !empty, () =>
-    input.current?.focus({ preventScroll: true }),
-  );
-  const sendAnswer = () => {
-    if (!answer || answer.blocked) return;
-    answer.submit(text.trim());
-    if (!answer.takesText) return;
-    saved.discard();
-    setText("");
-    setTokens([]);
-    setPicked(new Set());
-    setCaret(0);
-  };
   const submit = (opposite: boolean) => {
     if (blocked) return;
     const draft: Draft = {
@@ -651,27 +631,23 @@ function ComposerBody({
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
-      if (answer) return sendAnswer();
       submit((event.metaKey || event.ctrlKey) && props.canSteer !== false);
     }
   };
-  // While a question asks, the composer answers it. Otherwise an empty composer offers what it
-  // can do now: Stop, or (with nothing to send) Send, unavailable; a draft goes as a message,
+  // An empty composer offers what it can do now: Stop, or (with nothing to send) Send,
+  // unavailable; a draft goes as a message,
   // queued or steered while the agent works.
-  const mode = answer
-    ? "answer"
-    : empty
-      ? props.busy && props.onStop
-        ? "stop"
-        : "send"
-      : props.busy
-        ? props.followUp === "steer"
-          ? "steer"
-          : "queue"
-        : "send";
+  const mode = empty
+    ? props.busy && props.onStop
+      ? "stop"
+      : "send"
+    : props.busy
+      ? props.followUp === "steer"
+        ? "steer"
+        : "queue"
+      : "send";
   const placeholder =
     props.unavailable?.short ??
-    (answer?.invitesText ? "Type your answer" : undefined) ??
     (terse ? (props.shortPlaceholder ?? props.placeholder) : props.placeholder) ??
     "Ask anything";
   const expanded = suggestions.state === "ready";
@@ -731,8 +707,14 @@ function ComposerBody({
           {notice}
         </p>
       )}
+      {saved.saveFailed && (
+        <p role="status" className="mb-1.5 px-2 text-xs text-subtle-foreground">
+          Draft not saved: storage full
+        </p>
+      )}
       <ComposerCompact value={compact}>
         {props.attached}
+        {props.environment}
         <div
           data-slot="composer"
           onDragOver={(event) => {
@@ -743,6 +725,9 @@ function ComposerBody({
             event.preventDefault();
             intake(event.dataTransfer);
           }}
+          // The pill (see `pill`): typing or a file opens it; the same elements stay mounted,
+          // so focus never moves.
+          data-pill={pill ? "" : undefined}
           className={cn(composerSurface, "relative z-10 flex flex-col rounded-xl")}
         >
           <AttachmentChips
@@ -751,7 +736,7 @@ function ComposerBody({
             onRetry={attachments.retry}
             threadId={props.thread.draft ? undefined : props.thread.id}
           />
-          <div className="px-4 pt-3.5 pb-1.5">
+          <div data-slot="composer-input" className="px-4 pt-3.5 pb-1.5">
             <MessageInput
               input={input}
               text={text}
@@ -794,7 +779,7 @@ function ComposerBody({
                 selection.addRange(range);
                 el.dispatchEvent(new Event("input", { bubbles: true }));
               }}
-              style={{ minHeight: inputLine * inputMinLines }}
+              style={{ minHeight: inputLine * (pill ? 1 : inputMinLines) }}
               className="message-input block min-w-0 w-full overflow-y-auto bg-transparent p-0 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
             />
           </div>
@@ -808,39 +793,44 @@ function ComposerBody({
             }}
             className="mb-1.5 flex h-11 min-w-0 items-center justify-between gap-0.5 px-2"
           >
-            <AddButton
-              handle={addMenu}
-              onFiles={attach}
-              onOpen={() => {
-                setDismissed(undefined);
-                setAdding(true);
-                placeCaret.current = caret;
-                input.current?.focus();
-              }}
-              unavailable={props.unavailable}
-            />
-            <div className="flex flex-1 items-center gap-0.5">{props.controls}</div>
-            {props.trailing}
-            <PrimaryAction
-              mode={mode}
-              blocked={blocked}
-              off={!!off}
-              canSteer={props.canSteer !== false}
-              stopping={!!props.stopping}
-              answer={answer}
-              describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
-              onSend={() => (answer ? sendAnswer() : submit(false))}
-              onStop={() => props.onStop?.()}
-            />
+            <div data-slot="composer-add" className="flex shrink-0 items-center">
+              <AddButton
+                handle={addMenu}
+                onFiles={attach}
+                onOpen={() => {
+                  setDismissed(undefined);
+                  setAdding(true);
+                  placeCaret.current = caret;
+                  input.current?.focus();
+                }}
+                unavailable={props.unavailable}
+              />
+            </div>
+            {/* The pill keeps only +, the model and send: these wait until it opens. */}
+            <div
+              data-slot="composer-controls"
+              hidden={pill}
+              className="flex flex-1 items-center gap-0.5"
+            >
+              {props.controls}
+            </div>
+            <div data-slot="composer-trailing" className="flex min-w-0 shrink items-center">
+              {props.trailing}
+            </div>
+            <div data-slot="composer-primary" className="flex shrink-0 items-center">
+              <PrimaryAction
+                mode={mode}
+                blocked={blocked}
+                off={!!off}
+                canSteer={props.canSteer !== false}
+                stopping={!!props.stopping}
+                describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
+                onSend={() => submit(false)}
+                onStop={() => props.onStop?.()}
+              />
+            </div>
           </div>
-          {saved.saveFailed && (
-            <p role="status" className="px-4 pb-2 text-xs text-muted-foreground">
-              Draft not saved: storage full
-            </p>
-          )}
-          {props.queued}
         </div>
-        {props.environment}
       </ComposerCompact>
     </div>
   );

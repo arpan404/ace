@@ -18,9 +18,6 @@ const control =
 /** A square icon control: plus, send and stop. It never gives up its room. */
 export const iconControl = `${control} size-(--composer-control) shrink-0 px-0`;
 
-/** A labelled filled action in the send slot: Submit ↑ and Next →. */
-export const pillControl = `${control} shrink-0 gap-1 pr-2.5 pl-3.5`;
-
 /**
  * A labelled control (the model): it shrinks with the footer and its label
  * truncates, so a narrow composer never paints one control over another. It keeps at least its
@@ -44,8 +41,14 @@ export const attachedCardPadding = "pb-[calc(var(--surface-gap)*2+var(--surface-
 /** The same glass, tucked behind the input's edge on a narrower panel. */
 export const attachedSurface = `${composerSurface} rounded-xl`;
 
-/** The matching lower flap: its top edge sits behind the input surface. */
-export const environmentSurface = `${attachedSurface} relative z-0 mx-4 -mt-4 pt-4`;
+/**
+ * Notices above a composer that has no thread strip (New thread): the strip's surface, gone
+ * while none of them has anything to say.
+ */
+export const noticeSurface = `${attachedSurface} relative z-0 flex flex-col gap-2 px-3 pt-2.5 empty:hidden ${attachedInset} ${attachedOverlap} ${attachedCardPadding}`;
+
+/** Where a thread runs, in the strip's place above the input while nothing else is there. */
+export const environmentSurface = `${attachedSurface} relative z-0 ${attachedInset} ${attachedOverlap} ${attachedStripPadding}`;
 
 /** A one-line tab's row: 36px, the composer's text size, a step quieter than the message. */
 const stripRowLayout =

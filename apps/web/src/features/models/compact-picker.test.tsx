@@ -47,7 +47,9 @@ test.each([1, 2, 3, 4, 5, 6, 7, 8, 9])(
         name: new RegExp(`^Model: Shortcut model ${String(number).padStart(3, "0")}, Personal`),
       }),
     ).toBeTruthy();
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Choose model" })).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull(),
+    );
   },
 );
 
@@ -68,7 +70,7 @@ test("⌘1–9 leave the selected model alone after the searched picker closes",
         .getByRole("button", { name: /^Model: Opus 5\.5, Personal/ })
         .getAttribute("aria-label"),
     ).toBe(modelName);
-    expect(screen.queryByRole("dialog", { name: "Choose model" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull();
   }
 });
 
@@ -112,22 +114,30 @@ test("a nonvirtual legacy disclosure controls its actual labeled model region", 
   expect(within(legacy).getByRole("option", { name: /^Opus 5, / })).toBeTruthy();
 });
 
-test("Tab reaches the account rail and arrows filter it before returning to search", async () => {
+test("the keyboard reaches the provider rail and the account switch, then returns to search", async () => {
   const { popover, list } = await openCatalog();
   const search = within(popover).getByRole("combobox", { name: "Search models" });
   await userEvent.tab({ shift: true });
   expect(document.activeElement).toBe(
-    within(popover).getByRole("tab", { name: "Claude Code · Personal" }),
+    within(popover).getByRole("tab", { name: "Claude Code", selected: true }),
   );
-  await userEvent.keyboard("{ArrowDown}");
+  // Tab from the rail goes back to search; Tab from there (past Refresh) reaches the switch.
+  await userEvent.tab();
+  expect(document.activeElement).toBe(search);
+  const accounts = within(popover).getByRole("tablist", { name: "Accounts" });
+  for (let step = 0; step < 3 && !accounts.contains(document.activeElement); step++)
+    await userEvent.tab();
+  expect(document.activeElement).toBe(within(accounts).getByRole("tab", { selected: true }));
+  await userEvent.keyboard("{ArrowRight}");
   expect(document.activeElement).toBe(
-    within(popover).getByRole("tab", { name: "Claude Code · Work", selected: true }),
+    within(accounts).getByRole("tab", { name: "Claude Code · Work", selected: true }),
   );
   expect(
     within(list).getByRole("option", { name: /^Sonnet 5\.5, Claude Code · Work/ }),
   ).toBeTruthy();
   expect(within(list).queryByRole("option", { name: /Shortcut model/ })).toBeNull();
-  await userEvent.tab();
+  for (let step = 0; step < 3 && document.activeElement !== search; step++)
+    await userEvent.tab({ shift: true });
   expect(document.activeElement).toBe(search);
   // Searching still crosses the selected account/provider boundary.
   await userEvent.type(search, "Shortcut model 009");
@@ -146,7 +156,7 @@ test("an unavailable search result explains its limit and refuses quick selectio
   const row = within(list).getByRole("option", { name: /GPT-6\.2 Sol.*Team.*Limit reached/ });
   expect(row.getAttribute("aria-disabled")).toBe("true");
   await userEvent.keyboard("{Meta>}1{/Meta}{Enter}");
-  expect(screen.getByRole("dialog", { name: "Choose model" })).toBe(popover);
+  expect(screen.getByRole("dialog", { name: "Model and effort" })).toBe(popover);
   expect(screen.getByRole("button", { name: /^Model: Opus 5\.5, Personal/ })).toBeTruthy();
 });
 
