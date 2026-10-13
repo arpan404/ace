@@ -114,7 +114,8 @@ test("cursor pages require the current queue revision and preserve the remaining
     const first = await f.client.request({ type: "queue.get", threadId, limit: 1 });
     const after = CommandId.parse("q1");
     await expect(f.client.request({ type: "queue.get", threadId, after })).rejects.toMatchObject({
-      code: "queue_revision_required",
+      code: "daemon",
+      message: "queue_revision_required",
     });
     await f.send("third", "q3");
     await expect(
@@ -124,7 +125,7 @@ test("cursor pages require the current queue revision and preserve the remaining
         after,
         expectedRevision: first.queue.revision,
       }),
-    ).rejects.toMatchObject({ code: "queue_conflict" });
+    ).rejects.toMatchObject({ code: "daemon", message: "queue_conflict" });
     const current = await f.queue();
     const tail = await f.client.request({
       type: "queue.get",
@@ -140,7 +141,7 @@ test("cursor pages require the current queue revision and preserve the remaining
         after: CommandId.parse("missing"),
         expectedRevision: current.revision,
       }),
-    ).rejects.toMatchObject({ code: "invalid_queue_cursor" });
+    ).rejects.toMatchObject({ code: "daemon", message: "invalid_queue_cursor" });
   } finally {
     await f.client.close();
   }

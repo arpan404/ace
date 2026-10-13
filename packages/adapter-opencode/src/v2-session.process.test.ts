@@ -289,7 +289,10 @@ it("foreign directories, forks, global forms and unowned shells cannot enter a t
   await h.publish("session.execution.succeeded");
   expect(Object.values(h.projection.view.agents)).toHaveLength(1);
   expect(Object.values(h.projection.view.interactions)).toHaveLength(0);
-  expect(Object.values(h.projection.view.backgroundTasks)).toHaveLength(0);
+  // Only ace's own finished ownership check remains; the unowned shell never becomes a task.
+  expect(
+    Object.values(h.projection.view.backgroundTasks).map((task) => [task.kind, task.status]),
+  ).toEqual([["other", "completed"]]);
   expect(h.projection.view.thread.status.state).toBe("done");
 });
 it("opaque child and history pages preserve scope, and later recovery refreshes only the changed head", async () => {

@@ -119,9 +119,10 @@ test("a step's verb follows its status: running, awaiting approval, declined, do
 });
 
 test("a shell step notes its exit code, and a declined one says so instead", () => {
-  const ran = describeStep(call({ kind: "shell", command: "ls", exitCode: 2 }, "succeeded", 0, 1));
-  expect(ran).toMatchObject({ verb: "Ran", target: "ls", note: "exit 2" });
-  const declined = describeStep(call({ kind: "shell", command: "ls" }, "declined", 0, 1));
+  const build = { kind: "shell", command: "bun run build" } as const;
+  const ran = describeStep(call({ ...build, exitCode: 2 }, "succeeded", 0, 1));
+  expect(ran).toMatchObject({ verb: "Ran", target: "bun run build", note: "exit 2" });
+  const declined = describeStep(call(build, "declined", 0, 1));
   expect(declined.note).toBe("Declined");
 });
 

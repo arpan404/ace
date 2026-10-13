@@ -111,13 +111,15 @@ export const TransitionCommands = [
 ] as const;
 
 /**
- * The thread whose agent delegated this one through ace. Optional: threads stored before it
- * existed, and threads a person started, have none.
+ * The thread whose agent delegated this one through ace. Fields carrying it are optional: threads
+ * stored before it existed, and threads a person started, have none.
  */
-export const DelegatedBy = ThreadId.optional();
+export const DelegatedBy = ThreadId.meta({
+  description: "The thread whose agent delegated this one through ace.",
+});
 export const ThreadTransitionView = z.object({
   lineage: ThreadLineage.optional(),
-  delegatedBy: DelegatedBy,
+  delegatedBy: DelegatedBy.optional(),
   execution: ExecutionSelection.optional(),
   switch: ThreadSwitch.optional(),
 });
