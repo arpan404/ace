@@ -17,7 +17,11 @@ export async function accessCommand(args: Args, home: string) {
     validateArgs(args, [], 1);
     try {
       const { origin, token } = hostConnection(home);
-      return result(args, DaemonHealth.parse(await accessRequest(origin, "/v1/status", { token })));
+      // Keep the remote, remote-access and service facts the health schema does not name.
+      return result(
+        args,
+        DaemonHealth.loose().parse(await accessRequest(origin, "/v1/status", { token })),
+      );
     } catch (error) {
       if (
         error instanceof Error &&

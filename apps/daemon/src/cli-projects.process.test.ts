@@ -1,5 +1,6 @@
 import { mkdir, stat, writeFile, readFile, mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { once } from "node:events";
@@ -8,6 +9,11 @@ import { expect, test } from "vitest";
 import { Project } from "@ace/protocol";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { invoke } from "./cli-test-support.ts";
+
+// The started daemon inspects projects with Git, so keep Git reachable beside the stub opener.
+const gitDirectory = (process.env.PATH ?? "")
+  .split(delimiter)
+  .find((entry) => entry && existsSync(join(entry, "git")));
 
 test.each(["missing", "stale"])(
   "ace open starts a real local daemon with %s endpoint files",
@@ -39,7 +45,7 @@ test.each(["missing", "stale"])(
       });
     const env = {
       HOME: root,
-      PATH: bin,
+      PATH: gitDirectory ? `${bin}${delimiter}${gitDirectory}` : bin,
       ACE_PORT: "0",
       ACE_LISTEN: "local",
       ACE_LOG_LEVEL: "silent",

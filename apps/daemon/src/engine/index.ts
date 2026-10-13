@@ -735,6 +735,10 @@ export class Engine {
   discardRecovery(id: ThreadId): void {
     this.recovery.discard(id);
   }
+  /** Tree cancellation from a Stop: resumable work goes, the Stop's held queue stays. */
+  cancelRecovery(id: ThreadId): void {
+    this.recovery.discardKeepingStop(id);
+  }
   cancelDelegatedInputs(id: ThreadId): void {
     cancelDelegatedInputs(this.repo, id, this.clock.now());
   }

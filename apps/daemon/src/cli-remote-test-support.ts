@@ -24,7 +24,8 @@ export async function remoteCliFixture() {
     await accessRequest(local, "/v1/pairings", {
       method: "POST",
       token: hostToken,
-      body: { scopes: ["read", "operate"] },
+      // Remote work validates its registered workspace through a projects read.
+      body: { scopes: ["read", "operate", "projects"] },
     }),
   );
   const paired = await redeemPairing(pairing.url, "CLI regression");
