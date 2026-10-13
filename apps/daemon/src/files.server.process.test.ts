@@ -24,6 +24,9 @@ function parseControl(input: unknown) {
   const standard = ServerMessage.safeParse(input);
   return standard.success ? standard.data : FilesServerMessage.parse(input);
 }
+/** Replies to what these tests send: the handshake, errors, pong and every files message. */
+const isReply = (type: string) =>
+  ["welcome", "error", "pong"].includes(type) || type.startsWith("files.");
 class Inbox {
   readonly socket: WebSocket;
   private queue: unknown[] = [];
@@ -34,6 +37,9 @@ class Inbox {
       const message = binary
         ? z.instanceof(Buffer).parse(data)
         : parseControl(JSON.parse(data.toString()));
+      // The daemon may push its own broadcasts to a connected client at any time; these tests
+      // follow only the replies to what they send.
+      if (!Buffer.isBuffer(message) && !isReply(message.type)) return;
       const waiter = this.waiters.shift();
       if (waiter) waiter(message);
       else this.queue.push(message);
