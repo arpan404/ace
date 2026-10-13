@@ -5,6 +5,7 @@ import {
   carriesOnStretch,
   isBareErrorCode,
   reviewedInteraction,
+  toolRefusal,
   type InlineQuestion,
 } from "@ace/ui-core";
 
@@ -530,7 +531,8 @@ export function buildBlocks(source: BlockSource): Block[] {
           } else if (callId) group("work", id);
           else {
             push({ kind: "item", key: id, itemId: id }, false);
-            if (mark && item.level === "error" && !isBareErrorCode(item.text))
+            // A refused agent tool is the agent's to handle, not why its turn failed.
+            if (mark && item.level === "error" && !isBareErrorCode(item.text) && !toolRefusal(item))
               mark.failure = { index: blocks.length - 1, itemId: id };
           }
           break;

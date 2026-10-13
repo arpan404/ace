@@ -3,10 +3,35 @@ import type { PublicToolCode } from "@ace/mcp-server";
 /** Authored failures retain diagnostic detail while their public messages stay fixed. */
 export class AgentControlError extends Error {
   readonly code: PublicToolCode;
-  constructor(code: PublicToolCode, detail: string, cause?: unknown) {
+  /** ace-authored words the calling agent may read, e.g. which modes it can retry with. */
+  readonly publicDetail: string | undefined;
+  constructor(code: PublicToolCode, detail: string, cause?: unknown, publicDetail?: string) {
     super(detail, cause === undefined ? undefined : { cause });
     this.code = code;
+    this.publicDetail = publicDetail;
   }
+}
+
+/**
+ * A refused child policy in words the agent can act on: the parent's mode and the child
+ * modes it would accept. Mode IDs are provider vocabulary from ace's own tables.
+ */
+export function ceilingRefusal(
+  child: import("@ace/protocol").ProviderKind,
+  refusal: { provider: string; mode: string | null; allowed: readonly string[] } | undefined,
+): AgentControlError {
+  const parent = refusal
+    ? `The parent thread runs ${refusal.provider} in ${refusal.mode === null ? "its provider default" : `"${refusal.mode}"`}.`
+    : "The parent thread's permission policy can't be verified.";
+  const allowed = refusal?.allowed.length
+    ? `Allowed ${child} modes: ${refusal.allowed.map((mode) => `"${mode}"`).join(", ")}.`
+    : `No ${child} mode fits under it; delegate to ${refusal?.provider ?? "the parent's provider"} or ask the person to change the parent's mode.`;
+  return new AgentControlError(
+    "delegation_denied",
+    "permission_ceiling_unverifiable",
+    undefined,
+    `${parent} ${allowed}`,
+  );
 }
 
 /** Only trusted engine admission results enter this mapping, never provider error objects. */

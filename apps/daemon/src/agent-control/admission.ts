@@ -1,6 +1,6 @@
 import { delegationRequest } from "./cursor-request.ts";
 import { incomingRemoteRoot } from "./incoming-root.ts";
-import { AgentControlError, controlAdmissionError } from "./failure.ts";
+import { AgentControlError, ceilingRefusal, controlAdmissionError } from "./failure.ts";
 import { delegationSelection, validateDelegationSelection } from "./selection.ts";
 import { callerThread } from "./authorization.ts";
 import { admitDelegation, delegationBudget } from "@ace/orchestrator";
@@ -53,7 +53,10 @@ export class DelegationAdmission {
         input,
       );
     } catch {
-      throw controlAdmissionError("permission_ceiling_unverifiable");
+      throw ceilingRefusal(
+        input.provider,
+        this.deps.engine.childPermissionRefusal(caller.threadId, input.provider, input),
+      );
     }
     const root = this.journal.get(caller.threadId)?.rootId ?? caller.threadId;
     if (incomingRemoteRoot(this.deps.store, root))

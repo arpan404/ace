@@ -5,6 +5,7 @@ import {
   devWorld,
   fakeTransport,
   hostFolders,
+  refusedDelegation,
   seedPanels,
   seedRealCatalogs,
   seedRealThreadState,
@@ -85,6 +86,9 @@ export function bootFake(): {
   if (world === "computer-use") seedComputerUse(daemon);
   if (world === "real-catalogs") seedRealCatalogs(daemon, Date.now());
   if (world === "cold-start-state") seedColdStartState(daemon);
+  // `?fakeWorld=refused-delegation`: an OpenCode thread whose Claude delegations were refused.
+  if (world === "refused-delegation")
+    new ScenarioPlayer(daemon, refusedDelegation(), { agoMs: 0 }).runUntilBlocked();
   // Playwright's screens stage failures and empty states before the app's first request.
   const setup = (globalThis as { aceFakeSetup?: (daemon: FakeDaemon) => void }).aceFakeSetup;
   setup?.(daemon);

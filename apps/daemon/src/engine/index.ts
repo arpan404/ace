@@ -429,6 +429,8 @@ export class Engine {
             scope.parentThreadId,
             this.permissionTarget(p.provider, p),
             requested,
+            0,
+            this.offeredModes(p.provider),
           ) ?? undefined;
       } catch {
         return { commandId: command.id, ok: false, error: "permission_ceiling_unverifiable" };
@@ -485,6 +487,25 @@ export class Engine {
       parent,
       this.permissionTarget(provider, selection),
       requested,
+      0,
+      this.offeredModes(provider),
+    );
+  }
+  /** The native modes an installed provider advertises, for choosing an inherited one. */
+  private offeredModes(provider: ProviderKind): PermissionMode[] | undefined {
+    if (!this.registry.has(provider)) return undefined;
+    return this.registry.get(provider).capabilities.permissionModes?.map((mode) => mode.id);
+  }
+  /** The parent's ceiling and the child modes it accepts, to explain a refused child policy. */
+  childPermissionRefusal(
+    parent: ThreadId,
+    provider: ProviderKind,
+    selection?: Partial<import("@ace/protocol").AgentSelection>,
+  ) {
+    return this.repo.permissions.refusal(
+      parent,
+      this.permissionTarget(provider, selection),
+      this.offeredModes(provider),
     );
   }
   /** Host-owned summary attachment. Child transcript and native session stay independent. */
