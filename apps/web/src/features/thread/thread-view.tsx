@@ -35,6 +35,10 @@ const AttachmentsSheet = lazy(() =>
 const MergeDialog = lazy(() =>
   import("./transitions/merge-dialog.tsx").then((m) => ({ default: m.MergeDialog })),
 );
+/** The Changes header's git action: loaded with the Changes tab that draws it. */
+const ThreadGitAction = lazy(() =>
+  import("./header/git-action.tsx").then((m) => ({ default: m.ThreadGitAction })),
+);
 const ForkDialog = lazy(() =>
   import("./transitions/fork-dialog.tsx").then((m) => ({ default: m.ForkDialog })),
 );
@@ -142,6 +146,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
     () => ({
       ...outer,
       fork: forkPoint && (() => setForking(forkPoint)),
+      gitAction: ThreadGitAction,
     }),
     [outer, forkPoint],
   );

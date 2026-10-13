@@ -1,11 +1,9 @@
 import type { ApprovalOption, PermissionReview } from "@ace/protocol";
 import { reviewReason, type ApprovalCopy, type ApprovalVerb } from "@ace/ui-core";
-import { CaretRightIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@phosphor-icons/react";
 import { Suspense, useId, useState, type ReactNode } from "react";
 import { AppMark } from "@/components/app-mark.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -14,7 +12,8 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 /*
  * One approval, drawn the same on every surface that answers it (the thread's card above the
  * composer, Activity, computer use's app requests): the one thing it acts on, one plain reason,
- * then Allow once, Always allow and Deny. The rest (who reviewed it, the facts, a medium risk, any
+ * then Allow once, Always allow and Deny, the same choices on every surface (the compact card
+ * above the composer included: nothing hides behind a menu there). The rest (who reviewed it, the facts, a medium risk, any
  * other option the request offers) waits behind Details, so the decision row always fits.
  */
 
@@ -116,7 +115,6 @@ export function ApprovalRequest(props: {
       {props.answered || (
         <div className="flex flex-wrap items-center gap-2">
           {copy.decisions.map((decision, index) => {
-            if (compact && decision.verb === "always_allow") return null;
             const hint = props.hints?.[decision.verb];
             const keyed = props.keyed?.(decision.option) ?? true;
             const button = (
@@ -156,27 +154,6 @@ export function ApprovalRequest(props: {
               button
             );
           })}
-          {compact && copy.decisions.some((decision) => decision.verb === "always_allow") && (
-            <Menu>
-              <MenuTrigger
-                render={<IconButton icon={DotsThreeIcon} label="More approval options" size="sm" />}
-              />
-              <MenuContent>
-                {copy.decisions
-                  .filter((decision) => decision.verb === "always_allow")
-                  .map((decision) => (
-                    <MenuItem
-                      key={decision.option.id}
-                      onClick={() =>
-                        props.onAnswer({ option: decision.option, verb: decision.verb })
-                      }
-                    >
-                      {decision.label}
-                    </MenuItem>
-                  ))}
-              </MenuContent>
-            </Menu>
-          )}
           {hasDetails && (
             <button
               type="button"

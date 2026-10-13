@@ -336,7 +336,7 @@ test("approval cards show the command, risk and decisions without an empty spinn
   const feed = screen.getByRole("feed", { name: "Transcript" });
   expect(within(feed).queryByRole("button", { name: "" })).toBeNull();
   expect(within(feed).queryByText("0s")).toBeNull();
-  await userEvent.click(within(feed).getByRole("button", { name: "1 subagent" }));
+  expect(within(feed).getByRole("region", { name: "1 subagent" })).toBeTruthy();
   expect(within(feed).queryByRole("button", { name: "Subagent actions" })).toBeNull();
 });
 

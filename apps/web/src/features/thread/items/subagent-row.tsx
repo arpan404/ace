@@ -18,7 +18,7 @@ export const subagentTones: Record<SubagentState, string> = {
   done: "text-status-done",
 };
 
-/** Static provider mark; text alongside it always names the status. */
+/** Static provider mark, with the status as a dot when one is given. */
 export function SubagentAvatar(props: {
   provider?: ProviderKind | undefined;
   model?: string | undefined;
@@ -71,6 +71,10 @@ export function SubagentElapsed(props: {
   );
 }
 
+/** States the person should act on or know went wrong: shown in words, not just a dot. */
+const needsAttention = (state: SubagentState) =>
+  state === "human" || state === "failed" || state === "unresponsive";
+
 export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fresh: boolean }) {
   const { entry } = props;
   const workspace = useWorkspaceActions(props.threadId);
@@ -78,19 +82,23 @@ export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fre
   const label = entry.childThreadId
     ? `Open ${entry.title}'s thread, ${status}`
     : `Open ${entry.title}, ${status}`;
+  // Status shows once: the avatar's dot, or, when it needs attention, words in its tone instead.
+  const attention = needsAttention(entry.state);
+  const stale = !props.fresh && !subagentTerminal(entry.state);
   const words = (
     <>
-      <SubagentAvatar provider={entry.provider} model={entry.model} state={entry.state} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-ui font-medium">{entry.title}</span>
-        <span
-          className={cn(
-            "block text-xs",
-            entry.state === "human" ? subagentTones.human : "text-muted-foreground",
-          )}
-        >
-          {props.fresh || subagentTerminal(entry.state) ? status : `Last seen: ${status}`}
-        </span>
+      <SubagentAvatar
+        provider={entry.provider}
+        model={entry.model}
+        state={attention ? undefined : entry.state}
+      />
+      <span className="flex min-w-0 flex-1 items-center gap-2">
+        <span className="min-w-0 truncate text-ui font-medium">{entry.title}</span>
+        {(attention || stale) && (
+          <span className={cn("shrink-0 text-xs", subagentTones[entry.state])}>
+            {stale ? `Last seen: ${status}` : status}
+          </span>
+        )}
       </span>
       <SubagentElapsed
         startedAt={entry.startedAt}
@@ -102,7 +110,7 @@ export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fre
     </>
   );
   const classes =
-    "flex min-h-(--row-height) pointer-coarse:min-h-11 w-full items-center gap-(--surface-gap) px-(--surface-inset) py-[calc(var(--setting-row-padding)/2)] text-left transition-colors duration-(--motion-fast) hover:bg-accent focus-ring-inset";
+    "flex min-h-(--row-height) pointer-coarse:min-h-11 w-full items-center gap-(--surface-gap) rounded-md px-(--surface-inset) py-[calc(var(--setting-row-padding)/2)] text-left transition-colors duration-(--motion-fast) hover:bg-accent focus-ring-inset";
   return (
     <li>
       {entry.agentId || entry.childThreadId ? (

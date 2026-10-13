@@ -284,9 +284,8 @@ function AgentRow(props: {
     <>
       <CapsuleGlyph state={state} count={running ? props.subagents : undefined} />
       <span className="shrink-0 font-medium whitespace-nowrap">{name}</span>
-      <CapsuleMeta className={cn("flex-1", status.state === "failed" && "text-status-failed")}>
-        {activity}
-      </CapsuleMeta>
+      {/* A row says its status once: the badge when there is one, else what it is doing. */}
+      <CapsuleMeta className="flex-1">{badge ? null : activity}</CapsuleMeta>
       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
         {end - agent.createdAt >= 1000 ? formatSpan(agent.createdAt, end) : ""}
       </span>

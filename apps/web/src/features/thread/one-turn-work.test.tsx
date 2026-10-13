@@ -25,7 +25,7 @@ test("one turn that talks between steps, finishes a background task and starts a
   expect(log.textContent).toMatch(/^Worked for/);
   // The log comes first; the subagents line and the answer follow it. The finished background
   // task is the turn's work, so it folds into the log and reads there as its step.
-  const started = within(feed).getByRole("button", { name: "1 subagent" });
+  const started = within(feed).getByRole("region", { name: "1 subagent" });
   expect(follows(log, started)).toBe(true);
   expect(follows(log, answer)).toBe(true);
   expect(
@@ -60,7 +60,7 @@ test("while the turn runs, a note followed by more work never opens a second log
   // Work after it: the note stays where it was said, once, in the turn's one flow under its one
   // live header.
   act(() => script.runThrough("background-done"));
-  await within(feed).findByRole("button", { name: "1 subagent" });
+  await within(feed).findByRole("region", { name: "1 subagent" });
   expect(logs(feed)).toHaveLength(0);
   expect(within(feed).getAllByText(/The outbox clears its buffer/)).toHaveLength(1);
   expect(screen.getAllByRole("group", { name: "Turn in progress" })).toHaveLength(1);

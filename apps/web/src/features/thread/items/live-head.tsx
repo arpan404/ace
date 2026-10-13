@@ -1,4 +1,10 @@
-import { livePlanStep, type TurnActivity } from "@ace/ui-core";
+import {
+  livePlanStep,
+  subagentBranchStates,
+  workingSubagentsText,
+  type TurnActivity,
+} from "@ace/ui-core";
+import { useTreeWork } from "@/features/panels/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
@@ -25,6 +31,7 @@ export function LiveHead(props: { threadId: string }) {
   const plans = useShownPlans(props.threadId);
   const live = useLiveConnection();
   const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
+  const subagents = useWorkingSubagents(props.threadId, activity?.subagents);
   // A pause is the turn's own row; a lost connection is the header's to say.
   if (!activity || activity.tone === "paused" || live.staleLabel) return null;
   // The status line stays a live region of its own; the whole row also opens the Summary.
@@ -34,7 +41,7 @@ export function LiveHead(props: { threadId: string }) {
       aria-label="Turn in progress"
       className="relative border-b border-border pb-2"
     >
-      <ActivityLine activity={activity} progress={progress} />
+      <ActivityLine activity={activity} progress={progress} subagents={subagents} />
       <button
         type="button"
         aria-label="Open the summary"
@@ -50,7 +57,12 @@ export function LiveHead(props: { threadId: string }) {
  * while the person is asked (the request itself is in the composer's strip); a held line as it
  * is; a usage-limit pause as a quiet row.
  */
-export function ActivityLine(props: { activity: TurnActivity; progress?: string | undefined }) {
+export function ActivityLine(props: {
+  activity: TurnActivity;
+  progress?: string | undefined;
+  /** Subagents still working, by the shared rule; the activity's own count otherwise. */
+  subagents?: number | undefined;
+}) {
   const { activity } = props;
   if (activity.tone === "paused")
     return (
@@ -74,7 +86,11 @@ export function ActivityLine(props: { activity: TurnActivity; progress?: string 
             from={activity.elapsedFrom}
             className="shrink-0"
           />
-          <Context activity={activity} progress={props.progress} />
+          <Context
+            activity={activity}
+            progress={props.progress}
+            subagents={props.subagents ?? activity.subagents ?? 0}
+          />
         </span>
       ) : activity.tone === "needs-you" ? (
         // Waiting on the person outranks working: never "Working", no timer. The request
@@ -113,15 +129,30 @@ export function TailThinking(props: { threadId: string }) {
   );
 }
 
-/** What else the whole tree is doing, quietly after the time: the plan's step, subagents, commands. */
-function Context(props: { activity: TurnActivity; progress: string | undefined }) {
+/**
+ * The main agent's subagents still at work, counted as the subagents block and the Summary count
+ * them (`subagentBranchStates`); before the agents load, the daemon's own count.
+ */
+function useWorkingSubagents(threadId: string, fallback: number | undefined): number {
+  const { agents, work } = useTreeWork(threadId);
+  const states = subagentBranchStates(agents, work);
+  return states.length ? states.filter((state) => state === "working").length : (fallback ?? 0);
+}
+
+/**
+ * What else the whole tree is doing, quietly after the time: the plan's step, the subagents
+ * still working ("2 subagents working", in the block's words), background commands.
+ */
+function Context(props: {
+  activity: TurnActivity;
+  progress: string | undefined;
+  subagents: number;
+}) {
   const { activity } = props;
   const commands = activity.backgroundCommands;
   const parts = [
     props.progress,
-    activity.subagents
-      ? `${activity.subagents} ${activity.subagents === 1 ? "subagent" : "subagents"}`
-      : undefined,
+    props.subagents ? workingSubagentsText(props.subagents) : undefined,
   ].filter(Boolean);
   if (!parts.length && !commands) return null;
   return (

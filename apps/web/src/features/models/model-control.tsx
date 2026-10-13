@@ -23,8 +23,8 @@ const warm = () => void preloadModelControl();
 
 /**
  * The composer's one model control: `[logo] Model · Effort [speed] ⌄`. Clicking the model's
- * name (or opening it from the keyboard) shows the model list; clicking the effort or speed
- * shows Tune. The model name gives way
+ * name (or opening it from the keyboard) shows the model list; clicking its effort half (the
+ * effort, the speed and the caret) shows Tune. The model name gives way
  * first; the effort and the speed icon never do. Standard speed has no icon, Fast one bolt,
  * Ultrafast two. A pending switch shows its target, the former model in the tooltip. It opens
  * one popover, always upward, anchored to the chip as the pane resizes.
@@ -105,7 +105,12 @@ export function ModelControl(props: {
           {view.unavailable && (
             <span className="shrink-0 text-xs text-status-failed">Unavailable</span>
           )}
-          <span data-model-tune className="inline-flex shrink-0 items-center gap-1.5">
+          {/* The chip's effort half: everything after the name, out to its right edge (the
+              caret and the padding included), opens Tune for every model that has one. */}
+          <span
+            data-model-tune
+            className="-mr-2.5 inline-flex shrink-0 items-center gap-1.5 self-stretch pr-2.5"
+          >
             {view.label && view.effort !== undefined && view.efforts.length > 0 && (
               <EffortSignal view={view} compact={props.compact} />
             )}
@@ -121,11 +126,11 @@ export function ModelControl(props: {
                 <SpeedGlyph speed={view.speed} size={13} />
               </span>
             )}
+            {switching && (
+              <ClockIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
+            )}
+            <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
           </span>
-          {switching && (
-            <ClockIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
-          )}
-          <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
         </PopoverTrigger>
       </ModelTip>
       <PopoverContent

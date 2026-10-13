@@ -529,8 +529,7 @@ test("provider approval options include the session grant and send the chosen op
   const feed = await open(scenario);
   const card = await screen.findByRole("article", { name: "Run git push origin main" });
   expect(within(card).getByText("git push origin main")).toBeTruthy();
-  await userEvent.click(within(card).getByRole("button", { name: "More approval options" }));
-  const always = await screen.findByRole("menuitem", { name: /Always allow/ });
+  const always = within(card).getByRole("button", { name: /Always allow/ });
   expect(always).toBeTruthy();
   expect(within(card).getByRole("button", { name: "Allow once" })).toBeTruthy();
   expect(feed.textContent).not.toContain("/bin/zsh");

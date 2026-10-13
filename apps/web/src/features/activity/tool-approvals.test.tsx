@@ -110,8 +110,7 @@ test("a sensitive app's request says it asks again every turn", async () => {
   const card = await screen.findByRole("article", { name: "Let an agent use Keychain Access" });
   await userEvent.click(within(card).getByRole("button", { name: "Details" }));
   expect(within(card).getByText(/asks again every turn/)).toBeTruthy();
-  await userEvent.click(within(card).getByRole("button", { name: "More approval options" }));
-  expect(await screen.findByRole("menuitem", { name: "Always allow" })).toBeTruthy();
+  expect(within(card).getByRole("button", { name: "Always allow" })).toBeTruthy();
 });
 
 test("Activity's card for an app request can't be approved by a reflex key, only denied", async () => {
@@ -144,10 +143,7 @@ test("an agent asking for an app names the app, not its bundle id, answers in th
       .getAllByRole("button")
       .map((button) => button.textContent)
       .filter((label) => /^(Allow once|Always allow|Deny)$/.test(label ?? "")),
-  ).toEqual(["Allow once", "Deny"]);
-  await userEvent.click(within(card).getByRole("button", { name: "More approval options" }));
-  expect(await screen.findByRole("menuitem", { name: "Always allow" })).toBeTruthy();
-  await userEvent.keyboard("{Escape}");
+  ).toEqual(["Allow once", "Always allow", "Deny"]);
 
   await userEvent.click(within(card).getByRole("button", { name: "Details" }));
   expect(within(card).getByText("Compare the totals in the open sheet")).toBeTruthy();

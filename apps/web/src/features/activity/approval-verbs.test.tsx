@@ -64,16 +64,15 @@ const verbs = (card: HTMLElement) =>
     .filter((label) => /^(Allow once|Always allow|Deny)/.test(label))
     .map((label) => label.replace(/[A-Z]$/, ""));
 
-test("an approval answers in the same verbs in the thread and on Activity's card, reached from its list", async () => {
+test("an approval offers identical choices in the thread and on Activity's card, Always allow included", async () => {
   const app = harness();
   app.play(push).runUntilBlocked();
   await app.open("/t/thread-push");
   const region = await screen.findByRole("region", { name: "Waiting for you" });
   const inThread = await within(region).findByRole("article", { name: title });
-  expect(verbs(inThread)).toEqual(["Allow once", "Deny"]);
-  await userEvent.click(within(inThread).getByRole("button", { name: "More approval options" }));
-  expect(await screen.findByRole("menuitem", { name: "Always allow" })).toBeTruthy();
-  await userEvent.keyboard("{Escape}");
+  expect(verbs(inThread)).toEqual(["Allow once", "Always allow", "Deny"]);
+  // Nothing waits behind a menu in the thread that Activity shows as a button.
+  expect(within(inThread).queryByRole("button", { name: "More approval options" })).toBeNull();
   // None of the provider's own labels reach the buttons.
   expect(within(inThread).queryByText(/Approve once|Decline/)).toBeNull();
 
