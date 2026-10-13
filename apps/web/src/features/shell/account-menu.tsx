@@ -5,7 +5,7 @@ import { initials } from "@ace/ui-core";
 
 import { useProfileName } from "@/lib/profile.ts";
 import { Icon } from "@/components/icon.tsx";
-import { connectionLabels } from "./connection-labels.ts";
+import { connectionDot, connectionLabels } from "./connection-labels.ts";
 import { SidebarMenu } from "./sidebar-menu.tsx";
 
 const AccountMenuContent = deferredComponent(() =>
@@ -14,7 +14,7 @@ const AccountMenuContent = deferredComponent(() =>
 /**
  * The profile at the foot of the sidebar, its full width: the person's initials on a neutral disc
  * (a silhouette until they give a name in Settings › General) and their name. Connection trouble
- * is said in words under the name; a healthy connection adds no indicator. The connection is
+ * is a quiet dot beside the name (the screen says it in words once); a healthy connection adds none. The connection is
  * part of the button's name rather than a live region, so a flapping connection isn't read out
  * each time. Its menu is the only way to Usage.
  */
@@ -49,12 +49,10 @@ export function AccountMenu() {
           </span>
           <span aria-hidden className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-ui font-medium text-foreground">{shown}</span>
-            {state !== "ready" && (
-              <span className="text-xs text-muted-foreground">
-                Daemon {connectionLabels[state].toLowerCase()}
-              </span>
-            )}
           </span>
+          {state !== "ready" && (
+            <span aria-hidden className={`size-2 shrink-0 rounded-full ${connectionDot[state]}`} />
+          )}
         </button>
       }
     >

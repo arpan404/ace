@@ -19,7 +19,9 @@ test("a disconnected thread pauses its live line and removes Stop until replay c
   });
   await waitFor(() => expect(app.client.state).not.toBe("ready"));
   expect(within(feed).queryByText("Work so far")).toBeNull();
-  expect(screen.getByText("Reconnecting")).toBeTruthy();
+  // Said once, by the strip above the composer; the header and the profile stay quiet.
+  expect(await screen.findAllByText(/^Reconnecting/)).toHaveLength(1);
+  expect(screen.queryByText(/Reconnecting/, { selector: "header *" })).toBeNull();
   expect(within(feed).queryByText(/Connection lost|Offline since|Reconnecting/)).toBeNull();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();

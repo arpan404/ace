@@ -16,6 +16,7 @@ import { useId, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { OfflineWaiting } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
 import type { StripKind } from "./strip-slot.ts";
 
@@ -105,10 +106,17 @@ export function ConnectionStrip(props: {
       )}
       <span className="min-w-0 truncate">
         {props.offline ? (
-          <>
-            <span className="text-foreground">Offline</span>
-            <span className="text-muted-foreground"> · messages will send when you're back</span>
-          </>
+          <OfflineWaiting
+            idle={
+              <>
+                <span className="text-foreground">Offline</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  · messages will send when you're back
+                </span>
+              </>
+            }
+          />
         ) : (
           <span className="text-foreground">Reconnecting…</span>
         )}

@@ -12,13 +12,14 @@ beforeEach(() => localStorage.clear());
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 const offline = /^Offline/;
-/** The header's notice; an activity card can also say "Offline" about its own connection. */
-const inHeader = { selector: "header *" };
+/** The one connection notice; an activity card in the transcript can also say "Offline". */
+const outsideFeed = { ignore: "[role=feed] *, script, style" };
 
 async function openHome() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  await app.open("/");
+  // A screen without a thread composer: the header owns the connection notice there.
+  await app.open("/new");
   await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
   return app;
 }
@@ -26,7 +27,7 @@ async function openHome() {
 test("offline, the inline notice counts and lists waiting actions and offers Retry", async () => {
   const app = await openHome();
   app.client.networkOnline(false);
-  expect((await screen.findByText(offline, inHeader)).textContent).not.toContain("waiting");
+  expect((await screen.findByText(offline, outsideFeed)).textContent).not.toContain("waiting");
 
   // A message and an archive made while offline wait for the daemon.
   void app.client.command({
@@ -51,7 +52,7 @@ test("offline, the inline notice counts and lists waiting actions and offers Ret
 
   // Back online, both go out and the notice leaves.
   app.client.networkOnline(true);
-  await waitFor(() => expect(screen.queryByText(offline, inHeader)).toBeNull());
+  await waitFor(() => expect(screen.queryByText(offline, outsideFeed)).toBeNull());
   await waitFor(() => {
     const view = app.daemon.snapshot({ kind: "threads" });
     expect(view?.kind === "threads" && view.threads["thread-fan-out"]?.archivedAt).toBeTruthy();
@@ -61,7 +62,7 @@ test("offline, the inline notice counts and lists waiting actions and offers Ret
 test("offline, the project's Add action explains why it is unavailable and works after reconnect", async () => {
   const app = await openHome();
   app.client.networkOnline(false);
-  await screen.findByText(offline, inHeader);
+  await screen.findByText(offline, outsideFeed);
   await userEvent.click(screen.getByRole("button", { name: /^Project filter:/ }));
   const add = await screen.findByRole("menuitem", { name: /^Add project/ });
   expect(add.getAttribute("aria-disabled")).toBe("true");

@@ -5,6 +5,7 @@ import { useToastAnchor } from "@/lib/toast-clearance.ts";
 import type { WorkspaceDefinition } from "@/lib/workspace/index.ts";
 import { AppHeader, type HeaderProps } from "./app-header.tsx";
 import { ConnectionNotice } from "./connection-notice.tsx";
+import { ConnectionOwner } from "./connection-owner.tsx";
 import { Workspace } from "./workspace/workspace.tsx";
 
 /** A screen's side panel: the resources opened beside it, kept per `scope` (a thread's id). */
@@ -43,7 +44,7 @@ export function Screen(
       {props.children}
     </main>
   );
-  const header = (trailing?: ReactNode) => (
+  const header = (headerOwnsConnection: boolean) => (trailing?: ReactNode) => (
     <AppHeader
       title={props.title}
       subtitle={props.subtitle}
@@ -54,34 +55,36 @@ export function Screen(
       actions={props.actions}
       status={props.status}
       progress={props.progress}
-      notice={<ConnectionNotice />}
+      notice={headerOwnsConnection ? <ConnectionNotice /> : null}
       scrolled={scrolled}
       trailing={trailing}
     />
   );
-  if (!props.workspace)
-    return (
-      <>
-        {header()}
-        <PausedNotice />
-        <div className="relative flex min-h-0 flex-1 flex-col">{main}</div>
-      </>
-    );
+  const workspace = props.workspace;
+  // The thread composer's strip claims connection trouble; elsewhere the header says it.
   return (
-    <Workspace
-      scope={props.workspace.scope}
-      definition={props.workspace.definition}
-      title={props.title}
-      header={header}
-      contextPanel={props.workspace.contextPanel}
-      notice={
-        <>
-          <PausedNotice />
-        </>
+    <ConnectionOwner>
+      {(headerOwnsConnection) =>
+        workspace ? (
+          <Workspace
+            scope={workspace.scope}
+            definition={workspace.definition}
+            title={props.title}
+            header={header(headerOwnsConnection)}
+            contextPanel={workspace.contextPanel}
+            notice={<PausedNotice />}
+          >
+            {main}
+          </Workspace>
+        ) : (
+          <>
+            {header(headerOwnsConnection)()}
+            <PausedNotice />
+            <div className="relative flex min-h-0 flex-1 flex-col">{main}</div>
+          </>
+        )
       }
-    >
-      {main}
-    </Workspace>
+    </ConnectionOwner>
   );
 }
 

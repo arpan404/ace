@@ -2,6 +2,7 @@ import { useClient, useConnectionState, useInteractions } from "@ace/client-reac
 import type { QueuedMessage, ThreadStatus } from "@ace/protocol";
 import { Suspense, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
+import { useClaimConnectionNotice } from "@/features/shell/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { useHeldQueue } from "./queue-notice.tsx";
 import { QueueStrip } from "./queue-strip.tsx";
@@ -30,6 +31,8 @@ export function ComposerStrip(props: {
   onLeave(): void;
   onChooseModel(): void;
 }) {
+  // This strip is where the thread hears about connection trouble; the header stays quiet.
+  useClaimConnectionNotice();
   const client = useClient();
   const daemon = useDaemonConnection();
   const requests = useInteractions(props.threadId) ?? noRequests;
