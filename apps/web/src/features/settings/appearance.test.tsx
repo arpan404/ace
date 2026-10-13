@@ -152,7 +152,7 @@ test("ace is the default theme, and its accent is the ink: Send and focus take t
 });
 
 test("Settings offers the six themes with ace first, each previewed in its own tokens", async () => {
-  await harness().open("/settings/appearance");
+  await harness({ matchMedia: system({}) }).open("/settings/appearance");
   const group = await screen.findByRole("radiogroup", { name: "Theme" });
   const radios = within(group).getAllByRole("radio");
   expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual([
@@ -163,19 +163,48 @@ test("Settings offers the six themes with ace first, each previewed in its own t
     "Tty",
     "Harbor",
   ]);
-  // Each card draws both schemes of its own theme, whatever theme the app is in, and those are
-  // the rules the app itself uses: the preview's canvas is the theme's.
+  // Each card draws its own theme, whatever theme the app is in, with the rules the app itself
+  // uses: the preview's canvas is the theme's.
   const folio = within(group).getByRole("radio", { name: "Folio" });
   const previews = [...folio.querySelectorAll("[data-theme]")].map(
     (node) => `${node.getAttribute("data-theme")} ${node.getAttribute("data-scheme")}`,
   );
-  expect(previews).toEqual(["folio light", "folio dark"]);
+  expect(previews).toEqual(["folio light"]);
   const sheet = document.getElementById("ace-themes")?.textContent ?? "";
-  for (const scheme of ["light", "dark"] as const) {
-    const selector = `[data-theme="folio"][data-scheme="${scheme}"]{`;
-    const body = sheet.slice(sheet.indexOf(selector) + selector.length).split("}")[0] ?? "";
-    expect(body).toContain(`--background:${themes.folio[scheme].s0}`);
-  }
+  const selector = `[data-theme="folio"][data-scheme="light"]{`;
+  const body = sheet.slice(sheet.indexOf(selector) + selector.length).split("}")[0] ?? "";
+  expect(body).toContain(`--background:${themes.folio.light.s0}`);
+});
+
+test("the theme cards preview each theme in the mode on screen and follow a mode change", async () => {
+  await harness({ matchMedia: system({}) }).open("/settings/appearance");
+  await settled();
+  const group = screen.getByRole("radiogroup", { name: "Theme" });
+  const drawn = () =>
+    within(group)
+      .getAllByRole("radio")
+      .map((card) =>
+        [...card.querySelectorAll("[data-theme]")].map(
+          (node) => `${node.getAttribute("data-theme")} ${node.getAttribute("data-scheme")}`,
+        ),
+      );
+  expect(drawn()).toEqual([
+    ["ace light"],
+    ["folio light"],
+    ["umbra light"],
+    ["signal light"],
+    ["tty light"],
+    ["harbor light"],
+  ]);
+  await userEvent.click(screen.getByRole("radio", { name: "Dark" }));
+  expect(drawn()).toEqual([
+    ["ace dark"],
+    ["folio dark"],
+    ["umbra dark"],
+    ["signal dark"],
+    ["tty dark"],
+    ["harbor dark"],
+  ]);
 });
 
 /** The value the page's stylesheet gives `name` for the theme and scheme on <html>. */

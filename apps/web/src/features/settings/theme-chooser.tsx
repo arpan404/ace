@@ -4,9 +4,9 @@ import { useTheme } from "@/theme/theme-provider.tsx";
 import { AppPreview } from "./app-preview.tsx";
 import { PickerCard } from "./picker-card.tsx";
 
-/** Every theme as a card: the app in that theme, light on the left and dark on the right. */
+/** Every theme as a card: the app in that theme, in the mode on screen. */
 export function ThemeChooser() {
-  const { appearance, update } = useTheme();
+  const { appearance, update, resolved } = useTheme();
   return (
     <div
       role="radiogroup"
@@ -22,7 +22,7 @@ export function ThemeChooser() {
           checked={appearance.theme === id}
           onChoose={() => update({ theme: id })}
           labelStyle={{ fontFamily: themes[id].fonts.ui }}
-          preview={<AppPreview theme={id} scheme="split" className="aspect-[16/10]" />}
+          preview={<AppPreview theme={id} scheme={resolved.scheme} className="aspect-[16/10]" />}
         />
       ))}
     </div>
