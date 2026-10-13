@@ -2,9 +2,13 @@ import {
   ArrowSquareOutIcon,
   CopyIcon,
   DetectiveIcon,
+  DevicesIcon,
   DotsThreeIcon,
   MagnifyingGlassIcon,
   PlusIcon,
+  RecordIcon,
+  StopCircleIcon,
+  XCircleIcon,
 } from "@phosphor-icons/react";
 import { openExternal, revealer } from "@/boot/open-external.ts";
 import {
@@ -14,8 +18,8 @@ import {
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
-  MenuGroup,
-  MenuLabel,
+  MenuSub,
+  MenuSubTrigger,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -37,7 +41,6 @@ export function BrowserActions(props: {
   onViewport(id: string): void;
   live: boolean;
   online: boolean;
-  backend: BrowserView["backend"] | undefined;
   browser: BrowserFeatures;
   onFind(): void;
   downloads: NonNullable<BrowserView["downloads"]>;
@@ -122,26 +125,28 @@ export function BrowserActions(props: {
             Open in your browser
           </MenuItem>
           <MenuSeparator />
-          <MenuGroup>
-            <MenuLabel>Page size</MenuLabel>
-            <MenuRadioGroup
-              value={viewport.id}
-              onValueChange={(value) => props.onViewport(String(value))}
-            >
-              {viewports.map((each) => (
-                <MenuRadioItem closeOnClick key={each.id} value={each.id}>
-                  {each.label}
-                </MenuRadioItem>
-              ))}
-            </MenuRadioGroup>
-          </MenuGroup>
-          <MenuSeparator />
+          <MenuSub>
+            <MenuSubTrigger icon={icon(DevicesIcon)}>Page size</MenuSubTrigger>
+            <MenuContent side="inline-start" align="start" sideOffset={4}>
+              <MenuRadioGroup
+                value={viewport.id}
+                onValueChange={(value) => props.onViewport(String(value))}
+              >
+                {viewports.map((each) => (
+                  <MenuRadioItem closeOnClick key={each.id} value={each.id}>
+                    {each.label}
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </MenuContent>
+          </MenuSub>
           {props.onPrivate && (
             <MenuItem icon={icon(DetectiveIcon)} onClick={props.onPrivate}>
               Make private
             </MenuItem>
           )}
           <MenuItem
+            icon={icon(recording ? StopCircleIcon : RecordIcon)}
             disabled={!props.live || !props.online || (props.privately && !recording)}
             reason={
               props.privately && !recording
@@ -154,22 +159,16 @@ export function BrowserActions(props: {
           >
             {recording ? "Stop recording" : "Record the page"}
           </MenuItem>
+          <MenuSeparator />
           <MenuItem
             danger
+            icon={icon(XCircleIcon)}
             disabled={!props.live || !props.online}
             reason={props.live ? undefined : "No page is open"}
             onClick={() => void props.source.close(props.threadId).catch(() => undefined)}
           >
             Close the thread's page
           </MenuItem>
-          <MenuSeparator />
-          <p className="px-2.5 py-1.5 text-xs leading-4 text-subtle-foreground">
-            {props.backend === "embedded"
-              ? "Runs in the ace desktop app's browser."
-              : props.backend === "headless"
-                ? "Runs in ace's own Chromium on this machine."
-                : "Pages open in ace's own browser, never your personal one."}
-          </p>
         </MenuContent>
       </Menu>
     </>
