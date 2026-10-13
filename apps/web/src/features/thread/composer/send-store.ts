@@ -27,6 +27,12 @@ export interface StagedSend {
   preparing?: boolean | undefined;
   uploadStartedAt?: number | undefined;
   uploadInterrupted?: boolean | undefined;
+  /** The page whose upload or recovery owns it (`upload-interruption.ts`); none once released. */
+  owner?: string | undefined;
+  /** Moves on with every claim, release and removal, fencing out late callbacks. */
+  fence?: number | undefined;
+  /** Remove started; nobody may claim or send it again. */
+  removing?: boolean | undefined;
   text: string;
   mentions: string[];
   input?: ContentPart[] | undefined;
@@ -34,7 +40,6 @@ export interface StagedSend {
   attachments: (LocalAttachment & { sha256?: string | undefined })[];
   options?: TurnOptions | undefined;
   delivery?: "steer" | "queue" | undefined;
-  /** The page uploading its files; another page can't finish them. */
   /** Why it can't go as it is, in words; undefined while its files upload. */
   failed?: string | undefined;
   /** View-only: a predecessor still owns this submission's place. */

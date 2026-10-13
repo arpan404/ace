@@ -47,6 +47,7 @@ import {
 } from "./composer/staged-sends.ts";
 import type { Draft } from "./composer/draft.ts";
 import { daemonContextSource } from "./sources/context-source.ts";
+import { uploadTimeoutMs } from "./composer/upload-interruption.ts";
 
 beforeEach(() => resetStaged());
 
@@ -260,7 +261,7 @@ test("completion write failures preserve the durable original and completed hash
   await app.client.close();
 });
 
-test("closing after a completion write refusal keeps the original message interrupted", async () => {
+test("closing after a completion write refusal leaves the original interrupted once its lease runs out", async () => {
   const app = harness();
   let full = false;
   const storage = {
@@ -276,7 +277,13 @@ test("closing after a completion write refusal keeps the original message interr
     },
   };
   stagedSends(storage);
-  expect(stage(makeStaged("reload", "Keep this original"), { files: [], previews: [] })).toBe(true);
+  expect(
+    stage(
+      makeStaged("reload", "Keep this original"),
+      { files: [], previews: [] },
+      { now: () => 1000 },
+    ),
+  ).toBe(true);
   full = true;
   expect(
     await sendWhenUploaded(app.client, "reload", Promise.resolve([{ error: "disconnected" }])),
@@ -287,7 +294,9 @@ test("closing after a completion write refusal keeps the original message interr
   expect(retained?.text).toBe("Keep this original");
   if (!retained) throw new Error("accepted message disappeared");
   expect(canRetry(retained)).toBe(false);
-  expect(isInterrupted(retained, 1000)).toBe(true);
+  // Storage refused the page's release too, so nobody can tell it closed until its lease ends.
+  expect(isInterrupted(retained, 1000)).toBe(false);
+  expect(isInterrupted(retained, 1000 + uploadTimeoutMs)).toBe(true);
   await app.client.close();
 });
 

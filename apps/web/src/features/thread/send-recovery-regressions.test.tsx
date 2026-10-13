@@ -104,7 +104,6 @@ test("Retry preserves an uploaded attachment after a failed save and reload", as
   const again = harness({ storage, outbox, daemon: first.daemon });
   await again.open("/t/thread-router");
   await screen.findByRole("combobox", { name: "Message" });
-  expect(screen.queryByRole("button", { name: /^Edit$/ })).toBeNull();
   await userEvent.click(await screen.findByRole("button", { name: "Retry" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Retry" })).toBeNull());
   const view = again.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-router") });

@@ -19,11 +19,10 @@ import { draftOf, restoreReturnedDraft, type SendPayload } from "../composer/ret
 import { returnDraft, saveOpenDraft, leasable } from "../composer/send-store.ts";
 import {
   canRetry,
-  hasLocalStaged,
-  isInterrupted,
+  editStaged,
+  isRecoverable,
   removeStagedUpload,
   retryStaged,
-  unstage,
   type StagedSend,
 } from "../composer/staged-sends.ts";
 import { useThreadSources } from "../sources/index.ts";
@@ -201,10 +200,10 @@ export function useSendActions(threadId: string) {
 }
 
 /**
- * A message held for its uploads that can't go as it is (a file didn't upload, or the page
- * closed mid-upload). Interrupted uploads offer only Remove. Ordinary failures offer Retry
- * and Edit only while this page still holds their files; a ready failed save can retry its
- * durable payload after reload.
+ * A message held for its uploads that can't go as it is: a file didn't upload, or the page
+ * uploading it closed, reloaded or stalled. Any page may then Retry, Edit or Remove it; the
+ * first to act claims it and competing actions do nothing (`upload-interruption.ts`). Retry
+ * shows only where every file still to upload is in this page.
  */
 export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
   const { staged } = props;
@@ -216,75 +215,86 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
   const time = useContext(TimeContext);
   const inFlight = useRef(false);
   const [editing, setEditing] = useState(false);
-  const retry = () => {
-    if (!meta || inFlight.current || isInterrupted(staged, time.read())) return;
-    inFlight.current = true;
-    const thread = { id: props.threadId, workspaceId: meta.workspaceId, title: meta.title };
-    void retryStaged(
-      client,
-      staged.commandId,
-      (file) => sources.context.upload(thread, file, () => {}),
-      uploadClock(time.read),
-      storage,
-    )
-      .then((sent) => {
-        if (!sent) toast.error({ title: "It still didn't go", description: "It is still here." });
-      })
-      .finally(() => {
-        inFlight.current = false;
-      });
-  };
-  const edit = () => {
-    if (!hasLocalStaged(staged.commandId) || isInterrupted(staged, time.read())) return;
-    const draft = {
-      text: staged.text,
-      tokens: staged.input ? tokensFromInput(staged.input).tokens : [],
-      mentions: staged.mentions,
-      attachments: staged.attachments.flatMap((file) =>
-        file.sha256 ? [{ sha256: file.sha256, name: file.name }] : [],
-      ),
-      options: staged.options,
-    };
-    const key = `thread:${props.threadId}`;
-    let saved: boolean;
-    if (editing) saved = saveOpenDraft(key);
-    else {
-      const taken = returnDraft(key, draft);
-      if (taken !== undefined) setEditing(true);
-      saved = taken ?? restoreReturnedDraft(storage, key, draft);
-    }
-    if (!saved || !unstage(staged.commandId)) {
-      toast.error({
-        title: "Couldn't finish the edit",
-        description: "Keep this editor open. The original recovery copy is still here.",
-      });
-      return;
-    }
-    dismissSend(storage, staged.commandId);
-  };
-  const remove = () => {
+  // One action at a time from this bubble; competing pages are fenced by the claim itself.
+  const act = (run: () => Promise<boolean>, failure: { title: string; description: string }) => {
     if (inFlight.current) return;
     inFlight.current = true;
-    void removeStagedUpload(client, staged.commandId, storage, uploadClock(time.read))
-      .then((removed) => {
-        if (!removed)
-          toast.error({ title: "Couldn't remove the message", description: "It is still here." });
+    void run()
+      .then((done) => {
+        if (!done) toast.error(failure);
       })
       .finally(() => {
         inFlight.current = false;
       });
   };
+  const retry = () => {
+    if (!meta) return;
+    const thread = { id: props.threadId, workspaceId: meta.workspaceId, title: meta.title };
+    act(
+      () =>
+        retryStaged(
+          client,
+          staged.commandId,
+          (file) => sources.context.upload(thread, file, () => {}),
+          uploadClock(time.read),
+          storage,
+        ),
+      { title: "It still didn't go", description: "It is still here." },
+    );
+  };
+  const edit = () => {
+    const key = `thread:${props.threadId}`;
+    const take = (send: StagedSend) => {
+      if (editing) return saveOpenDraft(key);
+      const draft = {
+        text: send.text,
+        tokens: send.input ? tokensFromInput(send.input).tokens : [],
+        mentions: send.mentions,
+        attachments: send.attachments.flatMap((file) =>
+          file.sha256 ? [{ sha256: file.sha256, name: file.name }] : [],
+        ),
+        options: send.options,
+      };
+      const taken = returnDraft(key, draft);
+      if (taken !== undefined) setEditing(true);
+      return taken ?? restoreReturnedDraft(storage, key, draft);
+    };
+    const unfinished = staged.attachments.filter((file) => !file.sha256).map((file) => file.name);
+    act(
+      async () => {
+        if (!(await editStaged(staged.commandId, take, uploadClock(time.read)))) return false;
+        dismissSend(storage, staged.commandId);
+        // Their bytes went with the page that was uploading them.
+        if (unfinished.length)
+          toast.error({
+            title: "Attach again",
+            description: `${unfinished.join(", ")} didn't finish uploading.`,
+          });
+        return true;
+      },
+      {
+        title: "Couldn't finish the edit",
+        description: "Keep this editor open. The original recovery copy is still here.",
+      },
+    );
+  };
+  const remove = () =>
+    act(() => removeStagedUpload(client, staged.commandId, storage, uploadClock(time.read)), {
+      title: "Couldn't remove the message",
+      description: "It is still here.",
+    });
+  const recoverable = isRecoverable(staged, time.read());
   return (
     <div role="alert" className="mt-[5px] flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
       <NotSent reason={staged.uploadInterrupted ? "Upload interrupted" : staged.failed} />
       <span className="flex gap-1">
-        {!staged.uploadInterrupted && !editing && canRetry(staged) && (
+        {recoverable && !editing && canRetry(staged) && (
           <Button size="sm" variant="ghost" onClick={retry}>
             <Icon icon={ArrowClockwiseIcon} size={12} />
             Retry
           </Button>
         )}
-        {!staged.uploadInterrupted && hasLocalStaged(staged.commandId) && (
+        {(editing || recoverable) && (
           <Button size="sm" variant="ghost" onClick={edit}>
             <Icon icon={PencilSimpleIcon} size={12} />
             {editing ? "Save edit" : "Edit"}
