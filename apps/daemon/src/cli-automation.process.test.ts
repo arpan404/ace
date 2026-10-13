@@ -67,9 +67,8 @@ test("automation CLI retries one shared run and keeps it running across descenda
       );
     // A run reports its thread only when it settles, so find the thread it admitted.
     const admitted = () =>
-      f.daemon.store
-        .listThreads()
-        .find((thread) => thread.title === "Automation: CLI automation")?.id;
+      f.daemon.store.listThreads().find((thread) => thread.title === "Automation: CLI automation")
+        ?.id;
     await expect.poll(admitted).toBeDefined();
     const parent = ThreadId.parse(admitted());
     const spawn = await invoke(home, [

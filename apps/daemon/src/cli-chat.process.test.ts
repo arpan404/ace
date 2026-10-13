@@ -147,7 +147,12 @@ test("chat shows descendant human attention and resolves its approval inline wit
 
 test("chat stop and resume use the shared queue and model selection rather than a private session", async () => {
   const f = await daemonFixture();
-  const session = chat(join(f.h.home, "daemon"), ["--project", f.workspace, "--provider", "claude"]);
+  const session = chat(join(f.h.home, "daemon"), [
+    "--project",
+    f.workspace,
+    "--provider",
+    "claude",
+  ]);
   try {
     await session.next((entry) => entry.type === "ready");
     // Stop a turn that is still working, as a person would.
@@ -163,9 +168,7 @@ test("chat stop and resume use the shared queue and model selection rather than 
     session.child.stdin.write("Held chat input\n");
     await expect.poll(() => f.daemon.engine?.queue(threadId).pendingCount).toBe(1);
     session.child.stdin.write("/resume\n");
-    await expect
-      .poll(() => f.h.inputs.get(threadId)?.includes("Held chat input"))
-      .toBe(true);
+    await expect.poll(() => f.h.inputs.get(threadId)?.includes("Held chat input")).toBe(true);
     const receipts = () => session.records.filter((entry) => entry.type === "receipt").length;
     const before = receipts();
     session.child.stdin.write("/model chosen-model\n");
