@@ -16,7 +16,7 @@ export function ReturnedStartNotice(props: {
 }) {
   return (
     <div role="alert" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-      <p className="min-w-0 flex-1 text-ui text-status-failed">{props.reason}</p>
+      <p className="min-w-0 grow basis-48 text-ui text-status-failed">{props.reason}</p>
       <span className="flex shrink-0 items-center gap-1">
         {props.worktree && (
           <Button type="button" size="sm" variant="ghost" onClick={props.onLocal}>
