@@ -17,7 +17,11 @@ async function openThread() {
   const app = harness();
   app.daemon.services.models = app.daemon.services.models.map((model) =>
     model.provider === "claude"
-      ? { ...model, efforts: ["light", "medium", "high", "ultra"], defaultEffort: "medium" }
+      ? {
+          ...model,
+          reasoningEfforts: ["light", "medium", "high", "ultra"],
+          defaultEffort: "medium",
+        }
       : model,
   );
   app.play(replayCursor()).runThrough("finding");

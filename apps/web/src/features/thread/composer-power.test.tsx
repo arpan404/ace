@@ -272,8 +272,8 @@ test("removing an attachment releases it and the thread attachment list can be m
   expect(await screen.findByText("No attachments in this thread.")).toBeTruthy();
 });
 
-test("answering a question with an inline reference clears it before the next message", async () => {
-  const { app, message, feed } = await open();
+test("a message with an inline reference sent while a question waits clears it before the next one", async () => {
+  const { app, message } = await open();
   act(() =>
     app.daemon.apply("thread-router", [
       {
@@ -302,7 +302,10 @@ test("answering a question with an inline reference clears it before the next me
   await userEvent.keyboard("{Tab}");
   await userEvent.type(message, "first{Enter}");
   await waitFor(() => expect(message.textContent).toBe(""));
-  await waitFor(() => expect(feed.textContent).toContain("Use Writing first"));
+  // The question is answered on its card and keeps the strip; the message waits in the queue.
+  await userEvent.click(await screen.findByRole("button", { name: "Show 1 queued message" }));
+  const queued = await screen.findByRole("list", { name: "Queued messages" });
+  await waitFor(() => expect(queued.textContent).toMatch(/Use writing first/i));
   await userEvent.type(message, "Now move on");
   expect(message.textContent).toBe("Now move on");
 });

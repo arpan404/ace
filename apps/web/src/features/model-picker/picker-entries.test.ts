@@ -16,7 +16,7 @@ const account = (
       provider,
       label,
       ...(acp ? { acpAgentId: acp, installationId: `${id}-install`, instanceId: id } : {}),
-      availability: "logged_in",
+      availability: "available",
       quota: {
         auth: "logged_in",
         observedAt: 1,
@@ -52,6 +52,8 @@ test("a provider's accounts share one rail tab, while each ACP agent keeps its o
   expect(groups.map((group) => [group.name, group.accounts.map((entry) => entry.name)])).toEqual([
     ["Favorites", ["Favorites"]],
     ["Claude Code", ["Claude Code · Personal", "Claude Code · Work"]],
+    // A provider with no account still has its tab, to say why it has nothing to pick.
+    ["Codex", ["Codex"]],
     ["Gemini CLI", ["Gemini CLI"]],
     ["Qwen Code", ["Qwen Code"]],
   ]);

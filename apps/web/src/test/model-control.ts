@@ -31,6 +31,8 @@ export async function chooseModel(label: string, provider: string, chip?: RegExp
     });
   if (!row) throw new Error(`No ${label} under ${provider} in the model picker`);
   await userEvent.click(row);
+  // A picked model lands on Tune; the pick is done, so put the popover away.
+  await closeModelControl();
 }
 
 /** Close the popover and wait for it to leave, so the next control can open. */
@@ -60,6 +62,7 @@ export async function chooseAccount(popover: HTMLElement, name: string) {
     .find((entry) => entry.getAttribute("aria-label")?.startsWith(`${model},`));
   if (!option) throw new Error(`No ${model} on ${name}`);
   await userEvent.click(option);
+  await closeModelControl();
 }
 
 /**

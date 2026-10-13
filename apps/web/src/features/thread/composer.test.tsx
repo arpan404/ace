@@ -214,7 +214,9 @@ test("a wide composer spells out the @ and / hints", async () => {
 
 test("approvals and predefined effort keep their readable modes on a phone", async () => {
   layoutWidth(358);
-  await open("busy");
+  const { message } = await open("busy");
+  // The empty phone composer is a pill; typing opens it to its approvals control.
+  await userEvent.type(message, "x");
   const approvals = await screen.findByRole("button", { name: /^Approvals: Provider default/ });
   expect(approvals.getAttribute("aria-label")).toBe("Approvals: Provider default");
   await userEvent.click(approvals);
@@ -229,7 +231,8 @@ test("approvals and predefined effort keep their readable modes on a phone", asy
   expect(model.textContent).toContain("Opus 5.5");
   expect(within(model).getByRole("img", { name: "Claude Code · Personal" })).toBeTruthy();
   expect(model.getAttribute("aria-label")).toContain("Personal");
-  expect(model.querySelector("[data-slot=model-effort]")?.textContent).toBe("Medium");
+  // A phone's chip names the effort briefly; its full name stays in the accessible name.
+  expect(model.querySelector("[data-slot=model-effort]")?.textContent).toBe("Med");
   expect(model.getAttribute("aria-label")).toContain("Medium effort (default)");
 });
 

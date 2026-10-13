@@ -82,7 +82,11 @@ test("each account has an entry under its provider and selecting it switches the
   const rail = within(popover).getByRole("tablist", { name: "Model sources" });
   await userEvent.click(within(rail).getByRole("tab", { name: "Codex" }));
   const accounts = within(popover).getByRole("tablist", { name: "Accounts" });
-  expect(within(accounts).getAllByRole("tab", { name: /^Codex · / })).toHaveLength(2);
+  expect(
+    within(accounts)
+      .getAllByRole("tab")
+      .map((tab) => tab.getAttribute("aria-label")),
+  ).toEqual(["Codex · Team", "Codex · Your CLI login", "Codex · Personal"]);
   await userEvent.click(within(accounts).getByRole("tab", { name: "Codex · Team" }));
   expect(within(list).getByRole("option", { name: /^GPT-6\.2 Sol/ })).toBeTruthy();
   await selectAccount(popover, "Personal");

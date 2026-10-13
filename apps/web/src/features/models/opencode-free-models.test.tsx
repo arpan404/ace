@@ -85,7 +85,7 @@ test("new and free metadata stays readable without crowding the model name and s
     name: /^Big Pickle, New, Free, Preview snapshot with extended context/,
   });
   expect(model.textContent).toContain("Big Pickle");
-  expect(model.textContent).toContain("OpenCode · OpenCode Zen");
+  expect(model.getAttribute("aria-label")).toContain("OpenCode · OpenCode Zen");
   expect(model.textContent).not.toMatch(/NEW|New|Free|Preview snapshot/);
   expect(model.getAttribute("title")).toContain(
     "New, Free, Preview snapshot with extended context",

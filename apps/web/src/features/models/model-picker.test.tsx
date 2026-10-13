@@ -84,6 +84,8 @@ test("Legacy models open in place; an older model picked there stays checked whe
   ]);
   await userEvent.click(within(legacy).getByRole("option", { name: /^Opus 4\.8/ }));
   expect(await screen.findByRole("button", { name: /^Model: Opus 4\.8, Personal/ })).toBeTruthy();
+  // The pick lands on Tune; close it and open the picker again.
+  await closeModelControl();
   const again = await openModelPicker(await openModelControl(/^Model: Opus 4\.8/));
   const reopened = within(group(again, "Personal")).getByRole("group", { name: "Legacy models" });
   expect(within(reopened).getByRole("option", { name: /^Opus 4\.8/ }).ariaSelected).toBe("true");
