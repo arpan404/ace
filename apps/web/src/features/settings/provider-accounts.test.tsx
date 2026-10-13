@@ -226,9 +226,17 @@ test("new accounts get varied default badges and a chosen neutral colour still w
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Add a Claude Code account" })).toBeNull(),
     );
-    const badge = within(await account(name)).getByRole("img", { name: `${name} account` });
-    colours.push(badge.style.background);
+    // A badge's colour shows only in its editor (4a38903cc).
+    await userEvent.click(
+      within(await account(name)).getByRole("button", { name: `Manage ${name}` }),
+    );
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Change badge" }));
+    const editor = await screen.findByRole("dialog", { name: `Edit ${name}` });
+    colours.push(within(editor).getByRole("img", { name: `${name} account` }).style.background);
+    await userEvent.click(within(editor).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: `Edit ${name}` })).toBeNull());
   }
+  expect(colours[0]).toBeTruthy();
   expect(colours[0]).not.toBe(colours[1]);
   expect(colours[2]).toBe("var(--foreground)");
 });
