@@ -37,12 +37,11 @@ export async function runWorktreeGit(
   cwd: string,
   args: string[],
 ): Promise<string | undefined> {
-  const keys = await run(
-    execute,
-    { ...baseEnv, ...nonExecutingEnv() },
-    cwd,
-    ["-c", "protocol.allow=never", ...executionKeyQuery],
-  );
+  const keys = await run(execute, { ...baseEnv, ...nonExecutingEnv() }, cwd, [
+    "-c",
+    "protocol.allow=never",
+    ...executionKeyQuery,
+  ]);
   let env: Record<string, string>;
   try {
     env = nonExecutingEnv(keys ?? "");
