@@ -30,21 +30,45 @@ export function delegatedDocs(): Scenario[] {
       title: "Relay protocol reference",
       provider: "codex",
       parentThreadId: delegatedDocsIds.parent,
+      execution: { provider: "codex", model: "gpt-5.5-codex", options: { effort: "high" } },
     },
     steps: [
       {
         kind: "facts",
-        agoMs: 4 * 60_000,
+        agoMs: 6 * 60_000 + 50_000,
         facts: [
           rootAgent("codex", cwd),
           turn("root"),
-          message("root", "ask", "user", prompt),
+          // The daemon stamps the launch message with the thread that delegated it.
+          {
+            type: "item.upsert",
+            agent: "root",
+            item: "ask",
+            draft: {
+              type: "message",
+              role: "user",
+              complete: true,
+              parts: [{ type: "text", text: `Role: protocol-docs\n\nTask:\n${prompt}` }],
+              origin: {
+                kind: "spawn",
+                parentThreadId: ThreadId.parse(delegatedDocsIds.parent),
+                role: "protocol-docs",
+              },
+            },
+          },
           tool("root", "read-schema", {
             kind: "file.read",
             title: "Read packages/protocol/src/relay.ts",
             detail: { kind: "file.read", path: "packages/protocol/src/relay.ts" },
           }),
           toolDone("root", "read-schema"),
+        ],
+      },
+      {
+        kind: "facts",
+        // 5m 45s after it started.
+        agoMs: 65_000,
+        facts: [
           message(
             "root",
             "progress",
@@ -127,7 +151,7 @@ export function delegatedDocs(): Scenario[] {
     steps: [
       {
         kind: "facts",
-        agoMs: 5 * 60_000,
+        agoMs: 7 * 60_000,
         label: "delegation-running",
         facts: [
           rootAgent("claude", cwd),

@@ -77,7 +77,7 @@ test.each(["child", "descendant"])(
     const card = await group(feed, "1 subagent");
     await within(card).findByText("1 done");
     await userEvent.click(within(card).getByRole("button", { name: "1 subagent" }));
-    expect(within(card).getByRole("button", { name: "Open Review first, Finished" })).toBeTruthy();
+    expect(within(card).getByRole("link", { name: "Open Review first, Finished" })).toBeTruthy();
 
     const lease = app.client.thread("inline-subagents");
     try {
@@ -121,7 +121,7 @@ test.each(["child", "descendant"])(
         });
       await deliver({ type: "background_task.started", task });
       await within(card).findByText("1 working");
-      expect(within(card).getByRole("button", { name: "Open Review first, Running" })).toBeTruthy();
+      expect(within(card).getByRole("link", { name: "Open Review first, Running" })).toBeTruthy();
       expect(within(card).queryByText("Finished")).toBeNull();
       expect(source.agent(agent.id)?.status.state).toBe("idle");
       await deliver({ type: "background_task.updated", taskId: task.id, status: "unknown" });
@@ -136,9 +136,7 @@ test.each(["child", "descendant"])(
         7000,
       );
       await within(card).findByText("1 done");
-      expect(
-        within(card).getByRole("button", { name: "Open Review first, Finished" }),
-      ).toBeTruthy();
+      expect(within(card).getByRole("link", { name: "Open Review first, Finished" })).toBeTruthy();
       expect(source.agent(agent.id)?.status.state).toBe("idle");
     } finally {
       lease.release();
@@ -295,7 +293,7 @@ test.each(["child", "descendant"])(
     await within(card).findByText("1 waiting on you");
     await userEvent.click(within(card).getByRole("button", { name: "1 subagent" }));
     expect(
-      within(card).getByRole("button", { name: "Open Review first, Waiting on you" }),
+      within(card).getByRole("link", { name: "Open Review first, Waiting on you" }),
     ).toBeTruthy();
     expect(within(card).queryByText("Finished")).toBeNull();
     await act(async () =>
@@ -309,7 +307,7 @@ test.each(["child", "descendant"])(
       ]),
     );
     await within(card).findByText("1 done");
-    expect(within(card).getByRole("button", { name: "Open Review first, Finished" })).toBeTruthy();
+    expect(within(card).getByRole("link", { name: "Open Review first, Finished" })).toBeTruthy();
     // Opening a question on an already idle owner must update the disclosure too.
     await act(async () =>
       app.daemon.apply("inline-subagents", [
@@ -343,7 +341,7 @@ test("52 concurrent children share one disclosure, expose every row and retain k
   await userEvent.keyboard("{Enter}");
   const rows = within(card).getByRole("list", { name: "Subagents" });
   expect(within(rows).getAllByRole("listitem")).toHaveLength(52);
-  const first = within(rows).getByRole("button", { name: "Open Review PR-1, Running" });
+  const first = within(rows).getByRole("link", { name: "Open Review PR-1, Running" });
   await userEvent.tab();
   expect(document.activeElement).toBe(first);
   await userEvent.click(disclosure);

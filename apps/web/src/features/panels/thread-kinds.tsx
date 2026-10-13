@@ -8,7 +8,6 @@ import {
   GitDiffIcon,
   GlobeSimpleIcon,
   PlusIcon,
-  RobotIcon,
   ClipboardTextIcon,
 } from "@phosphor-icons/react";
 import { ChangesSkeleton, FilesSkeleton } from "./tab-skeletons.tsx";
@@ -17,7 +16,6 @@ import { addressHost } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
 import { setLoading } from "./browser/loading.ts";
-import { AgentBadge, AgentTabIcon } from "./agents/agent-badge.tsx";
 import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
 import { fileTabId } from "./files/tab-id.ts";
@@ -191,16 +189,6 @@ export const workKind = defineTabKind({
   load: () => import("./work/work-tab.tsx"),
 });
 
-/** One agent of the tree, opened from its row: its delegation, transcript and follow-up. */
-export const agentKind = defineTabKind({
-  kind: "agent",
-  label: "Agent",
-  icon: RobotIcon,
-  TabIcon: AgentTabIcon,
-  Badge: AgentBadge,
-  load: () => import("./agents/agent-tab.tsx").then((m) => ({ default: m.AgentTab })),
-});
-
 /** The + button's new tab: a catalog of tools and what this thread suggests opening. */
 export const launcherKind = defineTabKind({
   kind: "new-tab",
@@ -222,7 +210,6 @@ export const threadKinds: readonly TabKind[] = [
   deviceKind,
   computerUseKind,
   logsKind,
-  agentKind,
   shellKind,
   launcherKind,
 ];

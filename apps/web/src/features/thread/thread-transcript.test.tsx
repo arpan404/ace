@@ -116,8 +116,8 @@ test("subagents open inline as the agents started, and the agent tree is one cli
   // Only the agents it started: the parent's own state is the live line under the transcript.
   expect(within(tree).getAllByRole("listitem")).toHaveLength(2);
   expect(within(tree).queryByText("Claude Code")).toBeNull();
-  expect(within(tree).getByRole("button", { name: "Open reconnect-audit, Running" })).toBeTruthy();
-  expect(within(tree).getByRole("button", { name: "Open regression-test, Running" })).toBeTruthy();
+  expect(within(tree).getByRole("link", { name: "Open reconnect-audit, Running" })).toBeTruthy();
+  expect(within(tree).getByRole("link", { name: "Open regression-test, Running" })).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Open the summary" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });

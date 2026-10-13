@@ -1,15 +1,6 @@
 import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import {
-  lazy,
-  Suspense,
-  use,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentProps,
-} from "react";
+import { lazy, Suspense, use, useEffect, useMemo, useRef, useState } from "react";
 import {
   loadThreadBrowser,
   threadWorkspace,
@@ -47,11 +38,9 @@ import { InlineRenameField } from "@/features/organize/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { findInThread } from "./long/nav-keys.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
-import { AgentTranscript } from "./transcript/agent-transcript.tsx";
 import { SideChatComposer } from "./composer/side-chat-composer.tsx";
 import { whenIdle } from "@/lib/idle.ts";
 import {
-  DeferredAgentComposer,
   DeferredThreadHotkeys,
   DeferredThreadMenu,
   DeferredTurnsPanel,
@@ -70,6 +59,7 @@ import { ThreadCrumb } from "./header/thread-crumb.tsx";
 import { WorkButton } from "./header/work-button.tsx";
 import { createWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
 import { WorkSide } from "./header/work-side.tsx";
+import { DelegateBottom } from "./subagent/delegate-bottom.tsx";
 
 /**
  * A thread New thread started a moment ago, until the daemon names it: its view's code loads
@@ -94,15 +84,6 @@ function PendingThread(props: { threadId: string }) {
           Line: ActivityLine,
         }}
       />
-    </Suspense>
-  );
-}
-
-/** The Agents panel's follow-up composer, in the panel's own slot. */
-function AgentComposer(props: ComponentProps<typeof DeferredAgentComposer.Component>) {
-  return (
-    <Suspense fallback={null}>
-      <DeferredAgentComposer.Component {...props} />
     </Suspense>
   );
 }
@@ -151,15 +132,12 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const [renaming, setRenaming] = useState(false);
   const [forking, setForking] = useState<ForkPoint>();
   const id = props.threadId;
-  // The workspace's agent tabs draw with the transcript's own blocks, beside the route's parts.
   const outer = useThreadParts();
   const forkPoint = useLatestForkPoint(id);
   const parts = useMemo(
     () => ({
       ...outer,
-      AgentTranscript,
       SideChatComposer,
-      AgentComposer,
       fork: forkPoint && (() => setForking(forkPoint)),
     }),
     [outer, forkPoint],
@@ -256,12 +234,14 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                   <ThreadBrowser threadId={id} />
                 </Suspense>
                 {thread && (
-                  <ThreadComposer
-                    thread={thread}
-                    status={meta?.status}
-                    composer={composer}
-                    requestTarget={props.target?.itemId}
-                  />
+                  <DelegateBottom thread={meta}>
+                    <ThreadComposer
+                      thread={thread}
+                      status={meta?.status}
+                      composer={composer}
+                      requestTarget={props.target?.itemId}
+                    />
+                  </DelegateBottom>
                 )}
               </div>
             </ForkOpener>

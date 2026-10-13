@@ -33,10 +33,11 @@ test("the agent tree shows subagents as they spawn and marks the one that fails"
   expect(within(failed).getByText("Couldn't finish. Open the agent for details.")).toBeTruthy();
   expect(within(failed).queryByText(/Context window exceeded/)).toBeNull();
   expect(within(panel).getByRole("treeitem", { name: "schema-writer: Working" })).toBeTruthy();
+  // Opening it shows it as the whole chat, its status bar saying how it ended.
   await userEvent.click(failed);
-  const detail = await within(panel).findByRole("tabpanel", { name: "migration-tester" });
-  expect(await within(detail).findByText(/Context window exceeded/)).toBeTruthy();
-  expect(within(detail).getByRole("heading", { name: "migration-tester" })).toBeTruthy();
+  await screen.findByRole("heading", { level: 1, name: "migration-tester" });
+  const bar = screen.getByRole("group", { name: "Subagent" });
+  expect(within(bar).getByText(/^Failed/)).toBeTruthy();
 });
 
 test("the Summary tree shows what each agent is doing, the background shell, and why the thread isn't done", async () => {
@@ -130,54 +131,13 @@ async function openAgents(app: ReturnType<typeof harness>, path: string) {
   return screen.findByRole("region", { name: "Thread panel" });
 }
 
-test("a subagent opens as its own tab: who started it, what it was asked, and only its own work", async () => {
-  const app = harness();
-  app.play(coldStartReplay()).runThrough("audit-done");
-  const panel = await openAgents(app, "/t/thread-cold-start");
-  expect(within(panel).getByRole("status").textContent).toBe("1 active · 1 done");
-
-  await userEvent.click(await within(panel).findByRole("treeitem", { name: /^resume-sweep:/ }));
-  expect(within(panel).getByRole("tab", { name: "resume-sweep", selected: true })).toBeTruthy();
-  const delegation = await within(panel).findByRole("region", { name: "Delegation" });
-  expect(delegation.textContent).toContain(
-    "Claude Code started it with Claude Code's own subagent tool.",
-  );
-  expect(delegation.textContent).toContain("Sweep the web and mobile resume callers");
-
-  const transcript = within(panel).getByRole("feed", { name: "Agent transcript" });
-  expect(within(transcript).getByText(/Three callers resume from seq 0/)).toBeTruthy();
-  // The parent's own answer stays in the conversation.
-  expect(within(transcript).queryByText(/replayFrom now treats seq 0/)).toBeNull();
-
-  // A native subagent has a clear direction instead of another disabled composer.
-  expect(within(panel).queryByRole("combobox", { name: "Message resume-sweep" })).toBeNull();
-  expect(within(panel).getByText(/Ask the main agent in the thread's composer/)).toBeTruthy();
-
-  await userEvent.click(within(panel).getByRole("button", { name: /Back to agents/ }));
-  expect(within(panel).getByRole("tab", { name: "Summary", selected: true })).toBeTruthy();
-  // The agent's tab stays open beside the tree.
-  expect(within(panel).getByRole("tab", { name: "resume-sweep" })).toBeTruthy();
-});
-
-test("an agent ace delegated shows its own thread and takes a follow-up there", async () => {
+test("an agent ace delegated opens its own thread from the tree", async () => {
   const app = harness();
   for (const scenario of delegatedDocs()) app.play(scenario).runUntilBlocked();
   const panel = await openAgents(app, `/t/${delegatedDocsIds.parent}`);
   await userEvent.click(await within(panel).findByRole("treeitem", { name: /^protocol-docs:/ }));
-
-  const delegation = await within(panel).findByRole("region", { name: "Delegation" });
-  expect(delegation.textContent).toContain("delegated it through ace, as a thread of its own");
-  expect(delegation.textContent).toContain("Write docs/protocol/relay.md from the wire schemas");
-  const transcript = await within(panel).findByRole("feed", { name: "Agent transcript" });
-  expect(within(transcript).getByText(/Drafted the frame table/)).toBeTruthy();
-
-  // The thread composer's own shape: Enter sends.
-  await userEvent.type(
-    within(panel).getByRole("combobox", { name: "Message protocol-docs" }),
-    "Add a table of close codes too.{Enter}",
-  );
-  // The child thread was settled, so the follow-up starts its next turn there.
-  expect(await within(transcript).findByText("Add a table of close codes too.")).toBeTruthy();
+  await screen.findByRole("heading", { level: 1, name: "Relay protocol reference" });
+  expect(screen.getByRole("link", { name: "Relay docs for 0.9" })).toBeTruthy();
 });
 
 test("the agent tree is one Tab stop: arrows move and fold, Enter opens an agent, S reaches its Stop", async () => {
@@ -212,7 +172,7 @@ test("the agent tree is one Tab stop: arrows move and fold, Enter opens an agent
   await userEvent.keyboard("{Escape}");
   expect(document.activeElement).toBe(sweep);
   await userEvent.keyboard("{Enter}");
-  expect(within(panel).getByRole("tab", { name: "resume-sweep", selected: true })).toBeTruthy();
+  await screen.findByRole("heading", { level: 1, name: "resume-sweep" });
 });
 
 const spawn = (agent: string, item: string, child: string) =>
@@ -258,14 +218,13 @@ test("a click on a nested agent's chevron folds its subagents without opening it
   await userEvent.click(chevron);
   expect(sweep.getAttribute("aria-expanded")).toBe("false");
   expect(within(panel).queryByRole("treeitem", { name: /^web-probe:/ })).toBeNull();
-  expect(within(panel).queryByRole("tab", { name: "resume-sweep" })).toBeNull();
+  // Folding opened nothing: the thread is still the chat.
+  expect(screen.getByRole("heading", { level: 1, name: "Sweep the resume callers" })).toBeTruthy();
   await userEvent.click(chevron);
   expect(await within(panel).findByRole("treeitem", { name: /^web-probe:/ })).toBeTruthy();
 
   await userEvent.click(within(sweep).getByText("resume-sweep"));
-  expect(
-    await within(panel).findByRole("tab", { name: "resume-sweep", selected: true }),
-  ).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "resume-sweep" })).toBeTruthy();
 });
 
 test("Stop on an agent with subagents says how many go with it and asks first", async () => {
@@ -273,27 +232,28 @@ test("Stop on an agent with subagents says how many go with it and asks first", 
   app.play(nested).runUntilBlocked();
   const panel = await openAgents(app, "/t/thread-nested");
   await userEvent.click(await within(panel).findByRole("treeitem", { name: /^resume-sweep:/ }));
-  const stop = await within(panel).findByRole("button", {
-    name: "Stop resume-sweep and its 1 subagent",
-  });
+  await screen.findByRole("heading", { level: 1, name: "resume-sweep" });
+  const bar = screen.getByRole("group", { name: "Subagent" });
+  const stop = within(bar).getByRole("button", { name: "Stop resume-sweep and its 1 subagent" });
   await userEvent.click(stop);
   const ask = await screen.findByRole("dialog", { name: "Stop resume-sweep and its 1 subagent?" });
   await userEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
-  expect(await within(panel).findByRole("button", { name: /^Stop resume-sweep/ })).toBeTruthy();
+  expect(await within(bar).findByRole("button", { name: /^Stop resume-sweep/ })).toBeTruthy();
 
-  await userEvent.click(within(panel).getByRole("button", { name: /^Stop resume-sweep/ }));
+  await userEvent.click(within(bar).getByRole("button", { name: /^Stop resume-sweep/ }));
   await userEvent.click(
     within(await screen.findByRole("dialog", { name: /^Stop resume-sweep/ })).getByRole("button", {
       name: "Stop all",
     }),
   );
-  await userEvent.click(within(panel).getByRole("button", { name: /Back to agents/ }));
+  expect(await within(bar).findByText(/^Stopped after/)).toBeTruthy();
   // Its subagent stopped with it.
+  const tree = await screen.findByRole("region", { name: "Thread panel" });
   expect(
-    await within(panel).findByRole("treeitem", { name: "resume-sweep: Interrupted" }),
+    await within(tree).findByRole("treeitem", { name: "resume-sweep: Interrupted" }),
   ).toBeTruthy();
   expect(
-    await within(panel).findByRole("treeitem", { name: "web-probe: Interrupted" }),
+    await within(tree).findByRole("treeitem", { name: "web-probe: Interrupted" }),
   ).toBeTruthy();
 });
 
@@ -316,40 +276,4 @@ test("in the tree, Stop on an agent with subagents asks the same question, and a
     await within(panel).findByRole("treeitem", { name: "web-probe: Interrupted" }),
   ).toBeTruthy();
   expect(within(panel).getByRole("treeitem", { name: "resume-sweep: Interrupted" })).toBeTruthy();
-});
-
-test("a reusable subagent gets its duration from the finished run and shows one status", async () => {
-  let now = 1000;
-  const app = harness({ clock: () => now });
-  app.daemon.createThread({
-    id: "timed-child",
-    workspaceId: "relay",
-    provider: "claude",
-    title: "Review changes",
-  });
-  app.daemon.apply("timed-child", [
-    facts.rootAgent("claude"),
-    facts.turn("root"),
-    facts.subagent("claude", "reviewer", "Reviewer", "spawn"),
-    facts.turn("reviewer"),
-    facts.tool("reviewer", "read", {
-      kind: "file.read",
-      title: "Read config",
-      detail: { kind: "file.read", path: "config.ts" },
-    }),
-  ]);
-  const panel = await openAgents(app, "/t/timed-child");
-  await userEvent.click(await within(panel).findByRole("treeitem", { name: /^Reviewer:/ }));
-  await within(panel).findByRole("heading", { name: "Reviewer" });
-  now = 122000;
-  act(() =>
-    app.daemon.apply("timed-child", [
-      facts.toolDone("reviewer", "read"),
-      facts.endTurn("reviewer"),
-    ]),
-  );
-  expect(await within(panel).findByText(/ran for 2m 1s/)).toBeTruthy();
-  expect(within(panel).getAllByText("Done", { exact: true })).toHaveLength(1);
-  expect(within(panel).queryByText("Idle", { exact: true })).toBeNull();
-  expect(within(panel).queryByText(/ran for 0s/)).toBeNull();
 });

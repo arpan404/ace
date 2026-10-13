@@ -74,14 +74,8 @@ export const DeferredTurnKeys = deferredComponent(() =>
   import("./long/turn-keys.tsx").then((module) => module.TurnKeys),
 );
 
-/** The Agents panel's follow-up composer; loads while idle, after the thread paints. */
-export const DeferredAgentComposer = deferredComponent(() =>
-  import("./composer/agent-composer.tsx").then((module) => module.AgentComposer),
-);
-
 export function preloadDeferred(): Promise<unknown> {
   return Promise.all([
-    DeferredAgentComposer.preload(),
     DeferredStepDetail.preload(),
     DeferredInteractionCard.preload(),
     DeferredQuestionRecord.preload(),

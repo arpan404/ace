@@ -21,6 +21,7 @@ import { ArrivalScope, useArrival } from "@/lib/arrival.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { useOpenSubagent } from "@/lib/subagent-link.tsx";
 import { agentMark } from "./agent-status.tsx";
 import {
   badgeWords,
@@ -258,7 +259,7 @@ function AgentRow(props: {
   const tree = use(Tree);
   const agent = useAgent(props.threadId, props.agentId);
   const thread = useThreadMeta(props.threadId);
-  const workspace = useWorkspaceActions(props.threadId);
+  const openSubagent = useOpenSubagent();
   const work = use(TreeWorkContext);
   const live = useLiveConnection();
   const status = agent?.status;
@@ -297,15 +298,20 @@ function AgentRow(props: {
     </>
   );
   const open = () => {
-    if (!root) workspace.open({ kind: "agent", id: agent.id, title: name });
+    if (!root)
+      openSubagent({
+        threadId: props.threadId,
+        agentId: agent.id,
+        childThreadId: agent.childThreadId,
+      });
   };
   return (
     <div
       style={{ marginLeft: props.depth * 16 }}
       className={cn("group/agent mb-1 flex flex-wrap items-center gap-1", capsule)}
     >
-      {/* The row is the tree item: Enter or a click opens the agent as its own tab; a click on
-          its chevron, or anywhere on the main agent (which has no tab), folds its subagents. */}
+      {/* The row is the tree item: Enter or a click opens the agent as the whole chat; a click on
+          its chevron, or anywhere on the main agent (which opens nothing), folds its subagents. */}
       <div
         role="treeitem"
         data-agent={agent.id}

@@ -51,6 +51,7 @@ import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/autom
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
 import { Route as SettingsProvidersIndexRouteImport } from "./routes/settings.providers.index"
 import { Route as SettingsProvidersProviderRouteImport } from "./routes/settings.providers.$provider"
+import { Route as HomeTThreadIdAgentsAgentIdRouteImport } from "./routes/_home.t.$threadId_.agents.$agentId"
 
 const HomeRoute = HomeRouteImport.update({
   id: "/_home",
@@ -264,6 +265,12 @@ const SettingsProvidersProviderRoute =
     path: "/providers/$provider",
     getParentRoute: () => SettingsRoute,
   } as any)
+const HomeTThreadIdAgentsAgentIdRoute =
+  HomeTThreadIdAgentsAgentIdRouteImport.update({
+    id: "/t/$threadId_/agents/$agentId",
+    path: "/t/$threadId/agents/$agentId",
+    getParentRoute: () => HomeRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   "/": typeof HomeIndexRoute
@@ -307,6 +314,7 @@ export interface FileRoutesByFullPath {
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
+  "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesByTo {
   "/accounts": typeof AccountsRoute
@@ -346,6 +354,7 @@ export interface FileRoutesByTo {
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers": typeof SettingsProvidersIndexRoute
+  "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -391,6 +400,7 @@ export interface FileRoutesById {
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
+  "/_home/t/$threadId_/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -436,6 +446,7 @@ export interface FileRouteTypes {
     | "/settings/providers/$provider"
     | "/automations/$automationId/"
     | "/settings/providers/"
+    | "/t/$threadId/agents/$agentId"
   fileRoutesByTo: FileRoutesByTo
   to:
     | "/accounts"
@@ -475,6 +486,7 @@ export interface FileRouteTypes {
     | "/settings/providers/$provider"
     | "/automations/$automationId"
     | "/settings/providers"
+    | "/t/$threadId/agents/$agentId"
   id:
     | "__root__"
     | "/_home"
@@ -519,6 +531,7 @@ export interface FileRouteTypes {
     | "/settings/providers/$provider"
     | "/automations/$automationId/"
     | "/settings/providers/"
+    | "/_home/t/$threadId_/agents/$agentId"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -834,6 +847,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsProvidersProviderRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/_home/t/$threadId_/agents/$agentId": {
+      id: "/_home/t/$threadId_/agents/$agentId"
+      path: "/t/$threadId/agents/$agentId"
+      fullPath: "/t/$threadId/agents/$agentId"
+      preLoaderRoute: typeof HomeTThreadIdAgentsAgentIdRouteImport
+      parentRoute: typeof HomeRoute
+    }
   }
 }
 
@@ -842,6 +862,7 @@ interface HomeRouteChildren {
   HomeNewRoute: typeof HomeNewRoute
   HomeIndexRoute: typeof HomeIndexRoute
   HomeTThreadIdRoute: typeof HomeTThreadIdRoute
+  HomeTThreadIdAgentsAgentIdRoute: typeof HomeTThreadIdAgentsAgentIdRoute
 }
 
 const HomeRouteChildren: HomeRouteChildren = {
@@ -849,6 +870,7 @@ const HomeRouteChildren: HomeRouteChildren = {
   HomeNewRoute: HomeNewRoute,
   HomeIndexRoute: HomeIndexRoute,
   HomeTThreadIdRoute: HomeTThreadIdRoute,
+  HomeTThreadIdAgentsAgentIdRoute: HomeTThreadIdAgentsAgentIdRoute,
 }
 
 const HomeRouteWithChildren = HomeRoute._addFileChildren(HomeRouteChildren)
