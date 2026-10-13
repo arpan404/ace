@@ -34,7 +34,6 @@ import { DeferredComposerStrip } from "./deferred-cards.ts";
 import { UsageNotice } from "./usage-notice.tsx";
 import {
   runsOn,
-  runsNow,
   changedTurnOptions,
   selectionIdentity,
   type PendingTurn,
@@ -113,16 +112,15 @@ export function ThreadComposer({
   };
 
   const sent = pending?.identity === selectionIdentity(runsOn(meta)) ? pending : undefined;
-  const activeSelection = meta && runsNow(meta);
-  const activeModel = currentModelChoice(modelChoices, activeSelection);
-  const activeEffort = resolveEffort(
-    activeModel?.efforts ?? [],
-    typeof activeSelection?.options?.["effort"] === "string"
-      ? activeSelection.options["effort"]
-      : undefined,
-    activeModel?.defaultEffort,
+  // What a follow-up without options inherits: a switch waiting for the next turn, else what
+  // runs now. Options are sent only where they differ from it.
+  const inherited = runsOn(meta);
+  const pendingModel = currentModelChoice(modelChoices, inherited);
+  const inheritedEffort = resolveEffort(
+    pendingModel?.efforts ?? [],
+    typeof inherited?.options?.["effort"] === "string" ? inherited.options["effort"] : undefined,
+    pendingModel?.defaultEffort,
   );
-  const pendingModel = currentModelChoice(modelChoices, runsOn(meta));
   const pendingEffort =
     sent &&
     resolveEffort(
@@ -135,8 +133,8 @@ export function ThreadComposer({
     ...(pendingEffort !== undefined ? { effort: pendingEffort } : {}),
   };
   const followUpOptions = changedTurnOptions(pendingOptions, {
-    ...activeSelection?.options,
-    ...(activeEffort !== undefined ? { effort: activeEffort } : {}),
+    ...inherited?.options,
+    ...(inheritedEffort !== undefined ? { effort: inheritedEffort } : {}),
   });
   const selectionWaiting = busy && (!!followUpOptions || meta?.switch?.state === "queued");
 
