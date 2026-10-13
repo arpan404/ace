@@ -2,7 +2,8 @@ import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { useEffect, useRef } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { cn } from "@/lib/cn.ts";
-import { layers, popupBounds, popupSurface } from "./menu-styles.ts";
+import { FloatingContents, useFloatingMaterial } from "./floating-material.tsx";
+import { layers, popupBounds, popupFrame } from "./menu-styles.ts";
 
 /** Navigation dismisses both controlled and uncontrolled popovers through Base UI. */
 function Popover(props: PopoverPrimitive.Root.Props) {
@@ -31,6 +32,7 @@ function PopoverContent({
   collisionBoundary,
   collisionPadding = 8,
   keepMounted,
+  children,
   ...props
 }: PopoverPrimitive.Popup.Props &
   Pick<
@@ -44,6 +46,7 @@ function PopoverContent({
     | "collisionPadding"
   > &
   Pick<PopoverPrimitive.Portal.Props, "keepMounted">) {
+  const material = useFloatingMaterial();
   return (
     <PopoverPrimitive.Portal keepMounted={keepMounted}>
       <PopoverPrimitive.Positioner
@@ -58,9 +61,11 @@ function PopoverContent({
       >
         <PopoverPrimitive.Popup
           data-slot="popover-content"
-          className={cn(popupSurface, popupBounds, className)}
+          className={cn(material, popupFrame, popupBounds, className)}
           {...props}
-        />
+        >
+          <FloatingContents glass={material === "ace-floating"}>{children}</FloatingContents>
+        </PopoverPrimitive.Popup>
       </PopoverPrimitive.Positioner>
     </PopoverPrimitive.Portal>
   );

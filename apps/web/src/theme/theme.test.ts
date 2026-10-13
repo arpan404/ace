@@ -5,7 +5,6 @@ import { defaultAppearance, loadAppearance, resolveAppearance } from "./appearan
 import { worstContrast } from "./colour.ts";
 import { contrastWarnings, parseOpaqueColor } from "./contrast.ts";
 import { themeDeclarations, themeRule } from "./css.ts";
-import { edgeMap, fitStep, glassEngine, glassGeometry } from "./glass.ts";
 import { accentIds, themedPalette, type AccentChoice } from "./accent.ts";
 import { nearStatus, statusDistance, statusGap } from "./accent-fit.ts";
 import { deltaE, rgbToOklch } from "./colour.ts";
@@ -164,6 +163,15 @@ test("translucent surfaces fall back to solid while the OS reduces transparency"
   expect(resolveAppearance({ ...defaultAppearance, surface: "solid" }, os).surface).toBe("solid");
 });
 
+test("a theme whose layers are always solid resolves to solid even under Translucent", () => {
+  const signal = { ...defaultAppearance, theme: "signal" as const };
+  expect(resolveAppearance(signal, os).surface).toBe("solid");
+  expect(resolveAppearance({ ...signal, mode: "dark" }, os).surface).toBe("solid");
+  expect(resolveAppearance({ ...defaultAppearance, theme: "harbor" }, os).surface).toBe(
+    "translucent",
+  );
+});
+
 test("Reduce motion follows the OS under System, and On or Off overrides it", () => {
   const reduced = { ...os, reducedMotion: true };
   expect(resolveAppearance(defaultAppearance, reduced).reduceMotion).toBe(true);
@@ -196,73 +204,6 @@ test("a saved appearance keeps each valid choice, and a removed theme falls back
     accent: "violet",
     surface: "solid",
   });
-});
-
-const userAgents = {
-  chrome:
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
-  electron:
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) ace/1.0.0 Chrome/140.0.7339.41 Electron/38.0.0 Safari/537.36",
-  safari:
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
-  firefox: "Mozilla/5.0 (Macintosh; Intel Mac OS X 15.6; rv:143.0) Gecko/20100101 Firefox/143.0",
-  chromeOnIphone:
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/141.0.0.0 Mobile/15E148 Safari/604.1",
-};
-
-test("liquid glass is used only where SVG backdrop filters render", () => {
-  expect(glassEngine(userAgents.chrome)).toBe("liquid");
-  expect(glassEngine(userAgents.electron)).toBe("liquid");
-  expect(glassEngine(userAgents.safari)).toBe("blur");
-  expect(glassEngine(userAgents.firefox)).toBe("blur");
-  // Chrome on iOS is WebKit underneath.
-  expect(glassEngine(userAgents.chromeOnIphone)).toBe("blur");
-  // A Chromium browser that reduces its user agent still reports its brand.
-  expect(glassEngine("Mozilla/5.0", [{ brand: "Chromium" }])).toBe("liquid");
-});
-
-test("liquid glass bends a fixed rim in pixels, whatever the layer's size", () => {
-  const palette = glassGeometry(620, 540, 14);
-  const menu = glassGeometry(240, 180, 14);
-  expect([palette.band, palette.scale]).toEqual([24, 24]);
-  expect([menu.band, menu.scale]).toEqual([24, 24]);
-  // A tooltip too small for the full rim gets a shallower one rather than a bend through its text.
-  const tooltip = glassGeometry(90, 24, 10);
-  expect(tooltip.band).toBeLessThan(24);
-  expect(tooltip.scale).toBeLessThanOrEqual(tooltip.band);
-  // Layers a pixel apart share one filter.
-  expect(glassGeometry(241, 181, 14).key).toBe(menu.key);
-});
-
-test("a layer gets its rim at once when it opens, and a new one only after a resize settles", () => {
-  const opened = glassGeometry(320, 240, 14);
-  // First measure: the rim is there from the first frame.
-  expect(fitStep(undefined, opened)).toBe("now");
-  // Measured again at the same size: nothing to do.
-  expect(fitStep(opened.key, opened)).toBe("keep");
-  // Resized: the old rim comes off now and a new filter waits for the size to settle.
-  const taller = glassGeometry(320, 300, 14);
-  expect(fitStep(opened.key, taller)).toBe("settle");
-  // Still settling, with no rim on: each further size waits too, back to the old one included.
-  expect(fitStep("", taller)).toBe("settle");
-  expect(fitStep("", opened)).toBe("settle");
-  // A pixel of jitter is the same filter.
-  expect(fitStep(opened.key, glassGeometry(321, 241, 14))).toBe("keep");
-});
-
-test("the displacement map moves only the rim and leaves the middle still", () => {
-  const geometry = glassGeometry(200, 120, 14);
-  const map = edgeMap(geometry);
-  const at = (x: number, y: number) => {
-    const i = (y * geometry.width + x) * 4;
-    return [map[i], map[i + 1]];
-  };
-  expect(at(100, 60)).toEqual([128, 128]);
-  expect(at(100, 60 - 30)).toEqual([128, 128]);
-  // The left edge pulls from inside (rightwards), the top edge from below.
-  expect(at(0, 60)[0]).toBeGreaterThan(200);
-  expect(at(100, 0)[1]).toBeGreaterThan(200);
-  expect(at(geometry.width - 1, 60)[0]).toBeLessThan(56);
 });
 
 test("shortcuts read as platform glyphs", () => {

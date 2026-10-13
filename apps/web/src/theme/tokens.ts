@@ -74,7 +74,13 @@ export function themeTokens(p: Palette, scheme: Scheme) {
   const floatShadow = light
     ? `0 1px 2px rgb(${p.shadow} / 0.05), 0 6px 16px -4px rgb(${p.shadow} / 0.1), 0 22px 48px -18px rgb(${p.shadow} / 0.2)`
     : "0 1px 2px rgb(0 0 0 / 0.4), 0 8px 20px -6px rgb(0 0 0 / 0.45), 0 28px 56px -20px rgb(0 0 0 / 0.6)";
-  const glassInner = light ? "rgb(255 255 255 / 0.85)" : "rgb(255 255 255 / 0.1)";
+  // The specular rim, lit from above: a bright crescent along the top edge (an offset inset
+  // shadow follows the corners and tapers down them), a faint hairline all round, and a weaker
+  // return along the bottom where the light leaves the glass.
+  const glassRim = light
+    ? "inset 0 1px 0 0 rgb(255 255 255 / 0.95), inset 0 0 0 1px rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(255 255 255 / 0.3)"
+    : "inset 0 1px 0 0 rgb(255 255 255 / 0.16), inset 0 0 0 1px rgb(255 255 255 / 0.06), inset 0 -1px 0 0 rgb(255 255 255 / 0.04)";
+  const glass = p.material.glass;
   return {
     // The neutral ramp, by step (`--neutral-1` canvas … `--neutral-12` text).
     ...neutralRamp(p),
@@ -166,16 +172,16 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     // Floating layers: solid edge and shadow, and the glass material (styles/glass.css).
     "--float-edge": light ? `color-mix(in srgb, ${p.border}, ${p.t1} 4%)` : p.border,
     "--float-shadow": floatShadow,
-    "--glass-tint": `color-mix(in srgb, ${p.s2} ${pct(p.material.glass.blur)}%, transparent)`,
-    // Dialogs and the palette: glass dense enough that nothing behind reads through.
-    "--glass-tint-modal": `color-mix(in srgb, ${p.s2} ${Math.max(pct(p.material.glass.blur), light ? 90 : 92)}%, transparent)`,
-    "--glass-tint-liquid": `color-mix(in srgb, ${p.s2} ${pct(p.material.glass.liquid)}%, transparent)`,
-    "--glass-edge": light ? `rgb(${p.shadow} / 0.1)` : "rgb(255 255 255 / 0.09)",
-    "--glass-inner": glassInner,
-    "--glass-sheen": light ? "rgb(255 255 255 / 0.35)" : "rgb(255 255 255 / 0.045)",
+    // The tint is as thin as AA over a white or a black backdrop allows (`glassTintAlpha`).
+    "--glass-tint": `color-mix(in srgb, ${p.s2} ${pct(p.glassTint)}%, transparent)`,
+    "--glass-blur": `${glass?.blur ?? 0}px`,
+    "--glass-saturate": `${glass?.saturate ?? 100}%`,
+    "--glass-rim": glassRim,
+    // A hairline just outside the rim, so the layer's silhouette holds over its own colour.
+    "--glass-edge": light ? `rgb(${p.shadow} / 0.12)` : "rgb(0 0 0 / 0.55)",
     "--glass-shadow": floatShadow,
     "--glass-border": light ? `rgb(${p.shadow} / 0.1)` : "rgb(255 255 255 / 0.09)",
-    "--glass-highlight": `inset 0 1px 0 ${glassInner}`,
+    "--glass-highlight": glassRim,
     "--sliver": light
       ? `color-mix(in srgb, ${p.s2} 80%, ${p.s1})`
       : `color-mix(in srgb, ${p.s2}, ${p.s1} 30%)`,

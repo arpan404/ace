@@ -17,7 +17,8 @@ import { matchesChord } from "@/lib/hotkeys.ts";
 import { parseChord } from "@/lib/keymap.ts";
 import { IconButton } from "./icon-button.tsx";
 import { Kbd } from "./kbd.tsx";
-import { layers, overlaySurface } from "./menu-styles.ts";
+import { FloatingContents } from "./floating-material.tsx";
+import { layers } from "./menu-styles.ts";
 import { InCard } from "./surface-context.ts";
 
 const Dialog = DialogPrimitive.Root;
@@ -123,7 +124,9 @@ function DialogContent({
         finalFocus={finalFocus ?? returnFocus}
         className={cn(
           layers.modal,
-          overlaySurface,
+          // Solid: a dialog holds content (forms, text, choices), so it is never glass. The page
+          // behind it is blurred once by its backdrop.
+          "ace-floating-solid text-popover-foreground",
           // Centred by insets and auto margins, never by a translate another rule could replace.
           "ace-modal fixed inset-0 m-auto flex h-fit max-h-[calc(100dvh-2rem)] flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg p-5 text-ui text-popover-foreground outline-none [-webkit-app-region:no-drag]",
           "transition-[opacity,transform] duration-(--motion-base) ease-spring data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--motion-exit) data-ending-style:ease-exit data-starting-style:translate-y-(--rise) data-starting-style:scale-[0.97] data-starting-style:opacity-0",
@@ -135,7 +138,9 @@ function DialogContent({
         <OpenerProbe openerRef={openerRef} />
         <FocusHold />
         {/* A dialog is its own surface, even when a settings row opened it. */}
-        <InCard value={false}>{children}</InCard>
+        <InCard value={false}>
+          <FloatingContents glass={false}>{children}</FloatingContents>
+        </InCard>
         {showCloseButton && (
           <DialogPrimitive.Close
             render={

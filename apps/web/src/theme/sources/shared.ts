@@ -1,4 +1,4 @@
-import type { Material, Scheme, ThemeFonts } from "../types.ts";
+import type { GlassMaterial, Material, Scheme, ThemeFonts } from "../types.ts";
 
 /* Font stacks and floating materials the theme sources share. System fonts only. */
 
@@ -14,14 +14,20 @@ export const folioFonts: ThemeFonts = { ui: sans, prose: serif, mono };
 /** Monospace everywhere. */
 export const ttyFonts: ThemeFonts = { ui: mono, prose: mono, mono };
 
-/** Glass floating layers (when Surfaces is Translucent), focus ring at 60% of the accent. */
-export const glassy: Record<Scheme, Material> = {
-  light: { glass: { blur: 0.64, liquid: 0.56 }, focus: 60 },
-  dark: { glass: { blur: 0.68, liquid: 0.62 }, focus: 60 },
-};
+/**
+ * Glass floating layers (when Surfaces is Translucent) with a backdrop of `light` and `dark`
+ * frosting, and focus rings at 60% of the accent. Dark schemes blur a little more: dark glass
+ * over bright content shows more of it.
+ */
+export function glassy(light: GlassMaterial, dark: GlassMaterial): Record<Scheme, Material> {
+  return {
+    light: { glass: light, focus: 60 },
+    dark: { glass: dark, focus: 60 },
+  };
+}
 
 /** Solid floating layers whatever Surfaces says, and full-strength focus rings. */
 export const solid: Record<Scheme, Material> = {
-  light: { glass: { blur: 1, liquid: 1 }, focus: 100 },
-  dark: { glass: { blur: 1, liquid: 1 }, focus: 100 },
+  light: { glass: null, focus: 100 },
+  dark: { glass: null, focus: 100 },
 };

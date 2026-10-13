@@ -105,29 +105,29 @@ number: `--neutral-1` … `--neutral-12`. Each theme also sets `--font-sans`, `-
 Theme tokens are generated per palette in `tokens.ts`. The names agreed with shadcn are kept, so
 existing components need no edits.
 
-| Purpose                   | Token(s)                                                                          |
-| ------------------------- | --------------------------------------------------------------------------------- |
-| Page, reading column      | `--background`, `--reading`, `--surface-0`                                        |
-| Neutral ramp              | `--neutral-1` … `--neutral-12`, `--hover`, `--active`, `--faint-foreground`       |
-| Raised quiet fill         | `--surface-1`, `--card`, `--bubble`                                               |
-| Floating (solid)          | `--surface-2`, `--popover`                                                        |
-| Sidebar, right panel      | `--sidebar`, `--panel`                                                            |
-| Hover and selected washes | `--fill` (= `--accent`, `--muted`), `--fill-strong` (= `--sidebar-accent`)        |
-| Controls                  | `--secondary`, `--seg-bg`, `--seg-thumb`, `--seg-thumb-shadow`, `--switch-off`    |
-| Lines                     | `--border`, `--border-soft`, `--border-strong` (= `--input`), `--sidebar-border`  |
-| Text fields               | `--field` (white with a hairline in light, a quiet lift in dark)                  |
-| Text                      | `--foreground`, `--muted-foreground`, `--subtle-foreground`                       |
-| Inverse (tooltips, send)  | `--primary`, `--primary-foreground`                                               |
-| Accent                    | `--ring`, `--ring-hover`, `--ring-pressed`, `--ring-foreground`, `--ring-text`    |
-| Focus                     | `--focus`                                                                         |
-| Status                    | `--status-{working,needs-you,waiting,unresponsive,failed,done}` and `…-text`      |
-| Errors                    | `--destructive`                                                                   |
-| Code                      | `--code`, `--syn-{kw,str,num,fn,type,com,punc}`, `--diff-{add,del}` (+ `-text`)   |
-| Loading                   | `--skel`, `--skel-hi`                                                             |
-| Modal backdrop            | `--scrim` (solid), `--scrim-glass` (over blur); modal panels `--glass-tint-modal` |
-| Floating material         | `--float-edge`, `--float-shadow` (= `--glass-shadow`), `--glass-*`, `--sliver`    |
-| Project badges            | `--project-1` … `--project-12`                                                    |
-| Chat visualization series | `--chart-1` … `--chart-6`                                                         |
+| Purpose                   | Token(s)                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------- |
+| Page, reading column      | `--background`, `--reading`, `--surface-0`                                       |
+| Neutral ramp              | `--neutral-1` … `--neutral-12`, `--hover`, `--active`, `--faint-foreground`      |
+| Raised quiet fill         | `--surface-1`, `--card`, `--bubble`                                              |
+| Floating (solid)          | `--surface-2`, `--popover`                                                       |
+| Sidebar, right panel      | `--sidebar`, `--panel`                                                           |
+| Hover and selected washes | `--fill` (= `--accent`, `--muted`), `--fill-strong` (= `--sidebar-accent`)       |
+| Controls                  | `--secondary`, `--seg-bg`, `--seg-thumb`, `--seg-thumb-shadow`, `--switch-off`   |
+| Lines                     | `--border`, `--border-soft`, `--border-strong` (= `--input`), `--sidebar-border` |
+| Text fields               | `--field` (white with a hairline in light, a quiet lift in dark)                 |
+| Text                      | `--foreground`, `--muted-foreground`, `--subtle-foreground`                      |
+| Inverse (tooltips, send)  | `--primary`, `--primary-foreground`                                              |
+| Accent                    | `--ring`, `--ring-hover`, `--ring-pressed`, `--ring-foreground`, `--ring-text`   |
+| Focus                     | `--focus`                                                                        |
+| Status                    | `--status-{working,needs-you,waiting,unresponsive,failed,done}` and `…-text`     |
+| Errors                    | `--destructive`                                                                  |
+| Code                      | `--code`, `--syn-{kw,str,num,fn,type,com,punc}`, `--diff-{add,del}` (+ `-text`)  |
+| Loading                   | `--skel`, `--skel-hi`                                                            |
+| Modal backdrop            | `--scrim` (solid), `--scrim-glass` (over blur)                                   |
+| Floating material         | `--float-edge`, `--float-shadow` (= `--glass-shadow`), `--glass-*`, `--sliver`   |
+| Project badges            | `--project-1` … `--project-12`                                                   |
+| Chat visualization series | `--chart-1` … `--chart-6`                                                        |
 
 Tailwind utilities: `bg-surface-{0,1,2}`, `bg-fill`, `bg-fill-strong`, `bg-scrim`, `bg-tint`,
 `bg-tint-hover`, `bg-tint-pressed`, `text-tint-foreground`, `text-link`, and every shadcn name.
@@ -167,47 +167,65 @@ The sidebar, page and right panel are always opaque. Glass only appears on float
 
 ## Glass
 
+Glass follows Apple's Liquid Glass guidance
+([HIG Materials](https://developer.apple.com/design/human-interface-guidelines/materials),
+[WWDC25 "Meet Liquid Glass"](https://developer.apple.com/videos/play/wwdc2025/219/)). It is for
+controls and navigation floating above content, never for content itself, and never glass on
+glass.
+
 There are two classes:
 
 - **`.ace-floating`** is glass under Translucent and `--surface-2` with an edge and shadow under
-  Solid.
-- **`.ace-floating-solid`** is always solid.
+  Solid. Use it for menus, popovers, selects, context menus, hover cards, toasts, the command
+  palette, the Turns panel and floating action bars.
+- **`.ace-floating-solid`** is always solid. Use it for dialogs, tooltips, the Work card, the
+  composer and its strip, and anything that holds content.
 
-Apply them to every floating layer: popover, menu, select, context menu, hover card, dialog,
-tooltip, toast, command palette, Work card and composer strip. The shared primitives already use
-them through `overlaySurface` and `popupSurface` in `components/ui/menu-styles.ts`.
+The shared primitives pick the material themselves: `useFloatingMaterial()`
+(`components/ui/floating-material.tsx`) returns `ace-floating-solid` for a layer opened from a
+glass layer, so a menu opened from a popover is solid. A floating layer nested in another in the
+DOM is solid by CSS. `popupFrame` in `components/ui/menu-styles.ts` is a popup's shape without
+its material.
 
-Engines:
+`data-surface` is "solid" under the Solid setting, while the OS reduces transparency, and in a
+theme with no glass (Signal). Nothing the stylesheet ships has a backdrop filter then
+(`apps/web/motion-css.test.ts` checks the built CSS).
 
-- **Chromium and Electron** (`data-glass-engine="liquid"`) use
-  `backdrop-filter: var(--liquid-filter) blur(12px) saturate(170%)` over a thinner tint.
-  - `--liquid-filter` points at an SVG `feDisplacementMap` sized to that layer's own box and
-    corner radius (`theme/liquid-glass.ts`).
-  - The bending rim is at most 24px deep and bends at most 24px, so a tooltip and a 620px palette
-    bend alike. Layers too small for the full rim get a shallower one.
-  - Layers of the same size (rounded to 2px) share one filter, and at most 24 unused filters are
-    cached.
-  - A layer registers itself when it appears: a 1ms marker animation on its `::before` fires
-    `animationstart`. One ResizeObserver re-measures it only when it resizes.
-  - Until its filter is ready, a layer shows blur only.
-- **Safari and Firefox** (`blur`) use `blur(20px) saturate(180%)`. They drop `url()` backdrop
-  filters while `CSS.supports` still reports support, so the engine is read from the user agent
-  (`glassEngine()`). Every iOS browser counts as WebKit.
+The material, in order:
 
-Glass parts:
+1. The backdrop is blurred and saturated: `--glass-blur` and `--glass-saturate`, set per theme
+   and scheme in `theme/sources/` (dark schemes blur more).
+2. **Chromium and Electron** (`data-glass-engine="liquid"`) then bend that frosted backdrop at the
+   rim: `backdrop-filter: blur() saturate() var(--liquid-filter)`.
+   - `--liquid-filter` points at an SVG `feDisplacementMap` sized to that layer's box, corner
+     radius and pixel density (`theme/liquid-glass.ts`).
+   - The rim is at most 10px deep and bends at most 7px, on a smooth curve that meets the flat
+     middle with no seam. Inside the rim the map is exactly neutral, so text behind a layer is
+     never warped. Layers too small for the full rim get a shallower one.
+   - The map is drawn at device pixels and encoded off the main thread (`toBlob`). Layers within
+     a pixel of a filter's size keep it, and at most 16 unused filters are cached.
+   - A layer registers itself when it appears: a 1ms marker animation on its `::before` fires
+     `animationstart`. One ResizeObserver re-measures it only when it resizes.
+   - Until its filter is ready, a layer shows the frosted backdrop only.
+3. The tint is `--glass-tint`: `--surface-2` at the thinnest opacity over which text and
+   secondary text read at AA (4.5:1) and quiet hints at 3:1 over a white and a black backdrop,
+   selected rows included (`glassTintAlpha` in `theme/surfaces.ts`).
+4. The specular rim is `--glass-rim`: inset hairlines lit from above (a bright crescent along the
+   top, a faint line all round, a weaker return at the bottom).
+5. The edge is `--glass-edge` and the shadow is `--float-shadow`.
 
-- the tint is `--glass-tint` (blur) or `--glass-tint-liquid` (liquid);
-- the inner top highlight is `--glass-inner`;
-- the edge is `--glass-edge`;
-- a static sheen is `--glass-sheen`;
-- the shadow is `--float-shadow`.
+**Safari and Firefox** (`blur`) get steps 1, 3, 4 and 5. They drop `url()` backdrop filters while
+`CSS.supports` still reports support, so the engine is read from the user agent (`glassEngine()`).
+Every iOS browser counts as WebKit.
+
+The command palette (`.ace-modal`) sits over `.ace-backdrop`, which blurs the page once, so the
+panel has the tint and rim with no blur of its own.
+
+Corners are concentric: rows inside a 14px popup with 4px padding are 10px (`rounded-md`).
 
 Keep glass cheap:
 
-- No per-frame script: the sheen is static and doesn't follow the pointer, and filters are built
-  once per layer geometry, after the layer's size has held still for 160ms.
-- A layer that resizes as you work (the composer) takes `.ace-glass-flat`: blur glass with no
-  displacement filter.
+- No per-frame script. Filters are built once per layer geometry.
 - No filter on large scrolling areas. Sheets and side panels stay solid.
 
 ## Motion

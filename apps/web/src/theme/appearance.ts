@@ -1,7 +1,7 @@
 import * as z from "zod/mini";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { accentIds, defaultCustomAccent } from "./accent.ts";
-import { defaultThemeId, themeIds, type Scheme, type ThemeId } from "./palettes.ts";
+import { defaultThemeId, themeIds, themes, type Scheme, type ThemeId } from "./palettes.ts";
 
 export const Mode = z.enum(["light", "dark", "system"]);
 export type Mode = z.infer<typeof Mode>;
@@ -66,19 +66,32 @@ export interface SystemPreferences {
 export interface ResolvedAppearance {
   theme: ThemeId;
   scheme: Scheme;
-  /** Translucent falls back to solid while the OS reduces transparency. */
+  /**
+   * Translucent falls back to solid while the OS reduces transparency, and in a theme whose
+   * layers are always solid (Signal).
+   */
   surface: SurfaceSetting;
   reduceMotion: boolean;
+}
+
+/** Whether a theme's floating layers can be glass at all in `scheme`; Signal's never are. */
+export function themeHasGlass(theme: ThemeId, scheme: Scheme): boolean {
+  return themes[theme][scheme].material.glass !== null;
 }
 
 export function resolveAppearance(
   appearance: Appearance,
   system: SystemPreferences,
 ): ResolvedAppearance {
+  const scheme = appearance.mode === "system" ? (system.dark ? "dark" : "light") : appearance.mode;
+  const solid =
+    appearance.surface === "solid" ||
+    system.reducedTransparency ||
+    !themeHasGlass(appearance.theme, scheme);
   return {
     theme: appearance.theme,
-    scheme: appearance.mode === "system" ? (system.dark ? "dark" : "light") : appearance.mode,
-    surface: appearance.surface === "solid" || system.reducedTransparency ? "solid" : "translucent",
+    scheme,
+    surface: solid ? "solid" : "translucent",
     reduceMotion:
       appearance.reduceMotion === "system"
         ? system.reducedMotion

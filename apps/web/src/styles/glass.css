@@ -1,17 +1,21 @@
 /*
- * Floating material (docs/design/visual-language.md, "Glass"): popovers, menus, dialogs,
- * tooltips, the command palette, the Work card and the composer strip.
+ * Floating material (docs/design/visual-language.md, "Glass"), after Apple's Liquid Glass: glass
+ * is for controls floating above content (menus, popovers, toasts, the command palette, floating
+ * action bars), never for content, and never glass on glass.
  *
  *   .ace-floating        glass under Surfaces: Translucent, solid otherwise
- *   .ace-floating-solid  always solid (a layer that must never show what's behind it)
+ *   .ace-floating-solid  always solid (dialogs, tooltips, the composer, anything that is content)
  *
- * <html> carries the resolved choice: `data-surface` is "solid" under the Solid setting or while
- * the OS reduces transparency, and `data-glass-engine` is "liquid" only where SVG backdrop
- * filters render (Chromium and Electron; src/theme/glass.ts). Liquid bends the backdrop at a
- * fixed rim of at most 24px through a filter sized to each layer (theme/liquid-glass.ts, which
- * measures a layer when it appears and again only when it resizes); elsewhere glass is blur and
- * saturate. No per-frame script, and filters only sit on floating layers, never on a large
- * scrolling area.
+ * <html> carries the resolved choice: `data-surface` is "solid" under the Solid setting, while
+ * the OS reduces transparency, and in a theme with no glass (Signal); `data-glass-engine` is
+ * "liquid" only where SVG backdrop filters render (Chromium and Electron; src/theme/glass.ts).
+ *
+ * The material, in order: the backdrop blurred and saturated (per theme, `--glass-blur` and
+ * `--glass-saturate`); on Chromium, that frosted backdrop bent inside a thin rim by a filter
+ * sized to the layer (theme/liquid-glass.ts), so lensing lives at the edge and never warps text;
+ * the tint, as thin as AA over a white or a black backdrop allows (`--glass-tint`); a specular
+ * rim lit from above (`--glass-rim`); a hairline outside it; and the soft floating shadow.
+ * No per-frame script, and filters sit only on floating layers, never on a scrolling area.
  */
 @layer components {
   .ace-floating,
@@ -23,34 +27,27 @@
       var(--float-shadow);
   }
 
-  :root[data-surface="translucent"] :is(.ace-floating, .glass) {
-    /* A faint sheen across the top; background-attachment keeps it still while content scrolls. */
-    background:
-      radial-gradient(120% 60% at 22% 0%, var(--glass-sheen), transparent 60%), var(--glass-tint);
+  /* A floating layer inside another one stays solid: one glass layer, never glass on glass. */
+  :root[data-surface="translucent"] :is(.ace-floating, .glass):not(:is(.ace-floating, .glass) *) {
+    background: var(--glass-tint);
     box-shadow:
-      inset 0 1px 0 var(--glass-inner),
-      0 0 0 1px var(--glass-edge),
+      var(--glass-rim),
+      0 0 0 0.5px var(--glass-edge),
       var(--float-shadow);
-    -webkit-backdrop-filter: blur(var(--glass-blur, 20px)) saturate(180%);
-    backdrop-filter: blur(var(--glass-blur, 20px)) saturate(180%);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   }
 
-  /* `.ace-glass-flat` keeps blur glass without displacement: a layer that resizes as you work
-     (the composer grows with each line) would otherwise need a new filter at every size. Modal
-     panels are excluded too: their dense tint (below) must never lose to this thinner one. */
+  /* --liquid-filter is this layer's own rim filter, after the blur; frosted alone until it's set. */
   :root[data-surface="translucent"][data-glass-engine="liquid"]
-    :is(.ace-floating, .glass):not(.ace-glass-flat, .ace-modal) {
-    background:
-      radial-gradient(120% 60% at 22% 0%, var(--glass-sheen), transparent 60%),
-      var(--glass-tint-liquid);
-    /* --liquid-filter is this layer's own filter (theme/liquid-glass.ts); blur alone until set. */
-    backdrop-filter: var(--liquid-filter,) blur(var(--glass-liquid-blur, 12px)) saturate(170%);
+    :is(.ace-floating, .glass):not(.ace-modal, :is(.ace-floating, .glass) *) {
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) var(--liquid-filter,);
   }
 
   /* A layer announces itself to liquid-glass.ts when it appears: a 1ms marker animation on a
      zero-size ::before, whose animationstart bubbles to the document. */
   :root[data-surface="translucent"][data-glass-engine="liquid"]
-    :is(.ace-floating, .glass):not(.ace-modal, .ace-glass-flat)::before {
+    :is(.ace-floating, .glass):not(.ace-modal, :is(.ace-floating, .glass) *)::before {
     content: "";
     position: absolute;
     width: 0;
@@ -60,16 +57,11 @@
   }
 
   /*
-   * Modal panels (dialogs and the command palette; sheets are solid): `.ace-modal` on the panel. Under
-   * Translucent the backdrop behind it is the blur (`.ace-backdrop`), so the panel adds no blur of
-   * its own and no displacement: it is a dense tint over an already blurred page, so text and
-   * fields read as on a solid surface. The liquid rule excludes `.ace-modal`, so this applies on
-   * every engine.
+   * The command palette (`.ace-modal`) sits over `.ace-backdrop`, which has already blurred the
+   * page once, so the panel adds no blur of its own: the same tint and rim over that blur, one
+   * frosted layer and not two.
    */
   :root[data-surface="translucent"] :is(.ace-floating, .glass).ace-modal {
-    background:
-      radial-gradient(120% 60% at 22% 0%, var(--glass-sheen), transparent 60%),
-      var(--glass-tint-modal);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

@@ -133,7 +133,8 @@ export function ThemeProvider(props: { environment: Environment; children: React
     const boot: BootAppearance = {
       theme: appearance.theme,
       mode: appearance.mode,
-      surface: appearance.surface,
+      // A theme with no glass boots solid, so its first frame never flashes translucent.
+      surface: themes[appearance.theme].light.material.glass ? appearance.surface : "solid",
       reduceMotion: appearance.reduceMotion,
       density: appearance.density,
       transcriptPx: transcriptSizes[appearance.transcriptSize].px,

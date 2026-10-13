@@ -4,6 +4,10 @@
  * layers there bend what's behind them at the rim. Safari and Firefox drop that silently while
  * `CSS.supports` still says yes, so the engine is read from the user agent and they get blur and
  * saturate instead. The DOM shell that measures layers and keeps their filters is liquid-glass.ts.
+ *
+ * The bend follows Apple's Liquid Glass: lensing lives at the edge and never in the middle, so
+ * the backdrop is blurred first and only then bent, inside a thin rim. Text behind a layer is
+ * never warped; the rim reads as the thickness of the glass catching what's behind it.
  */
 
 export type GlassEngine = "liquid" | "blur";
@@ -20,40 +24,46 @@ export function glassEngine(userAgent: string, brands: readonly Brand[] = []): G
   return /Chrome\/\d+/.test(userAgent) && !/Firefox\//.test(userAgent) ? "liquid" : "blur";
 }
 
-/** The rim that bends: at most 24px deep, less on a layer too small to hold it. */
-const maxBand = 24;
-/** How far the backdrop moves at the very edge, in px. */
-const maxBend = 24;
-/**
- * Sizes round to this step, so a pixel of jitter either way shares one filter. At 2, a size
- * one past a step rounds up to the next one and every odd pixel built a filter of its own.
- */
-const sizeStep = 4;
+/** The rim that bends, in CSS px: thin, so it reads as an edge and not as a lens over the content. */
+const maxBand = 10;
+/** How far the blurred backdrop moves at the very edge, in CSS px. */
+const maxBend = 7;
+/** Below this many CSS px of difference, a layer keeps the filter it has. */
+const jitter = 1;
 
 export interface GlassGeometry {
-  /** Rounded size, the filter's identity together with the radius. */
+  /** Size in CSS px, the filter's identity together with the radius and pixel density. */
   width: number;
   height: number;
   radius: number;
-  /** Depth of the bending rim. */
+  /** Device pixels per CSS px the map is drawn at, so its gradient is smooth on HiDPI. */
+  density: number;
+  /** Depth of the bending rim, CSS px. */
   band: number;
-  /** `feDisplacementMap` scale: the bend at the edge. */
+  /** `feDisplacementMap` scale: the bend at the edge, CSS px. */
   scale: number;
   /** A stable id for this geometry's filter. */
   key: string;
 }
 
 /**
- * The filter a layer of this size and corner radius needs. The rim and bend are fixed in pixels,
- * so a tooltip and a 600px palette bend alike instead of scaling with their box.
+ * The filter a layer of this size, corner radius and pixel density needs. The rim and bend are
+ * fixed in CSS pixels, so a 600px palette and a 200px menu bend alike; a layer too small for the
+ * full rim gets a shallower one rather than a bend through its text.
  */
-export function glassGeometry(width: number, height: number, radius: number): GlassGeometry {
-  const w = Math.max(sizeStep, Math.round(width / sizeStep) * sizeStep);
-  const h = Math.max(sizeStep, Math.round(height / sizeStep) * sizeStep);
+export function glassGeometry(
+  width: number,
+  height: number,
+  radius: number,
+  devicePixelRatio = 1,
+): GlassGeometry {
+  const w = Math.max(1, Math.round(width));
+  const h = Math.max(1, Math.round(height));
   const r = Math.max(0, Math.min(Math.round(radius), Math.floor(Math.min(w, h) / 2)));
-  const band = Math.max(1, Math.min(maxBand, Math.floor(Math.min(w, h) / 2.4)));
-  const scale = Math.min(maxBend, band);
-  return { width: w, height: h, radius: r, band, scale, key: `${w}x${h}r${r}` };
+  const density = Math.min(3, Math.max(1, Math.round(devicePixelRatio * 2) / 2));
+  const band = Math.max(1, Math.min(maxBand, Math.floor(Math.min(w, h) / 5)));
+  const scale = Math.min(maxBend, Math.round(band * 0.7));
+  return { width: w, height: h, radius: r, density, band, scale, key: `${w}x${h}r${r}d${density}` };
 }
 
 /** What a measured layer needs from its filter. */
@@ -61,33 +71,50 @@ export type FitStep = "now" | "keep" | "settle";
 
 /**
  * A layer measured for the first time gets its filter at once, so it opens with its rim. One that
- * measures the same as its filter keeps it. One whose size changed loses its rim straight away (a
- * filter sized for the old box would bend the wrong edge) and gets a new one once its size holds
- * still, so a list filtering as you type builds one filter, not one per height on the way.
- * `fitted` is the key of the filter it has: undefined before its first, "" while it has none.
+ * measures within a pixel of its filter keeps it. One whose size changed loses its rim straight
+ * away (a filter sized for the old box would bend the wrong edge) and gets a new one once its size
+ * holds still, so a list filtering as you type builds one filter, not one per height on the way.
+ * `fitted` is the geometry of the filter it has: undefined before its first, null while it has none.
  */
-export function fitStep(fitted: string | undefined, measured: GlassGeometry): FitStep {
+export function fitStep(
+  fitted: GlassGeometry | null | undefined,
+  measured: GlassGeometry,
+): FitStep {
   if (fitted === undefined) return "now";
-  return fitted === measured.key ? "keep" : "settle";
+  if (fitted === null) return "settle";
+  const same =
+    Math.abs(fitted.width - measured.width) <= jitter &&
+    Math.abs(fitted.height - measured.height) <= jitter &&
+    fitted.radius === measured.radius &&
+    fitted.density === measured.density;
+  return same ? "keep" : "settle";
+}
+
+/** The map's size in device pixels. */
+export function mapSize(geometry: GlassGeometry): { width: number; height: number } {
+  return {
+    width: Math.round(geometry.width * geometry.density),
+    height: Math.round(geometry.height * geometry.density),
+  };
 }
 
 /**
- * The displacement map as RGBA pixels: red and green push each pixel inward near the rounded
- * rect's rim (strongest at the edge, flat in the middle), so the backdrop bends at the edge like
- * thick glass. 128 is no displacement. Only the rim is computed; the middle is a flat fill.
+ * The displacement map as RGBA pixels at the geometry's density: inside a thin rim along the
+ * rounded rect, red and green pull each pixel from further in (strongest at the edge, easing to
+ * nothing at the rim's inner side along a smooth curve), like light bending through the thick
+ * edge of a pane. 128 is no displacement, and everything inside the rim is exactly 128.
  */
 export function edgeMap(geometry: GlassGeometry): Uint8ClampedArray {
-  const { width, height, radius, band } = geometry;
+  const { density } = geometry;
+  const { width, height } = mapSize(geometry);
+  const radius = geometry.radius * density;
+  const band = geometry.band * density;
   const pixels = new Uint8ClampedArray(width * height * 4);
-  for (let i = 0; i < pixels.length; i += 4) {
-    pixels[i] = 128;
-    pixels[i + 1] = 128;
-    pixels[i + 2] = 128;
-    pixels[i + 3] = 255;
-  }
+  // One write per pixel for the flat fill: 0xff808080 is RGBA 128,128,128,255 little-endian.
+  new Uint32Array(pixels.buffer).fill(0xff808080);
   const hx = width / 2;
   const hy = height / 2;
-  const reach = Math.max(band, radius) + 1;
+  const reach = Math.ceil(Math.max(band, radius)) + 1;
   const write = (x: number, y: number) => {
     const px = x + 0.5 - hx;
     const py = y + 0.5 - hy;
@@ -112,8 +139,10 @@ export function edgeMap(geometry: GlassGeometry): Uint8ClampedArray {
     }
     const depth = -distance;
     if (distance > 0 || depth >= band) return;
+    // Smoothstep from the rim's inner side to the edge, squared so most of the bend sits at the
+    // very edge and the inner side meets the flat middle with no visible seam.
     const t = 1 - depth / band;
-    const strength = t * t;
+    const strength = t * t * (3 - 2 * t) * t;
     const i = (y * width + x) * 4;
     pixels[i] = 128 - Math.sign(px) * nx * strength * 127;
     pixels[i + 1] = 128 - Math.sign(py) * ny * strength * 127;

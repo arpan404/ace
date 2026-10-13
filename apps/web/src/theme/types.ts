@@ -61,12 +61,21 @@ export interface Syntax {
 }
 
 /**
- * How a theme's floating layers are made. `glass` is the tint's opacity over the page (blur,
- * then the thinner liquid tint), 1 for no glass at all; `focus` is how much of the accent the
- * focus ring carries.
+ * The frosted backdrop behind a theme's glass: blur radius in px and saturation in percent. The
+ * tint's opacity is not set here: it is computed from the palette (`glass-tint.ts`) so text reads
+ * at AA over any backdrop.
+ */
+export interface GlassMaterial {
+  blur: number;
+  saturate: number;
+}
+
+/**
+ * How a theme's floating layers are made. `glass` is null for a theme whose layers are always
+ * solid (Signal); `focus` is how much of the accent the focus ring carries.
  */
 export interface Material {
-  glass: { blur: number; liquid: number };
+  glass: GlassMaterial | null;
   focus: number;
 }
 
@@ -114,9 +123,11 @@ export interface Palette extends Ramp, Accent, StatusSet, DiffSet {
   shadow: string;
   syntax: Syntax;
   material: Material;
+  /** The glass tint's opacity over what's behind it (`glassTintAlpha`); 1 for solid layers. */
+  glassTint: number;
 }
 /** The palette fields that hold a colour. */
-export type PaletteColour = Exclude<keyof Palette, "material" | "syntax">;
+export type PaletteColour = Exclude<keyof Palette, "material" | "syntax" | "glassTint">;
 
 export interface ThemeDefinition {
   name: string;

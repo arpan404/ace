@@ -3,6 +3,7 @@ import { CaretRightIcon, CheckIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useState, type ReactNode } from "react";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
+import { FloatingContents, useFloatingMaterial } from "./floating-material.tsx";
 import { applePlatform, describeKeys, type KeymapId } from "@/lib/keymap.ts";
 import {
   layers,
@@ -12,7 +13,7 @@ import {
   menuSeparator,
   menuShortcut,
   popupBounds,
-  popupSurface,
+  popupFrame,
 } from "./menu-styles.ts";
 
 const Menu = MenuPrimitive.Root;
@@ -27,9 +28,11 @@ function MenuContent({
   align = "start",
   sideOffset = 6,
   anchor,
+  children,
   ...props
 }: MenuPrimitive.Popup.Props &
   Pick<MenuPrimitive.Positioner.Props, "side" | "align" | "sideOffset" | "anchor">) {
+  const material = useFloatingMaterial();
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Positioner
@@ -42,9 +45,12 @@ function MenuContent({
       >
         <MenuPopup
           data-slot="menu-content"
-          className={cn(popupSurface, popupBounds, "min-w-[220px]", className)}
+          className={cn(material, popupFrame, popupBounds, "min-w-[220px]", className)}
           {...props}
-        />
+        >
+          {/* Submenus open from here, so they are never glass on this glass. */}
+          <FloatingContents glass={material === "ace-floating"}>{children}</FloatingContents>
+        </MenuPopup>
       </MenuPrimitive.Positioner>
     </MenuPrimitive.Portal>
   );

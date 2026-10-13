@@ -5,7 +5,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
 
 /**
- * A search box: glass, a magnifier, the input and a Clear button once there's text. Esc clears
+ * A search box: a field, a magnifier, the input and a Clear button once there's text. Esc clears
  * the text, then leaves the field. It sits in a sidebar, a pane or a page header.
  */
 export function SearchField({

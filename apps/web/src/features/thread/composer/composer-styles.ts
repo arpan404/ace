@@ -26,11 +26,12 @@ export const iconControl = `${control} size-(--composer-control) shrink-0 px-0`;
 export const chipControl = `${control} min-w-(--composer-control) shrink px-2.5`;
 
 /**
- * One material for the input and its attached panels. Cast shadows would tint the footer. Flat
- * glass: it grows as you type, so it never takes a size-bound displacement filter.
+ * One material for the input and its attached panels. Cast shadows would tint the footer. Solid:
+ * the composer is where you write, it sits on the dock's opaque fade rather than over the
+ * transcript, and its strip tucks under its edge, so glass here would only stack glass on glass.
  */
 export const composerSurface =
-  "ace-floating ace-glass-flat border border-sidebar-border shadow-none outline-none";
+  "ace-floating-solid border border-sidebar-border shadow-none outline-none";
 
 /** The top card's inset, overlap and lower padding share the surface spacing tokens. */
 export const attachedInset = "mx-[calc(var(--surface-gap)*2)]";
@@ -38,7 +39,7 @@ export const attachedOverlap = "-mb-[calc(var(--surface-gap)*2)]";
 export const attachedStripPadding = "pb-[calc(var(--surface-gap)*2)]";
 export const attachedCardPadding = "pb-[calc(var(--surface-gap)*2+var(--surface-inset))]";
 
-/** The same glass, tucked behind the input's edge on a narrower panel. */
+/** The same surface, tucked behind the input's edge on a narrower panel. */
 export const attachedSurface = `${composerSurface} rounded-xl`;
 
 /**
