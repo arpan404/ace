@@ -106,7 +106,8 @@ test("the message stays a message while a question is open, and Stop waits", asy
   const { app, message } = await openQuestion();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   await userEvent.type(message, "Use whatever the repo already does{Enter}");
-  await screen.findByRole("list", { name: "Queued messages" });
+  // The question keeps the strip; the queue shows as its indicator beside it.
+  await screen.findByRole("button", { name: "Show 1 queued message" });
   expect(app.daemon.isPending(threadId, "indent")).toBe(true);
 });
 

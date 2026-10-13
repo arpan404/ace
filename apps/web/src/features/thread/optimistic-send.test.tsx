@@ -1,5 +1,5 @@
 import { longHistory, replayCursor } from "@ace/fake-daemon";
-import { CommandId } from "@ace/protocol";
+import { CommandId, ThreadId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -188,9 +188,19 @@ test("a refused take-back keeps the queue and draft, then shows one delivered me
     ),
   ).toBeTruthy();
 
-  // Once the agent is free the daemon delivers it, and its bubble shows.
-  await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull());
+  // Once the agent is free the daemon delivers it, and its bubble shows. With a draft in the
+  // composer its button queues, so Escape stops the agent.
+  screen.getByRole("combobox", { name: "Message" }).focus();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => {
+    const view = app.daemon.snapshot({
+      kind: "thread",
+      threadId: ThreadId.parse("thread-replay-cursor"),
+    });
+    expect(
+      view?.kind === "thread" && Object.values(view.runs).some((run) => run.state === "active"),
+    ).toBe(false);
+  });
   act(() =>
     app.daemon.apply("thread-replay-cursor", [
       { type: "background.ended", task: "relay", status: "stopped" },

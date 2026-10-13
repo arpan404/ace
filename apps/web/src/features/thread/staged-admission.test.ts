@@ -211,6 +211,8 @@ async function unavailableUpload(): Promise<never> {
 
 test("completion write failures preserve the durable original and completed hashes for retry", async () => {
   const app = harness();
+  // The outbox takes sends once the client has loaded it.
+  await app.client.start();
   let full = false;
   const storage = {
     get length() {
