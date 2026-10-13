@@ -3,6 +3,7 @@ import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import {
   ArrowElbowDownLeftIcon,
   FolderOpenIcon,
+  FolderPlusIcon,
   FolderSimpleIcon,
   FolderSimpleStarIcon,
   GitBranchIcon,
@@ -54,12 +55,15 @@ export function FolderSearchBox(props: {
   const { search, text, onText, mode } = props;
   const { query, rows, sections, home } = search;
   const listId = useId();
-  const [active, setActive] = useState(0);
-  const current = Math.min(active, Math.max(0, rows.length - 1));
+  // Undefined until a row is pointed at: then the search's own pick (creating, when nothing
+  // else fits what was typed) is highlighted, or nothing while it can't tell yet.
+  const [active, setActive] = useState<number>();
+  const chosen = active ?? search.preferred;
+  const current = Math.min(chosen ?? 0, Math.max(0, rows.length - 1));
   // Rows still cached from before the machine went away, or from a folder now refused, stay
   // out of reach.
   const blocked = search.offline || search.failure !== undefined;
-  const pointed = blocked ? undefined : rows[current];
+  const pointed = blocked || chosen === undefined ? undefined : rows[current];
   // A row still showing from the previous query is never chosen for this one.
   const highlighted = pointed?.stale ? undefined : pointed;
   const virtual = useRef<VirtualRowsHandle>(null);
@@ -94,7 +98,7 @@ export function FolderSearchBox(props: {
 
   const type = (next: string) => {
     onText(next);
-    setActive(0);
+    setActive(undefined);
   };
   const browse = (path: string) => type(pathInput(path, home?.path));
   const choose = (row: FolderRow | undefined, newThread: boolean) => {
@@ -110,7 +114,7 @@ export function FolderSearchBox(props: {
       event.currentTarget.selectionEnd === text.length;
     const count = rows.length;
     if (key === "ArrowDown" || (event.ctrlKey && key === "n"))
-      setActive(count ? (current + 1) % count : 0);
+      setActive(count && chosen !== undefined ? (current + 1) % count : 0);
     else if (key === "ArrowUp" && mod(event)) {
       const up = query.kind === "path" ? upInput(query, home?.path) : undefined;
       if (up === undefined) return;
@@ -266,14 +270,19 @@ export function FolderSearchBox(props: {
                 several={props.several && (section.id === "recent" || section.id === "projects")}
                 home={home?.path}
                 onPoint={() => setActive(first + at)}
-                onPick={() => (row.project || row.self ? choose(row, false) : browse(row.path))}
+                onPick={() =>
+                  row.project || row.self || row.create ? choose(row, false) : browse(row.path)
+                }
               />
             );
             return (
               <div key={section.id} role="group" aria-labelledby={`${listId}-${section.id}`}>
                 <div
                   id={`${listId}-${section.id}`}
-                  className="px-2 pt-2 pb-1 text-xs font-medium text-subtle-foreground"
+                  className={cn(
+                    "px-2 pt-2 pb-1 text-xs font-medium text-subtle-foreground",
+                    section.id === "create" && "sr-only",
+                  )}
                 >
                   {section.label}
                 </div>
@@ -364,6 +373,31 @@ function FolderOption(props: {
   onPick(): void;
 }) {
   const { row } = props;
+  if (row.create)
+    return (
+      <div
+        id={props.id}
+        role="option"
+        aria-selected={props.active}
+        aria-label={`Create ${row.name} and add`}
+        tabIndex={-1}
+        onPointerMove={props.active ? undefined : props.onPoint}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={props.onPick}
+        className={cn(
+          "flex h-[30px] cursor-default items-center gap-2 rounded-sm px-2 text-ui text-foreground select-none",
+          props.active && "bg-accent",
+        )}
+      >
+        <Icon icon={FolderPlusIcon} size={14} className="shrink-0 text-primary" />
+        <span className="max-w-[60%] shrink-0 truncate">
+          Create <b className="font-semibold">{row.name}</b> and add
+        </span>
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-subtle-foreground">
+          {displayPath(row.path, props.home)}
+        </span>
+      </div>
+    );
   return (
     <div
       id={props.id}

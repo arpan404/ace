@@ -208,6 +208,9 @@ const problems: Record<string, ProjectProblem> = {
   invalid_path: { message: "That isn't a folder path ace can use." },
   not_directory: { message: "That's a file, not a folder." },
   directory_unavailable: { message: "That folder doesn't exist, or ace can't read it." },
+  directory_missing: { message: "That folder doesn't exist." },
+  blocked_by_file: { message: "A file is in the way of that folder." },
+  permission_denied: { message: "ace doesn't have permission to create a folder there." },
   outside_project_roots: {
     message:
       "ace isn't allowed to open this folder yet. Allow it here, or add it in Settings under Project folders.",

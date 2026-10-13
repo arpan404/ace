@@ -140,8 +140,8 @@ export function AddProjectDialog(props: {
                     machine={machine}
                     machines={machines}
                     attempt={machine.primary ? props.attempt : undefined}
-                    onAdded={(result, mode, on) =>
-                      props.onAdded(result, "Added", { mode, machine: on })
+                    onAdded={(result, mode, on, verb) =>
+                      props.onAdded(result, verb, { mode, machine: on })
                     }
                   />
                 </div>

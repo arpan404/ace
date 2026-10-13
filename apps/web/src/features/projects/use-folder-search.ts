@@ -18,6 +18,7 @@ import {
   type HostHome,
   type RecentFolder,
 } from "./use-folders.ts";
+import { useNewFolder } from "./use-new-folder.ts";
 
 /** One folder the list offers. */
 export interface FolderRow {
@@ -36,10 +37,12 @@ export interface FolderRow {
   positions: readonly number[];
   /** Still showing from the previous query while this one is answered: not choosable. */
   stale?: boolean;
+  /** The typed folder doesn't exist: choosing it creates it, then adds it. */
+  create?: boolean;
 }
 
 export interface FolderSection {
-  id: "here" | "recent" | "projects" | "folders" | "children";
+  id: "here" | "recent" | "projects" | "folders" | "children" | "create";
   label: string;
   rows: FolderRow[];
 }
@@ -86,6 +89,19 @@ export function useFolderSearch(options: {
   const found = useFolderSearchQuery(machine, words, words !== "");
   const several = machines.length > 1;
   const { folders: recentFolders, isProject } = recent;
+  const recentHere = useMemo(
+    () =>
+      recentFolders
+        .filter((folder) => folder.machine.id === machine.id)
+        .map((folder) => folder.path),
+    [recentFolders, machine.id],
+  );
+  const missing = useNewFolder(
+    machine,
+    mode === "open" ? query : { kind: "search", text: "" },
+    home,
+    recentHere,
+  );
 
   const sections = useMemo((): FolderSection[] => {
     const row = (
@@ -233,11 +249,46 @@ export function useFolderSearch(options: {
     several,
   ]);
 
-  const visible = sections.filter((section) => section.rows.length > 0);
+  const listed = sections.filter((section) => section.rows.length > 0);
+  const others = listed.flatMap((section) => section.rows);
+  const create: FolderRow | undefined =
+    missing && !others.some((row) => row.machine.id === machine.id && row.path === missing.path)
+      ? {
+          key: `${machine.id}\u0000create\u0000${missing.path}`,
+          name: missing.name,
+          path: missing.path,
+          machine,
+          git: false,
+          project: false,
+          positions: [],
+          create: true,
+        }
+      : undefined;
+  const visible: FolderSection[] = create
+    ? [...listed, { id: "create", label: "New folder", rows: [create] }]
+    : listed;
+  // Creating is the default unless another row's name starts with what was typed, once the
+  // search has answered: rows still showing from the last one decide nothing.
+  const lead = (query.kind === "path" ? query.segment : words).toLowerCase();
+  const answered = !words || !(found.isPlaceholderData || found.isPending);
+  const preferred = !answered
+    ? others.length
+      ? 0
+      : undefined
+    : create && !others.some((row) => lead && row.name.toLowerCase().startsWith(lead))
+      ? others.length
+      : 0;
   // A later page failing leaves the folders read so far; only a first read failing replaces them.
+  // A folder missing where something is about to be created isn't a failure.
   const error =
-    query.kind === "search" && words ? found.error : listing.restFailed ? null : listing.error;
+    query.kind === "search" && words
+      ? found.error
+      : listing.restFailed || (create && query.kind === "path")
+        ? null
+        : listing.error;
   return {
+    /** The row Enter takes before anything is pointed at: creating, when nothing else fits. */
+    preferred,
     /** The machine these folders are on. */
     machineId: machine.id,
     client: machine.client,

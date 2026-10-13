@@ -36,6 +36,12 @@ export interface ProjectCalls {
     options?: RequestOptions,
     commandId?: string,
   ): Promise<CommandResult>;
+  /** Allow a folder as a project root (`projects.roots`), creating it first with `create`. */
+  addRoot(
+    input: Input<"workspace.root.add">,
+    options?: RequestOptions,
+    commandId?: string,
+  ): Promise<CommandResult>;
   clone(
     input: Input<"workspace.clone">,
     options?: RequestOptions,

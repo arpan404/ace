@@ -66,6 +66,11 @@ export class FakeSettings {
     this.global.delete("permissions.defaultMode");
     this.global.delete("approvals.policy");
   }
+  /** Write a global value as the daemon does for its own commands, telling subscribers. */
+  write(key: SettingsKey, value: unknown): void {
+    this.global.set(key, SettingsValues.shape[key].parse(value));
+    this.notify(key);
+  }
   /** Drop a global value, as a settings file that never held it; the default applies again. */
   unset(key: string): void {
     if (this.global.delete(key)) this.notify(key);

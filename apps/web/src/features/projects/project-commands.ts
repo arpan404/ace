@@ -109,6 +109,9 @@ export function useProjectCommandsOn() {
       };
       return {
         add: async (path: string) => keep(added(await reach().projects.add({ path }))),
+        /** Make the folder and any missing parents on that machine, then add it. */
+        createAndAdd: async (path: string) =>
+          keep(added(await reach().projects.add({ path, create: true }))),
         create: async (input: CreateInput) => keep(added(await reach().projects.create(input))),
         clone: async (input: { parent: string; name: string; url: string }, commandId: string) =>
           keep(added(await reach().projects.clone(input, {}, commandId))),

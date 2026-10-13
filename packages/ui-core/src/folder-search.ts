@@ -3,7 +3,13 @@
  * being browsed, and the shell-like edits of path mode (go up one folder). The daemon does the
  * searching and completing (`fs.search`, `fs.complete`); this only reads the box.
  */
-import { displayPath, parentFolder } from "./projects.ts";
+import {
+  childFolder,
+  displayPath,
+  folderName,
+  parentFolder,
+  projectNameProblem,
+} from "./projects.ts";
 
 /** What the search box holds: letters to search for, or a path to browse. */
 export type FolderQuery =
@@ -82,4 +88,47 @@ export function upInput(
   if (stops.includes(query.directory)) return undefined;
   const parent = parentFolder(query.directory);
   return parent === undefined ? undefined : pathInput(parent, home);
+}
+
+/** A folder the box names that doesn't exist yet: where it would be made, and its name. */
+export interface NewFolder {
+  path: string;
+  name: string;
+}
+
+/**
+ * The folder the box's text would create. A path names itself (`~` already expanded by
+ * `parseFolderQuery`); a bare folder name goes in `base`. Undefined when the text names no
+ * single folder: empty, a filesystem root, a name a folder can't have, or a bare name with
+ * separators in it.
+ */
+export function newFolder(query: FolderQuery, base: string | undefined): NewFolder | undefined {
+  let path: string;
+  if (query.kind === "path")
+    path = query.segment ? childFolder(query.directory, query.segment) : query.directory;
+  else if (base !== undefined && query.text && projectNameProblem(query.text) === undefined)
+    path = childFolder(base, query.text);
+  else return undefined;
+  const name = folderName(path);
+  if (parentFolder(path) === undefined || projectNameProblem(name) !== undefined) return undefined;
+  return { path, name };
+}
+
+/**
+ * Where a bare name is created: beside the most recently used project when its folder is
+ * inside an allowed root (people keep projects side by side), else `start`, where browsing
+ * opens (home, or the first allowed root).
+ */
+export function newFolderBase(
+  recent: readonly string[],
+  roots: readonly string[],
+  start: string | undefined,
+): string | undefined {
+  const latest = recent[0];
+  const beside = latest === undefined ? undefined : parentFolder(latest);
+  const inside = (root: string) => {
+    const top = root.replace(/\/+$/, "");
+    return beside === top || beside?.startsWith(`${top}/`) === true;
+  };
+  return beside !== undefined && roots.some(inside) ? beside : start;
 }

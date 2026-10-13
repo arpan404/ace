@@ -8,7 +8,7 @@ import { threadMoveError, threadMoveEvents } from "@ace/projection";
 import { automaticTarget } from "@ace/accounts/availability";
 import { providerCommandDisabled, supportsPermissionMode } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
-import { SettingsValues, ProviderConfigurations } from "@ace/protocol";
+import { SettingsValues, ProviderConfigurations, ProjectCommand } from "@ace/protocol";
 import { migratePermissionMode, resolvePermissionMode } from "@ace/provider-kit/permission-modes";
 import { ItemId } from "@ace/protocol";
 import { PermissionMode } from "@ace/protocol";
@@ -290,6 +290,7 @@ export class FakeDaemon implements Host {
           SettingsValues.shape["projects.roots"].parse(
             this.services.settings.get("projects.roots"),
           ),
+        saveProjectRoots: (roots) => this.services.settings.write("projects.roots", roots),
         canManageProjects: (device) => this.canManageProjects(device),
         scheduleProject:
           options.projectScheduler ??
@@ -1079,15 +1080,7 @@ export class FakeDaemon implements Host {
   private execute(command: Command): CommandResult {
     const payload = command.payload;
     if (
-      [
-        "workspace.add",
-        "workspace.create",
-        "workspace.clone",
-        "workspace.publish",
-        "workspace.rename",
-        "workspace.update",
-        "workspace.remove",
-      ].includes(payload.type) &&
+      ProjectCommand.options.some((option) => option.shape.type.value === payload.type) &&
       !this.canManageProjects(command.deviceId)
     )
       return { commandId: command.id, ok: false, error: "forbidden" };

@@ -29,7 +29,14 @@ import {
   type WorkspaceCloneProgress,
 } from "@ace/protocol";
 import { AsyncCommands } from "./async-commands.ts";
-import { ProjectPaths, ProjectError, assertProjectPath } from "./project-policy.ts";
+import { makeFolders, planFolders, type MadeFolders } from "./project-folders.ts";
+import {
+  ProjectPaths,
+  ProjectError,
+  assertOrdinaryPath,
+  assertProjectPath,
+  canonicalProjectRoots,
+} from "./project-policy.ts";
 import { ProjectStorage } from "./project-storage.ts";
 import { browseProjects } from "./project-browse.ts";
 import type { Store } from "./store.ts";
@@ -41,6 +48,8 @@ export interface ProjectsOptions {
   pickerClock?: () => number;
   pickerFilesystem?: PickerFilesystem;
   roots?: () => Promise<readonly string[]>;
+  /** Replace the allowed project roots (`projects.roots`), already canonical. */
+  saveRoots?: (roots: string[]) => Promise<void>;
   git?: GitOptions;
   /** Host-injected test fixture only; no client can set transport policy. */
   gitPolicy?: ProjectGitPolicy;
@@ -204,6 +213,86 @@ export class Projects {
       ...(git && git.root !== path ? { suggestedRepoRoot: git.root } : {}),
     });
   }
+  /**
+   * Register a folder. With `create`, a missing folder (and its missing parents) is made first,
+   * inside the allowed roots, and removed again if registration fails.
+   */
+  private async add(p: Extract<ProjectCommand, { type: "workspace.add" }>, allowed: () => boolean) {
+    const plan = p.create ? await planFolders(p.path) : undefined;
+    const reserved = plan?.missing.length ? plan.path : undefined;
+    let made: MadeFolders | undefined;
+    if (plan && reserved) {
+      assertProjectPath(plan.path, await this.paths.roots());
+      this.check(allowed);
+      this.store.workspaceReservations.assertAvailable(plan.path);
+      if (this.destinations.has(plan.path)) throw new ProjectError("project_busy");
+      this.destinations.add(plan.path);
+    }
+    try {
+      if (plan && reserved) made = await makeFolders(plan);
+      const directory = await ProjectDirectory.open(this.paths, plan?.path ?? p.path);
+      try {
+        const inspection = await this.inspectDirectory(directory);
+        assertProjectPath(directory.path, await this.paths.roots());
+        this.check(allowed);
+        this.store.workspaceReservations.assertAvailable(directory.path);
+        if (this.destinations.has(directory.path) && directory.path !== reserved)
+          throw new ProjectError("project_busy");
+        directory.verify();
+        const workspace = this.catalog.register(
+          directory.path,
+          p.name ?? basename(directory.path).slice(0, 256),
+          p.icon,
+          inspection.defaultIcon,
+        );
+        return { ok: true, workspace, inspection };
+      } finally {
+        await directory.close();
+      }
+    } catch (error) {
+      made?.undo();
+      throw error;
+    } finally {
+      if (reserved) this.destinations.delete(reserved);
+      await made?.close();
+    }
+  }
+  /**
+   * Allow a folder as a project root, keeping home allowed when it is the first. With
+   * `create`, a missing folder is made first and removed again if saving fails.
+   */
+  private async addRoot(
+    p: Extract<ProjectCommand, { type: "workspace.root.add" }>,
+    allowed: () => boolean,
+  ) {
+    const save = this.options.saveRoots;
+    if (!save) throw new ProjectError("projects_unavailable");
+    const plan = await planFolders(p.path);
+    if (plan.missing.length && !p.create) throw new ProjectError("directory_missing");
+    assertOrdinaryPath(plan.path);
+    this.check(allowed);
+    const made = plan.missing.length ? await makeFolders(plan) : undefined;
+    try {
+      const configured = (await this.options.roots?.()) ?? [];
+      let roots: string[];
+      try {
+        roots = await canonicalProjectRoots([
+          ...(configured.length ? configured : [this.home]),
+          plan.path,
+        ]);
+      } catch (error) {
+        throw error instanceof ProjectError ? error : new ProjectError("directory_unavailable");
+      }
+      this.check(allowed);
+      await save(roots);
+      return { ok: true };
+    } catch (error) {
+      made?.undo();
+      throw error;
+    } finally {
+      await made?.close();
+    }
+  }
   execute(input: Command, allowed: () => boolean = () => true): Promise<CommandResult> {
     const existing = this.clones.get(input.id);
     if (existing)
@@ -215,26 +304,8 @@ export class Projects {
       try {
         this.check(allowed);
         const p = ProjectCommand.parse(input.payload);
-        if (p.type === "workspace.add") {
-          const directory = await ProjectDirectory.open(this.paths, p.path);
-          try {
-            const inspection = await this.inspectDirectory(directory);
-            assertProjectPath(directory.path, await this.paths.roots());
-            this.check(allowed);
-            this.store.workspaceReservations.assertAvailable(directory.path);
-            if (this.destinations.has(directory.path)) throw new ProjectError("project_busy");
-            directory.verify();
-            const workspace = this.catalog.register(
-              directory.path,
-              p.name ?? basename(directory.path).slice(0, 256),
-              p.icon,
-              inspection.defaultIcon,
-            );
-            return { ok: true, workspace, inspection };
-          } finally {
-            await directory.close();
-          }
-        }
+        if (p.type === "workspace.add") return await this.add(p, allowed);
+        if (p.type === "workspace.root.add") return await this.addRoot(p, allowed);
         if (
           p.type === "workspace.rename" ||
           p.type === "workspace.update" ||
