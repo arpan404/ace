@@ -32,14 +32,15 @@ function edit(id: string, text: string) {
 }
 /** Another tab's view of the same origin storage: its own object, reading the shared records. */
 function tabView(shared: ReturnType<typeof memoryKeyValue>) {
+  const { data } = shared;
   return {
     get length() {
-      return shared.length;
+      return data.size;
     },
-    key: (index: number) => shared.key(index),
-    getItem: (key: string) => shared.getItem(key),
-    setItem: (key: string, value: string) => shared.setItem(key, value),
-    removeItem: (key: string) => shared.removeItem(key),
+    key: (index: number) => [...data.keys()][index] ?? null,
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => void data.set(key, value),
+    removeItem: (key: string) => void data.delete(key),
   };
 }
 async function openChanges(app = harness()) {

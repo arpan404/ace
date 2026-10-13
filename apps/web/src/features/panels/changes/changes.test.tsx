@@ -57,7 +57,9 @@ test("Changes shows the latest turn's edits by default and the whole thread unde
   // Turn 2: the onResume edit and the subagent's outbox patch, not turn 1's replayFrom edit.
   await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   const replay = file(panel, "apps/server/src/replay.ts");
-  expect(within(replay).getByText(codeText(/const \{ events, coldStart \} = replayFrom/))).toBeTruthy();
+  expect(
+    within(replay).getByText(codeText(/const \{ events, coldStart \} = replayFrom/)),
+  ).toBeTruthy();
   expect(within(replay).queryByText(codeText(/COLD_START_WINDOW = 200/))).toBeNull();
   const outbox = file(panel, "apps/web/src/relay/outbox.ts");
   expect(within(outbox).getByText(codeText(/await socket.waitFor\("resume.ack"\)/))).toBeTruthy();
@@ -65,7 +67,9 @@ test("Changes shows the latest turn's edits by default and the whole thread unde
   await pickScope(panel, "This thread");
   await waitFor(() =>
     expect(
-      within(file(panel, "apps/server/src/replay.ts")).getByText(codeText(/COLD_START_WINDOW = 200/)),
+      within(file(panel, "apps/server/src/replay.ts")).getByText(
+        codeText(/COLD_START_WINDOW = 200/),
+      ),
     ).toBeTruthy(),
   );
 
@@ -118,7 +122,9 @@ test("the selected diff layout survives switching tabs", async () => {
   const { panel } = await openChanges();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   await pickLayout(panel, "Split");
-  expect(within(replay).getByText(codeText(/const \{ events, coldStart \} = replayFrom/))).toBeTruthy();
+  expect(
+    within(replay).getByText(codeText(/const \{ events, coldStart \} = replayFrom/)),
+  ).toBeTruthy();
   await expectLayout(panel, "Split");
 
   await userEvent.click(within(panel).getByRole("tab", { name: "Summary" }));
@@ -153,13 +159,19 @@ test("a chosen Split shows unified in a panel too narrow for two columns, and sp
     await pickLayout(panel, "Split");
     // The choice is kept, and the button says why it isn't showing.
     await expectLayout(panel, "Split · needs a wider panel");
-    expect(within(replay).getByText(codeText(/client.send\(\{ type: "resume.ack" \}\);/))).toBeTruthy();
-    expect(within(replay).getByText(codeText(/const \{ events, coldStart \} = replayFrom/))).toBeTruthy();
+    expect(
+      within(replay).getByText(codeText(/client.send\(\{ type: "resume.ack" \}\);/)),
+    ).toBeTruthy();
+    expect(
+      within(replay).getByText(codeText(/const \{ events, coldStart \} = replayFrom/)),
+    ).toBeTruthy();
 
     width = 1000;
     act(() => resize.forEach((fire) => fire()));
     await expectLayout(panel, "Split");
-    expect(within(replay).getByText(codeText(/client.send\(\{ type: "resume.ack" \}\);/))).toBeTruthy();
+    expect(
+      within(replay).getByText(codeText(/client.send\(\{ type: "resume.ack" \}\);/)),
+    ).toBeTruthy();
   } finally {
     globalThis.ResizeObserver = original;
   }
@@ -342,8 +354,8 @@ test("unsent comments are summed up, sent together, then resolved and reopened",
     expect(within(review).getByRole("status").textContent).toBe("2 waiting for the agent"),
   );
   // Both are sent in one request; their order there is not what this test is about.
-  const held = app.daemon.review.comments().map((comment) => [comment.text, comment.sent]);
-  expect(held.toSorted()).toEqual([
+  const sent = app.daemon.review.comments().map((note) => [note.text, note.sent]);
+  expect(sent.toSorted()).toEqual([
     ["Carry coldStartWindow too?", true],
     ["Time this out after 5 s.", true],
   ]);

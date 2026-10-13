@@ -24,12 +24,7 @@ export class FakeReviewDesk {
   private clock: () => number;
   private files: {
     reviewTarget(threadId: string): { workspaceId: string; worktree: string } | undefined;
-    reviewLines(
-      threadId: string,
-      path: string,
-      start: number,
-      end: number,
-    ): string[] | undefined;
+    reviewLines(threadId: string, path: string, start: number, end: number): string[] | undefined;
     applyReviewSuggestion(threadId: string, comment: ReviewComment): boolean;
   };
   private deliver: (threadId: string, text: string, requestId: string) => Result;

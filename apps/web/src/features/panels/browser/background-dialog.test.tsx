@@ -191,8 +191,7 @@ test("a refused dialog answer releases its temporary control and leaves the ques
   const request = t.client.request.bind(t.client);
   let refused = true;
   t.client.request = async (input, options) => {
-    if (refused && input.type === "browser.dialog.answer")
-      throw new Error("Answer refused");
+    if (refused && input.type === "browser.dialog.answer") throw new Error("Answer refused");
     return request(input, options);
   };
   t.ask();
