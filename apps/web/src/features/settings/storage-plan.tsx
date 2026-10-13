@@ -113,7 +113,8 @@ export function StoragePlanPreview(props: {
         <SettingFooter>
           <Button
             size="sm"
-            variant="danger"
+            variant="ghost"
+            tone="danger"
             disabled={
               props.busy ||
               props.disabled ||
@@ -145,7 +146,8 @@ export function StoragePlanPreview(props: {
               Cancel
             </Button>
             <Button
-              variant="danger"
+              variant="ghost"
+              tone="danger"
               onClick={() => {
                 setConfirm(false);
                 props.onApply();

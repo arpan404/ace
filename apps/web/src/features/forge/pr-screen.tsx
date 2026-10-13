@@ -6,6 +6,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { Input } from "@/components/ui/input.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { Select } from "@/components/ui/select.tsx";
 import { PrWorkspaceExtensionProvider } from "./pr-extension-context.tsx";
 import type { PrWorkspaceExtensions, PrListExtensions } from "./pr-extensions.ts";
 import { PrList } from "./pr-list.tsx";
@@ -139,30 +140,25 @@ export function PrScreen(props: {
         <div ref={scroller} className="h-full overflow-auto">
           <div className="mx-auto max-w-[1040px] space-y-4 px-4 py-4 sm:px-6">
             <div className="flex flex-wrap items-center gap-3">
-              <label className="text-sm">
-                Project{" "}
-                <select
-                  aria-label="Repository project"
+              <span className="flex items-center gap-2 text-sm">
+                Project
+                <Select
+                  label="Repository project"
+                  className="w-48"
                   value={workspaceId}
-                  className="bg-input p-1 focus-ring"
-                  onChange={(e) => {
+                  onValueChange={(project) => {
                     if (scroller.current) scroller.current.scrollTop = 0;
                     props.onLocation({
                       ...location,
-                      project: e.target.value,
+                      project,
                       repo: "",
                       number: undefined,
                       page: 1,
                     });
                   }}
-                >
-                  {projects.ids.map((id) => (
-                    <option key={id} value={id}>
-                      {projects.name(id)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  options={projects.ids.map((id) => ({ value: id, label: projects.name(id) }))}
+                />
+              </span>
               <form
                 className="flex min-w-0 flex-1 gap-2"
                 onSubmit={(e) => {

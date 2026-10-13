@@ -33,6 +33,7 @@ import { catalogSourceLabel } from "@/lib/catalog.ts";
 import { skillTitle } from "./skills-model.ts";
 import type { Skill, SkillKind } from "./skills-model.ts";
 import { useSkills } from "./skills-source.ts";
+import { Disclosure } from "@/components/ui/disclosure.tsx";
 
 export const kinds: readonly { kind: SkillKind; label: string; icon: IconGlyph }[] = [
   { kind: "skill", label: "Skills", icon: SparkleIcon },
@@ -182,25 +183,30 @@ export function SkillsSidebar() {
             ));
             // One kind needs no label: the view's title already names the list.
             return groups.length > 1 ? (
-              <details key={group.kind} open={expandedNow} className="my-2">
-                <summary
-                  className="focus-ring rounded-md px-3 py-2 text-sm text-muted-foreground"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    setExpanded((before) => {
-                      const next = new Set(before);
-                      if (next.has(group.kind)) next.delete(group.kind);
-                      else next.add(group.kind);
-                      return next;
-                    });
-                  }}
-                >
-                  {group.label} · {members.length}
-                </summary>
+              <Disclosure
+                key={group.kind}
+                open={expandedNow}
+                className="my-2"
+                summaryClassName="w-full rounded-md px-3 py-2"
+                summary={`${group.label} · ${members.length}`}
+                onClick={(event) => {
+                  // Only the summary toggles; the open state is owned here, not by the browser.
+                  const summary =
+                    event.target instanceof Element ? event.target.closest("summary") : null;
+                  if (summary?.parentElement !== event.currentTarget) return;
+                  event.preventDefault();
+                  setExpanded((before) => {
+                    const next = new Set(before);
+                    if (next.has(group.kind)) next.delete(group.kind);
+                    else next.add(group.kind);
+                    return next;
+                  });
+                }}
+              >
                 <ul hidden={!expandedNow} aria-label={group.label}>
                   {rows}
                 </ul>
-              </details>
+              </Disclosure>
             ) : (
               <ul key={group.kind} className="mt-1 flex flex-col gap-px">
                 {rows}

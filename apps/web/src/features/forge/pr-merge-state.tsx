@@ -3,6 +3,7 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import type { ForgePrDetail, ForgeMergeState, ForgePrRef } from "@ace/protocol";
 import { autoMergeBlocker } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
+import { Select } from "@/components/ui/select.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { readForge, forgeError } from "./source.ts";
@@ -158,44 +159,38 @@ export function PrMergeControls(props: {
       >
         Refresh merge state
       </Button>
-      <label className="block text-sm">
-        Linked task{" "}
-        <select
-          aria-label="Merge state task"
+      <div className="flex items-center gap-2 text-sm">
+        Linked task
+        <Select
+          label="Merge state task"
+          className="w-64"
           value={threadId}
-          onChange={(event) => setThread(event.target.value)}
-          className="bg-input p-1 focus-ring"
-        >
-          <option value="">Choose a linked task</option>
-          {props.relatedThreads.map((thread) => (
-            <option key={thread.id} value={thread.id}>
-              {thread.title}
-            </option>
-          ))}
-        </select>
-      </label>
+          onValueChange={setThread}
+          options={[
+            { value: "", label: "Choose a linked task" },
+            ...props.relatedThreads.map((thread) => ({ value: thread.id, label: thread.title })),
+          ]}
+        />
+      </div>
       {!associated && (
         <p className="text-sm text-muted-foreground">
           Link this PR to a task to change auto-merge or its queue membership.
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-sm">
-          Auto-merge method{" "}
-          <select
-            aria-label="Auto-merge method"
-            className="bg-input p-1 focus-ring"
+        <span className="flex items-center gap-2 text-sm">
+          Auto-merge method
+          <Select<"merge" | "rebase" | "squash">
+            label="Auto-merge method"
             value={method}
-            onChange={(event) => {
-              const value = event.target.value;
-              if (value === "merge" || value === "squash" || value === "rebase") setMethod(value);
-            }}
-          >
-            <option value="squash">Squash</option>
-            <option value="merge">Merge commit</option>
-            <option value="rebase">Rebase</option>
-          </select>
-        </label>
+            onValueChange={setMethod}
+            options={[
+              { value: "squash", label: "Squash" },
+              { value: "merge", label: "Merge commit" },
+              { value: "rebase", label: "Rebase" },
+            ]}
+          />
+        </span>
         <Button
           disabled={disabled || !!autoMergeBlocker(state) || !!membership.mergeBlocker}
           onClick={() => void run("enable")}

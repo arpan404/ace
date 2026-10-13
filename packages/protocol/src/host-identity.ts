@@ -2,11 +2,23 @@ import { z } from "zod";
 import { HostId } from "./ids.ts";
 const id = z.string().min(1).max(128);
 
-/** A person's machine mark. Omitted icons from older hosts use a laptop. */
+/** The curated machine marks clients draw as icons. */
+export const MachineIconKind = z.enum([
+  "laptop",
+  "desktop",
+  "monitor",
+  "server",
+  "cloud",
+  "cpu",
+  "terminal",
+  "phone",
+]);
+export type MachineIconKind = z.infer<typeof MachineIconKind>;
+
+/** A person's machine mark, from a curated icon set. Omitted icons use a laptop. */
 export const MachineIcon = z.object({
-  kind: z.enum(["laptop", "desktop", "server", "cloud", "phone", "emoji"]),
+  kind: MachineIconKind,
   color: z.enum(["default", "blue", "green", "purple", "orange"]).optional(),
-  emoji: z.string().min(1).max(16).optional(),
 });
 export type MachineIcon = z.infer<typeof MachineIcon>;
 

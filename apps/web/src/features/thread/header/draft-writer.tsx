@@ -11,6 +11,7 @@ import { Input, Textarea } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
+import { Disclosure } from "@/components/ui/disclosure.tsx";
 
 /** Requests are event-driven. Reconnect, edits and selection changes never request another draft. */
 export function DraftWriter(props: {
@@ -133,10 +134,7 @@ export function DraftWriter(props: {
     proposal.textRevision === props.textRevision;
   return (
     <section aria-label="Generate source-control draft" className="flex flex-col gap-2">
-      <details>
-        <summary className="cursor-pointer text-sm text-muted-foreground">
-          Draft writing options
-        </summary>
+      <Disclosure summary="Draft writing options">
         <div className="mt-2 flex flex-col gap-2">
           <Select
             label="Draft provider"
@@ -170,7 +168,7 @@ export function DraftWriter(props: {
             Uses your installed CLI's default login. Options apply to this draft only.
           </p>
         </div>
-      </details>
+      </Disclosure>
       <div className="flex gap-2">
         <Button
           type="button"
@@ -215,8 +213,7 @@ export function DraftWriter(props: {
           >
             Use draft
           </Button>
-          <details>
-            <summary className="cursor-pointer text-sm">Sources for this draft</summary>
+          <Disclosure summary="Sources for this draft">
             <p className="text-xs text-muted-foreground">
               HEAD {proposal.context.head ?? "unborn"}
               {proposal.context.base && ` · base ${proposal.context.base}`}
@@ -235,13 +232,12 @@ export function DraftWriter(props: {
               {proposal.context.patch}
             </pre>
             {proposal.context.conventions.map((source) => (
-              <details key={source.path}>
-                <summary className="cursor-pointer text-xs">{source.path}</summary>
+              <Disclosure key={source.path} summaryClassName="text-xs" summary={source.path}>
                 <pre className="whitespace-pre-wrap text-xs">{source.text}</pre>
-              </details>
+              </Disclosure>
             ))}
             <pre className="whitespace-pre-wrap text-xs">{proposal.context.recentCommits}</pre>
-          </details>
+          </Disclosure>
         </div>
       )}
     </section>

@@ -29,6 +29,8 @@ export interface AccountView {
   shortLabel?: string | undefined;
   badgeUsesInitial?: boolean | undefined;
   badgeColor?: Summary["badgeColor"] | undefined;
+  /** A curated icon the badge shows in place of letters. */
+  badgeIcon?: Summary["badgeIcon"] | undefined;
   authMethod?: Summary["authMethod"] | undefined;
   signedInAs?: string | undefined;
   /** The CLI's own login (its normal home), not an account ace added. */
@@ -130,6 +132,7 @@ export function accountView(summary: Summary): AccountView {
     }),
     badgeUsesInitial: summary.badgeUsesInitial ?? summary.shortLabel === undefined,
     badgeColor: summary.badgeColor ?? defaultAccountBadgeColor(summary.id),
+    badgeIcon: summary.badgeIcon,
     authMethod: summary.authMethod,
     signedInAs: summary.signedInAs,
     ...(summary.implicit ? { implicit: true, cliHome: summary.cliHome } : {}),

@@ -249,7 +249,8 @@ export function ProviderSetupRow({
                 <Button
                   size="sm"
                   ref={confirmation}
-                  variant="danger"
+                  variant="ghost"
+                  tone="danger"
                   className="self-start"
                   onClick={() => {
                     if (plan.method) void controller.run("uninstall", plan.method);

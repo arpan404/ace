@@ -15,7 +15,7 @@ const failures: Record<string, string> = {
 /**
  * Answer one interaction with a durable intent (SY-9). From the click until the card leaves
  * (the daemon's interaction.closed), the answer is `sending` and `chosen` holds the pick, so
- * the card can read "✓ Allow once · sending…" and no second click can race it. The toast
+ * the card can read "Allow once · sending…" and no second click can race it. The toast
  * confirms only once the daemon accepted the answer, never on a local save while offline.
  */
 export function useAnswer(interactionId: string) {

@@ -3,7 +3,7 @@ import type { ProviderKind } from "@ace/protocol";
 import { createContext, Suspense, useContext, useState, type ReactNode } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { canAddAccounts } from "./actions.ts";
-import { SettingAction } from "@/components/setting-row.tsx";
+import { SettingAddRow } from "@/components/setting-row.tsx";
 
 const Form = deferredComponent(() =>
   import("./add-account-form.tsx").then((module) => module.AddAccountForm),
@@ -32,12 +32,12 @@ export function AddAccountHost(props: { children: ReactNode }) {
 
 const useAddAccount = () => useContext(AddContext);
 
-/** The "+ Add account" row of a provider's accounts card; absent where accounts can't be added. */
+/** The "Add account" row of a provider's accounts card; absent where accounts can't be added. */
 export function AddAccountRow(props: { provider: ProviderKind; label?: string; onOpen?(): void }) {
   const open = useAddAccount();
   if (!open || !canAddAccounts(props.provider)) return null;
   return (
-    <SettingAction
+    <SettingAddRow
       onPointerEnter={() => void Form.preload()}
       onClick={() => {
         props.onOpen?.();
@@ -45,6 +45,6 @@ export function AddAccountRow(props: { provider: ProviderKind; label?: string; o
       }}
     >
       {props.label ?? "Add account"}
-    </SettingAction>
+    </SettingAddRow>
   );
 }

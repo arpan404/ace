@@ -47,7 +47,7 @@ test("a delegated failure names the rejected model after replay without exposing
 
 test("an inline account login uses the same provider and account wording as a dialog login", async () => {
   await harness().open("/settings/providers/codex");
-  await userEvent.click(await screen.findByRole("button", { name: "+ Add account" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
   const form = within(await screen.findByRole("form", { name: "Add account" }));
   await userEvent.type(form.getByRole("textbox", { name: "Account name" }), "Work2");
   await userEvent.click(form.getByRole("combobox", { name: "Sign-in method" }));

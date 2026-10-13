@@ -68,10 +68,22 @@ const colorMix =
   /(?<![\w-])((?:[\w-]+:)*-?[a-z]+(?:-[a-z]+)*)-\[color-mix\(in_oklab,var\(--([\w-]+)\)_(\d+(?:\.\d+)?)%,transparent\)\]/g;
 const pixels = /(?<![\w-[])((?:[\w-]+:)*)(-?)([a-z]+(?:-[a-z]+)*)-\[(\d+(?:\.\d+)?)px\]/g;
 
+// Emoji and dingbats as UI icons (#615): icons come from Phosphor, badges from curated sets.
+const emojiRanges = [
+  [0x1f300, 0x1faff],
+  [0x2600, 0x27bf],
+] as const;
+const isEmoji = (char: string) => {
+  const point = char.codePointAt(0) ?? 0;
+  return emojiRanges.some(([low, high]) => point >= low && point <= high);
+};
+
 for (const path of files) {
   const lines = readFileSync(path, "utf8").split("\n");
   lines.forEach((text, index) => {
     const line = index + 1;
+    const glyph = [...text].find(isEmoji);
+    if (glyph) enforced.push({ path, line, found: glyph, use: "a Phosphor icon" });
     for (const [found, utility, color, amount] of text.matchAll(colorMix))
       if (color && colors.has(color))
         enforced.push({ path, line, found, use: `${utility}-${color}/${amount}` });

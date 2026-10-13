@@ -7,6 +7,7 @@ import { readJson, writeJson } from "@ace/ui-core";
 import { useLayout } from "@/lib/layout.tsx";
 import { useWorktreeCreation, WorktreeCreationCard } from "@/features/thread/index.ts";
 import { Button } from "@/components/ui/button.tsx";
+import { Select } from "@/components/ui/select.tsx";
 import { forgeError } from "./source.ts";
 
 export function PrTaskActions(props: {
@@ -77,19 +78,16 @@ export function PrTaskActions(props: {
         agents and terminals must be stopped before switching.
       </p>
       <div className="flex flex-wrap gap-2">
-        <select
-          aria-label="Task for PR worktree"
-          className="bg-input p-1 focus-ring"
+        <Select
+          label="Task for PR worktree"
+          className="w-64"
           value={threadId}
-          onChange={(e) => setThread(e.target.value)}
-        >
-          <option value="">Choose a task in this project</option>
-          {choices.map((thread) => (
-            <option key={thread.id} value={thread.id}>
-              {thread.title}
-            </option>
-          ))}
-        </select>
+          onValueChange={setThread}
+          options={[
+            { value: "", label: "Choose a task in this project" },
+            ...choices.map((thread) => ({ value: thread.id, label: thread.title })),
+          ]}
+        />
         <Button
           disabled={!ready || pending || running || !threadId || !props.detail.headRepository}
           onClick={() => void prepare()}

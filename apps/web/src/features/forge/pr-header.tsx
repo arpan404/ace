@@ -61,7 +61,7 @@ export function PrHeader(props: {
           {status.mergeability === "conflicting" && (
             <Popover>
               <PopoverTrigger
-                render={<Button variant="outline" size="sm" className="text-destructive" />}
+                render={<Button variant="secondary" size="sm" className="text-destructive" />}
               >
                 <WarningIcon aria-hidden size={16} />
                 Resolve conflicts

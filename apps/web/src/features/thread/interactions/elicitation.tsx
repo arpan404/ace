@@ -1,7 +1,8 @@
 import type { InteractionRequest } from "@ace/protocol";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { Input, fieldClassName } from "@/components/ui/input.tsx";
+import { Input } from "@/components/ui/input.tsx";
+import { Select } from "@/components/ui/select.tsx";
 import type { Answer } from "./answer.ts";
 import { consentUrl, elicitationContent, elicitationForm } from "./elicitation-schema.ts";
 
@@ -78,23 +79,22 @@ export function Elicitation(props: { request: Request; disabled: boolean; onAnsw
           };
           return (
             <div key={key} className="space-y-1">
-              <label htmlFor={fieldId} className="text-ui">
-                {property.title ?? key}
-              </label>
               {choices ? (
-                <select
+                <span className="block text-ui">{property.title ?? key}</span>
+              ) : (
+                <label htmlFor={fieldId} className="text-ui">
+                  {property.title ?? key}
+                </label>
+              )}
+              {choices ? (
+                <Select
                   {...attributes}
-                  className={`${fieldClassName} h-8`}
+                  label={property.title ?? key}
+                  className="w-full"
                   value={value}
-                  onChange={(event) => change(key, event.target.value)}
-                >
-                  <option value="">Choose…</option>
-                  {choices.map((entry) => (
-                    <option key={entry.value} value={entry.value}>
-                      {entry.label}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={(next) => change(key, next)}
+                  options={[{ value: "", label: "Choose…" }, ...choices]}
+                />
               ) : (
                 <Input
                   {...attributes}

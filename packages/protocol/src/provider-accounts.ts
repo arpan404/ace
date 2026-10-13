@@ -5,6 +5,7 @@ import {
   AccountId,
   AccountBadgeInput,
   AccountBadgeColor,
+  AccountBadgeIcon,
 } from "./accounts.ts";
 import { ProviderLoginProgress } from "./provider-login.ts";
 
@@ -38,6 +39,7 @@ export const ProviderAccountsRequest = z.discriminatedUnion("type", [
     shortLabel: AccountBadgeInput.optional(),
     badgeUsesInitial: z.boolean().optional(),
     badgeColor: AccountBadgeColor.nullable().optional(),
+    badgeIcon: AccountBadgeIcon.nullable().optional(),
   }),
   z.strictObject({ type: z.literal("provider.accounts.setDefault"), requestId: id, ...target }),
   z.strictObject({

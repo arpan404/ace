@@ -3,7 +3,7 @@ import { ClockIcon, PlayIcon, TrashIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { useId } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { SettingRow } from "@/components/setting-row.tsx";
+import { SettingCard, SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
@@ -140,21 +140,23 @@ export function AutomationScreen(props: { id: string }) {
               {automation.prompt}
             </p>
           </section>
-          <SettingRow
-            title="When"
-            description={
-              <>
-                {describeWhen(automation.trigger, localTimeZone())} ·{" "}
-                <NextRun
-                  automation={automation}
-                  nextRunAt={nextRunAt}
-                  now={now}
-                  running={running}
-                />
-              </>
-            }
-          />
-          <SettingRow title="Runs on" description={runsOn(automation, choices)} />
+          <SettingCard>
+            <SettingRow
+              title="When"
+              description={
+                <>
+                  {describeWhen(automation.trigger, localTimeZone())} ·{" "}
+                  <NextRun
+                    automation={automation}
+                    nextRunAt={nextRunAt}
+                    now={now}
+                    running={running}
+                  />
+                </>
+              }
+            />
+            <SettingRow title="Runs on" description={runsOn(automation, choices)} />
+          </SettingCard>
         </div>
         {entry.lastPollError && <PollError error={entry.lastPollError} />}
         <RecentRuns

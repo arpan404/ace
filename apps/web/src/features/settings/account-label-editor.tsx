@@ -1,5 +1,5 @@
 import { AccountBadgeField, accountBadgeProblem } from "@/components/ui/account-badge-field.tsx";
-import type { AccountBadgeColor } from "@ace/protocol/accounts";
+import type { AccountBadgeColor, AccountBadgeIcon } from "@ace/protocol/accounts";
 import type { AccountView } from "@ace/ui-core";
 import { useRef, useState, type RefObject, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -22,6 +22,7 @@ export function AccountLabelEditor(props: {
       shortLabel?: string | undefined;
       badgeUsesInitial: boolean;
       badgeColor: AccountBadgeColor | null;
+      badgeIcon: AccountBadgeIcon | null;
     },
   ): Promise<void>;
   onCancel(): void;
@@ -32,6 +33,7 @@ export function AccountLabelEditor(props: {
     props.account.badgeUsesInitial ? "" : (props.account.shortLabel ?? ""),
   );
   const [color, setColor] = useState<AccountBadgeColor>(props.account.badgeColor ?? "neutral");
+  const [icon, setIcon] = useState<AccountBadgeIcon | undefined>(props.account.badgeIcon);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   const save = async (event: FormEvent) => {
@@ -44,6 +46,7 @@ export function AccountLabelEditor(props: {
         shortLabel: shortLabel.trim() || undefined,
         badgeUsesInitial: !shortLabel.trim(),
         badgeColor: color,
+        badgeIcon: icon ?? null,
       });
     } catch {
       setError("Couldn't save this account. Check your connection and retry.");
@@ -56,7 +59,8 @@ export function AccountLabelEditor(props: {
         <DialogHeader>
           <DialogTitle>Edit {props.account.label}</DialogTitle>
           <DialogDescription>
-            Choose a name and badge. Leave the badge blank to use the name's initial.
+            Choose a name and badge: up to two letters or an icon. Leave it blank to use the name's
+            initial.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -80,6 +84,8 @@ export function AccountLabelEditor(props: {
               name={name}
               color={color}
               onColorChange={setColor}
+              icon={icon}
+              onIconChange={setIcon}
             />
           </fieldset>
           {error && (

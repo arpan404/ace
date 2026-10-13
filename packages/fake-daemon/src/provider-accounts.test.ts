@@ -36,7 +36,7 @@ test("a provider page lists accounts, adds with immediate sign-in, labels, selec
       type: "provider.accounts.add",
       provider: "codex",
       label: "Work",
-      shortLabel: "💼",
+      shortLabel: "WK",
       method: "login",
     });
     if (!added.result.ok || !added.result.progress?.instance)
@@ -50,6 +50,7 @@ test("a provider page lists accounts, adds with immediate sign-in, labels, selec
           provider: "codex",
           instanceId,
           label: "Team",
+          badgeIcon: "briefcase",
         })
       ).result,
     ).toMatchObject({
@@ -57,7 +58,8 @@ test("a provider page lists accounts, adds with immediate sign-in, labels, selec
         expect.objectContaining({
           id: instanceId,
           label: "Team",
-          shortLabel: "💼",
+          shortLabel: "WK",
+          badgeIcon: "briefcase",
           authMethod: "browser",
         }),
       ]),

@@ -41,7 +41,7 @@ test("Usage has no account-management actions and directs management to Provider
   );
   await userEvent.click(await screen.findByRole("link", { name: "Codex" }));
   await userEvent.click(
-    await screen.findByRole("button", { name: "+ Add account" }, { timeout: 10_000 }),
+    await screen.findByRole("button", { name: "Add account" }, { timeout: 10_000 }),
   );
   expect(await screen.findByRole("dialog", { name: "Add a Codex account" })).toBeTruthy();
 });

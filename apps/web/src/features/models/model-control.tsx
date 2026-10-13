@@ -22,7 +22,9 @@ export function preloadModelControl(): Promise<unknown> {
 const warm = () => void preloadModelControl();
 
 /**
- * The composer's one model control: `[logo] Model · Effort [speed] ⌄`. The model name gives way
+ * The composer's one model control: `[logo] Model · Effort [speed] ⌄`. Clicking the model's
+ * name (or opening it from the keyboard) shows the model list; clicking the effort or speed
+ * shows Tune. The model name gives way
  * first; the effort and the speed icon never do. Standard speed has no icon, Fast one bolt,
  * Ultrafast two. A pending switch shows its target, the former model in the tooltip. It opens
  * one popover, always upward, anchored to the chip as the pane resizes.
@@ -36,6 +38,12 @@ export function ModelControl(props: {
 }) {
   const { view } = props;
   const [open, setOpen] = useState(false);
+  // The name opens the model list; the effort and speed open Tune. One chip, one popover.
+  const [pane, setPane] = useState<"tune" | "picker">("picker");
+  const choosePane = (event: { target: EventTarget }) => {
+    const target = event.target instanceof Element ? event.target : null;
+    setPane(target?.closest("[data-model-tune]") ? "tune" : "picker");
+  };
   const [dismissedRequest, dismissRequest] = useState(0);
   const requested = (view.pickerRequest ?? 0) > dismissedRequest;
   const changeOpen = (next: boolean) => {
@@ -73,6 +81,9 @@ export function ModelControl(props: {
           aria-description={switching?.description}
           onPointerEnter={warm}
           onFocus={warm}
+          // Pointer down too: the popover may open on press, before the click lands.
+          onPointerDown={choosePane}
+          onClick={choosePane}
           className={cn(
             props.className,
             "max-w-72 gap-1.5 text-ui leading-4 font-normal focus-ring-inset",
@@ -94,21 +105,23 @@ export function ModelControl(props: {
           {view.unavailable && (
             <span className="shrink-0 text-xs text-status-failed">Unavailable</span>
           )}
-          {view.label && view.effort !== undefined && view.efforts.length > 0 && (
-            <EffortSignal view={view} compact={props.compact} />
-          )}
-          {view.label && view.speed !== "standard" && (
-            <span
-              role="img"
-              aria-label={speedLabel(view.speed)}
-              className={cn(
-                "inline-flex shrink-0",
-                view.speed === "ultrafast" ? "text-link" : "text-muted-foreground",
-              )}
-            >
-              <SpeedGlyph speed={view.speed} size={13} />
-            </span>
-          )}
+          <span data-model-tune className="inline-flex shrink-0 items-center gap-1.5">
+            {view.label && view.effort !== undefined && view.efforts.length > 0 && (
+              <EffortSignal view={view} compact={props.compact} />
+            )}
+            {view.label && view.speed !== "standard" && (
+              <span
+                role="img"
+                aria-label={speedLabel(view.speed)}
+                className={cn(
+                  "inline-flex shrink-0",
+                  view.speed === "ultrafast" ? "text-link" : "text-muted-foreground",
+                )}
+              >
+                <SpeedGlyph speed={view.speed} size={13} />
+              </span>
+            )}
+          </span>
           {switching && (
             <ClockIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
           )}
@@ -136,6 +149,7 @@ export function ModelControl(props: {
           <DeferredModelPopover.Component
             view={view}
             actions={props.actions}
+            initialPane={requested ? "picker" : pane}
             onClose={() => changeOpen(false)}
           />
         </Suspense>

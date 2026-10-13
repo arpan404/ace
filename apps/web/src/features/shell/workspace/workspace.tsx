@@ -63,7 +63,7 @@ export function WhenKindsReady(props: {
       {error && (
         <Button
           size="sm"
-          variant="outline"
+          variant="secondary"
           onClick={() => {
             setFailed(undefined);
             void definition.load().then(

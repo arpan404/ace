@@ -6,6 +6,8 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { Input } from "@/components/ui/input.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { Select } from "@/components/ui/select.tsx";
+import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { QueryState } from "./query-state.tsx";
 import { IssueDetail } from "./issue-detail.tsx";
 import { IssueEditor } from "./issue-editor.tsx";
@@ -83,25 +85,20 @@ export function IssueScreen(props: {
       <div ref={scroller} className="h-full overflow-auto">
         <div className="mx-auto max-w-[1040px] space-y-6 px-4 py-6 sm:px-8">
           <div className="flex flex-wrap gap-3">
-            <label className="text-sm">
-              Project{" "}
-              <select
-                aria-label="Issue repository project"
+            <span className="flex items-center gap-2 text-sm">
+              Project
+              <Select
+                label="Issue repository project"
+                className="w-48"
                 value={workspaceId}
-                className="bg-input p-1 focus-ring"
-                onChange={(e) => {
+                onValueChange={(project) => {
                   scroll.current = 0;
                   setCreating(false);
-                  change({ project: e.target.value, repo: "", number: undefined, page: 1 });
+                  change({ project, repo: "", number: undefined, page: 1 });
                 }}
-              >
-                {projects.ids.map((id) => (
-                  <option key={id} value={id}>
-                    {projects.name(id)}
-                  </option>
-                ))}
-              </select>
-            </label>
+                options={projects.ids.map((id) => ({ value: id, label: projects.name(id) }))}
+              />
+            </span>
             <form
               className="flex min-w-0 flex-1 gap-2"
               onSubmit={(e) => {
@@ -152,16 +149,17 @@ export function IssueScreen(props: {
               </>
             ) : (
               <>
-                <div className="flex gap-2">
-                  {(["open", "closed"] as const).map((state) => (
-                    <Button
-                      key={state}
-                      variant={location.state === state ? "primary" : "outline"}
-                      onClick={() => change({ state, page: 1 })}
-                    >
-                      {state === "open" ? "Open" : "Closed"} {query.data?.counts[state] ?? ""}
-                    </Button>
-                  ))}
+                <div className="flex flex-wrap items-center gap-2">
+                  <SegmentedControl<"open" | "closed">
+                    label="Issue state"
+                    size="sm"
+                    value={location.state}
+                    options={(["open", "closed"] as const).map((state) => ({
+                      value: state,
+                      label: `${state === "open" ? "Open" : "Closed"} ${query.data?.counts[state] ?? ""}`,
+                    }))}
+                    onValueChange={(state) => change({ state, page: 1 })}
+                  />
                   <Button disabled={!query.data?.canCreate} onClick={() => setCreating(!creating)}>
                     New issue
                   </Button>
@@ -231,23 +229,19 @@ export function IssueScreen(props: {
                   <Button type="submit">Apply issue filters</Button>
                 </form>
                 <div className="flex gap-3">
-                  <label className="text-sm">
-                    Sort{" "}
-                    <select
-                      aria-label="Issue sort"
-                      className="bg-input p-1 focus-ring"
+                  <span className="flex items-center gap-2 text-sm">
+                    Sort
+                    <Select
+                      label="Issue sort"
                       value={location.sort}
-                      onChange={(e) => {
-                        const sort = e.target.value;
-                        if (sort === "created" || sort === "updated" || sort === "comments")
-                          change({ sort, page: 1 });
-                      }}
-                    >
-                      <option value="created">Created</option>
-                      <option value="updated">Updated</option>
-                      <option value="comments">Comments</option>
-                    </select>
-                  </label>
+                      onValueChange={(sort) => change({ sort, page: 1 })}
+                      options={[
+                        { value: "created", label: "Created" },
+                        { value: "updated", label: "Updated" },
+                        { value: "comments", label: "Comments" },
+                      ]}
+                    />
+                  </span>
                   <Button
                     onClick={() =>
                       change({ order: location.order === "asc" ? "desc" : "asc", page: 1 })

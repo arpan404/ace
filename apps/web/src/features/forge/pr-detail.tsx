@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useConnectionState } from "@ace/client-react";
-import { ChatCircleIcon, GitCommitIcon, SortAscendingIcon } from "@phosphor-icons/react";
+import { ChatCircleIcon, GitCommitIcon, ArrowsDownUpIcon } from "@phosphor-icons/react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { ForgeRepository } from "@ace/protocol";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
@@ -161,8 +161,8 @@ export function PrDetail(props: {
                     size="sm"
                     onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
                   >
-                    <SortAscendingIcon aria-hidden size={14} />
-                    {order === "newest" ? "Newest first" : "Oldest first"} ⇅
+                    <ArrowsDownUpIcon aria-hidden size={14} />
+                    {order === "newest" ? "Newest first" : "Oldest first"}
                   </Button>
                 </div>
               )}

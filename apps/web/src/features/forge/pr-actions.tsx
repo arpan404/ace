@@ -3,6 +3,7 @@ import { useClient, useConnectionState, useSidebarAll } from "@ace/client-react"
 import type { ForgePrDetail, CommandPayload } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
+import { Select } from "@/components/ui/select.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Link } from "@tanstack/react-router";
 import { useStackMemberships } from "./pr-stack-groups.tsx";
@@ -105,25 +106,22 @@ export function PrActions(props: {
       )}
       {props.detail.relatedThreadsTruncated && <p>Showing the first 100 linked tasks.</p>}
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-sm">
-          Existing task{" "}
-          <select
-            aria-label="Existing task"
-            className="bg-input p-1 focus-ring"
+        <span className="flex items-center gap-2 text-sm">
+          Existing task
+          <Select
+            label="Existing task"
+            className="w-64"
             value={threadId}
-            onChange={(e) => setThread(e.target.value)}
-          >
-            <option value="">Choose a task</option>
-            {[
-              ...choices,
-              ...props.detail.relatedThreads.filter((t) => !choices.some((c) => c.id === t.id)),
-            ].map((thread) => (
-              <option key={thread.id} value={thread.id}>
-                {thread.title}
-              </option>
-            ))}
-          </select>
-        </label>
+            onValueChange={setThread}
+            options={[
+              { value: "", label: "Choose a task" },
+              ...[
+                ...choices,
+                ...props.detail.relatedThreads.filter((t) => !choices.some((c) => c.id === t.id)),
+              ].map((thread) => ({ value: thread.id, label: thread.title })),
+            ]}
+          />
+        </span>
         <Button
           disabled={!ready || pending || blocked || !threadId || associated}
           onClick={() => void run({ type: "forge.pr.link", link })}
@@ -133,22 +131,19 @@ export function PrActions(props: {
       </div>
       {associated ? (
         <div className="flex flex-wrap items-center gap-2">
-          <label className="text-sm">
-            Merge method{" "}
-            <select
-              aria-label="Merge method"
+          <span className="flex items-center gap-2 text-sm">
+            Merge method
+            <Select<"merge" | "rebase" | "squash">
+              label="Merge method"
               value={method}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value === "squash" || value === "merge" || value === "rebase") setMethod(value);
-              }}
-              className="bg-input p-1 focus-ring"
-            >
-              <option value="squash">Squash</option>
-              <option value="merge">Merge commit</option>
-              <option value="rebase">Rebase</option>
-            </select>
-          </label>
+              onValueChange={setMethod}
+              options={[
+                { value: "squash", label: "Squash" },
+                { value: "merge", label: "Merge commit" },
+                { value: "rebase", label: "Rebase" },
+              ]}
+            />
+          </span>
           <Button
             disabled={
               !ready ||

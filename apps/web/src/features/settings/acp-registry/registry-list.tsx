@@ -97,14 +97,14 @@ export function RegistryList(props: {
               (props.refreshFailed
                 ? "Couldn't reach the ACP registry. Check the connection."
                 : "The registry is empty.")}{" "}
-            <Button variant="link" onClick={props.onRefresh}>
+            <Button variant="ghost" onClick={props.onRefresh}>
               Try again
             </Button>
           </span>
         ) : (
           <>
             No agents match “{query.trim()}”.{" "}
-            <Button variant="link" onClick={props.onManual}>
+            <Button variant="ghost" onClick={props.onManual}>
               Add one by command
             </Button>
           </>
@@ -167,14 +167,14 @@ export function RegistryList(props: {
                   : registryAge(view?.fetchedAt, props.now)}
               </span>
               ·
-              <Button variant="link" size="sm" onClick={props.onRefresh}>
+              <Button variant="ghost" size="sm" onClick={props.onRefresh}>
                 Refresh
               </Button>
             </>
           )}
         </span>
         <Button
-          variant="link"
+          variant="ghost"
           size="sm"
           className="ml-auto text-muted-foreground"
           onClick={props.onManual}

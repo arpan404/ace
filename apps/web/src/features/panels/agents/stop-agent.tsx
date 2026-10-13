@@ -60,7 +60,7 @@ export function StopAgent(props: {
   const renderButton = (onClick: (() => void) | undefined) => (
     <Button
       size="sm"
-      variant="ghost"
+      variant="secondary"
       disabled={stopping}
       aria-label={stopping ? undefined : label}
       {...(props.inTree ? { "data-stop": "", tabIndex: -1 } : {})}

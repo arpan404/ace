@@ -56,7 +56,7 @@ export function TabContent(props: {
               title="This tool isn't available"
               description={`This tab was opened with a tool (“${tab.kind}”) this version of ace doesn't have. Close it, or update ace to bring it back.`}
               action={
-                <Button size="sm" variant="outline" onClick={() => props.onClose(tab.key)}>
+                <Button size="sm" variant="secondary" onClick={() => props.onClose(tab.key)}>
                   Close tab
                 </Button>
               }
@@ -100,7 +100,11 @@ class TabBoundary extends Component<
           title={`${this.props.label} couldn't load`}
           description="Check the connection, then try again."
           action={
-            <Button size="sm" variant="outline" onClick={() => this.setState({ error: undefined })}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => this.setState({ error: undefined })}
+            >
               Try again
             </Button>
           }

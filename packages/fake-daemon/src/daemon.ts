@@ -133,7 +133,9 @@ export class FakeDaemon implements Host {
     return typeof name === "string" && name ? name : (this.options.displayName ?? "Fake machine");
   }
   get icon() {
-    return MachineIcon.parse(this.services.settings.get("host.icon") ?? { kind: "laptop" });
+    // Unset, clients pick the default mark: this machine a laptop, another a server.
+    if (!this.services.settings.isSet("host.icon")) return undefined;
+    return MachineIcon.parse(this.services.settings.get("host.icon"));
   }
   readonly version: string;
   /** Fault injection: deliver every event frame twice. */

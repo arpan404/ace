@@ -174,7 +174,7 @@ test("editing an account label updates its composer, thread row, picker, search 
   );
 });
 
-test("account badges accept a complete emoji and reject more than two text characters", async () => {
+test("account badges take up to two letters or a curated icon, never an emoji", async () => {
   const app = harness();
   await app.open("/settings/providers/claude");
   const accounts = await screen.findByRole("list", { name: "Claude Code accounts" });
@@ -185,16 +185,20 @@ test("account badges accept a complete emoji and reject more than two text chara
   await userEvent.clear(badge);
   await userEvent.type(badge, "ABC");
   expect(form.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
-  expect(form.getByText("Use up to two characters or one emoji.")).toBeTruthy();
+  expect(form.getByText("Use up to two letters, or pick an icon.")).toBeTruthy();
   await userEvent.clear(badge);
-  await userEvent.type(badge, "👩‍💻");
-  expect(badge).toHaveProperty("value", "👩‍💻");
+  await userEvent.type(badge, "🚀");
+  expect(form.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+  await userEvent.clear(badge);
+  await userEvent.click(form.getByRole("button", { name: "Use rocket badge" }));
   await userEvent.click(form.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(screen.queryByRole("form", { name: "Edit account label" })).toBeNull(),
   );
   const saved = await app.client.request({ type: "accounts.list" });
-  expect(saved.accounts.find((account) => account.id === "claude-personal")?.shortLabel).toBe("👩‍💻");
+  expect(saved.accounts.find((account) => account.id === "claude-personal")?.badgeIcon).toBe(
+    "rocket",
+  );
 });
 
 test.each([1, 2])(

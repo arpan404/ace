@@ -26,11 +26,12 @@ export function createHostIdentitySession({
       void (async () => {
         try {
           const name = (await options.settings?.get("host.displayName"))?.value;
-          const icon = (await options.settings?.get("host.icon"))?.value;
+          const icon = await options.settings?.get("host.icon");
           const identity = HostIdentity.parse({
             hostId: options.hostId,
             displayName: name || (await defaultName),
-            icon: icon ?? { kind: "laptop" },
+            // Unset, clients pick the default mark: this machine a laptop, another a server.
+            ...(icon && icon.provenance !== "defaults" ? { icon: icon.value } : {}),
             hostname: hostname(),
             version: options.version ?? "development",
           });

@@ -72,7 +72,7 @@ export function MachinePicker(props: {
                 checked && "bg-foreground/8 text-foreground",
               )}
             >
-              <MachineLabel name={machine.name} icon={machine.icon} />
+              <MachineLabel name={machine.name} icon={machine.icon} primary={machine.primary} />
               {machine.status !== "online" && (
                 <span
                   aria-hidden

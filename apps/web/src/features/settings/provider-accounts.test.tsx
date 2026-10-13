@@ -12,7 +12,7 @@ async function account(name: string) {
   return row;
 }
 async function add() {
-  await userEvent.click(within(await accounts()).getByRole("button", { name: "+ Add account" }));
+  await userEvent.click(within(await accounts()).getByRole("button", { name: "Add account" }));
   const dialog = await screen.findByRole("dialog", { name: "Add a Claude Code account" });
   return within(dialog);
 }

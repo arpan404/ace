@@ -45,7 +45,7 @@ test("settings search reveals and highlights the pairing control before it opens
     "Pair a device",
   );
   await userEvent.click(await screen.findByRole("link", { name: /Pair a device.*Remote devices/ }));
-  const button = await screen.findByRole("button", { name: "+ Pair a device" });
+  const button = await screen.findByRole("button", { name: "Pair a device" });
   await waitFor(() => expect(button.closest(".bg-accent")).not.toBeNull());
   expect(screen.queryByRole("dialog", { name: "Pair a device" })).toBeNull();
   await userEvent.click(button);

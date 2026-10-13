@@ -108,7 +108,7 @@ function MeasurementCard(props: { threadId: string; result: MeasurementResult })
       className="flex flex-col gap-2.5 text-ui text-muted-foreground"
     >
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <Badge variant="outline" data-tone={verdict.tone}>
+        <Badge variant="secondary" data-tone={verdict.tone}>
           <Glyph aria-hidden className="text-(--tone)" />
           {verdict.label}
         </Badge>

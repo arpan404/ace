@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import type { ForgePrList, ForgePrSearch } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
+import { Select } from "@/components/ui/select.tsx";
 import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs.tsx";
 import { ChatCircleIcon, CheckCircleIcon } from "@phosphor-icons/react";
@@ -71,21 +72,20 @@ export function PrList(props: {
           />
         </label>
         <Button type="submit">Search PRs</Button>
-        <label className="text-sm">
+        <span className="flex items-center gap-2 text-sm">
           Sort
-          <select
-            className="ml-2 bg-input p-1 focus-ring"
+          <Select
+            label="Sort"
+            className="w-44"
             value={props.query.sort}
-            onChange={(e) => {
-              const sort = e.target.value;
-              if (sort === "created" || sort === "updated" || sort === "comments") change({ sort });
-            }}
-          >
-            <option value="updated">Recently updated</option>
-            <option value="created">Created</option>
-            <option value="comments">Comments</option>
-          </select>
-        </label>
+            onValueChange={(sort) => change({ sort })}
+            options={[
+              { value: "updated", label: "Recently updated" },
+              { value: "created", label: "Created" },
+              { value: "comments", label: "Comments" },
+            ]}
+          />
+        </span>
         <Button onClick={() => change({ order: props.query.order === "asc" ? "desc" : "asc" })}>
           {props.query.order === "desc" ? "Newest first" : "Oldest first"}
         </Button>

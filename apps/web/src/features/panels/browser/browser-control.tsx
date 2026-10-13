@@ -2,6 +2,7 @@ import { useAgent } from "@ace/client-react";
 import { agentName } from "@ace/ui-core";
 import { DesktopIcon, DetectiveIcon, LockSimpleIcon } from "@phosphor-icons/react";
 import { useState, type ReactNode } from "react";
+import { buttonVariants } from "@/components/ui/button.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -90,8 +91,8 @@ export function controlState(
 }
 
 /** The ink of the composer's send button: the one action of the toolbar. */
-const primary =
-  "h-7 shrink-0 rounded-full bg-foreground px-3 text-xs font-medium text-background focus-ring hover:bg-foreground/85 disabled:opacity-50";
+/** Take over and Hand back: the toolbar's one primary action, the app's primary button. */
+const primary = buttonVariants({ variant: "primary", size: "sm" });
 
 /** The driving agent's mark: its provider's, with a slow ring while it works. */
 function AgentMark(props: { threadId: string; agentId: string | undefined }) {

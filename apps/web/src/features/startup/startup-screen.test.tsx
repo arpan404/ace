@@ -81,7 +81,10 @@ test("boot shows the mark, never the app's skeleton, and cross-fades once the fi
   act(() => finishLoading?.());
   paint();
   expect(covering()).toBeNull();
-  expect(document.querySelector('[data-slot="startup-screen"][data-leaving]')).toBeTruthy();
+  const leaving = document.querySelector('[data-slot="startup-screen"][data-leaving]');
+  expect(leaving).toBeTruthy();
+  // Only the bare background fades: no mark or status line over the drawn app.
+  expect(leaving?.querySelector("svg, [role=status]")).toBeNull();
   elapse(450);
   expect(document.querySelector('[data-slot="startup-screen"]')).toBeNull();
   expect(screen.getByText("Fix flaky checkout test")).toBeTruthy();

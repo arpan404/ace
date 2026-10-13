@@ -77,6 +77,16 @@
             }
           ]
         },
+        "badgeIcon": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AccountBadgeIcon.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "badgeUsesInitial": {
           "type": "boolean"
         },

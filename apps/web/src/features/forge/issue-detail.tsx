@@ -5,6 +5,7 @@ import { ThreadId, WorkspaceId, type ForgeRepository } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { Select } from "@/components/ui/select.tsx";
 import { QueryState } from "./query-state.tsx";
 import { IssueEditor } from "./issue-editor.tsx";
 import { IssueTimeline } from "./issue-timeline.tsx";
@@ -194,19 +195,16 @@ export function IssueDetail(props: {
             </ul>
             {detail.relatedThreadsTruncated && <p>Showing the first 100 related tasks.</p>}
             <div className="flex flex-wrap gap-2">
-              <select
-                aria-label="Existing issue task"
-                className="bg-input p-1 focus-ring"
+              <Select
+                label="Existing issue task"
+                className="w-64"
                 value={threadId}
-                onChange={(e) => setThread(e.target.value)}
-              >
-                <option value="">Choose an existing task</option>
-                {choices.map((thread) => (
-                  <option key={thread.id} value={thread.id}>
-                    {thread.title}
-                  </option>
-                ))}
-              </select>
+                onValueChange={setThread}
+                options={[
+                  { value: "", label: "Choose an existing task" },
+                  ...choices.map((thread) => ({ value: thread.id, label: thread.title })),
+                ]}
+              />
               <Button disabled={!ready || pending || !threadId} onClick={() => void attach()}>
                 Attach issue
               </Button>

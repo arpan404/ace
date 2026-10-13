@@ -57,7 +57,7 @@ function TypeText(props: { disabled: boolean; onInput(input: DeviceInput): void 
         disabled={props.disabled}
         onChange={(event) => setText(event.currentTarget.value)}
       />
-      <Button type="submit" size="sm" variant="outline" disabled={props.disabled || !text}>
+      <Button type="submit" size="sm" variant="secondary" disabled={props.disabled || !text}>
         Send
       </Button>
     </form>
@@ -264,7 +264,7 @@ function SelectedDevice(props: { devices: Devices }) {
               {controls.cleanupRequired || controls.running ? (
                 <Button
                   size="sm"
-                  variant="outline"
+                  variant="secondary"
                   disabled={view.pending || controls.busy}
                   onClick={controls.cleanupRequired ? devices.stop : devices.start}
                 >
@@ -272,7 +272,12 @@ function SelectedDevice(props: { devices: Devices }) {
                   {controls.cleanupRequired ? "Retry cleanup" : "Start live view"}
                 </Button>
               ) : (
-                <Button size="sm" variant="outline" disabled={view.pending} onClick={devices.boot}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={view.pending}
+                  onClick={devices.boot}
+                >
                   Boot
                 </Button>
               )}
@@ -309,7 +314,7 @@ export function DeviceTab(props: {
     if (known && known !== props.name) actions.update(props.tabKey, { title: known });
   }, [known, props.name, props.tabKey, actions]);
   const backToDevices = (
-    <Button size="sm" variant="outline" onClick={() => actions.open({ kind: "devices" })}>
+    <Button size="sm" variant="secondary" onClick={() => actions.open({ kind: "devices" })}>
       All devices
     </Button>
   );

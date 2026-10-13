@@ -197,7 +197,7 @@ const entries = [
     id: "host.displayName",
     page: "/settings/remote",
     title: "Machine name and icon",
-    keywords: ["host", "rename", "computer", "icon", "emoji"],
+    keywords: ["host", "rename", "computer", "icon", "machine icon"],
   },
   {
     id: "remote.pair",

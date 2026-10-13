@@ -3,7 +3,7 @@ import { z } from "zod";
 
 /*
  * Recent searches on this device: the last eight, newest first, in localStorage
- * (`ace.search.recent`). The empty Search page offers them; a row's ✕ forgets one.
+ * (`ace.search.recent`). The empty Search page offers them; a row's remove button forgets one.
  */
 const storageKey = "ace.search.recent";
 const keep = 8;

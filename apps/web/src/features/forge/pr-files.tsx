@@ -24,6 +24,7 @@ import {
 } from "@/features/panels/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Select } from "@/components/ui/select.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { readForge } from "./source.ts";
 import { QueryState } from "./query-state.tsx";
@@ -170,19 +171,19 @@ function PrFilePage(
         aria-label="Diff controls"
         className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border bg-panel px-3 py-1.5"
       >
-        <select
-          aria-label="Commit range"
+        <Select
+          label="Commit range"
+          className="w-56"
           value={props.commit}
-          onChange={(e) => props.onCommit(e.target.value)}
-          className="max-w-56 rounded-sm bg-transparent py-1 text-sm focus-ring"
-        >
-          <option value="">All commits</option>
-          {props.commits.data?.commits.map((c) => (
-            <option key={c.sha} value={c.sha}>
-              {c.sha.slice(0, 7)} {c.message.split("\n")[0]}
-            </option>
-          ))}
-        </select>
+          onValueChange={props.onCommit}
+          options={[
+            { value: "", label: "All commits" },
+            ...(props.commits.data?.commits.map((c) => ({
+              value: c.sha,
+              label: `${c.sha.slice(0, 7)} ${c.message.split("\n")[0] ?? ""}`,
+            })) ?? []),
+          ]}
+        />
         <span className="text-sm text-muted-foreground">
           {fileCount} files{props.commit ? " on this page" : ""}
           {viewedCount !== undefined && ` · ${viewedCount} / ${fileCount} viewed`}

@@ -47,7 +47,7 @@ export function PermissionGuide(props: {
             Open {name} settings
           </Button>
           {!props.compact && (
-            <Button size="sm" variant="outline" disabled={props.pending} onClick={devices.retry}>
+            <Button size="sm" variant="secondary" disabled={props.pending} onClick={devices.retry}>
               Try again
             </Button>
           )}

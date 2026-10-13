@@ -75,9 +75,9 @@ test("an unknown provider default omits effort without inventing a level", () =>
   expect(chip.textContent).not.toContain("Default");
 });
 
-test("the chip opens Tune first: speed, effort and the model's levels with its default marked", async () => {
+test("the chip's effort opens Tune: speed, effort and the model's levels with its default marked", async () => {
   const { chip, actions } = draw();
-  await userEvent.click(chip);
+  await userEvent.click(within(chip).getByText("High"));
   const popover = await screen.findByRole("dialog", { name: "Model and effort" });
   const slider = await within(popover).findByRole("slider", { name: "Effort" });
   expect(slider.getAttribute("aria-valuetext")).toBe("High");
@@ -99,7 +99,7 @@ test("the chip opens Tune first: speed, effort and the model's levels with its d
 
 test("a model with a single speed has no speed segment", async () => {
   const { chip } = draw({ speeds: [], speed: "standard" });
-  await userEvent.click(chip);
+  await userEvent.click(within(chip).getByText("High"));
   const popover = await screen.findByRole("dialog", { name: "Model and effort" });
   await within(popover).findByRole("slider", { name: "Effort" });
   expect(within(popover).queryByRole("radiogroup", { name: "Speed" })).toBeNull();

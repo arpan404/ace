@@ -64,7 +64,7 @@ export function DaemonLog(props: TabViewProps) {
             title="Couldn't read this computer's health"
             description={health.error.message}
             action={
-              <Button size="sm" variant="outline" onClick={() => void health.refetch()}>
+              <Button size="sm" variant="secondary" onClick={() => void health.refetch()}>
                 Try again
               </Button>
             }

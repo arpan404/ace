@@ -15,6 +15,7 @@ import {
 } from "./skills-source.ts";
 import { skillMarkdown, type Skill } from "./skills-model.ts";
 import { Prose } from "@/components/markdown/prose.tsx";
+import { Disclosure } from "@/components/ui/disclosure.tsx";
 
 export function SkillSource({ skill }: { skill: Skill }) {
   const source = useSkillSource(skill);
@@ -125,18 +126,12 @@ export function SkillSource({ skill }: { skill: Skill }) {
             </p>
           )}
           {draft === undefined ? (
-            <details className="mt-3">
-              <summary className="text-sm text-muted-foreground focus-ring rounded-sm">
-                Read source
-              </summary>
+            <Disclosure className="py-3" summary="Read source">
               <Prose text={skillMarkdown(source.data.text, skill)} />
-              <details className="mt-3">
-                <summary className="focus-ring rounded-sm text-sm text-muted-foreground">
-                  View Markdown source
-                </summary>
+              <Disclosure className="mt-3" summary="View Markdown source">
                 <pre className="overflow-auto whitespace-pre-wrap text-sm">{source.data.text}</pre>
-              </details>
-            </details>
+              </Disclosure>
+            </Disclosure>
           ) : (
             <Textarea
               aria-label="Source text"

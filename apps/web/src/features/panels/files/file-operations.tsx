@@ -147,7 +147,8 @@ export function FileOperations(props: {
             </Button>
             <Button
               type="submit"
-              variant={op.kind === "delete" ? "danger" : "secondary"}
+              variant={op.kind === "delete" ? "ghost" : "secondary"}
+              tone={op.kind === "delete" ? "danger" : "default"}
               disabled={busy || (op.kind !== "delete" && !value.trim())}
             >
               {busy ? "Working…" : titles[op.kind]}

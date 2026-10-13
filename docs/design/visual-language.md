@@ -295,8 +295,10 @@ paints Graphite in the OS scheme. Reloading in any theme or mode never flashes t
 ### Elsewhere
 
 - No narrating chrome: no "Beginning of thread" and no hint prose.
-- No stray separator lines in side panels.
-- Code blocks have copy buttons, shown on hover (always visible on touch).
+- Side panels draw only the shared rules (see Components): a strip or toolbar edge and a rule
+  between sections. Nothing else.
+- Code blocks have a Copy button in their header, always visible in a muted ink and a step
+  brighter on hover.
 - The "ace" wordmark sits at the top of the sidebar.
 - The sidebar is a flat task list with three-line rows, never grouped by project.
   - Rows never show the device name.
@@ -304,6 +306,45 @@ paints Graphite in the OS scheme. Reloading in any theme or mode never flashes t
 - Loading and syncing states are visible.
 - Touch targets are at least 32 px on coarse pointers.
 - Check layouts at 390, 768, 1440 and 1920 px.
+
+## Components
+
+One component per job. Before drawing something new, use these.
+
+- **Buttons** (`components/ui/button.tsx`), three variants:
+  - `primary`: the one action a surface exists for (Allow once, Run now, Take over, Save).
+  - `secondary`: any other labelled action. It is outlined, so it reads as a button at rest
+    (Stop, Cancel beside a primary, Preview beside a field).
+  - `ghost`: actions inside dense chrome (toolbars, row hovers, dialog Cancel).
+  - `tone="danger"` colours a ghost or secondary button for destructive actions.
+  - Icon-only actions use `IconButton`. There are no pill or black buttons, and no text links
+    used as buttons.
+- **Separators** (`components/ui/rules.ts`), all on `--border`:
+  - `toolbarEdge` under a tab strip or panel toolbar;
+  - `sectionRule` above a section that follows another;
+  - `listDivider` between the rows of one list or card;
+  - `controlDivider` between control groups in a toolbar.
+  - Sidebar thread rows never take a rule.
+- **Containers** (`components/ui/rules.ts`):
+  - `groupCard` for grouped, settings-like content (`SettingCard`, an automation's When / Runs
+    on / Recent runs);
+  - `rowCard` for one outlined row of a side-panel list (Summary's agents, background commands,
+    automations).
+  - Everything else is borderless.
+- **List rows:** `ViewRow` for page sidebars. The current row is `bg-foreground/8` everywhere,
+  including the thread list; hover is the sidebar accent.
+- **Add rows:** `SettingAddRow`, a plus icon then the noun ("Add account", "Pair a device",
+  "Add machine").
+- **Disclosure:** `Disclosure` (`components/ui/disclosure.tsx`) or `SettingDisclosure` inside a
+  card. Both turn the same Phosphor caret; the browser's triangle never shows.
+- **Select:** `Select` (`components/ui/select.tsx`). Two to three exclusive states, such as
+  Open / Closed, use `SegmentedControl`. No native `<select>`.
+- **Empty states:** `EmptyState`, `page` for a main pane and `inline` for a list.
+- **Icons:** Phosphor only. Account badges and machine marks pick from curated Phosphor sets
+  (`account-badge-icons.ts`, `machine-label.tsx`). `bun run check:ui` rejects emoji code points
+  in `apps/web/src`.
+- **Radii and type:** use the scale tokens (`rounded-sm`, `rounded-md`, `rounded-lg`;
+  `text-2xs` to `text-md`). `check:ui` ratchets literal values.
 
 ## Old names
 

@@ -54,7 +54,7 @@ export function CloseConfirm() {
           <Button ref={cancel} variant="ghost" onClick={() => respond(false)}>
             Cancel
           </Button>
-          <Button variant="danger" onClick={() => respond(true)}>
+          <Button variant="ghost" tone="danger" onClick={() => respond(true)}>
             {warning?.confirm}
           </Button>
         </DialogFooter>

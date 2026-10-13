@@ -210,7 +210,12 @@ function CloneProgress(props: {
           {props.machine && (
             <span className="text-subtle-foreground">
               {" "}
-              · on <MachineLabel name={props.machine.name} icon={props.machine.icon} />
+              · on{" "}
+              <MachineLabel
+                name={props.machine.name}
+                icon={props.machine.icon}
+                primary={props.machine.primary}
+              />
             </span>
           )}
         </span>
