@@ -60,6 +60,20 @@ test("a dev server already running is previewed by its port until previewing sto
   expect(browser.servers("thread-settings")).toEqual([]);
 });
 
+test("an empty preview lists the detected dev servers above the manual port, and one click previews it", async () => {
+  const { panel, browser } = await openPreview();
+  const detected = await within(panel).findByRole("list", { name: "Detected dev servers" });
+  const port = within(panel).getByRole("textbox", { name: "Dev server port" });
+  expect(detected.compareDocumentPosition(port) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  await userEvent.click(within(detected).getByRole("button", { name: /^Next\.js/ }));
+  expect(
+    await within(panel).findByTitle("Preview of http://127.0.0.1:3000", undefined, {
+      timeout: 10000,
+    }),
+  ).toBeTruthy();
+  expect(browser.servers("thread-settings").map((server) => server.port)).toEqual([3000]);
+}, 20_000);
+
 test("Open the Browser from an empty preview opens the Browser tool", async () => {
   const { panel } = await openPreview();
   await userEvent.click(await within(panel).findByRole("button", { name: "Open the Browser" }));
