@@ -65,8 +65,9 @@ function seed(app: ReturnType<typeof harness>) {
   );
 }
 test("browser Back restores applied issue filters in the inputs as well as the results", async () => {
+  // Labels travel in the address as the router writes them: a JSON array.
   const history = createMemoryHistory({
-    initialEntries: ["/issues?project=api&labels=bug&assignee=maintainer"],
+    initialEntries: ["/issues?project=api&labels=%5B%22bug%22%5D&assignee=maintainer"],
   });
   const app = harness({ history });
   seed(app);
@@ -95,7 +96,7 @@ test("browser Back restores applied issue filters in the inputs as well as the r
       },
     );
   }
-  await app.open("/issues?project=api&labels=bug&assignee=maintainer");
+  await app.open("/issues?project=api&labels=%5B%22bug%22%5D&assignee=maintainer");
   const labels = await screen.findByRole("textbox", { name: "Issue labels" });
   const assignee = screen.getByRole("textbox", { name: "Issue assignee" });
   await userEvent.clear(labels);
@@ -179,13 +180,19 @@ test("an unsent issue comment survives leaving and returning while another repos
 test("an issue task preparation keeps its source and text when reopened from the saved draft row", async () => {
   const first = harness();
   seed(first);
+  // A registered project: a new task can only be prepared in one the daemon lists.
   first.daemon.workspace.setForgeRead(
-    { op: "forge.issue.detail", workspaceId: WorkspaceId.parse("api"), repository, number: 42 },
+    { op: "forge.issue.detail", workspaceId: WorkspaceId.parse("relay"), repository, number: 42 },
     { resource: "issueDetail", value: detail },
   );
-  await first.open(`/new?project=api&issue=${encodeURIComponent(detail.url)}`);
-  const message = await screen.findByRole("combobox", { name: "Message" });
-  await waitFor(() => expect(message.textContent).toContain("Original context"));
+  await first.open(`/new?project=relay&issue=${encodeURIComponent(detail.url)}`);
+  // The composer starts again with the issue's text once its source has loaded.
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toContain(
+      "Original context",
+    ),
+  );
+  const message = screen.getByRole("combobox", { name: "Message" });
   await userEvent.clear(message);
   await userEvent.type(message, "Resume issue work");
   await screen.findByRole("link", { name: /^Resume issue work\. Draft/ });
