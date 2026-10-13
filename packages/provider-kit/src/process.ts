@@ -299,10 +299,3 @@ export async function probe(command: string, args: readonly string[]): Promise<s
   return output.stdout;
 }
 export { spawnInteractive, type InteractiveProcess } from "./process-interactive.ts";
-
-export {
-  ProcessInventory,
-  inventoryRuntime,
-  type InventoryRuntime,
-  type ProcessEntry,
-} from "./process-inventory.ts";

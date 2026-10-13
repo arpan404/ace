@@ -1,4 +1,5 @@
-import { ProcessInventory, observeProcessGroups } from "@ace/provider-kit/process";
+import { observeProcessGroups } from "@ace/provider-kit/process";
+import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { cliControl } from "./services/cli-control.ts";
 export { StorageService } from "./storage/service.ts";
 export { planStorageItem, type StorageCandidate } from "./storage/planner.ts";
