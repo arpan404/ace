@@ -14,7 +14,12 @@ export class FakeScreenApprovals {
   private readonly options: FakeScreenApprovalOptions;
   private readonly pending = new Map<
     string,
-    { turn: string | undefined; kind: "app" | "foreground"; finish(option?: string): void }
+    {
+      turn: string | undefined;
+      kind: "app" | "foreground";
+      browser: boolean;
+      finish(option?: string): void;
+    }
   >();
   constructor(options: FakeScreenApprovalOptions) {
     this.options = options;
@@ -35,7 +40,7 @@ export class FakeScreenApprovals {
     if (["ace-agent", "ace-reviewer"].includes(deviceId)) return "human_approval_required";
     const options =
       pending.kind === "app"
-        ? ["allow_once", "allow_thread", "allow_always", "deny"]
+        ? ["allow_once", "allow_thread", ...(pending.browser ? [] : ["allow_always"]), "deny"]
         : ["allow_once", "deny"];
     if (resolution.kind !== "approval" || !options.includes(resolution.optionId))
       return "invalid_resolution";
@@ -50,11 +55,6 @@ export class FakeScreenApprovals {
   ): Promise<void> {
     if (!this.options.access.enabled)
       throw new FakeScreenError("screen_disabled", "Screen access is disabled");
-    if (browserApp(bundleId) && !this.options.access.allows(bundleId, caller))
-      throw new FakeScreenError(
-        "approval_required",
-        "Web browsers must be granted by the person from ace's UI",
-      );
     if (!sensitiveApp(bundleId) && this.options.access.allows(bundleId, caller)) return;
     await this.ask("app", bundleId, reason, caller, signal);
   }
@@ -107,7 +107,12 @@ export class FakeScreenApprovals {
         finish();
       };
       const cancel = this.options.schedule(abort, 60_000);
-      this.pending.set(pendingKey, { turn: access.turn(caller.threadId), kind, finish });
+      this.pending.set(pendingKey, {
+        turn: access.turn(caller.threadId),
+        kind,
+        browser: browserApp(bundleId),
+        finish,
+      });
       signal?.addEventListener("abort", abort, { once: true });
       try {
         host.apply?.(caller.threadId, [
@@ -136,7 +141,10 @@ export class FakeScreenApprovals {
                         kind: "allow_session" as const,
                         label: "Allow for this thread",
                       },
-                      { id: "allow_always", kind: "allow_always" as const, label: "Always" },
+                      // A browser is never allowed always: the person grants it per thread.
+                      ...(browserApp(bundleId)
+                        ? []
+                        : [{ id: "allow_always", kind: "allow_always" as const, label: "Always" }]),
                     ]
                   : []),
                 { id: "deny", kind: "deny", label: "Deny" },

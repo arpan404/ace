@@ -442,31 +442,36 @@ test.each([
   "company.thebrowser.Browser",
   "org.mozilla.firefox",
   "com.brave.Browser.beta",
-])("%s computer use requires a human UI grant and never accepts Always", async (bundleId) => {
-  const h = await fixture();
-  h.grants.enable(true);
-  await expect(
-    h.approvals.request(bundleId, "Visit a website", h.caller, new AbortController().signal),
-  ).rejects.toMatchObject({ code: "approval_required" });
-  expect(
-    Object.values(h.store.snapshotThread(h.thread.id).interactions).filter(
+])(
+  "%s asks the person in the thread, never accepts Always, and a thread grant skips the ask",
+  async (bundleId) => {
+    const h = await fixture();
+    h.grants.enable(true);
+    const signal = new AbortController().signal;
+    const denied = h.approvals.request(bundleId, "Visit a website", h.caller, signal);
+    const asked = Object.values(h.store.snapshotThread(h.thread.id).interactions).find(
       (entry) => entry.state === "pending",
-    ),
-  ).toEqual([]);
-  expect(() => h.grants.approve(bundleId, true, "always")).toThrow("turn or thread grant");
-  h.grants.approve(bundleId, true, "thread", h.thread.id);
-  await h.approvals.request(
-    bundleId,
-    "Human granted browser settings",
-    h.caller,
-    new AbortController().signal,
-  );
-  expect(h.grants.allows(bundleId, h.caller)).toBe(true);
-  h.grants.approve(bundleId, false, "thread", h.thread.id);
-  await expect(
-    h.approvals.request(bundleId, "Visit a website", h.caller, new AbortController().signal),
-  ).rejects.toMatchObject({ code: "approval_required" });
-});
+    );
+    expect(asked?.request).toMatchObject({
+      options: [{ id: "allow_once" }, { id: "allow_thread" }, { id: "deny" }],
+    });
+    const refused = expect(denied).rejects.toMatchObject({ code: "denied" });
+    expect(h.resolve("deny")?.ok).toBe(true);
+    await refused;
+    expect(() => h.grants.approve(bundleId, true, "always")).toThrow("turn or thread grant");
+    const allowed = h.approvals.request(bundleId, "Visit a website", h.caller, signal);
+    expect(h.resolve("allow_thread")?.ok).toBe(true);
+    await allowed;
+    expect(h.grants.allows(bundleId, h.caller)).toBe(true);
+    // Granted for the thread: the next request doesn't ask again.
+    await h.approvals.request(bundleId, "Visit a website", h.caller, signal);
+    expect(
+      Object.values(h.store.snapshotThread(h.thread.id).interactions).filter(
+        (entry) => entry.state === "pending",
+      ),
+    ).toEqual([]);
+  },
+);
 
 test("device requests wait for human thread approval while computer use is off", async () => {
   const h = await fixture();

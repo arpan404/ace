@@ -40,24 +40,21 @@ it("screen reads expose read-only approval actions and native actions remain eff
   ).toMatchObject({ annotations: { readOnlyHint: false } });
 });
 
-it("browser app requests refuse agent approval but accept a person's scoped UI grant", async () => {
+it("a browser app request waits for the person's decision and reports a denial as one", async () => {
   const h = await manager();
   onTestFinished(h.close);
-  let approved = false;
+  let answer: "allow" | "deny" = "deny";
+  const asked: string[] = [];
   h.screen.configureAccess({
     enabled: () => true,
     enable() {},
-    list: () =>
-      approved
-        ? [{ bundleId: "com.apple.Safari", scope: "thread", threadId: "thread", grantedAt: 1 }]
-        : [],
-    allows: (bundleId, caller) =>
-      approved && bundleId === "com.apple.Safari" && caller?.threadId === "thread",
-    approve(_bundleId, allowed) {
-      approved = allowed;
-    },
-    async request() {
-      throw new Error("An agent must never open browser approval");
+    list: () => [],
+    allows: () => false,
+    approve() {},
+    async request(bundleId) {
+      asked.push(bundleId);
+      if (answer === "deny")
+        throw Object.assign(new Error("Screen approval denied or expired"), { code: "denied" });
     },
     async foreground() {},
     audit() {},
@@ -82,15 +79,16 @@ it("browser app requests refuse agent approval but accept a person's scoped UI g
       lease.principal,
       new AbortController().signal,
     );
-  expect(await request()).toMatchObject({ isError: true });
+  const refused = await request();
+  expect(refused).toMatchObject({ isError: true });
+  expect(JSON.stringify(refused)).toContain("screen_approval_denied");
+  answer = "allow";
+  expect(await request()).not.toMatchObject({ isError: true });
+  expect(asked).toEqual(["com.apple.Safari", "com.apple.Safari"]);
+  // The person can't grant a browser always, from anywhere.
   await expect(h.screen.approve("com.apple.Safari", true)).rejects.toMatchObject({
     code: "approval_required",
   });
-  await h.screen.approve("com.apple.Safari", true, "thread", "thread");
-  expect(await request()).not.toMatchObject({ isError: true });
-  expect(h.screen.hasAppApproval({ threadId: "thread", agentId: "root" })).toBe(true);
-  await h.screen.approve("com.apple.Safari", false, "thread", "thread");
-  expect(await request()).toMatchObject({ isError: true });
 });
 
 it("MCP window selection returns the replacement session and keeps it usable", async () => {

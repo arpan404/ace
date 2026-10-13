@@ -102,23 +102,30 @@ it("fake screen enablement and permissions stay synchronized across main and ded
   expect(enabled).toEqual([true, false]);
 });
 
-it("fake browsers require a UI thread grant and cannot request or retain an always grant", async () => {
+it("a fake browser request asks the person in the thread, never offers Always, and a thread grant skips the ask", async () => {
   const f = await fixture();
   await f.screen.enable(true);
-  await expect(
-    f.daemon.screen.requestApp("com.apple.Safari", "Browse", f.holder),
-  ).rejects.toMatchObject({ code: "approval_required" });
-  expect(Object.values(f.view().interactions)).toEqual([]);
+  const denied = f.daemon.screen.requestApp("com.apple.Safari", "Browse", f.holder);
+  const asked = Object.values(f.view().interactions).at(-1);
+  if (!asked) throw new Error("Missing approval");
+  expect(asked.request).toMatchObject({
+    target: { tool: "screen_request_app", input: { bundleId: "com.apple.Safari" } },
+    options: [{ id: "allow_once" }, { id: "allow_thread" }, { id: "deny" }],
+  });
+  const refused = expect(denied).rejects.toMatchObject({ code: "denied" });
+  await f.client.command({
+    type: "interaction.resolve",
+    interactionId: asked.id,
+    resolution: { kind: "approval", optionId: "deny" },
+  });
+  await refused;
   await expect(f.screen.approve("com.apple.Safari", true)).rejects.toMatchObject({
     errorCode: "approval_required",
   });
   await f.screen.approve("com.apple.Safari", true, "thread", "thread");
+  const before = Object.keys(f.view().interactions).length;
   await f.daemon.screen.requestApp("com.apple.Safari", "Browse", f.holder);
-  expect(Object.values(f.view().interactions)).toEqual([]);
-  await f.screen.approve("com.apple.Safari", false, "thread", "thread");
-  await expect(
-    f.daemon.screen.requestApp("com.apple.Safari", "Browse", f.holder),
-  ).rejects.toMatchObject({ code: "approval_required" });
+  expect(Object.keys(f.view().interactions)).toHaveLength(before);
 });
 
 it("fake targets enforce eight sessions, holder identity, takeover and the global stop", async () => {

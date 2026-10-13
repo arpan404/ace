@@ -247,7 +247,7 @@ function OpenRequest(props: {
       : undefined;
   const copy =
     request.kind === "approval"
-      ? approvalCopy(request, { mode, command, review: interaction.review })
+      ? approvalCopy(request, { mode, command, review: interaction.review, agent: props.asker })
       : undefined;
   const title =
     request.kind === "approval"

@@ -140,7 +140,7 @@ export const computerUseTools = [
   {
     name: "screen_request_app",
     description:
-      "Ask the person to approve computer use of one native macOS app by exact bundle id, with a reason. Call only when the person asked you to operate that app. Never request a web browser to visit a website; use ace_browser_open. Browser grants must come from the person in ace's UI.",
+      "Ask the person to approve computer use of one native macOS app by exact bundle id, with a reason. Waits until the person allows or denies it in the thread. Call only when the person asked you to operate that app. For websites use ace_browser_open; request a web browser only to operate the browser app itself.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_request_app);
     },

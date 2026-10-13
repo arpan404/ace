@@ -217,10 +217,7 @@ export class ScreenAccessPolicy {
       throw new HelperCommandError("screen_disabled", "Screen access is disabled");
     if (!this.access)
       throw new HelperCommandError("approval_required", "Host approval unavailable");
-    if (browserApp(bundleId)) {
-      this.authorize({ kind: "app", bundleId: ScreenBundle.parse(bundleId) }, caller);
-      return;
-    }
+    // Every app, browsers included, waits for the person's decision in the thread.
     await this.access.request(
       ScreenBundle.parse(bundleId),
       reason,

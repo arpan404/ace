@@ -28,6 +28,8 @@ export function screenPublicFailure(
   if (!(error instanceof Error) || !("code" in error)) return error;
   const mapping = {
     denied: "screen_approval_denied",
+    // The bare `approval_required` is the browser's origin approval.
+    approval_required: "screen_approval_required",
     timeout: "screen_approval_timeout",
     read_only: "screen_read_only",
   } as const;
