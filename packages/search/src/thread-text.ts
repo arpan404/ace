@@ -29,6 +29,8 @@ export function* threadItemText(item: Item): Generator<SearchTextSegment> {
     };
   } else if (item.type === "artifact") {
     yield { name: "path", category: "files", text: item.path };
+  } else if (item.type === "html") {
+    yield { name: "title", category: "notices", text: item.visualization.title };
   } else if (item.type === "tool_call") {
     yield { name: "title", category: "tool_output", text: item.call.title };
     if (item.call.status === "failed" && !item.call.error)

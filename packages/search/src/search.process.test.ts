@@ -452,3 +452,49 @@ test("deleted threads cannot reappear through older history replay or an index r
   expect(log.query("deletedneedle").hits).toEqual([]);
   expect(log.query("Compiler", { scope: "threads" }).hits).toEqual([]);
 });
+
+test("a published HTML visualization can be found by its title, alone or among every kind", () => {
+  const visualization = Item.parse({
+    id: randomUUID(),
+    agentId: agent,
+    createdAt: 30,
+    complete: true,
+    type: "html",
+    visualization: {
+      title: "Quarterly latency heatmap",
+      document: {
+        sha256: "a".repeat(64),
+        bytes: 2048,
+        mimeType: "text/plain",
+        name: "visualization.html",
+      },
+    },
+  });
+  const note = message("latency notes for the heatmap");
+  log.append([
+    { type: "item.created", item: visualization },
+    { type: "item.created", item: note },
+  ]);
+  const only = log.query("latency heatmap", { filters: { kinds: ["html"] } });
+  expect(only.hits.map((hit) => [hit.itemId, hit.kind])).toEqual([[visualization.id, "html"]]);
+  expect(only.hits[0]?.title.text).toBe("Quarterly latency heatmap");
+  const everyKind = log.query("quarterly", {
+    filters: {
+      kinds: [
+        "thread",
+        "message",
+        "reasoning",
+        "tool_call",
+        "notice",
+        "compaction",
+        "delegation.started",
+        "delegation.settled",
+        "artifact",
+        "html",
+      ],
+    },
+  });
+  expect(everyKind.hits.map((hit) => hit.itemId)).toEqual([visualization.id]);
+  log.append([{ type: "item.deleted", itemId: visualization.id }]);
+  expect(log.query("quarterly").hits).toEqual([]);
+});

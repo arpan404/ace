@@ -249,6 +249,30 @@ test("All requests just the visible kinds so hidden items cannot fill the first 
   expect(screen.getByText("The visible message")).toBeTruthy();
 });
 
+test("All finds a published visualization by its title", async () => {
+  const app = harness();
+  const services = app.daemon.services;
+  const handle = services.handle.bind(services);
+  services.handle = (message, push) => {
+    if (message.type !== "search.query") return handle(message, push);
+    const visualization: SearchHit = {
+      ...hit("html", 0),
+      snippet: { text: "Latency heatmap", highlights: [{ start: 0, end: 7 }] },
+    };
+    push({
+      type: "search.results",
+      requestId: message.requestId,
+      hits: message.filters.kinds?.includes("html") ? [visualization] : [],
+      cursor: null,
+      generation: 1,
+    });
+    return true;
+  };
+  await search("latency", app);
+  const option = within(await results()).getByRole("option");
+  expect(option.textContent).toContain("Latency heatmap");
+});
+
 test("a thread match shows its title when there is no message snippet", async () => {
   const app = harness();
   const services = app.daemon.services;

@@ -100,6 +100,10 @@ export function itemText(item: Item, output?: string): { title: string; window: 
       add(item.path);
       add(item.mimeType);
       break;
+    case "html":
+      // The document itself is a blob the index cannot read; its title is the searchable text.
+      add(item.visualization.title);
+      break;
     case "delegation.started":
       add(item.title);
       add(item.role);
@@ -111,7 +115,13 @@ export function itemText(item: Item, output?: string): { title: string; window: 
     case "compaction":
       break;
   }
-  return { title: item.type === "tool_call" ? capText(item.call.title) : "", window };
+  const title =
+    item.type === "tool_call"
+      ? item.call.title
+      : item.type === "html"
+        ? item.visualization.title
+        : "";
+  return { title: capText(title), window };
 }
 
 /** Quotes every literal; operators, column filters and quotes have no syntax power. */

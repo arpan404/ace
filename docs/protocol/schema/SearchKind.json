@@ -10,7 +10,8 @@
     "compaction",
     "delegation.started",
     "delegation.settled",
-    "artifact"
+    "artifact",
+    "html"
   ],
   "type": "string"
 }
