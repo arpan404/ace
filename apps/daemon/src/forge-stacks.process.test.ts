@@ -33,8 +33,8 @@ async function fixture(
   const gh = await fakeGh({
     ...stackChecksFixture,
     ...fixtures,
-    "repos/octo/ace/pulls/7": [{ raw: "offline", code: 1 }],
-    "repos/octo/ace/pulls/8": [{ raw: "offline", code: 1 }],
+    "repos/octo/ace/pulls/7": [{ offline: true }],
+    "repos/octo/ace/pulls/8": [{ offline: true }],
   });
   const db = join(root, "events.sqlite");
   await execute("git", ["init", root]);

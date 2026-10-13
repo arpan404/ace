@@ -202,9 +202,7 @@ test.each([
     );
     try {
       expect(await f.command("refused")).toMatchObject({ ok: false, error });
-      expect(await f.read()).toMatchObject({
-        result: { kind: "error", code: "forge_invalid_data" },
-      });
+      await expect(f.read()).rejects.toMatchObject({ kind: "invalid_data" });
       await f.restart();
       expect(await f.command("reviewed-retry")).toMatchObject({
         ok: true,
