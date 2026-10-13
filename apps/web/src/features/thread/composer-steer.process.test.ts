@@ -24,6 +24,7 @@ test("an ordinary effort-capable follow-up promotes into the same running provid
       tokenUsage: false,
       imageInput: true,
       rewindFiles: false,
+      launchOptions: ["effort"],
     }),
     createTranslator: () => ({
       translate: () => [{ type: "turn.started", agent: "root", trigger: "user" }],
