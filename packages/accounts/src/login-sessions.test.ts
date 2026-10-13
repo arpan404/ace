@@ -154,3 +154,41 @@ test("provider-instance aliases share one reservation and cancellation waits for
     await sessions.close();
   }
 });
+
+test("a sign-in that throws while preparing ends failed, with its cause reported for the log, not the client", async () => {
+  const reported: { cause: string; provider: string; action: string }[] = [];
+  const sessions = new ProviderLoginSessions({
+    now: () => 100,
+    id: () => "missing-cli",
+    schedule: () => () => {},
+    prepare: async () => {
+      throw new Error("CLI not installed");
+    },
+    report: (error, target) =>
+      reported.push({ cause: error instanceof Error ? error.message : "?", ...target }),
+  });
+  try {
+    await sessions.handle("owner", start);
+    const done = await sessions.completed("owner", "missing-cli");
+    expect(done.state).toBe("failed");
+    expect(JSON.stringify(done)).not.toContain("CLI not installed");
+    expect(reported).toEqual([{ cause: "CLI not installed", provider: "codex", action: "login" }]);
+  } finally {
+    await sessions.close();
+  }
+});
+
+test("a daemon shutting down refuses a new sign-in as stopping", async () => {
+  const sessions = new ProviderLoginSessions({
+    now: () => 100,
+    id: () => "late",
+    schedule: () => () => {},
+    prepare: async () => ({ run: async () => ({ success: true }) }),
+  });
+  await sessions.close();
+  expect((await sessions.handle("owner", start)).result).toEqual({
+    ok: false,
+    error: "unavailable",
+    reason: "stopping",
+  });
+});

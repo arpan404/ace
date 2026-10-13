@@ -36,6 +36,11 @@ export interface LoginSessionsOptions {
   ): Promise<ProviderLoginDriver>;
   lifetimeMs?: number;
   instanceKey?(provider: ProviderKind, instance?: string): string | undefined;
+  /**
+   * A sign-in ended in `failed` because preparation or the CLI threw. Clients only ever see the
+   * category; the cause goes to the daemon's redacting log so the failure is diagnosable.
+   */
+  report?(error: unknown, target: { provider: ProviderKind; action: "login" | "logout" }): void;
 }
 interface Job {
   owner: string;
@@ -108,7 +113,12 @@ export class ProviderLoginSessions {
       requestId: request.requestId,
       result: { ok: true, progress: ProviderLoginProgress.parse(job.progress) },
     });
-    if (this.closed) return failure("unavailable");
+    if (this.closed)
+      return {
+        type: "provider.login.result",
+        requestId: request.requestId,
+        result: { ok: false, error: "unavailable", reason: "stopping" },
+      };
     if (request.type === "provider.login.start" || request.type === "provider.logout") {
       const key = JSON.stringify([
         request.provider,
@@ -267,8 +277,18 @@ export class ProviderLoginSessions {
         signal.throwIfAborted();
         success = true;
       }
-    } catch {
-      // Exceptions and CLI diagnostics may contain credentials. Publish categories only.
+    } catch (error) {
+      // Exceptions and CLI diagnostics may contain credentials. Publish categories only; the
+      // cause goes to the redacting daemon log, unless the session was cancelled or expired.
+      if (!signal.aborted)
+        try {
+          this.options.report?.(error, {
+            provider: job.progress.provider,
+            action: job.progress.action,
+          });
+        } catch {
+          // A failing reporter must not strand the session before its final state.
+        }
     }
     try {
       await job.driver?.drain?.();

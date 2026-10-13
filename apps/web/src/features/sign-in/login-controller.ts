@@ -5,6 +5,7 @@ import type {
   ProviderKind,
   ProviderLoginInput,
   ProviderLoginProgress,
+  ProviderLoginUnavailableReason,
   ApiKeyUpstream,
 } from "@ace/protocol";
 
@@ -43,7 +44,12 @@ export type LoginRefusal =
 
 export type LoginView =
   | { kind: "requesting" }
-  | { kind: "refused"; reason: LoginRefusal }
+  | {
+      kind: "refused";
+      reason: LoginRefusal;
+      /** Why the daemon couldn't run sign-in, when it said. */
+      detail?: ProviderLoginUnavailableReason | undefined;
+    }
   | {
       kind: "progress";
       progress: ProviderLoginProgress;
@@ -207,14 +213,17 @@ export class LoginController {
               ...(method ? { method } : {}),
               ...(upstream ? { upstream } : {}),
             });
-      if (!reply.result.ok)
+      if (!reply.result.ok) {
+        const detail = "reason" in reply.result ? reply.result.reason : undefined;
         return this.set({
           kind: "refused",
           reason:
             reply.result.error === "unsupported" || reply.result.error === "failed"
               ? "unavailable"
               : reply.result.error,
+          ...(detail ? { detail } : {}),
         });
+      }
       const { progress } = reply.result;
       if (!progress) return this.set({ kind: "refused", reason: "unavailable" });
       this.session = progress.session;

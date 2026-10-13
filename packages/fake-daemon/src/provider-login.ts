@@ -1,7 +1,13 @@
 import { fakeApiKeySupport } from "./provider-auth-support.ts";
 import { ProviderLoginRequest, ProviderLoginProgress, OnboardingRequest } from "@ace/protocol";
 import { onboardingChecklist, providerReadiness } from "@ace/core";
-import type { ClientMessage, ProviderKind, ProviderStatus, ServerMessage } from "@ace/protocol";
+import type {
+  ClientMessage,
+  ProviderKind,
+  ProviderLoginUnavailableReason,
+  ProviderStatus,
+  ServerMessage,
+} from "@ace/protocol";
 
 type Scenario = "device_code" | "browser" | "choice" | "failure";
 interface Job {
@@ -16,6 +22,8 @@ interface Job {
 /** Browser completion is explicit through complete(), so fixtures do not depend on wall time. */
 export class FakeProviderLogin {
   scenarios: Partial<Record<ProviderKind, Scenario>> = {};
+  /** Providers whose sign-in the daemon can't run, and the reason it gives. */
+  refusals: Partial<Record<ProviderKind, ProviderLoginUnavailableReason>> = {};
   private jobs = new Map<string, Job>();
   private subscribers = new Map<(message: ServerMessage) => void, string>();
   private dismissed = new Set<string>();
@@ -238,6 +246,15 @@ export class FakeProviderLogin {
       );
       if (active || this.jobs.size >= 32) {
         error("busy");
+        return true;
+      }
+      const refusal = this.refusals[input.provider];
+      if (refusal) {
+        respond({
+          type: "provider.login.result",
+          requestId: input.requestId,
+          result: { ok: false, error: "unavailable", reason: refusal },
+        });
         return true;
       }
       const scenario =

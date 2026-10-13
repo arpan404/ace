@@ -33,8 +33,8 @@
       "sha256": "cfce93e7ba701598b2d4c0fa4015d3e1ef87b81da217b186f0b486f4093f5ce5"
     },
     "push.md": {
-      "bytes": 92945,
-      "sha256": "b145ea3b5d32c4a846ebfacf2481c06ab0ee4aa3e82e6014e80ef6a49a1311b1"
+      "bytes": 93031,
+      "sha256": "a41d08956f48196e670e84f7a093820fb07232cca8ecfb8b4668a5d191794eb0"
     },
     "requests.md": {
       "bytes": 88099,
@@ -2017,8 +2017,12 @@
       "sha256": "a81748b59a5d0a944bfabf30e35933bd047f8c962e0415ee97ab57480fea644c"
     },
     "schema/ProviderLoginResult.json": {
-      "bytes": 1357,
-      "sha256": "4f540d23d2ca7b9e0cb5a75837677cbd815f4d0497c354802404004330309dd5"
+      "bytes": 1486,
+      "sha256": "afe295c62feb3ade4ac566fc907d2ecafbdeb092eb269099334b9239cae62026"
+    },
+    "schema/ProviderLoginUnavailableReason.json": {
+      "bytes": 245,
+      "sha256": "be51ee5f24a618853c981ea8cea5ec65c68161bdd85bd0eb43d5f713f068307a"
     },
     "schema/ProviderStatus.json": {
       "bytes": 2756,
@@ -3525,10 +3529,10 @@
       "sha256": "8483e2fd08a5b7f6d6ca7be1172e25765a4dbcc863fa1983e8bcea54b8dd5593"
     },
     "types.md": {
-      "bytes": 735211,
-      "sha256": "81703061b43ad39b5a549433d59f880ddec1fd6bf6399bd702a5d240a0393c97"
+      "bytes": 735484,
+      "sha256": "d1992343db6c37db6b6a64fa23dbc1b01b696fa6e93ca7281da908c28906ea38"
     }
   },
-  "input": "ec2c7326943d3b60790e21fa4412cbadd51554caaa12738529d1355a03636f5b",
+  "input": "3f95a56cd98ff4e4aa0948be08b78f367780ca44eca3e5e7989ad044b0bf4de3",
   "version": 1
 }

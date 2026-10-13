@@ -282,6 +282,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       doctor: sharedDiagnostics.doctor,
       toolchains: sharedDiagnostics.toolchains,
       log: (error) => log.log("error", "WebSocket failure", logError(error)),
+      warn: (message, fields) => log.log("warn", message, fields),
     };
     // Feature services publish only after initialization. Socket handlers read the
     // live registry, so a service can become available after endpoint discovery.

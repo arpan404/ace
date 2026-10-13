@@ -49,8 +49,8 @@ export async function startFilesRelay(
         clients.set(channel, device.id);
         let session: ReturnType<typeof attachRelayService>;
         try {
-          session = attachRelayService({
-            ...options,
+          // `options` is passed as is, never spread: its service fields may read live state.
+          session = attachRelayService(options, {
             channel,
             kind: hello.channel ?? "files",
             device: device.id,

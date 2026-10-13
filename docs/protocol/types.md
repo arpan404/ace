@@ -16742,7 +16742,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"provider.login.result"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"progress":{"$ref":"https://ace.local/protocol/v1/ProviderLoginProgress.json"}},"required":["ok","progress"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"error":{"type":"string","enum":["forbidden","unavailable","busy","not_found","invalid_input"]}},"required":["ok","error"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"progress":{"$ref":"https://ace.local/protocol/v1/ProviderLoginProgress.json"}},"required":["ok","progress"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"error":{"type":"string","enum":["forbidden","unavailable","busy","not_found","invalid_input"]},"reason":{"$ref":"https://ace.local/protocol/v1/ProviderLoginUnavailableReason.json"}},"required":["ok","error"]}]} |
 
 Example:
 
@@ -16764,6 +16764,18 @@ Example:
   },
   "type": "provider.login.result"
 }
+```
+
+## ProviderLoginUnavailableReason
+
+[JSON Schema](schema/ProviderLoginUnavailableReason.json), input validation.
+
+Type: ["not_running","stopping","error","no_terminal"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"no_terminal"
 ```
 
 ## ProvidersChanged
@@ -16798,6 +16810,7 @@ Example:
 
 ```json
 {
+  "operation": "readiness",
   "requestId": "example",
   "type": "providers.request"
 }
@@ -16819,8 +16832,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "ok": true,
-    "providers": []
+    "error": "unavailable",
+    "ok": false
   },
   "type": "providers.result"
 }
@@ -16866,20 +16879,18 @@ Example:
 ```json
 {
   "auth": "logged_in",
-  "authDetail": "example",
   "authEvidence": "credentials_configured",
-  "enabled": true,
-  "error": "example",
-  "installCommand": "example",
-  "installHint": "example",
-  "installed": null,
+  "authMethod": "browser",
+  "installed": true,
+  "instanceId": "example",
+  "latestVersion": "example",
   "loginHint": "example",
-  "modelsAvailable": false,
-  "provider": "antigravity",
+  "permissionModes": [],
+  "provider": "cursor",
   "refreshing": true,
   "runtime": "cli",
   "stale": true,
-  "version": "example"
+  "updateAvailable": true
 }
 ```
 
@@ -16902,7 +16913,7 @@ Example:
 
 ```json
 {
-  "exitCode": 5
+  "exitCode": 8
 }
 ```
 
@@ -16923,9 +16934,8 @@ Example:
 
 ```json
 {
-  "header": "example",
   "id": "example",
-  "multiSelect": false,
+  "multiSelect": true,
   "options": [],
   "text": "example"
 }
@@ -16948,7 +16958,6 @@ Example:
 
 ```json
 {
-  "context": {},
   "delivery": "steer",
   "id": "example",
   "input": [

@@ -100,6 +100,18 @@ export const ProviderLoginEvent = z.object({
   type: z.literal("provider.login.progress"),
   progress: ProviderLoginProgress,
 });
+/**
+ * Why sign-in is `unavailable`, when the daemon knows: its login service is not running on this
+ * connection (`not_running`), the daemon is shutting down (`stopping`), it failed unexpectedly
+ * and logged the cause (`error`), or the CLI's own terminal cannot be opened (`no_terminal`).
+ */
+export const ProviderLoginUnavailableReason = z.enum([
+  "not_running",
+  "stopping",
+  "error",
+  "no_terminal",
+]);
+export type ProviderLoginUnavailableReason = z.infer<typeof ProviderLoginUnavailableReason>;
 export const ProviderLoginResult = z.object({
   type: z.literal("provider.login.result"),
   requestId: id,
@@ -108,6 +120,7 @@ export const ProviderLoginResult = z.object({
     z.object({
       ok: z.literal(false),
       error: z.enum(["forbidden", "unavailable", "busy", "not_found", "invalid_input"]),
+      reason: ProviderLoginUnavailableReason.optional(),
     }),
   ]),
 });

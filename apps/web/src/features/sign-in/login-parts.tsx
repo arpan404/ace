@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
+import type { ProviderLoginUnavailableReason } from "@ace/protocol";
 import type { LoginRefusal } from "./login-controller.ts";
 
 /*
@@ -70,4 +71,21 @@ export const refusals: Record<LoginRefusal, (name: string) => [string, string | 
     "ace can't reach the computer running it",
     "Check the connection, then try again.",
   ],
+};
+
+/** An `unavailable` refusal the daemon explained: what went wrong and what to do. */
+export const unavailableDetails: Record<
+  ProviderLoginUnavailableReason,
+  (name: string) => [string, string | undefined]
+> = {
+  not_running: () => [
+    "ace's sign-in service isn't running",
+    "If ace just started, try again in a moment. Otherwise restart ace.",
+  ],
+  stopping: () => ["ace is shutting down", "Start ace again, then sign in."],
+  error: (name) => [
+    `ace hit an error starting ${name}'s sign-in`,
+    "Try again. The cause is in ace's log: run ace logs on the computer running ace.",
+  ],
+  no_terminal: (name) => [`ace can't open ${name}'s sign-in terminal here`, undefined],
 };
