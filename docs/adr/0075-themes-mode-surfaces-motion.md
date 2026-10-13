@@ -64,20 +64,32 @@ These are replaced by the theme set and Surfaces:
 
 ### Glass
 
-- Floating layers use `.ace-floating`: popovers, menus, dialogs, tooltips, toasts, the command
-  palette, the Work card and the composer strip. The composer is flat glass (`.ace-glass-flat`):
-  blur without displacement, since it grows a line at a time.
-- **Chromium and Electron** bend the backdrop at the rim with an SVG `feDisplacementMap` through
-  `backdrop-filter: url()`.
-  - Each layer gets a filter sized to its own box, with a rim of at most 24px and a 24px bend.
+Glass follows Apple's Liquid Glass guidance (HIG "Materials"; WWDC25 "Meet Liquid Glass"): it is
+for controls floating above content, never for content, and never glass on glass.
+
+- **Glass** (`.ace-floating`): menus, popovers, selects, context menus, hover cards, toasts, the
+  command palette, the Turns panel and floating action bars.
+- **Solid** (`.ace-floating-solid`): dialogs, tooltips, the Work card, the composer and its strip,
+  and anything opened from a glass layer. Primitives pick their material with
+  `useFloatingMaterial()`, which reads a context set by the layer they open from, so a menu opened
+  from a popover is solid. A DOM-nested floating layer is solid by CSS.
+- Translucent resolves to Solid under the Solid setting, while the OS reduces transparency, and in
+  a theme with no glass (Signal).
+- The material: the backdrop blurred and saturated (per theme); on **Chromium and Electron**, that
+  frosted backdrop then bent inside a thin rim by an SVG `feDisplacementMap` through
+  `backdrop-filter: url()`, so lensing stays at the edge and never warps text; a tint as thin as
+  WCAG AA over a white or a black backdrop allows; a specular rim lit from above; a hairline edge;
+  a soft shadow.
+  - Each layer gets a filter sized to its own box at the screen's pixel density, with a rim of at
+    most 10px and a 7px bend. The map is encoded off the main thread (`toBlob`).
   - Layers of the same geometry share a filter, and filters are cached.
   - A layer registers when it appears, through a marker animation's `animationstart`. A single
     ResizeObserver re-measures it only when it resizes. A layer gets its filter at once when it
     opens; after a resize its old rim comes off and a new filter applies once the size has held
     for 160ms.
-- Modal layers (dialogs, sheets, the palette) don't use liquid glass. Their backdrop blurs the page
-  once with a faint tint (a light neutral scrim when solid). Dialog and palette panels are a dense
-  tint with no blur of their own; sheet panels are solid.
+- The palette sits over a backdrop that blurs the page once with a faint tint (a light neutral
+  scrim when solid); its panel is the glass tint and rim with no blur of its own. Sheet and dialog
+  panels are solid.
 - **Safari and Firefox** get blur and saturate.
   - They drop `url()` backdrop filters while `CSS.supports` still reports support, so the engine
     comes from the user agent.

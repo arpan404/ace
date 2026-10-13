@@ -7,7 +7,8 @@ import { cssWithoutLegacyPolyfills } from "./css-polyfills.ts";
 
 /*
  * The production stylesheet, built the way `vite build` builds it (Tailwind scanning the app's
- * source, the polyfill strip, minification), checked for the animations it actually ships.
+ * source, the polyfill strip, minification), checked for the animations it actually ships and
+ * for the backdrop filters it can apply.
  */
 
 const root = import.meta.dirname;
@@ -146,4 +147,43 @@ test("live indicators and every animate-* utility the app uses animate unless mo
     return found;
   });
   expect(problems).toEqual([]);
+});
+
+/** A selector list split at its top-level commas, so `:is(.a, .b)` stays one selector. */
+function selectorsOf(list: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < list.length; i++) {
+    const char = list[i];
+    if (char === "(") depth++;
+    else if (char === ")") depth--;
+    else if (char === "," && depth === 0) {
+      out.push(list.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  out.push(list.slice(start).trim());
+  return out;
+}
+
+test("under Solid surfaces or reduced transparency nothing the stylesheet ships blurs or bends the backdrop", () => {
+  const filtering = rules().filter((rule) => {
+    const value = /(?:^|;)\s*(?:-webkit-)?backdrop-filter:([^;]*)/.exec(rule.body)?.[1]?.trim();
+    if (!value || /^none\b/.test(value)) return false;
+    // Tailwind's bare `.backdrop-filter` composes `--tw-backdrop-*` values that only another
+    // backdrop utility sets: on its own it filters nothing. A utility that sets one is caught.
+    const composedOnly = /^(?:var\(--tw-backdrop-[\w-]+,\)\s*)+$/.test(value);
+    return !composedOnly || /--tw-backdrop-[\w-]+:/.test(rule.body);
+  });
+  // The glass itself is in the build, so this checks real rules and not an empty list.
+  expect(filtering.length).toBeGreaterThan(0);
+  // `data-surface` is "solid" under the Solid setting, reduced transparency and Signal, so a
+  // selector that needs it to be "translucent" can't match then.
+  const unguarded = filtering.flatMap((rule) =>
+    selectorsOf(rule.selector).filter(
+      (selector) => !/\[data-surface=(["']?)translucent\1\]/.test(selector),
+    ),
+  );
+  expect(unguarded).toEqual([]);
 });

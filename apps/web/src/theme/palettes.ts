@@ -6,7 +6,7 @@ import { harbor } from "./sources/harbor.ts";
 import { signal } from "./sources/signal.ts";
 import { tty } from "./sources/tty.ts";
 import { umbra } from "./sources/umbra.ts";
-import { paletteSurfaces } from "./surfaces.ts";
+import { glassTintAlpha, paletteSurfaces } from "./surfaces.ts";
 import type {
   Base,
   Material,
@@ -91,7 +91,14 @@ function fitted(draft: Palette, scheme: Scheme): Palette {
 }
 
 function palette(source: SchemeSource, scheme: Scheme, material: Material): Palette {
+  // The glass is solved against the designed text, before any fitting: fitting only moves text
+  // further from the surfaces, so the tint stays thick enough and never shifts with it.
+  const glassTint = glassTintAlpha(
+    { s2: source.raised, t1: source.text, t2: source.muted, t3: source.subtle, material },
+    scheme,
+  );
   const draft: Palette = {
+    glassTint,
     ...source,
     s0: source.canvas,
     s1: source.surface,

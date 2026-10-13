@@ -10,7 +10,8 @@ export const tty: ThemeSource = {
   name: "Tty",
   character: "Terminal-native, set entirely in monospace",
   fonts: ttyFonts,
-  material: glassy,
+  // Terminal glass: frosted, with almost no colour boost.
+  material: glassy({ blur: 20, saturate: 110 }, { blur: 24, saturate: 110 }),
   light: {
     canvas: "#F6F6F2",
     sidebar: "#EDEDE8",

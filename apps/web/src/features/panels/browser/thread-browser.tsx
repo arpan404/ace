@@ -50,7 +50,7 @@ function ThreadBrowser(props: { threadId: string }) {
       source.nativeShown?.(threadId, !!desktopBrowserViews() && view?.backend === "embedded");
   }, [source, threadId, showingBrowser, view?.backend]);
   return view?.pendingDialog && !showingBrowser ? (
-    <div className="pointer-events-auto overflow-hidden rounded-popup ace-floating shadow-glass">
+    <div className="pointer-events-auto overflow-hidden rounded-popup ace-floating-solid shadow-glass">
       <PageDialog
         view={view}
         browser={{

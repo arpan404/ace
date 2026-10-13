@@ -10,7 +10,8 @@ export const folio: ThemeSource = {
   name: "Folio",
   character: "Warm paper for long reading, with a serif transcript",
   fonts: folioFonts,
-  material: glassy,
+  // Paper glass: a soft boost, so colour behind never outshouts the warm page.
+  material: glassy({ blur: 24, saturate: 130 }, { blur: 28, saturate: 125 }),
   light: {
     canvas: "#F9F6F0",
     sidebar: "#F1ECE3",

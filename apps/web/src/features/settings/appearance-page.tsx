@@ -7,11 +7,13 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import {
   TranscriptSize,
+  themeHasGlass,
   transcriptSizes,
   type Density,
   type ReduceMotion,
   type SurfaceSetting,
 } from "@/theme/appearance.ts";
+import { themes } from "@/theme/palettes.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { settingRow, type SettingId } from "./settings-index.ts";
 
@@ -48,7 +50,7 @@ function PickerGroup(props: { id: SettingId; children: ReactNode }) {
 
 /** Mode, theme, surfaces, motion, density and transcript size. Every change applies at once. */
 export function AppearanceSettings() {
-  const { appearance, update, systemReducesTransparency } = useTheme();
+  const { appearance, update, resolved, systemReducesTransparency } = useTheme();
   return (
     <>
       <PickerGroup id="appearance.mode">
@@ -64,9 +66,13 @@ export function AppearanceSettings() {
         <SettingRow
           {...settingRow("appearance.surfaces")}
           description={
-            systemReducesTransparency && appearance.surface === "translucent"
-              ? "Solid while your system reduces transparency"
-              : undefined
+            appearance.surface !== "translucent"
+              ? undefined
+              : !themeHasGlass(appearance.theme, resolved.scheme)
+                ? `${themes[appearance.theme].name} is always solid`
+                : systemReducesTransparency
+                  ? "Solid while your system reduces transparency"
+                  : undefined
           }
         >
           <SegmentedControl

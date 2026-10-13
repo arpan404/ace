@@ -4,6 +4,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { DialogOverlay } from "./dialog.tsx";
+import { FloatingContents } from "./floating-material.tsx";
 import { Kbd } from "./kbd.tsx";
 import { layers, menuLabel, overlaySurface } from "./menu-styles.ts";
 
@@ -44,7 +45,7 @@ function CommandDialog({
             className,
           )}
         >
-          {children}
+          <FloatingContents glass>{children}</FloatingContents>
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>

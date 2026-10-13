@@ -2,7 +2,8 @@ import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
-import { layers, menuItem, popupSurface } from "./menu-styles.ts";
+import { useFloatingMaterial } from "./floating-material.tsx";
+import { layers, menuItem, popupFrame } from "./menu-styles.ts";
 
 export interface SelectOption<T extends string> {
   value: T;
@@ -28,6 +29,7 @@ function Select<T extends string>(props: {
   "aria-invalid"?: boolean | undefined;
   "aria-describedby"?: string | undefined;
 }) {
+  const material = useFloatingMaterial();
   return (
     <SelectPrimitive.Root
       items={props.options}
@@ -65,7 +67,7 @@ function Select<T extends string>(props: {
           sideOffset={6}
           className={cn(layers.popup, "isolate outline-none [-webkit-app-region:no-drag]")}
         >
-          <SelectPrimitive.Popup className={cn(popupSurface, "min-w-(--anchor-width)")}>
+          <SelectPrimitive.Popup className={cn(material, popupFrame, "min-w-(--anchor-width)")}>
             <SelectPrimitive.List className="max-h-64 overflow-y-auto">
               {props.options.map((option) => (
                 <SelectPrimitive.Item

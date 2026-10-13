@@ -1,12 +1,11 @@
 /**
  * The surface of every control floating over the transcript (Jump to live, the jump bar, a
  * failed jump): a 32px pill on the floating material (`.ace-floating`: glass under Translucent,
- * solid under Solid), outlined by its 1px edge ring and lifted by the floating shadow. It sits
- * over moving text and code, so under Translucent it takes the dense modal tint: still glass at
- * its rim, but its label reads as on a solid surface.
+ * solid under Solid), with the rim, edge and floating shadow. The glass tint keeps its label at
+ * AA over any text or code moving under it.
  */
 export const floatingControl =
-  "ace-floating inline-flex h-8 items-center gap-1.5 rounded-full text-ui text-popover-foreground [--glass-tint:var(--glass-tint-modal)] [--glass-tint-liquid:var(--glass-tint-modal)]";
+  "ace-floating inline-flex h-8 items-center gap-1.5 rounded-full text-ui text-popover-foreground";
 
 /** Hovering a floating control rings its edge and fills it with the next surface, opaque in either mode. */
 export const floatingHover =
