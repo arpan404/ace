@@ -8,7 +8,7 @@ import {
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { rowCard } from "@/components/ui/rules.ts";
+import { plainRow } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -20,22 +20,34 @@ import { NextRun } from "./automation-next-run.tsx";
 import { describeWhen, localTimeZone } from "./schedule.ts";
 import { useAutomationActions, useAutomations } from "./use-automations.ts";
 
-/** Project schedules use the same query, writes and next-run wording as Automations. */
-export function WorkAutomations(props: {
-  workspaceId: string;
-  workspacePath?: string | undefined;
-  onClose(): void;
-}) {
+/**
+ * The project's schedules, read with the same query as Automations: `entries` once read,
+ * `failed` when the read failed (with `retry`). Undefined entries while it reads.
+ */
+export function useProjectAutomations(workspaceId: string, workspacePath: string | undefined) {
   const query = useAutomations();
-  const navigate = useNavigate();
   const entries = query.data?.filter(
     ({ automation }) =>
       automation.trigger.kind === "schedule" &&
-      (automation.workspace === props.workspaceId || automation.workspace === props.workspacePath),
+      (automation.workspace === workspaceId || automation.workspace === workspacePath),
   );
+  return { entries, failed: query.isError, retry: () => void query.refetch() };
+}
+
+/**
+ * Project schedules use the same query, writes and next-run wording as Automations. A project
+ * with none shows nothing at all; the section's settings icon opens Automations.
+ */
+export function WorkAutomations(props: {
+  automations: ReturnType<typeof useProjectAutomations>;
+  onClose(): void;
+}) {
+  const navigate = useNavigate();
+  const { entries, failed, retry } = props.automations;
+  if (!failed && !entries?.length) return null;
   return (
-    <section aria-label="Automations" className="py-1.5">
-      <div className="flex h-7 items-center justify-between pr-1 pl-2.5">
+    <section aria-label="Automations">
+      <div className="flex h-7 items-center justify-between pr-1 pl-2">
         <h3 className="text-xs text-muted-foreground">Automations</h3>
         <IconButton
           icon={SlidersHorizontalIcon}
@@ -47,24 +59,16 @@ export function WorkAutomations(props: {
           }}
         />
       </div>
-      {query.isError ? (
+      {failed ? (
         <button
           type="button"
-          className="focus-ring-inset flex h-8 w-full items-center rounded-md px-2.5 text-left text-ui text-status-failed"
-          onClick={() => void query.refetch()}
+          className="focus-ring-inset flex h-8 w-full items-center rounded-md px-2 text-left text-ui text-status-failed"
+          onClick={retry}
         >
           Couldn't read automations. Try again
         </button>
-      ) : query.isPending ? (
-        <p className="flex h-8 items-center px-2.5 text-ui text-muted-foreground">
-          Reading automations…
-        </p>
-      ) : !entries?.length ? (
-        <p className="flex h-8 items-center px-2.5 text-ui text-muted-foreground">
-          No scheduled tasks
-        </p>
       ) : (
-        entries.map((entry) => (
+        entries?.map((entry) => (
           <AutomationLine key={entry.automation.id} entry={entry} onClose={props.onClose} />
         ))
       )}
@@ -103,13 +107,13 @@ function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
         ? "Automations are off on this machine"
         : undefined;
   const cadence = describeWhen(automation.trigger, localTimeZone());
-  // One outlined row card like Summary's agents: the title over its schedule and when it next
-  // runs, its toggle, and Edit and Run on hover or focus (always on touch, with no hover).
+  // One plain row like Summary's agents: the title over its schedule and when it next runs, its
+  // toggle, and Edit and Run on hover or focus (always on touch, with no hover).
   return (
     <div
       className={cn(
-        "group/automation mb-1 flex min-h-11 min-w-0 items-center gap-1 pr-1.5 pl-2.5",
-        rowCard,
+        "group/automation flex min-h-11 min-w-0 items-center gap-1 pr-1.5 pl-2",
+        plainRow,
       )}
     >
       <CalendarDotsIcon aria-hidden size={16} className="shrink-0 text-muted-foreground" />

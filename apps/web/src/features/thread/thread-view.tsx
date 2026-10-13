@@ -1,6 +1,7 @@
 import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import { lazy, Suspense, use, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, use, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { TurnActivity } from "@ace/ui-core";
 import {
   loadThreadBrowser,
   threadWorkspace,
@@ -18,6 +19,7 @@ import { ForkOpener } from "./transitions/fork-opener.ts";
 import { ThreadLoadError } from "./thread-load-error.tsx";
 import { SyncingNote, ThreadLoading } from "./thread-loading.tsx";
 import { useLatestForkPoint } from "./transitions/use-fork-point.ts";
+import { useTurnActivity } from "./transcript/use-turn-activity.ts";
 
 const ThreadBrowser = lazy(loadThreadBrowser);
 
@@ -128,6 +130,23 @@ export function ThreadView(props: { threadId: string; target?: ThreadTarget | un
   );
 }
 
+/** The turn's live line, for a panel that draws it its own way (the Summary's head line). */
+function TurnActivityOf(props: {
+  threadId: string;
+  children(activity: TurnActivity | undefined): ReactNode;
+}) {
+  return props.children(useTurnActivity(props.threadId));
+}
+
+/** Takes the person to the request in the composer's strip: its first control takes focus. */
+function focusRequest() {
+  // Focus brings it into view.
+  document
+    .querySelector("[data-composer-strip]")
+    ?.querySelector<HTMLElement>("button:not(:disabled), input, textarea, [tabindex='0']")
+    ?.focus();
+}
+
 function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefined }) {
   const nav = useThreadNav();
   const meta = useThreadMeta(props.threadId);
@@ -147,6 +166,8 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
       ...outer,
       fork: forkPoint && (() => setForking(forkPoint)),
       gitAction: ThreadGitAction,
+      turnActivity: TurnActivityOf,
+      showRequest: focusRequest,
     }),
     [outer, forkPoint],
   );
