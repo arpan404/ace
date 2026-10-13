@@ -21,7 +21,6 @@ import { useThreadAccount } from "../lib/thread-account.ts";
 import type { QueueControls } from "./use-queue.ts";
 
 import { useThreadModelAvailability } from "../lib/model-availability.ts";
-import { RetainedInputDetail } from "./retained-input-detail.tsx";
 
 const icons: Record<Notice["kind"], typeof PauseIcon> = {
   limited: HourglassMediumIcon,
@@ -81,6 +80,7 @@ export function useHeldQueue(
 /**
  * In the queue's strip while the queue is held: the reason and its way out (resume now, resume
  * at reset, snooze until reset, move to the account with the most room, or choose a model).
+ * A message that wasn't sent is never said here: the transcript shows it (`HeldSend`).
  */
 export function QueueNotice(props: {
   threadId: string;
@@ -101,7 +101,7 @@ export function QueueNotice(props: {
       className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1 py-1 text-ui"
     >
       <div className="flex min-w-0 basis-full items-start gap-2">
-        {notice.kind === "model" || notice.kind === "not_sent" ? (
+        {notice.kind === "model" ? (
           <Dot tone="needs-you" />
         ) : notice.kind === "limited" && account ? (
           <ProviderAccountIcon provider={account.provider} account={account} size={16} />
@@ -115,12 +115,6 @@ export function QueueNotice(props: {
         <div className="min-w-0">
           <p className="font-medium text-foreground">{notice.title}</p>
           {detail && <p className="text-sm text-muted-foreground">{detail}</p>}
-          {notice.kind === "not_sent" && (
-            <RetainedInputDetail
-              threadId={props.threadId}
-              commandId={props.queue.messages[0]?.id}
-            />
-          )}
         </div>
       </div>
       <div className="flex items-center gap-1">

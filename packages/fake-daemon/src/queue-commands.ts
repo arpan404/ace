@@ -142,6 +142,16 @@ export function queueCommand(
     case "queue.remove":
       host.queued.splice(index, 1);
       host.queueDirty = true;
+      // As the daemon: removing the last message a failed send kept releases that hold.
+      if (
+        host.queue.paused &&
+        (host.queue.reason === "not_sent" || host.queue.reason === "model_unavailable") &&
+        host.queued.length === 0
+      ) {
+        host.queue.paused = false;
+        host.queue.reason = null;
+        host.queue.lastFailure = null;
+      }
       return { ok: true, facts: [{ type: "queue.changed", count: host.queued.length }] };
     case "queue.pause":
       hold(host, "manual", null);

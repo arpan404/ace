@@ -394,3 +394,31 @@ test.each(["model_unavailable", "Cannot open directory"])(
     expect(h.store.snapshotThread(id).thread.status).toEqual({ state: "waiting", on: "queue" });
   },
 );
+
+test("removing the message a failed start kept releases the hold, so the next message isn't held", async () => {
+  const frames = scriptFrames();
+  const h = await fixture([], frames);
+  h.registry.register(
+    {
+      ...h.adapter,
+      async openSession() {
+        throw new Error("Cannot open directory");
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
+  const id = await h.create();
+  const kept = h.engine.queue(id);
+  expect(kept).toMatchObject({ paused: true, reason: "not_sent" });
+  const message = kept.messages[0];
+  if (!message) throw new Error("Missing kept message");
+  expect(
+    h.command({
+      type: "queue.remove",
+      threadId: id,
+      expectedRevision: kept.revision,
+      messageId: message.id,
+    }).ok,
+  ).toBe(true);
+  expect(h.engine.queue(id)).toMatchObject({ paused: false, reason: null, messages: [] });
+});

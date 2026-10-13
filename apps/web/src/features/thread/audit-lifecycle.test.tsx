@@ -1,4 +1,4 @@
-import { HistorySession, ThreadId, type CommandPayload } from "@ace/protocol";
+import { CommandId, DeviceId, HistorySession, ThreadId, type CommandPayload } from "@ace/protocol";
 import { longHistory, replayCursor, workbench } from "@ace/fake-daemon";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -417,6 +417,18 @@ test("Retry after a local save failure still retains only one recoverable messag
 test("Continue uses the live restart reason while an older queue page remains on screen", async () => {
   const made = await idle();
   made.daemon.holdQueue("thread-router", "not_sent");
+  act(() =>
+    made.daemon.command({
+      id: CommandId.parse("kept-send"),
+      deviceId: DeviceId.parse("phone"),
+      payload: {
+        type: "thread.send",
+        threadId: ThreadId.parse("thread-router"),
+        input: [{ type: "text", text: "kept" }],
+        delivery: "queue",
+      },
+    }),
+  );
   await screen.findByRole("button", { name: "Try again" });
   // The previous page remains mounted; the revision push requests a replacement that is held.
   made.daemon.holdRequests("queue.get");

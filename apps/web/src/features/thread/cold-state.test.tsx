@@ -29,15 +29,15 @@ test("legacy OpenCode bookkeeping and replayed native answers stay out of the co
   );
 });
 
-test("a retained failure names its message and current model availability on the composer", async () => {
+test("a retained failure shows its message in the transcript, and an available model isn't called unavailable", async () => {
   const app = harness();
   seedColdStartState(app.daemon);
   await app.open("/t/cold-unsent");
-  const queue = await screen.findByRole("list", { name: "Queued messages" });
-  expect(within(queue).getByText("Which file needs fixing?")).toBeTruthy();
-  expect(await screen.findByRole("region", { name: "Message not sent" })).toBeTruthy();
+  const item = await screen.findByRole("region", { name: "Message not sent" });
+  expect(await within(item).findByText("Which file needs fixing?")).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
   expect(screen.queryByRole("button", { name: /Model:.*Unavailable/ })).toBeNull();
-  expect(within(screen.getByRole("main")).queryByText("Not sent")).toBeNull();
+  expect(within(screen.getByRole("main")).getAllByText("Not sent")).toHaveLength(1);
 });
 
 test("a retained failed input appears in Activity Needs you", async () => {
@@ -82,7 +82,8 @@ test("a model waiting for its first catalog never shows Unavailable", async () =
     (model) => model.provider !== "opencode",
   );
   await app.open("/t/cold-unsent");
-  await screen.findByRole("list", { name: "Queued messages" });
+  const item = await screen.findByRole("region", { name: "Message not sent" });
+  await within(item).findByText("Which file needs fixing?");
   expect(screen.queryByRole("button", { name: /Model:.*Unavailable/ })).toBeNull();
   expect(screen.queryByText(/isn't available in OpenCode/)).toBeNull();
 });
