@@ -5,11 +5,12 @@ import { defaultSpeed, speedControl, speedOption, speedTiers } from "./speed.ts"
 
 type ModelTier = CatalogModel["serviceTiers"][number];
 
-const tier = (id: string, speed: ModelTier["speed"], serviceTier: string | undefined = id) => ({
+/** A catalog tier; `null` for one set some other way than a `serviceTier` option. */
+const tier = (id: string, speed: ModelTier["speed"], serviceTier: string | null = id) => ({
   id,
   name: id,
   ...(speed ? { speed } : {}),
-  parameters: serviceTier === undefined ? {} : { serviceTier },
+  parameters: serviceTier === null ? {} : { serviceTier },
 });
 const codex = (serviceTiers: ModelTier[], defaultTier?: string) => {
   const model = { serviceTiers, defaultTier };
@@ -34,7 +35,7 @@ test("a speed ace doesn't know yet isn't offered, and the known ones still are",
 });
 
 test("a tier ace can't ask for by service tier isn't offered", () => {
-  const model = codex([tier("fast", "fast", undefined)]);
+  const model = codex([tier("fast", "fast", null)]);
   const control = speedControl({ model, current: undefined });
   expect(control.tiers).toEqual([]);
   expect(control.reason).toBe("GPT-5 has no faster tier");
@@ -44,6 +45,12 @@ test("each speed is asked for by its own service tier, and standard by leaving i
   const model = codex([tier("priority", "fast"), tier("ultra", "ultrafast")]);
   expect(speedOption(model.speeds, "ultrafast")).toBe("ultra");
   expect(speedControl({ model, current: "ultra" }).speed).toBe("ultrafast");
+  expect(speedOption(model.speeds, "standard")).toBeUndefined();
+  expect(speedControl({ model, current: undefined }).speed).toBe("standard");
+});
+
+test("choosing standard on a model that is standard by default sends no tier, even one it lists", () => {
+  const model = codex([tier("default", "standard"), tier("priority", "fast")]);
   expect(speedOption(model.speeds, "standard")).toBeUndefined();
   expect(speedControl({ model, current: undefined }).speed).toBe("standard");
 });

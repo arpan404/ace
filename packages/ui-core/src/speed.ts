@@ -33,9 +33,9 @@ const requestable = (tier: ModelTier) => {
 /**
  * The speeds a model offers, slowest first, one per speed. Only tiers set through a
  * `serviceTier` launch option count (a thread can't be started or switched with anything else).
- * Empty when there is nothing faster than standard to choose. Standard is always first: its own
- * tier when the catalog lists one, else "default" when the catalog runs the model faster unless
- * asked otherwise, else no option at all.
+ * Empty when there is nothing faster than standard to choose. Standard is always first, asked for
+ * (by its own tier, else "default") only when the catalog runs the model faster unless told
+ * otherwise; otherwise leaving the option out already means standard.
  */
 export function speedTiers(model: TierSource): readonly SpeedTier[] {
   const faster = new Map<Speed, SpeedTier>();
@@ -52,11 +52,13 @@ export function speedTiers(model: TierSource): readonly SpeedTier[] {
     const speed = knownSpeed(tier.speed);
     return tier.id === model.defaultTier && speed && speed !== "standard" && requestable(tier);
   });
+  // Standard is asked for by name only when the model would otherwise run faster; where it is
+  // already the default, leaving the option out keeps the turn on it.
   return [
-    standard ?? {
+    {
       speed: "standard",
-      name: "Standard",
-      value: fasterByDefault ? "default" : undefined,
+      name: standard?.name ?? "Standard",
+      value: fasterByDefault ? (standard?.value ?? "default") : undefined,
     },
     ...[...faster.values()].toSorted((a, b) => speedRank(a.speed) - speedRank(b.speed)),
   ];
