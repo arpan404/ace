@@ -10,8 +10,9 @@
  *
  * `[data-reduce-motion]` on <html> (the Reduce motion setting, or `prefers-reduced-motion` under
  * System) keeps fades and drops movement: distances go to zero, the spring settles without
- * overshoot and anything marked `.fx-flourish` (sheens, glows, trails) stops. Perpetual
- * animations are refused by `bun run check:ui` (the static motion policy).
+ * overshoot and anything marked `.fx-flourish` (sheens, glows, trails) stops. The only
+ * animations that run forever are the live-activity indicators at the end of this file (spinner,
+ * working glyph, startup mark, progress sweep, pulses); `bun run check:ui` refuses any other.
  */
 :root {
   --motion-fast: 120ms;
@@ -139,10 +140,6 @@
   .fx-view-in {
     animation: fx-fade-in var(--motion-base) var(--ease-out) both;
   }
-  /* Indeterminate progress is a stationary segment; data updates drive real progress. */
-  .fx-indeterminate {
-    transform: translateX(100%);
-  }
   /* The state glyph already identifies waiting. A second decorative ring adds no information. */
   .fx-ring {
     display: none;
@@ -206,13 +203,6 @@
   }
 }
 
-/* Unlayered policy overrides generated Tailwind animation utilities at every consumer. */
-.animate-pulse,
-.animate-spin,
-.animate-ping {
-  animation: none;
-}
-
 @keyframes fx-queue-in {
   from {
     opacity: 0;
@@ -255,4 +245,90 @@
 }
 :root[data-reduce-motion] .step-shimmer {
   animation: none;
+}
+
+/*
+ * Live activity: the only animations that run forever. Each shows work that is happening right
+ * now and goes away when it ends, moves only transform or opacity (compositor-only, no layout or
+ * paint), stops in a hidden window, pauses while the daemon is unreachable (app-shell) and holds
+ * still under reduced motion.
+ *
+ *   .spin-ring          the Spinner: one turn every 800ms
+ *   .fx-spin-slow       the sidebar's dashed working mark: one turn every 2.4s
+ *   .fx-walk            the 3x3 working glyph: a lit cell walks round the edge, one step per 120ms
+ *   .fx-breathe         the startup mark while ace starts
+ *   .fx-indeterminate   a progress bar that doesn't know how far along it is
+ *   .animate-pulse      Tailwind's pulse (streaming caret, connection dot, browser agent line)
+ */
+.spin-ring {
+  animation: ace-spin 800ms linear infinite;
+}
+.fx-spin-slow {
+  animation: ace-spin 2400ms linear infinite;
+}
+.fx-walk > * {
+  opacity: 0.25;
+}
+.fx-walk:not([data-still]) > [data-step] {
+  opacity: 0.2;
+  animation: fx-walk calc(var(--motion-fast) * 8) linear infinite;
+  animation-delay: calc(var(--motion-fast) * (var(--step) - 8));
+}
+.fx-walk:not([data-still]) > [data-centre] {
+  opacity: 0.4;
+}
+/* Still (waiting, held, or reduced motion): corners and centre lit. */
+:is(.fx-walk[data-still], :root[data-reduce-motion] .fx-walk) > :is([data-corner], [data-centre]) {
+  opacity: 0.9;
+}
+.fx-breathe {
+  animation: fx-breathe 1.6s ease-in-out infinite alternate;
+}
+.fx-indeterminate {
+  animation: fx-sweep 1.4s var(--ease-out) infinite;
+}
+:root[data-reduce-motion]
+  :is(
+    .spin-ring,
+    .fx-spin-slow,
+    .fx-walk > [data-step],
+    .fx-breathe,
+    .fx-indeterminate,
+    .animate-pulse,
+    .animate-spin,
+    .animate-ping
+  ) {
+  animation: none;
+}
+@keyframes ace-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes fx-walk {
+  0%,
+  12.4% {
+    opacity: 1;
+  }
+  12.5%,
+  24.9% {
+    opacity: 0.55;
+  }
+  25%,
+  100% {
+    opacity: 0.2;
+  }
+}
+@keyframes fx-breathe {
+  to {
+    opacity: 0.55;
+  }
+}
+@keyframes fx-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
 }

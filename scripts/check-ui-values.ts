@@ -23,18 +23,22 @@ import { readFileSync, writeFileSync } from "node:fs";
  */
 
 const strict = process.argv.includes("--strict");
-// Status feedback must never schedule perpetual decorative rendering by default.
+// Only live-activity indicators may animate forever (styles/motion.css, "Live activity"): each
+// shows work happening now, moves only transform or opacity and stops under reduced motion.
+const liveKeyframes = new Set(["ace-spin", "fx-walk", "fx-breathe", "fx-sweep"]);
 for (const path of execFileSync("git", ["ls-files", "--", "apps/web/src/styles/*.css"], {
   encoding: "utf8",
 })
   .trim()
   .split("\n")) {
-  if (
-    /\b(animation|animation-iteration-count)\s*:[^;{}]*\binfinite\b/.test(
-      readFileSync(path, "utf8"),
-    )
-  ) {
-    throw new Error(`${path}: continuous CSS animation violates the central static motion policy`);
+  for (const [declaration] of readFileSync(path, "utf8").matchAll(
+    /\b(?:animation|animation-iteration-count)\s*:[^;{}]*\binfinite\b[^;{}]*/g,
+  )) {
+    const names = declaration.match(/[a-z][\w-]*/g) ?? [];
+    if (!names.some((name) => liveKeyframes.has(name)))
+      throw new Error(
+        `${path}: "${declaration}" runs forever; only live-activity keyframes may (${[...liveKeyframes].join(", ")})`,
+      );
   }
 }
 const theme = readFileSync("apps/web/src/styles/index.css", "utf8");

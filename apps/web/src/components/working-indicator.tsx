@@ -1,57 +1,43 @@
 import { formatElapsed, timedWords } from "@ace/ui-core";
-import { useContext, useLayoutEffect, useRef } from "react";
+import { useContext, useLayoutEffect, useRef, type CSSProperties } from "react";
 import { cn } from "@/lib/cn.ts";
-import { useReducedMotion } from "@/lib/motion.ts";
 import { TimeContext } from "@/lib/time.ts";
 
 /*
- * Something is working: a tiny 3x3 pixel grid whose lit cells walk round it, words, and how long
- * it has run in tabular figures ("Working for 3m 6s"). The grid steps on the page's shared
- * one-second clock and writes through refs, so it costs no React render and no perpetual CSS animation; under
- * reduced motion it holds one still pattern. Any row that shows something working (a sidebar
- * row, say) can use `WorkingIndicator` for the same look.
+ * Something is working: a tiny 3x3 pixel grid whose lit cell walks round its edge, words, and how
+ * long it has run in tabular figures ("Working for 3m 6s"). The walk is a CSS animation on
+ * opacity (`.fx-walk`, styles/motion.css), so it runs on the compositor with no React render and
+ * no timer; under reduced motion, or while the work waits, it holds one still pattern. Any row
+ * that shows something working (a sidebar row, say) can use `WorkingIndicator` for the same look.
  */
 
 /** The order the lit cell walks: round the edge, clockwise. */
 const walk = [0, 1, 2, 5, 8, 7, 6, 3] as const;
-const still = new Set([0, 2, 4, 6, 8]);
+const corners = new Set([0, 2, 6, 8]);
 
 /** The pixel-grid glyph. `moving: false` holds the still pattern (waiting, stale). */
 function WorkingGlyph(props: { moving?: boolean; className?: string }) {
-  const grid = useRef<HTMLSpanElement>(null);
-  const { seconds } = useContext(TimeContext);
-  const reduced = useReducedMotion();
-  const moving = (props.moving ?? true) && !reduced;
-  useLayoutEffect(() => {
-    const cells = [...(grid.current?.children ?? [])].filter(
-      (cell): cell is HTMLElement => cell instanceof HTMLElement,
-    );
-    const paint = (lit: (index: number) => number) =>
-      cells.forEach((cell, index) => {
-        cell.style.opacity = String(lit(index));
-      });
-    if (!moving) {
-      paint((index) => (still.has(index) ? 0.9 : 0.25));
-      return;
-    }
-    const step = () => {
-      const at = Math.floor(seconds.read() / 1000) % walk.length;
-      const head = walk[at];
-      const tail = walk[(at + walk.length - 1) % walk.length];
-      paint((index) => (index === head ? 1 : index === tail ? 0.55 : index === 4 ? 0.4 : 0.2));
-    };
-    step();
-    return seconds.subscribe(step);
-  }, [seconds, moving]);
+  const moving = props.moving ?? true;
   return (
     <span
-      ref={grid}
       aria-hidden
-      className={cn("grid size-2.5 shrink-0 grid-cols-3 gap-px", props.className)}
+      data-live={moving ? "" : undefined}
+      data-still={moving ? undefined : ""}
+      className={cn("fx-walk grid size-2.5 shrink-0 grid-cols-3 gap-px", props.className)}
     >
-      {Array.from({ length: 9 }, (_, index) => (
-        <span key={index} className="bg-current" />
-      ))}
+      {Array.from({ length: 9 }, (_, index) => {
+        const step = walk.indexOf(index as (typeof walk)[number]);
+        return (
+          <span
+            key={index}
+            data-step={step === -1 ? undefined : ""}
+            data-corner={corners.has(index) ? "" : undefined}
+            data-centre={index === 4 ? "" : undefined}
+            style={step === -1 ? undefined : ({ "--step": step } as CSSProperties)}
+            className="bg-current"
+          />
+        );
+      })}
     </span>
   );
 }
