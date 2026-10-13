@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { ForgeIssueDetail, ForgeIssueSearch, WorkspaceId } from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
+import { createIdleTask } from "@/test/tasks.ts";
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;
 const detail = ForgeIssueDetail.parse({
   ref: { repository, number: 42 },
@@ -179,13 +180,26 @@ test("an unsent issue comment survives leaving and returning while another repos
 test("an issue task preparation keeps its source and text when reopened from the saved draft row", async () => {
   const first = harness();
   seed(first);
+  // New thread starts only in a registered project: give the daemon one in `api`.
+  createIdleTask(first.daemon, {
+    id: "api-task",
+    title: "Earlier API work",
+    workspaceId: "api",
+    provider: "codex",
+  });
   first.daemon.workspace.setForgeRead(
     { op: "forge.issue.detail", workspaceId: WorkspaceId.parse("api"), repository, number: 42 },
     { resource: "issueDetail", value: detail },
   );
   await first.open(`/new?project=api&issue=${encodeURIComponent(detail.url)}`);
-  const message = await screen.findByRole("combobox", { name: "Message" });
-  await waitFor(() => expect(message.textContent).toContain("Original context"));
+  await screen.findByRole("combobox", { name: "Message" });
+  // The composer remounts with the issue's text once the source arrives.
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toContain(
+      "Original context",
+    ),
+  );
+  const message = screen.getByRole("combobox", { name: "Message" });
   await userEvent.clear(message);
   await userEvent.type(message, "Resume issue work");
   await screen.findByRole("link", { name: /^Resume issue work\. Draft/ });
