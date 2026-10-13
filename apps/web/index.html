@@ -21,7 +21,7 @@
        * loads, so a light OS never sees a dark first frame. The script below sets data-first-visit.
        */
       html {
-        background: #121212;
+        background: #0d0d0d;
         color-scheme: dark;
       }
       @media (prefers-color-scheme: light) {
@@ -45,7 +45,7 @@
         inset: 0;
         z-index: 140;
         pointer-events: none;
-        background: var(--background, #121212);
+        background: var(--background, #0d0d0d);
         transition: opacity var(--motion-base, 200ms) var(--ease-out, ease);
       }
       #boot[data-leaving] {
@@ -69,7 +69,7 @@
         transform: translate(-50%, -50%);
         border-radius: 30%;
         background: var(--foreground, #f0f0f0);
-        color: var(--background, #121212);
+        color: var(--background, #0d0d0d);
       }
       /* Shown under the mark when the boot itself fails or nothing replaces this in 15s. */
       #boot .stuck {
