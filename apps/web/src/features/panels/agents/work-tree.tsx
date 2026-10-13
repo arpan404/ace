@@ -13,6 +13,7 @@ import { cn } from "@/lib/cn.ts";
 import { createContext, use, useCallback, useId, useMemo, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { sectionRule } from "@/components/ui/rules.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { useTreeWork } from "./use-tree-work.ts";
 import { TreeWorkContext } from "./tree-work-context.ts";
@@ -132,7 +133,7 @@ export function WorkTree(props: { threadId: string }) {
             <EmptyState icon={RobotIcon} title="No agents yet" className="h-auto py-4" />
           )}
           {(tasks.length > 0 || queuedCount > 0 || queueWaiting) && (
-            <section aria-labelledby="agents-background">
+            <section aria-labelledby="agents-background" className={cn("mt-2 pt-1", sectionRule)}>
               <h3 id="agents-background" className={heading}>
                 Background
               </h3>
@@ -330,7 +331,7 @@ function AgentRow(props: {
           open();
         }}
         className={cn(
-          "focus-ring-inset relative flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[10px] pr-1 pl-2.5 text-left text-ui",
+          "focus-ring-inset relative flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md pr-1 pl-2.5 text-left text-ui",
           (!root || props.expanded !== undefined) && "cursor-pointer",
         )}
       >
@@ -396,7 +397,7 @@ function TaskRow(props: { threadId: string; taskId: string }) {
       {task.stoppable && (
         <Button
           size="sm"
-          variant="ghost"
+          variant="secondary"
           disabled={stopping}
           onClick={() => void stop.send({ type: "background_task.stop", taskId: task.id })}
         >

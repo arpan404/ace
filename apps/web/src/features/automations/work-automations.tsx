@@ -8,6 +8,8 @@ import {
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { rowCard } from "@/components/ui/rules.ts";
+import { cn } from "@/lib/cn.ts";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -101,15 +103,20 @@ function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
         ? "Automations are off on this machine"
         : undefined;
   const cadence = describeWhen(automation.trigger, localTimeZone());
-  // One 32px row: the title and when it next runs, its toggle, and Edit and Run on hover or
-  // focus (always on touch, where there is no hover).
+  // One outlined row card like Summary's agents: the title over its schedule and when it next
+  // runs, its toggle, and Edit and Run on hover or focus (always on touch, with no hover).
   return (
-    <div className="group/automation flex h-8 min-w-0 items-center gap-1 rounded-md pr-1 pl-2.5 transition-colors duration-(--motion-fast) hover:bg-accent">
+    <div
+      className={cn(
+        "group/automation mb-1 flex min-h-11 min-w-0 items-center gap-1 pr-1.5 pl-2.5",
+        rowCard,
+      )}
+    >
       <CalendarDotsIcon aria-hidden size={16} className="shrink-0 text-muted-foreground" />
       <Tip label={cadence}>
         <button
           type="button"
-          className="focus-ring-inset flex h-8 min-w-0 flex-1 items-center gap-2 rounded-sm px-1.5 text-left text-ui"
+          className="focus-ring-inset flex min-w-0 flex-1 flex-col items-start rounded-sm px-1.5 py-1 text-left text-ui"
           aria-label={`Open automation ${automation.title}`}
           onClick={() => {
             props.onClose();
@@ -119,8 +126,9 @@ function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
             });
           }}
         >
-          <span className="min-w-0 shrink truncate">{automation.title}</span>
-          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          <span className="max-w-full min-w-0 truncate font-medium">{automation.title}</span>
+          <span className="max-w-full min-w-0 truncate text-xs text-muted-foreground">
+            {cadence} ·{" "}
             <NextRun automation={automation} nextRunAt={nextRunAt} now={now} running={running} />
           </span>
         </button>

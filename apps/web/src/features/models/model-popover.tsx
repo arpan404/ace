@@ -4,19 +4,23 @@ import type { ModelControlActions, ModelControlView } from "./control-view.ts";
 import { TunePane, tunable } from "./tune-pane.tsx";
 
 /**
- * The model chip's one popover. It opens on Tune (speed, effort, the model's name); the name
- * opens the picker, and picking a model comes back to Tune on that model's default effort. A
- * model with nothing to tune closes it instead.
+ * The model chip's one popover. It opens on the model list from the chip's name and on Tune
+ * (speed, effort) from its effort; Tune's model name opens the list, and picking a model comes
+ * back to Tune on that model's default effort. A model with nothing to tune closes it instead.
  */
 export function ModelPopover(props: {
   view: ModelControlView;
   actions: ModelControlActions;
+  /** Where it opens: the model list (the chip's name) or Tune (its effort and speed). */
+  initialPane: "tune" | "picker";
   onClose(): void;
 }) {
   const { view, actions } = props;
   // Without a model there is nothing to tune yet: start at the picker.
   const [pane, setPane] = useState<"tune" | "picker">(() =>
-    view.label && !view.unavailable && tunable(view) ? "tune" : "picker",
+    props.initialPane === "tune" && view.label && !view.unavailable && tunable(view)
+      ? "tune"
+      : "picker",
   );
   // A model was just picked: Tune shows it, or the popover closes when it has nothing to tune.
   const [landed, setLanded] = useState(false);

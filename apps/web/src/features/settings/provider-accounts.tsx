@@ -87,7 +87,7 @@ export function ProviderAccounts(props: {
         ))}
         {manageable && (
           <li>
-            <AddAccountRow provider={props.provider} label="+ Add account" />
+            <AddAccountRow provider={props.provider} />
           </li>
         )}
       </SettingList>
@@ -345,7 +345,7 @@ function RemoveAccount(props: {
           <Button variant="ghost" onClick={props.onCancel}>
             Cancel
           </Button>
-          <Button variant="danger" onClick={props.onConfirm}>
+          <Button variant="ghost" tone="danger" onClick={props.onConfirm}>
             Remove
           </Button>
         </DialogFooter>

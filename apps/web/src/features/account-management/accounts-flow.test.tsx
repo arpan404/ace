@@ -25,7 +25,7 @@ test("the provider name opens its accounts and cancelling a new API-key form lea
   expect(within(row).queryByText("3 accounts")).toBeNull();
   await userEvent.click(within(row).getByRole("link", { name: "Codex" }));
   const accounts = await screen.findByRole("list", { name: "Codex accounts" });
-  await userEvent.click(within(accounts).getByRole("button", { name: "+ Add account" }));
+  await userEvent.click(within(accounts).getByRole("button", { name: "Add account" }));
   const form = await screen.findByRole("form", { name: "Add account" });
   await userEvent.click(await within(form).findByRole("combobox", { name: "Sign-in method" }));
   await userEvent.click(await screen.findByRole("option", { name: "API key" }));
@@ -139,7 +139,7 @@ test("the API service picker names its known marks and connects the selected Ope
   const app = harness();
   await app.open("/settings/providers/opencode");
   const accounts = await screen.findByRole("list", { name: "OpenCode accounts" });
-  await userEvent.click(within(accounts).getByRole("button", { name: "+ Add account" }));
+  await userEvent.click(within(accounts).getByRole("button", { name: "Add account" }));
   const form = await screen.findByRole("form", { name: "Add account" });
   await userEvent.click(await within(form).findByRole("combobox", { name: "Sign-in method" }));
   await userEvent.click(await screen.findByRole("option", { name: "API key" }));

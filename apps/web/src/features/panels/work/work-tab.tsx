@@ -2,6 +2,8 @@ import { useCallback } from "react";
 import { useThreadMeta } from "@ace/client-react";
 import { WorkAutomations } from "@/features/automations/index.ts";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { sectionRule } from "@/components/ui/rules.ts";
+import { cn } from "@/lib/cn.ts";
 import {
   attachWorkspaceScroll,
   useWorkspaceActions,
@@ -43,7 +45,7 @@ export default function WorkTab(props: TabViewProps) {
         <h2 className="flex h-7 items-center px-2.5 text-xs text-muted-foreground">Agents</h2>
         <WorkTree threadId={props.scope} />
       </section>
-      <div className="px-1.5">
+      <div className={cn("mx-1.5", sectionRule)}>
         <WorkAutomations
           workspaceId={thread.workspaceId}
           workspacePath={thread.details?.workspace?.path}

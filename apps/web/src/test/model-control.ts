@@ -93,7 +93,19 @@ export async function selectAccount(popover: HTMLElement, name: string) {
 
 /** Open the model chip on its Tune pane, where effort and speed are. */
 export async function openEffortControl(chip: RegExp | string = /^Model: /): Promise<HTMLElement> {
-  const popover = await openModelControl(chip);
+  // The chip's effort (or speed) opens Tune; its name opens the model list.
+  const button = await screen.findByRole("button", { name: chip });
+  // The effort shows once the catalog has the model; a model with nothing to tune has none.
+  const tune = await waitFor(
+    () => {
+      const part = button.querySelector<HTMLElement>("[data-model-tune] > *");
+      if (!part) throw new Error("no effort or speed on the chip yet");
+      return part;
+    },
+    { timeout: 2000 },
+  ).catch(() => null);
+  await userEvent.click(tune ?? button);
+  const popover = await screen.findByRole("dialog", { name: "Model and effort" });
   await within(popover).findByRole("slider", { name: "Effort" });
   return popover;
 }

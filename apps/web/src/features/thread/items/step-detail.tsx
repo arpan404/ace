@@ -6,6 +6,7 @@ import {
 import { MessageAttachments } from "@/components/attachment-message.tsx";
 import { useAgent, useClient } from "@ace/client-react";
 import type { FileChange, Item, OutputSummary, TodoEntry } from "@ace/protocol";
+import { CheckCircleIcon, CircleHalfIcon, CircleIcon, XCircleIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -218,30 +219,50 @@ function JsonText(props: { label: string; value: unknown }) {
   );
 }
 
-const todoGlyphs = { pending: "☐", in_progress: "▸", completed: "✓", cancelled: "✕" } as const;
+const todoGlyphs = {
+  pending: CircleIcon,
+  in_progress: CircleHalfIcon,
+  completed: CheckCircleIcon,
+  cancelled: XCircleIcon,
+} as const;
 
 function TodoList(props: { todos: readonly TodoEntry[] }) {
   if (!props.todos.length) return null;
   return (
     <ul aria-label="Plan" className="flex flex-col gap-0.5 text-ui">
-      {props.todos.map((todo, index) => (
-        <li
-          // oxlint-disable-next-line react/no-array-index-key -- todo text repeats; position is identity.
-          key={index}
-          className={cn(
-            "flex gap-2",
-            todo.status === "completed" || todo.status === "cancelled"
-              ? "text-subtle-foreground"
-              : "text-foreground",
-            todo.status === "cancelled" && "line-through",
-          )}
-        >
-          <span aria-label={todo.status.replace("_", " ")} className="w-3 shrink-0 text-center">
-            {todoGlyphs[todo.status]}
-          </span>
-          <span>{todo.content}</span>
-        </li>
-      ))}
+      {props.todos.map((todo, index) => {
+        const Glyph = todoGlyphs[todo.status];
+        return (
+          <li
+            // oxlint-disable-next-line react/no-array-index-key -- todo text repeats; position is identity.
+            key={index}
+            className={cn(
+              "flex gap-2",
+              todo.status === "completed" || todo.status === "cancelled"
+                ? "text-subtle-foreground"
+                : "text-foreground",
+              todo.status === "cancelled" && "line-through",
+            )}
+          >
+            <span
+              role="img"
+              aria-label={todo.status.replace("_", " ")}
+              className={cn(
+                "flex h-5 shrink-0 items-center",
+                todo.status === "in_progress" ? "text-status-working" : "text-subtle-foreground",
+                todo.status === "completed" && "text-status-done",
+              )}
+            >
+              <Glyph
+                aria-hidden
+                size={14}
+                weight={todo.status === "pending" ? "regular" : "fill"}
+              />
+            </span>
+            <span>{todo.content}</span>
+          </li>
+        );
+      })}
     </ul>
   );
 }

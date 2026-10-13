@@ -1,4 +1,4 @@
-import { SettingAction, SettingDisclosure } from "@/components/setting-row.tsx";
+import { SettingAddRow, SettingDisclosure } from "@/components/setting-row.tsx";
 import { useNavigate } from "@tanstack/react-router";
 import { SettingsBody } from "./settings-body.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
@@ -164,9 +164,9 @@ export function PairDevice() {
   const [open, setOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <SettingAction id="remote.pair" onClick={() => setOpen(true)}>
-        + Pair a device
-      </SettingAction>
+      <SettingAddRow id="remote.pair" onClick={() => setOpen(true)}>
+        Pair a device
+      </SettingAddRow>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Pair a device</DialogTitle>

@@ -10,7 +10,9 @@ import {
   type RefObject,
 } from "react";
 import { useRender } from "@base-ui/react/use-render";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { PlusIcon } from "@phosphor-icons/react";
+import { DisclosureCaret } from "@/components/ui/disclosure.tsx";
+import { groupCard, listDivider } from "@/components/ui/rules.ts";
 import { InCard } from "@/components/ui/surface-context.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -194,7 +196,9 @@ export function SettingCard(props: { children: ReactNode; className?: string }) 
     <InCard value>
       <div
         className={cn(
-          "divide-y divide-border-soft rounded-lg border border-border-soft bg-card [&>:not([data-setting-slot])]:mx-4",
+          listDivider,
+          groupCard,
+          "[&>:not([data-setting-slot])]:mx-4",
           props.className,
         )}
       >
@@ -253,7 +257,7 @@ export function SettingListItem({ className, id, ref, ...props }: ComponentProps
 }
 
 /**
- * A row that is itself the action ("+ Add account", "+ Pair a device"): a full-width button whose
+ * A row that is itself the action (Add account, Pair a device; `SettingAddRow` adds its plus): a full-width button whose
  * label starts on the row text's edge. Works as a card child or inside a `SettingList`. Like a
  * row, a link naming its `id` scrolls to it and flashes it.
  */
@@ -284,6 +288,16 @@ export function SettingAction({
   });
 }
 
+/** The one "add" row (Add account, Pair a device, Add machine): a plus, then what it adds. */
+export function SettingAddRow({ children, ...props }: ComponentProps<typeof SettingAction>) {
+  return (
+    <SettingAction {...props}>
+      <PlusIcon aria-hidden size={14} className="shrink-0" />
+      {children}
+    </SettingAction>
+  );
+}
+
 /**
  * A group of rows behind a one-row disclosure, with a caret instead of the browser's triangle.
  * Inside a card it is one row of the card; its content sits under it.
@@ -312,11 +326,7 @@ export function SettingDisclosure(props: {
             : "h-8 w-fit rounded-md pr-2 text-muted-foreground focus-ring hover:text-foreground",
         )}
       >
-        <CaretRightIcon
-          aria-hidden
-          size={12}
-          className="shrink-0 text-muted-foreground transition-transform duration-(--motion-fast) group-open/disclosure:rotate-90"
-        />
+        <DisclosureCaret />
         {props.title}
       </summary>
       {/* Its rows keep the card's hairlines between them. */}

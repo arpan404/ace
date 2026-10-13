@@ -128,7 +128,8 @@ export function RemoveAgentRow(props: { name: string }) {
     <DangerRow title={`Remove ${props.name}`} detail="ace stops offering this agent.">
       <Button
         size="sm"
-        variant="danger"
+        variant="ghost"
+        tone="danger"
         aria-label={`Remove ${props.name}`}
         disabled={remove.isPending}
         onClick={() => remove.mutate()}

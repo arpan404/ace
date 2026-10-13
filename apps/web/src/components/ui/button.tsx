@@ -10,20 +10,26 @@ const buttonVariants = cva(
     "[&_svg]:pointer-events-none [&_svg]:shrink-0",
   ],
   {
+    /*
+     * Three variants, by job (docs/design/visual-language.md):
+     * - primary: the one action a surface exists for (Allow once, Run now, Take over, Save).
+     * - secondary: any other labelled action, outlined so it reads as a button at rest
+     *   (Stop, Cancel beside a primary, filters, Preview beside a field).
+     * - ghost: actions inside dense chrome (toolbars, menus' footers, row hovers).
+     * `tone="danger"` colours a ghost or secondary for destructive actions.
+     */
     variants: {
       variant: {
-        /** A quiet outline for secondary actions. */
-        secondary:
-          "bg-transparent text-foreground shadow-[inset_0_0_0_1px_var(--border)] hover:bg-accent aria-expanded:bg-accent",
-        /** The accent, for the one primary action on a surface. */
         primary:
           "bg-tint text-tint-foreground hover:bg-[color-mix(in_oklab,var(--ring),var(--background)_14%)]",
+        secondary:
+          "bg-transparent text-foreground shadow-[inset_0_0_0_1px_var(--border)] hover:bg-accent aria-expanded:bg-accent",
         ghost:
           "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground",
-        outline:
-          "bg-transparent text-foreground shadow-[inset_0_0_0_1px_var(--border)] hover:bg-accent aria-expanded:bg-accent",
-        danger: "bg-transparent text-destructive hover:bg-destructive/10",
-        link: "h-auto bg-transparent px-0 text-link underline-offset-4 hover:underline",
+      },
+      tone: {
+        default: "",
+        danger: "text-destructive hover:bg-destructive/10 hover:text-destructive",
       },
       size: {
         sm: "h-[26px] rounded-sm px-2.5 text-sm touch-hit-lg",
@@ -31,20 +37,21 @@ const buttonVariants = cva(
         lg: "h-9 rounded-card px-4 text-base",
       },
     },
-    defaultVariants: { variant: "secondary", size: "default" },
+    defaultVariants: { variant: "secondary", tone: "default", size: "default" },
   },
 );
 
 function Button({
   className,
   variant,
+  tone,
   size,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
   return (
     <ButtonPrimitive
       data-slot="button"
-      className={cn(buttonVariants({ variant, size }), className)}
+      className={cn(buttonVariants({ variant, tone, size }), className)}
       {...props}
     />
   );

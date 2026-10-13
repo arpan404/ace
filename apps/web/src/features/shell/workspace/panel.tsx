@@ -2,6 +2,7 @@ import { Activity, createElement, Suspense, useEffect, useRef, type ReactNode } 
 import { Button } from "@/components/ui/button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import { cn } from "@/lib/cn.ts";
+import { controlDivider, toolbarEdge } from "@/components/ui/rules.ts";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import {
@@ -117,8 +118,9 @@ export function WorkspacePanel(props: {
       <div
         className={cn(
           // Beside the column, the strip continues the header's row: the header's own surface and
-          // no rule under it, so the window has one top bar across the transcript and the panel.
+          // the same hairline under it, so one top bar runs across the transcript and the panel.
           "flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-2",
+          toolbarEdge,
           !layout.sheet && !bottom && "bg-reading",
           // The panel's strip is the window's top row, so it drags the window.
           topRow && "[-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
@@ -152,7 +154,12 @@ export function WorkspacePanel(props: {
             Done
           </Button>
         ) : (
-          props.controls && <span className="ml-1 flex items-center">{props.controls}</span>
+          props.controls && (
+            <span className="flex items-center">
+              <span aria-hidden className={controlDivider} />
+              {props.controls}
+            </span>
+          )
         )}
       </div>
       {props.notice}

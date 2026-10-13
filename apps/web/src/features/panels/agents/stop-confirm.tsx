@@ -37,7 +37,13 @@ export function StopConfirm(props: StopConfirmProps) {
         </PopoverDescription>
         <div className="mt-3 flex justify-end gap-2">
           <PopoverClose render={<Button size="sm" variant="ghost" />}>Cancel</PopoverClose>
-          <Button size="sm" variant="danger" disabled={props.stopping} onClick={props.onStop}>
+          <Button
+            size="sm"
+            variant="ghost"
+            tone="danger"
+            disabled={props.stopping}
+            onClick={props.onStop}
+          >
             Stop all
           </Button>
         </div>

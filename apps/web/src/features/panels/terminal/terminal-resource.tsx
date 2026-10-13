@@ -126,7 +126,7 @@ function StartingTerminal(props: TabViewProps) {
             >
               Try again
             </Button>
-            <Button size="sm" variant="outline" onClick={() => actions.close(tab.key)}>
+            <Button size="sm" variant="secondary" onClick={() => actions.close(tab.key)}>
               Close tab
             </Button>
           </div>
@@ -189,7 +189,7 @@ function PtyTerminal(props: TabViewProps) {
         action={
           <Button
             size="sm"
-            variant="outline"
+            variant="secondary"
             onClick={() => {
               setReadError(false);
               terminals.source.refresh(scope).then(
@@ -226,7 +226,7 @@ function PtyTerminal(props: TabViewProps) {
             >
               Start a new terminal
             </Button>
-            <Button size="sm" variant="outline" onClick={() => actions.close(tab.key)}>
+            <Button size="sm" variant="secondary" onClick={() => actions.close(tab.key)}>
               Close tab
             </Button>
           </div>

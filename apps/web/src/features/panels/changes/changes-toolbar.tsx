@@ -15,6 +15,8 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { toolbarEdge } from "@/components/ui/rules.ts";
+import { cn } from "@/lib/cn.ts";
 import type { DiffPrefs } from "../services.ts";
 import { DiffStat } from "./diff-stat.tsx";
 
@@ -101,7 +103,7 @@ export function ChangesToolbar(props: {
     <div
       role="toolbar"
       aria-label="Changes"
-      className="flex h-10 shrink-0 items-center gap-1 bg-panel pr-2 pl-1.5"
+      className={cn("flex h-10 shrink-0 items-center gap-1 bg-panel pr-2 pl-1.5", toolbarEdge)}
     >
       <ScopeMenu scope={props.scope} turns={props.turns} onScope={props.onScope} />
       <DiffStat {...props.stat} className="ml-1 shrink-0 text-sm" />

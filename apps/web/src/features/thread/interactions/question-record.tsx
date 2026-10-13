@@ -1,7 +1,12 @@
 import { useAgent, useInteraction } from "@ace/client-react";
 import type { InteractionResolution, Question } from "@ace/protocol";
 import { agentName, answeredQuestions, questionTitle, requestIdentity } from "@ace/ui-core";
-import { CaretDownIcon, CheckIcon, ChatCircleDotsIcon } from "@phosphor-icons/react";
+import {
+  ArrowRightIcon,
+  CaretDownIcon,
+  CheckIcon,
+  ChatCircleDotsIcon,
+} from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import { cn } from "@/lib/cn.ts";
 import { AnsweredQuestionCard, closedMeta, type AnsweredMeta } from "./answered-question.tsx";
@@ -86,10 +91,11 @@ export function QuestionRecord(props: { threadId: string; interactionId: string 
           <span className="text-foreground">{title}</span>
           {answer && (
             <>
-              <span aria-hidden className="text-subtle-foreground">
-                {" "}
-                →{" "}
-              </span>
+              <ArrowRightIcon
+                aria-hidden
+                size={12}
+                className="mx-1 inline-block align-[-1px] text-subtle-foreground"
+              />
               <span className="sr-only">, answered: </span>
               <span className="font-medium text-foreground">{answer}</span>
             </>

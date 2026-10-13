@@ -135,12 +135,9 @@ export function ThreadRow(props: {
                   row,
                   height,
                   "group/link focus-ring-inset",
-                  // The open thread is a raised card; a picked one keeps its fill under the pointer.
-                  current
-                    ? "bg-surface-2 shadow-raised"
-                    : selected
-                      ? "bg-sidebar-accent"
-                      : "hover:bg-accent",
+                  // The open thread takes the fill every list shares for its current row (Settings,
+                  // Skills, Automations); a picked one keeps its fill under the pointer.
+                  current ? "bg-foreground/8" : selected ? "bg-sidebar-accent" : "hover:bg-accent",
                   handle && "pointer-coarse:pr-11",
                 )}
               >

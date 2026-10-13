@@ -41,7 +41,7 @@ export function SideChatPlaceholder(props: TabViewProps) {
         </p>
         <Button
           size="sm"
-          variant="outline"
+          variant="secondary"
           className="mt-1"
           disabled={!fork}
           onClick={() => fork?.()}

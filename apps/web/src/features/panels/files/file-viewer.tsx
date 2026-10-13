@@ -120,7 +120,7 @@ export function FileViewer(props: {
             title={`Couldn't open ${name}`}
             description={props.error.message}
             action={
-              <Button size="sm" variant="outline" onClick={props.onRetry}>
+              <Button size="sm" variant="secondary" onClick={props.onRetry}>
                 Try again
               </Button>
             }
@@ -130,7 +130,7 @@ export function FileViewer(props: {
     return <SourceSkeleton />;
   }
   const download = (
-    <Button size="sm" variant="outline" onClick={props.onDownload}>
+    <Button size="sm" variant="secondary" onClick={props.onDownload}>
       <DownloadSimpleIcon aria-hidden size={14} />
       Download
     </Button>
@@ -143,7 +143,7 @@ export function FileViewer(props: {
           title="Not in the checkout"
           description={`Nothing is at ${props.path} in this thread's checkout. It may have been moved or deleted.`}
           action={
-            <Button size="sm" variant="outline" onClick={props.onFind}>
+            <Button size="sm" variant="secondary" onClick={props.onFind}>
               <MagnifyingGlassIcon aria-hidden size={14} />
               Find it by name
             </Button>
@@ -217,7 +217,7 @@ export function NoFile(props: { onSearch(): void; children?: ReactNode }) {
         </>
       }
       action={
-        <Button size="sm" variant="outline" onClick={props.onSearch}>
+        <Button size="sm" variant="secondary" onClick={props.onSearch}>
           <MagnifyingGlassIcon aria-hidden size={14} />
           Search files
         </Button>

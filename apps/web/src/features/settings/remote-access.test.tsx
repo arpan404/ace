@@ -36,7 +36,7 @@ test("remote access and transport choices are saved and machine renaming is show
 test("administrator access still requires explicit Projects and Accounts grants", async () => {
   const app = harness({ clock: () => Date.now() });
   await app.open("/settings/remote");
-  await userEvent.click(await screen.findByRole("button", { name: "+ Pair a device" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Administrator" }));
   await userEvent.click(within(dialog).getByText("Advanced access", { exact: true }));

@@ -31,7 +31,7 @@ test("pairing shows a one-time QR code, its code and a link that can be copied",
   const user = userEvent.setup();
   // Pairing codes expire on the daemon's clock; here it is the page's.
   await harness({ clock: () => Date.now() }).open("/settings/remote");
-  await user.click(await screen.findByRole("button", { name: "+ Pair a device" }));
+  await user.click(await screen.findByRole("button", { name: "Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   await user.click(within(dialog).getByRole("button", { name: "View only" }));
   await user.click(within(dialog).getByRole("button", { name: "Show pairing code" }));

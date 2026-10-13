@@ -2,17 +2,16 @@ import { CheckIcon, CopyIcon, FileCodeIcon, GitDiffIcon } from "@phosphor-icons/
 import type { ReactNode } from "react";
 
 const copyClass = [
-  "relative inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-xs text-muted-foreground",
+  "relative inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-xs text-subtle-foreground",
   "transition-[opacity,color,background-color] duration-(--motion-fast) hover:bg-accent hover:text-foreground",
-  "focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-ring data-copied:opacity-100",
-  "pointer-fine:opacity-0 pointer-fine:group-hover/code:opacity-100",
+  "focus-visible:outline-2 focus-visible:outline-ring data-copied:text-foreground",
+  "group-hover/code:text-muted-foreground",
   "touch-hit pointer-coarse:h-8 pointer-coarse:px-2.5",
 ].join(" ");
 
 /**
- * Copy for a fence. With a mouse it shows while the block is hovered or the button has focus,
- * so a transcript of code isn't a column of buttons; on touch it always shows, at tap size.
- * "Copied" holds it visible and is announced.
+ * Copy for a fence: always there in the header's quietest ink, a step brighter while the block
+ * is hovered, at tap size on touch. "Copied" is announced.
  */
 function CopyCode(props: { copied: boolean; onCopy(): void }) {
   return (

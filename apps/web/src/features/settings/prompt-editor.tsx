@@ -270,7 +270,8 @@ export function PromptEditor(props: {
               Keep editing
             </Button>
             <Button
-              variant="danger"
+              variant="ghost"
+              tone="danger"
               onClick={() => {
                 committed.current = true;
                 if (blocker.status === "blocked") blocker.proceed?.();

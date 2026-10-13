@@ -84,9 +84,9 @@ test("the model's name opens the picker inside the same popover", async () => {
   expect(await within(popover).findByRole("listbox", { name: "Models" })).toBeTruthy();
   expect(within(popover).queryByRole("slider")).toBeNull();
   await closeModelControl();
-  // It opens on Tune again next time.
+  // The chip's name opens the model list straight away.
   const reopened = await openModelControl(/^Model: Opus 5\.5/);
-  expect(await within(reopened).findByRole("slider", { name: "Effort" })).toBeTruthy();
+  expect(await within(reopened).findByRole("listbox", { name: "Models" })).toBeTruthy();
 });
 
 test("picking a model lands on Tune at that model's levels, default effort and own speeds", async () => {

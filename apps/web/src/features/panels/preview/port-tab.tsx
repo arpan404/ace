@@ -140,7 +140,7 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
             canForward ? (
               <Button
                 size="sm"
-                variant="outline"
+                variant="secondary"
                 disabled={busy === "forward"}
                 onClick={() =>
                   run(

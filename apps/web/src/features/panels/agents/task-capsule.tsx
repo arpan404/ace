@@ -1,5 +1,6 @@
 import { CheckIcon, ExclamationMarkIcon, XIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
+import { rowCard } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 
 /*
@@ -10,9 +11,8 @@ import { cn } from "@/lib/cn.ts";
 
 export type CapsuleState = "working" | "waiting" | "needs-you" | "done" | "failed" | "stopped";
 
-/** A capsule's outer shell: a quiet raised fill, a hairline edge, rounded like a pill row. */
-export const capsule =
-  "rounded-[10px] border border-border/70 bg-surface-1 transition-colors duration-(--motion-fast) hover:bg-accent";
+/** A capsule's outer shell: the app's outlined row card. */
+export const capsule = rowCard;
 
 const tones: Record<CapsuleState, string> = {
   working: "working",
@@ -35,7 +35,7 @@ export function CapsuleGlyph(props: { state: CapsuleState; count?: number | unde
       <span
         aria-hidden
         data-tone={tone}
-        className="relative grid size-[18px] shrink-0 place-items-center rounded-full border-[1.5px] border-(--tone)/25 border-t-(--tone) text-[10px] leading-none font-semibold text-(--tone-text) tabular-nums"
+        className="relative grid size-[18px] shrink-0 place-items-center rounded-full border-[1.5px] border-(--tone)/25 border-t-(--tone) text-2xs leading-none font-semibold text-(--tone-text) tabular-nums"
       >
         {props.count ? props.count : null}
       </span>
@@ -54,11 +54,7 @@ export function CapsuleGlyph(props: { state: CapsuleState; count?: number | unde
       data-tone={tone}
       className="grid size-[18px] shrink-0 place-items-center rounded-full bg-(--tone) text-background"
     >
-      {Glyph ? (
-        <Glyph size={11} weight="bold" />
-      ) : (
-        <span className="size-1.5 rounded-[1px] bg-current" />
-      )}
+      {Glyph ? <Glyph size={11} weight="bold" /> : <span className="size-1.5 bg-current" />}
     </span>
   );
 }
@@ -68,7 +64,7 @@ export function CapsuleBadge(props: { state: CapsuleState; children: ReactNode }
   return (
     <span
       data-tone={tones[props.state]}
-      className="shrink-0 rounded-sm bg-(--tone)/12 px-1.5 py-px text-[11px] leading-4 font-medium text-(--tone-text)"
+      className="shrink-0 rounded-sm bg-(--tone)/12 px-1.5 py-px text-2xs leading-4 font-medium text-(--tone-text)"
     >
       {props.children}
     </span>

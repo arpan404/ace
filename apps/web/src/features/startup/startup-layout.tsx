@@ -25,10 +25,16 @@ export function StartupLayout(props: {
     >
       {/* The window has no title bar; the top strip moves it, as the shell's header does. */}
       <div aria-hidden className="fixed inset-x-0 top-0 h-[50px] [-webkit-app-region:drag]" />
-      <AceLogo className="absolute top-1/2 left-1/2 size-11 -translate-x-1/2 -translate-y-1/2" />
-      <div className="absolute inset-x-0 top-[calc(50%+44px)] flex flex-col items-center gap-4 px-6 text-center">
-        {props.children}
-      </div>
+      {/* Leaving, only the plain background fades: the app is already drawn underneath, and a
+          mark or status line fading out over a transcript reads as a glitch. */}
+      {!props.leaving && (
+        <>
+          <AceLogo className="absolute top-1/2 left-1/2 size-11 -translate-x-1/2 -translate-y-1/2" />
+          <div className="absolute inset-x-0 top-[calc(50%+44px)] flex flex-col items-center gap-4 px-6 text-center">
+            {props.children}
+          </div>
+        </>
+      )}
     </div>
   );
 }

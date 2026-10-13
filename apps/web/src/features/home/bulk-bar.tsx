@@ -214,7 +214,11 @@ function BulkConfirmDialog(props: { entries: readonly ThreadListEntry[] }) {
           <Button ref={cancel} variant="ghost" onClick={() => selection.ask(undefined)}>
             Cancel
           </Button>
-          <Button variant={confirm === "delete" ? "danger" : "primary"} onClick={go}>
+          <Button
+            variant={confirm === "delete" ? "ghost" : "primary"}
+            tone={confirm === "delete" ? "danger" : "default"}
+            onClick={go}
+          >
             {words.verb} {count(n)}
           </Button>
         </DialogFooter>

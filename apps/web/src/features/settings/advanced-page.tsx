@@ -88,7 +88,13 @@ function ResetAll() {
     }
   };
   const trigger = (
-    <Button size="sm" variant="danger" disabled={offline} onClick={() => setOpen(true)}>
+    <Button
+      size="sm"
+      variant="ghost"
+      tone="danger"
+      disabled={offline}
+      onClick={() => setOpen(true)}
+    >
       Reset
     </Button>
   );
@@ -112,7 +118,7 @@ function ResetAll() {
           <Button variant="ghost" disabled={running} onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button variant="danger" disabled={running} onClick={() => void reset()}>
+          <Button variant="ghost" tone="danger" disabled={running} onClick={() => void reset()}>
             {running ? "Resetting…" : "Reset settings"}
           </Button>
         </DialogFooter>

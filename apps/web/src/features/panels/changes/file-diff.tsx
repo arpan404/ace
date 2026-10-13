@@ -1,6 +1,6 @@
 import { DiffCode, DiffCodeScope } from "./diff-code.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { CaretDownIcon, CodeIcon, PlusIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CodeIcon, DotsThreeIcon, PlusIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { lazy, Suspense, useMemo, useState, type PointerEvent } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -391,7 +391,13 @@ function Fold(props: { row: Extract<DiffRow, { kind: "fold" }>; expand(row: Diff
   const label = row.count === null ? "Unchanged lines" : `${row.count} unchanged lines`;
   const className =
     "flex w-full items-center justify-center gap-1 bg-muted font-sans text-xs leading-6 text-subtle-foreground";
-  if (!row.lines) return <div className={className}>{row.count === null ? "⋯" : label}</div>;
+  if (!row.lines)
+    return (
+      <div className={className}>
+        <DotsThreeIcon aria-hidden size={12} weight="bold" />
+        {label}
+      </div>
+    );
   return (
     <button
       type="button"

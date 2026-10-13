@@ -14,7 +14,7 @@ export function diffLines(rows: readonly DiffRow[]): TextLine[] {
     if (row.kind === "fold")
       return {
         gutter: "",
-        text: row.count === null ? "⋯" : `⋯ ${row.count} unchanged lines`,
+        text: row.count === null ? "Unchanged lines" : `${row.count} unchanged lines`,
         band: "fold",
         ink: "muted",
       };

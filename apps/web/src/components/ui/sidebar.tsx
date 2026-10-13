@@ -87,7 +87,9 @@ function Sidebar(props: { children: ReactNode; className?: string | undefined })
       <div
         data-slot="sidebar-container"
         className={cn(
-          "absolute inset-y-0 left-0 z-10 flex w-(--sidebar-width) border-r border-sidebar-border transition-[left,width] duration-200 ease-linear group-data-[collapsible=offcanvas]/sidebar:left-[calc(var(--sidebar-width)*-1)] motion-reduce:transition-none",
+          // In light the canvas and the sidebar are near-twins, so the edge takes the stronger
+          // hairline; in dark the sidebar sits well below the canvas and the quiet one is enough.
+          "absolute inset-y-0 left-0 z-10 flex w-(--sidebar-width) border-r border-border-strong dark:border-sidebar-border transition-[left,width] duration-200 ease-linear group-data-[collapsible=offcanvas]/sidebar:left-[calc(var(--sidebar-width)*-1)] motion-reduce:transition-none",
           props.className,
         )}
       >

@@ -1,9 +1,9 @@
 import { useClient, useConnectionState } from "@ace/client-react";
 import type { McpSources, ProviderKind } from "@ace/protocol";
-import { ArrowsClockwiseIcon, PlusIcon, PowerIcon } from "@phosphor-icons/react";
+import { ArrowsClockwiseIcon, PowerIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
-  SettingAction,
+  SettingAddRow,
   SettingList,
   SettingListItem,
   SettingNote,
@@ -141,10 +141,7 @@ function McpServerList(props: { provider: ProviderKind; name: string }) {
         })}
         {data?.canAdd && (
           <li>
-            <SettingAction onClick={() => setAdding(true)}>
-              <PlusIcon aria-hidden size={14} />
-              Add MCP server
-            </SettingAction>
+            <SettingAddRow onClick={() => setAdding(true)}>Add MCP server</SettingAddRow>
           </li>
         )}
       </SettingList>

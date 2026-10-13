@@ -137,7 +137,7 @@ test("the add-account dialog cancels an API-key handoff without storing its inpu
   const storage = memoryKeyValue();
   const app = harness({ storage });
   await app.open("/settings/providers/opencode");
-  await userEvent.click(await screen.findByRole("button", { name: "+ Add account" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
   const dialog = within(await screen.findByRole("dialog", { name: "Add an OpenCode account" }));
   await userEvent.type(dialog.getByRole("textbox", { name: "Account name" }), "Research");
   await userEvent.click(dialog.getByRole("combobox", { name: "Sign-in method" }));

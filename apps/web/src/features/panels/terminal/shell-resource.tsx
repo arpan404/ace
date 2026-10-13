@@ -73,7 +73,7 @@ function ShellResource(props: TabViewProps) {
         title="This shell is no longer in the thread"
         description="The agent's background shell was removed, or this thread hasn't loaded it yet."
         action={
-          <Button size="sm" variant="outline" onClick={() => actions.close(tab.key)}>
+          <Button size="sm" variant="secondary" onClick={() => actions.close(tab.key)}>
             Close tab
           </Button>
         }

@@ -1,4 +1,7 @@
 {
+  "apps/web/src/components/ace-logo.tsx": {
+    "radius": 1
+  },
   "apps/web/src/components/attachment-artifact.tsx": {
     "text-size": 1
   },
@@ -24,22 +27,13 @@
     "text-size": 1,
     "radius": 1
   },
-  "apps/web/src/components/markdown/code-block.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/components/markdown/markdown.tsx": {
     "text-size": 4
   },
   "apps/web/src/components/permission-review.tsx": {
     "text-size": 1
   },
-  "apps/web/src/components/project-mark.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/components/ui/command.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/components/ui/dot.tsx": {
     "text-size": 1
   },
   "apps/web/src/components/ui/filter-menu.tsx": {
@@ -51,20 +45,11 @@
   "apps/web/src/components/ui/scroll-area.tsx": {
     "bare-outline": 1
   },
-  "apps/web/src/components/ui/step-slider.tsx": {
-    "bare-outline": 1
-  },
-  "apps/web/src/features/accounts/scheduling-policy.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/features/activity/interaction-card.tsx": {
     "text-size": 1
   },
   "apps/web/src/features/activity/question-card.tsx": {
     "text-size": 2,
-    "radius": 1
-  },
-  "apps/web/src/features/connect/connect-card.tsx": {
     "radius": 1
   },
   "apps/web/src/features/devices/device-screen.tsx": {
@@ -73,22 +58,13 @@
   "apps/web/src/features/home/project-filter.tsx": {
     "bare-outline": 1
   },
-  "apps/web/src/features/home/rename-field.tsx": {
-    "bare-outline": 1
-  },
   "apps/web/src/features/home/thread-list.tsx": {
     "bare-outline": 1
   },
   "apps/web/src/features/home/thread-row.tsx": {
     "bare-outline": 1
   },
-  "apps/web/src/features/model-picker/model-picker-panel.tsx": {
-    "bare-outline": 1
-  },
   "apps/web/src/features/panels/changes/line-comment.tsx": {
-    "bare-outline": 1
-  },
-  "apps/web/src/features/panels/files/file-tab.tsx": {
     "bare-outline": 1
   },
   "apps/web/src/features/panels/files/file-tree.tsx": {
@@ -125,60 +101,21 @@
   "apps/web/src/features/thread/composer/composer.tsx": {
     "bare-outline": 1
   },
-  "apps/web/src/features/thread/composer/suggestion-list.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/thread/interactions/question-form.tsx": {
-    "radius": 1
-  },
-  "apps/web/src/features/thread/items/agent-row.tsx": {
-    "text-size": 1,
-    "radius": 1
+  "apps/web/src/features/thread/header/work-side.tsx": {
+    "bare-outline": 1
   },
   "apps/web/src/features/thread/items/background-task.tsx": {
     "text-size": 3,
     "radius": 2
   },
-  "apps/web/src/features/thread/items/changed-files.tsx": {
-    "text-size": 4
-  },
-  "apps/web/src/features/thread/items/error-row.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/thread/items/model-facing.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/features/thread/items/step-detail.tsx": {
-    "text-size": 6
-  },
-  "apps/web/src/features/thread/items/subagents.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/thread/items/task-card.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/thread/items/user-message.tsx": {
-    "text-size": 1,
-    "radius": 1
-  },
-  "apps/web/src/features/thread/items/work-log-steps.tsx": {
-    "text-size": 1
-  },
-  "apps/web/src/features/thread/items/work-log-view.tsx": {
     "text-size": 1
   },
   "apps/web/src/features/thread/long/search-bar.tsx": {
-    "text-size": 1,
     "radius": 1,
-    "bare-outline": 2
+    "bare-outline": 1
   },
   "apps/web/src/features/thread/long/timeline.tsx": {
     "bare-outline": 1
-  },
-  "apps/web/src/features/thread/thread-view.tsx": {
-    "radius": 1
-  },
-  "apps/web/src/features/thread/transcript/live-footer.tsx": {
-    "text-size": 1
   }
 }

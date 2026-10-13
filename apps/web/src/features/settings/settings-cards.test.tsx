@@ -52,7 +52,7 @@ test("a dialog opened from a settings card is its own surface, not a row of the 
   general.unmount();
 
   await harness().open("/settings/remote");
-  await userEvent.click(await screen.findByRole("button", { name: "+ Pair a device" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   const advanced = (
     await within(dialog).findByText("Advanced access", { selector: "summary" })
@@ -71,7 +71,7 @@ test("a link to an action row scrolls to it and flashes it, as for any setting",
     Element.prototype.scrollIntoView = scrollIntoView;
   });
   await harness().open("/settings/remote#remote.pair");
-  const pair = await screen.findByRole("button", { name: "+ Pair a device" });
+  const pair = await screen.findByRole("button", { name: "Pair a device" });
   await waitFor(() => expect(scrolled).toContain(pair));
   await waitFor(() => expect(pair.dataset.flash).toBe("true"));
   // The flash is a moment, not a state.
