@@ -1,5 +1,5 @@
 import { flakyCheckout, replayCursor, facts } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -36,8 +36,9 @@ test("editing this machine updates Settings, the new-thread environment and the 
   });
   view.unmount();
   view = await app.open("/new");
-  expect(await screen.findByText("Workshop Mac")).toBeTruthy();
-  expect(screen.getByRole("img", { name: "desktop machine icon" })).toBeTruthy();
+  // New thread names the machine in the Worktree toggle's tooltip (8e2126e5f).
+  await userEvent.hover(await screen.findByText("Worktree"));
+  expect((await screen.findByRole("tooltip")).textContent).toContain("Runs on Workshop Mac");
   view.unmount();
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
@@ -69,8 +70,8 @@ test("editing a paired machine saves on that host and replaces stale thread labe
   const row = await within(sidebar).findByRole("link", {
     name: /Replay cursor resets.*Running on Build server/,
   });
-  expect(within(row).getByText("· Build server", { exact: true })).toBeTruthy();
-  expect(within(sidebar).queryByRole("img", { name: /^Device:/ })).toBeNull();
+  // Two devices are connected: the row shows the machine's icon, never its name (3ab05f4f4).
+  expect(within(row).getByRole("img", { name: "server machine icon" })).toBeTruthy();
   await userEvent.hover(row);
   expect((await screen.findByLabelText(/^Details for /)).textContent).toContain("Build server");
   expect(sidebar.textContent).not.toContain("Old server");
@@ -133,7 +134,7 @@ test("Activity keeps device names in thread hover details instead of compact row
   expect(detail.textContent).toContain("Build server");
 });
 
-test("a chosen emoji survives leaving Settings and appears in the new thread environment", async () => {
+test("a chosen emoji survives leaving Settings and returning to it", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   const view = await app.open("/settings/remote");
@@ -153,7 +154,13 @@ test("a chosen emoji survives leaving Settings and appears in the new thread env
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   view.unmount();
   await app.open("/new");
-  expect((await screen.findByRole("img", { name: "🦊 machine icon" })).textContent).toBe("🦊");
+  await screen.findByRole("combobox", { name: "Message" });
+  cleanup();
+  await app.open("/settings/remote");
+  const machines = await screen.findByRole("region", { name: "Machines" });
+  expect((await within(machines).findByRole("img", { name: "🦊 machine icon" })).textContent).toBe(
+    "🦊",
+  );
 });
 
 test("a paired machine's updated host identity replaces the cached label after reconnect", async () => {
@@ -184,7 +191,7 @@ test("a paired machine's updated host identity replaces the cached label after r
   const row = await within(sidebar).findByRole("link", {
     name: /Replay cursor resets.*Running on Build server/,
   });
-  expect(within(row).getByText("· Build server", { exact: true })).toBeTruthy();
+  expect(within(row).getByRole("img", { name: "cloud machine icon" })).toBeTruthy();
   await userEvent.hover(row);
   const details = await screen.findByLabelText(/^Details for /);
   expect(details.textContent).toContain("Build server");

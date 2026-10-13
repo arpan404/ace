@@ -52,16 +52,16 @@ test("a bare letter needs a modifier", async () => {
 
 test("rebindings survive leaving Settings › Keyboard, and Reset all restores every default", async () => {
   await harness().open("/settings/keyboard");
-  const agents = await shortcut("Agents");
+  const agents = await shortcut("Summary");
   await userEvent.click(agents);
   press(agents, { key: "u", code: "KeyU", ctrlKey: true, altKey: true });
   const nav = screen.getByRole("navigation", { name: "Settings pages" });
   await userEvent.click(within(nav).getByRole("link", { name: "General" }));
   await userEvent.click(within(nav).getByRole("link", { name: "Keyboard" }));
-  expect((await shortcut("Agents")).textContent).toBe("Alt+Ctrl+U");
+  expect((await shortcut("Summary")).textContent).toBe("Alt+Ctrl+U");
 
   await userEvent.click(screen.getByRole("button", { name: "Reset all shortcuts" }));
-  expect((await shortcut("Agents")).textContent).toBe("Ctrl+Shift+A");
+  expect((await shortcut("Summary")).textContent).toBe("Ctrl+Shift+A");
   expect(screen.queryByRole("button", { name: "Reset all shortcuts" })).toBeNull();
 });
 
@@ -90,9 +90,7 @@ test("shortcuts are grouped, filterable, and a rebound one is marked", async () 
   expect(screen.getByRole("region", { name: "Terminal & browser" })).toBeTruthy();
 
   await userEvent.type(screen.getByRole("searchbox", { name: "Filter shortcuts" }), "Alt+Ctrl+O");
-  expect(
-    screen.getByRole("button", { name: "Show or hide the thread's work card shortcut" }),
-  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Show or hide thread details shortcut" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Command palette shortcut" })).toBeNull();
   await userEvent.clear(screen.getByRole("searchbox", { name: "Filter shortcuts" }));
 
@@ -153,10 +151,10 @@ test("retrying an older refused change never undoes a newer one that was saved",
   await app.open("/settings/keyboard");
   // A: refused, so it goes back.
   app.daemon.failRequests("settings.set");
-  const agents = await shortcut("Agents");
+  const agents = await shortcut("Summary");
   await userEvent.click(agents);
   press(agents, { key: "u", code: "KeyU", ctrlKey: true, altKey: true });
-  await waitFor(async () => expect((await shortcut("Agents")).textContent).toBe("Ctrl+Shift+A"));
+  await waitFor(async () => expect((await shortcut("Summary")).textContent).toBe("Ctrl+Shift+A"));
 
   // B: saved.
   app.daemon.restoreRequests();
@@ -178,7 +176,7 @@ test("retrying an older refused change never undoes a newer one that was saved",
     expect((await screen.findAllByRole("button", { name: "Retry", hidden: true })).length).toBe(1),
   );
   expect((await shortcut("Settings")).textContent).toBe("Shift+Ctrl+Y");
-  expect((await shortcut("Agents")).textContent).toBe("Ctrl+Shift+A");
+  expect((await shortcut("Summary")).textContent).toBe("Ctrl+Shift+A");
 
   // Retry A once the daemon takes it: A lands on top of B, not instead of it.
   app.daemon.restoreRequests();
