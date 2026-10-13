@@ -123,10 +123,6 @@ export function ModelRow(props: {
         <span className="truncate font-normal" onPointerEnter={titleWhenClipped(model.label)}>
           {model.label}
         </span>
-        {detail && (
-          <span className="min-w-0 truncate text-xs text-subtle-foreground">{detail}</span>
-        )}
-        {model.isNew && <span className="shrink-0 text-xs text-link">New</span>}
         {suffix && (
           <span className="min-w-0 truncate text-xs text-subtle-foreground">{suffix}</span>
         )}

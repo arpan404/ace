@@ -259,7 +259,11 @@ export function ModelPickerPanel(props: {
     }
     if ((event.metaKey || event.ctrlKey) && /^[1-9]$/.test(event.key)) {
       event.preventDefault();
-      pick(models[Number(event.key) - 1]);
+      // ⌘1–9 is a quick pick: it chooses the row and finishes, unlike a click that stays to tune.
+      const quick = models[Number(event.key) - 1];
+      if (!quick || quick.unavailable) return;
+      pick(quick);
+      props.onClose?.();
     }
   };
   const onSearchKey = (event: KeyboardEvent<HTMLInputElement>) => {
