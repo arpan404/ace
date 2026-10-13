@@ -117,7 +117,7 @@ test("Edit on a failed held message gives back its text, beside what the compose
   expect(within(feed).queryByText("Why is this banner orange?")).toBeNull();
 });
 
-test("a message held for its uploads survives a reload, as a failed bubble saying why", async () => {
+test("a message held for its uploads survives a reload as interrupted, and Edit takes its text back", async () => {
   const first = await open();
   await sendWhileUploading(first.app, first.message);
   expect(await within(first.feed).findByText("Uploading an image…")).toBeTruthy();
@@ -128,10 +128,18 @@ test("a message held for its uploads survives a reload, as a failed bubble sayin
   const alert = await within(again.feed).findByRole("alert");
   expect(within(alert).getByText(/Upload interrupted$/)).toBeTruthy();
   expect(within(again.feed).getByText("Why is this banner orange?")).toBeTruthy();
-  // Reload never offers to reconstruct or resend an unfinished upload.
+  // The image's bytes went with the old page: nothing here can resend it as it was.
   expect(within(alert).queryByRole("button", { name: "Retry" })).toBeNull();
-  expect(within(alert).queryByRole("button", { name: "Edit" })).toBeNull();
   expect(within(alert).getByRole("button", { name: "Remove" })).toBeTruthy();
+  await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+      "Why is this banner orange?",
+    ),
+  );
+  await screen.findByRole("heading", { name: "Attach again" });
+  await waitFor(() => expect(within(again.feed).queryByRole("alert")).toBeNull());
+  expect(delivered(again.app)).toBeUndefined();
 });
 
 test("a staged storage refusal keeps the text and uploading file in the composer", async () => {

@@ -40,14 +40,15 @@ function stalledImage() {
   return { file, entered, release };
 }
 
-function interruptedActions() {
+/** Remove on the interrupted bubble, after checking what else it offers. */
+function interruptedActions(offered: readonly string[]) {
   const failure = screen.getByText(/Upload interrupted$/).closest('[role="alert"]');
   if (!(failure instanceof HTMLElement)) throw new Error("Missing interrupted-upload actions");
   expect(
     within(failure)
       .getAllByRole("button")
       .map((button) => button.textContent),
-  ).toEqual(["Remove"]);
+  ).toEqual(offered);
   return within(failure).getByRole("button", { name: "Remove" });
 }
 
@@ -71,7 +72,7 @@ test("reload interrupts an unfinished upload and Remove releases later messages 
     await again.open(`/t/${threadId}`);
     await screen.findByText(/Upload interrupted$/);
     expect((await readQueue(again)).messages).toEqual([]);
-    await userEvent.click(interruptedActions());
+    await userEvent.click(interruptedActions(["Edit", "Remove"]));
     await waitFor(async () =>
       expect((await readQueue(again)).messages.map((entry) => entry.input)).toEqual([
         [{ type: "text", text: "B behind A" }],
@@ -105,7 +106,7 @@ test("an upload past its injected-clock timeout cannot send after late completio
     wall += uploadTimeoutMs;
     fireEvent(document, new Event("visibilitychange"));
     await screen.findByText(/Upload interrupted$/);
-    interruptedActions();
+    interruptedActions(["Retry", "Edit", "Remove"]);
     release.resolve();
     await waitFor(async () =>
       expect(
@@ -121,7 +122,7 @@ test("an upload past its injected-clock timeout cannot send after late completio
       }),
     );
     expect((await readQueue(app)).messages).toEqual([]);
-    await userEvent.click(interruptedActions());
+    await userEvent.click(interruptedActions(["Retry", "Edit", "Remove"]));
     await waitFor(async () =>
       expect((await readQueue(app)).messages.map((entry) => entry.input)).toEqual([
         [{ type: "text", text: "B after A" }],
