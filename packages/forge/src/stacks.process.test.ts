@@ -292,14 +292,14 @@ test("rebase conflicts and successful continuations never invoke unsafe stack pu
       await f.forge.rebaseStack(8, expectedStack, "continue", signal(), allowed),
     ).toMatchObject({
       state: "push_partial",
-      message: expect.stringContaining("Publication is disabled"),
+      message: expect.stringContaining("not yet pushed"),
     });
     expect((await f.requests()).some((request) => request.path === "stack-push")).toBe(false);
   } finally {
     await f.cleanup();
   }
 });
-test("successful local rebases and retries remain unpublished even when stack push would report success", async () => {
+test("without a leased Git publisher a rebased stack stays unpublished and gh stack push is never used", async () => {
   const f = await fakeGh({
     ...stackChecksFixture,
     graphql: [stackResponse()],
@@ -312,10 +312,9 @@ test("successful local rebases and retries remain unpublished even when stack pu
     expect(await f.forge.rebaseStack(8, expectedStack, "rebase", signal(), allowed)).toMatchObject({
       state: "push_partial",
     });
-    expect(await f.forge.rebaseStack(8, expectedStack, "push", signal(), allowed)).toMatchObject({
-      state: "push_partial",
-      message: expect.stringContaining("remote SHAs"),
-    });
+    await expect(
+      f.forge.rebaseStack(8, expectedStack, "push", signal(), allowed),
+    ).rejects.toMatchObject({ kind: "unsupported" });
     expect(await f.forge.rebaseStack(8, expectedStack, "abort", signal(), allowed)).toMatchObject({
       state: "aborted",
     });
@@ -457,7 +456,7 @@ test.each(["collaborator commit", "queue entry"])(
       await writeFile(join(f.dir, "release-rebase"), "");
       expect(await rebase).toMatchObject({
         state: "push_partial",
-        message: expect.stringContaining("No push was attempted"),
+        message: expect.stringContaining("not yet pushed"),
       });
       expect((await f.requests()).some((r) => r.path === "stack-push")).toBe(false);
     } finally {

@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { GitHubForge, ForgeError, WriteDispatch, repositoryKey } from "@ace/forge";
+import {
+  GitHubForge,
+  ForgeError,
+  WriteDispatch,
+  repositoryKey,
+  sameReviewedRevisions,
+  canPublishAfter,
+} from "@ace/forge";
 import {
   ForgeStackOperation,
   ForgeStackExpected,
@@ -9,6 +16,7 @@ import {
 import type { Store } from "./store.ts";
 import {
   isIncompleteStackOperation,
+  reconcileStackPush,
   reconcileStackMerge,
   reconcileRecordedStackMerge,
   requestedStackScope,
@@ -46,9 +54,11 @@ export class WorkspaceForgeStacks {
           entry.version = (entry.version ?? 0) + 1;
           entry.operation = {
             ...entry.operation,
-            state: entry.operation.stage === "push" ? "push_partial" : "uncertain",
+            state: "uncertain",
             message:
-              "ace restarted during this operation. Refresh host and local state before recovery. The write will not be repeated.",
+              entry.operation.stage === "push"
+                ? "ace restarted while publishing. Refresh the stack to compare GitHub with the published revisions."
+                : "ace restarted during this operation. Refresh host and local state before recovery. The write will not be repeated.",
           };
           db.prepare("UPDATE forge_stack_operations SET value=? WHERE repo=? AND stack_id=?").run(
             JSON.stringify(entry),
@@ -201,6 +211,8 @@ export class WorkspaceForgeStacks {
         operation = reconcileStackMerge(operation, entry.expected, entry.number, stack);
       }
     }
+    if (entry && operation && stack)
+      operation = reconcileStackPush(operation, entry.expected, stack);
     // All facts above belong to the version captured before the first host read.
     if (entry && operation && operation !== entry.operation)
       operation = this.#reconcile(backend.repository, entry, operation);
@@ -252,7 +264,7 @@ export class WorkspaceForgeStacks {
     let stage: "rebase" | "push" | undefined;
     const dispatch = new WriteDispatch(() => {
       if (!allowed()) throw new ForgeError("forbidden");
-      stage = action === "merge" ? undefined : "rebase";
+      stage = action === "merge" ? undefined : action === "push" ? "push" : "rebase";
       this.#save(backend.repository, expected.id, {
         cwd,
         number,
@@ -264,7 +276,9 @@ export class WorkspaceForgeStacks {
           message:
             action === "merge"
               ? "GitHub merge request is being submitted."
-              : "gh stack is updating local branches. Publication is disabled.",
+              : action === "push"
+                ? "Publishing the rebased layers to GitHub."
+                : "gh stack is updating local branches. Nothing is pushed yet.",
         },
       });
       started = true;
@@ -282,7 +296,10 @@ export class WorkspaceForgeStacks {
           action === "rebase"
         )
           throw new ForgeError("conflict");
-        if (action === "push" && previous.operation.state !== "push_partial")
+        if (action === "push" && !canPublishAfter(previous.operation))
+          throw new ForgeError("conflict");
+        // The reviewed host revisions are the push leases; a refreshed request cannot replace them.
+        if (action !== "abort" && !sameReviewedRevisions(previous.expected, expected))
           throw new ForgeError("conflict");
       } else if (action === "continue" || action === "abort" || action === "push")
         throw new ForgeError("conflict");
@@ -302,14 +319,18 @@ export class WorkspaceForgeStacks {
           operation: {
             action,
             state: dispatch.definitelyFailed
-              ? "failed"
-              : stage === "push"
+              ? stage === "push"
                 ? "push_partial"
-                : "uncertain",
+                : "failed"
+              : "uncertain",
             ...(stage ? { stage } : {}),
             message: dispatch.definitelyFailed
-              ? "The operation failed before taking effect. Restore the installed gh CLI or refresh GitHub's refusal before retrying."
-              : "The acknowledgement was lost. ace will not repeat the write. Refresh the host and local stack before recovery.",
+              ? stage === "push"
+                ? "Nothing was published. Check the checkout and origin, then publish again."
+                : "The operation failed before taking effect. Restore the installed gh CLI or refresh GitHub's refusal before retrying."
+              : stage === "push"
+                ? "Git did not confirm the push. Refresh the stack to compare GitHub with the published revisions."
+                : "The acknowledgement was lost. ace will not repeat the write. Refresh the host and local stack before recovery.",
           },
         });
       throw error;

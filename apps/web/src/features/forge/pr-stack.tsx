@@ -2,12 +2,8 @@ import { useState } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
 import type { ForgePrDetail, ForgeStackExpected, ForgeStackOperation } from "@ace/protocol";
-import {
-  canPublishStack,
-  matchesLocalStack,
-  matchesStackBranches,
-  stackPublicationUnavailable,
-} from "@ace/forge/stack-plan";
+import { canPublishStack, matchesLocalStack, matchesStackBranches } from "@ace/forge/stack-plan";
+import { canPublishAfter, stackPublishUpdates } from "@ace/forge/stack-publish";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -75,6 +71,8 @@ export function PrStack(props: {
     canPublishStack(stack) &&
     stack.layers.every((layer) => layer.queueState === null) &&
     !local?.branches.some((branch) => branch.isQueued);
+  const publishing =
+    confirmation?.action === "push" ? stackPublishUpdates(confirmation.expected) : [];
   const prepare = (action: ForgeStackOperation["action"]) => {
     if (!stack || disabled) return;
     setConfirmation({
@@ -202,7 +200,6 @@ export function PrStack(props: {
               local branches.
             </p>
           )}
-          <p className="text-sm">{stackPublicationUnavailable}</p>
           {operation && (
             <p role="status">
               {operation.state}: {operation.message}
@@ -244,6 +241,7 @@ export function PrStack(props: {
             </Button>
             {operation &&
               operation.action !== "merge" &&
+              operation.action !== "push" &&
               ["conflict", "uncertain"].includes(operation.state) && (
                 <>
                   <Button
@@ -257,9 +255,12 @@ export function PrStack(props: {
                   </Button>
                 </>
               )}
-            {operation?.state === "push_partial" && (
-              <Button disabled title={stackPublicationUnavailable}>
-                Retry stack push
+            {operation && canPublishAfter(operation) && (
+              <Button
+                disabled={disabled || !canRecover || !canPublish}
+                onClick={() => prepare("push")}
+              >
+                Publish stack
               </Button>
             )}
             <Button
@@ -278,17 +279,45 @@ export function PrStack(props: {
               aria-label="Confirm stack action"
               className="space-y-2 rounded-md border border-border p-3"
             >
-              <p>
+              {confirmation.action === "push" ? (
+                <>
+                  <p>Push to origin together:</p>
+                  <ul aria-label="Layers to publish" className="font-mono text-sm">
+                    {publishing.map((update) => (
+                      <li key={update.number}>
+                        #{update.number} {update.branch} {update.lease.slice(0, 7)} →{" "}
+                        {update.target.slice(0, 7)}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-sm">
+                    A layer updates only if GitHub still has the revision reviewed before the
+                    rebase. Otherwise nothing is pushed.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p>
+                    {confirmation.action === "merge"
+                      ? `Merge ${confirmation.numbers.map((number) => `#${number}`).join(", ")} into ${confirmation.expected.trunk} using ${confirmation.method}. A merge queue chooses its own method.`
+                      : `${confirmation.action === "abort" ? "Restore" : "Rebase"} local branches for ${confirmation.numbers.map((number) => `#${number}`).join(", ")}. Nothing is pushed until you publish.`}
+                  </p>
+                  <p className="text-sm">
+                    ace checks every reviewed layer revision again before execution. GitHub makes
+                    the final merge decision.
+                  </p>
+                </>
+              )}
+              <Button
+                disabled={disabled || (confirmation.action === "push" && !publishing.length)}
+                onClick={() => void run()}
+              >
+                Confirm{" "}
                 {confirmation.action === "merge"
-                  ? `Merge ${confirmation.numbers.map((number) => `#${number}`).join(", ")} into ${confirmation.expected.trunk} using ${confirmation.method}. A merge queue chooses its own method.`
-                  : `${confirmation.action === "abort" ? "Restore" : "Rebase"} local branches for ${confirmation.numbers.map((number) => `#${number}`).join(", ")}. No push will be attempted.`}
-              </p>
-              <p className="text-sm">
-                ace checks every reviewed layer revision again before execution. GitHub makes the
-                final merge decision.
-              </p>
-              <Button disabled={disabled} onClick={() => void run()}>
-                Confirm {confirmation.action === "merge" ? "stack merge" : "stack action"}
+                  ? "stack merge"
+                  : confirmation.action === "push"
+                    ? "push"
+                    : "stack action"}
               </Button>
               <Button disabled={pending} onClick={() => setConfirmation(null)}>
                 Cancel

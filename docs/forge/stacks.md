@@ -56,21 +56,50 @@ extension owns worktree locks, clean-checkout checks and conflict state. Because
 it may coordinate branches in other local worktrees, the confirmation covers the
 whole active stack. Commands are bounded and cancellable through the forge runner.
 
-Publication is disabled. The reviewed `gh stack push` contract cannot accept
-caller's immutable expected remote SHAs; its freshly fetched leases can accept
-and overwrite collaborator commits absent from the rebased history. ace never
-invokes that command, including on retry. A successful local rebase remains a
-visible `push_partial` outcome with an explanation that no publication happened.
-It cannot become `rebased` merely because a CLI reports success or skips queued
-layers. Publishing requires a separately reviewed CLI capability that atomically
-enforces every intended remote revision.
+A successful local rebase is a visible `push_partial` outcome: the branches are
+rebased and nothing is pushed. ace never invokes `gh stack push`. That command
+fetches its own leases, so it can accept and overwrite collaborator commits
+absent from the rebased history.
 
 Resolve and stage conflicts, then explicitly confirm Continue local rebase or
 Abort rebase. Abort invokes `gh stack rebase --abort` without a push. Recovery
 stays with the task checkout that started the operation. If membership or topology
-no longer matches, recover local changes in the installed CLI. Reconcile local
-revisions with collaborators before publishing outside ace. Nothing marks an
+no longer matches, recover local changes in the installed CLI. Nothing marks an
 agent tree done or changes its lifecycle.
+
+## Publishing a rebased stack
+
+Publish stack lists every active layer whose local head moved, with the revision
+GitHub had when the rebase was confirmed and the rebased revision. Confirming it
+runs one Git push through the daemon's Git owner (`GitService.pushLeased`):
+
+    git push --atomic --porcelain \
+      --force-with-lease=refs/heads/<layer>:<reviewed sha> ... \
+      -- origin <rebased sha>:refs/heads/<layer> ...
+
+The decision rules are pure (`@ace/forge/stack-publish`):
+
+- **Leases.** Each lease is the host revision recorded when the rebase was
+  confirmed, never a freshly fetched value. Continue and Publish requests must
+  carry the same reviewed revisions as the recorded rebase. A refreshed request
+  carrying a newer GitHub head is refused without a push.
+- **Preflight.** GitHub must still report those revisions. The local stack must
+  match the host layers and be restacked: no layer needs a rebase, and each layer's
+  base is the head of the layer below it. Unmoved layers are left out.
+- **Destination.** Every push URL of `origin` must name the selected repository.
+  The pushed source is a commit ID, not a branch name, so a branch moving after
+  review cannot change what is published.
+- **Outcome.** Git's porcelain report decides the result. All layers accepted
+  becomes `rebased`. Any rejected layer, such as a stale lease or a protected
+  branch, becomes `failed`: the push is atomic, so nothing moved. A missing report,
+  lost connection or restart becomes `uncertain`.
+- **Reconciliation.** An uncertain publication settles from GitHub's layer heads.
+  All at the rebased revisions becomes `rebased`; all still at the reviewed
+  revisions becomes `push_partial`. Publishing again is safe, because the leases
+  refuse any layer that already moved.
+
+After a refused publication, bring collaborator commits into the stack with
+`gh stack`, then rebase again.
 
 ## Sources and verification
 
@@ -80,10 +109,13 @@ These contracts follow GitHub's [stack GraphQL types](https://docs.github.com/en
 and [stack CLI commands](https://docs.github.com/en/pull-requests/reference/stacked-prs-cli-commands).
 The JSON interface and exit codes are documented in the official extension's
 [CLI skill reference](https://github.com/github/gh-stack/blob/main/skills/gh-stack/SKILL.md).
+Publication follows [`git push`](https://git-scm.com/docs/git-push)'s
+`--atomic`, `--force-with-lease=<refname>:<expect>` and `--porcelain` contracts.
 The implementation is written fresh from those interfaces.
 
 Behavior tests use real child processes with a fake `gh` at the process boundary,
-temporary Git repositories, SQLite restarts and routed UI interactions. Tests and
+temporary Git repositories, SQLite restarts and routed UI interactions. Publication
+tests push to a real bare repository that stands in for GitHub. Tests and
 the full repository typecheck must run in CI. Local verification is restricted to
 formatting, lint and sequential typechecks of the changed packages because this
 machine is shared.
