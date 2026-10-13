@@ -6,7 +6,7 @@ import {
   SidebarSimpleIcon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { SidebarTrigger } from "@/components/ui/sidebar.tsx";
 import { HeaderMenu } from "./sidebar-menu.tsx";
@@ -41,19 +41,13 @@ export interface HeaderProps {
 }
 
 /**
- * Back, forward and the sidebar's toggle, as the Codex app places them: at the top of the
- * sidebar while it shows beside the content, at the header's far left while it doesn't.
- * ⌘[ and ⌘] go back and forward; ⌘\ shows or hides the sidebar.
+ * Back, forward and the sidebar's toggle. They stay at the header's far left whether the sidebar
+ * shows or not, so the sidebar's top keeps only the wordmark and Search beside the macOS traffic
+ * lights. ⌘[ and ⌘] go back and forward; ⌘\ shows or hides the sidebar.
  */
-export function NavButtons(props: { placement: "sidebar" | "header" }) {
+function NavButtons() {
   const nav = useHistoryNav();
   const frame = useViewFrame();
-  const toggle = useRef<HTMLButtonElement>(null);
-  // The toggle that just took the other's place takes its focus too.
-  const shown = (props.placement === "sidebar") === frame.sidebarShown;
-  useEffect(() => {
-    if (shown && frame.takeToggleFocus()) toggle.current?.focus();
-  }, [shown, frame]);
   return (
     <>
       <IconButton
@@ -71,24 +65,20 @@ export function NavButtons(props: { placement: "sidebar" | "header" }) {
         onClick={nav.forward}
       />
       <IconButton
-        ref={toggle}
         data-sidebar="trigger"
         icon={SidebarSimpleIcon}
         label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
         shortcut="toggleSidebar"
-        onClick={(event) => {
-          if (event.currentTarget === document.activeElement) frame.passToggleFocus();
-          if (frame.sidebarShown) frame.hideSidebar();
-          else frame.showSidebar();
-        }}
+        onClick={frame.sidebarShown ? frame.hideSidebar : frame.showSidebar}
       />
     </>
   );
 }
 
 /**
- * The header's far left: back, forward and the sidebar toggle while the sidebar isn't beside the
- * content (its top row holds them otherwise). On a phone, the way back to the thread list.
+ * The header's far left: back, forward and the sidebar toggle, in both sidebar states and on a
+ * narrow window, where the toggle opens the sidebar's sheet. On a phone, the way back to the
+ * thread list.
  */
 export function HeaderNav() {
   const frame = useViewFrame();
@@ -97,7 +87,6 @@ export function HeaderNav() {
   // No sidebar at all (first-run setup): nothing to show, but the desktop app still clears the
   // macOS traffic lights by this slot's margin, so the title never sits under them.
   if (!frame.hasSidebar) return <div aria-hidden data-slot="header-nav" className="shrink-0" />;
-  if (!phone && frame.sidebarShown && !frame.sheet) return null;
   return (
     // `header-nav`: with no sidebar beside it, the desktop app clears the traffic lights here.
     <div
@@ -105,7 +94,7 @@ export function HeaderNav() {
       className="mr-1.5 flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]"
     >
       {!phone ? (
-        <NavButtons placement="header" />
+        <NavButtons />
       ) : frame.sidebarShown ? (
         <SidebarTrigger label="Hide sidebar" shortcut="toggleSidebar" />
       ) : (
@@ -122,7 +111,7 @@ export function HeaderNav() {
 }
 
 /**
- * The one header every screen uses: sidebar toggle, then the title and its
+ * The one header every screen uses: back, forward and the sidebar toggle, then the title and its
  * subtitle; on the right the actions, the ⋯ menu, the screen's tools (a thread's details icon) and
  * the side panel's toggle, with no rule between them. 44px, a drag region in Electron, hairline only once the content scrolls. Every control
  * is a 30px box on one centre line. On a phone it keeps the sidebar toggle, the title (two lines

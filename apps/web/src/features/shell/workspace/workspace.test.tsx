@@ -68,11 +68,11 @@ test("a thread's tabs stay with it: another thread doesn't inherit them, and the
   expect(selected(await sidePanel()).textContent).toBe(web);
 });
 
-test("keyboard Back and Forward walk thread history, the arrows out of the header while the sidebar shows", async () => {
+test("keyboard Back and Forward walk thread history, with the arrows in the header while the sidebar shows", async () => {
   await openColdStart();
   const header = screen.getByRole("banner");
-  expect(within(header).queryByRole("button", { name: "Back" })).toBeNull();
-  expect(within(header).queryByRole("button", { name: "Forward" })).toBeNull();
+  expect(within(header).getByRole("button", { name: "Back" })).toBeTruthy();
+  expect(within(header).getByRole("button", { name: "Forward" })).toBeTruthy();
   const threads = screen.getByRole("navigation", { name: "Threads" });
   await userEvent.click(within(threads).getByRole("link", { name: /Migrate settings schema/ }));
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
@@ -216,7 +216,8 @@ test("full view gives the panel the work area; the way back restores the convers
   await userEvent.click(within(panel).getByRole("button", { name: "Full view" }));
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
   // The header's navigation moves into the panel's strip.
-  expect(within(panel).queryByRole("button", { name: "Back" })).toBeNull();
+  expect(within(panel).getByRole("button", { name: "Back" })).toBeTruthy();
+  expect(within(panel).getByRole("button", { name: "Hide sidebar" })).toBeTruthy();
 
   await userEvent.click(within(panel).getByRole("button", { name: coldStart }));
   expect(await screen.findByRole("feed", { name: "Transcript" })).toBeTruthy();

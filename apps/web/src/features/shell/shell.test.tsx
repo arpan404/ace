@@ -7,11 +7,9 @@ import { harness } from "@/test/harness.tsx";
 
 const title = (name: string) => screen.findByRole("heading", { level: 1, name });
 const threadList = () => screen.queryByRole("complementary", { name: "Threads" });
-/** A button in the sidebar's top row, where back, forward and its toggle sit while it shows. */
-const topRow = (name: string) =>
-  within(screen.getByRole("navigation", { name: "App" })).getByRole<HTMLButtonElement>("button", {
-    name,
-  });
+/** A button in the header, where back, forward and the sidebar toggle sit. */
+const inHeader = (name: string) =>
+  within(screen.getByRole("banner")).getByRole<HTMLButtonElement>("button", { name });
 
 test("every view and settings page opens in the shell under its own title", async () => {
   const pages: [string, string][] = [
@@ -67,25 +65,25 @@ test("old addresses land where their pages live now", async () => {
   await title("Home");
 });
 
-test("back and forward in the sidebar's top row follow profile view history", async () => {
+test("back and forward in the header follow profile view history", async () => {
   await harness().open("/");
   await title("Home");
-  expect(topRow("Back").disabled).toBe(true);
-  expect(topRow("Forward").disabled).toBe(true);
+  expect(inHeader("Back").disabled).toBe(true);
+  expect(inHeader("Forward").disabled).toBe(true);
 
   await openProfileView("Automations");
   await title("Automations");
   expect(screen.getByRole("link", { name: "Back to app" })).toBeTruthy();
-  expect(topRow("Back").disabled).toBe(false);
+  expect(inHeader("Back").disabled).toBe(false);
 
-  await userEvent.click(topRow("Back"));
+  await userEvent.click(inHeader("Back"));
   await title("Home");
-  expect(topRow("Back").disabled).toBe(true);
-  expect(topRow("Forward").disabled).toBe(false);
+  expect(inHeader("Back").disabled).toBe(true);
+  expect(inHeader("Forward").disabled).toBe(false);
 
   await userEvent.keyboard("{Meta>}]{/Meta}");
   await title("Automations");
-  expect(topRow("Forward").disabled).toBe(true);
+  expect(inHeader("Forward").disabled).toBe(true);
 });
 
 test("⌘\\ hides the sidebar and the header offers to bring it back", async () => {
