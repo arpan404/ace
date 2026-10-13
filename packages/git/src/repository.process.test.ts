@@ -262,3 +262,11 @@ test("status display config does not inject stash headers or suppress divergence
   });
   expect(await scalar(repo, "stash", "list", "--format=%s")).toContain("Keep stash");
 });
+
+test("a linked worktree nested in the checkout reads as untracked work rather than breaking status", async () => {
+  const repo = await repository();
+  await git(repo, "worktree", "add", "-b", "nested", join(repo, "linked-checkout"), "HEAD");
+  const status = await service.status(repo);
+  expect(status.untracked).toContain("linked-checkout");
+  expect((await service.repositoryInfo(repo)).branch).toBe("main");
+});
