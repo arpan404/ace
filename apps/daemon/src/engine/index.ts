@@ -135,7 +135,8 @@ export class Engine {
     this.limits = engineLimits(options.limits);
     const executeGit = promisify(execFile);
     const worktreeGit =
-      options.worktreeGit ?? ((cwd, args) => runWorktreeGit(executeGit, cwd, args));
+      options.worktreeGit ??
+      ((cwd, args) => runWorktreeGit(executeGit, process.env, cwd, args));
     this.nextThreadId = options.threadId ?? randomUUID;
     this.clock = options.clock ?? systemClock;
     this.repo = new EngineRepository(

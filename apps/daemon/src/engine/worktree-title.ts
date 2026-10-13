@@ -1,19 +1,21 @@
 import { worktreeBranchName } from "@ace/workspace";
+import { GitError, executionKeyQuery, nonExecutingEnv } from "@ace/git";
 import type { ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 export type WorktreeGit = (cwd: string, args: string[]) => Promise<string | undefined>;
-/** Native process execution belongs to the injected engine boundary. */
-export async function runWorktreeGit(
-  execute: (
-    file: string,
-    args: string[],
-    options: { maxBuffer: number },
-  ) => Promise<{ stdout: string }>,
+type Execute = (
+  file: string,
+  args: string[],
+  options: { maxBuffer: number; env: NodeJS.ProcessEnv },
+) => Promise<{ stdout: string }>;
+async function run(
+  execute: Execute,
+  env: NodeJS.ProcessEnv,
   cwd: string,
   args: string[],
 ): Promise<string | undefined> {
   try {
-    return (await execute("git", ["-C", cwd, ...args], { maxBuffer: 65536 })).stdout.trim();
+    return (await execute("git", ["-C", cwd, ...args], { maxBuffer: 65536, env })).stdout.trim();
   } catch (error) {
     if (
       typeof error === "object" &&
@@ -24,6 +26,32 @@ export async function runWorktreeGit(
       return undefined;
     throw error;
   }
+}
+/**
+ * Native process execution belongs to the injected engine boundary. Renaming ace's provisional
+ * branch is ace bookkeeping, so the worktree's hooks, filters and fsmonitor never run for it.
+ */
+export async function runWorktreeGit(
+  execute: Execute,
+  baseEnv: NodeJS.ProcessEnv,
+  cwd: string,
+  args: string[],
+): Promise<string | undefined> {
+  const keys = await run(
+    execute,
+    { ...baseEnv, ...nonExecutingEnv() },
+    cwd,
+    ["-c", "protocol.allow=never", ...executionKeyQuery],
+  );
+  let env: Record<string, string>;
+  try {
+    env = nonExecutingEnv(keys ?? "");
+  } catch (error) {
+    // A hook shadowing a reserved event can't be neutralised; leave the branch alone.
+    if (error instanceof GitError) return undefined;
+    throw error;
+  }
+  return run(execute, { ...baseEnv, ...env }, cwd, ["-c", "protocol.allow=never", ...args]);
 }
 /** Rename only ace's untouched provisional branch. User commits/upstreams fence this operation. */
 export async function nameWorktreeBranch(
