@@ -19,7 +19,7 @@ export {
   shellTab,
   terminalTab,
 } from "./terminal/tabs.ts";
-export { useBackgroundShells } from "./terminal/use-terminals.ts";
+export { useAgentShells, useBackgroundShells } from "./terminal/use-terminals.ts";
 /** A checkout file's tab, for whatever opens a file from outside the Files tool. */
 export { fileTab } from "./files/tab-id.ts";
 export { useScriptConfigurations } from "./files/script-configurations.ts";
