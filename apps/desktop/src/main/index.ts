@@ -33,6 +33,11 @@ import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
 import { createMainWindow } from "./window/main-window.ts";
+import {
+  disableDnsPrefetching,
+  isolateVisualizationSession,
+  openVisualizationWindow,
+} from "./visualization-isolation.ts";
 import { windowBackground, WindowBackgroundStore } from "./window/window-background.ts";
 
 /** Set at build time; unpackaged runs have no app package.json for `app.getVersion()`. */
@@ -62,8 +67,8 @@ if (unsafe) {
   app.setPath("userData", userData);
   // Before anything starts Chromium's network service: never the older ace app's keychain item.
   claimKeychainName(app, process.platform);
-  // Defense in depth for the renderer and its offline visualization frames.
-  app.commandLine.appendSwitch("blink-settings", "dnsPrefetchingEnabled=false");
+  // Blink's DNS hints never reach a session's network layer (visualization-isolation.ts).
+  disableDnsPrefetching(app);
   registerAppScheme();
   if (!app.requestSingleInstanceLock()) app.quit();
   else
@@ -271,6 +276,7 @@ function main(target: DaemonTarget): void {
     if (runtime.target.kind === "remote") network.authorize(runtime.target.url);
     if (devUrl && !app.isPackaged) network.authorize(new URL(devUrl).origin);
     installDaemonNetwork(network);
+    await isolateVisualizationSession();
     const remote = runtime.target.kind === "remote" ? [new URL(runtime.target.url).origin] : [];
     if (devUrl && !app.isPackaged) {
       applyDevCsp(devUrl, remote, network);
@@ -316,6 +322,7 @@ function main(target: DaemonTarget): void {
         const check = cliShim && cliShimCheck(cliShim);
         return check ? [check] : [];
       },
+      openVisualization: (request) => void openVisualizationWindow(request),
       setWindowBackground: (value) => {
         if (!backgrounds.set(value).changed || !window || window.isDestroyed()) return;
         window.setBackgroundColor(windowBackground(value, nativeTheme.shouldUseDarkColors));

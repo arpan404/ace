@@ -19,6 +19,7 @@ import { cn } from "@/lib/cn.ts";
 import { useTopFade } from "@/lib/edge-fade.ts";
 import { scrollToEnd as glideToEnd, useListMotion, usePresence } from "@/lib/motion.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
+import { LiveFrames, LiveFramesContext } from "../items/live-frames.ts";
 import { usePlaceBeforePaint } from "@/lib/virtual-paint.ts";
 import {
   DeferredFoldedTurn,
@@ -534,174 +535,181 @@ export function Feed(props: FeedProps) {
   const livePill = usePresence(!pinned || detached);
   const jumpBar = usePresence(!!window);
   const fadeTop = useTopFade(viewport);
+  // At most four chat visualizations hold a live page at once (each runs its own scripts).
+  const [liveFrames] = useState(() => new LiveFrames(4));
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
-      {/* The rows and the bars that float over their top (search, the jump bar). */}
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        <Suspense fallback={null}>
-          <DeferredTurnRail.Component nav={nav} />
-        </Suspense>
-        <div
-          ref={viewport}
-          data-virtual-viewport=""
-          // A classic scrollbar reserves the same room on both edges, so the column stays centred
-          // on the composer's axis; `useGutter` gives the composer the same inset.
-          // Once scrolled, the top 16px fade, so nothing reads as cut under the header.
-          style={fadeTop ? { maskImage: fadeTop, WebkitMaskImage: fadeTop } : undefined}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
-          onScroll={(event) => {
-            const el = event.currentTarget;
-            readTop();
-            slideOnScroll(el);
-            const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge;
-            if (!atEnd && performance.now() < glidingUntil.current) return;
-            // A detached window's end is not the live end.
-            const following = atEnd && !detached && !upwardIntent.current;
-            if (following !== pinnedRef.current) setPinned(following);
-          }}
-        >
-          <div className={`${readingColumn} pt-6 pb-[calc(var(--composer-clearance,0px)+4rem)]`}>
-            {hasOlder && (
-              <div className="flex justify-center pb-4">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={loading}
-                  onClick={() => void loadOlder()}
-                >
-                  {loading && <Spinner />} Load earlier messages
-                </Button>
-              </div>
-            )}
-            {pager.error && (
-              <p role="alert" className="pb-3 text-center text-xs text-status-failed">
-                Couldn't load earlier messages. Try again.
-              </p>
-            )}
-            <div
-              ref={feed}
-              role="feed"
-              aria-label="Transcript"
-              aria-busy={loading || jump.loading !== undefined}
-              className="relative w-full"
-              style={{ height: total }}
-            >
-              <JumpedItem value={focus?.itemId}>
-                {items.map((item) => {
-                  const row = rows[item.index];
-                  if (!row) return null;
-                  const lit = flash?.key === row.key;
-                  return (
-                    <div
-                      key={item.key}
-                      ref={virtualizer.measureElement}
-                      data-index={item.index}
-                      role="article"
-                      aria-posinset={item.index + 1}
-                      aria-setsize={hasOlder ? -1 : rows.length}
-                      {...(lit && flash?.hit ? { "data-hit": "" } : {})}
-                      className={cn("absolute inset-x-0 top-0", rowGap(row, rows[item.index + 1]))}
-                      style={{ transform: `translateY(${item.start - margin}px)` }}
-                    >
+    <LiveFramesContext value={liveFrames}>
+      <div className="relative flex h-full min-h-0 flex-col">
+        {/* The rows and the bars that float over their top (search, the jump bar). */}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <Suspense fallback={null}>
+            <DeferredTurnRail.Component nav={nav} />
+          </Suspense>
+          <div
+            ref={viewport}
+            data-virtual-viewport=""
+            // A classic scrollbar reserves the same room on both edges, so the column stays centred
+            // on the composer's axis; `useGutter` gives the composer the same inset.
+            // Once scrolled, the top 16px fade, so nothing reads as cut under the header.
+            style={fadeTop ? { maskImage: fadeTop, WebkitMaskImage: fadeTop } : undefined}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
+            onScroll={(event) => {
+              const el = event.currentTarget;
+              readTop();
+              slideOnScroll(el);
+              const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge;
+              if (!atEnd && performance.now() < glidingUntil.current) return;
+              // A detached window's end is not the live end.
+              const following = atEnd && !detached && !upwardIntent.current;
+              if (following !== pinnedRef.current) setPinned(following);
+            }}
+          >
+            <div className={`${readingColumn} pt-6 pb-[calc(var(--composer-clearance,0px)+4rem)]`}>
+              {hasOlder && (
+                <div className="flex justify-center pb-4">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={loading}
+                    onClick={() => void loadOlder()}
+                  >
+                    {loading && <Spinner />} Load earlier messages
+                  </Button>
+                </div>
+              )}
+              {pager.error && (
+                <p role="alert" className="pb-3 text-center text-xs text-status-failed">
+                  Couldn't load earlier messages. Try again.
+                </p>
+              )}
+              <div
+                ref={feed}
+                role="feed"
+                aria-label="Transcript"
+                aria-busy={loading || jump.loading !== undefined}
+                className="relative w-full"
+                style={{ height: total }}
+              >
+                <JumpedItem value={focus?.itemId}>
+                  {items.map((item) => {
+                    const row = rows[item.index];
+                    if (!row) return null;
+                    const lit = flash?.key === row.key;
+                    return (
                       <div
-                        className={entering.has(row.key) ? "fx-rise-in" : undefined}
-                        style={lit ? highlight : undefined}
+                        key={item.key}
+                        ref={virtualizer.measureElement}
+                        data-index={item.index}
+                        role="article"
+                        aria-posinset={item.index + 1}
+                        aria-setsize={hasOlder ? -1 : rows.length}
+                        {...(lit && flash?.hit ? { "data-hit": "" } : {})}
+                        className={cn(
+                          "absolute inset-x-0 top-0",
+                          rowGap(row, rows[item.index + 1]),
+                        )}
+                        style={{ transform: `translateY(${item.start - margin}px)` }}
                       >
-                        <RowView
-                          threadId={threadId}
-                          row={row}
-                          live={false}
-                          onOpen={openTurn}
-                          onFold={foldTurn}
-                        />
+                        <div
+                          className={entering.has(row.key) ? "fx-rise-in" : undefined}
+                          style={lit ? highlight : undefined}
+                        >
+                          <RowView
+                            threadId={threadId}
+                            row={row}
+                            live={false}
+                            onOpen={openTurn}
+                            onFold={foldTurn}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </JumpedItem>
+                    );
+                  })}
+                </JumpedItem>
+              </div>
+              {detached && (
+                <Suspense fallback={null}>
+                  <DeferredGapRow.Component
+                    threadId={threadId}
+                    lastTurn={lastWindowOrdinal}
+                    loading={jump.loading === "newer"}
+                    onNewer={() => void nav.jump.newer()}
+                    onLive={toLive}
+                  />
+                </Suspense>
+              )}
+              <div ref={dock} className="mt-4 empty:hidden" />
+              {!detached && (
+                <Suspense fallback={null}>
+                  <DeferredLocalSends.Component threadId={threadId} />
+                  <DeferredHeldSend.Component threadId={threadId} />
+                  <AgentPageReveal threadId={threadId} />
+                </Suspense>
+              )}
             </div>
-            {detached && (
+          </div>
+          {livePinned && working && (
+            <div className="absolute inset-x-0 top-0 z-[5] bg-reading pb-1">
+              <div className={readingColumn}>
+                <LiveHead threadId={threadId} />
+              </div>
+            </div>
+          )}
+          <div className="pointer-events-none absolute inset-x-0 top-3 z-[6] flex flex-col items-center gap-2 px-4">
+            {nav.searchOpen && (
               <Suspense fallback={null}>
-                <DeferredGapRow.Component
+                <DeferredSearchBar.Component nav={nav} />
+              </Suspense>
+            )}
+            {jumpBar.mounted && (
+              <Suspense fallback={null}>
+                <DeferredJumpBar.Component
+                  phase={jumpBar.phase}
+                  turn={jump.turn}
+                  reading={reading}
                   threadId={threadId}
-                  lastTurn={lastWindowOrdinal}
-                  loading={jump.loading === "newer"}
-                  onNewer={() => void nav.jump.newer()}
+                  failed={jump.failed}
                   onLive={toLive}
                 />
               </Suspense>
             )}
-            <div ref={dock} className="mt-4 empty:hidden" />
-            {!detached && (
+            {!window && jump.failed && (
               <Suspense fallback={null}>
-                <DeferredLocalSends.Component threadId={threadId} />
-                <DeferredHeldSend.Component threadId={threadId} />
-                <AgentPageReveal threadId={threadId} />
+                <DeferredJumpFailed.Component
+                  message={jump.failed}
+                  onDismiss={() => nav.jump.dismissError()}
+                />
               </Suspense>
             )}
           </div>
         </div>
-        {livePinned && working && (
-          <div className="absolute inset-x-0 top-0 z-[5] bg-reading pb-1">
-            <div className={readingColumn}>
-              <LiveHead threadId={threadId} />
-            </div>
-          </div>
-        )}
-        <div className="pointer-events-none absolute inset-x-0 top-3 z-[6] flex flex-col items-center gap-2 px-4">
-          {nav.searchOpen && (
-            <Suspense fallback={null}>
-              <DeferredSearchBar.Component nav={nav} />
-            </Suspense>
-          )}
-          {jumpBar.mounted && (
-            <Suspense fallback={null}>
-              <DeferredJumpBar.Component
-                phase={jumpBar.phase}
-                turn={jump.turn}
-                reading={reading}
-                threadId={threadId}
-                failed={jump.failed}
-                onLive={toLive}
-              />
-            </Suspense>
-          )}
-          {!window && jump.failed && (
-            <Suspense fallback={null}>
-              <DeferredJumpFailed.Component
-                message={jump.failed}
-                onDismiss={() => nav.jump.dismissError()}
-              />
-            </Suspense>
-          )}
-        </div>
-      </div>
-      <Suspense fallback={null}>
-        <DeferredTurnKeys.Component
-          rows={rows}
-          anchor={anchor}
-          nav={nav}
-          scrollTo={(index) => {
-            setPinned(false);
-            virtualizer.scrollToIndex(index, { align: "start" });
-            settle(virtualizer, viewport.current, placedUntil);
-            placedAt(anchor, virtualizer, viewport.current, rows, index);
-          }}
-          toLive={toLive}
-        />
-      </Suspense>
-      {livePill.mounted && (
         <Suspense fallback={null}>
-          <DeferredLivePill.Component
-            phase={livePill.phase}
-            newItems={props.fresh.count}
-            more={props.fresh.more}
-            paused={activity?.tone === "working"}
-            onClick={toLive}
+          <DeferredTurnKeys.Component
+            rows={rows}
+            anchor={anchor}
+            nav={nav}
+            scrollTo={(index) => {
+              setPinned(false);
+              virtualizer.scrollToIndex(index, { align: "start" });
+              settle(virtualizer, viewport.current, placedUntil);
+              placedAt(anchor, virtualizer, viewport.current, rows, index);
+            }}
+            toLive={toLive}
           />
         </Suspense>
-      )}
-    </div>
+        {livePill.mounted && (
+          <Suspense fallback={null}>
+            <DeferredLivePill.Component
+              phase={livePill.phase}
+              newItems={props.fresh.count}
+              more={props.fresh.more}
+              paused={activity?.tone === "working"}
+              onClick={toLive}
+            />
+          </Suspense>
+        )}
+      </div>
+    </LiveFramesContext>
   );
 }
 

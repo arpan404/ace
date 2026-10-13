@@ -25,6 +25,7 @@ import {
   RevealPath,
   ThemeSource,
   WindowBackground,
+  VisualizationWindow,
   SocketUrl,
   UpdateStatus,
   WindowAction,
@@ -79,6 +80,8 @@ export const requests = {
   "theme.setSource": { request: ThemeSource, result: NativeAppearance },
   /** The page's theme colours, painted behind it from the next launch's first frame on. */
   "theme.setWindowBackground": { request: WindowBackground, result: None },
+  /** Opens a chat visualization's sandboxed document in its own locked-session window. */
+  "visualization.open": { request: VisualizationWindow, result: None },
   "settings.get": { request: None, result: DesktopSettings },
   "settings.update": { request: DesktopSettingsPatch, result: DesktopSettings },
   "permissions.status": { request: None, result: Permissions },

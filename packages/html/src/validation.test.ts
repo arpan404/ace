@@ -1,18 +1,11 @@
 import { expect, test } from "vitest";
 import { validateHtml } from "./index.ts";
 
-test("preview warns that scripted content is static and rejects network and navigation markup", () => {
-  const scripted = validateHtml(
-    '<!doctype html><html><body><button onclick="this.textContent=42">Count</button></body></html>',
+test("preview accepts inline interactive pages and rejects network and navigation markup", () => {
+  const interactive = validateHtml(
+    '<!doctype html><html><body><input type="range" oninput="out.value=this.value"><output id="out"></output><script>document.title="ready"</script></body></html>',
   );
-  expect(scripted.valid).toBe(true);
-  expect(scripted.diagnostics).toEqual([
-    {
-      code: "static-view",
-      message:
-        "Authored scripts and event handlers will not execute. Use HTML and SVG for visible content.",
-    },
-  ]);
+  expect(interactive).toMatchObject({ valid: true, diagnostics: [] });
   expect(validateHtml("<html><body><h1>Static diagram</h1></body></html>").diagnostics).toEqual([]);
   for (const markup of [
     '<script src="https://example.invalid/lib.js"></script>',
@@ -21,6 +14,7 @@ test("preview warns that scripted content is static and rejects network and navi
     '<style>@import "https://example.invalid/style.css";</style>',
     '<a href="https://example.invalid">Leave</a>',
     '<img src="&#104;ttps://example.invalid/a.png">',
+    '<link rel="preconnect" href="https://example.invalid">',
   ])
     expect(validateHtml(markup).valid).toBe(false);
 });
