@@ -70,6 +70,39 @@ test("a required string, boolean and enum form sends entered values and prevents
   );
 });
 
+/** What a screen reader reads after a field's name: the text of the elements it is described by. */
+function description(field: HTMLElement): string {
+  return (field.getAttribute("aria-describedby") ?? "")
+    .split(/\s+/)
+    .map((id) => (id ? (document.getElementById(id)?.textContent ?? "") : ""))
+    .join(" ")
+    .trim();
+}
+
+test("a choice field cleared back to Choose is announced as invalid with its error text", async () => {
+  await open({
+    kind: "elicitation",
+    server: "projects",
+    message: "Choose a region",
+    mode: "form",
+    schema: {
+      type: "object",
+      properties: { region: { type: "string", title: "Region", enum: ["us", "eu"] } },
+      required: ["region"],
+    },
+  });
+  const region = screen.getByRole("combobox", { name: "Region" });
+  expect(region.getAttribute("aria-invalid")).not.toBe("true");
+  await userEvent.click(region);
+  await userEvent.click(await screen.findByRole("option", { name: "eu" }));
+  await userEvent.click(screen.getByRole("combobox", { name: "Region" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Choose…" }));
+  const cleared = screen.getByRole("combobox", { name: "Region" });
+  await waitFor(() => expect(cleared.getAttribute("aria-invalid")).toBe("true"));
+  expect(description(cleared)).toBe("Region is required.");
+  expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
+});
+
 test("URL consent exposes its supplied safe address independently of the message", async () => {
   const app = await open({
     kind: "elicitation",

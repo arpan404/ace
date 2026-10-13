@@ -22,6 +22,11 @@ function Select<T extends string>(props: {
   onValueChange(value: T): void;
   className?: string;
   disabled?: boolean;
+  /** Field wiring for forms: the trigger carries the id, validity and its help or error text. */
+  id?: string | undefined;
+  required?: boolean | undefined;
+  "aria-invalid"?: boolean | undefined;
+  "aria-describedby"?: string | undefined;
 }) {
   return (
     <SelectPrimitive.Root
@@ -34,7 +39,11 @@ function Select<T extends string>(props: {
       }}
     >
       <SelectPrimitive.Trigger
+        id={props.id}
         aria-label={props.label}
+        aria-required={props.required || undefined}
+        aria-invalid={props["aria-invalid"] || undefined}
+        aria-describedby={props["aria-describedby"]}
         className={cn(
           "relative inline-flex h-8 items-center justify-between gap-2 rounded-md bg-secondary pr-2 pl-2.5 text-ui text-foreground transition-[background-color,box-shadow] duration-(--motion-fast) focus-ring touch-hit",
           "hover:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_5%)] data-popup-open:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_5%)] disabled:opacity-50",

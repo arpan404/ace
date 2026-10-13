@@ -88,9 +88,9 @@ export function Elicitation(props: { request: Request; disabled: boolean; onAnsw
               )}
               {choices ? (
                 <Select
+                  {...attributes}
                   label={property.title ?? key}
                   className="w-full"
-                  disabled={disabled}
                   value={value}
                   onValueChange={(next) => change(key, next)}
                   options={[{ value: "", label: "Choose…" }, ...choices]}
