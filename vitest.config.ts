@@ -14,6 +14,7 @@ const historyWorkerReview = "packages/history-import/src/review.test.ts";
 const browserStartupSuites = [
   "tools/real-smoke/src/browser.process.test.ts",
   "tools/web-perf/src/search-jump.process.test.ts",
+  "tools/web-perf/src/live-motion.process.test.ts",
 ];
 const historyScaleSuite = "packages/history-import/src/scale.process.test.ts";
 

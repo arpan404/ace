@@ -54,7 +54,7 @@ export function StartupLayout(props: {
   );
 }
 
-/** The one status line under the mark: a quiet spinner (none under reduced motion) and words. */
+/** The one status line under the mark: a quiet spinner and words. */
 export function StartupStatus(props: { message?: string | undefined }) {
   return (
     <p
@@ -64,7 +64,7 @@ export function StartupStatus(props: { message?: string | undefined }) {
     >
       {props.message && (
         <span className="fx-view-in flex items-center gap-2">
-          <Spinner className="text-muted-foreground [:root[data-reduce-motion]_&]:hidden" />
+          <Spinner className="text-muted-foreground" />
           {props.message}
         </span>
       )}

@@ -18,14 +18,16 @@ import { AppSidebar, GlobalHotkeys, SidebarFrame, ShortcutHost } from "@/feature
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useStartupShell } from "@/lib/startup/startup.tsx";
 import { cn } from "@/lib/cn.ts";
+import { liveIndicatorsHeld } from "./live-motion.ts";
 
 /** A pull request in a thread's side panel: the forge's view, loaded when one first shows. */
 const PullRequestTab = deferredComponent(() => loadPullRequestTab().then((m) => m.default));
 
 /**
  * Wallpaper, the one sidebar (the thread list, or Settings' pages) and the selected view.
- * `data-connection` carries the daemon connection's state: while it isn't ready, live spinners
- * pause and dim, since nothing they stand for can arrive (no layout changes).
+ * `data-connection` carries the daemon connection's state. While the daemon is unreachable
+ * (`data-live-held`, live-motion.ts) live spinners pause and dim, since nothing they stand for
+ * can arrive (no layout changes); while it connects or starts they keep moving.
  */
 export function AppShell() {
   const shell = useRouteFocus();
@@ -42,11 +44,12 @@ export function AppShell() {
           <div
             ref={shell}
             data-connection={connection}
+            data-live-held={liveIndicatorsHeld(connection) ? "" : undefined}
             className={cn(
               // Focus belongs to the inner panes; the shell must never become a scrollport.
               "relative flex h-dvh min-h-0 overflow-clip",
-              "[&:not([data-connection=ready])_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
-              "[&:not([data-connection=ready])_:is([data-slot=spinner],[data-live])]:opacity-60",
+              "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
+              "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:opacity-60",
             )}
           >
             <a

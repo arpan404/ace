@@ -12,7 +12,8 @@
  * System) keeps fades and drops movement: distances go to zero, the spring settles without
  * overshoot and anything marked `.fx-flourish` (sheens, glows, trails) stops. The only
  * animations that run forever are the live-activity indicators at the end of this file (spinner,
- * working glyph, startup mark, progress sweep, pulses); `bun run check:ui` refuses any other.
+ * working glyph, startup mark, progress sweep, pulses), which keep running under reduced motion;
+ * `bun run check:ui` refuses any other.
  */
 :root {
   --motion-fast: 120ms;
@@ -250,8 +251,10 @@
 /*
  * Live activity: the only animations that run forever. Each shows work that is happening right
  * now and goes away when it ends, moves only transform or opacity (compositor-only, no layout or
- * paint), stops in a hidden window, pauses while the daemon is unreachable (app-shell) and holds
- * still under reduced motion.
+ * paint), stops in a hidden window and pauses while the daemon is unreachable (app-shell).
+ * Reduced motion keeps them going, as macOS keeps its own activity indicators: a still spinner
+ * reads as a hung app. They turn in place or change opacity; only the progress sweep travels, so
+ * under reduced motion it breathes in place instead.
  *
  *   .spin-ring          the Spinner: one turn every 800ms
  *   .fx-spin-slow       the sidebar's dashed working mark: one turn every 2.4s
@@ -277,8 +280,8 @@
 .fx-walk:not([data-still]) > [data-centre] {
   opacity: 0.4;
 }
-/* Still (waiting, held, or reduced motion): corners and centre lit. */
-:is(.fx-walk[data-still], :root[data-reduce-motion] .fx-walk) > :is([data-corner], [data-centre]) {
+/* Still (waiting or held): corners and centre lit. */
+.fx-walk[data-still] > :is([data-corner], [data-centre]) {
   opacity: 0.9;
 }
 .fx-breathe {
@@ -287,17 +290,11 @@
 .fx-indeterminate {
   animation: fx-sweep 1.4s var(--ease-out) infinite;
 }
-:root[data-reduce-motion]
-  :is(
-    .spin-ring,
-    .fx-spin-slow,
-    .fx-walk > [data-step],
-    .fx-breathe,
-    .fx-indeterminate,
-    .animate-pulse,
-    .animate-spin,
-    .animate-ping
-  ) {
+:root[data-reduce-motion] .fx-indeterminate {
+  width: 100%;
+  animation: fx-breathe 1.6s ease-in-out infinite alternate;
+}
+:root[data-reduce-motion] .animate-ping {
   animation: none;
 }
 @keyframes ace-spin {
