@@ -14,7 +14,7 @@ export class ReviewStore {
   constructor(path: string) {
     this.db = new DatabaseSync(path);
     this.db.exec(`
-      PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA cache_size=-512; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256;
+      PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA cache_size=-512; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;
       CREATE TABLE IF NOT EXISTS review_sessions (id TEXT PRIMARY KEY, worktree TEXT NOT NULL, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS review_sessions_thread ON review_sessions(json_extract(data, '$.source.threadId'), id);
       CREATE TABLE IF NOT EXISTS review_comments (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES review_sessions(id), data TEXT NOT NULL);

@@ -93,6 +93,10 @@ export class StorageJournal {
         .run();
     });
   }
+  /** Forget a settled automatic plan; its removals are already durable elsewhere. */
+  discard(id: string): void {
+    this.store.statement("DELETE FROM storage_plans WHERE id=? AND state<>'applying'").run(id);
+  }
   pending(): string[] {
     return this.store
       .statement("SELECT id FROM storage_plans WHERE state='applying' ORDER BY id LIMIT 64")

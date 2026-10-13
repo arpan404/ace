@@ -38,14 +38,16 @@ export class StorageInventory {
       kind: "threads",
       label: thread.title,
       bytes,
+      // Last activity anywhere in the delegation tree, so a busy child keeps its parent.
       modifiedAt: Math.max(
-        thread.activityAt ?? thread.updatedAt,
-        thread.archivedAt ?? 0,
-        thread.deletedAt ?? 0,
+        ...members.map((member) => {
+          const t = member === id ? thread : store.getThread(member);
+          return t ? Math.max(t.activityAt ?? t.updatedAt, t.archivedAt ?? 0, t.deletedAt ?? 0) : 0;
+        }),
       ),
       threadIds: members,
       protections,
-      eligibleReason: "archived_thread",
+      eligibleReason: thread.archivedAt === undefined ? "expired" : "archived_thread",
       fingerprint: fingerprint({
         thread,
         members,

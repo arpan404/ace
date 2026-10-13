@@ -7,8 +7,11 @@ export const defaults: SettingsValues = {
     logs: 14,
     worktrees: 30,
     caches: 7,
+    idleThreads: false,
   },
   "storage.scheduledCleanup": false,
+  "storage.retentionDays": 120,
+  "logs.maxBytes": 1024 ** 3,
   "sourceControl.preferences": {
     hosts: [{ host: "github.com" }],
     host: "github.com",

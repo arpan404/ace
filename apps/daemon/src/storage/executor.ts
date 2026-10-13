@@ -51,6 +51,7 @@ export async function executeStorageItem(
         store.purgeThreadData(id);
         store.statement("INSERT OR REPLACE INTO storage_purged VALUES (?,?)").run(id, now());
       });
+      services.engine?.forgetPurged(id);
       return;
     }
     case "worktree":

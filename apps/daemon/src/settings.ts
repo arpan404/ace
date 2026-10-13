@@ -11,7 +11,7 @@ import {
   type ServerMessage,
   type SettingsEntry,
   type SettingsDiagnostic,
-  SettingsProvenance,
+  SettingsLayerKind,
   SettingsKey,
   SettingsValues,
 } from "@ace/protocol";
@@ -57,7 +57,7 @@ export function settingsSession(options: {
       ok: false,
       entries: [],
       diagnostics: [
-        { layer: SettingsProvenance.parse(layer), code: known.code, message: known.message },
+        { layer: SettingsLayerKind.parse(layer), code: known.code, message: known.message },
       ],
     });
   }

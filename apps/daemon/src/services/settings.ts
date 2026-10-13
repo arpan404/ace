@@ -5,12 +5,24 @@ import type { ServiceContext } from "./types.ts";
 export async function startSettings(context: ServiceContext): Promise<void> {
   const { config, resources, services } = context;
 
-  const settings = new SettingsService({ dataDir: config.dataDir });
+  const settings = new SettingsService({
+    dataDir: config.dataDir,
+    ...(config.settingsOverrides ? { overrides: config.settingsOverrides } : {}),
+  });
   resources.own(() => settings.close());
   services.settings = settings;
   const configurations = new ProviderConfigurationsState();
   resources.own(await configurations.start(settings));
   services.providerConfigurations = configurations;
+  // The file sink starts before settings with the environment or default cap; the saved
+  // cap applies here and on every later change, without a restart.
+  const release = await settings.subscribe({ keys: ["logs.maxBytes"], scope: {} }, (event) => {
+    if (event.type !== "changed") return;
+    const entry = event.entries.find((candidate) => candidate.key === "logs.maxBytes");
+    if (typeof entry?.value === "number") void context.log.resize(entry.value).catch(() => {});
+  });
+  resources.own(release);
+  await context.log.resize((await settings.get("logs.maxBytes")).value).catch(() => {});
 }
 
 import { settingsSession } from "../settings.ts";

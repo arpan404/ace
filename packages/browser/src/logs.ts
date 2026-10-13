@@ -65,6 +65,11 @@ export class SessionLogs {
     const bytes = Buffer.byteLength(line);
     if (this.bytes[kind] + bytes > this.limit) return false;
     this.bytes[kind] += bytes;
+    // Lines appended in the same turn reach the file in one vectored write.
+    if (!stream.writableCorked) {
+      stream.cork();
+      process.nextTick(() => stream.uncork());
+    }
     stream.write(line);
     return true;
   }

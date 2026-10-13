@@ -20,7 +20,14 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createDaemonLogger } from "./diagnostic-log.ts";
-import { logError, logFields, createFileSink, createHealthMonitor } from "@ace/diagnostics";
+import {
+  DEFAULT_LOG_MAX_BYTES,
+  logError,
+  logFields,
+  createFileSink,
+  createHealthMonitor,
+} from "@ace/diagnostics";
+import { installFatalLogFlush } from "./fatal-log.ts";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 
@@ -174,10 +181,10 @@ export async function startDaemon(options: DaemonOptions = {}) {
   try {
     const context = { home, env: process.env };
     const logDirectory = join(config.dataDir, "logs");
+    // Starts at the environment or default cap; the settings service applies the saved cap.
     const sink = await createFileSink({
       directory: logDirectory,
-      fileBytes: 1024 * 1024,
-      totalBytes: 8 * 1024 * 1024,
+      totalBytes: config.settingsOverrides?.["logs.maxBytes"] ?? DEFAULT_LOG_MAX_BYTES,
       context,
     }).catch(() => ({
       async write() {
@@ -194,6 +201,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       context,
     );
     resources.own(() => log.close());
+    resources.own(installFatalLogFlush(process, log));
     lifetime.signal.throwIfAborted();
     const serviceContext: ServiceContext = {
       signal: lifetime.signal,

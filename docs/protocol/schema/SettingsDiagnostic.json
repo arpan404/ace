@@ -15,7 +15,7 @@
       "type": "string"
     },
     "layer": {
-      "$ref": "https://ace.local/protocol/v1/SettingsProvenance.json"
+      "$ref": "https://ace.local/protocol/v1/SettingsLayerKind.json"
     },
     "message": {
       "maxLength": 512,

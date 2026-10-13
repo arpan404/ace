@@ -10,6 +10,9 @@ import { accessRequest } from "../client-access.ts";
 import { hostConnection } from "./connection.ts";
 import { timeoutMs, type Args } from "./args.ts";
 import { CliFailure } from "./output.ts";
+import { rotateLaunchLog } from "./launch-log.ts";
+import { readConfig } from "../config.ts";
+import { DEFAULT_LOG_MAX_BYTES } from "@ace/diagnostics/log-policy";
 const StartupHealth = DaemonHealth.extend({ ready: z.boolean().optional() });
 
 export interface OpenRuntime {
@@ -31,7 +34,12 @@ export function systemOpenRuntime(): OpenRuntime {
     start(home) {
       secureDataDir(home);
       const entry = z.string().min(1).parse(process.argv[1]);
-      const log = openSync(join(home, "daemon-start.log"), "a", 0o600);
+      const path = join(home, "daemon-start.log");
+      rotateLaunchLog(
+        path,
+        readConfig().settingsOverrides?.["logs.maxBytes"] ?? DEFAULT_LOG_MAX_BYTES,
+      );
+      const log = openSync(path, "a", 0o600);
       try {
         // The daemon outlives this launcher and owns its own lock and process inventory.
         const child = spawn(process.execPath, [entry, "serve", "--json"], {

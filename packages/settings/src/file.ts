@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { SettingsKey, type SettingsDiagnostic, type SettingsProvenance } from "@ace/protocol";
+import { SettingsKey, type SettingsDiagnostic, type SettingsLayerKind } from "@ace/protocol";
 import {
   decode,
   assign,
@@ -32,7 +32,7 @@ export class SettingsFile {
   private cancelTimer: (() => void) | undefined;
   private closed = false;
   readonly path: string;
-  readonly layer: SettingsProvenance;
+  readonly layer: SettingsLayerKind;
   private io: FileIO;
   private timers: Scheduler;
   private delay: number;
@@ -40,7 +40,7 @@ export class SettingsFile {
   private changed: (change: FileChange) => void;
   constructor(options: {
     path: string;
-    layer: SettingsProvenance;
+    layer: SettingsLayerKind;
     io: FileIO;
     timers: Scheduler;
     delay: number;

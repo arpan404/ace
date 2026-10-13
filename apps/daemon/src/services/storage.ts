@@ -1,5 +1,6 @@
 import { StorageService } from "../storage/service.ts";
 import { ScheduledStorageCleanup, storageSchedule } from "../storage/schedule.ts";
+import { DataRetention } from "../storage/data-retention.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
@@ -26,6 +27,14 @@ export async function startStorage(context: ServiceContext): Promise<void> {
   );
   context.resources.own(() => schedule.close());
   await schedule.start();
+  const retention = new DataRetention(
+    owner,
+    storage,
+    context.options.storageSchedule ?? storageSchedule,
+    context.options.retentionTiming,
+  );
+  context.resources.own(() => retention.close());
+  await retention.start();
 }
 
 export function createStorageSession(context: SocketContext): SocketService {

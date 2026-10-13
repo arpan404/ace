@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { createRedactor } from "@ace/redaction";
 import { createLogger, createFileSink, logFields, type LogRecord } from "./index.ts";
-import { temporary, deferred } from "./test-support.ts";
+import { temporary } from "./test-support.ts";
 const context = {
   home: "/Users/someone",
   env: { CUSTOM: 'custom-credential-"quoted"', SHORT: "1" },
@@ -56,35 +56,97 @@ it("no known token, home path or environment value reaches the file or recent ri
     await logger.close();
   }
 });
-it("a full queue drops immediately while a blocked sink owns its batch", async () => {
-  const gate = deferred<void>();
+it("a full buffer gives up its oldest debug line, never an error, and counts the drop", async () => {
   const delivered: LogRecord[] = [];
   const logger = createLogger({
     sink: {
       async write(records) {
         delivered.push(...records);
-        await gate.promise;
       },
       async close() {},
     },
     now: () => 0,
     redact,
-    capacity: 2,
-    recentCapacity: 1,
-    batchSize: 1,
+    level: "debug",
+    capacity: 3,
     schedule: () => {},
   });
-  logger.log("info", "first");
-  logger.log("info", "second");
-  const flush = logger.flush();
-  logger.log("info", "dropped");
-  expect(logger.stats()).toEqual({ dropped: 1, failed: 0, queued: 2 });
-  expect(logger.recent()).toHaveLength(1);
-  expect(logger.recent()[0]).toContain("second");
-  gate.resolve();
-  await flush;
-  expect(delivered.map((record) => record.message)).toEqual(["first", "second"]);
+  logger.log("error", "first error");
+  logger.log("debug", "old detail");
+  logger.log("debug", "new detail");
+  logger.log("error", "second error");
+  logger.log("info", "notice");
+  expect(logger.stats()).toEqual({ dropped: 2, failed: 0, queued: 3 });
+  await logger.flush();
+  expect(delivered.map((record) => record.message)).toEqual([
+    "first error",
+    "second error",
+    "notice",
+  ]);
+  await logger.close();
+});
+it("many lines reach the sink in a few batched writes, in order", async () => {
+  const writes: string[][] = [];
+  const timers: (() => void)[] = [];
+  const logger = createLogger({
+    sink: {
+      async write(records) {
+        writes.push(records.map((record) => record.message));
+      },
+      async close() {},
+    },
+    now: () => 0,
+    redact,
+    batchSize: 100,
+    schedule: (callback) => timers.push(callback),
+  });
+  for (let n = 0; n < 1000; n++) logger.log("info", `line ${n}`);
+  // Nothing is written per line: writes wait for a full batch or the flush interval.
+  expect(writes).toHaveLength(0);
+  for (const fire of timers.splice(0)) fire();
+  await logger.flush();
+  expect(writes.length).toBeLessThanOrEqual(10);
+  expect(writes.flat()).toEqual(Array.from({ length: 1000 }, (_, n) => `line ${n}`));
+  await logger.close();
+});
+it("a crash-path flush appends lines still buffered in memory to the log file", async () => {
+  const directory = await temporary();
+  const sink = await createFileSink({ directory, totalBytes: 1024 * 1024, context: {} });
+  const logger = createLogger({ sink, now: () => 7, redact, schedule: () => {} });
+  logger.log("info", "before crash");
+  logger.log("error", "fatal failure");
+  logger.flushSync();
+  const lines = (await readFile(join(directory, "ace.jsonl"), "utf8")).trim().split("\n");
+  expect(lines.map((line) => JSON.parse(line).message)).toEqual(["before crash", "fatal failure"]);
   expect(logger.stats().queued).toBe(0);
+  await logger.close();
+});
+it("shrinking the cap deletes the oldest segments and keeps the stream under the new cap", async () => {
+  const directory = await temporary();
+  const sink = await createFileSink({ directory, totalBytes: 64 * 1024, context: {} });
+  const logger = createLogger({ sink, now: () => 0, redact, schedule: () => {} });
+  const total = async () =>
+    (
+      await Promise.all((await readdir(directory)).map((name) => stat(join(directory, name))))
+    ).reduce((sum, file) => sum + file.size, 0);
+  for (let round = 0; round < 40; round++) {
+    for (let n = 0; n < 20; n++) logger.log("info", `round ${round} ${n} ${"x".repeat(100)}`);
+    await logger.flush();
+    expect(await total()).toBeLessThanOrEqual(64 * 1024);
+  }
+  expect(await total()).toBeGreaterThan(32 * 1024);
+  await logger.resize(16 * 1024);
+  expect(await total()).toBeLessThanOrEqual(16 * 1024);
+  logger.log("info", "after resize");
+  await logger.flush();
+  expect(await total()).toBeLessThanOrEqual(16 * 1024);
+  const names = await readdir(directory);
+  const text = (
+    await Promise.all(names.map((name) => readFile(join(directory, name), "utf8")))
+  ).join("");
+  expect(text).toContain("after resize");
+  expect(text).toContain("round 39 19");
+  expect(text).not.toContain("round 0 0 ");
   await logger.close();
 });
 it("child loggers share level filtering and failed writes do not escape to callers", async () => {

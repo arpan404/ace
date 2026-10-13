@@ -16,6 +16,11 @@ export interface StorageCandidate {
 }
 
 const forceable = new Set<StorageReason>(["uncommitted", "unpushed"]);
+/**
+ * Archive state only. Automatic retention (`idleThreads`) removes idle threads whether or not
+ * they were archived; every liveness protection (working, waiting, queued, pinned) still holds.
+ */
+const archival = new Set<StorageReason>(["not_archived", "live_thread"]);
 /** Pure eligibility. A force authorizes only this worktree's dirty/unpublished contents. */
 export function planStorageItem(
   candidate: StorageCandidate,
@@ -24,7 +29,11 @@ export function planStorageItem(
   forceItems: ReadonlySet<string>,
 ): StorageItem {
   const forced = candidate.kind === "worktrees" && forceItems.has(candidate.id);
-  const protections = candidate.protections.filter((reason) => !(forced && forceable.has(reason)));
+  const protections = candidate.protections.filter(
+    (reason) =>
+      !(forced && forceable.has(reason)) &&
+      !(retention.idleThreads && candidate.kind === "threads" && archival.has(reason)),
+  );
   const days = retention[candidate.kind];
   if (days === null) protections.push("retention_disabled");
   else if (candidate.modifiedAt > now - days * 86400000) protections.push("within_retention");

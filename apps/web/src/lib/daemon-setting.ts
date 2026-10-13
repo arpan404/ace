@@ -174,3 +174,13 @@ export function useLocalPermissionModes(scope: SettingsScope) {
   const parsed = SettingsValues.shape["permissions.providerModes"].safeParse(raw);
   return parsed.success ? parsed.data : undefined;
 }
+
+/** Where a daemon setting's value comes from; `environment` means a host variable pins it. */
+export function useDaemonSettingProvenance(
+  key: SettingsKey,
+  scope: SettingsScope = {},
+): SettingsProvenance | undefined {
+  const client = useClient();
+  const watch = watchFor(client, key, scope);
+  return useSyncExternalStore(watch.subscribe, watch.getProvenance, watch.getProvenance);
+}

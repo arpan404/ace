@@ -1,0 +1,7 @@
+{
+  "$id": "https://ace.local/protocol/v1/LogMaxBytes.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maximum": 68719476736,
+  "minimum": 1048576,
+  "type": "integer"
+}

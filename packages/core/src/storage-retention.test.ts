@@ -56,3 +56,31 @@ test("recent files and disabled categories remain protected", () => {
     planStorageItem(candidate, { ...retention, worktrees: null }, now, new Set()).reasons,
   ).toContain("retention_disabled");
 });
+test("automatic retention removes an idle unarchived thread past the window but keeps live ones", () => {
+  const thread: StorageCandidate = {
+    ...candidate,
+    id: "thread",
+    kind: "threads",
+    protections: ["not_archived", "live_thread"],
+    eligibleReason: "expired",
+  };
+  const automatic = StorageRetention.parse({ threads: 120, idleThreads: true });
+  expect(planStorageItem(thread, retention, now, new Set()).disposition).toBe("protect");
+  expect(planStorageItem(thread, automatic, now, new Set())).toMatchObject({
+    disposition: "remove",
+    reasons: ["expired"],
+  });
+  expect(
+    planStorageItem({ ...thread, modifiedAt: now - 119 * 86400000 }, automatic, now, new Set())
+      .reasons,
+  ).toEqual(["within_retention"]);
+  for (const reason of ["active_tree", "pending_input", "pinned", "leased"] as const)
+    expect(
+      planStorageItem(
+        { ...thread, protections: [...thread.protections, reason] },
+        automatic,
+        now,
+        new Set(),
+      ).reasons,
+    ).toEqual([reason]);
+});

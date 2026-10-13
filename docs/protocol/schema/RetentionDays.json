@@ -1,0 +1,7 @@
+{
+  "$id": "https://ace.local/protocol/v1/RetentionDays.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maximum": 3650,
+  "minimum": 1,
+  "type": "integer"
+}

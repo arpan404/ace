@@ -7,6 +7,12 @@ export {
   type Level,
 } from "./logger.ts";
 export { createFileSink } from "./worker-sink.ts";
+export {
+  DEFAULT_LOG_MAX_BYTES,
+  MIN_LOG_MAX_BYTES,
+  MAX_LOG_MAX_BYTES,
+  parseByteSize,
+} from "./log-policy.ts";
 export { createHealthMonitor, type HealthOptions } from "./health.ts";
 export {
   createDoctorChecks,

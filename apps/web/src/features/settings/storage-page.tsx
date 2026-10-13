@@ -10,6 +10,7 @@ import {
   SettingSection,
 } from "@/components/setting-row.tsx";
 import { StorageRetentionControls } from "./storage-retention.tsx";
+import { DataRetentionSettings } from "./data-retention.tsx";
 import { StorageCompactAction, StoragePlanPreview } from "./storage-plan.tsx";
 import { storageBytes, storageLabels } from "./storage-copy.ts";
 
@@ -171,6 +172,7 @@ export function StorageSettings() {
           onApply={() => void apply()}
         />
       )}
+      <DataRetentionSettings />
       <StorageRetentionControls
         onSaved={() => {
           setPlan(undefined);
