@@ -54,7 +54,7 @@ export function SubagentStatusBar(props: {
       </span>
       {props.phase === "running" ? (
         // The live line's own look: its time ticks through a ref, never a render.
-        <WorkingIndicator from={props.startedAt} className="pl-1 text-muted-foreground" />
+        <WorkingIndicator from={props.startedAt} className="shrink-0 pl-1 text-muted-foreground" />
       ) : (
         <span className="shrink-0 pl-1 text-muted-foreground tabular-nums">
           {subagentOutcome(props.phase, props.startedAt, props.endedAt, props.startedAt)}
