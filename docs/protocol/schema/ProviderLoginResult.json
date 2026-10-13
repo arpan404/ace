@@ -40,6 +40,9 @@
             "ok": {
               "const": false,
               "type": "boolean"
+            },
+            "reason": {
+              "$ref": "https://ace.local/protocol/v1/ProviderLoginUnavailableReason.json"
             }
           },
           "required": [

@@ -7,6 +7,8 @@ import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { registerImplicitAccounts } from "../account-homes.ts";
 import { Onboarding } from "../onboarding.ts";
 import { join } from "node:path";
+import { logError, logFields } from "@ace/diagnostics";
+import { unavailableLogin } from "./login-refusal.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
@@ -48,6 +50,16 @@ export async function startProviderLogin(context: ServiceContext): Promise<void>
     },
     prepare: (target, action, signal, owner) =>
       prepareProviderLogin(context, manager, cursorDefault, target, action, signal, owner),
+    report: (error, target) =>
+      context.log.log(
+        "warn",
+        "Provider sign-in failed",
+        logFields([
+          ["provider", target.provider],
+          ["action", target.action],
+          ["error", logError(error)],
+        ]),
+      ),
   });
   services.providerLogin = sessions;
   resources.own(async () => {
@@ -85,21 +97,21 @@ export function createProviderLoginSession(context: SocketContext): SocketServic
       if (request.success) {
         const input = request.data;
         const service = context.options.providerLogin;
+        const refusal = { warn: context.options.warn, transport: "socket" as const };
         const error =
           !context.authorize("operate") ||
           (input.type === "provider.login.apiKey" && !context.canSubmitSecret?.())
             ? "forbidden"
-            : !service
-              ? "unavailable"
-              : pending >= 8
-                ? "busy"
-                : undefined;
-        if (error || !service)
+            : pending >= 8
+              ? "busy"
+              : undefined;
+        if (error)
           context.send({
             type: "provider.login.result",
             requestId: input.requestId,
-            result: { ok: false, error: error ?? "unavailable" },
+            result: { ok: false, error },
           });
+        else if (!service) context.send(unavailableLogin(input, "not_running", refusal));
         else {
           stop ??= service.listen((owner, progress) => {
             if (owner === device && context.connected() && context.authorize("operate"))
@@ -116,7 +128,7 @@ export function createProviderLoginSession(context: SocketContext): SocketServic
                 progress.state !== "failed" ||
                 !context.options.accountManagement
               ) {
-                result.result = { ok: false, error: "unavailable" };
+                result.result = unavailableLogin(input, "no_terminal", refusal).result;
               } else {
                 const terminalId =
                   manualTerminals.get(progress.session) ??
@@ -134,13 +146,9 @@ export function createProviderLoginSession(context: SocketContext): SocketServic
               }
             }
             if (context.connected() && context.authorize("operate")) context.send(result);
-          } catch {
-            if (context.connected() && context.authorize("operate"))
-              context.send({
-                type: "provider.login.result",
-                requestId: input.requestId,
-                result: { ok: false, error: "unavailable" },
-              });
+          } catch (cause) {
+            const refused = unavailableLogin(input, "error", { ...refusal, cause });
+            if (context.connected() && context.authorize("operate")) context.send(refused);
           } finally {
             if (input.type === "provider.login.apiKey") {
               input.apiKey = "";

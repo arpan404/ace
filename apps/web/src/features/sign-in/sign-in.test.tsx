@@ -325,6 +325,22 @@ test("a sign-in the daemon refuses as busy says so and offers to try again", asy
   expect(within(dialog).getByRole("button", { name: "Try again" })).toBeTruthy();
 }, 30_000);
 
+test("a sign-in the daemon couldn't run says what went wrong and where the cause is, not just 'here'", async () => {
+  const app = harness();
+  stage(app, "codex", { auth: "logged_out" });
+  app.daemon.services.providerLogin.refusals.codex = "error";
+  const list = await providersList(app);
+  await userEvent.click(await within(list).findByRole("button", { name: "Sign in" }));
+  const dialog = await screen.findByRole("dialog", { name: "Sign in to Codex" });
+  expect(await within(dialog).findByText("ace hit an error starting Codex's sign-in")).toBeTruthy();
+  expect(within(dialog).getByText(/run ace logs on the computer running ace/)).toBeTruthy();
+  expect(within(dialog).queryByText("ace can't run Codex's sign-in here")).toBeNull();
+  // Fixed on the daemon: Try again reaches the code.
+  delete app.daemon.services.providerLogin.refusals.codex;
+  await userEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
+  expect(await within(dialog).findByText("Enter this code on the sign-in page")).toBeTruthy();
+}, 30_000);
+
 test("Pi service selection shows known marks and leads to browser sign-in without a premature error", async () => {
   const app = harness();
   stage(app, "pi", { auth: "logged_out" });

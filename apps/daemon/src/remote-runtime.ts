@@ -119,7 +119,8 @@ export function remoteRuntime(
       }
       directSignature = listen;
       if (relayOptions)
-        relay = await startRelayTransport({ ...options, relay: relayOptions }, auth);
+        // `options` itself, not a copy: its service getters must stay live for relay channels.
+        relay = await startRelayTransport(options, auth, relayOptions);
       options.relay = relay ? relayOptions : undefined;
       preferences = next;
       active = signature;

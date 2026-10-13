@@ -27,23 +27,31 @@ import {
 import type { HostChannel } from "@ace/relay";
 import type { Store } from "../store.ts";
 import { contextScope } from "./context-scope.ts";
+/**
+ * The daemon services a relay channel may use. The daemon passes an object whose fields read its
+ * live service registry: the relay connects during startup, before listener-phase services such
+ * as sign-in publish, so a copy taken then would miss them for the daemon's whole life.
+ */
 export interface RelayServices {
-  remoteDelegation?: import("../server-options.ts").ServerOptions;
-  providerLogin?: import("@ace/accounts").ProviderLoginSessions;
-  accountManagement?: import("../account-management.ts").AccountManagement;
-  files?: FilesService;
-  supportFiles?: FilesService;
-  context?: import("../server-options.ts").ServerOptions["context"];
-  threadFiles?: import("../files-workspaces.ts").FilesWorkspaces;
-  appDevices?: DevicesService;
-  browser?: BrowserService;
-  screen?: ScreenManager;
-  store?: Store;
-  canReadThread?: (device: DeviceId, thread: ThreadId) => boolean;
+  remoteDelegation?: import("../server-options.ts").ServerOptions | undefined;
+  providerLogin?: import("@ace/accounts").ProviderLoginSessions | undefined;
+  accountManagement?: import("../account-management.ts").AccountManagement | undefined;
+  files?: FilesService | undefined;
+  supportFiles?: FilesService | undefined;
+  context?: import("../server-options.ts").ServerOptions["context"] | undefined;
+  threadFiles?: import("../files-workspaces.ts").FilesWorkspaces | undefined;
+  appDevices?: DevicesService | undefined;
+  browser?: BrowserService | undefined;
+  screen?: ScreenManager | undefined;
+  store?: Store | undefined;
+  canReadThread?: ((device: DeviceId, thread: ThreadId) => boolean) | undefined;
+  /** Warn-level daemon log for refused requests. */
+  warn?: ((message: string, fields: object) => void) | undefined;
 }
 /** A dedicated authenticated relay channel never mixes file packets and screen packets. */
 export function attachRelayService(
-  options: RelayServices & {
+  options: RelayServices,
+  connection: {
     channel: HostChannel;
     kind: "files" | "devices" | "browser" | "screen" | "provider_auth";
     device: DeviceId;
@@ -51,14 +59,15 @@ export function attachRelayService(
     authorize(scope: "read" | "operate" | "admin"): boolean;
   },
 ) {
-  const { channel, device, authorize, sessionId } = options;
-  if (options.kind === "provider_auth")
+  const { channel, device, authorize, sessionId } = connection;
+  if (connection.kind === "provider_auth")
     return providerAuthRelay({
       channel,
       device,
       authorize,
-      ...(options.providerLogin ? { login: options.providerLogin } : {}),
-      ...(options.accountManagement ? { accounts: options.accountManagement } : {}),
+      login: () => options.providerLogin,
+      accounts: () => options.accountManagement,
+      ...(options.warn ? { warn: options.warn } : {}),
     });
   const threadAccess = (threadId: string) => {
     const id = ThreadId.parse(threadId);
@@ -74,7 +83,7 @@ export function attachRelayService(
     }
     await channel.send(message);
   };
-  if (options.kind === "devices") {
+  if (connection.kind === "devices") {
     if (!options.appDevices || !authorize("admin"))
       throw new Error("Devices relay requires admin access");
     const endpoint = connectDevices(options.appDevices, sessionId, {
@@ -108,7 +117,7 @@ export function attachRelayService(
       close: endpoint.close,
     };
   }
-  if (options.kind === "browser") {
+  if (connection.kind === "browser") {
     if (!options.browser) throw new Error("Browser relay unavailable");
     const endpoint = connectBrowser(options.browser, {
       connectionId: sessionId,
@@ -136,7 +145,7 @@ export function attachRelayService(
       close: endpoint.close,
     };
   }
-  if (options.kind === "screen") {
+  if (connection.kind === "screen") {
     if (!options.screen || !authorize("admin"))
       throw new Error("Screen relay requires admin access");
     const endpoint = screenConnection(options.screen, new Simulators(process.platform), sessionId, {

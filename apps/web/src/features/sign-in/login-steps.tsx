@@ -10,7 +10,15 @@ import type { ProviderReadiness } from "@/lib/provider-readiness.ts";
 import { BrowserStep, ChallengeFooter, CodeStep } from "./login-challenge.tsx";
 import type { LoginController, LoginView } from "./login-controller.ts";
 import { Problem } from "./login-outcome.tsx";
-import { Actions, refusals, Step, StepTitle, useFocusOnShow, Waiting } from "./login-parts.tsx";
+import {
+  Actions,
+  refusals,
+  Step,
+  StepTitle,
+  unavailableDetails,
+  useFocusOnShow,
+  Waiting,
+} from "./login-parts.tsx";
 import { ApiKeyStep } from "./api-key-step.tsx";
 import { AgentLoginTerminal, ManualSteps } from "./manual-steps.tsx";
 
@@ -59,7 +67,10 @@ export function LoginBody(props: {
       </Step>
     );
   if (view.kind === "refused") {
-    const [title, hint] = refusals[view.reason](name);
+    const [title, hint] =
+      view.reason === "unavailable" && view.detail
+        ? unavailableDetails[view.detail](name)
+        : refusals[view.reason](name);
     return (
       <Step key="refused">
         <Problem
