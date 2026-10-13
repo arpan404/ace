@@ -24,6 +24,10 @@
     },
     {
       "properties": {
+        "create": {
+          "const": true,
+          "type": "boolean"
+        },
         "icon": {
           "anyOf": [
             {
@@ -44,6 +48,28 @@
         },
         "type": {
           "const": "workspace.add",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "create": {
+          "const": true,
+          "type": "boolean"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "workspace.root.add",
           "type": "string"
         }
       },

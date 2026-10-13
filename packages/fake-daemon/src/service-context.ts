@@ -7,6 +7,7 @@ export interface FakeWireSession {
 export interface FakeServiceContext {
   now(): number;
   projectRoots?(): readonly string[];
+  saveProjectRoots?(roots: readonly string[]): void;
   canManageProjects?(device: string): boolean;
   scheduleProject?(callback: () => void): void;
   createThread?(input: {

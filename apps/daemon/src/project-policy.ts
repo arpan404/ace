@@ -39,6 +39,11 @@ const system = [
   "/Applications",
 ];
 export function assertProjectPath(path: string, roots: readonly string[]): void {
+  assertOrdinaryPath(path);
+  if (!roots.some((root) => within(root, path))) throw new ProjectError("outside_project_roots");
+}
+/** Neither a filesystem root nor inside a system folder. */
+export function assertOrdinaryPath(path: string): void {
   const normalized = path.toLowerCase();
   if (
     path === parse(path).root ||
@@ -48,7 +53,6 @@ export function assertProjectPath(path: string, roots: readonly string[]): void 
     )
   )
     throw new ProjectError("system_directory");
-  if (!roots.some((root) => within(root, path))) throw new ProjectError("outside_project_roots");
 }
 /** Filesystem boundary; all policy decisions use canonical targets. */
 export class ProjectPaths {

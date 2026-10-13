@@ -290,13 +290,41 @@ export class FakeProjects {
       });
     return { ok: true, workspace: project, inspection: this.inspection(path) };
   }
+  /** `mkdir -p` on the fake host: each missing folder on the way, empty. */
+  private makeFolders(path: string): void {
+    const names = path.split("/").filter(Boolean);
+    for (let depth = 1; depth <= names.length; depth++) {
+      const folder = `/${names.slice(0, depth).join("/")}`;
+      const parent = this.directories.get(`/${names.slice(0, depth - 1).join("/")}`);
+      if (this.directories.has(folder)) continue;
+      if (parent) parent.empty = false;
+      this.directories.set(folder, {
+        empty: true,
+        git: false,
+        initialBranch: "main",
+        modifiedAt: this.context.now(),
+      });
+    }
+  }
   command(input: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
     const decoded = ProjectCommand.safeParse(input);
     if (!decoded.success || decoded.data.type === "workspace.clone") return undefined;
     const p = decoded.data;
     this.seed();
     try {
+      if (p.type === "workspace.root.add") {
+        const path = p.path.replace(/\/+$/, "") || "/";
+        if (!path.startsWith("/") || path.split("/").includes(".."))
+          throw new Error("invalid_path");
+        if (!this.directories.has(path) && !p.create) throw new Error("directory_missing");
+        this.makeFolders(path);
+        const configured = this.context.projectRoots?.() ?? [];
+        const roots = [...new Set([...(configured.length ? configured : this.roots), path])];
+        this.context.saveProjectRoots?.(roots);
+        return { ok: true };
+      }
       if (p.type === "workspace.add") {
+        if (p.create) this.makeFolders(this.checked(p.path));
         const info = this.inspection(p.path);
         return this.register(info.path, p.name ?? info.path.split("/").at(-1) ?? "Project", p.icon);
       }

@@ -84,6 +84,21 @@ export const ProjectCommands = [
     path,
     name: ProjectName.optional(),
     icon: ProjectIcon.nullable().optional(),
+    /**
+     * Create the folder and any missing parents first (`mkdir -p`); a folder already there is
+     * just added. Folders it made are removed again when registration fails.
+     */
+    create: z.literal(true).optional(),
+  }),
+  /**
+   * Allow a folder as a project root (`projects.roots`), keeping home allowed when it is the
+   * first. With `create`, a missing folder and its missing parents are made first; without it
+   * a missing folder is refused with `directory_missing`.
+   */
+  z.object({
+    type: z.literal("workspace.root.add"),
+    path,
+    create: z.literal(true).optional(),
   }),
   z.object({
     type: z.literal("workspace.create"),

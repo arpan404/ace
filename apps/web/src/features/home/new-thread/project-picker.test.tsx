@@ -24,7 +24,7 @@ test("project search keeps draft text, supports keyboard selection, no matches a
   const reopened = await screen.findByRole("dialog", { name: "Choose project" });
   await userEvent.type(
     await within(reopened).findByRole("combobox", { name: "Search projects" }),
-    "not-a-project",
+    "not/a/project",
   );
   expect(await within(reopened).findByText("No projects match.")).toBeTruthy();
   expect(within(reopened).getByRole("button", { name: "Add project" })).toBeTruthy();

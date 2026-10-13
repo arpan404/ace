@@ -12,6 +12,8 @@ export function projectCalls(client: ProjectsClient): ProjectCalls {
       client.command(ProjectCommand.parse({ type: "workspace.add", ...input }), options, id),
     create: (input, options, id) =>
       client.command(ProjectCommand.parse({ type: "workspace.create", ...input }), options, id),
+    addRoot: (input, options, id) =>
+      client.command(ProjectCommand.parse({ type: "workspace.root.add", ...input }), options, id),
     clone: (input, options, id) =>
       client.command(
         ProjectCommand.parse({

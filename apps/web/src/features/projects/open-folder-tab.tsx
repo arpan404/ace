@@ -26,7 +26,7 @@ export function OpenFolderTab(props: {
   machine: Machine;
   machines: readonly Machine[];
   attempt: FolderAttempt | undefined;
-  onAdded(result: Added, mode: LandMode, machine: Machine): void;
+  onAdded(result: Added, mode: LandMode, machine: Machine, verb: "Added" | "Created"): void;
 }) {
   const { machine } = props;
   const [text, setText] = useState(() => {
@@ -72,22 +72,32 @@ export function OpenFolderTab(props: {
   const target = highlighted;
   const on = target?.machine ?? machine;
   const commandsOn = useProjectCommandsOn();
-  const inspection = useFolderInspection(on, target?.path).data;
+  // A folder still to be created has nothing to inspect.
+  const inspection = useFolderInspection(on, target?.create ? undefined : target?.path).data;
   const root = inspection?.suggestedRepoRoot;
   const offline = machine.client === undefined;
 
-  const add = async (path: string, mode: LandMode, where: Machine) => {
+  /** Add a folder, or (`create`) make it first, on `where`; a problem stays with its row. */
+  const add = async (
+    path: string,
+    mode: LandMode,
+    where: Machine,
+    how: { kind: "add" } | { kind: "create"; key: string } = { kind: "add" },
+  ) => {
     if (pending.current) return;
     pending.current = true;
     setAdding(true);
     setProblem(undefined);
     try {
-      props.onAdded(await commandsOn(where).add(path), mode, where);
+      const commands = commandsOn(where);
+      if (how.kind === "create")
+        props.onAdded(await commands.createAndAdd(path), "thread", where, "Created");
+      else props.onAdded(await commands.add(path), mode, where, "Added");
     } catch (error) {
       const failure = projectFailure(error);
       pending.current = false;
       setProblem({
-        key: `${where.id}\u0000${path}`,
+        key: how.kind === "create" ? how.key : `${where.id}\u0000${path}`,
         path,
         machine: where,
         message: failure.message,
@@ -100,7 +110,12 @@ export function OpenFolderTab(props: {
   };
   const open = (row: FolderRow | undefined, newThread: boolean) => {
     if (!row || adding) return;
-    void add(row.path, newThread ? "thread" : "open", row.machine);
+    void add(
+      row.path,
+      newThread ? "thread" : "open",
+      row.machine,
+      row.create ? { kind: "create", key: row.key } : undefined,
+    );
   };
 
   const shownProblem =
@@ -191,7 +206,15 @@ export function OpenFolderTab(props: {
           disabled={!target || adding || on.client === undefined}
           onClick={() => open(target, false)}
         >
-          {adding ? "Adding…" : target ? `Add ${target.name}` : "Select a folder"}
+          {adding
+            ? target?.create
+              ? "Creating…"
+              : "Adding…"
+            : target
+              ? target.create
+                ? `Create ${target.name} and add`
+                : `Add ${target.name}`
+              : "Select a folder"}
         </Button>
       </Footer>
     </div>

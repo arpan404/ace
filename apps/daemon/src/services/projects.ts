@@ -19,6 +19,12 @@ export function startProjects({ store, services, options, now, resources }: Serv
         return (await services.settings.get("projects.roots")).value;
       }),
     hasOwnedWork: (id) => services.workspaceActions?.hasOwnedWork(id) ?? false,
+    saveRoots:
+      options.projects?.saveRoots ??
+      (async (roots) => {
+        if (!services.settings) throw new Error("settings_unavailable");
+        await services.settings.set("projects.roots", roots, { kind: "global" });
+      }),
   });
   services.projects = projects;
   resources.own(() => projects.close());
@@ -62,8 +68,14 @@ export function createProjectsSession(context: SocketContext): SocketService {
           });
           return;
         }
+        const lease = context.authorityLease?.("projects") ?? allowed;
+        // Allowing another root widens what every device may open, as the setting itself does.
+        const admin = context.authorityLease?.("admin") ?? (() => authorize("admin"));
         const task = projects
-          .execute(command, context.authorityLease?.("projects") ?? allowed)
+          .execute(
+            command,
+            command.payload.type === "workspace.root.add" ? () => lease() && admin() : lease,
+          )
           .catch(() => ({ commandId: command.id, ok: false, error: "project_failed" }))
           .then((result) => {
             if (connected()) send({ type: "commandResult", ...result });

@@ -394,9 +394,8 @@ test("Enter never opens a result still showing from the previous search", async 
     true,
   );
   release();
-  expect(
-    await screen.findByText("No folders match “weatherx”. Type a path, like ~/ or /, to browse."),
-  ).toBeTruthy();
+  // Nothing matches once it answers: creating the typed name is all that's left.
+  expect(await screen.findByRole("option", { name: "Create weatherx and add" })).toBeTruthy();
   expect(registered(made)).toEqual([]);
   expect(screen.getByRole("dialog", { name: "Add project" })).toBeTruthy();
 });
