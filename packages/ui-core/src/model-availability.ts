@@ -91,5 +91,6 @@ export function unavailablePickerModel(selection: {
     legacy: false,
     isDefault: false,
     unavailable: "Unavailable",
+    vanished: true,
   };
 }

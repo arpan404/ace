@@ -31,6 +31,8 @@ export interface PickerModel {
   source?: ModelSource | undefined;
   /** Why it can't be chosen now (every account that serves it is at its limit). */
   unavailable?: string | undefined;
+  /** A saved choice the catalog no longer lists: shown first, apart from runnable models. */
+  vanished?: boolean | undefined;
 }
 
 /** The picker's left column: Favorites, or one provider. */

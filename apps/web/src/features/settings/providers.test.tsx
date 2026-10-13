@@ -271,9 +271,10 @@ test("a vanished saved default stays unavailable until the person picks its reco
     }),
   );
   const picker = await screen.findByRole("listbox", { name: "Models" });
-  // The compact picker (49ef284a8) lists sources' models; the vanished one is never pickable.
-  const missing = within(picker).queryByRole("option", { name: /^Muse Spark 1.3 Contributor/ });
-  expect(missing?.getAttribute("aria-disabled") ?? "true").toBe("true");
+  const missing = within(picker).getByRole("option", {
+    name: /^Muse Spark 1.3 Contributor, .*Unavailable$/,
+  });
+  expect(missing.getAttribute("aria-disabled")).toBe("true");
   await userEvent.click(within(picker).getByRole("option", { name: /Opus 5.5, recommended/ }));
   await waitFor(() =>
     expect(app.daemon.services.settings.get("providers.configuration")).toEqual([
