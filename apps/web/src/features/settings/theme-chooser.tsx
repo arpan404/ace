@@ -12,7 +12,7 @@ export function ThemeChooser() {
       role="radiogroup"
       aria-label="Theme"
       onKeyDown={onRadioKeys}
-      className="grid grid-cols-1 gap-3 @min-[360px]:grid-cols-2 @min-[620px]:grid-cols-3"
+      className="grid max-w-[620px] grid-cols-2 gap-2 @min-[420px]:grid-cols-3 @min-[420px]:gap-3"
     >
       {themeIds.map((id) => (
         <PickerCard

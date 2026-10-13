@@ -18,7 +18,7 @@ export function ModePicker() {
       role="radiogroup"
       aria-label="Mode"
       onKeyDown={onRadioKeys}
-      className="grid grid-cols-3 gap-2 @min-[420px]:gap-3"
+      className="grid max-w-[620px] grid-cols-3 gap-2 @min-[420px]:gap-3"
     >
       {modes.map(({ value, label }) => (
         <PickerCard
@@ -30,7 +30,7 @@ export function ModePicker() {
             <AppPreview
               theme={resolved.theme}
               scheme={value === "system" ? "split" : value}
-              className="aspect-[4/3] @min-[420px]:aspect-[2/1]"
+              className="aspect-[16/10]"
             />
           }
         />
