@@ -55,7 +55,7 @@ test("rows that fill in after a thread opens move the rows under them before the
   app.play(flakyCheckout()).runThrough("approval-requested");
   await app.open("/t/thread-checkout");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await within(feed).findByRole("link", { name: "Waiting for your approval" });
+  await within(feed).findByText("Waiting for your approval");
   await waitFor(() => expect(rowsOf(feed).length).toBeGreaterThan(3));
   const rows = rowsOf(feed);
 

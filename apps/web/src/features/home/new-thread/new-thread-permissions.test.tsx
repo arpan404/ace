@@ -62,7 +62,7 @@ test.each(["Manual", "Provider default"])(
     await chooseAccount(await openModelControl(/^Model: Opus 5\.5, Personal/), "Work");
     await closeModelControl();
     const unavailable = await screen.findByRole("button", {
-      name: "Approvals: Unavailable mode: plan",
+      name: "Approvals: Other mode",
     });
     expect(unavailable.getAttribute("aria-description")).toBe(
       "Claude Code doesn't offer this mode",
@@ -107,7 +107,7 @@ test("switching provider keeps an unavailable native selection until an explicit
   const input = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(input, "Review before changing providers{Enter}");
   const unavailable = await screen.findByRole("button", {
-    name: "Approvals: Unavailable mode: plan",
+    name: "Approvals: Other mode",
   });
   expect(unavailable.getAttribute("aria-description")).toBe("Codex doesn't offer this mode");
   expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
@@ -187,7 +187,7 @@ test("a native ACP read-only ID cannot become Cursor workspace access on a provi
   await chooseModel("Composer 2.5", "Cursor", /^Model: Bridge Codex/);
   await closeModelControl();
   const unavailable = await screen.findByRole("button", {
-    name: "Approvals: Unavailable mode: read-only",
+    name: "Approvals: Other mode",
   });
   expect(unavailable.getAttribute("aria-description")).toBe("Cursor doesn't offer this mode");
   const send = screen.getByRole("button", { name: "Send" });

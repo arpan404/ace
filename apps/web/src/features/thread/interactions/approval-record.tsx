@@ -1,10 +1,9 @@
 import { useInteraction, useItem } from "@ace/client-react";
 import { approvalOutcome, displayCommand, requestIdentity } from "@ace/ui-core";
-import { Link } from "@tanstack/react-router";
 import { Dot } from "@/components/ui/dot.tsx";
 import { useLocalAnswer } from "./answers.ts";
 
-/** An approval's place in history, with its decision; the attached card owns every button. */
+/** An approval's place in history once decided; the attached card owns every button. */
 export function ApprovalRecord(props: { threadId: string; interactionId: string }) {
   const interaction = useInteraction(props.threadId, props.interactionId);
   const item = useItem(props.threadId, interaction?.toolCallId ?? "");
@@ -31,17 +30,9 @@ export function ApprovalRecord(props: { threadId: string; interactionId: string 
         : option?.kind === "allow_always"
           ? "Always allowed"
           : outcome.text;
-  if (interaction.state === "pending")
-    return (
-      <Link
-        to="/t/$threadId"
-        params={{ threadId: props.threadId }}
-        search={{ item: interaction.id }}
-        className="flex items-center gap-2 rounded-sm py-1 text-xs text-muted-foreground focus-ring"
-      >
-        <Dot tone="needs-you" /> Waiting for your approval
-      </Link>
-    );
+  // While it waits, the turn's live head says so and the card above the composer asks: once
+  // per turn. The record takes its place in history once decided.
+  if (interaction.state === "pending") return null;
   return (
     <p role="note" className="flex min-w-0 items-center gap-2 py-1 text-xs text-muted-foreground">
       <Dot

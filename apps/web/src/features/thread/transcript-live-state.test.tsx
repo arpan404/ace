@@ -207,7 +207,7 @@ test("approval inside a subagent holds the parent in a needs-you state, with no 
       },
     ]),
   );
-  expect(await screen.findByRole("link", { name: "Waiting for your approval" })).toBeTruthy();
+  expect(await screen.findAllByText("Waiting for your approval")).toHaveLength(1);
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
   expect(screen.queryByRole("status", { name: "Working" })).toBeNull();
   // The head names the wait, never Working, and no time runs while it lasts.

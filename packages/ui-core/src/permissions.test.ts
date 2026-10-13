@@ -88,5 +88,5 @@ test("verified full access names preserve the native selection, risk and provide
   expect(
     threadPermissionSummary({ override: "yolo", effective: "yolo", pending: false }, capabilities)
       ?.label,
-  ).toBe("Unavailable mode: yolo");
+  ).toBe("Other mode");
 });
