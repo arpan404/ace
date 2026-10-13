@@ -1,10 +1,13 @@
 /*
- * The composer's one strip slot. When what it shows changes, the surface eases to the new
- * content's height while the content fades in. Reduced motion (`[data-reduce-motion]`, the
- * setting or the system's under System) keeps the fade and drops the height motion.
+ * The composer's one strip slot. When what it shows changes (`data-easing`), the surface eases
+ * to the new content's height while the content fades in; its first content takes its height
+ * at once. Reduced motion (`[data-reduce-motion]`, the setting or the system's under System)
+ * keeps the fade and drops the height motion.
  */
 .composer-strip-body {
   overflow: hidden;
+}
+.composer-strip-body[data-easing] {
   transition: height var(--motion-base) var(--ease-spring);
 }
 .composer-strip-swap {

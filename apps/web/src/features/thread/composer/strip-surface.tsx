@@ -10,8 +10,10 @@ import {
 /**
  * The composer's one strip: a floating surface above it, a little narrower, its bottom tucked
  * behind the composer's top edge. When what it shows changes (`slot`), the new content fades in
- * while the surface eases to its height; under reduced motion it only fades. Content taller
- * than half the window scrolls inside it.
+ * while the surface eases to its height; under reduced motion it only fades. Its first content
+ * takes its height at once, however late its parts arrive, so a thread opening on a request
+ * never grows the strip (lifting the transcript) after its first paint. Content taller than
+ * half the window scrolls inside it.
  */
 export function StripSurface(props: { slot: string; children: ReactNode }) {
   const body = useRef<HTMLDivElement>(null);
@@ -29,6 +31,24 @@ export function StripSurface(props: { slot: string; children: ReactNode }) {
     observer.observe(inner);
     return () => observer.disconnect();
   }, []);
+  // Only a change of what the slot shows eases the height; the strip arriving never does.
+  const shown = useRef(props.slot);
+  useLayoutEffect(() => {
+    const outer = body.current;
+    if (!outer || shown.current === props.slot) return;
+    shown.current = props.slot;
+    outer.setAttribute("data-easing", "");
+    const eased = (event: TransitionEvent) => {
+      if (event.target === outer && event.propertyName === "height")
+        outer.removeAttribute("data-easing");
+    };
+    outer.addEventListener("transitionend", eased);
+    outer.addEventListener("transitioncancel", eased);
+    return () => {
+      outer.removeEventListener("transitionend", eased);
+      outer.removeEventListener("transitioncancel", eased);
+    };
+  }, [props.slot]);
   return (
     <div data-composer-strip className={cn("relative z-0", attachedInset, attachedOverlap)}>
       {/* It rises from behind the composer when it first arrives. */}

@@ -19,6 +19,7 @@ import { cn } from "@/lib/cn.ts";
 import { useTopFade } from "@/lib/edge-fade.ts";
 import { scrollToEnd as glideToEnd, useListMotion, usePresence } from "@/lib/motion.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
+import { usePlaceBeforePaint } from "@/lib/virtual-paint.ts";
 import {
   DeferredFoldedTurn,
   DeferredGapRow,
@@ -265,9 +266,14 @@ export function Feed(props: FeedProps) {
   }, []);
   const [flash, setFlash] = useState<{ key: string; hit: boolean }>();
 
+  // A row filling in (its text, a card's code arriving) moves the rows under it in the same
+  // frame, so a thread never paints its rows stacked on each other.
+  const placed = usePlaceBeforePaint<HTMLDivElement, Element>();
   // oxlint-disable-next-line react-compiler/incompatible-library
   const virtualizer = useVirtualizer({
     count: rows.length,
+    measureElement: placed.measureElement,
+    onChange: placed.onChange,
     getScrollElement: () => viewport.current,
     estimateSize: (index) => (rows[index]?.kind === "block" ? 96 : 36),
     // Rows are tall (a message, a log): four either side cover a fast flick with no gap, and
