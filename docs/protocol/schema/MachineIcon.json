@@ -12,21 +12,8 @@
       ],
       "type": "string"
     },
-    "emoji": {
-      "maxLength": 16,
-      "minLength": 1,
-      "type": "string"
-    },
     "kind": {
-      "enum": [
-        "laptop",
-        "desktop",
-        "server",
-        "cloud",
-        "phone",
-        "emoji"
-      ],
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/MachineIconKind.json"
     }
   },
   "required": [

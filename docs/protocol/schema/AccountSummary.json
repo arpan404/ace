@@ -21,6 +21,9 @@
     "badgeColor": {
       "$ref": "https://ace.local/protocol/v1/AccountBadgeColor.json"
     },
+    "badgeIcon": {
+      "$ref": "https://ace.local/protocol/v1/AccountBadgeIcon.json"
+    },
     "badgeUsesInitial": {
       "type": "boolean"
     },

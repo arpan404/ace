@@ -54,6 +54,7 @@ function summarize(
     shortLabel: accountShortLabel(instance),
     badgeUsesInitial: instance.shortLabel === undefined,
     badgeColor: instance.badgeColor ?? defaultAccountBadgeColor(instance.id),
+    ...(instance.badgeIcon ? { badgeIcon: instance.badgeIcon } : {}),
     authMethod: instance.authMethod ?? "unknown",
     ...(instance.signedInAs ? { signedInAs: instance.signedInAs } : {}),
     ...(instance.provider === "acp"
@@ -522,6 +523,8 @@ export class AccountRegistry {
       shortLabel?: string | undefined;
       badgeUsesInitial?: boolean | undefined;
       badgeColor?: ProviderInstance["badgeColor"] | null | undefined;
+      /** A curated icon in place of letters; null goes back to letters. */
+      badgeIcon?: ProviderInstance["badgeIcon"] | null | undefined;
     } = {},
   ): void {
     const account = this.get(id);
@@ -540,6 +543,8 @@ export class AccountRegistry {
             badge.badgeColor === null
               ? undefined
               : (badge.badgeColor ?? account.instance.badgeColor),
+          badgeIcon:
+            badge.badgeIcon === null ? undefined : (badge.badgeIcon ?? account.instance.badgeIcon),
         }),
       ),
       JSON.stringify(account.quota),

@@ -805,19 +805,16 @@
                       ],
                       "type": "string"
                     },
-                    "emoji": {
-                      "maxLength": 16,
-                      "minLength": 1,
-                      "type": "string"
-                    },
                     "kind": {
                       "enum": [
                         "laptop",
                         "desktop",
+                        "monitor",
                         "server",
                         "cloud",
-                        "phone",
-                        "emoji"
+                        "cpu",
+                        "terminal",
+                        "phone"
                       ],
                       "type": "string"
                     }

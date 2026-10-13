@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn.ts";
 import { ProviderIcon, type ProviderIconProps } from "./provider-icons.tsx";
 import { Tip } from "./tooltip.tsx";
 import { accountBadge } from "./account-badge.ts";
+import { accountBadgeGlyphs } from "./account-badge-icons.ts";
 
 /** Theme-aware ink tokens, also used for project marks. Their inverse is the surface colour. */
 export const accountColors: Record<AccountBadgeColor, string> = {
@@ -77,7 +78,7 @@ function hoverTitle(
 
 /** Readable account identity shared by settings, usage and model sources. */
 export function AccountBadge(props: {
-  account: Pick<AccountView, "label" | "shortLabel" | "badgeColor">;
+  account: Pick<AccountView, "label" | "shortLabel" | "badgeColor" | "badgeIcon">;
   className?: string | undefined;
   decorative?: boolean | undefined;
   tooltip?: boolean | undefined;
@@ -86,6 +87,7 @@ export function AccountBadge(props: {
   colorPreview?: boolean | undefined;
 }) {
   const { account } = props;
+  const Glyph = account.badgeIcon ? accountBadgeGlyphs[account.badgeIcon] : undefined;
   const mark = (
     <span
       className={cn(
@@ -106,7 +108,11 @@ export function AccountBadge(props: {
         ? { "aria-hidden": true }
         : { role: "img", "aria-label": `${account.label} account` })}
     >
-      {accountBadge(account.label, account.shortLabel)}
+      {Glyph ? (
+        <Glyph aria-hidden size="1.15em" weight="bold" />
+      ) : (
+        accountBadge(account.label, account.shortLabel)
+      )}
     </span>
   );
   return props.tooltip === false || props.decorative ? (

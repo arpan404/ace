@@ -167,6 +167,7 @@ export function renameAccount(
     shortLabel?: string | undefined;
     badgeUsesInitial?: boolean | undefined;
     badgeColor?: AccountSummary["badgeColor"] | null | undefined;
+    badgeIcon?: AccountSummary["badgeIcon"] | null | undefined;
   },
 ): void {
   account.label = request.label;
@@ -178,4 +179,6 @@ export function renameAccount(
     : (request.shortLabel ?? account.shortLabel);
   account.badgeColor =
     request.badgeColor === null ? undefined : (request.badgeColor ?? account.badgeColor);
+  account.badgeIcon =
+    request.badgeIcon === null ? undefined : (request.badgeIcon ?? account.badgeIcon);
 }

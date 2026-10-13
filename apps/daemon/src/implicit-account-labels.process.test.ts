@@ -47,7 +47,7 @@ test("renaming the CLI login over the socket survives reopening and rediscovery 
         isDefault: false,
       });
       expect(reopened.summary(other.id, 100)?.isDefault).toBe(true);
-      reopened.rename(id, "Studio", { shortLabel: "👩‍💻", badgeColor: "violet" });
+      reopened.rename(id, "Studio", { shortLabel: "SD", badgeColor: "violet" });
     } finally {
       reopened.close();
     }
@@ -56,7 +56,7 @@ test("renaming the CLI login over the socket survives reopening and rediscovery 
       await registerImplicitAccounts(again, f.env);
       expect(again.summary(id, 100)).toMatchObject({
         label: "Studio",
-        shortLabel: "👩‍💻",
+        shortLabel: "SD",
         badgeColor: "violet",
         badgeUsesInitial: false,
         isDefault: false,

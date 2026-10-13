@@ -7,23 +7,37 @@ export { AccountId, AccountInstanceId } from "./account-ids.ts";
 
 export const AccountBadgeColor = z.enum(["neutral", "blue", "green", "amber", "rose", "violet"]);
 export type AccountBadgeColor = z.infer<typeof AccountBadgeColor>;
-/** New badge input: at most two text graphemes, or one emoji/icon grapheme. */
+/** A curated icon an account badge can show instead of letters. */
+export const AccountBadgeIcon = z.enum([
+  "briefcase",
+  "house",
+  "flask",
+  "rocket",
+  "moon",
+  "wrench",
+  "code",
+  "star",
+  "heart",
+  "lightning",
+]);
+export type AccountBadgeIcon = z.infer<typeof AccountBadgeIcon>;
+/** New badge input: one or two text graphemes. Pictures come from `AccountBadgeIcon`. */
 export const AccountBadgeInput = z
   .string()
   .min(1)
   .max(64)
   .refine((value) => {
-    if (/\s|\p{Cc}/u.test(value)) return false;
+    if (/\s|\p{Cc}|\p{Cf}/u.test(value)) return false;
+    if (/\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20e3/u.test(value)) return false;
     const count = Array.from(
       new Intl.Segmenter("en", { granularity: "grapheme" }).segment(value),
     ).length;
-    const emoji = /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20e3/u.test(value);
-    return emoji ? count === 1 : count <= 2 && !/\p{Cf}/u.test(value);
+    return count <= 2;
   })
   .meta({
     "x-ace-constraint":
-      "One or two non-whitespace text graphemes, or one emoji/icon grapheme, at most 64 UTF-16 code units.",
-    examples: ["AB", "👩‍💻"],
+      "One or two non-whitespace text graphemes, no emoji, at most 64 UTF-16 code units.",
+    examples: ["AB", "W"],
   });
 /** Older stored three-letter badges remain readable; mutations use AccountBadgeInput. */
 export const AccountShortLabel = z.union([AccountBadgeInput, z.string().regex(/^\S{1,3}$/u)]);
@@ -70,6 +84,7 @@ export const ProviderInstance = z
     label: z.string().min(1).max(128),
     shortLabel: AccountShortLabel.optional(),
     badgeColor: AccountBadgeColor.optional(),
+    badgeIcon: AccountBadgeIcon.optional(),
     homeDir: AccountDirectory,
     env: z.partialRecord(AccountEnvKey, AccountDirectory),
   })
@@ -194,6 +209,7 @@ export const AccountSummary = z.object({
   /** True when the badge follows the label's initial rather than an explicit symbol. */
   badgeUsesInitial: z.boolean().optional(),
   badgeColor: AccountBadgeColor.optional(),
+  badgeIcon: AccountBadgeIcon.optional(),
   quota: AccountQuota,
   availability: AccountAvailability,
   blockedUntil: z.number().finite().nonnegative().nullable().optional(),
@@ -232,6 +248,7 @@ export const AccountManagementRequest = z.discriminatedUnion("type", [
     /** Reset an explicit badge to the initial of the account name. */
     badgeUsesInitial: z.boolean().optional(),
     badgeColor: AccountBadgeColor.nullable().optional(),
+    badgeIcon: AccountBadgeIcon.nullable().optional(),
   }),
   z.object({
     type: z.literal("accounts.remove"),

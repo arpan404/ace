@@ -1,7 +1,7 @@
 import { useToast } from "@/components/ui/toast.tsx";
 import { accountBadge } from "@/components/ui/account-badge.ts";
 import { AccountBadgeChooser, accountBadgeProblem } from "@/components/ui/account-badge-field.tsx";
-import { AccountBadgeColor } from "@ace/protocol/accounts";
+import type { AccountBadgeColor, AccountBadgeIcon } from "@ace/protocol/accounts";
 import { useNavigate } from "@tanstack/react-router";
 import { serviceInfo } from "@ace/ui-core";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
@@ -41,6 +41,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
   const [label, setLabel] = useState("");
   const [badge, setBadge] = useState("");
   const [color, setColor] = useState<AccountBadgeColor>();
+  const [icon, setIcon] = useState<AccountBadgeIcon>();
   const actions = useAccountActions();
   const toast = useToast();
   const navigate = useNavigate();
@@ -53,6 +54,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
           shortLabel: badge.trim() || undefined,
           badgeUsesInitial: !badge.trim(),
           badgeColor: color ?? null,
+          badgeIcon: icon ?? null,
         })
         .catch(() =>
           toast.error({
@@ -125,6 +127,8 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
           name={label || "Work"}
           color={color}
           onColorChange={setColor}
+          icon={icon}
+          onIconChange={setIcon}
         />
         {support.data?.supported && (
           <div className="flex flex-wrap items-center gap-2">

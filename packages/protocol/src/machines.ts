@@ -42,6 +42,7 @@ export type MachinesResult = z.infer<typeof MachinesResult>;
 
 export {
   MachineIcon,
+  MachineIconKind,
   HostIdentity,
   HostIdentityRequest,
   HostIdentityResult,

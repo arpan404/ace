@@ -43,6 +43,7 @@ export function useAccountActions() {
         shortLabel?: string | undefined;
         badgeUsesInitial?: boolean | undefined;
         badgeColor: import("@ace/protocol/accounts").AccountBadgeColor | null;
+        badgeIcon?: import("@ace/protocol/accounts").AccountBadgeIcon | null | undefined;
       },
     ) => settle(client.request({ type: "accounts.rename", instanceId, label, ...badge })),
     setDefault: (provider: NativeAccountProvider, instanceId: string) =>

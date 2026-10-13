@@ -44,7 +44,7 @@ test("named accounts derive labels, and edited labels and colours survive reopen
   }
 });
 
-test("new Unicode badges persist while old three-letter badges remain readable", async () => {
+test("badge icons persist and clear, emoji badges are refused, and old three-letter badges stay readable", async () => {
   const root = await temp();
   const path = join(root, "accounts.sqlite");
   const registry = await openRegistry(path);
@@ -60,22 +60,25 @@ test("new Unicode badges persist while old three-letter badges remain readable",
     });
     await registry.register(
       createInstance({
-        id: "emoji",
+        id: "rocket",
         provider: "codex",
-        label: "Emoji",
-        homeDir: join(root, "emoji"),
+        label: "Rocket",
+        homeDir: join(root, "rocket"),
       }),
     );
-    expect(() => registry.rename("emoji", "Emoji", { shortLabel: "ABC" })).toThrow();
-    expect(registry.summary("emoji", 0)?.shortLabel).toBe("E");
-    registry.rename("emoji", "Emoji", { shortLabel: "👩‍💻" });
+    expect(() => registry.rename("rocket", "Rocket", { shortLabel: "ABC" })).toThrow();
+    expect(() => registry.rename("rocket", "Rocket", { shortLabel: "🚀" })).toThrow();
+    expect(registry.summary("rocket", 0)?.shortLabel).toBe("R");
+    registry.rename("rocket", "Rocket", { badgeIcon: "rocket" });
   } finally {
     registry.close();
   }
   const reopened = await openRegistry(path);
   try {
     expect(reopened.summary("legacy", 0)?.shortLabel).toBe("CLI");
-    expect(reopened.summary("emoji", 0)?.shortLabel).toBe("👩‍💻");
+    expect(reopened.summary("rocket", 0)?.badgeIcon).toBe("rocket");
+    reopened.rename("rocket", "Rocket", { badgeIcon: null });
+    expect(reopened.summary("rocket", 0)?.badgeIcon).toBeUndefined();
   } finally {
     reopened.close();
   }

@@ -70,6 +70,10 @@ export class FakeSettings {
   unset(key: string): void {
     if (this.global.delete(key)) this.notify(key);
   }
+  /** Whether a global value was written, rather than the default applying. */
+  isSet(key: string): boolean {
+    return this.global.has(key);
+  }
   /** The effective global value, as tests check what a page wrote. */
   get(key: string): unknown {
     return this.global.has(key) ? this.global.get(key) : Reflect.get(defaults, key);

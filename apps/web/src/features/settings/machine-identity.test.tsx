@@ -134,7 +134,7 @@ test("Activity keeps device names in thread hover details instead of compact row
   expect(detail.textContent).toContain("Build server");
 });
 
-test("a chosen emoji survives leaving Settings and returning to it", async () => {
+test("a chosen machine icon survives leaving Settings and returning to it", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   const view = await app.open("/settings/remote");
@@ -146,10 +146,7 @@ test("a chosen emoji survives leaving Settings and returning to it", async () =>
   await userEvent.click(edit);
   await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
   const dialog = await screen.findByRole("dialog");
-  await userEvent.click(within(dialog).getByRole("button", { name: /^Emoji$/ }));
-  const emoji = within(dialog).getByRole("textbox", { name: "Emoji" });
-  await userEvent.clear(emoji);
-  await userEvent.type(emoji, "🦊");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Terminal" }));
   await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   view.unmount();
@@ -158,9 +155,7 @@ test("a chosen emoji survives leaving Settings and returning to it", async () =>
   cleanup();
   await app.open("/settings/remote");
   const machines = await screen.findByRole("region", { name: "Machines" });
-  expect((await within(machines).findByRole("img", { name: "🦊 machine icon" })).textContent).toBe(
-    "🦊",
-  );
+  expect(await within(machines).findByRole("img", { name: "terminal machine icon" })).toBeTruthy();
 });
 
 test("a paired machine's updated host identity replaces the cached label after reconnect", async () => {
@@ -216,4 +211,16 @@ test("clearing a custom machine name restores the computer name", async () => {
   expect(
     await within(screen.getByRole("region", { name: "Machines" })).findByText("Fake machine"),
   ).toBeTruthy();
+});
+
+test("with no icon chosen, this machine shows a laptop and a paired machine a server", async () => {
+  const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
+  await app.open("/settings/remote");
+  const machines = await screen.findByRole("region", { name: "Machines" });
+  const mark = async (name: string) =>
+    (await within(machines).findByText(name, { exact: true })).parentElement
+      ?.querySelector("[role=img]")
+      ?.getAttribute("aria-label");
+  expect(await mark("This Mac")).toBe("laptop machine icon");
+  expect(await mark("Build server")).toBe("server machine icon");
 });

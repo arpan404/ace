@@ -1,6 +1,7 @@
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import type { ThreadListEntry } from "@ace/protocol";
 import { cardDetails, type CardDetails } from "@ace/ui-core";
+import { defaultMachineIcon } from "@/components/ui/machine-label.tsx";
 
 /** Branch, PR, worktree, machine and diff for a card, from its metadata and live host identity. */
 export function useCardDetails(
@@ -12,7 +13,7 @@ export function useCardDetails(
     details && {
       ...details,
       machine: machine.name,
-      machineIcon: machine.icon,
+      machineIcon: machine.icon ?? defaultMachineIcon(machine.primary),
       machinePrimary: machine.primary,
     }
   );

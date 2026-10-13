@@ -3,18 +3,22 @@ import { machineStatus, machineProblem } from "@/lib/machine-status.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useState } from "react";
 import type { MachineIcon } from "@ace/protocol";
-import { CheckIcon, PlusIcon } from "@phosphor-icons/react";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import { useMachinePool } from "@/lib/machine-pool.ts";
-import { MachineLabel, MachineMark } from "@/components/ui/machine-label.tsx";
+import {
+  defaultMachineIcon,
+  MachineLabel,
+  MachineMark,
+  machineIcons,
+} from "@/components/ui/machine-label.tsx";
 import { RowMenu } from "@/components/ui/row-menu.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingAddRow, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import {
   Dialog,
   DialogContent,
@@ -24,14 +28,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog.tsx";
 
-const kinds: readonly { value: MachineIcon["kind"]; label: string }[] = [
-  { value: "laptop", label: "Laptop" },
-  { value: "desktop", label: "Desktop" },
-  { value: "server", label: "Server" },
-  { value: "cloud", label: "Cloud" },
-  { value: "phone", label: "Phone" },
-  { value: "emoji", label: "Emoji" },
-];
 const colors: readonly { value: NonNullable<MachineIcon["color"]>; label: string }[] = [
   { value: "default", label: "Default" },
   { value: "blue", label: "Blue" },
@@ -49,14 +45,7 @@ export function Machines() {
   const [editing, setEditing] = useState<Machine>();
   return (
     <SettingSection label="Machines">
-      <SettingRow
-        compact
-        inline
-        title="Add machine"
-        description="Use a pairing link from another computer"
-      >
-        <IconButton icon={PlusIcon} size="sm" label="Add machine" onClick={() => setAdding(true)} />
-      </SettingRow>
+      <SettingAddRow onClick={() => setAdding(true)}>Add machine</SettingAddRow>
       {adding && <AddMachine onClose={() => setAdding(false)} />}
       {machines.map((machine) => (
         <SettingRow
@@ -64,7 +53,7 @@ export function Machines() {
           {...(machine.primary ? { id: "host.displayName" } : {})}
           compact
           inline
-          title={<MachineLabel name={machine.name} icon={machine.icon} />}
+          title={<MachineLabel name={machine.name} icon={machine.icon} primary={machine.primary} />}
           description={
             machine.primary ? "This machine" : machineProblem(machine.status, !!machine.failed)
           }
@@ -125,7 +114,9 @@ function MachineEditor(props: {
   onSaved(name: string, icon: MachineIcon): Promise<void>;
 }) {
   const [name, setName] = useState(props.machine.name);
-  const [icon, setIcon] = useState<MachineIcon>(props.machine.icon ?? { kind: "laptop" });
+  const [icon, setIcon] = useState<MachineIcon>(
+    props.machine.icon ?? defaultMachineIcon(props.machine.primary),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
   const save = async () => {
@@ -141,11 +132,7 @@ function MachineEditor(props: {
         layer: { kind: "global" },
       });
       if (!renamed.ok) throw new Error("refused");
-      const savedIcon = {
-        kind: icon.kind,
-        color: icon.color ?? "default",
-        ...(icon.kind === "emoji" ? { emoji: icon.emoji?.trim() || "💻" } : {}),
-      };
+      const savedIcon = { kind: icon.kind, color: icon.color ?? "default" };
       const marked = await props.machine.client.request({
         type: "settings.set",
         key: "host.icon",
@@ -188,47 +175,29 @@ function MachineEditor(props: {
         />
         <fieldset disabled={saving} className="flex flex-wrap gap-1">
           <legend className="mb-2 text-sm">Icon</legend>
-          {kinds.map((kind) => (
-            <Button
-              key={kind.value}
-              size="sm"
-              variant="ghost"
-              aria-label={kind.label}
-              aria-pressed={icon.kind === kind.value}
-              onClick={() => setIcon({ ...icon, kind: kind.value })}
-            >
-              {icon.kind === kind.value ? (
-                <CheckIcon aria-hidden size={14} />
-              ) : (
-                <MachineMark icon={{ kind: kind.value, emoji: icon.emoji ?? "💻" }} />
-              )}
-              {kind.label}
-            </Button>
+          {machineIcons.map((kind) => (
+            <Tip key={kind.kind} label={kind.label}>
+              <Button
+                size="sm"
+                variant={icon.kind === kind.kind ? "secondary" : "ghost"}
+                className="size-8 px-0"
+                aria-label={kind.label}
+                aria-pressed={icon.kind === kind.kind}
+                onClick={() => setIcon({ ...icon, kind: kind.kind })}
+              >
+                <MachineMark icon={{ kind: kind.kind, color: icon.color }} />
+              </Button>
+            </Tip>
           ))}
         </fieldset>
-        {icon.kind === "emoji" ? (
-          <>
-            <label htmlFor="machine-emoji" className="text-sm">
-              Emoji
-            </label>
-            <Input
-              id="machine-emoji"
-              value={icon.emoji ?? "💻"}
-              maxLength={16}
-              onChange={(event) => setIcon({ ...icon, emoji: event.target.value })}
-              disabled={saving}
-            />
-          </>
-        ) : (
-          <Select
-            label="Icon colour"
-            value={icon.color ?? "default"}
-            options={colors}
-            onValueChange={(color) => setIcon({ ...icon, color })}
-            disabled={saving}
-          />
-        )}
-        <MachineLabel name={name || "This machine"} icon={icon} />
+        <Select
+          label="Icon colour"
+          value={icon.color ?? "default"}
+          options={colors}
+          onValueChange={(color) => setIcon({ ...icon, color })}
+          disabled={saving}
+        />
+        <MachineLabel name={name || "This machine"} icon={icon} primary={props.machine.primary} />
         {error && (
           <p role="alert" className="text-sm text-destructive">
             Couldn't save the machine identity. Check the connection and administrator access, then

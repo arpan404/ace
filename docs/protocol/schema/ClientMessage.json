@@ -1203,6 +1203,16 @@
             }
           ]
         },
+        "badgeIcon": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AccountBadgeIcon.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "badgeUsesInitial": {
           "type": "boolean"
         },
@@ -1467,6 +1477,16 @@
           "anyOf": [
             {
               "$ref": "https://ace.local/protocol/v1/AccountBadgeColor.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "badgeIcon": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AccountBadgeIcon.json"
             },
             {
               "type": "null"
