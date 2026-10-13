@@ -26,7 +26,12 @@ import {
 import { z } from "zod";
 import type { EngineRepository } from "./repository.ts";
 import { permissionPaths, permissionShells, permissionCommands } from "./permission-paths.ts";
-import { permissionWithinCeiling, inheritedPermissionMode } from "./permission-ceiling.ts";
+import {
+  allowedChildModes,
+  ceilingMode,
+  inheritedPermissionMode,
+  permissionWithinCeiling,
+} from "./permission-ceiling.ts";
 
 const Record = z.object({
   override: PermissionMode.nullable(),
@@ -39,6 +44,11 @@ const Record = z.object({
   ceiling_identity: z.string().nullable(),
 });
 type Record = z.infer<typeof Record>;
+export interface CeilingRefusal {
+  provider: import("@ace/protocol").ProviderKind;
+  mode: PermissionMode | null;
+  allowed: PermissionMode[];
+}
 export type PermissionSettings = (id: ThreadId) => Promise<PermissionMode | null>;
 /** Durable policy ownership, independent of native provider settings and delegation journals. */
 export class Permissions {
@@ -198,8 +208,8 @@ export class Permissions {
     this.ensure(child);
     const provider = this.repo.store.getThread(parent)?.provider;
     if (!provider) throw new Error("permission_parent_not_found");
-    const mode = this.effective(parent);
     const identity = this.identity(parent, provider);
+    const mode = this.ceilingSelection(parent, identity);
     this.repo.store.atomic((db) => {
       const existing = this.read(child);
       if (existing.parent && existing.parent !== parent)
@@ -220,7 +230,17 @@ export class Permissions {
     if (!record.parent) return selected ?? null;
     if (depth >= 64) throw new Error("Permission ancestry exceeds capacity");
     const identity = this.identity(id, provider);
-    const mode = this.narrow(importThreadId.parse(record.parent), identity, selected, depth + 1);
+    const thread = this.repo.store.getThread(id);
+    const offered = (thread?.effectiveCapabilities ?? thread?.capabilities)?.permissionModes?.map(
+      (mode) => mode.id,
+    );
+    const mode = this.narrow(
+      importThreadId.parse(record.parent),
+      identity,
+      selected,
+      depth + 1,
+      offered,
+    );
     if (
       !record.ceiling_identity ||
       !permissionWithinCeiling(
@@ -253,20 +273,49 @@ export class Permissions {
           }),
     });
   }
+  /** A thread's own mode for its children: the stricter side of a pending change. */
+  private ceilingSelection(id: ThreadId, identity: PermissionPolicyIdentity) {
+    const record = this.read(id);
+    return ceilingMode(identity, record.effective, record.override);
+  }
+  /** The policy `parentId`'s children are contained by, its ancestors included. */
+  private ceiling(parentId: ThreadId, depth = 0) {
+    const parent = this.repo.store.getThread(parentId);
+    if (!parent) throw new Error("permission_parent_not_found");
+    const identity = this.identity(parentId, parent.provider);
+    const selected = this.ceilingSelection(parentId, identity);
+    return { ...identity, mode: this.contained(parentId, parent.provider, selected, depth) };
+  }
+  /** Why a child policy was refused: the parent's ceiling and the child modes it accepts. */
+  refusal(
+    parentId: ThreadId,
+    identity: PermissionPolicyIdentity,
+    offered?: readonly PermissionMode[],
+  ): CeilingRefusal | undefined {
+    try {
+      const ceiling = this.ceiling(parentId);
+      return {
+        provider: ceiling.provider,
+        mode: ceiling.mode,
+        allowed: allowedChildModes(ceiling, identity).filter(
+          (mode) => !offered || offered.includes(mode),
+        ),
+      };
+    } catch {
+      return undefined;
+    }
+  }
   /** Shared by spawn, native session resolution and policy changes. */
   narrow(
     parentId: ThreadId,
     identity: PermissionPolicyIdentity,
     requested?: PermissionMode | null,
     depth = 0,
+    offered?: readonly PermissionMode[],
   ): PermissionMode | null {
-    const parent = this.repo.store.getThread(parentId);
-    if (!parent) throw new Error("permission_parent_not_found");
-    const ceiling = {
-      ...this.identity(parentId, parent.provider),
-      mode: this.contained(parentId, parent.provider, this.effective(parentId), depth),
-    };
-    const mode = requested === undefined ? inheritedPermissionMode(ceiling, identity) : requested;
+    const ceiling = this.ceiling(parentId, depth);
+    const mode =
+      requested === undefined ? inheritedPermissionMode(ceiling, identity, offered) : requested;
     if (!permissionWithinCeiling(ceiling, { ...identity, mode }))
       throw new Error("permission_ceiling_unverifiable");
     return mode;
@@ -301,34 +350,8 @@ export class Permissions {
       [{ type: "thread.updated", permission: { ...this.state(id), pending: true } }],
       at,
     );
-    const state = this.repo.requireState(id);
-    if (state.config.provider !== "codex" && state.hasRun && !this.repo.quiescent(state))
-      this.repo.apply(
-        id,
-        [
-          {
-            type: "item.upsert",
-            agent: state.rootKey ?? "root",
-            item: `permission-change:${this.repo.nextCommandId()}`,
-            draft: {
-              type: "notice",
-              level: "info",
-              code: "permission_change_pending",
-              title: "Permission change queued",
-              text: "Applies when the running command finishes",
-              detail: "This provider needs a new session to apply its permission policy.",
-              complete: true,
-              raw: [
-                {
-                  type: "permission.pending",
-                  data: { pending_reason: "busy", permissionMode: mode },
-                },
-              ],
-            },
-          },
-        ],
-        at,
-      );
+    // The pending change shows once, on the composer's permission control ("Build → Plan");
+    // a transcript notice per change only repeated it.
     return undefined;
   }
   async resolve(

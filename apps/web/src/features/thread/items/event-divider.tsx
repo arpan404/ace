@@ -10,10 +10,12 @@ import {
   isBareErrorCode,
   noticeInput,
   parseDelegationResults,
+  refusalCount,
   repeatsEarlierEvent,
   settledResults,
   systemInput,
   taskPrompt,
+  toolRefusal,
   type EventIcon,
   type EventLine,
   type InputKind,
@@ -35,6 +37,7 @@ import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DelegationCard } from "./delegation-card.tsx";
 import { ErrorRow, noticeError } from "./error-row.tsx";
+import { RefusalRow } from "./refusal-row.tsx";
 import { ReviewNote } from "./review-note.tsx";
 import { SystemRow } from "./system-row.tsx";
 import { TaskCard } from "./task-card.tsx";
@@ -104,6 +107,18 @@ function useRepeats(threadId: string, itemId: string, kind: InputKind | undefine
   return useThread(threadId, ["order"], read) ?? false;
 }
 
+/** How many identical refusals this row stands for; 0 when an earlier row already counts it. */
+function useRefusalCount(threadId: string, itemId: string, refused: boolean): number {
+  const read = useCallback(
+    (reader: ThreadReader) =>
+      refused
+        ? refusalCount(reader.order, reader.order.indexOf(itemId), (id) => reader.item(id))
+        : 1,
+    [itemId, refused],
+  );
+  return useThread(threadId, ["order"], read) ?? 1;
+}
+
 /** A bare error code that only repeats the error just above it (IR-12). */
 function useEchoedCode(threadId: string, item: Item | undefined): boolean {
   const echo = item?.type === "notice" && isBareErrorCode(item.text);
@@ -130,7 +145,10 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
   const input = systemInput(item);
   const repeated = useRepeats(props.threadId, props.itemId, input?.kind ?? noticeInput(item));
   const echoed = useEchoedCode(props.threadId, item);
+  const refusal = toolRefusal(item);
+  const refusals = useRefusalCount(props.threadId, props.itemId, !!refusal);
   if (!item || repeated || echoed) return null;
+  if (refusal) return refusals ? <RefusalRow refusal={refusal} count={refusals} /> : null;
   if (item.type === "message" && item.mergedContext)
     return <MergedForkNotice context={item.mergedContext} />;
   // A candidate the exact check rejects is the person's own message.

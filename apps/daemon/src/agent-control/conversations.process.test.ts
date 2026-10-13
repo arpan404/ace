@@ -50,7 +50,7 @@ test("an ordinary conversation has durable owner authority without child status 
       ),
     ).toBe(false);
     expect(h.contexts.get(thread.id)).toMatchObject({
-      permissionMode: "default",
+      permissionMode: "bypassPermissions",
       model: "chosen-model",
       options: { effort: "high" },
     });

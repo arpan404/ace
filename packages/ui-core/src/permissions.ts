@@ -28,11 +28,8 @@ export function permissionChipText(
     ? `${permissionLabel(mode, capabilities)} → ${permissionLabel(next, capabilities)}`
     : permissionLabel(mode, capabilities);
 }
-export type PermissionWait = "busy";
-export function permissionPendingNote(wait?: PermissionWait): string {
-  return wait === "busy"
-    ? "Applies when the running command finishes"
-    : "Applies at the agent's next turn";
+export function permissionPendingNote(): string {
+  return "Applies at the agent's next turn";
 }
 export function permissionNeedsAttention(
   mode: PermissionMode | null,

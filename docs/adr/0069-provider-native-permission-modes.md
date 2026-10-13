@@ -409,3 +409,31 @@ Other providers' explicit legacy presets retain the existing native migration.
 Primary interfaces: installed `@opencode/client` 2.0.22 `SessionCreateInput` and
 `SessionSwitchAgentInput`; [OpenCode agents](https://opencode.ai/v2/docs/agents/)
 and [permission rules](https://opencode.ai/v2/docs/permissions/).
+
+## Amendment (2026-10-13): delegation ceiling across providers
+
+Owner decision after an OpenCode thread in Plan could not delegate to Claude in
+any mode. Every cross-provider child was refused, because containment only
+accepted a few same-provider pairs. The refusal was also triggered while the
+parent's Plan change was still pending (`effective: null`).
+
+Delegation containment, and nothing else, now uses a capability level for each
+provider-defined mode, kept in `apps/daemon/src/engine/permission-ceiling.ts`.
+The levels are: 0, read and plan; 1, act only on approval or prior grants;
+2, edit the workspace without asking; 3, an automatic reviewer approves;
+4, unrestricted. The picker, risk display and provider enforcement stay native.
+
+- A child is within its parent's ceiling when it has the same policy, or when
+  its mode's level is at or below the parent's, on any provider. Opaque ACP
+  selectors, custom profiles and unreported defaults have no level, so only
+  the identical policy contains them.
+- While a parent's mode change is pending, children are measured against the
+  stricter side. If the acknowledged mode is unreported, the requested mode is
+  used. After a reset to the provider default, the last acknowledged mode is
+  used.
+- An inherited child takes the most capable mode at or below its parent's level,
+  among those its instance offers. Inheritance never picks modes whose
+  availability depends on the instance, such as Claude `auto` and Codex reviewer
+  modes. An explicit request still can.
+- A refusal tells the calling agent the parent's mode and the child modes it
+  would accept, so the agent can retry correctly.

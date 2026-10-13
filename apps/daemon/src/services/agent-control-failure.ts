@@ -21,6 +21,9 @@ export async function agentControlCall<T>(
         ? error.code
         : "execution_failed",
       error instanceof PublicToolError ? error.permission : undefined,
+      undefined,
+      undefined,
+      error instanceof AgentControlError ? error.publicDetail : undefined,
     );
     context.log.log(
       "error",
@@ -48,9 +51,9 @@ export async function agentControlCall<T>(
               complete: true,
               code: failure.code,
               title: failure.message,
-              detail: failure.hint,
-              text: `${failure.message}. ${failure.hint}`,
-              raw: [],
+              // One short reason: what the agent was told it can retry with, else the hint.
+              text: failure.detail ?? failure.hint,
+              raw: [{ type: "ace.agent_control.failed", data: { operation } }],
             },
           },
         ],

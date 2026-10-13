@@ -156,13 +156,13 @@ test("all creation tools disclose actionable failures and keep diagnostic detail
     expect.arrayContaining([
       expect.objectContaining({
         code: "provider_disabled",
-        detail: expect.stringContaining("Enable"),
+        text: expect.stringContaining("Enable"),
       }),
       expect.objectContaining({ code: "provider_unavailable" }),
       expect.objectContaining({ code: "account_unavailable" }),
       expect.objectContaining({
         code: "model_unavailable",
-        detail: expect.stringContaining("Refresh"),
+        text: expect.stringContaining("Refresh"),
       }),
     ]),
   );
