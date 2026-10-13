@@ -231,7 +231,7 @@ function PreparationPage(props: {
   }, [storage, props.host, draftKey, editorOwner]);
   const scopeId = useRef(restored?.draftId);
   const latestContent = useRef(readDraft(storage, draftKey));
-  const opened = useRef(draftText(latestContent.current));
+  const [opened] = useState(() => draftText(readDraft(storage, draftKey)));
   const editedHere = useRef(false);
   const submitting = useRef(false);
   const [saveFailed, setSaveFailed] = useState(false);
@@ -698,7 +698,7 @@ function PreparationPage(props: {
               }}
               onDraftChange={(content) => {
                 latestContent.current = content;
-                if (draftText(content) !== opened.current) editedHere.current = true;
+                if (draftText(content) !== opened) editedHere.current = true;
                 // Preserve edits made while metadata loads, including unsaved storage refusals.
                 if (awaitingSource && (content.text.length || content.attachments.length))
                   setPreserveSourceDraft(true);

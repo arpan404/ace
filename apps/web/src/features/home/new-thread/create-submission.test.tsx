@@ -46,8 +46,8 @@ test("overlapping new-thread submissions while the first is still saving create 
   await waitFor(() => {
     const after = app.daemon.snapshot({ kind: "threads" });
     if (after?.kind !== "threads") throw new Error("Expected sidebar after submission");
-    expect(
-      Object.values(after.threads).filter((thread) => !initial.has(thread.id)),
-    ).toHaveLength(1);
+    expect(Object.values(after.threads).filter((thread) => !initial.has(thread.id))).toHaveLength(
+      1,
+    );
   });
 });
