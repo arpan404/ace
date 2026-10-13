@@ -41,6 +41,8 @@ export function AddressBar(props: {
   trail?: ReactNode;
   /** A private page's field is tinted. */
   tone?: "private" | undefined;
+  /** The empty field's prompt; "Enter an address" by default. */
+  placeholder?: string | undefined;
   className?: string;
 }) {
   const shown = displayAddress(props.url ?? "");
@@ -111,7 +113,7 @@ export function AddressBar(props: {
             // oxlint-disable-next-line jsx-a11y/no-autofocus -- a new browser tab starts at its address.
             autoFocus={props.autoFocus}
             readOnly={props.readOnly || props.disabled !== undefined}
-            placeholder="Enter an address"
+            placeholder={props.placeholder ?? "Enter an address"}
             value={text}
             spellCheck={false}
             autoComplete="off"

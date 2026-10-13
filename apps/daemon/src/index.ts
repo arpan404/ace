@@ -312,6 +312,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "projects",
       "canReadThread",
       "previewClient",
+      "previewSuggestions",
       "automations",
       "activityReads",
       "icons",

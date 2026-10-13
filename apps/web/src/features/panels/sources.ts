@@ -112,6 +112,20 @@ export interface PreviewServer {
   source: "listener" | "terminal" | "launch";
 }
 /**
+ * A local dev server the daemon detected for a thread: started from its terminals or agent
+ * shells, or running in its project, and answering HTTP on loopback. `url` is the address the
+ * server printed (or `http://localhost:<port>/`); `iconUrl` is a small image, usually a
+ * `data:` URI; `source` says whether its address was printed ("terminal") or its port was
+ * found listening ("listener").
+ */
+export interface PreviewSuggestion {
+  port: number;
+  url: string;
+  title?: string | undefined;
+  iconUrl?: string | undefined;
+  source: "listener" | "terminal";
+}
+/**
  * A single-use address that signs a frame or browser in to a dev server's preview, and how
  * long the session it opens lasts.
  */
@@ -165,6 +179,12 @@ export interface PreviewSource {
   view(threadId: string): BrowserView | undefined;
   frame(threadId: string): ScreenFrame | undefined;
   servers(threadId: string): readonly PreviewServer[];
+  /**
+   * The thread's detected dev servers, printed ones first. Kept current while `watch(threadId)`
+   * holds; each change notifies `subscribe` listeners for the thread. Empty before the first
+   * read and from a daemon that doesn't detect servers.
+   */
+  suggestions(threadId: string): readonly PreviewSuggestion[];
   /**
    * Open a browser for the thread, for a person to drive or an agent to pick up. The daemon's
    * first browser downloads Chromium, which can take minutes; `download()` reports it meanwhile.

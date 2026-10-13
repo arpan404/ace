@@ -24,6 +24,13 @@
       "minLength": 1,
       "type": "string"
     },
+    "suggestions": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PreviewSuggestion.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
     "type": {
       "const": "preview.result",
       "type": "string"

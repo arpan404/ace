@@ -43,6 +43,23 @@ export const PreviewDescriptor = z.object({
   source: z.enum(["listener", "terminal", "launch"]),
 });
 
+/**
+ * A local dev server the daemon detected for a thread: listening on loopback, reached from the
+ * thread's own terminals, agent shells or project directory, and answering HTTP. `source` says
+ * how it was found ("terminal": its address was printed in the thread's terminal or agent
+ * shell; "listener": found by scanning listening ports). Newer daemons may name other sources,
+ * so it decodes as any short string.
+ */
+export const PreviewSuggestion = z.object({
+  port: PreviewPort,
+  url: z.string().max(4096),
+  title: z.string().max(512).optional(),
+  /** A small image for the server (a `data:` URI the daemon fetched from it over loopback). */
+  iconUrl: z.string().max(262_144).optional(),
+  source: z.union([z.enum(["listener", "terminal"]), z.string().max(64)]),
+});
+export type PreviewSuggestion = z.infer<typeof PreviewSuggestion>;
+
 /** Why a preview gateway refused a navigation; its refusal page names one of these. */
 export const PreviewRefusal = z.enum([
   /** The request carried no session cookie (never signed in, expired, or the browser dropped it). */

@@ -1,7 +1,6 @@
 import { fileTabData } from "./files/files-state.ts";
 import {
   BrowserIcon,
-  ChatsCircleIcon,
   CursorClickIcon,
   DeviceMobileIcon,
   FilesIcon,
@@ -85,16 +84,6 @@ export const filesKind = defineTabKind({
   fromFile: (path) => ({ kind: "files", id: fileTabId(path), data: { path } }),
   onShortcut: (scope) => quickOpen.set(() => scope),
   Overlay: QuickOpenOverlay,
-});
-
-export const sideChatKind = defineTabKind({
-  kind: "side-chat",
-  label: "Side chat",
-  icon: ChatsCircleIcon,
-  singleton: true,
-  // No daemon can run one yet: the protocol has no ephemeral, thread-scoped session.
-  unavailable: "Not available yet",
-  load: () => import("./placeholders.tsx").then((m) => ({ default: m.SideChatPlaceholder })),
 });
 
 /**
@@ -202,7 +191,6 @@ export const threadKinds: readonly TabKind[] = [
   changesKind,
   terminalKind,
   filesKind,
-  sideChatKind,
   browserKind,
   previewKind,
   portKind,

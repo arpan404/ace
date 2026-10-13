@@ -1,0 +1,42 @@
+{
+  "$id": "https://ace.local/protocol/v1/PreviewSuggestion.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "iconUrl": {
+      "maxLength": 262144,
+      "type": "string"
+    },
+    "port": {
+      "$ref": "https://ace.local/protocol/v1/PreviewPort.json"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "enum": [
+            "listener",
+            "terminal"
+          ],
+          "type": "string"
+        },
+        {
+          "maxLength": 64,
+          "type": "string"
+        }
+      ]
+    },
+    "title": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 4096,
+      "type": "string"
+    }
+  },
+  "required": [
+    "port",
+    "url",
+    "source"
+  ],
+  "type": "object"
+}

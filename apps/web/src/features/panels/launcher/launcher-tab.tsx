@@ -1,103 +1,102 @@
-import { useMemo, useState, type KeyboardEvent } from "react";
-import { Icon } from "@/components/icon.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
-import { keymap } from "@/lib/keymap.ts";
+import { useMemo } from "react";
 import {
   useWorkspaceActions,
   useWorkspaceStore,
-  type OpenTab,
+  type OpenRequest,
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
-const heading = "px-1 text-xs font-medium text-muted-foreground";
-const card =
-  "focus-ring group/card relative flex h-10 w-full min-w-0 items-center gap-2.5 rounded-md px-3 text-left text-ui text-foreground transition-colors duration-(--motion-fast) hover:bg-accent";
+import { AddressBar } from "../browser/address-bar.tsx";
+import { useVisited } from "../browser/browser-state.ts";
+import { PageNav, PageToolbar } from "../browser/page-toolbar.tsx";
+import { usePanelServices } from "../services.ts";
+import { WithServices } from "../with-services.tsx";
+import { Suggested } from "./suggested.tsx";
+import { ToolGrid } from "./tool-grid.tsx";
+import { useSuggested, type SuggestedSite } from "./use-suggested.ts";
 
-/**
- * The Tools grid is one Tab stop: arrows move by its columns (two, or one below 30rem), Home
- * and End jump, Enter opens.
- */
-function useToolGrid() {
-  const [active, setActive] = useState(0);
-  const onKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
-    const cards = [
-      ...event.currentTarget.querySelectorAll<HTMLButtonElement>(":scope > li > [data-tool]"),
-    ];
-    const at = cards.indexOf(event.target as HTMLButtonElement);
-    if (at < 0) return;
-    const [first, second] = cards;
-    const columns = first && second && first.offsetTop === second.offsetTop ? 2 : 1;
-    const last = cards.length - 1;
-    const moves: Record<string, number> = {
-      ArrowRight: at + 1,
-      ArrowLeft: at - 1,
-      ArrowDown: at + columns,
-      ArrowUp: at - columns,
-      Home: 0,
-      End: last,
-    };
-    const next = moves[event.key];
-    if (next === undefined) return;
-    event.preventDefault();
-    const to = Math.max(0, Math.min(last, next));
-    setActive(to);
-    cards[to]?.focus();
+const fresh = "a new tab has no history";
+
+/** The Suggested row, once the panel services (the thread's dev servers) have loaded. */
+function SuggestedSites(props: {
+  scope: string;
+  openHere(request: OpenRequest): void;
+  openAddress(url: string): void;
+}) {
+  const { preview } = usePanelServices();
+  const sites = useSuggested(preview, props.scope);
+  const open = (site: SuggestedSite) => {
+    if (site.port === undefined || !preview.canForward()) return props.openAddress(site.url);
+    // A dev server opens in Preview, through the daemon's gateway, so any device can see it.
+    void preview.forward(props.scope, site.port).then(
+      () => props.openHere({ kind: "preview" }),
+      () => props.openAddress(site.url),
+    );
   };
-  return { active, setActive, onKeyDown };
+  return <Suggested sites={sites} onOpen={open} />;
 }
 
 /**
- * The new tab is a catalog of tools. Picking one replaces the launcher with that tool.
+ * The new tab, as a browser's: the page toolbar with an address that opens the Browser, the
+ * tools as cards, and the sites this thread suggests (its dev servers, then pages it visited).
+ * Whatever is picked takes this tab's place.
  */
 export function LauncherTab(props: TabViewProps) {
   const store = useWorkspaceStore();
   const definition = store.definition(props.scope);
   const actions = useWorkspaceActions(props.scope);
-  const grid = useToolGrid();
+  const visited = useVisited(props.scope);
+  const kinds = useMemo(() => definition?.kinds() ?? [], [definition]);
   const tools = useMemo(
     () =>
-      (definition?.kinds() ?? [])
+      kinds
         .filter((kind) => kind.launcher !== undefined)
         .toSorted((a, b) => (a.launcher ?? 0) - (b.launcher ?? 0)),
-    [definition],
+    [kinds],
   );
-  /** Open a request in this tab's place. */
-  const openHere = (request: OpenTab) => actions.replace(props.tab.key, request);
+  const openHere = (request: OpenRequest) => actions.replace(props.tab.key, request);
+  const openAddress = (url: string) => {
+    const browser = kinds.find((kind) => kind.fromUrl);
+    const request = browser?.fromUrl?.(url, store.get(props.scope));
+    if (request) openHere(request);
+  };
+  const known = visited.map((url) => ({
+    url,
+    label: url.replace(/^https?:\/\//, ""),
+    detail: "Visited",
+  }));
   return (
     <div className="@container flex h-full flex-col">
+      <PageToolbar
+        nav={
+          <PageNav
+            back={{ reason: fresh }}
+            forward={{ reason: fresh }}
+            reload={{ reason: fresh }}
+          />
+        }
+        address={
+          <AddressBar
+            url={undefined}
+            known={known}
+            loading={false}
+            placeholder="Search or enter a URL"
+            onGo={openAddress}
+          />
+        }
+      />
       <div className="min-h-0 flex-1 overflow-auto">
-        <div className="mx-auto flex w-full max-w-[640px] flex-col px-6 pt-10 pb-12">
-          <h2 className={heading}>Tools</h2>
-          <ul aria-label="Tools" onKeyDown={grid.onKeyDown} className="mt-2 flex flex-col gap-px">
-            {tools.map((kind, index) => {
-              const keys = definition?.shortcut(kind.kind);
-              return (
-                <li key={kind.kind} className="relative min-w-0">
-                  <Tip label={kind.label} {...(keys ? { keys: keymap[keys].keys } : {})}>
-                    <button
-                      type="button"
-                      data-tool
-                      tabIndex={grid.active === index ? 0 : -1}
-                      onFocus={() => {
-                        grid.setActive(index);
-                        kind.preload();
-                      }}
-                      className={card}
-                      onPointerEnter={kind.preload}
-                      onClick={() => openHere({ kind: kind.kind })}
-                    >
-                      <Icon icon={kind.icon} size={16} className="text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate">{kind.label}</span>
-                      {kind.unavailable ? (
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {kind.unavailable}
-                        </span>
-                      ) : null}
-                    </button>
-                  </Tip>
-                </li>
-              );
-            })}
-          </ul>
+        <div className="mx-auto flex w-full max-w-[720px] flex-col px-6 pt-8 pb-12">
+          <h2 className="px-1 text-sm font-medium text-foreground">Tools</h2>
+          <ToolGrid
+            scope={props.scope}
+            tools={tools}
+            definition={definition}
+            actions={actions}
+            onPick={(kind) => openHere({ kind: kind.kind })}
+          />
+          <WithServices quiet>
+            <SuggestedSites scope={props.scope} openHere={openHere} openAddress={openAddress} />
+          </WithServices>
         </div>
       </div>
     </div>

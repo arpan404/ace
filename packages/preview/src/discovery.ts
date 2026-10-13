@@ -45,15 +45,21 @@ export async function discoverListeningPorts(
   }
   throw new Error(`Unsupported preview discovery platform: ${platform}`);
 }
-export type PortDiff = { added: number[]; removed: number[] };
-export async function pollPorts(options: {
-  scan: () => Promise<ReadonlySet<number>>;
-  onChange: (diff: PortDiff) => void;
+export type PortDiff<T = number> = { added: T[]; removed: T[] };
+/**
+ * Scan until `signal` aborts, reporting what changed. The delay doubles from `minDelay` to
+ * `maxDelay` while nothing changes and drops back after a change, or while `hurry()` says a
+ * change is expected soon.
+ */
+export async function pollPorts<T = number>(options: {
+  scan: () => Promise<ReadonlySet<T>>;
+  onChange: (diff: PortDiff<T>) => void;
   onError: (error: unknown) => void;
   signal: AbortSignal;
   wait: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   minDelay?: number;
   maxDelay?: number;
+  hurry?: () => boolean;
 }): Promise<void> {
   const min = z
     .number()
@@ -66,7 +72,7 @@ export async function pollPorts(options: {
     .min(min)
     .parse(options.maxDelay ?? 30_000);
   let delay = min;
-  let previous: ReadonlySet<number> = new Set();
+  let previous: ReadonlySet<T> = new Set();
   while (!options.signal.aborted) {
     try {
       const current = new Set(await options.scan());
@@ -82,6 +88,7 @@ export async function pollPorts(options: {
       options.onError(error);
       delay = Math.min(max, delay * 2);
     }
+    if (options.hurry?.()) delay = min;
     try {
       await options.wait(delay, options.signal);
     } catch (error) {

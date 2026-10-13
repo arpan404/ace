@@ -9,6 +9,9 @@
             "op": {
               "const": "list",
               "type": "string"
+            },
+            "suggestions": {
+              "type": "boolean"
             }
           },
           "required": [

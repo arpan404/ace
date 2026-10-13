@@ -39,6 +39,7 @@ export interface Services {
   onboarding?: import("../onboarding.ts").Onboarding;
   providerStatuses?: import("../provider-status.ts").ProviderStatuses;
   previewClient?: import("../preview-client.ts").PreviewClient;
+  previewSuggestions?: import("../preview-suggestions/tracker.ts").SuggestionTracker;
   automations?: import("@ace/automations").AutomationService;
   activityReads?: import("../activity-reads.ts").ActivityReads;
   icons?: import("../icons/icon-service.ts").IconService;

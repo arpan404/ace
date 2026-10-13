@@ -252,14 +252,14 @@ test("⌘J shows the thread's terminal as a side panel tab, and the panel's widt
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
-test("New tab contains only tools and opens Files without a Suggested section", async () => {
+test("New tab offers an address, tools and suggested sites, and opens Files in its place", async () => {
   await openColdStart();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await sidePanel();
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   const tools = await within(panel).findByRole("list", { name: "Tools" });
-  expect(within(panel).queryByRole("list", { name: "Suggested" })).toBeNull();
-  expect(within(panel).queryByRole("combobox", { name: "Address" })).toBeNull();
+  expect(await within(panel).findByRole("list", { name: "Suggested" })).toBeTruthy();
+  expect(within(panel).getByRole("combobox", { name: "Address" })).toBeTruthy();
   await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
   expect(selected(panel).textContent).toBe("Files");
   expect(tabNames(panel)).toEqual(["Summary", changes, "Files"]);
@@ -273,7 +273,7 @@ test("the new tab's tools are one Tab stop that arrow keys move through by row a
   const tools = await within(panel).findByRole("list", { name: "Tools" });
   const cards = within(tools)
     .getAllByRole("button")
-    .filter((button) => !(button.getAttribute("aria-label") ?? "").endsWith("options"));
+    .filter((button) => !(button.getAttribute("aria-label") ?? "").startsWith("More for"));
   expect(cards.filter((card) => card.tabIndex === 0)).toHaveLength(1);
   const [first] = cards;
   if (!first) throw new Error("No tools listed");

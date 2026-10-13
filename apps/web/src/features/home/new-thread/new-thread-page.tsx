@@ -16,8 +16,10 @@ import {
   usePermissionModes,
   type Draft,
   type ComposerHandle,
-  composerNoticeSurface,
+  composerEnvironmentRow,
+  composerEnvironmentSurface,
 } from "@/features/thread/index.ts";
+import { cn } from "@/lib/cn.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { useLayout } from "@/lib/layout.tsx";
@@ -65,7 +67,7 @@ import { discardPreparation } from "./discard-preparation.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { SignInNotice } from "@/features/sign-in/index.ts";
 
-/** Where the thread runs, below the composer. */
+/** Where the thread runs: the composer's top strip, while no notice takes it. */
 const DeferredEnvironment = deferredComponent(() =>
   import("./environment-strip.tsx").then((module) => module.NewThreadEnvironment),
 );
@@ -736,48 +738,92 @@ function PreparationPage(props: {
               autoFocus
               placeholder="Describe the change, a bug, or a question. @ to mention a file"
               shortPlaceholder="Describe a task"
-              // Nothing renders below the composer: its notices sit in the strip's place above.
-              attached={
-                <div className={composerNoticeSurface}>
-                  {(admissionProblem || issueSource.problem || prSource.problem) && (
-                    <p id={readinessId} role="status" className="text-xs text-muted-foreground">
-                      {admissionProblem || issueSource.problem || prSource.problem}
-                    </p>
+              // Nothing renders below the composer. Its one strip above shows where the thread
+              // runs; a notice takes the strip's place while there is one. Sign-in decides for
+              // itself whether it shows, so the row steps aside for it in CSS.
+              environment={
+                <div
+                  className={cn(
+                    composerEnvironmentSurface,
+                    "[&:has([data-notices]:not(:empty))_[data-environment]]:hidden",
                   )}
-                  <SignInNotice provider={provider} />
-                  {(saveFailed || preparationSaveFailed(storage, draftKey)) && (
-                    <div role="alert" className="text-ui text-status-failed">
-                      <p>
-                        Couldn't save this preparation on this device. Keep this page open and free
-                        space or discard an older draft before leaving.
+                >
+                  <div
+                    data-notices=""
+                    className="flex flex-col gap-2 px-3 pt-2.5 pb-1 empty:hidden"
+                  >
+                    {(admissionProblem || issueSource.problem || prSource.problem) && (
+                      <p id={readinessId} role="status" className="text-xs text-muted-foreground">
+                        {admissionProblem || issueSource.problem || prSource.problem}
                       </p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          const content = latestContent.current;
-                          if (!content || !writeDraft(storage, draftKey, content)) {
-                            contentSaveRefused.current = true;
-                            setSaveFailed(true);
-                            return;
+                    )}
+                    <SignInNotice provider={provider} />
+                    {(saveFailed || preparationSaveFailed(storage, draftKey)) && (
+                      <div role="alert" className="text-ui text-status-failed">
+                        <p>
+                          Couldn't save this preparation on this device. Keep this page open and
+                          free space or discard an older draft before leaving.
+                        </p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            const content = latestContent.current;
+                            if (!content || !writeDraft(storage, draftKey, content)) {
+                              contentSaveRefused.current = true;
+                              setSaveFailed(true);
+                              return;
+                            }
+                            contentSaveRefused.current = false;
+                            remember({
+                              title:
+                                content.text.trim().split("\n")[0]?.slice(0, 100) ||
+                                "New preparation",
+                            });
+                          }}
+                        >
+                          Save draft
+                        </Button>
+                      </div>
+                    )}
+                    {error && (
+                      <p role="alert" className="text-ui text-status-failed">
+                        {error}
+                      </p>
+                    )}
+                  </div>
+                  {!(
+                    admissionProblem ||
+                    issueSource.problem ||
+                    prSource.problem ||
+                    saveFailed ||
+                    preparationSaveFailed(storage, draftKey) ||
+                    error
+                  ) && (
+                    <div data-environment="" className={composerEnvironmentRow}>
+                      <Suspense fallback={null}>
+                        <DeferredEnvironment.Component
+                          pullRequest={
+                            props.pullRequest
+                              ? {
+                                  number: prSource.selection?.ref.number,
+                                  headSha: prSource.selection?.headSha,
+                                }
+                              : undefined
                           }
-                          contentSaveRefused.current = false;
-                          remember({
-                            title:
-                              content.text.trim().split("\n")[0]?.slice(0, 100) ||
-                              "New preparation",
-                          });
-                        }}
-                      >
-                        Save draft
-                      </Button>
+                          mode={resolved.mode}
+                          onMode={(mode) => choose({ mode })}
+                          branches={branches}
+                          base={base}
+                          onBase={(next) => {
+                            setBase(next);
+                            remember({ base: next });
+                            toMessage();
+                          }}
+                        />
+                      </Suspense>
                     </div>
-                  )}
-                  {error && (
-                    <p role="alert" className="text-ui text-status-failed">
-                      {error}
-                    </p>
                   )}
                 </div>
               }
@@ -806,51 +852,28 @@ function PreparationPage(props: {
                 />
               }
               controls={
-                <>
-                  <PermissionPicker
-                    current={
-                      waitingForAdmission
-                        ? undefined
-                        : permissionOption(admitted.mode ?? null, permissions.capabilities)
-                    }
-                    detail={
-                      admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
-                    }
-                    inherited={!chosen}
-                    menu={{
-                      options: permissionOptions(permissions.capabilities),
-                      value: admitted.mode,
-                      loading: waitingForAdmission,
-                      unavailable: permissions.failed
-                        ? "Couldn't load permission modes. Reconnect and try again."
-                        : undefined,
+                <PermissionPicker
+                  current={
+                    waitingForAdmission
+                      ? undefined
+                      : permissionOption(admitted.mode ?? null, permissions.capabilities)
+                  }
+                  detail={
+                    admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
+                  }
+                  inherited={!chosen}
+                  menu={{
+                    options: permissionOptions(permissions.capabilities),
+                    value: admitted.mode,
+                    loading: waitingForAdmission,
+                    unavailable: permissions.failed
+                      ? "Couldn't load permission modes. Reconnect and try again."
+                      : undefined,
 
-                      fallback: admitted.fallback,
-                    }}
-                    onChange={(id) => setPermission(id ?? null)}
-                  />
-                  <Suspense fallback={null}>
-                    <DeferredEnvironment.Component
-                      pullRequest={
-                        props.pullRequest
-                          ? {
-                              number: prSource.selection?.ref.number,
-                              headSha: prSource.selection?.headSha,
-                            }
-                          : undefined
-                      }
-                      mode={resolved.mode}
-                      onMode={(mode) => choose({ mode })}
-                      branches={branches}
-                      base={base}
-                      onBase={(next) => {
-                        setBase(next);
-                        remember({ base: next });
-                        toMessage();
-                      }}
-                    />
-                  </Suspense>
-                </>
+                    fallback: admitted.fallback,
+                  }}
+                  onChange={(id) => setPermission(id ?? null)}
+                />
               }
             />
           </div>

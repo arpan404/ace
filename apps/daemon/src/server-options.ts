@@ -43,6 +43,8 @@ export interface ServerOptions {
   onboarding?: import("./onboarding.ts").Onboarding;
   providerStatuses?: import("./provider-status.ts").ProviderStatuses;
   previewClient?: import("./preview-client.ts").PreviewClient;
+  /** Detected dev servers per thread (`preview.request` list with suggestions). */
+  previewSuggestions?: import("./preview-suggestions/tracker.ts").SuggestionTracker;
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;
   /** The Activity read cursor (`activity.reads`). */
   activityReads?: import("./activity-reads.ts").ActivityReads;

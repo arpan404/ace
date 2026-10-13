@@ -38,7 +38,6 @@ import { InlineRenameField } from "@/features/organize/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { findInThread } from "./long/nav-keys.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
-import { SideChatComposer } from "./composer/side-chat-composer.tsx";
 import { whenIdle } from "@/lib/idle.ts";
 import {
   DeferredThreadHotkeys,
@@ -137,7 +136,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const parts = useMemo(
     () => ({
       ...outer,
-      SideChatComposer,
       fork: forkPoint && (() => setForking(forkPoint)),
     }),
     [outer, forkPoint],

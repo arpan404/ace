@@ -5,12 +5,18 @@ import { FakeProviderInstalls, fakeLatestVersions } from "../provider-install.ts
 import { onboardingChecklist } from "@ace/core";
 import { FakeProviderLogin, fakeReadiness } from "../provider-login.ts";
 import { configuredModels, providerConfiguration } from "@ace/models/preferences";
-import { ProviderConfigurations, ProviderKind } from "@ace/protocol";
+import { PreviewSuggestions, ProviderConfigurations, ProviderKind } from "@ace/protocol";
 import { AccountManagementRequest } from "@ace/protocol/accounts";
 import { z } from "zod";
 const zGroup = z.tuple([ProviderKind, z.string()]);
 import type { AccountSummary as Summary } from "@ace/protocol/accounts";
-import type { CatalogModel, ClientMessage, PaletteCommand, ServerMessage } from "@ace/protocol";
+import type {
+  CatalogModel,
+  ClientMessage,
+  PaletteCommand,
+  PreviewSuggestion,
+  ServerMessage,
+} from "@ace/protocol";
 import { FakeUsage } from "../catalog/usage.ts";
 import { modelCatalog, settingsValues } from "../scenarios/settings.ts";
 import { accountSummaries, renameAccount } from "./accounts.ts";
@@ -61,6 +67,12 @@ export class FakeServices {
       blockedUntil: blockedUntil(quota, this.host.clock()),
     });
     this.host.broadcast?.({ type: "usage.limits_changed", account });
+  }
+  /** Push a thread's detected dev servers, as the daemon does when they change. */
+  pushPreviewSuggestions(threadId: string, suggestions: readonly PreviewSuggestion[]): void {
+    this.host.broadcast?.(
+      PreviewSuggestions.parse({ type: "preview.suggestions", threadId, suggestions }),
+    );
   }
   readonly providerLogin: FakeProviderLogin;
   accounts: AccountSummary[];

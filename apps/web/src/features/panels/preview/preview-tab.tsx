@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
-import type { PreviewServer, PreviewSource } from "../sources.ts";
+import type { PreviewServer, PreviewSource, PreviewSuggestion } from "../sources.ts";
 import { AddressBar } from "../browser/address-bar.tsx";
 import { setLoading } from "../browser/loading.ts";
 import { PageNav, PageToolbar, toolbarButton } from "../browser/page-toolbar.tsx";
@@ -28,7 +28,11 @@ function useServers(source: PreviewSource, threadId: string) {
   useSyncExternalStore(subscribe, () => source.version);
   // Follow the thread's dev servers only while this tab shows them.
   useEffect(() => source.watch(threadId), [source, threadId]);
-  return { servers: source.servers(threadId), canForward: source.canForward() };
+  return {
+    servers: source.servers(threadId),
+    detected: source.suggestions(threadId),
+    canForward: source.canForward(),
+  };
 }
 
 /**
@@ -38,7 +42,7 @@ function useServers(source: PreviewSource, threadId: string) {
  */
 export function PreviewTab(props: { threadId: string; tabKey: string }) {
   const { preview } = usePanelServices();
-  const { servers, canForward } = useServers(preview, props.threadId);
+  const { servers, detected, canForward } = useServers(preview, props.threadId);
   // The tab names what it shows ("web · :5173"), and "Preview" while there is nothing yet.
   const actions = useWorkspaceActions(props.threadId);
   const [shown, setShown] = useState<PreviewServer>();
@@ -56,11 +60,79 @@ export function PreviewTab(props: { threadId: string; tabKey: string }) {
         onShown={setShown}
       />
     );
-  return <NoPreview source={preview} threadId={props.threadId} canForward={canForward} />;
+  return (
+    <NoPreview
+      source={preview}
+      threadId={props.threadId}
+      canForward={canForward}
+      detected={detected}
+    />
+  );
+}
+
+/**
+ * The dev servers the daemon found running for this project, ready to preview with one click.
+ * Shown above the manual port, which stays for anything it didn't find.
+ */
+function DetectedServers(props: {
+  source: PreviewSource;
+  threadId: string;
+  servers: readonly PreviewSuggestion[];
+}) {
+  const [error, setError] = useState<string>();
+  if (props.servers.length === 0) return null;
+  return (
+    <div className="flex w-72 max-w-full flex-col gap-1.5">
+      <ul aria-label="Detected dev servers" className="flex flex-col gap-1">
+        {props.servers.map((server) => (
+          <li key={server.port}>
+            <button
+              type="button"
+              onClick={() => {
+                setError(undefined);
+                props.source
+                  .forward(props.threadId, server.port)
+                  .catch((failure: unknown) => setError(forwardFailure(failure, server.port)));
+              }}
+              className="focus-ring flex h-10 w-full min-w-0 items-center gap-2.5 rounded-lg border border-border px-3 text-left transition-colors duration-(--motion-fast) hover:bg-fill"
+            >
+              {server.iconUrl ? (
+                <img
+                  src={server.iconUrl}
+                  alt=""
+                  width={16}
+                  height={16}
+                  className="size-4 shrink-0 rounded-xs object-contain"
+                />
+              ) : (
+                <BrowserIcon aria-hidden size={16} className="shrink-0 text-muted-foreground" />
+              )}
+              <span className="min-w-0 flex-1 truncate text-ui text-foreground">
+                {server.title || `localhost:${server.port}`}
+              </span>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                :{server.port}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {error && (
+        <span role="alert" className="text-sm text-status-failed">
+          {error}
+        </span>
+      )}
+    </div>
+  );
 }
 
 /** Nothing to preview yet: say so, offer a port, and point at the Browser for any page. */
-function NoPreview(props: { source: PreviewSource; threadId: string; canForward: boolean }) {
+function NoPreview(props: {
+  source: PreviewSource;
+  threadId: string;
+  canForward: boolean;
+  detected: readonly PreviewSuggestion[];
+}) {
   const actions = useWorkspaceActions(props.threadId);
   return (
     <EmptyState
@@ -73,6 +145,13 @@ function NoPreview(props: { source: PreviewSource; threadId: string; canForward:
       }
       action={
         <div className="flex flex-col items-center gap-4">
+          {props.canForward && (
+            <DetectedServers
+              source={props.source}
+              threadId={props.threadId}
+              servers={props.detected}
+            />
+          )}
           {props.canForward && <PortForm source={props.source} threadId={props.threadId} />}
           <Button size="sm" variant="ghost" onClick={() => actions.open({ kind: "browser" })}>
             Open the Browser
