@@ -11,7 +11,14 @@ const token = "ab".repeat(32);
 const url = "ws://127.0.0.1:4242/";
 
 /** The real gate and app, with a fake daemon behind whatever address is entered. */
-function boot(options: { fragment?: string; onDemand?: boolean; rememberedToken?: string } = {}) {
+function boot(
+  options: {
+    fragment?: string;
+    onDemand?: boolean;
+    rememberedToken?: string;
+    outbox?: Parameters<typeof fakeClient>[2];
+  } = {},
+) {
   const daemon = new FakeDaemon({ clock: () => 1, token });
   new ScenarioPlayer(daemon, flakyCheckout()).runThrough("explorer-spawned");
   const local = memoryKeyValue();
@@ -29,8 +36,8 @@ function boot(options: { fragment?: string; onDemand?: boolean; rememberedToken?
         createClient={(target) =>
           // The in-page fallback client arrives later, after its chunk loads.
           options.onDemand
-            ? Promise.resolve().then(() => fakeClient(daemon, target.token))
-            : fakeClient(daemon, target.token)
+            ? Promise.resolve().then(() => fakeClient(daemon, target.token, options.outbox))
+            : fakeClient(daemon, target.token, options.outbox)
         }
         {...(options.fragment ? { fragment: options.fragment } : {})}
       >
@@ -124,6 +131,19 @@ test("a token the daemon rejects returns to the form, says why and selects the t
   expect(field.value).toBe("cd".repeat(32));
   // Never the shell: nothing was ever connected.
   expect(screen.queryByRole("link", { name: /Fix flaky checkout test/ })).toBeNull();
+});
+
+test("saved work this window can't read is reported as that, never as a rejected token", async () => {
+  boot({
+    outbox: {
+      load: () => Promise.reject(new Error("IndexedDB is unavailable")),
+      save: async () => {},
+    },
+  });
+  await connectWith(token);
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toMatch(/couldn't read the work it saved/);
+  expect(alert.textContent).not.toMatch(/access token/);
 });
 
 test("the daemon's #token= hand-off connects straight away", async () => {

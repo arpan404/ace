@@ -267,3 +267,25 @@ it("a crashed notification worker restarts with backoff and resumes durable deli
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+it("keeps working when Node tooling posts its own records on the worker channel", async () => {
+  // `node --watch` makes every worker post `{ "watch:import": [...] }` to its parent.
+  const worker = new NotificationWorker({
+    path: ":memory:",
+    spawn(entry, options) {
+      const spawned = new Worker(entry, options);
+      spawned.once("online", () => spawned.emit("message", { "watch:import": [entry.href] }));
+      return spawned;
+    },
+    transport: {
+      async send() {
+        return "accepted";
+      },
+    },
+  });
+  try {
+    await expect(worker.cursor()).resolves.toBe(0);
+  } finally {
+    await worker.close();
+  }
+});

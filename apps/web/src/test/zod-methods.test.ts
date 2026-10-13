@@ -384,8 +384,10 @@ beforeAll(async () => {
       export { MachineTarget } from "@/boot/machine-target.ts";
       export { TabMessage, WorkerMessage } from "@ace/client-worker/wire";
       export { string, object, number, array, tuple, instanceof as instanceOf, enum as enumeration } from "zod";
-      // The machine-pool worker's entry loads with the worker build's Zod.
+      // The machine-pool and client workers' entries load with the worker build's Zod, so a
+      // schema that calls a dropped method while its module loads fails here, not in a build.
       import "@/boot/machine-worker.ts";
+      import "@/boot/client-worker.ts";
     `,
   );
   const recorded = await protocolCorpus();

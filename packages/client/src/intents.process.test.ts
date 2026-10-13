@@ -96,7 +96,7 @@ test("an idempotency key cannot silently change its command", async () => {
   ).rejects.toMatchObject({ code: "protocol" });
 });
 
-test("stored credentials for another device are rejected before connecting", async () => {
+test("saved work from another device is never sent, and never blocks connecting", async () => {
   const h = await setup();
   cleanup = h.cleanup;
   const storage = memoryStorage();
@@ -113,9 +113,10 @@ test("stored credentials for another device are rejected before connecting", asy
     ]),
   );
   const { client, faults } = h.make({ storage });
-  await expect(client.start()).rejects.toMatchObject({ code: "storage" });
-  expect(client.state).toBe("fatal");
-  expect(faults.sent).toHaveLength(0);
+  await client.start();
+  await ready(client);
+  expect(client.state).toBe("ready");
+  expect(faults.sent.filter((text) => text.includes('"old"'))).toEqual([]);
 });
 
 test("the first interaction answer wins and a later daemon rejection becomes a failed intent", async () => {

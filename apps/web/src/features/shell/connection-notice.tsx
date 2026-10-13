@@ -18,8 +18,14 @@ const fatalReasons: Partial<Record<ClientError["code"], string>> = {
   auth: "ace didn't accept this token",
   protocol: "the connection could not be read; try again or update ace",
   limit: "the connection exceeded its capacity; try again",
-  storage: "this browser blocked local storage",
+  storage: "this device's saved data couldn't be read or written",
 };
+
+/** Why the session stopped, with the client's own detail when it has one. */
+function fatalReason(error: ClientError | undefined): string {
+  const reason = (error && fatalReasons[error.code]) ?? "ace closed the connection";
+  return error && error.message !== error.code ? `${reason} (${error.message})` : reason;
+}
 
 /**
  * Connection trouble, said once and quietly under the header. Never implies anything about
@@ -82,8 +88,7 @@ export function ConnectionNotice() {
       )}
       {state === "fatal" && (
         <>
-          Can't connect:{" "}
-          {(client.error && fatalReasons[client.error.code]) ?? "ace closed the connection"}.
+          Can't connect: {fatalReason(client.error)}.
           <IconButton
             icon={ArrowClockwiseIcon}
             label="Try again"
