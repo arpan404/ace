@@ -1,8 +1,7 @@
-import { ClockIcon, CubeIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { cn } from "@/lib/cn.ts";
-import { Icon, type IconGlyph } from "@/components/icon.tsx";
+import { Icon } from "@/components/icon.tsx";
 import { SearchField } from "@/components/search-field.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
@@ -49,57 +48,8 @@ export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
   );
 }
 
-/** Automations and Skills: sections listed with Settings' pages, each with its own list. */
-export type SettingsSection = "/automations" | "/skills";
-const sections: readonly { to: SettingsSection; title: string; icon: IconGlyph }[] = [
-  { to: "/automations", title: "Automations", icon: ClockIcon },
-  { to: "/skills", title: "Skills", icon: CubeIcon },
-];
-
-/**
- * Automations and Skills under Settings' pages. The open section's own list (its automations, the
- * skills catalog) sits right under its link, so the sidebar keeps one shape for all three.
- */
-function SectionLinks(props: {
-  query: string;
-  open?: { to: SettingsSection; list: ReactNode } | undefined;
-}) {
-  const pathname = useLocation({ select: (location) => location.pathname });
-  const shown = sections.filter((section) => section.title.toLowerCase().includes(props.query));
-  if (!shown.length) return null;
-  return (
-    <ul aria-label="Sections" className="mt-3 flex flex-col gap-px">
-      {shown.map((section) => {
-        const active = pathname === section.to || pathname.startsWith(`${section.to}/`);
-        return (
-          <li key={section.to}>
-            <Link
-              to={section.to}
-              aria-current={active ? "page" : undefined}
-              className={cn(rowClass, active && "bg-foreground/10 font-medium text-foreground")}
-            >
-              <Icon icon={section.icon} active={active} />
-              {section.title}
-            </Link>
-            {props.open?.to === section.to && (
-              <aside aria-label={section.title} className="mt-1 flex flex-col">
-                {props.open.list}
-              </aside>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-/**
- * Settings' list in the sidebar: its pages, Automations and Skills, and a filter that finds
- * single settings. In a section, `section` is that section's own list, shown under its link.
- */
-export function SettingsNav(props: {
-  section?: { to: SettingsSection; list: ReactNode } | undefined;
-}) {
+/** Settings' list in the sidebar: its pages, and a filter that finds single settings. */
+export function SettingsNav() {
   const [query, setQuery] = useState("");
   const text = query.trim().toLowerCase();
   const found = searchSettings(query);
@@ -132,7 +82,6 @@ export function SettingsNav(props: {
         ) : (
           <EmptyState variant="inline" title="No matching settings" />
         )}
-        <SectionLinks query={text} open={props.section} />
       </nav>
       {found.length > 0 && (
         <section aria-label="Matching settings" className="mt-4">

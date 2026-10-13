@@ -22,6 +22,14 @@ function workbenchApp(storage = memoryKeyValue()) {
   return app;
 }
 
+/** A profile view's own list in the sidebar: the automations, or the skills catalog. */
+const ownList = {
+  Automations: (sidebar: HTMLElement) =>
+    within(sidebar).findByRole("list", { name: "Automations" }),
+  Skills: (sidebar: HTMLElement) =>
+    within(sidebar).findByRole("navigation", { name: "Skills catalog" }),
+} as const;
+
 test("profile views replace app navigation and return to the thread list", async () => {
   await workbenchApp().open("/new");
   await title("New thread");
@@ -29,7 +37,13 @@ test("profile views replace app navigation and return to the thread list", async
   for (const place of ["Automations", "Skills"] as const) {
     expect(within(appNav()).queryByRole("link", { name: place })).toBeNull();
     await openProfileView(place);
-    expect(await screen.findByRole("complementary", { name: place })).toBeTruthy();
+    await title(place);
+    // Its own page: its own list under its own heading, never Settings' pages around it.
+    const sidebar = await screen.findByRole("complementary", { name: place });
+    expect(within(sidebar).getByRole("heading", { level: 2, name: place })).toBeTruthy();
+    expect(await ownList[place](sidebar)).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Settings pages" })).toBeNull();
+    expect(screen.queryByRole("complementary", { name: "Settings" })).toBeNull();
     expect(list("Threads")).toBeNull();
     expect(screen.queryByRole("button", { name: "ace menu" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^You, account/ })).toBeNull();
@@ -58,6 +72,12 @@ test("Settings hides app navigation and returns through Back to app", async () =
   }
   const pages = screen.getByRole("navigation", { name: "Settings pages" });
   expect(list("Threads")).toBeNull();
+  // The sidebar lists Settings' pages only: Automations and Skills are pages of their own.
+  const sidebar = screen.getByRole("complementary", { name: "Settings" });
+  for (const name of ["Automations", "Skills"]) {
+    expect(within(sidebar).queryByRole("link", { name })).toBeNull();
+    expect(within(sidebar).queryByRole("complementary", { name })).toBeNull();
+  }
   // Back to app sits at the sidebar's foot, after the pages, where the profile sits elsewhere.
   const back = screen.getByRole("link", { name: "Back to app" });
   expect(pages.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -125,6 +145,25 @@ test("the sidebar shows a plain ace label and profile connection actions", async
   await userEvent.click(within(account).getByRole("menuitem", { name: "Usage" }));
   await title("Usage");
   expect(list("Threads")).toBeTruthy();
+});
+
+test("⌘K opens Automations and Skills as their own pages, each with its list and Back to app", async () => {
+  await workbenchApp().open("/new");
+  await title("New thread");
+  for (const place of ["Automations", "Skills"] as const) {
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+    const palette = await screen.findByRole("dialog", { name: "Command palette" });
+    await userEvent.type(within(palette).getByRole("combobox", { name: "Search commands" }), place);
+    await userEvent.click(
+      await within(palette).findByRole("option", { name: new RegExp(`^${place}`) }),
+    );
+    await title(place);
+    const sidebar = await screen.findByRole("complementary", { name: place });
+    expect(await ownList[place](sidebar)).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Settings pages" })).toBeNull();
+    await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+    await title("New thread");
+  }
 });
 
 test("the profile menu closes on Escape and gives focus back to the profile", async () => {
