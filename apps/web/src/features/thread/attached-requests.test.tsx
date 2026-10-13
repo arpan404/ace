@@ -323,10 +323,10 @@ test("Skip on the question card declines it, without a message", async () => {
 });
 
 for (const [decision, outcome] of [
-  ["Allow once", "Allowed once:"],
-  ["Deny", "Denied:"],
+  ["Allow once", "Approved by you"],
+  ["Deny", "Denied by you"],
 ] as const) {
-  test(`${decision} removes the attached approval and records its command in the transcript`, async () => {
+  test(`${decision} removes the attached approval and notes the outcome on its command's row`, async () => {
     const app = harness();
     app.play(flakyCheckout()).runThrough("approval-requested");
     await app.open("/t/thread-checkout");
@@ -339,9 +339,12 @@ for (const [decision, outcome] of [
     await waitFor(() =>
       expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull(),
     );
-    const recorded = await within(feed).findByRole("note");
-    expect(recorded.textContent).toContain(outcome);
-    expect(recorded.textContent).toContain("rm -rf node_modules/.cache/vitest");
+    const row = await within(feed).findByRole("button", {
+      name: new RegExp(`rm -rf node_modules/\\.cache/vitest ${outcome}$`),
+    });
+    expect(row).toBeTruthy();
+    // The outcome is the row's suffix, never a second row of its own.
+    expect(within(feed).queryByRole("note")).toBeNull();
     expect(within(feed).queryByText("Waiting for your approval")).toBeNull();
   });
 }
@@ -362,9 +365,11 @@ test("an approved command keeps its execution output in the finished work log", 
   );
   const feed = screen.getByRole("feed", { name: "Transcript" });
   await openWorkLog(feed);
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Ran rm -rf/ }));
+  await userEvent.click(
+    await within(feed).findByRole("button", { name: /^Ran rm -rf.* Approved by you$/ }),
+  );
   expect((await within(feed).findByLabelText("Output")).textContent).toContain("Cache cleared.");
-  expect(within(feed).getByRole("note").textContent).toContain("Allowed once:");
+  expect(within(feed).queryByRole("note")).toBeNull();
 });
 
 test("keyboard focus survives submitting a decision, advances to the next request, and returns to the composer after the last", async () => {

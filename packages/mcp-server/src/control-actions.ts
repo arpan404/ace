@@ -3,6 +3,11 @@ import type { AgentControlOperation } from "@ace/protocol";
 type Action = {
   description: string;
   riskClass: "read-only" | "thread-write" | "agent-execution" | "external-effect";
+  /**
+   * Overwrites work or commits future spending. These alone ask the person through the provider;
+   * everything else is governed by the thread's permissions and ace's own consent.
+   */
+  destructive?: true;
 };
 /** Shared by advertised tools and the daemon's approval attribution. */
 export const controlActions: Record<AgentControlOperation["op"], Action> = {
@@ -120,6 +125,7 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
   "thread.merge": {
     description: "Merge an owned thread's work through its workspace owner.",
     riskClass: "external-effect",
+    destructive: true,
   },
   "queue.edit": {
     description: "Replace queued input on an owned thread before it is delivered.",
@@ -168,6 +174,7 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
   "automation.manage": {
     description: "Create, change or run a local automation and its future agent work.",
     riskClass: "external-effect",
+    destructive: true,
   },
   "project.read": {
     description: "Read the caller's workspace project metadata.",
@@ -180,6 +187,7 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
   "thread.handoff": {
     description: "Prepare a Git worktree and hand off an owned thread's conversation to it.",
     riskClass: "external-effect",
+    destructive: true,
   },
   "preview.list": {
     description: "List preview servers associated with an authorized thread.",

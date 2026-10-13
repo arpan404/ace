@@ -8,6 +8,7 @@ import { maxRichResultBytes } from "./result-budgets.ts";
 export interface ContentToolDefinition<I extends z.ZodType> {
   name: string;
   riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"];
+  destructive?: boolean;
   description: string;
   input: I;
   capability: McpCapability;

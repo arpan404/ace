@@ -17,6 +17,7 @@ export const agentControlToolCatalog = AgentControlOperation.options.map((schema
   return {
     op,
     riskClass: controlActions[op].riskClass,
+    destructive: controlActions[op].destructive === true,
     name: op === "delegate_task" ? "delegate_task" : `ace_${op.replaceAll(".", "_")}`,
     description:
       op === "delegate_task"
@@ -59,6 +60,10 @@ export const agentControlToolCatalog = AgentControlOperation.options.map((schema
         : 10000,
   };
 });
+/** ace's own tools a provider should still gate itself: the rest never prompt there. */
+export const destructiveAceTools: readonly string[] = agentControlToolCatalog
+  .filter((definition) => definition.destructive)
+  .map((definition) => definition.name);
 export function agentControlToolkit(port: AgentControlPort): Toolkit {
   return {
     register(registry) {

@@ -86,6 +86,28 @@ export function approvalOutcome(
   return { state: "pending", tone: "waiting", text: "Waiting for your approval" };
 }
 
+/**
+ * What a decided approval with no tool call row says as its own transcript line ("Allowed
+ * once", "Approved by you for this thread"), or nothing while it waits or when it was withdrawn
+ * or timed out without the person's answer: a superseded request leaves no row.
+ */
+export function approvalRecordLabel(
+  interaction: Pick<Interaction, "state" | "request" | "resolution" | "review" | "autoReviewed">,
+): string | undefined {
+  const resolution = interaction.resolution;
+  if (interaction.state !== "resolved" || resolution?.kind !== "approval") return undefined;
+  switch (optionKind(interaction, resolution.optionId)) {
+    case "allow_once":
+      return "Allowed once";
+    case "deny":
+      return "Denied";
+    case "allow_always":
+      return "Always allowed";
+    default:
+      return approvalOutcome(interaction).text;
+  }
+}
+
 /** Preserve every approval scope offered by the native harness. */
 export function offeredOptions(
   options: readonly ApprovalOption[],

@@ -1,6 +1,7 @@
 import { aceToolRows } from "./ace-tool-results.ts";
 import { uxAudit } from "./ux-audit.ts";
 import { aceTools } from "./ace-tools.ts";
+import { aceToolApprovals } from "./ace-tool-approvals.ts";
 import type { ProviderKind } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
 import { teamAtLimit } from "./account-limit.ts";
@@ -55,6 +56,8 @@ export function devWorld(): WorldThread[] {
     ...delegatedDocs().map((scenario) => ({ scenario, agoMs: 3 * 60 * minute })),
     // Agents using ace's own tools: computer use, the browser and a simulator.
     ...aceTools().map((scenario) => ({ scenario, agoMs: 20 * minute })),
+    // A Codex browser thread whose approvals repeat: one row per call, the answer as its note.
+    { scenario: aceToolApprovals(), agoMs: minute },
     // A published HTML visualization (ace_html_render) above the agent's reply.
     { scenario: visualization(), agoMs: 25 * minute },
     // An interactive learning page (slider, step-through, quick check) inline in the reply.

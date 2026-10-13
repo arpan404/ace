@@ -123,6 +123,8 @@ export interface BlockSource {
   background: ReadonlyMap<string, string>;
   /** Interactions that render inline (questions), oldest first. */
   questions?: readonly InlineQuestion[];
+  /** What a decided approval's own line says; undefined while open, withdrawn or timed out. */
+  approvalRecord?(interactionId: string): string | undefined;
   task?(id: string): BackgroundTask | undefined;
   pending?: boolean | undefined;
   /** Canonical child-thread link for a native spawn, including late agent links. */
@@ -301,11 +303,23 @@ export function buildBlocks(source: BlockSource): Block[] {
   const workAt = new Map<WorkBlock, number>();
   const anchors = anchorQuestions(source);
   const requests = new Map((source.questions ?? []).map((request) => [request.id, request]));
-  const approvalCalls = new Set(
-    (source.questions ?? [])
-      .filter((request) => request.kind === "approval")
-      .map((request) => request.toolCallId),
-  );
+  // An approval with its tool call in view reads as that call's note ("Approved by you for this
+  // thread"), never as a row of its own: repeated asks for one call stay one row.
+  const onCall = (id: string) => {
+    const request = requests.get(id);
+    return (
+      request?.kind === "approval" &&
+      request.toolCallId !== undefined &&
+      source.item(request.toolCallId)?.type === "tool_call"
+    );
+  };
+  // The newest approval each call carries, so an answer repeated without a call of its own
+  // ("Approved by you for this thread" again) adds no line after it.
+  const callApproval = new Map<string, string>();
+  for (const request of source.questions ?? [])
+    if (request.kind === "approval" && request.toolCallId)
+      callApproval.set(request.toolCallId, request.id);
+  let lastAnswer: string | undefined;
   const order = visibleHistoryOrder(executionOrder(source), source.item);
   const { stretchAt, lastWork } = lastWorkOf(order, source, anchors);
   const turns = new Map<string, TurnMark>();
@@ -426,6 +440,9 @@ export function buildBlocks(source: BlockSource): Block[] {
     const item = source.item(id);
     if (!item) continue;
     const person = isPerson(item);
+    if (person) lastAnswer = undefined;
+    const carried = callApproval.get(id);
+    if (carried !== undefined) lastAnswer = source.approvalRecord?.(carried) ?? lastAnswer;
     const launchNarration =
       item.type === "message" &&
       item.role === "assistant" &&
@@ -457,14 +474,10 @@ export function buildBlocks(source: BlockSource): Block[] {
       }
       if (item.runId) mark?.runs.add(item.runId);
     }
-    const asked = anchors.get(id);
+    const asked = anchors.get(id)?.filter((interactionId) => !onCall(interactionId));
     // A question's own step: the question block stands in for it.
-    const approval = approvalCalls.has(id);
     const replaced =
-      !!asked &&
-      item.type === "tool_call" &&
-      (item.call.detail.kind === "ask_user" ||
-        (approval && (item.call.status === "awaiting_approval" || item.call.status === "pending")))
+      !!asked?.length && item.type === "tool_call" && item.call.detail.kind === "ask_user"
         ? id
         : undefined;
     if (!replaced)
@@ -551,18 +564,27 @@ export function buildBlocks(source: BlockSource): Block[] {
       markOf(`ask:${id}`, id).lastBlock = blocks.length - 1;
     }
     // A question sits where it was asked; the turn's work goes on in the same log after it.
-    for (const interactionId of asked ?? [])
+    for (const interactionId of asked ?? []) {
+      const kind = requests.get(interactionId)?.kind;
+      if (kind === "approval" && source.approvalRecord) {
+        // An approval with no call row: a line only when its answer differs from the turn's
+        // last one, and none for one withdrawn or timed out before the person answered.
+        const label = source.approvalRecord(interactionId);
+        if (label === undefined || label === lastAnswer) continue;
+        lastAnswer = label;
+      }
       push(
         {
           kind: "question",
           key: `question:${interactionId}`,
           interactionId,
-          requestKind: requests.get(interactionId)?.kind,
+          requestKind: kind,
           itemId: interactionId === asked?.[0] ? replaced : undefined,
           anchorId: id,
         },
         false,
       );
+    }
   }
   if (turnId !== undefined) close(undefined);
   const newest = ordered.at(-1);
