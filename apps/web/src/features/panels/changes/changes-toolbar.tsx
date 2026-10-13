@@ -108,6 +108,12 @@ export function ChangesToolbar(props: {
       <ScopeMenu scope={props.scope} turns={props.turns} onScope={props.onScope} />
       <DiffStat {...props.stat} className="ml-1 shrink-0 text-sm" />
       <span className="flex-1" />
+      {/* A chosen Split that the panel can't fit says why the diff still reads unified. */}
+      {props.splitTooNarrow && (
+        <span role="status" className="min-w-0 truncate text-xs text-subtle-foreground">
+          Split needs more width
+        </span>
+      )}
       <Menu>
         <MenuTrigger
           render={<IconButton icon={DotsThreeIcon} label="Diff options" className={control} />}
