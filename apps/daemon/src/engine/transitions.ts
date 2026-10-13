@@ -246,6 +246,9 @@ export class ThreadTransitions {
               type: "thread.updated",
               provider: selection.provider,
               ...(crossProvider && entry.adapter.backend ? { backend: entry.adapter.backend } : {}),
+              // The previous provider's capabilities no longer describe this thread; permission
+              // and option changes made before the next session opens use the new provider's.
+              ...(crossProvider ? { capabilities, effectiveCapabilities: capabilities } : {}),
               execution: selection,
               switch: {
                 selection,
