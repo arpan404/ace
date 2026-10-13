@@ -29,7 +29,7 @@ export const ForgeStackLayer = z.object({
   checksState: text.nullable(),
   requiredChecks: z
     .array(z.object({ name: text, state: text }))
-    .max(20)
+    .max(100)
     .default([]),
   checksTruncated: z.boolean().default(false),
   queueState: text.nullable(),

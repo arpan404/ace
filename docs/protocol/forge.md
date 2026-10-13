@@ -2747,7 +2747,7 @@ Example:
 | mergeState | yes | string | {"maxLength":65536} |
 | reviewDecision | yes | union | {"anyOf":[{"type":"string","maxLength":65536},{"type":"null"}]} |
 | checksState | yes | union | {"anyOf":[{"type":"string","maxLength":65536},{"type":"null"}]} |
-| requiredChecks | no | array | {"default":[],"maxItems":20,"items":{"type":"object","properties":{"name":{"type":"string","maxLength":65536},"state":{"type":"string","maxLength":65536}},"required":["name","state"]}} |
+| requiredChecks | no | array | {"default":[],"maxItems":100,"items":{"type":"object","properties":{"name":{"type":"string","maxLength":65536},"state":{"type":"string","maxLength":65536}},"required":["name","state"]}} |
 | checksTruncated | no | boolean | {"default":false} |
 | queueState | yes | union | {"anyOf":[{"type":"string","maxLength":65536},{"type":"null"}]} |
 
