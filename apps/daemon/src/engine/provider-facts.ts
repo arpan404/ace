@@ -1,3 +1,4 @@
+import { aceWaitFact } from "./ace-waits.ts";
 import type { StatementSync } from "node:sqlite";
 import { FactBatch, type Fact, type ThreadState, type IdSource } from "@ace/core";
 import type { EventPayload } from "@ace/protocol";
@@ -153,6 +154,8 @@ export function foldProviderFacts(
             }
           : {}),
       });
+      const waiting = aceWaitFact(state, fact);
+      if (waiting) emitted.push(...batch.apply(waiting, { now, ids: ports.ids }));
       repo.interactions.opened(state, fact, generation);
       for (const event of emitted)
         if (event.type === "interaction.closed")

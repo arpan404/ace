@@ -1,11 +1,13 @@
-import { CliTree, ThreadId, InteractionId } from "@ace/protocol";
+import { ThreadId, InteractionId } from "@ace/protocol";
 import type { Client } from "@ace/client";
 import { option, validateArgs, type Args } from "./args.ts";
-import { waitSelection, waitSelectionOrRefresh } from "./connection.ts";
+import { waitSelection } from "./connection.ts";
+import { waitThreads } from "./waits.ts";
+export { waitThread } from "./waits.ts";
 import { command, key } from "./mutations.ts";
 import { approval } from "./approval.ts";
-import { prompt, print, result, mutationResult } from "./io.ts";
-import { CliFailure, treeOutcome } from "./output.ts";
+import { prompt, result, mutationResult } from "./io.ts";
+import { CliFailure } from "./output.ts";
 export async function listThreads(args: Args, client: Client, signal: AbortSignal) {
   validateArgs(args, ["project"], 2);
   if (args.words[1] !== "list") throw new CliFailure("refused", "Usage: ace threads list");
@@ -29,115 +31,13 @@ export async function listThreads(args: Args, client: Client, signal: AbortSigna
     lease.release();
   }
 }
-export async function waitThread(args: Args, client: Client, id: string, signal: AbortSignal) {
-  const lease = client.thread(id);
-  const selection = lease.store.select(["thread", "error", "cursor"], (reader) => ({
-    thread: reader.thread,
-    error: reader.error,
-    cursor: reader.cursor,
-  }));
-  let stream = Promise.resolve();
-  let queuedBytes = 0;
-  let streamError: unknown;
-  const emit = (value: unknown) => {
-    const bytes = Buffer.byteLength(JSON.stringify(value));
-    queuedBytes += bytes;
-    if (queuedBytes > 1_048_576) {
-      streamError = new CliFailure("uncertain", "Stream consumer is too slow");
-      return;
-    }
-    stream = stream
-      .then(() => print(args, value))
-      .catch((error: unknown) => {
-        streamError = error;
-      })
-      .finally(() => {
-        queuedBytes -= bytes;
-      });
-  };
-  const stop =
-    args.flags.stream === "jsonl"
-      ? client.onMessage((message) => {
-          if (
-            message.type === "snapshot" &&
-            message.view.kind === "thread" &&
-            message.view.thread.id === id
-          )
-            emit({ type: "snapshot", view: message.view });
-          if (message.type === "events")
-            for (const event of message.events)
-              if (event.threadId === id) emit({ type: "event", event });
-        })
-      : () => {};
-  try {
-    while (true) {
-      if (client.state !== "ready")
-        await waitSelection(
-          client.connectionState(),
-          (state) => state === "ready" || state === "fatal",
-          signal,
-        );
-      if (client.state === "fatal") throw client.error;
-      const value = await waitSelection(
-        selection,
-        (candidate) => !!candidate.error || !!candidate.thread,
-        signal,
-      );
-      if (streamError) throw streamError;
-      if (value.error) throw value.error;
-      if (!value.thread) throw new CliFailure("uncertain", "Thread state unavailable");
-      const response = await client.request(
-        { type: "cli.request", operation: { op: "thread.tree", threadId: ThreadId.parse(id) } },
-        { signal },
-      );
-      if (!response.result.ok)
-        throw new CliFailure("uncertain", response.result.code ?? "Tree state unavailable");
-      const observedTree = CliTree.parse(response.result.data);
-      const outcome = args.flags.tree
-        ? treeOutcome(observedTree)
-        : observedTree[0]
-          ? treeOutcome([{ ...observedTree[0], pending: false }])
-          : "uncertain";
-      if (outcome !== undefined && client.state === "ready") {
-        await stream;
-        await result(
-          args,
-          {
-            type: "outcome",
-            threadId: id,
-            status: outcome,
-            thread: value.thread,
-            tree: observedTree,
-            cancelled: observedTree
-              .filter((member) => member.cancelled)
-              .map((member) => member.threadId),
-          },
-          outcome,
-        );
-        return;
-      }
-      if (args.flags.stream === "jsonl")
-        await print(args, { type: "status", threadId: id, status: value.thread.status });
-      // Refresh bounded tree facts even when only a descendant's queue changes.
-      await waitSelectionOrRefresh(
-        selection,
-        (next) => !!next.error || next.cursor !== value.cursor,
-        signal,
-      );
-    }
-  } finally {
-    stop();
-    await stream;
-    lease.release();
-  }
-}
 export async function threadCommand(args: Args, client: Client, signal: AbortSignal) {
   const verb = args.words[1];
   validateArgs(
     args,
-    ["tree", "idempotency-key", "option", "interaction", "stream"],
+    ["tree", "idempotency-key", "option", "interaction", "stream", "any", "all"],
     3,
-    ["send", "steer"].includes(verb ?? "") ? 4 : 3,
+    verb === "wait" ? 18 : ["send", "steer"].includes(verb ?? "") ? 4 : 3,
   );
   if (
     !["read", "send", "steer", "wait", "approve", "deny", "cancel", "interrupt"].includes(
@@ -145,8 +45,11 @@ export async function threadCommand(args: Args, client: Client, signal: AbortSig
     )
   )
     throw new CliFailure("refused", "Unknown thread command");
+  if (verb === "wait")
+    return waitThreads(args, client, args.words.slice(2), signal, !!args.flags.tree);
+  if (args.flags.any || args.flags.all)
+    throw new CliFailure("refused", "--any/--all apply to wait");
   const id = ThreadId.parse(args.words[2]);
-  if (verb === "wait") return waitThread(args, client, id, signal);
   if (verb === "send" || verb === "steer")
     return mutationResult(
       args,

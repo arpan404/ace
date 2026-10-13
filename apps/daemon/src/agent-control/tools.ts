@@ -2,6 +2,7 @@ import { oldestTitleInput } from "../engine/title-input.ts";
 import { provisionalTitle } from "../engine/thread-title.ts";
 import {
   AgentControlOperation,
+  DelegationRequest,
   RemoteAgentOperation as RemoteOperation,
   type AgentControlResult,
   type McpAttribution,
@@ -109,7 +110,6 @@ export function createAgentControlPort(
         const read = [
           "thread.read",
           "thread.read_output",
-          "thread.wait",
           "thread.search",
           "preview.list",
           "agent.status",
@@ -172,22 +172,43 @@ export function createAgentControlPort(
           };
         }
         case "delegate_task": {
-          const { op: _op, ...request } = operation;
-          const child =
-            request.workspace && extensions.delegateWorkspace
-              ? await extensions.delegateWorkspace(caller, request, signal)
-              : await (async () => {
-                  if (request.workspace?.kind && request.workspace.kind !== "project")
-                    throw new Error("Workspace owner unavailable");
-                  const configured = await service.prepareModels(caller, request);
-                  signal.throwIfAborted();
-                  return service.delegate(caller, request, configured);
-                })();
-          const outcome =
-            operation.waitMs !== undefined || operation.wait
-              ? await service.waitBounded(caller, child.childId, signal, operation.waitMs ?? 240000)
-              : undefined;
-          return { ok: true, data: { threadId: child.childId, ...(outcome ? { outcome } : {}) } };
+          const delegateOne = async (request: DelegationRequest) => {
+            if (request.workspace && extensions.delegateWorkspace)
+              return extensions.delegateWorkspace(caller, request, signal);
+            if (request.workspace?.kind && request.workspace.kind !== "project")
+              throw new Error("Workspace owner unavailable");
+            const configured = await service.prepareModels(caller, request);
+            signal.throwIfAborted();
+            return service.delegate(caller, request, configured);
+          };
+          const { op: _op, tasks, await: mode, timeoutSeconds, ...single } = operation;
+          if (!tasks) {
+            const child = await delegateOne(DelegationRequest.parse(single));
+            const outcome =
+              operation.waitMs !== undefined || operation.wait
+                ? await service.waitBounded(
+                    caller,
+                    child.childId,
+                    signal,
+                    operation.waitMs ?? 240000,
+                  )
+                : undefined;
+            return {
+              ok: true,
+              data: { threadId: child.childId, ...(outcome ? { outcome } : {}) },
+            };
+          }
+          // Admitted in order; stable per-task requestIds make a retried batch create nothing new.
+          const threadIds: ThreadId[] = [];
+          for (const task of tasks)
+            threadIds.push((await delegateOne(DelegationRequest.parse(task))).childId);
+          if (!mode || mode === "none") return { ok: true, data: { threadIds } };
+          const waited = await service.monitor.wait(
+            caller,
+            { threadIds, mode, timeoutSeconds: timeoutSeconds ?? 120 },
+            signal,
+          );
+          return { ...waited, data: { threadIds, wait: waited.data } };
         }
         case "thread.create": {
           const { op: _op, title: _title, ...selection } = operation;
@@ -233,8 +254,10 @@ export function createAgentControlPort(
                 );
           return { ok: result.ok, ...(result.ok ? {} : { code: "unavailable" as const }) };
         }
-        case "thread.wait":
-          return { ok: true, data: await service.wait(caller, operation.threadId, signal) };
+        case "wait":
+          return service.monitor.wait(caller, operation, signal);
+        case "agents.status":
+          return { ok: true, data: service.monitor.snapshot(caller) };
         case "thread.read":
           return {
             ok: true,

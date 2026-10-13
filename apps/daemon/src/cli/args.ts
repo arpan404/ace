@@ -24,6 +24,9 @@ const switches = new Set([
   "worktrees",
   "caches",
   "compact",
+  // `ace thread|task wait` across several ids.
+  "any",
+  "all",
 ]);
 /** Pure parsing. `--` preserves prompt text, including strings beginning with a dash. */
 export function parseArgs(input: readonly string[]): Args {

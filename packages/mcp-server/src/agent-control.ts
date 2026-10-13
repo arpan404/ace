@@ -3,6 +3,9 @@ import { z } from "zod";
 import { AgentControlOperation, AgentControlResult, type McpAttribution } from "@ace/protocol";
 import type { Toolkit } from "./toolkits.ts";
 
+/** The longest bounded wait plus transport grace, still inside every provider's tool timeout. */
+const waitToolTimeoutMs = 630_000;
+
 export interface AgentControlPort {
   execute(
     caller: McpAttribution,
@@ -11,9 +14,12 @@ export interface AgentControlPort {
   ): Promise<AgentControlResult>;
 }
 /** Each operation has its own schema. No arbitrary command or permission-answer entry exists. */
-export const agentControlToolCatalog = AgentControlOperation.options.map((schema) => {
+/** Host-internal steps of delegation; agents start child work only through delegate_task. */
+const internalOps = new Set(["thread.create", "thread.launch"]);
+export const agentControlToolCatalog = AgentControlOperation.options.flatMap((schema) => {
   const { op: opSchema, ...shape } = schema.shape;
   const op = opSchema.value;
+  if (internalOps.has(op)) return [];
   return {
     op,
     riskClass: controlActions[op].riskClass,
@@ -21,14 +27,14 @@ export const agentControlToolCatalog = AgentControlOperation.options.map((schema
     name: op === "delegate_task" ? "delegate_task" : `ace_${op.replaceAll(".", "_")}`,
     description:
       op === "delegate_task"
-        ? "Delegate child work under the caller's permission ceiling and delegation budget, choosing provider, model, account and optional workspace. Async by default: settled results wake the parent. waitMs bounds observation without cancelling the child; wait uses a four-minute bound. Cross-provider work requires a provably contained native permission mode. Stable request IDs make retries safe. Discover selections with ace_agents_catalog."
+        ? "The one way to start child work. Delegate one task, or several at once with tasks: [...], under your permission ceiling and delegation budget, choosing provider, model, account and optional workspace per task. Returns the child thread ids at once; settled results wake you as a new turn if you end yours. A batch may set await: any or all with timeoutSeconds (default 120, at most 600) and returns the same result as ace_wait. Otherwise call ace_wait with the ids and a timeout, then use the results; never poll. For one task, wait or waitMs (at most 240000) bounds observation without cancelling the child. Cross-provider work requires a provably contained native permission mode. Stable per-task requestIds make retries safe: a retried batch creates no new threads. Discover selections with ace_agents_catalog."
         : op === "thread.read_output"
           ? "Read a bounded byte range from a transcript/output source returned by ace_thread_read. Offsets and limits are bytes; the result contains base64 bytes and nextOffset. Decode using the source encoding. The stream must belong to the requested authorized thread."
           : op === "thread.read"
             ? "Read thread metadata and a byte-budgeted transcript page. Use itemsBefore as the next before cursor. For truncated parts with source.streamId, use ace_thread_read_output to page retained bytes."
             : controlActions[op].description,
     input:
-      op === "thread.link_pr" || op === "thread.unlink_pr"
+      op === "thread.link_pr" || op === "thread.unlink_pr" || op === "delegate_task"
         ? z
             .strictObject(shape)
             .superRefine((input, context) => {
@@ -51,13 +57,11 @@ export const agentControlToolCatalog = AgentControlOperation.options.map((schema
               ? ("agents" as const)
               : ("thread_control" as const),
     timeoutMs:
-      op === "delegate_task" ||
-      op === "thread.start" ||
-      op === "thread.wait" ||
-      op === "device.task_wait" ||
-      op === "device.task_publish"
-        ? 300000
-        : 10000,
+      op === "wait" || op === "delegate_task"
+        ? waitToolTimeoutMs
+        : op === "thread.start" || op === "device.task_wait" || op === "device.task_publish"
+          ? 300000
+          : 10000,
   };
 });
 /** ace's own tools a provider should still gate itself: the rest never prompt there. */

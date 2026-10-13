@@ -25,6 +25,7 @@ import type { Engine, EngineClock } from "../engine/index.ts";
 import type { Store } from "../store.ts";
 import { commandContext } from "../commands.ts";
 import { OutcomeWaiters } from "./waiters.ts";
+import { AgentMonitor } from "./monitor.ts";
 import { DelegationAdmission } from "./admission.ts";
 import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
@@ -72,6 +73,8 @@ export class DelegationService {
   private suspending = new Set<ThreadId>();
   private reservationLifetimes = new ReservationLifetimes();
   private waiters = new OutcomeWaiters();
+  /** Bounded multi-thread waits and tree snapshots for agent tools. */
+  readonly monitor: AgentMonitor;
   constructor(deps: DelegationDependencies) {
     this.deps = deps;
     this.policy = DelegationPolicy.parse(deps.policy ?? {});
@@ -134,6 +137,14 @@ export class DelegationService {
       }),
     );
     this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
+    // Subscribed after the owner, so a wait reads edges this owner settled for the same batch.
+    this.monitor = new AgentMonitor({
+      store: deps.store,
+      journal: this.journal,
+      clock: deps.clock,
+      authorize: (caller, target, write) => this.authorize(caller, target, write),
+      delivered: (caller, outcome) => this.delivered(caller, outcome),
+    });
     // Recovery visits indexed current work, never transcript history or old receipts.
     for (const participant of this.journal.activeParticipants()) {
       this.reconcileConversation(participant.thread_id);
@@ -746,20 +757,23 @@ export class DelegationService {
       ? (this.journal.get(threadId)?.outcome ?? threadOutcome(this.deps.store, thread))
       : await this.waiters.wait(threadId, signal, caller.threadId);
     signal.throwIfAborted();
-    const edge = this.journal.get(threadId);
-    if (edge && edge.parentId === caller.threadId && edge.resultDelivery !== "owner") {
-      this.deps.store.atomic(() => {
-        this.deps.engine.delegationSettled(
-          edge.parentId,
-          edge.parentAgentId,
-          controlCommandId(edge.parentId, `${edge.childId}:${edge.generation}`, "tool-result"),
-          [outcome],
-          "tool",
-        );
-        this.journal.consumeChild(threadId);
-      });
-    }
+    this.delivered(caller, outcome);
     return outcome;
+  }
+  /** A result the parent read inside a tool call is recorded once and never wakes it again. */
+  delivered(caller: McpAttribution, outcome: DelegationOutcome) {
+    const edge = this.journal.get(outcome.threadId);
+    if (!edge || edge.parentId !== caller.threadId || edge.resultDelivery === "owner") return;
+    this.deps.store.atomic(() => {
+      this.deps.engine.delegationSettled(
+        edge.parentId,
+        edge.parentAgentId,
+        controlCommandId(edge.parentId, `${edge.childId}:${edge.generation}`, "tool-result"),
+        [outcome],
+        "tool",
+      );
+      this.journal.consumeChild(edge.childId);
+    });
   }
   private arm() {
     this.cancelTimer?.();
@@ -876,6 +890,7 @@ export class DelegationService {
   close() {
     this.closed = true;
     this.reservationLifetimes.close();
+    this.monitor.close();
     this.waiters.close();
     this.unsubscribe();
     this.cancelTimer?.();

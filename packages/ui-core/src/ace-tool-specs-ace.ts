@@ -57,18 +57,15 @@ const aceSpecs: Record<string, AceToolSpec> = {
     say(["Stopped", "Stopping", "Stop"], " work on another device"),
   ),
   delegate_task: spec("agents", ({ args }) => {
+    const delegated = ["Delegated", "Delegating", "Delegate"] as const;
+    if (Array.isArray(args.tasks) && args.tasks.length > 1)
+      return say(delegated, ` ${args.tasks.length} tasks`);
     const task = str(args, "task");
-    return say(["Delegated", "Delegating", "Delegate"], ` ${task ? quote(task, 56) : "a task"}`);
+    return say(delegated, ` ${task ? quote(task, 56) : "a task"}`);
   }),
-  ace_spawn_agent: spec("agents", ({ args }) =>
-    say(
-      ["Started a subagent", "Starting a subagent", "Start a subagent"],
-      "",
-      named(args, ["name", "role", "title"]),
-    ),
-  ),
   ace_list_agents: fixed("agents", say(verbs.listed, " agents")),
   ace_wait: fixed("agents", say(verbs.waited, " subagents")),
+  ace_agents_status: fixed("agents", say(["Checked", "Checking", "Check"], " subagents")),
   ace_thread_info: fixed("threads", say(verbs.read, " this thread's details")),
   ace_thread_read: threadRead,
   ace_thread_read_output: threadRead,
@@ -97,7 +94,12 @@ const aceSpecs: Record<string, AceToolSpec> = {
       named(args, ["text", "message"]),
     ),
   ),
-  ace_thread_wait: fixed("threads", say(verbs.waited, " a thread")),
+  ace_thread_wait: spec("threads", ({ args }) =>
+    say(
+      verbs.waited,
+      Array.isArray(args.ids) && args.ids.length > 1 ? ` ${args.ids.length} threads` : " a thread",
+    ),
+  ),
   ace_thread_interrupt: spec("threads", ({ args }) =>
     say(["Stopped a thread", "Stopping a thread", "Stop a thread"], "", named(args, ["threadId"])),
   ),

@@ -35,6 +35,11 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
     description: "Read an owned child's aggregate state, including descendants and human waits.",
     riskClass: "read-only",
   },
+  "agents.status": {
+    description:
+      "Compact snapshot of every child you delegated, including their own children: state, current step, elapsed seconds, requests waiting on the person and the last output line. Cheap to call, but use ace_wait instead of calling this repeatedly.",
+    riskClass: "read-only",
+  },
   "agent.result": {
     description:
       "Read an owned child's settled outcome. This does not consume its durable parent notification. Returns not_ready while any descendant or human wait remains active.",
@@ -85,12 +90,12 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
     riskClass: "agent-execution",
   },
   "thread.create": {
-    description: "Create a child thread in the caller's workspace without launching its provider.",
+    description:
+      "Host-internal: create a child thread without launching it. Agents use delegate_task.",
     riskClass: "thread-write",
   },
   "thread.launch": {
-    description:
-      "Launch a prepared child thread with the supplied task under its inherited permissions.",
+    description: "Host-internal: launch a prepared child thread. Agents use delegate_task.",
     riskClass: "agent-execution",
   },
   "thread.message": {
@@ -98,8 +103,9 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
       "Send to an owned thread under its existing permissions. queue waits for settlement, steer uses the provider's native steering or queue fallback, and restart atomically accepts a cascade interrupt followed by queued replacement input. Stable request IDs deduplicate the whole restart.",
     riskClass: "agent-execution",
   },
-  "thread.wait": {
-    description: "Wait for an authorized thread's tree to settle and read its result.",
+  wait: {
+    description:
+      "Block until threads settle or need the person, up to timeoutSeconds (default 120, at most 600). Works for children you delegated and any other thread you can read. mode all (default) returns when every thread is done, failed or cancelled; any returns on the first. Either mode returns early with status needs_you, naming each request; a thread waiting on the person is never reported done. Settled threads include their result excerpt; others their current step and last output line. On status timeout the threads keep working: call again to keep waiting. status interrupted means ace restarted; wait again. Results read here are not delivered again as a wake. Never poll in a loop.",
     riskClass: "read-only",
   },
   "thread.read": {

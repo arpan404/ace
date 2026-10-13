@@ -202,35 +202,4 @@ export function startAgentControl(context: ServiceContext): void {
     },
     previews: owners.previews,
   };
-  // Drain accepted legacy spawn intents through the same child creation receipts.
-  onListen.push(async () => {
-    for (const entry of store.readMcpIntents(100)) {
-      if (entry.intent.type !== "mcp.spawn") continue;
-      const intent = entry.intent;
-      const parent = store.getThread(intent.threadId);
-      if (!parent) continue;
-      try {
-        const request = {
-          requestId: entry.id,
-          provider: intent.input.provider ?? parent.provider,
-          role: intent.input.name ?? "delegate",
-          task: intent.input.task,
-          wait: false,
-          estimatedLoad: 0,
-        };
-        const model = await delegations.prepareModels(intent, request);
-        context.signal.throwIfAborted();
-        store.atomic(() => {
-          delegations.delegate(intent, request, model);
-          store.acknowledgeMcpIntent(entry.id);
-        });
-      } catch (error) {
-        log.log(
-          "warn",
-          "Legacy spawn remains pending until admission is available",
-          logError(error),
-        );
-      }
-    }
-  });
 }

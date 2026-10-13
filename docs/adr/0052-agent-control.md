@@ -41,3 +41,39 @@ Write adapter-testkit behaviour tests for cross-provider wait/wake, batched comp
 ## Integration with the current main branch
 
 ACP selections carry the explicit approved agent/installation/instance identity from ADR 0044; they never infer an ACP installation from a provider name or pretend native account scheduling supports ACP. ACP uses its registry-owned HTTP/stdio MCP injection. Claude's daemon controls reuse the engine-owned scoped lease, including after MCP server replacement; Pi registration reuses it too. OpenCode v2's process-wide MCP configuration requires account-and-lease isolation in its bounded server pool, while sessions without scoped MCP retain account sharing. User MCP definitions survive injection. Engine input acknowledgements retain ace's explicit triggers alongside native input-admission correlation, so autonomous turns release queue ownership. Native lease secrets remain ephemeral and are redacted before persistence. Canonical client thread/Forge/automation owners, fork/merge and queue integrations remain typed owner ports until their branches land.
+
+## Amendment: monitoring and bounded waits, 2026-10-13
+
+Agents and people need to wait on several children or threads without polling and without
+holding a provider turn indefinitely.
+
+- **One wait primitive.** `ace_wait` takes `threadIds` (1 to 16), `mode` (`all` by default, or
+  `any`) and `timeoutSeconds` (default 120, at most 600). It covers delegated children and any
+  other thread the caller may read. It returns `status` (`ready`, `needs_you`, `timeout`,
+  `interrupted`) and, per thread, `state` (`working`, `needs_you`, `done`, `failed`,
+  `cancelled`), its result excerpt once settled, or its current step, last output line and the
+  requests waiting on the person. A request for the person returns early in both modes, and a
+  thread waiting on the person is never reported done. Settlement uses the existing whole-tree
+  aggregate. A timeout ends only the observation; the agent may wait again. Daemon shutdown
+  resolves every pending wait as `interrupted`, so a restart never leaves a caller hanging. The
+  separate single-thread `ace_thread_wait` was folded into it.
+- **Monitoring.** `ace_agents_status` returns a compact snapshot of every delegated descendant:
+  state, step, elapsed seconds, request count and first request, last output line, with clipped
+  fields so twenty children stay under 8 KB.
+- **One way to start child work.** `delegate_task` accepts one task or `tasks` (up to eight),
+  each with its own stable `requestId`, plus `await: none|any|all` and `timeoutSeconds`. Tasks
+  are admitted in order through the same admission path; a retried batch creates no new
+  threads. `ace_spawn_agent` is retired, and `thread.create`/`thread.launch` are host-internal
+  and no longer advertised over MCP. `ace_thread_start` remains for top-level conversations.
+- **Parent state.** While an ace wait tool call is live (`ace_wait`, or `delegate_task` with a
+  wait), the engine marks the calling agent as waiting on the named `ace-child:` summary agents
+  (`subagents.waiting`), so the parent reads "Waiting on N subagents" and never done.
+- **Push.** No supported provider surfaces MCP server notifications to the model, so ace keeps
+  its provider-agnostic push: a settled child queues a `subagent_result` turn on the parent.
+  A child that needs the person raises the parent thread to needs-you through its summary agent
+  and returns early from any wait. Results read inside a wait are recorded once and never wake
+  the parent again.
+- **CLI.** `ace thread wait` and `ace task wait` take several ids with `--any` or `--all`
+  (default) and the global `--timeout`, with the existing exit codes: 0 ok, 1 failed, 2
+  needs-human (returned as soon as any thread needs the person), 3 timeout, 5 uncertain.
+- Wait and status are `read-only`, so their tool annotations carry `readOnlyHint`.

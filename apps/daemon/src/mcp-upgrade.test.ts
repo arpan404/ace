@@ -100,11 +100,11 @@ it("deleting a thread removes its MCP callers and pending intents while preservi
     store.enqueueMcpIntent(
       id,
       {
-        type: "mcp.spawn",
+        type: "mcp.notify",
         sessionId: "s",
         threadId: owner.threadId,
         agentId: owner.id,
-        input: { task: "Synthetic queued task" },
+        notice: { text: "Synthetic queued notice", level: "info" },
       },
       [],
       3,

@@ -65,8 +65,8 @@ Templates:
   their last stage; extra stages repeat fixing. Retries keep the stage input.
   Artifacts are pinned when a stage starts; already-started downstream stages
   are not automatically rerun if upstream work subsequently resumes.
-- `coordinator` starts one planner. The engine's MCP `ace_spawn_agent` tool
-  calls `spawnAgent(state, authenticatedCaller, args, ctx)`. It returns the
+- `coordinator` starts one planner. The executor calls
+  `spawnAgent(state, authenticatedCaller, args, ctx)` for each lane it spawns. It returns the
   spawned lane ID and the reducer changes. Repeating a request returns the
   same lane ID, including after restart. Every planner waits for its children;
   a failed descendant fails its parent. An agent cannot exceed the lane/depth

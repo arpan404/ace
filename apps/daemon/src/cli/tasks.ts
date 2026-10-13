@@ -1,25 +1,21 @@
-import { CliTaskStatus, CliOperation, ThreadId } from "@ace/protocol";
+import { CliTaskStatus, CliOperation } from "@ace/protocol";
 import type { Client } from "@ace/client";
 import { option, validateArgs, type Args } from "./args.ts";
 import { key } from "./mutations.ts";
-import { waitThread } from "./threads.ts";
+import { waitThreads } from "./waits.ts";
 import { prompt, result, mutationResult } from "./io.ts";
 import { CliFailure } from "./output.ts";
 export async function taskCommand(args: Args, client: Client, signal: AbortSignal) {
   const verb = args.words[1];
   validateArgs(
     args,
-    ["parent", "provider", "model", "role", "idempotency-key", "stream", "tree"],
+    ["parent", "provider", "model", "role", "idempotency-key", "stream", "tree", "any", "all"],
     verb === "spawn" ? 2 : 3,
-    3,
+    verb === "wait" ? 18 : 3,
   );
-  if (verb === "wait")
-    return waitThread(
-      { ...args, flags: { ...args.flags, tree: true } },
-      client,
-      ThreadId.parse(args.words[2]),
-      signal,
-    );
+  if (verb === "wait") return waitThreads(args, client, args.words.slice(2), signal, true);
+  if (args.flags.any || args.flags.all)
+    throw new CliFailure("refused", "--any/--all apply to wait");
   const id = key(args);
   const operation = CliOperation.parse(
     verb === "spawn"

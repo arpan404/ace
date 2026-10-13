@@ -137,8 +137,9 @@ least eight production mutations are caught by behavioural tests before PR.
 
 Extend the daemon's existing agent-control port and protocol operation union.
 The authenticated MCP lease selects the caller; arguments never select a parent.
-Keep `delegate_task`, `ace_spawn_agent`, `ace_list_agents`, `ace_wait`,
-`ace_thread_info` and the existing thread readers compatible.
+Keep `delegate_task`, `ace_list_agents`, `ace_wait`, `ace_thread_info` and the
+existing thread readers compatible. (`ace_spawn_agent` was later retired in
+favour of `delegate_task`; see ADR 0052, "Monitoring and bounded waits".)
 
 - `ace_agents_catalog` pages the composer's live model catalog by provider and
   account. Return model identities, reasoning efforts, service tiers, native

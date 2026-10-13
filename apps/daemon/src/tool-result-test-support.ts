@@ -156,7 +156,6 @@ export async function toolFixture(
           },
         }),
       ],
-      undefined,
       observations,
     );
     closeMcp = async () => {

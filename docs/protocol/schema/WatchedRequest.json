@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/WatchedRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "interactionId": {
+      "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+    },
+    "kind": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "prompt": {
+      "maxLength": 240,
+      "type": "string"
+    }
+  },
+  "required": [
+    "interactionId",
+    "kind",
+    "prompt"
+  ],
+  "type": "object"
+}

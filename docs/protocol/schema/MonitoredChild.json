@@ -1,0 +1,48 @@
+{
+  "$id": "https://ace.local/protocol/v1/MonitoredChild.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ask": {
+      "maxLength": 100,
+      "type": "string"
+    },
+    "elapsedSeconds": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "last": {
+      "maxLength": 100,
+      "type": "string"
+    },
+    "needs": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "parent": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "role": {
+      "maxLength": 40,
+      "type": "string"
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/WatchedState.json"
+    },
+    "step": {
+      "maxLength": 60,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "role",
+    "state",
+    "elapsedSeconds"
+  ],
+  "type": "object"
+}

@@ -92,10 +92,9 @@ test("ace's own tools read as what they did, with their key argument", () => {
   expect(
     mcpToolLabel("ace", "ace_browser_open", { url: "https://www.youtube.com/" }),
   ).toMatchObject({ verb: "Opened", target: "youtube.com", running: "Opening" });
-  expect(mcpToolLabel("ace", "ace_spawn_agent", { role: "greeter" })).toMatchObject({
-    verb: "Started a subagent",
-    target: "greeter",
-  });
+  expect(mcpToolLabel("ace", "delegate_task", { tasks: [{ task: "a" }, { task: "b" }] }).verb).toBe(
+    "Delegated 2 tasks",
+  );
   expect(mcpToolLabel("ace", "ace_thread_read", { threadId: "thread-1" }).verb).toBe("Read thread");
 });
 
