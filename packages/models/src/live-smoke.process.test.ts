@@ -1,9 +1,15 @@
 import { afterEach, expect, test } from "vitest";
-import { writeFile, copyFile, chmod, readdir } from "node:fs/promises";
+import { writeFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSupervised, type ProcessExit } from "@ace/provider-kit/process";
 import { createModelDiscovery } from "./index.ts";
 import { instance, workspace } from "./testing/support.ts";
+
+// The OpenCode double runs in place: it imports the adapter's contract by relative path.
+const opencode = fileURLToPath(
+  new URL("../../adapter-opencode/src/testing/cli-v2.mjs", import.meta.url),
+);
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -16,12 +22,7 @@ for (const empty of [false, true])
   test(`OpenCode v2 owned metadata and ID-only fallback populate choices (empty=${empty})`, async () => {
     const work = await workspace();
     cleanup.push(work.close);
-    const executable = join(work.path, "opencode");
-    await copyFile(
-      new URL("../../adapter-opencode/src/testing/cli-v2.mjs", import.meta.url),
-      executable,
-    );
-    await chmod(executable, 0o700);
+    const executable = opencode;
     const rows = await createModelDiscovery()(
       {
         ...instance("opencode"),
@@ -45,12 +46,7 @@ for (const empty of [false, true])
 test("OpenCode rejects metadata from a different location", async () => {
   const work = await workspace();
   cleanup.push(work.close);
-  const executable = join(work.path, "opencode");
-  await copyFile(
-    new URL("../../adapter-opencode/src/testing/cli-v2.mjs", import.meta.url),
-    executable,
-  );
-  await chmod(executable, 0o700);
+  const executable = opencode;
   await expect(
     createModelDiscovery()(
       {

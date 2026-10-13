@@ -1,11 +1,16 @@
 import { afterEach, expect, test } from "vitest";
-import { copyFile, chmod } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
 import { ThreadId } from "@ace/protocol";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { createModelDiscovery, ModelCatalog, openModelStorage } from "./index.ts";
 import { Clock, instance, workspace } from "./testing/support.ts";
+
+// The OpenCode double runs in place: it imports the adapter's contract by relative path.
+const opencode = fileURLToPath(
+  new URL("../../adapter-opencode/src/testing/cli-v2.mjs", import.meta.url),
+);
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -18,12 +23,7 @@ for (const empty of [false, true])
     async (permissionMode) => {
       const work = await workspace();
       cleanup.push(work.close);
-      const executable = join(work.path, "opencode");
-      await copyFile(
-        new URL("../../adapter-opencode/src/testing/cli-v2.mjs", import.meta.url),
-        executable,
-      );
-      await chmod(executable, 0o700);
+      const executable = opencode;
       const env = { HOME: work.path, ACE_TEST_EMPTY_MODELS: String(empty) };
       const rows = await createModelDiscovery()(
         { ...instance("opencode"), executable, cwd: work.path, env },
@@ -77,12 +77,7 @@ for (const empty of [false, true])
 test("a persisted OpenCode choice from before the fix opens after restart without catalog refresh", async () => {
   const work = await workspace();
   cleanup.push(work.close);
-  const executable = join(work.path, "opencode");
-  await copyFile(
-    new URL("../../adapter-opencode/src/testing/cli-v2.mjs", import.meta.url),
-    executable,
-  );
-  await chmod(executable, 0o700);
+  const executable = opencode;
   const config = {
     ...instance("opencode"),
     executable,

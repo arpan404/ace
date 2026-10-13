@@ -1,6 +1,7 @@
-import { copyFile, chmod, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { z } from "zod";
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
@@ -21,12 +22,10 @@ const zero = { input: 0, output: 0, cache: { read: 0, write: 0 } };
 async function setup(onTestFinished: (close: () => Promise<void>) => void, connections = "[]") {
   const home = await mkdtemp(join(tmpdir(), "ace-free-models-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
-  const executable = join(home, "opencode");
-  await copyFile(
+  // Run the double in place: it imports the adapter's contract by relative path.
+  const executable = fileURLToPath(
     new URL("../../../packages/adapter-opencode/src/testing/cli-v2.mjs", import.meta.url),
-    executable,
   );
-  await chmod(executable, 0o700);
   const env = {
     HOME: home,
     ACE_TEST_OPENCODE_CONNECTIONS: connections,

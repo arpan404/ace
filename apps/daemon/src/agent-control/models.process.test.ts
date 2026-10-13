@@ -4,22 +4,20 @@ import { ModelCatalog, ModelInstance, openModelStorage, createModelDiscovery } f
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { start, end } from "../engine/test-support.ts";
-import { copyFile, chmod } from "node:fs/promises";
 import { AccountRegistry, createInstance } from "@ace/accounts";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { setup } from "./test-support.ts";
 import { createAgentControlPort } from "./tools.ts";
 
 test("delegation carries the discovered OpenCode model to child launch without a second provider prefix", async () => {
   const initial = setup();
-  const executable = join(initial.home, "opencode");
-  await copyFile(
+  // Run the double in place: it imports the adapter's contract by relative path.
+  const executable = fileURLToPath(
     new URL("../../../../packages/adapter-opencode/src/testing/cli-v2.mjs", import.meta.url),
-    executable,
   );
-  await chmod(executable, 0o700);
   // The double reports opencode-go as connected; discovery lists only connected upstreams.
   const env = {
     HOME: initial.home,

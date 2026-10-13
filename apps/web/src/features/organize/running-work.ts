@@ -1,9 +1,10 @@
 import type { ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
-import { listTreeFacts, pluralCount, treeWorking } from "@ace/ui-core";
+import { listTreeFacts, pluralCount, treeInBackground, treeWorking } from "@ace/ui-core";
 
 /**
  * What still goes on in a listed thread's agent tree, in words for a question asked before
- * archiving it, or undefined when nothing does. Waiting on the person counts. Pure.
+ * archiving it, or undefined when nothing does. Waiting on the person counts, and so do
+ * background commands left after the turn: not Working, but archiving would hide them. Pure.
  */
 export function runningWork(thread: {
   status: ThreadStatus;
@@ -11,7 +12,7 @@ export function runningWork(thread: {
 }): string | undefined {
   const facts = listTreeFacts(thread);
   if (facts.needsYou) return "It's waiting for you.";
-  if (!treeWorking(facts)) return undefined;
+  if (!treeWorking(facts) && !treeInBackground(facts)) return undefined;
   const parts = [
     facts.root === "working" ? "the agent" : undefined,
     facts.subagents ? pluralCount(facts.subagents, "subagent", "subagents") : undefined,

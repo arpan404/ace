@@ -159,8 +159,9 @@ test("an ended parent remains active until its nested child settles", async () =
 });
 
 test("project schedules show their cadence and persist toggles and run-now results", async () => {
-  const now = Date.now();
-  const app = harness({ clock: () => now });
+  // Midday UTC, so the next run is "Today" whatever time the suite runs (at 18:00 it reads "Tonight").
+  const now = Date.UTC(2026, 5, 10, 12, 0);
+  const app = harness({ clock: () => now, uiClock: () => now });
   const fixture = workCardScenario("worktree");
   app.play(fixture).runUntilBlocked();
   const automation = Automation.parse({
@@ -177,7 +178,7 @@ test("project schedules show their cadence and persist toggles and run-now resul
         kind: "rrule",
         expression: "FREQ=MINUTELY;INTERVAL=5",
         timezone: "UTC",
-        startAt: Math.floor(now / 60_000) * 60_000,
+        startAt: now - 60_000,
       },
     },
     missedRun: "skip",
@@ -199,7 +200,7 @@ test("project schedules show their cadence and persist toggles and run-now resul
   // One row: its cadence is the tooltip, and Edit and Run show while it is hovered.
   await userEvent.hover(row);
   expect((await screen.findByRole("tooltip")).textContent).toContain("Every 5 minutes");
-  expect(section.textContent).toMatch(/in |any moment|today|tonight|tomorrow/i);
+  expect(section.textContent).toMatch(/Today .* · in 4m/);
   expect(within(section).queryByText("Other project")).toBeNull();
   await userEvent.click(within(section).getByRole("button", { name: "Run Review changes now" }));
   await waitFor(async () => {
