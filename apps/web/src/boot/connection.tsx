@@ -19,15 +19,23 @@ export type DaemonEndpoint =
  */
 export type ConnectionStatus =
   /** No daemon chosen yet, or the person is editing the address and token. */
-  | { kind: "editing"; problem?: ConnectionProblem | undefined }
+  | {
+      kind: "editing";
+      problem?: ConnectionProblem | undefined;
+      /** What the client reported, for the person and for logs; never the token. */
+      detail?: string | undefined;
+    }
   /** A client is trying the target and hasn't been welcomed yet. */
   | { kind: "connecting" }
   | { kind: "starting" }
   /** The first attempt failed or is taking too long; the client keeps retrying meanwhile. */
   | { kind: "unreachable"; offline: boolean }
   | { kind: "ready" };
-/** Why the daemon refused this window; retrying with the same target can't help. */
-export type ConnectionProblem = "auth" | "protocol" | "failed";
+/**
+ * Why this window stopped trying; retrying with the same target can't help. Only `auth` means
+ * the daemon rejected the token; `storage` is this device's own saved data.
+ */
+export type ConnectionProblem = "auth" | "protocol" | "storage" | "failed";
 
 /** Which daemon this window talks to, and how to change it. Provided by the ConnectionGate. */
 export interface DaemonConnection {

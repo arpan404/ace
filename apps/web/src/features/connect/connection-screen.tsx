@@ -16,7 +16,9 @@ import { HandoffScreen } from "./handoff-screen.tsx";
 
 const problems: Record<ConnectionProblem, ReactNode> = {
   auth: "This machine didn't accept the access token. Copy a fresh token from ace there and try again.",
-  protocol: "This app and the connected machine use different versions of ace. Update ace on both.",
+  protocol:
+    "This app couldn't read what ace sent. Try again; if it keeps happening, update ace here and on that machine.",
+  storage: "This window couldn't read the work it saved for this machine. Try again.",
   failed: "ace closed the connection. Check the address, then try again.",
 };
 
@@ -107,7 +109,16 @@ export function ConnectionScreen() {
 
 function alertFor(connection: DaemonConnection): ReactNode {
   const status = connection.status;
-  if (status.kind === "editing") return status.problem && problems[status.problem];
+  if (status.kind === "editing") {
+    if (!status.problem) return undefined;
+    if (!status.detail) return problems[status.problem];
+    return (
+      <>
+        {problems[status.problem]}
+        <span className="mt-1 block font-mono text-xs break-words opacity-80">{status.detail}</span>
+      </>
+    );
+  }
   if (status.kind !== "unreachable") return undefined;
   if (status.offline) return "This device is offline. ace connects once the network is back.";
   const where = <code className="font-mono text-sm break-all">{connection.url}</code>;

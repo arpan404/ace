@@ -38,6 +38,8 @@ interface GateState {
   /** The person is changing the address or token: no client runs. */
   editing: boolean;
   problem?: ConnectionProblem | undefined;
+  /** The client's own account of the problem, shown with it; undefined whenever `problem` is. */
+  detail?: string | undefined;
   /** Bumped by Try again: the same target with a fresh client. */
   attempt: number;
   /**
@@ -61,7 +63,12 @@ type Progress =
   | { kind: "ready" };
 
 function problemOf(code: ClientError["code"] | undefined): ConnectionProblem {
-  return code === "auth" ? "auth" : code === "protocol" ? "protocol" : "failed";
+  return code === "auth" || code === "protocol" || code === "storage" ? code : "failed";
+}
+
+/** The error's message when it says more than its code. */
+function detailOf(error: ClientError | undefined): string | undefined {
+  return error && error.message !== error.code ? error.message : undefined;
 }
 
 /**
@@ -130,6 +137,7 @@ export function ConnectionGate(props: {
           remembered: false,
           editing: false,
           problem: undefined,
+          detail: undefined,
           attempt: previous.attempt + 1,
         };
       });
@@ -177,8 +185,13 @@ export function ConnectionGate(props: {
     let current: ClientApi | undefined;
     let replaced = false;
     const stops: (() => void)[] = [];
-    const refuse = (problem: ConnectionProblem) =>
-      setState((previous) => ({ ...previous, editing: true, problem, shown: true }));
+    const refuse = (error: ClientError | undefined) => {
+      const problem = problemOf(error?.code);
+      const detail = detailOf(error);
+      // The screen names the problem; the console keeps the client's own words for support.
+      console.error(`ace: connection stopped (${error?.code ?? "unknown"})`, detail ?? "");
+      setState((previous) => ({ ...previous, editing: true, problem, detail, shown: true }));
+    };
     const adopt = (next: ClientApi) => {
       if (replaced) {
         void next.close();
@@ -209,7 +222,7 @@ export function ConnectionGate(props: {
         } else if (now === "fatal") {
           // Before the first welcome every refusal is shown here; afterwards only a rejected
           // token is (the shell's notice says the rest), since the person must paste another.
-          if (!welcomed || next.error?.code === "auth") refuse(problemOf(next.error?.code));
+          if (!welcomed || next.error?.code === "auth") refuse(next.error);
         } else if (!welcomed && now === "reconnecting")
           progress({ kind: "unreachable", offline: false });
         // A client also reads "offline" before it starts; only a network that is down counts.
@@ -269,6 +282,7 @@ export function ConnectionGate(props: {
         ...previous,
         editing: false,
         problem: undefined,
+        detail: undefined,
         attempt: previous.attempt + 1,
         shown: true,
       })),
@@ -276,7 +290,13 @@ export function ConnectionGate(props: {
   );
   const edit = useCallback(() => {
     managed.current = false;
-    setState((previous) => ({ ...previous, editing: true, problem: undefined, shown: true }));
+    setState((previous) => ({
+      ...previous,
+      editing: true,
+      problem: undefined,
+      detail: undefined,
+      shown: true,
+    }));
   }, []);
   const disconnect = useCallback(() => {
     managed.current = false;
@@ -303,10 +323,10 @@ export function ConnectionGate(props: {
   );
   const progress = client?.progress;
   const status = useMemo<ConnectionStatus>(() => {
-    if (!active) return { kind: "editing", problem: state.problem };
+    if (!active) return { kind: "editing", problem: state.problem, detail: state.detail };
     if (!progress || progress.kind === "connecting") return { kind: "connecting" };
     return progress;
-  }, [active, state.problem, progress]);
+  }, [active, state.problem, state.detail, progress]);
   const connection = useMemo<DaemonConnection>(
     () => ({
       mode: "daemon",

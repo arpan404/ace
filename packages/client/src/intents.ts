@@ -17,6 +17,15 @@ const Intent = z.object({
   order: z.number().int().nonnegative().optional(),
 });
 export type Intent = z.infer<typeof Intent>;
+/** One saved record: a JSON string (per-record storage) or an already parsed entry. */
+function readIntent(entry: unknown): Intent | undefined {
+  try {
+    const parsed = Intent.safeParse(typeof entry === "string" ? JSON.parse(entry) : entry);
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
 /** A transient refusal (update drain, rolled-back transaction) is retried this many times. */
 const maxRetries = 10;
 interface IntentsOptions {
@@ -52,25 +61,26 @@ export class Intents {
   initialize(): Promise<void> {
     this.#initializing ??= (async () => {
       try {
-        const values = this.#options.storage.records
-          ? (await this.#options.storage.records.load()).map((raw) => Intent.parse(JSON.parse(raw)))
-          : z.array(Intent).parse(JSON.parse((await this.#options.storage.load()) ?? "[]"));
+        const raw = this.#options.storage.records
+          ? await this.#options.storage.records.load()
+          : z.array(z.unknown()).parse(JSON.parse((await this.#options.storage.load()) ?? "[]"));
+        // A saved record that can't be read, belongs to another device, or that no verified
+        // daemon identity vouches for (saved by a build before host binding) never blocks the
+        // connection: it is skipped, never replayed, and per-record storage leaves it in place.
+        const hostId = this.#options.hostId?.();
+        const seen = new Set<string>();
+        const values = raw.flatMap((entry) => {
+          const intent = readIntent(entry);
+          if (!intent || intent.command.deviceId !== this.#options.device) return [];
+          if (this.#options.storage.hostBinding && (!intent.hostId || intent.hostId !== hostId))
+            return [];
+          if (seen.has(intent.command.id)) return [];
+          seen.add(intent.command.id);
+          return [intent];
+        });
         // Old builds retained settled payloads indefinitely. Trim them before enforcing bounds.
         for (const intent of values.toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
           this.#sequence = Math.max(this.#sequence, intent.order ?? 0);
-          if (
-            this.#options.storage.hostBinding &&
-            (!intent.hostId || intent.hostId !== this.#options.hostId?.())
-          )
-            throw new ClientError(
-              "auth",
-              "Saved work has no matching verified daemon identity. Preserve this outbox and reconnect to its original daemon.",
-            );
-          if (
-            intent.command.deviceId !== this.#options.device ||
-            this.#records.has(intent.command.id)
-          )
-            throw new Error("Outbox identity mismatch");
           this.#put(intent.command.id, intent);
         }
         const evicted = this.#evict();
@@ -137,7 +147,7 @@ export class Intents {
       const hostId = this.#options.hostId?.();
       if (this.#options.storage.hostBinding && !hostId)
         throw new ClientError(
-          "auth",
+          "offline",
           "Connect to verify the outbox's daemon identity before saving work",
         );
       const intent: Intent = {
