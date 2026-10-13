@@ -42,6 +42,8 @@ export async function daemonFixture(
     type: "thread.create",
     workspaceId: workspace,
     provider: "codex",
+    // A known, uncontained ceiling lets the parent delegate across providers.
+    permissionMode: ":danger-full-access",
     input: [{ type: "text", text: "plan" }],
   });
   await daemon.engine.flush();
