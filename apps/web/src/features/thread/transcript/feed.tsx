@@ -321,6 +321,16 @@ export function Feed(props: FeedProps) {
   useEffect(() => {
     if (detached) setPinned(false);
   }, [detached, setPinned]);
+  // Leaving a window (back to live, or a link that failed) shows the live tail from its end,
+  // never from the top, where it would page older history in.
+  const hadWindow = useRef(!!window);
+  useLayoutEffect(() => {
+    const had = hadWindow.current;
+    hadWindow.current = !!window;
+    if (!had || window || pinnedRef.current) return;
+    setPinned(true);
+    scrollToEnd();
+  }, [window, setPinned]);
   // Follow streaming output and new rows while the reader is at the live end.
   useLayoutEffect(() => {
     if (pinnedRef.current) scrollToEnd();

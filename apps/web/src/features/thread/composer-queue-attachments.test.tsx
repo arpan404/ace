@@ -78,14 +78,17 @@ test("reload interrupts an unfinished upload and Remove releases later messages 
         [{ type: "text", text: "C behind B" }],
       ]),
     );
-    expect(
-      (
-        await again.client.request({
-          type: "context.request",
-          operation: { op: "attachment.list", threadId },
-        })
-      ).result,
-    ).toMatchObject({ kind: "attachments", attachments: [] });
+    // Remove releases what the dropped message had uploaded; that request follows the queue's.
+    await waitFor(async () =>
+      expect(
+        (
+          await again.client.request({
+            type: "context.request",
+            operation: { op: "attachment.list", threadId },
+          })
+        ).result,
+      ).toMatchObject({ kind: "attachments", attachments: [] }),
+    );
   } finally {
     release.resolve();
   }

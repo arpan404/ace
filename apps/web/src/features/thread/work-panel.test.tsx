@@ -133,8 +133,9 @@ test("a failed child opens its own work without leaking its raw error into the t
   await userEvent.click(
     within(work).getByRole("treeitem", { name: "Check supervisor logs: Failed" }),
   );
+  // A subagent opens as the whole chat (042b898e3).
   expect(
-    await screen.findByRole("tab", { name: /Check supervisor logs/, selected: true }),
+    await screen.findByRole("heading", { level: 1, name: /Check supervisor logs/ }),
   ).toBeTruthy();
 });
 

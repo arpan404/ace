@@ -164,8 +164,24 @@ test("closing the page while its initial outbox save is pending preserves the me
     await again.open("/t/thread-router");
     const feed = await screen.findByRole("feed", { name: "Transcript" });
     await within(feed).findByText("Keep the pending save");
-    await userEvent.click(await within(feed).findByRole("button", { name: "Retry" }));
-    await waitFor(() => expect(within(feed).queryByRole("button", { name: "Retry" })).toBeNull());
+    // The outbox kept the send, so the reloaded client delivers it itself, once (ADR 0066).
+    await waitFor(() => {
+      const view = again.daemon.snapshot({
+        kind: "thread",
+        threadId: ThreadId.parse("thread-router"),
+      });
+      expect(
+        view?.kind === "thread" &&
+          Object.values(view.items).filter(
+            (item) =>
+              item.type === "message" &&
+              item.parts.some(
+                (part) => part.type === "text" && part.text === "Keep the pending save",
+              ),
+          ).length,
+      ).toBe(1);
+    });
+    expect(within(feed).queryByRole("button", { name: "Retry" })).toBeNull();
     expect(within(feed).getAllByText("Keep the pending save")).toHaveLength(1);
   } finally {
     saving.resolve();

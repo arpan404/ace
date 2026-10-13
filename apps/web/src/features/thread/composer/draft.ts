@@ -14,7 +14,8 @@ export interface Draft {
    * pending bubble shows them, the ones still uploading, and when they've all settled.
    */
   files: {
-    local: LocalAttachment[];
+    /** As shown, with the hash of each file the daemon already holds. */
+    local: (LocalAttachment & { sha256?: string | undefined })[];
     uploading: number;
     settled: Promise<{ sha256: string; name: string }[]>;
     /** Each file's own outcome, in `local`'s order. */

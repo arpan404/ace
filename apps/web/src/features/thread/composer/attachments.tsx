@@ -347,7 +347,7 @@ export function useAttachments(
    * upload), and `release()`, which frees the image previews once nothing shows them.
    */
   const handOff = (): {
-    local: LocalAttachment[];
+    local: (LocalAttachment & { sha256?: string | undefined })[];
     settled: Promise<ReadyAttachment[]>;
     outcomes: Promise<Outcome[]>;
     files: (File | undefined)[];
@@ -367,11 +367,14 @@ export function useAttachments(
     const held = items.map((item) => files.current.get(item.key));
     const urls = items.flatMap((item) => (item.preview ? [item.preview] : []));
     for (const url of urls) previews.current.delete(url);
+    // A file the daemon already holds keeps its hash, so a message dropped before its other
+    // files finish (a reload mid-upload, then Remove) can still release it.
     const local = displayed.map((item) => ({
       name: item.name,
       mimeType: item.mimeType ?? "application/octet-stream",
       bytes: item.bytes ?? 0,
       previewUrl: item.preview,
+      ...(item.state === "ready" && item.sha256 ? { sha256: item.sha256 } : {}),
     }));
     forget([...outcomes.current.keys()]);
     setItems([]);

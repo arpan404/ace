@@ -1,6 +1,6 @@
 import { FakeDaemon, facts } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { fakeClient } from "@/test/harness.tsx";
 import * as loaded from "./jump-controller.ts";
 import { Jump } from "./jump.ts";
@@ -23,6 +23,7 @@ it.each(["live", "dispose"] as const)(
     if (!abandoned || !fresh) throw new Error("No history items");
     const client = fakeClient(daemon);
     await client.start();
+    await vi.waitFor(() => expect(client.state).toBe("ready"));
     const chunk = Promise.withResolvers<typeof loaded>();
     const jump = new Jump(client, "linked", () => chunk.promise);
     const queued = jump.toItem(abandoned);

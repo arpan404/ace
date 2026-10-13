@@ -6,23 +6,34 @@ import { useVersion } from "../store.ts";
 import type { TerminalInfo } from "../sources.ts";
 import type { TerminalSessions } from "./sessions.ts";
 
-const readShells = (reader: ThreadReader) =>
+const readAgentShells = (reader: ThreadReader) =>
   reader.taskIds().flatMap((id) => {
     const task = reader.task(id);
-    return task && task.kind === "shell" && !task.ambient ? [task] : [];
+    return task && task.kind === "shell" ? [task] : [];
   });
+const readShells = (reader: ThreadReader) =>
+  readAgentShells(reader).filter((task) => !task.ambient);
 const sameTasks = (a: readonly BackgroundTask[], b: readonly BackgroundTask[]) =>
   a.length === b.length && a.every((task, i) => task === b[i]);
 const noTasks: readonly BackgroundTask[] = [];
 
 /** The agents' background shells in a thread, live (helpers that never hold it open excluded). */
 export function useBackgroundShells(threadId: string): readonly BackgroundTask[] {
+  return useShells(threadId, readShells);
+}
+
+/** Every shell an agent started in a thread, live, helpers that never hold it open included. */
+export function useAgentShells(threadId: string): readonly BackgroundTask[] {
+  return useShells(threadId, readAgentShells);
+}
+
+function useShells(threadId: string, read: (reader: ThreadReader) => BackgroundTask[]) {
   const ids = useTaskIds(threadId);
   const keys = useMemo<ThreadKey[]>(
     () => ["tasks", ...(ids ?? []).map((id): ThreadKey => `task:${id}`)],
     [ids],
   );
-  return useThread(threadId, keys, readShells, sameTasks) ?? noTasks;
+  return useThread(threadId, keys, read, sameTasks) ?? noTasks;
 }
 
 /** The thread's PTYs as the daemon last listed them, whether they have been read, and the link. */

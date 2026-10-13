@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { z } from "zod";
 import { Choices } from "./choices.ts";
 import { ComposerDraftSchema, readDraft } from "@/features/thread/index.ts";
+import { newThreadDraftKey } from "@/lib/new-thread-draft-key.ts";
 
 const Preparation = z.object({
   owner: z.string().optional(),
@@ -28,8 +29,7 @@ const Preparation = z.object({
 export type Preparation = z.infer<typeof Preparation>;
 const Records = z.array(z.tuple([z.string(), Preparation]));
 const storageKey = (host: string) => `ace.preparations:${host}`;
-export const preparationKey = (host: string, project: string, skill?: string, source?: string) =>
-  `new:${JSON.stringify(source ? [host, project, skill ?? "", source] : [host, project, skill ?? ""])}`;
+export const preparationKey = newThreadDraftKey;
 
 // Notifications and failed-write notices stay in memory; durable rows remain the authority.
 const listeners = new Set<() => void>();

@@ -19,6 +19,7 @@ test("the link field submits a configured Enterprise URL to its connected daemon
   });
   const client = fakeClient(daemon);
   await client.start();
+  await waitFor(() => expect(client.state).toBe("ready"));
   await client.request({
     type: "settings.set",
     key: "sourceControl.preferences",

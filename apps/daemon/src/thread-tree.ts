@@ -7,18 +7,20 @@ export function readThreadTree(
   threadId: ThreadId,
 ): CliTree | undefined {
   const { store, services } = context;
-  const owner = services.agentControl;
-  if (!owner || !services.engine || !store.getThread(threadId)) return undefined;
-  const journal = owner.delegations.journal;
-  const record = journal.get(threadId);
-  const root = record?.rootId ?? journal.participant(threadId)?.root_id ?? threadId;
+  if (!services.engine || !store.getThread(threadId)) return undefined;
+  const journal = services.agentControl?.delegations.journal;
+  // Without agent control the thread is its whole tree only when no delegated child was
+  // ever persisted for it; otherwise its children's facts are not ready yet.
+  if (!journal && delegatedChildPersisted(store, threadId)) return undefined;
+  const record = journal?.get(threadId);
+  const root = record?.rootId ?? journal?.participant(threadId)?.root_id ?? threadId;
   const descendants = journal
-    .family(root)
-    .filter((edge) => journal.isDescendant(edge.childId, threadId));
+    ? journal.family(root).filter((edge) => journal.isDescendant(edge.childId, threadId))
+    : [];
   const members = [threadId, ...descendants.map((edge) => edge.childId)];
   const data = members.map((id) => {
     const value = store.getThread(id);
-    const edge = journal.get(id);
+    const edge = journal?.get(id);
     const snapshot = services.engine?.queue(id);
     const queue = value?.queue ?? snapshot;
     return {
@@ -34,4 +36,17 @@ export function readThreadTree(
     };
   });
   return CliTree.parse(data);
+}
+
+function delegatedChildPersisted(store: ServiceContext["store"], threadId: ThreadId): boolean {
+  return store.atomic((db) => {
+    const journal = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='delegated_threads'")
+      .get();
+    return (
+      journal !== undefined &&
+      db.prepare("SELECT 1 FROM delegated_threads WHERE parent_id=? LIMIT 1").get(threadId) !==
+        undefined
+    );
+  });
 }

@@ -118,9 +118,10 @@ test("attached files upload before sending and can be removed", async () => {
 
   const input = screen.getByLabelText("Files to attach");
   const png = Uint8Array.from(atob(fixtureImage.data), (char) => char.charCodeAt(0));
+  // Different bytes: a message names its files by content, so identical copies share one name.
   await userEvent.upload(input, [
     new File([png], "replay.png", { type: "image/png" }),
-    new File([png], "trace.png", { type: "image/png" }),
+    new File([png, Uint8Array.of(0)], "trace.png", { type: "image/png" }),
   ]);
   const chips = screen.getByRole("list", { name: "Attachments" });
   await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());

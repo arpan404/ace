@@ -33,11 +33,11 @@ const thread = (app: ReturnType<typeof harness>) => {
 };
 async function offline(app: ReturnType<typeof harness>) {
   act(() => app.client.networkOnline(false));
-  await screen.findByText(/^Offline$/);
+  await screen.findAllByText(/^Offline$/);
 }
 async function online(app: ReturnType<typeof harness>) {
   act(() => app.client.networkOnline(true));
-  await waitFor(() => expect(screen.queryByText(/^Offline$/)).toBeNull());
+  await waitFor(() => expect(screen.queryAllByText(/^Offline$/)).toHaveLength(0));
 }
 async function chooseApprovals(from: string, mode: string) {
   await userEvent.click(await screen.findByRole("button", { name: `Approvals: ${from}` }));
@@ -76,7 +76,8 @@ test("an approval mode the daemon refuses goes back to the one in effect, with a
     ),
   ).toBeTruthy();
   const restored = await screen.findByRole("button", { name: "Approvals: Provider default" });
-  expect(restored.textContent).toBe("Provider default");
+  // The default mode reads as its icon alone; nothing of the refused pick is left on it.
+  expect(restored.textContent).not.toContain("Manual");
   expect(thread(app)?.permission?.override).toBeNull();
 });
 
