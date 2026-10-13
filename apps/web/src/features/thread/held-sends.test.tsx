@@ -53,6 +53,28 @@ async function sendWhileUploading(app: ReturnType<typeof harness>, message: HTML
   await userEvent.type(message, "Why is this banner orange?{Enter}");
 }
 
+/**
+ * Send with an image whose bytes can't be read until `finish()`, so its upload completes
+ * exactly then. (A held request is never answered, so it can't stand in for a slow one.)
+ */
+async function sendWhileReading(message: HTMLDivElement) {
+  const file = png();
+  const gate = Promise.withResolvers<void>();
+  const slice = file.slice.bind(file);
+  file.slice = (start, end, type) => {
+    const part = slice(start, end, type);
+    const read = part.arrayBuffer.bind(part);
+    part.arrayBuffer = async () => {
+      await gate.promise;
+      return read();
+    };
+    return part;
+  };
+  await userEvent.upload(screen.getByLabelText("Files to attach"), file);
+  await userEvent.type(message, "Why is this banner orange?{Enter}");
+  return { finish: () => gate.resolve() };
+}
+
 test("an upload that fails after Enter leaves the message as a failed bubble, and Retry delivers it", async () => {
   const { app, feed, message } = await open();
   await sendWhileUploading(app, message);
@@ -146,10 +168,10 @@ test("a completion storage refusal exposes Retry and Edit, and Retry sends the a
     },
   };
   const { app, feed, message } = await open(storage);
-  await sendWhileUploading(app, message);
+  const upload = await sendWhileReading(message);
   expect(await within(feed).findByText("Uploading an image…")).toBeTruthy();
   full = true;
-  act(() => app.daemon.restoreRequests());
+  act(() => upload.finish());
   const alert = await within(feed).findByRole("alert");
   expect(within(alert).getByText(/This device couldn't save the upload results/)).toBeTruthy();
   expect(within(alert).getByRole("button", { name: "Retry" })).toBeTruthy();
@@ -196,9 +218,9 @@ test.each([false, true])(
       },
     };
     const { app, feed, message } = await open(storage);
-    await sendWhileUploading(app, message);
+    const upload = await sendWhileReading(message);
     full = true;
-    act(() => app.daemon.restoreRequests());
+    act(() => upload.finish());
     const alert = await within(feed).findByRole("alert");
     await userEvent.type(screen.getByRole("combobox", { name: "Message" }), "Newer work");
     await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));

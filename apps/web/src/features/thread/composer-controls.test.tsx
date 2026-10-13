@@ -167,7 +167,7 @@ test("effort chosen in the menu goes with the next message and applies to its tu
   );
 });
 
-test("an unresolved running effort stays untouched until the predefined next turn starts", async () => {
+test("an unresolved running effort stays untouched, and an ordinary follow-up runs at the model's default", async () => {
   const { app, message } = await open("busy");
   expect(thread(app, "thread-replay-cursor")?.live?.options?.effort).toBeUndefined();
   await userEvent.type(message, "Apply the predefined reasoning level{Enter}");
@@ -178,9 +178,12 @@ test("an unresolved running effort stays untouched until the predefined next tur
   app.daemon.apply("thread-replay-cursor", [
     { type: "background.ended", task: "relay", status: "stopped" },
   ]);
-  await waitFor(() =>
-    expect(thread(app, "thread-replay-cursor")?.live?.options).toMatchObject({ effort: "medium" }),
-  );
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
+  // An ordinary follow-up pins no effort (c84d480d3): its turn keeps the model's own default.
+  expect(thread(app, "thread-replay-cursor")?.live?.options?.effort).toBeUndefined();
+  expect(
+    screen.getByRole("button", { name: /^Model: Opus 5\.5, Personal, Medium effort \(default\)/ }),
+  ).toBeTruthy();
 });
 
 test("reset drops the effort picked for the next message, so it can steer again", async () => {
@@ -215,22 +218,22 @@ test("a model without effort levels shows only model and account controls", asyn
   expect(within(popover).queryByText("Default effort")).toBeNull();
   expect(within(popover).queryByRole("slider")).toBeNull();
 });
-test("while the agent works, Stop sits on the composer's tab and a draft offers Queue", async () => {
+test("while the agent works, an empty composer offers Stop and a draft offers Queue in its place", async () => {
   const { message } = await open("busy");
-  const agents = await screen.findByRole("region", { name: "Agents" });
-  expect(within(agents).getByRole("button", { name: "Stop the agent" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
   await userEvent.type(message, "Also check cold start");
   expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
-  // Stop stays where it was, on the tab; the draft never turns the send button into it.
-  expect(screen.getAllByRole("button", { name: "Stop the agent" })).toHaveLength(1);
-  expect(within(agents).getByRole("button", { name: "Stop the agent" })).toBeTruthy();
+  // A draft is never one click from stopping the agent.
+  expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
+  await userEvent.clear(message);
+  expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });
 
 test("offline, the model chip keeps the thread's last-known model and says changes wait", async () => {
   const { app } = await open("busy");
   await screen.findByRole("button", { name: /^Model: Opus 5\.5, Personal/ });
   act(() => app.client.networkOnline(false));
-  await screen.findByText(/^Offline/);
+  await screen.findAllByText(/^Offline/);
   const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5/ });
   await userEvent.click(chip);
   expect(await screen.findByText("Offline: changes apply when reconnected")).toBeTruthy();
@@ -254,12 +257,12 @@ test("a switch queued to a provider with no catalog models keeps showing it acro
   expect(await screen.findByRole("button", { name: /^Model: Unknown model/ })).toBeTruthy();
 
   act(() => app.client.networkOnline(false));
-  await screen.findByText(/^Offline/);
+  await screen.findAllByText(/^Offline/);
   expect(screen.getByRole("button", { name: /^Model: Unknown model/ })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /^Model: Opus/ })).toBeNull();
 
   act(() => app.client.networkOnline(true));
-  await waitFor(() => expect(screen.queryByText(/^Offline/)).toBeNull());
+  await waitFor(() => expect(screen.queryAllByText(/^Offline/)).toHaveLength(0));
   expect(screen.getByRole("button", { name: /^Model: Unknown model/ })).toBeTruthy();
 });
 
