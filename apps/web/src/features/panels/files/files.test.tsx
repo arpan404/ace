@@ -144,12 +144,12 @@ test("find in file counts matches and steps through them", async () => {
   await userEvent.click(within(side).getByRole("button", { name: "Find in file" }));
   const find = within(side).getByRole("textbox", { name: "Find in file" });
   await userEvent.type(find, "buffer");
-  // outbox.ts says "buffer" nine times, MAX_BUFFERED included.
-  expect(await within(side).findByText("1 of 9")).toBeTruthy();
+  // outbox.ts says "buffer" twenty times, MAX_BUFFERED included.
+  expect(await within(side).findByText("1 of 20")).toBeTruthy();
   await userEvent.keyboard("{Enter}");
-  expect(within(side).getByText("2 of 9")).toBeTruthy();
+  expect(within(side).getByText("2 of 20")).toBeTruthy();
   await userEvent.keyboard("{Shift>}{Enter}{/Shift}{Shift>}{Enter}{/Shift}");
-  expect(within(side).getByText("9 of 9")).toBeTruthy();
+  expect(within(side).getByText("20 of 20")).toBeTruthy();
   await userEvent.keyboard("{Escape}");
   expect(within(side).queryByRole("textbox", { name: "Find in file" })).toBeNull();
 });
