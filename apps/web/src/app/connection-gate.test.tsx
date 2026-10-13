@@ -1,4 +1,4 @@
-import { Client } from "@ace/client";
+import { Client, ClientError } from "@ace/client";
 import { FakeDaemon, fakeTransport, flakyCheckout, ScenarioPlayer } from "@ace/fake-daemon";
 import { DeviceId, ServerMessage } from "@ace/protocol";
 import { createMemoryHistory } from "@tanstack/react-router";
@@ -10,7 +10,7 @@ import { memoryStorage } from "@/boot/client.ts";
 import type { DaemonTarget } from "@/boot/connection-settings.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { fakeClient, memoryKeyValue } from "@/test/harness.tsx";
-import { ConnectionGate, firstAttemptMs } from "./connection-gate.tsx";
+import { ConnectionGate, firstAttemptMs, identityMs } from "./connection-gate.tsx";
 
 const token = "ab".repeat(32);
 const url = "ws://127.0.0.1:4242/";
@@ -31,7 +31,7 @@ function silentClient(): Client {
 /** The gate with its first-attempt deadline in the test's hands. */
 function boot(
   options: {
-    createClient?: (target: DaemonTarget) => Client | Promise<Client>;
+    createClient?: (target: DaemonTarget, daemon: FakeDaemon) => Client | Promise<Client>;
     remembered?: boolean;
     desktop?: boolean;
   } = {},
@@ -50,7 +50,11 @@ function boot(
         stores={{ local, session: memoryKeyValue() }}
         defaultUrl={url}
         desktop={options.desktop ?? false}
-        createClient={options.createClient ?? ((target) => fakeClient(daemon, target.token))}
+        createClient={(target) =>
+          options.createClient
+            ? options.createClient(target, daemon)
+            : fakeClient(daemon, target.token)
+        }
         schedule={(delay, run) => {
           const deadline = { delay, run };
           deadlines.push(deadline);
@@ -65,11 +69,29 @@ function boot(
       </ConnectionGate>
     </AppFrame>,
   );
-  const runOutFirstAttempt = () =>
+  const runOut = (delay: number) =>
     act(() => {
-      for (const deadline of deadlines) if (deadline.delay === firstAttemptMs) deadline.run();
+      for (const deadline of deadlines) if (deadline.delay === delay) deadline.run();
     });
-  return { daemon, runOutFirstAttempt };
+  return { daemon, runOutFirstAttempt: () => runOut(firstAttemptMs), runOut };
+}
+
+/**
+ * A worker-style client (no welcome on its public channel) whose host identity reads go
+ * through `identity` instead of the daemon.
+ */
+function identityClient(daemon: FakeDaemon, identity: () => Promise<never> | undefined) {
+  const client = fakeClient(daemon, token);
+  const listen = client.onMessage.bind(client);
+  client.onMessage = (listener) =>
+    listen((frame) => {
+      if (frame.type !== "welcome") listener(frame);
+    });
+  const request = client.request.bind(client);
+  client.request = ((message, options) =>
+    (message.type === "host.identity" ? identity() : undefined) ??
+    request(message, options)) as Client["request"];
+  return client;
 }
 
 async function connect() {
@@ -291,6 +313,42 @@ test("Try again recovers a fatal connection after the workspace has opened", asy
   await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
   await waitFor(() => expect(screen.queryByText(/Can't connect:/)).toBeNull());
   expect(await screen.findByRole("link", { name: /Fix flaky checkout test/ })).toBeTruthy();
+});
+
+test("a connected client whose host identity reply can't be read fails with Try again instead of an endless splash", async () => {
+  let broken = true;
+  boot({
+    remembered: true,
+    createClient: (_target, daemon) =>
+      identityClient(daemon, () =>
+        broken
+          ? Promise.reject(
+              new ClientError("protocol", "Zod's .loose() is left out of browser builds."),
+            )
+          : undefined,
+      ),
+  });
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("This app couldn't read what ace sent.");
+  expect(alert.textContent).toContain(".loose() is left out of browser builds");
+  expect(shell()).toBeNull();
+  broken = false;
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByRole("link", { name: /Fix flaky checkout test/ })).toBeTruthy();
+});
+
+test("a connected client that never learns its host identity fails once the wait runs out", async () => {
+  const { runOut } = boot({
+    remembered: true,
+    createClient: (_target, daemon) => identityClient(daemon, () => new Promise<never>(() => {})),
+  });
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  expect(shell()).toBeNull();
+  runOut(identityMs);
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "didn't say which machine it is",
+  );
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 });
 
 test("a worker-style client is identified before its App can create terminal close intents", async () => {

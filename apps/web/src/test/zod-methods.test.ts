@@ -50,6 +50,30 @@ const entry: Plugin = {
   load: (id) => (id === "\0entry" ? entrySource : null),
 };
 
+/**
+ * Test-only: each module the bundle would load on demand (`import("…")` with a literal
+ * specifier) is also imported eagerly, so its schemas build while the bundle loads. A lazily
+ * loaded worker chunk that calls a dropped Zod method then fails here instead of in production,
+ * where it took down `host.identity` and every other worker request (#598, #603).
+ */
+const eagerLazyImports: Plugin = {
+  name: "eager-lazy-imports",
+  transform(code, id) {
+    const path = id.split("?")[0] ?? id;
+    if (path.includes("/node_modules/") || !/\.[cm]?[jt]sx?$/.test(path)) return null;
+    const specifiers = [...code.matchAll(/\bimport\(\s*("[^"\n]+"|'[^'\n]+')\s*\)/g)].map(
+      (match) => match[1],
+    );
+    if (!specifiers.length) return null;
+    // Packages are side-effect free, so a bare import would be dropped: keep each namespace.
+    const eager = specifiers.map(
+      (specifier, index) =>
+        `import * as __aceLazy${index} from ${specifier};\n(globalThis.__aceEagerLazy ??= []).push(__aceLazy${index});`,
+    );
+    return { code: `${code}\n${eager.join("\n")}\n`, map: null };
+  },
+};
+
 async function bundle(plugins: Plugin[], source = entrySource): Promise<string> {
   const result = await build({
     configFile: false,
@@ -377,6 +401,7 @@ beforeAll(async () => {
       zodWithoutUnusedMethods(droppedWorkerZodMethods),
       zodPureSchemas(),
       workerZod(),
+      eagerLazyImports,
     ],
     `
       export { ClientMessage, ServerMessage, ScreenUITreeResult } from "@ace/protocol";
