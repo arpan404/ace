@@ -1,6 +1,6 @@
 import { effortLabel, speedLabel, type Speed } from "@ace/ui-core";
 import { ArrowCounterClockwiseIcon, CaretRightIcon } from "@phosphor-icons/react";
-import { useId, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, type KeyboardEvent } from "react";
 import { StepSlider } from "@/components/ui/step-slider.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -34,8 +34,18 @@ export function TunePane(props: {
   const deep = isDeepReasoning(view.effort, efforts);
   const resettable = view.canReset && !view.effortReason;
   const description = useId();
+  // Opening on Tune puts focus in it (the slider, else the model's name), so arrows tune at
+  // once and Escape closes the popover.
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    root.current
+      ?.querySelector<HTMLElement>(
+        '[role="slider"]:not([aria-disabled]), button[aria-label^="Change model"]',
+      )
+      ?.focus({ preventScroll: true });
+  }, []);
   return (
-    <div className="flex w-72 max-w-[calc(100vw-24px)] flex-col gap-3 p-3">
+    <div ref={root} className="flex w-72 max-w-[calc(100vw-24px)] flex-col gap-3 p-3">
       <div className="flex min-w-0 items-start gap-1">
         {view.speeds.length > 1 ? (
           <SpeedSegment view={view} onSpeed={actions.onSpeed} />

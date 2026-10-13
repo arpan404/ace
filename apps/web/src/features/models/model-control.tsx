@@ -1,7 +1,7 @@
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { effortLabel, speedLabel } from "@ace/ui-core";
 import { CaretDownIcon, ClockIcon } from "@phosphor-icons/react";
-import { Suspense, useState, type ReactElement } from "react";
+import { Suspense, useEffect, useEffectEvent, useState, type ReactElement } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
@@ -52,6 +52,18 @@ export function ModelControl(props: {
     .filter(Boolean)
     .join(" · ");
   const showing = open || requested;
+  // Escape closes the popover wherever focus is, including after a pick swaps the picker for
+  // Tune and the focused row goes away.
+  const close = useEffectEvent(() => changeOpen(false));
+  useEffect(() => {
+    if (!showing) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) close();
+    };
+    // Capture: a tooltip on the focused control would otherwise keep the key to itself.
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [showing]);
   return (
     <Popover open={showing} onOpenChange={changeOpen}>
       <ModelTip label={tip} disabled={showing}>
