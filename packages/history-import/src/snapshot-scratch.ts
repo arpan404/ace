@@ -4,6 +4,10 @@ import { join } from "node:path";
 
 const GiB = 1024 ** 3;
 const PREFIX = "sqlite-read-";
+/** Private work directories that, like snapshot stages, are named `<kind>-<owner pid>-*`. */
+export type WorkDirKind = "history-plan" | "storage-order";
+const WORK_PREFIXES = ["history-plan-", "storage-order-"] as const;
+const OWNER = /^(?:sqlite-read|history-plan|storage-order)-(\d+)-/;
 
 export interface SnapshotPolicy {
   /** Largest number of bytes one snapshot may write into scratch. */
@@ -81,8 +85,9 @@ const gib = (bytes: number) =>
   bytes >= GiB ? `${(bytes / GiB).toFixed(1)} GB` : `${Math.ceil(bytes / 1024 ** 2)} MB`;
 
 /**
- * Owns `<root>/sqlite-read-<pid>-*` stages. One snapshot exists at a time per owner, and
- * stages left by dead processes or earlier workers of this process are swept.
+ * Owns `<root>/sqlite-read-<pid>-*` snapshot stages and the `history-plan-<pid>-*` and
+ * `storage-order-<pid>-*` work directories. One snapshot exists at a time per owner, and
+ * entries left by dead processes or earlier workers of this process are swept.
  */
 export class SnapshotScratch {
   readonly root: string;
@@ -105,8 +110,21 @@ export class SnapshotScratch {
     this.pid = options.pid ?? process.pid;
     this.isAlive = options.isAlive ?? systemAlive;
   }
-  /** Remove stages no live snapshot can own. Call at startup and while holding the slot. */
-  async sweep(): Promise<number> {
+  /**
+   * Startup sweep: remove snapshot stages and work directories left by dead processes or by
+   * earlier workers of this process. Call only before this worker has created any of its own.
+   */
+  sweep(): Promise<number> {
+    return this.sweepPrefixes([PREFIX, ...WORK_PREFIXES]);
+  }
+  /**
+   * A private work directory owned by this process. The caller removes it on every exit path;
+   * one left by a crash is removed by the next startup sweep.
+   */
+  workDir(kind: WorkDirKind): Promise<string> {
+    return mkdtemp(join(this.root, `${kind}-${this.pid}-`));
+  }
+  private async sweepPrefixes(prefixes: readonly string[]): Promise<number> {
     let names: string[];
     try {
       names = await readdir(this.root);
@@ -116,9 +134,10 @@ export class SnapshotScratch {
     }
     let removed = 0;
     for (const name of names) {
-      if (!name.startsWith(PREFIX)) continue;
-      const pid = Number(/^sqlite-read-(\d+)-/.exec(name)?.[1] ?? Number.NaN);
-      // Our own pid cannot own a stage here: the slot is free or held by the caller.
+      if (!prefixes.some((prefix) => name.startsWith(prefix))) continue;
+      const pid = Number(OWNER.exec(name)?.[1] ?? Number.NaN);
+      // Our own pid cannot own a swept entry: at startup nothing exists yet, and a snapshot
+      // sweep only runs while the caller holds the free slot. Live work dirs are not swept then.
       if (Number.isSafeInteger(pid) && pid !== this.pid && this.isAlive(pid)) continue;
       const path = join(this.root, name);
       if (!(await lstat(path)).isDirectory()) continue;
@@ -133,7 +152,7 @@ export class SnapshotScratch {
     this.held = true;
     let dir: string | undefined;
     try {
-      await this.sweep();
+      await this.sweepPrefixes([PREFIX]);
       signal.throwIfAborted();
       dir = await mkdtemp(join(this.root, `${PREFIX}${this.pid}-`));
     } catch (error) {

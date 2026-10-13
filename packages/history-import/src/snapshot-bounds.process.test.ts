@@ -89,6 +89,30 @@ test("a crashed daemon's leftover snapshot directories are removed at startup", 
   expect(await f.stages()).toEqual([]);
 });
 
+test("a crashed worker's history-plan and storage-order directories are removed at startup", async () => {
+  const f = await liveOpenCode();
+  const ace = join(f.env.root, "ace");
+  const leftovers = [
+    "history-plan-Ab12Cd",
+    `history-plan-${process.pid}-Qw3Er4`,
+    "storage-order-Ab12Cd",
+    `storage-order-${process.pid}-Ty5Ui6`,
+  ];
+  for (const name of leftovers) {
+    await mkdir(join(ace, name), { recursive: true });
+    await writeFile(join(ace, name, "scratch.sqlite"), "partial");
+  }
+  // Another live process (the test runner's parent) still owns its directory.
+  const live = `storage-order-${process.ppid}-Op7As8`;
+  await mkdir(join(ace, live));
+  const service = await openHistory(f.options);
+  cleanup.unshift(() => service.close());
+  const remaining = (await readdir(ace)).filter(
+    (name) => name.startsWith("history-plan-") || name.startsWith("storage-order-"),
+  );
+  expect(remaining).toEqual([live]);
+});
+
 test("a database over the snapshot cap is refused with a notice and nothing written", async () => {
   const f = await liveOpenCode();
   const service = await openHistory({ ...f.options, snapshot: { maxCopyBytes: 1 } });
