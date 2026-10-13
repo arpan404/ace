@@ -4,6 +4,7 @@ import { configure, act, cleanup, screen, waitFor, within } from "@testing-libra
 
 import userEvent from "@testing-library/user-event";
 import { expect, onTestFinished, test } from "vitest";
+import { codeText } from "@/test/code-text.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -56,15 +57,15 @@ test("Changes shows the latest turn's edits by default and the whole thread unde
   // Turn 2: the onResume edit and the subagent's outbox patch, not turn 1's replayFrom edit.
   await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   const replay = file(panel, "apps/server/src/replay.ts");
-  expect(within(replay).getByText(/const \{ events, coldStart \} = replayFrom/)).toBeTruthy();
-  expect(within(replay).queryByText(/COLD_START_WINDOW = 200/)).toBeNull();
+  expect(within(replay).getByText(codeText(/const \{ events, coldStart \} = replayFrom/))).toBeTruthy();
+  expect(within(replay).queryByText(codeText(/COLD_START_WINDOW = 200/))).toBeNull();
   const outbox = file(panel, "apps/web/src/relay/outbox.ts");
-  expect(within(outbox).getByText(/await socket.waitFor\("resume.ack"\)/)).toBeTruthy();
+  expect(within(outbox).getByText(codeText(/await socket.waitFor\("resume.ack"\)/))).toBeTruthy();
 
   await pickScope(panel, "This thread");
   await waitFor(() =>
     expect(
-      within(file(panel, "apps/server/src/replay.ts")).getByText(/COLD_START_WINDOW = 200/),
+      within(file(panel, "apps/server/src/replay.ts")).getByText(codeText(/COLD_START_WINDOW = 200/)),
     ).toBeTruthy(),
   );
 
@@ -97,9 +98,9 @@ test("an untouched local diff stays quiet and saving a comment reveals review ac
 test("folded unchanged lines expand, and a file collapses from its header", async () => {
   const { panel } = await openChanges();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
-  expect(within(replay).queryByText(/export interface Replay/)).toBeNull();
+  expect(within(replay).queryByText(codeText(/export interface Replay/))).toBeNull();
   await userEvent.click(within(replay).getAllByRole("button", { name: /unchanged lines/ })[0]!);
-  expect(within(replay).getByText(/export interface Replay/)).toBeTruthy();
+  expect(within(replay).getByText(codeText(/export interface Replay/))).toBeTruthy();
 
   // Gaps in a provider patch have no text to show, so they are not buttons.
   const outbox = file(panel, "apps/web/src/relay/outbox.ts");
@@ -108,7 +109,7 @@ test("folded unchanged lines expand, and a file collapses from its header", asyn
   const header = within(replay).getByRole("button", { name: /replay\.ts/, expanded: true });
   await userEvent.click(header);
   expect(header.getAttribute("aria-expanded")).toBe("false");
-  expect(within(replay).queryByText(/export interface Replay/)).toBeNull();
+  expect(within(replay).queryByText(codeText(/export interface Replay/))).toBeNull();
 });
 
 test("the selected diff layout survives switching tabs", async () => {
@@ -117,7 +118,7 @@ test("the selected diff layout survives switching tabs", async () => {
   const { panel } = await openChanges();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   await pickLayout(panel, "Split");
-  expect(within(replay).getByText(/const \{ events, coldStart \} = replayFrom/)).toBeTruthy();
+  expect(within(replay).getByText(codeText(/const \{ events, coldStart \} = replayFrom/))).toBeTruthy();
   await expectLayout(panel, "Split");
 
   await userEvent.click(within(panel).getByRole("tab", { name: "Summary" }));
@@ -152,13 +153,13 @@ test("a chosen Split shows unified in a panel too narrow for two columns, and sp
     await pickLayout(panel, "Split");
     // The choice is kept, and the button says why it isn't showing.
     await expectLayout(panel, "Split · needs a wider panel");
-    expect(within(replay).getByText(/client.send\(\{ type: "resume.ack" \}\);/)).toBeTruthy();
-    expect(within(replay).getByText(/const \{ events, coldStart \} = replayFrom/)).toBeTruthy();
+    expect(within(replay).getByText(codeText(/client.send\(\{ type: "resume.ack" \}\);/))).toBeTruthy();
+    expect(within(replay).getByText(codeText(/const \{ events, coldStart \} = replayFrom/))).toBeTruthy();
 
     width = 1000;
     act(() => resize.forEach((fire) => fire()));
     await expectLayout(panel, "Split");
-    expect(within(replay).getByText(/client.send\(\{ type: "resume.ack" \}\);/)).toBeTruthy();
+    expect(within(replay).getByText(codeText(/client.send\(\{ type: "resume.ack" \}\);/))).toBeTruthy();
   } finally {
     globalThis.ResizeObserver = original;
   }
@@ -167,7 +168,7 @@ test("a chosen Split shows unified in a panel too narrow for two columns, and sp
 test("a line comment goes to the agent through review mode and lands in the thread", async () => {
   const { app, panel } = await openChanges();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
-  const line = within(replay).getByText(/client.send\(\{ type: "resume.ack", headSeq/);
+  const line = within(replay).getByText(codeText(/client.send\(\{ type: "resume.ack", headSeq/));
   await userEvent.hover(line);
   await userEvent.click(within(line).getByRole("button", { name: /^Comment on line \d+$/ }));
   await userEvent.type(
@@ -239,7 +240,7 @@ test("a line comment stays on its line when the diff switches between Unified an
   panelWidth(1000);
   const { panel } = await openChanges();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
-  const line = within(replay).getByText(/client.send\(\{ type: "resume.ack", headSeq/);
+  const line = within(replay).getByText(codeText(/client.send\(\{ type: "resume.ack", headSeq/));
   await userEvent.click(within(line).getByRole("button", { name: /^Comment on line \d+$/ }));
   await userEvent.type(within(replay).getByRole("textbox"), "Carry coldStartWindow too?");
   await userEvent.click(within(replay).getByRole("button", { name: "Comment" }));
@@ -311,7 +312,7 @@ test("a turn that changed many files mounts only the files near the view, and li
 
 async function comment(panel: HTMLElement, path: string, line: RegExp, text: string) {
   const block = await within(panel).findByRole("region", { name: path });
-  const row = within(block).getByText(line);
+  const row = within(block).getByText(codeText(line));
   await userEvent.click(within(row).getByRole("button", { name: /^Comment on line \d+$/ }));
   await userEvent.type(within(block).getByRole("textbox", { name: /Comment on line/ }), text);
   await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
@@ -340,7 +341,9 @@ test("unsent comments are summed up, sent together, then resolved and reopened",
   await waitFor(() =>
     expect(within(review).getByRole("status").textContent).toBe("2 waiting for the agent"),
   );
-  expect(app.daemon.review.comments().map((held) => [held.text, held.sent])).toEqual([
+  // Both are sent in one request; their order there is not what this test is about.
+  const held = app.daemon.review.comments().map((comment) => [comment.text, comment.sent]);
+  expect(held.toSorted()).toEqual([
     ["Carry coldStartWindow too?", true],
     ["Time this out after 5 s.", true],
   ]);
@@ -536,7 +539,7 @@ test("viewed clears for different same-shape edits and survives replay and reloa
       "false",
     ),
   );
-  expect(within(first).getByText(/const retry = 3;/)).toBeTruthy();
+  expect(within(first).getByText(codeText(/const retry = 3;/))).toBeTruthy();
   await userEvent.click(within(first).getByRole("button", { name: "Viewed" }));
   act(() => app.daemon.apply("thread-cold-start", retryEdit("retry-3-replay", 3)));
   await waitFor(() =>
@@ -549,7 +552,7 @@ test("viewed clears for different same-shape edits and survives replay and reloa
   expect(within(older).getByRole("button", { name: "Viewed" }).getAttribute("aria-pressed")).toBe(
     "false",
   );
-  expect(within(older).getByText(/const retry = 2;/)).toBeTruthy();
+  expect(within(older).getByText(codeText(/const retry = 2;/))).toBeTruthy();
   await pickScope(panel, "Last turn");
   const latest = await within(panel).findByRole("region", { name: "retry.ts" });
   expect(within(latest).getByRole("button", { name: "Viewed" }).getAttribute("aria-pressed")).toBe(

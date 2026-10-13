@@ -30,6 +30,18 @@ function edit(id: string, text: string) {
     { ...facts.endTurn("root"), nativeTurnId: id },
   ];
 }
+/** Another tab's view of the same origin storage: its own object, reading the shared records. */
+function tabView(shared: ReturnType<typeof memoryKeyValue>) {
+  return {
+    get length() {
+      return shared.length;
+    },
+    key: (index: number) => shared.key(index),
+    getItem: (key: string) => shared.getItem(key),
+    setItem: (key: string, value: string) => shared.setItem(key, value),
+    removeItem: (key: string) => shared.removeItem(key),
+  };
+}
 async function openChanges(app = harness()) {
   app.play(coldStartReplay()).runThrough("test-done");
   app.daemon.apply(threadId, edit("historical", historical));
@@ -55,8 +67,8 @@ async function openChanges(app = harness()) {
 
 test("a saved-comment editor in another tab cannot revive a discarded comment after storage reconciliation", async () => {
   const shared = memoryKeyValue();
-  const storageA = { ...shared };
-  const storageB = { ...shared };
+  const storageA = tabView(shared);
+  const storageB = tabView(shared);
   const a = await openChanges(harness({ storage: storageA }));
   const blockA = within(a.panel).getByRole("region", { name: path });
   await begin(blockA, "Discard this finding", "const b = 4;");
@@ -97,7 +109,7 @@ test("a saved-comment editor in another tab cannot revive a discarded comment af
   );
   // Reopening another tab proves the discarded edit did not acquire a fresh durable identity.
   const reload = await panelServices(harness().client);
-  persistReview(reload, { ...shared }, () => {});
+  persistReview(reload, tabView(shared), () => {});
   expect(reload.drafts.get().map((draft) => draft.text)).toEqual(["Keep the unrelated finding"]);
   expect(appB.daemon.review.comments()).toEqual([]);
 }, 30000);
@@ -257,11 +269,11 @@ test.each([
     const { app, panel } = await openChanges();
     const block = within(panel).getByRole("region", { name: path });
     await begin(block, "Keep this finding", "const b = 4;");
-    await userEvent.keyboard("{Shift>}");
-    await userEvent.click(
-      within(block).getByRole("button", { name: `Comment on line ${extendTo}` }),
-    );
-    await userEvent.keyboard("{/Shift}");
+    // One user session, so the held Shift reaches the pointer that extends the selection.
+    const user = userEvent.setup();
+    await user.keyboard("{Shift>}");
+    await user.click(within(block).getByRole("button", { name: `Comment on line ${extendTo}` }));
+    await user.keyboard("{/Shift}");
     expect(within(block).getByRole("textbox", { name: label })).toHaveProperty(
       "value",
       "Keep this finding",
