@@ -256,7 +256,6 @@ export function ThreadComposer({
     };
   }, [focusOnOpen, asking]);
   // The palette's Stop, Switch model and Effort act through these.
-  const canStop = activityState.canStop && !questioned;
   useComposerActions(props.thread.id, canStop ? stop : undefined, {
     chooseModel: () => requestPicker((count) => count + 1),
     tuneEffort: () => requestTune((count) => count + 1),
