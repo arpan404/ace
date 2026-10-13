@@ -50,8 +50,11 @@ test("the project's Add action shows its rebound shortcut and that shortcut open
   await userEvent.keyboard("gh");
   await screen.findByRole("heading", { name: "Home", level: 1 });
   await userEvent.click(screen.getByRole("button", { name: /^Project filter:/ }));
-  expect((await screen.findByRole("menuitem", { name: /^Add project/ })).textContent).toContain(
-    "Shift+Ctrl+J",
+  // The rebinding is saved asynchronously; the menu shows it once the keymap has it.
+  await waitFor(() =>
+    expect(screen.getByRole("menuitem", { name: /^Add project/ }).textContent).toContain(
+      "Shift+Ctrl+J",
+    ),
   );
   await userEvent.keyboard("{Escape}{Control>}{Shift>}j{/Shift}{/Control}");
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
