@@ -491,6 +491,7 @@
           "type": "integer"
         },
         "delegatedBy": {
+          "description": "The thread whose agent delegated this one through ace.",
           "minLength": 1,
           "type": "string"
         },
