@@ -227,6 +227,8 @@ test("a background task prevents PR selection from replacing its checkout or rep
       title: "Still working",
       stoppable: true,
     });
+    // Provider frames apply asynchronously; the shell must be on record before PR selection.
+    await d.h.engine.flush();
     const before = d.h.store.getThread(id)?.details?.worktree;
     expect(await d.work(id, "live-tree")).toMatchObject({
       ok: false,
