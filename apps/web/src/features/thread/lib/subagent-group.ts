@@ -86,39 +86,11 @@ export function readSubagentGroup(
     }
     return true;
   });
-  // Descendants are read once per status/entity change, never by a clock tick or text delta.
-  const watched = new Set<string>();
-  const collect = (id: string) => {
-    if (watched.has(id)) return;
-    watched.add(id);
-    for (const child of reader.children(id)) collect(child);
-  };
-  for (const root of direct) if (root.agent) collect(root.agent.id);
-  const work = facts.treeWork(watched);
-  const cached = new Map<string, { state: SubagentState; end?: number }>();
-  const visiting = new Set<string>();
-  const branch = (id: string): { state: SubagentState; end?: number } => {
-    const previous = cached.get(id);
-    if (previous) return previous;
-    const agent = reader.agent(id);
-    if (!agent || visiting.has(id)) return { state: "working" };
-    visiting.add(id);
-    let state = subagentState(agent.status);
-    let end = agent.endedAt ?? facts.endedAt(id);
-    const taskEnd = facts.taskEndedAt(id);
-    if (taskEnd !== undefined) end = Math.max(end ?? taskEnd, taskEnd);
-    for (const child of reader.children(id)) {
-      const below = branch(child);
-      state = rollupSubagent(state, below.state);
-      if (below.end !== undefined) end = Math.max(end ?? below.end, below.end);
-    }
-    if (work.needsYou.has(id)) state = "human";
-    else if (subagentTerminal(state) && work.running.has(id)) state = "working";
-    visiting.delete(id);
-    const result = { state, ...(end === undefined ? {} : { end }) };
-    cached.set(id, result);
-    return result;
-  };
+  const { branch, watched } = branchReader(
+    reader,
+    facts,
+    direct.flatMap((root) => (root.agent ? [root.agent.id] : [])),
+  );
   const value = direct.map(({ id, agent, spawn, launch }): SubagentEntry => {
     const subtree = agent ? branch(agent.id) : undefined;
     let state = subtree?.state ?? "working";
@@ -154,8 +126,7 @@ export function readSubagentGroup(
     value,
     watch: [
       ...itemIds.map((id) => `item:${id}`),
-      ...[...watched].map((id) => `agent:${id}`),
-      ...[...watched].flatMap((id) => [`attention:${id}`, `work:${id}`, `end:${id}`]),
+      ...branchKeys(watched),
       ...itemIds.map((id) => `spawn:${id}`),
       ...[...launches.keys()].map((id) => `childThread:${id}`),
       ...[...spawns.values()].flatMap((spawn) =>
@@ -166,6 +137,71 @@ export function readSubagentGroup(
     ],
   };
 }
+
+type Branch = { state: SubagentState; end?: number };
+
+/**
+ * Agents' whole branches: each one's state rolled up with everything below it (a finished agent
+ * with a working child is working, one with an open request waits on the person) and the latest
+ * end in the branch. Descendants are read once per status/entity change, never by a clock tick
+ * or text delta; `watched` names every agent read.
+ */
+function branchReader(reader: ThreadReader, facts: AgentFacts, roots: readonly string[]) {
+  const watched = new Set<string>();
+  const collect = (id: string) => {
+    if (watched.has(id)) return;
+    watched.add(id);
+    for (const child of reader.children(id)) collect(child);
+  };
+  for (const id of roots) collect(id);
+  const work = facts.treeWork(watched);
+  const cached = new Map<string, Branch>();
+  const visiting = new Set<string>();
+  const branch = (id: string): Branch => {
+    const previous = cached.get(id);
+    if (previous) return previous;
+    const agent = reader.agent(id);
+    if (!agent || visiting.has(id)) return { state: "working" };
+    visiting.add(id);
+    let state = subagentState(agent.status);
+    let end = agent.endedAt ?? facts.endedAt(id);
+    const taskEnd = facts.taskEndedAt(id);
+    if (taskEnd !== undefined) end = Math.max(end ?? taskEnd, taskEnd);
+    for (const child of reader.children(id)) {
+      const below = branch(child);
+      state = rollupSubagent(state, below.state);
+      if (below.end !== undefined) end = Math.max(end ?? below.end, below.end);
+    }
+    if (work.needsYou.has(id)) state = "human";
+    else if (subagentTerminal(state) && work.running.has(id)) state = "working";
+    visiting.delete(id);
+    const result = { state, ...(end === undefined ? {} : { end }) };
+    cached.set(id, result);
+    return result;
+  };
+  return { branch, watched };
+}
+
+const branchKeys = (watched: ReadonlySet<string>) => [
+  ...[...watched].map((id) => `agent:${id}`),
+  ...[...watched].flatMap((id) => [`attention:${id}`, `work:${id}`, `end:${id}`]),
+];
+
+/** One subagent's branch, for its own view: the same rule its card in the parent reads. */
+export function readSubagentBranch(
+  reader: ThreadReader,
+  agentId: string,
+  facts = new AgentFacts(reader),
+): Watched<Branch | undefined> {
+  const { branch, watched } = branchReader(reader, facts, [agentId]);
+  return {
+    value: reader.agent(agentId) ? branch(agentId) : undefined,
+    watch: ["agents", ...branchKeys(watched)],
+  };
+}
+
+export const branchEqual = (a: Branch | undefined, b: Branch | undefined) =>
+  a === b || (!!a && !!b && a.state === b.state && a.end === b.end);
 
 export function subagentEntriesEqual(
   a: readonly SubagentEntry[],

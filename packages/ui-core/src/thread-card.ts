@@ -228,6 +228,21 @@ function compactStatus(
   return threadStatusLabel(entry.status).label;
 }
 
+/**
+ * A listed thread's status as its sidebar row words it ("Working", "Approve", "Waiting"), for
+ * other surfaces that name the same thread: the transcript, the row and a child's Lineage
+ * never disagree. Pure.
+ */
+export function threadRowStatus(entry: ThreadListEntry, now: number, locale?: string): string {
+  return compactStatus(
+    entry,
+    threadLiveFact(entry),
+    treeWorking(listTreeFacts(entry)),
+    now,
+    locale,
+  );
+}
+
 /** The view model of one thread in the Home list. Pure: the caller passes the clock. */
 export function threadCard(input: ThreadCardInput): ThreadCard {
   const { entry, details, now } = input;

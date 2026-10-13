@@ -7,6 +7,10 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 export { threadWorkspace } from "./thread-workspace.ts";
 /** Other slices' views the workspace tabs draw with (agent transcripts). */
 export { ThreadPartsProvider, useThreadParts, type ThreadParts } from "./agents/thread-parts.ts";
+/** A thread's agent work, and the subagent view's Stop. */
+export { useTreeWork } from "./agents/use-tree-work.ts";
+export { StopAgent } from "./agents/stop-agent.tsx";
+export { countSubagents, findAgentNode } from "./agents/subagents.ts";
 export { disposePanelServices, findRunningTerminal, useRunningTerminalNames } from "./services.ts";
 export {
   newTerminal,

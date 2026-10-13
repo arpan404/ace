@@ -59,6 +59,9 @@
     "createdAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "delegatedBy": {
+      "$ref": "https://ace.local/protocol/v1/DelegatedBy.json"
+    },
     "deletedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },

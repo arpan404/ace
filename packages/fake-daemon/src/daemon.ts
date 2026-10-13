@@ -484,6 +484,8 @@ export class FakeDaemon implements Host {
       ...(init.details ? { details: init.details } : {}),
       ...(init.live ? { live: init.live } : {}),
       ...(init.lineage ? { lineage: init.lineage } : {}),
+      // A delegated child names its parent, as the daemon records it at launch.
+      ...(init.parentThreadId ? { delegatedBy: ThreadId.parse(init.parentThreadId) } : {}),
       ...(init.execution ? { execution: init.execution } : {}),
       permission: {
         override: migratePermissionMode(init.provider, init.permissionMode),

@@ -44,8 +44,11 @@ export function ThreadRow(props: {
   const renaming = editing !== undefined || refused !== undefined;
   const started = useStartedTitle(props.threadId);
   const selected = useSelected(props.threadId);
+  // One of its provider subagents open as the whole chat is still this thread.
   const current = useLocation({
-    select: (location) => location.pathname === `/t/${props.threadId}`,
+    select: (location) =>
+      location.pathname === `/t/${props.threadId}` ||
+      location.pathname.startsWith(`/t/${props.threadId}/agents/`),
   });
   if (!data) return null;
   const { entry } = data;

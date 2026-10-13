@@ -2620,129 +2620,106 @@ Example:
 
 ```json
 {
-  "seq": 0,
+  "seq": 5,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "agentChildren": {},
     "agents": {},
     "backgroundTasks": {},
-    "contextMeters": {},
+    "entitiesBefore": {},
     "interactions": {},
     "itemOrder": [],
     "items": {},
     "kind": "thread",
+    "queue": {
+      "paused": true,
+      "reason": "not_sent",
+      "resumeAt": 1,
+      "revision": 0
+    },
     "runs": {},
-    "seq": 0,
+    "seq": 5,
     "thread": {
-      "acpAgentId": "example",
-      "acpSupport": {
-        "capabilities": {
-          "imageInput": true,
-          "planMode": false,
-          "resume": false
-        },
-        "coverage": "generic",
-        "mcp": "unavailable",
-        "modeSelection": false,
-        "modelSelection": false,
-        "raw": {
-          "json": "example",
-          "truncated": true
-        },
-        "visibility": "limited"
-      },
-      "activityAt": 3,
-      "autoSettleAt": 1,
-      "capabilities": {
-        "attachmentInput": {
-          "documents": [],
-          "embeddedContext": false,
-          "format": "claude",
-          "maxInlineBytes": 4
-        },
-        "backgroundTaskControl": true,
-        "backgroundVisibility": "full",
-        "childControls": "native",
-        "childFidelity": "placeholder",
-        "fork": true,
-        "forkMode": "context-handoff",
-        "forkSubagents": true,
-        "imageInput": true,
-        "interruptCascades": true,
-        "launchOptions": [],
-        "planMode": true,
-        "resume": false,
-        "rewindFiles": true,
-        "sessionOptions": true,
-        "steer": false,
-        "subagentTranscripts": false,
-        "tokenUsage": false
-      },
-      "continuation": {
-        "actionId": "thread.continue_new",
-        "reason": "cursor_cli_retired",
-        "state": "read_only"
-      },
-      "createdAt": 7,
+      "autoSettleAt": 3,
+      "backend": "acp",
+      "createdAt": 1,
+      "deletedAt": 5,
       "details": {
-        "behind": 6,
-        "linkedPr": {
-          "number": 3,
-          "state": "open"
+        "base": {
+          "fetch": "unreachable",
+          "head": "33b76cda180bc974f77c8cd11842d833736bf9a1f26444d52bc8143491",
+          "ref": "example"
         },
+        "baseBranch": "example",
+        "linkedPr": {
+          "number": 9,
+          "state": "merged",
+          "url": "https://example.invalid/"
+        },
+        "linkedPrs": [],
         "machine": {
           "host": "example",
           "name": "example"
         },
-        "repository": {
-          "forge": "gitlab",
-          "host": "..QfrP",
-          "name": "Rxnohkqb",
-          "owner": "TQPlh/8mJJsTz0tH/oaCQwPR/Ldtq78H3sa/tHese/W"
-        },
-        "workspace": {
-          "defaultIcon": "https://example.invalid/icon.png",
-          "id": "example",
-          "name": "example",
-          "path": "example"
-        },
         "workspaceChange": {
-          "at": 4,
+          "at": 9,
           "commandId": "example",
-          "state": "applied"
+          "state": "failed"
+        },
+        "worktree": "example",
+        "worktreeCreation": {
+          "actions": [],
+          "attempt": 7,
+          "cleanupComplete": true,
+          "commandId": "example",
+          "details": [],
+          "elapsedMs": 6,
+          "percent": 3,
+          "startedAt": 0,
+          "state": "local",
+          "step": "fetching",
+          "steps": []
         }
       },
       "effectiveCapabilities": {
-        "approvals": "sandbox-only",
-        "backgroundTaskControl": true,
+        "attachmentInput": {
+          "documents": [],
+          "embeddedContext": false,
+          "format": "opencode",
+          "maxInlineBytes": 0
+        },
+        "backgroundTaskControl": false,
         "backgroundVisibility": "partial",
-        "childFidelity": "summary",
+        "childControls": "native",
         "fork": true,
-        "forkSubagents": false,
+        "forkMode": "context-handoff",
         "imageInput": false,
         "interruptCascades": true,
-        "permissionModes": [],
+        "launchOptions": [],
         "permissions": {
           "modes": [],
           "nativeAutoReview": true,
           "toolGate": false
         },
         "planMode": true,
-        "resume": false,
+        "resume": true,
         "rewindFiles": false,
         "steer": true,
-        "subagentTranscripts": false,
+        "subagentTranscripts": true,
         "tokenUsage": true
       },
-      "execution": {
-        "provider": "claude"
+      "handoff": {
+        "bytes": 2,
+        "sourceThreadId": "example",
+        "truncated": false
       },
+      "hasSentMessage": false,
       "id": "example",
       "installationId": "example",
       "instanceId": "example",
       "lineage": {
-        "lossy": false,
+        "lossy": true,
         "mode": "portable",
         "parentAgentId": "example",
         "parentThreadId": "example",
@@ -2754,18 +2731,18 @@ Example:
       "permission": {
         "effective": "example",
         "override": null,
-        "pending": false
+        "pending": true
       },
-      "pinOrder": 0,
-      "provider": "acp",
-      "settledReason": "manual",
-      "snoozedUntil": 1,
+      "pinOrder": 8,
+      "provider": "cursor",
+      "readAt": 8,
+      "rootAgentId": "example",
+      "settledAt": 9,
       "status": {
-        "state": "limited"
+        "state": "unresponsive"
       },
       "title": "example",
-      "unread": true,
-      "updatedAt": 7,
+      "updatedAt": 9,
       "workspaceId": "example"
     },
     "usage": {}
@@ -2789,10 +2766,10 @@ Example:
 
 ```json
 {
-  "afterSeq": 4,
+  "afterSeq": 1,
   "events": [],
   "subscriptionId": "example",
-  "throughSeq": 6,
+  "throughSeq": 1,
   "type": "events"
 }
 ```
@@ -2812,9 +2789,9 @@ Example:
 
 ```json
 {
-  "afterSeq": 5,
+  "afterSeq": 2,
   "subscriptionId": "example",
-  "throughSeq": 7,
+  "throughSeq": 3,
   "type": "progress"
 }
 ```
@@ -2852,41 +2829,87 @@ Example:
 
 ```json
 {
-  "commandId": "example",
-  "editor": {
-    "editor": {
-      "command": "example",
-      "id": "example",
-      "name": "example"
-    },
-    "path": "example"
+  "alive": {
+    "agentsRunning": 2,
+    "operationsRunning": 0,
+    "terminalsOpen": 7
   },
+  "code": "example",
+  "commandId": "example",
+  "commit": "a46e3e59c71f04d21f0fcedabb91028ceaf2833f8416ba634938032688661",
+  "detail": "example",
   "error": "example",
+  "forgeLifecycle": {
+    "headSha": "f8Ec5C7C74659dE4c4EcEc296E9c8a45f5eca119BA",
+    "outcome": "head_changed",
+    "revertPr": {
+      "number": 9,
+      "repository": {
+        "forge": "github",
+        "host": "J2r.n",
+        "name": "vKGxWd",
+        "owner": "q/5GibDO/c/VLGV0h.fIV"
+      }
+    }
+  },
   "forkThreadId": "example",
+  "health": {
+    "activeSessions": 8,
+    "at": 7,
+    "eventLoop": {
+      "maxMs": null,
+      "meanMs": 2,
+      "p99Ms": null
+    },
+    "logs": {
+      "directory": "example",
+      "dropped": 0,
+      "failed": 1,
+      "queued": 6
+    },
+    "memory": {
+      "heapTotalBytes": 0,
+      "heapUsedBytes": 4,
+      "rssBytes": 7
+    },
+    "openHandles": 8,
+    "queues": {},
+    "sqlite": {
+      "pageBytes": null,
+      "walBytes": 2
+    }
+  },
+  "issue": {
+    "number": 9,
+    "repository": {
+      "forge": "gitlab",
+      "host": "sQWid",
+      "name": "9c08dOTyA6",
+      "owner": "orOwZrIyJ3"
+    }
+  },
   "ok": true,
   "prStatus": {
     "checks": [],
-    "ci": "success",
+    "ci": "failure",
     "comments": [],
     "headSha": "example",
-    "mergeability": "unknown",
+    "mergeability": "conflicting",
     "raw": null,
     "ref": {
-      "number": 6,
+      "number": 2,
       "repository": {
-        "forge": "gitlab",
-        "host": "F",
-        "name": "WG6C_F1P",
-        "owner": "-ouI2/GRX97X-Q-/t1XH/I763/KZVd8BUR/1EA/XU"
+        "forge": "github",
+        "host": "oRKuWYv1U2",
+        "name": "7hxESNUsVD",
+        "owner": "iuMntCOGg/N6Llha/ASEFer"
       }
     },
     "reviewThreads": [],
-    "state": "unknown",
+    "state": "open",
     "title": "example",
     "url": "example"
   },
-  "terminalId": "example",
-  "title": "example",
   "type": "commandResult"
 }
 ```
@@ -2908,9 +2931,7 @@ Example:
 ```json
 {
   "code": "example",
-  "commandId": "example",
   "message": "example",
-  "retryable": true,
   "subscriptionId": "example",
   "type": "error"
 }
@@ -2934,8 +2955,8 @@ Example:
 {
   "bytes": "example",
   "eof": false,
-  "nextOffset": 7,
-  "offset": 3,
+  "nextOffset": 2,
+  "offset": 4,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -2958,11 +2979,10 @@ Example:
 
 ```json
 {
-  "itemSeqs": {},
   "items": [],
-  "itemsBefore": 7,
+  "itemsBefore": 9,
   "requestId": "example",
-  "seq": 1,
+  "seq": 8,
   "threadId": "example",
   "type": "items.page"
 }

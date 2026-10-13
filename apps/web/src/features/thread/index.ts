@@ -15,6 +15,8 @@ export {
 export { preloadComposerParts } from "./composer/deferred-parts.tsx";
 export { useComposerCompact } from "./composer/composer-compact.ts";
 export { ThreadView, type ThreadTarget } from "./thread-view.tsx";
+/** A provider's own subagent as the whole chat, at `/t/<thread>/agents/<agent>`. */
+export { SubagentView } from "./subagent/subagent-view.tsx";
 /** Warm the parts of the thread screen that load after first paint (tests start with them). */
 export { preloadDeferred } from "./deferred.ts";
 /** Fork from a thread's last finished turn, for menus outside the thread screen. */

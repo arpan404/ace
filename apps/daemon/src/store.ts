@@ -883,6 +883,7 @@ export class Store {
             thread.provider,
             JSON.stringify({
               lineage: thread.lineage,
+              delegatedBy: thread.delegatedBy,
               execution: thread.execution,
               switch: thread.switch,
             }),

@@ -1,9 +1,9 @@
 import type { ProviderKind } from "@ace/protocol";
 import { formatElapsed, subagentLabels, subagentTerminal, type SubagentState } from "@ace/ui-core";
 import { CaretRightIcon, RobotIcon } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
+import { SubagentLink } from "@/lib/subagent-link.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useTicker } from "../lib/clock.ts";
 import type { SubagentEntry } from "../lib/subagent-group.ts";
@@ -105,27 +105,25 @@ export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fre
     "flex min-h-(--row-height) pointer-coarse:min-h-11 w-full items-center gap-(--surface-gap) px-(--surface-inset) py-[calc(var(--setting-row-padding)/2)] text-left transition-colors duration-(--motion-fast) hover:bg-accent focus-ring-inset";
   return (
     <li>
-      {entry.childThreadId ? (
-        <Link
-          to="/t/$threadId"
-          params={{ threadId: entry.childThreadId }}
+      {entry.agentId || entry.childThreadId ? (
+        <SubagentLink
+          subagent={{
+            threadId: props.threadId,
+            agentId: entry.agentId ?? "",
+            childThreadId: entry.childThreadId,
+          }}
           aria-label={label}
           className={classes}
         >
           {words}
-        </Link>
+        </SubagentLink>
       ) : (
+        // Its agent hasn't been seen yet: the spawn call is all there is, in the Work tree.
         <button
           type="button"
           aria-label={label}
           className={classes}
-          onClick={() =>
-            workspace.open(
-              entry.agentId
-                ? { kind: "agent", id: entry.agentId, title: entry.title }
-                : { kind: "work" },
-            )
-          }
+          onClick={() => workspace.open({ kind: "work" })}
         >
           {words}
         </button>

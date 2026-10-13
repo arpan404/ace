@@ -129,6 +129,12 @@ export {
   subagentLabels,
   type SubagentState,
 } from "./subagents.ts";
+export {
+  subagentEnded,
+  subagentOutcome,
+  subagentPhase,
+  type SubagentPhase,
+} from "./subagent-outcome.ts";
 
 export { turnTreeOf, TurnTree } from "./turn-tree.ts";
 

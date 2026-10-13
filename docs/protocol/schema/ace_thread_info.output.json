@@ -490,6 +490,10 @@
           "minimum": 0,
           "type": "integer"
         },
+        "delegatedBy": {
+          "minLength": 1,
+          "type": "string"
+        },
         "deletedAt": {
           "maximum": 9007199254740991,
           "minimum": 0,

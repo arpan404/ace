@@ -512,6 +512,12 @@ export class DelegationService {
     this.deps.store.atomic(() => {
       const current = this.journal.get(record.childId);
       if (!current || current.phase !== "created") return;
+      const role = current.request.role;
+      const kind = role.startsWith("automation:")
+        ? "automation"
+        : role.startsWith("handoff:")
+          ? "handoff"
+          : "spawn";
       const result = this.command(controlCommandId(current.parentId, current.requestId, "launch"), {
         type: "thread.send",
         threadId: current.childId,
@@ -519,16 +525,17 @@ export class DelegationService {
         delivery: "queue",
         trigger: "spawn",
         origin: {
-          kind: current.request.role.startsWith("automation:")
-            ? "automation"
-            : current.request.role.startsWith("handoff:")
-              ? "handoff"
-              : "spawn",
+          kind,
           parentThreadId: current.parentId,
           role: current.request.role,
         },
       });
       if (!result.ok) throw controlAdmissionError(result.error ?? "Launch failed");
+      // The child names its parent on the thread itself, so it survives history paging.
+      if (kind === "spawn")
+        this.deps.store.appendEvents(current.childId, [
+          { type: "thread.updated", delegatedBy: current.parentId },
+        ]);
       current.phase = "running";
       this.journal.save(current);
     });
