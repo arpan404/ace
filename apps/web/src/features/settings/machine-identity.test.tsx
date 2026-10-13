@@ -36,8 +36,9 @@ test("editing this machine updates Settings, the new-thread environment and the 
   });
   view.unmount();
   view = await app.open("/new");
-  // New thread names the machine in the Worktree toggle's tooltip (8e2126e5f).
-  await userEvent.hover(await screen.findByText("Worktree"));
+  // New thread names the machine in its environment strip, with a "Runs on" tooltip.
+  const strip = await screen.findByRole("region", { name: "Where this thread runs" });
+  await userEvent.hover(await within(strip).findByText("Workshop Mac"));
   expect((await screen.findByRole("tooltip")).textContent).toContain("Runs on Workshop Mac");
   view.unmount();
   await app.open("/t/thread-replay-cursor");
