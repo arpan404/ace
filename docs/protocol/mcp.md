@@ -599,7 +599,7 @@ Example:
 
 ## ace_thread_start
 
-Start an ordinary top-level conversation with explicit project/new-worktree/existing-worktree selection and an initial message. It retains caller ownership and a permission ceiling, but has no child attachment or result wakeup. Use a stable requestId. Use delegate_task for child work.
+Start an ordinary top-level conversation (a new thread in the person's sidebar) with explicit project/new-worktree/existing-worktree selection. `text` is sent as its first message and the new agent answers it at once, so write it as the opening request. It retains caller ownership and a permission ceiling, but has no child attachment or result wakeup. Use a stable requestId. Use delegate_task for child work. The person sees the new thread as a card with Open in this thread: relay the result's `summary` in a sentence and never list its ids.
 
 Required capability: thread_control. Timeout: 300000 ms.
 

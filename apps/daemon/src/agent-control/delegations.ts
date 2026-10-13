@@ -356,6 +356,16 @@ export class DelegationService {
       return child;
     });
   }
+  /** The name the person gave an account ("Work"), for what an agent tells them. */
+  accountLabel(id: string | undefined): string | undefined {
+    if (!id) return undefined;
+    try {
+      return this.deps.accounts?.get(id)?.instance.label;
+    } catch {
+      // Account homes are still being validated: the answer goes without the name.
+      return undefined;
+    }
+  }
   restartMessage(caller: McpAttribution, requestId: string, threadId: ThreadId, text: string) {
     if (
       !this.authorize(caller, threadId, true) ||

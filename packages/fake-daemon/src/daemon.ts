@@ -117,6 +117,8 @@ export interface ThreadInit {
   execution?: Thread["execution"];
   permissionMode?: PermissionMode;
   parentThreadId?: string;
+  /** A conversation an agent started is a task from its start, as the daemon records it. */
+  hasSentMessage?: boolean;
   /** What the thread's provider can do, over the fake's defaults (a provider that reads no images). */
   capabilities?: Partial<Capabilities>;
 }
@@ -505,7 +507,7 @@ export class FakeDaemon implements Host {
         ),
         pending: false,
       },
-      hasSentMessage: false,
+      hasSentMessage: init.hasSentMessage ?? false,
       activityAt: now,
       status: { state: "new" as const },
       createdAt: now,
