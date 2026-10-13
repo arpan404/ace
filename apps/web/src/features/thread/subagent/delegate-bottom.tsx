@@ -75,7 +75,7 @@ function Delegated(props: { thread: Thread; parentThreadId: string; children: Re
             className={cn(stripControl, "h-8 shrink-0 text-ui text-foreground")}
           >
             <ArrowBendDownRightIcon aria-hidden size={15} className="shrink-0" />
-            Continue
+            <span data-slot="action-label">Continue</span>
           </button>
         }
       />

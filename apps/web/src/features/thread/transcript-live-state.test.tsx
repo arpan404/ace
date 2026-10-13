@@ -185,7 +185,7 @@ test("only a background shell keeps the live timer until the shell ends", async 
   expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
 });
 
-test("approval inside a subagent holds the parent in a needs-you state, its timer stopped", async () => {
+test("approval inside a subagent holds the parent in a needs-you state, with no timer", async () => {
   const { app, setTime } = await running([...initial(), ...child()]);
   act(() =>
     app.daemon.apply(id, [
@@ -210,12 +210,10 @@ test("approval inside a subagent holds the parent in a needs-you state, its time
   expect(await screen.findByRole("link", { name: "Waiting for your approval" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
   expect(screen.queryByRole("status", { name: "Working" })).toBeNull();
-  // The time the turn reached stands still while it waits, however long that is.
+  // The head names the wait, never Working, and no time runs while it lasts.
   const head = screen.getByRole("group", { name: "Turn in progress" });
   const waiting = head.textContent;
-  // The request is the composer's to show; the head only holds its time.
-  expect(waiting).toMatch(/^Working for \d/);
-  expect(waiting).not.toContain("Waiting for your approval");
+  expect(waiting).toBe("Waiting for your approval");
   act(() => setTime(10 * 60_000));
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 1100));
@@ -280,7 +278,7 @@ test("successive text-only turns each retain their own worked duration", async (
   expect(screen.getAllByRole("button", { name: /^Worked for/ })).toHaveLength(2);
 });
 
-test("the live line ticks with an injected clock and stops ticking when approval waits", () => {
+test("the live line ticks with an injected clock and names the wait, untimed, when approval waits", () => {
   vi.useFakeTimers();
   let now = 75_000;
   try {
@@ -308,8 +306,6 @@ test("the live line ticks with an injected clock and stops ticking when approval
             label: "Waiting for your approval",
             tone: "needs-you",
             elapsedFrom: undefined,
-            // The thread's record of the time the turn had reached when the wait began.
-            elapsedMs: 75_000,
             current: undefined,
           }}
         />
@@ -317,8 +313,8 @@ test("the live line ticks with an injected clock and stops ticking when approval
     );
     now = 200_000;
     act(() => vi.advanceTimersByTime(1_000));
-    // The time stands where the wait began.
-    expect(screen.getByRole("status").textContent).toBe("Working for 1m 15s");
+    // Waiting on the person never reads as working, and carries no timer.
+    expect(screen.getByRole("status").textContent).toBe("Waiting for your approval");
     view.unmount();
   } finally {
     vi.useRealTimers();

@@ -40,11 +40,6 @@ export interface TurnActivity {
    * "Working for {now - elapsedFrom}". Undefined when the line has no timer.
    */
   elapsedFrom: number | undefined;
-  /**
-   * While the turn waits on the person: the working time it had reached when the wait began, so
-   * "Working for" stands still at it rather than vanishing.
-   */
-  elapsedMs?: number | undefined;
   /** The step in flight: "Running bun install". */
   current: string | undefined;
   subagents?: number | undefined;
@@ -204,25 +199,8 @@ export function readTurnActivity(
         subagents,
         backgroundCommands,
       }
-    : activity?.tone === "needs-you" && from !== undefined && pending.length
-      ? { ...activity, elapsedMs: reached(reader, from, clock?.idle ?? stretch.idle, pending) }
-      : activity;
+    : activity;
   return { activity: shown, watch: [...new Set(watch)] };
-}
-
-/** The working time a turn had reached when its oldest open request began waiting. */
-function reached(
-  reader: ActivityReader,
-  from: number,
-  idle: number,
-  pending: readonly { createdAt: number }[],
-): number | undefined {
-  const waitStart = Math.min(...pending.map((interaction) => interaction.createdAt));
-  if (!Number.isFinite(waitStart) || waitStart < from) return undefined;
-  return Math.max(
-    0,
-    waitStart - from - idle - ledgerOf(reader).waitedWithin(from, waitStart, from),
-  );
 }
 
 /** A held root's line as its tree's step: the hold and the command it names. */
@@ -362,7 +340,6 @@ export function sameActivity(a: TurnActivity | undefined, b: TurnActivity | unde
       a.code === b.code &&
       a.tone === b.tone &&
       a.elapsedFrom === b.elapsedFrom &&
-      a.elapsedMs === b.elapsedMs &&
       a.current === b.current &&
       a.subagents === b.subagents &&
       a.backgroundCommands === b.backgroundCommands)

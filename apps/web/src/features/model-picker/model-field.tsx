@@ -41,7 +41,7 @@ export function ModelField(props: ModelFieldProps) {
         aria-label={`${props.label}: ${[props.value, props.note].filter(Boolean).join(", ")}`}
         disabled={props.disabled}
         className={cn(
-          "inline-flex h-8 min-w-0 items-center gap-2 rounded-md bg-secondary pr-2 pl-2.5 text-ui text-foreground transition-[background-color,box-shadow] duration-(--motion-fast) focus-ring touch-hit disabled:opacity-50",
+          "relative inline-flex h-8 min-w-0 items-center gap-2 rounded-md bg-secondary pr-2 pl-2.5 text-ui text-foreground transition-[background-color,box-shadow] duration-(--motion-fast) focus-ring touch-hit disabled:opacity-50",
           props.className,
         )}
       >

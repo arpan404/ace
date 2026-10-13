@@ -2,6 +2,7 @@ import { livePlanStep, type TurnActivity } from "@ace/ui-core";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
+import { Dot } from "@/components/ui/dot.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadKey, ThreadReader } from "@ace/client";
@@ -44,7 +45,7 @@ export function LiveHead(props: { threadId: string }) {
 }
 
 /**
- * The live line, muted: `[grid] Working for 1m 14s` moving; `Working for 1m 15s` standing still
+ * The live line, muted: `[grid] Working for 1m 14s` moving; `● Waiting for your answer`
  * while the person is asked (the request itself is in the composer's strip); a held line as it
  * is; a usage-limit pause as a divider.
  */
@@ -61,7 +62,7 @@ export function ActivityLine(props: { activity: TurnActivity; progress?: string 
     <p
       role="status"
       aria-label={label}
-      className="flex min-h-8 min-w-0 items-center text-ui text-muted-foreground"
+      className="@container/live flex min-h-8 min-w-0 items-center text-ui text-muted-foreground"
     >
       {activity.tone === "working" ? (
         <span className="flex min-w-0 items-center gap-1.5">
@@ -73,17 +74,12 @@ export function ActivityLine(props: { activity: TurnActivity; progress?: string 
           <Context activity={activity} progress={props.progress} />
         </span>
       ) : activity.tone === "needs-you" ? (
-        // The request itself sits in the composer's strip; here the time just stands still.
-        <WorkingIndicator
-          // Under a second reads as no time yet, not "0s".
-          held={
-            activity.elapsedMs !== undefined && activity.elapsedMs >= 1000
-              ? activity.elapsedMs
-              : undefined
-          }
-          moving={false}
-          className="shrink-0"
-        />
+        // Waiting on the person outranks working: never "Working", no timer. The request
+        // itself sits in the composer's strip.
+        <span className="flex min-w-0 items-center gap-2">
+          <Dot tone="needs-you" className="mx-0.5" />
+          <span className="min-w-0 truncate">{label}</span>
+        </span>
       ) : (
         <span className="min-w-0 truncate">{label}</span>
       )}
@@ -117,17 +113,25 @@ export function TailThinking(props: { threadId: string }) {
 /** What else the whole tree is doing, quietly after the time: the plan's step, subagents, commands. */
 function Context(props: { activity: TurnActivity; progress: string | undefined }) {
   const { activity } = props;
+  const commands = activity.backgroundCommands;
   const parts = [
     props.progress,
     activity.subagents
       ? `${activity.subagents} ${activity.subagents === 1 ? "subagent" : "subagents"}`
       : undefined,
-    activity.backgroundCommands
-      ? `${activity.backgroundCommands} ${
-          activity.backgroundCommands === 1 ? "background command" : "background commands"
-        }`
-      : undefined,
   ].filter(Boolean);
-  if (!parts.length) return null;
-  return <span className="min-w-0 truncate">{` · ${parts.join(" · ")}`}</span>;
+  if (!parts.length && !commands) return null;
+  return (
+    <span className="min-w-0 truncate">
+      {` · ${parts.join(" · ")}`}
+      {commands ? (
+        <>
+          {parts.length ? " · " : ""}
+          {commands} {/* A narrow column says "1 command": the line keeps its counts whole. */}
+          <span className="@max-[30rem]/live:hidden">background </span>
+          {commands === 1 ? "command" : "commands"}
+        </>
+      ) : null}
+    </span>
+  );
 }
