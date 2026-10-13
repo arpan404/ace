@@ -1,6 +1,6 @@
 import { themeAccent, themedPalette, type AccentChoice } from "./accent.ts";
 import { readableAcross } from "./colour.ts";
-import { themeIds, type Palette, type Scheme, type ThemeId } from "./palettes.ts";
+import { themeIds, themes, type Palette, type Scheme, type ThemeId } from "./palettes.ts";
 import { paletteSurfaces } from "./surfaces.ts";
 import { themeTokens } from "./tokens.ts";
 
@@ -27,9 +27,14 @@ export function themeDeclarations(
 ): Record<string, string> {
   const palette = themedPalette(id, scheme, accent);
   const tokens: Record<string, string> = themeTokens(palette, scheme);
+  const { fonts } = themes[id];
   return {
     "color-scheme": scheme,
     ...tokens,
+    // The theme's type: Folio sets transcript prose in a serif, Tty sets everything in mono.
+    "--font-sans": fonts.ui,
+    "--font-prose": fonts.prose,
+    "--font-mono": fonts.mono,
     ...sharedStatusText(palette, scheme, tokens),
     // shadcn's foreground aliases, so components only ever read token names.
     "--card-foreground": palette.t1,

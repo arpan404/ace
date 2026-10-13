@@ -32,48 +32,60 @@ Mode and theme are separate settings.
 
 - **Mode:** Light, Dark or System. System follows `prefers-color-scheme`, and a change
   cross-fades the window.
-- **Theme:** Graphite (the default), Midnight, Paper, Slate, Contrast or Aurora.
-- **Accent:** the theme's own, Blue, Violet, Teal, Green, Amber, Rose, Mono (the text colour) or
+- **Theme:** ace (the default), Folio, Umbra, Signal, Tty or Harbor.
+- **Accent:** the theme's own, Blue, Violet, Teal, Green, Amber, Rose, Ink (the text colour) or
   a custom colour. It applies over any theme.
 
-A theme is a material, not an accent. Each owns its **neutral ramp** per scheme: twelve steps
-generated in OKLCH (`palettes.ts`) with the theme's own lightness curve, hue and chroma, plus its
-glass and focus strength.
+A theme is a material, not an accent. Each owns its neutral ramp, contrast, status hues, code
+colours, fonts and glass per scheme. The values come from the approved theme proposal's final
+token tables, one file per theme in `src/theme/sources/`. Nothing is generated except the
+pressed accent and the shadow tint.
 
-| Theme    | Character                                                                        |
-| -------- | -------------------------------------------------------------------------------- |
-| Graphite | True greys at medium contrast, close to T3 Code and Codex; a steel accent        |
-| Midnight | Deep blue-black dark and a cool daylight light with navy ink; a cyan accent      |
-| Paper    | Warm cream and umber at a soft contrast; a terracotta accent                     |
-| Slate    | Mid-tone blue-grey with low glare in both schemes; a teal accent                 |
-| Contrast | Black and white, AAA body text, 3:1 borders, no glass, full-strength focus rings |
-| Aurora   | Violet dusk with clearer glass on floating layers; a magenta accent              |
+| Theme  | Character                                                                                                                                                                                             |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ace    | Zero-chroma greys. The accent is the ink, so Send, focus and caret take the text colour, the selected task is a brighter fill and status is the only colour. No milled edge, grain or material effect |
+| Folio  | Warm paper and umber ink, with a mulberry accent. Transcript prose is serif; the UI stays sans                                                                                                        |
+| Umbra  | The darkest canvas, on one plane, with text held back from white and a verdigris accent                                                                                                               |
+| Signal | Black on white, 3:1 borders, AAA status words, ink accent, solid layers, full focus rings                                                                                                             |
+| Tty    | All monospace, with a chartreuse cursor accent and a teal "done"                                                                                                                                      |
+| Harbor | Cool slate at mid contrast, with a petrol accent                                                                                                                                                      |
 
-Any accent is fitted to the theme and scheme it lands on (`accent-fit.ts`): light themes deepen
-it until white labels read at AA (a bright colour such as amber keeps its brightness and takes a
-deep label instead), dark themes brighten it until a deep label reads, links step toward the
-text colour until they read on every surface, and an accent within ΔE 10 of a status colour is
-nudged clear of it. Status colours never change with the theme or accent: working is always
-blue, needs-you amber, waiting violet, failed red and done green. Status words step toward the
-text colour only where a theme's surfaces need it to read at AA.
+The sources clear AA on the proposal's surfaces: page, sidebar, cards, floating, hover, active
+and code. The app also draws text on glass and on selected-row washes, and its faint icons need
+3:1. `palettes.ts` steps any role that falls short there toward black (light) or white (dark)
+just far enough. Every other value is used exactly as given.
+
+Any other accent is fitted to the theme and scheme it lands on (`accent-fit.ts`):
+
+- Light themes deepen it until white labels read at AA. A bright colour such as amber keeps its
+  brightness and takes a deep label instead.
+- Dark themes brighten it until a deep label reads.
+- Links step toward the text colour until they read on every surface.
+- An accent within ΔE 10 of a status colour is nudged clear of it. One boxed in on every side
+  becomes the ink.
+
+Status colours belong to the theme and never change with the accent. Working is always blue,
+needs-you amber, failed red and done green. Waiting (violet) and not-responding (pink) are shared
+by every theme.
 
 | Step | Name           | Light   | Dark    | For                                      |
 | ---- | -------------- | ------- | ------- | ---------------------------------------- |
-| 1    | `canvas`       | #FDFDFD | #161616 | Page and reading column                  |
-| 2    | `sidebar`      | #F6F6F6 | #111111 | Sidebar and side panel                   |
-| 3    | `surface`      | #F2F2F2 | #1D1D1D | Cards, bubbles, settings groups          |
-| 4    | `raised`       | #FFFFFF | #222222 | Floating layers when solid               |
-| 5    | `hover`        | #EEEEEE | #262626 | Solid hover fill                         |
-| 6    | `active`       | #E7E7E7 | #2D2D2D | Solid pressed or selected fill           |
-| 7    | `border`       | #E2E2E2 | #303030 | Hairlines                                |
-| 8    | `borderStrong` | #D0D0D0 | #424242 | Control edges, switch tracks (`--input`) |
-| 9    | `faint`        | #8C8C8C | #6F6F6F | Decorative icons (3:1)                   |
-| 10   | `subtle`       | #636363 | #9E9E9E | Quiet text (`--subtle-foreground`)       |
-| 11   | `muted`        | #4A4A4A | #C1C1C1 | Secondary text (`--muted-foreground`)    |
-| 12   | `text`         | #191919 | #F0F0F0 | Text (`--foreground`)                    |
+| 1    | `canvas`       | #FFFFFF | #121212 | Page and reading column                  |
+| 2    | `sidebar`      | #F7F7F7 | #0C0C0C | Sidebar and side panel                   |
+| 3    | `surface`      | #F2F2F2 | #1A1A1A | Cards, bubbles, settings groups          |
+| 4    | `raised`       | #FFFFFF | #1F1F1F | Floating layers when solid               |
+| 5    | `hover`        | #EFEFEF | #1C1C1C | Solid hover fill                         |
+| 6    | `active`       | #E9E9E9 | #2A2A2A | Solid pressed or selected fill           |
+| 7    | `border`       | #E6E6E6 | #262626 | Hairlines                                |
+| 8    | `borderStrong` | #CCCCCC | #383838 | Control edges, switch tracks (`--input`) |
+| 9    | `faint`        | #939393 | #636363 | Decorative icons (3:1)                   |
+| 10   | `subtle`       | #646464 | #979797 | Quiet text (`--subtle-foreground`)       |
+| 11   | `muted`        | #454545 | #B2B2B2 | Secondary text (`--muted-foreground`)    |
+| 12   | `text`         | #111111 | #F0F0F0 | Text (`--foreground`)                    |
 
-(Values shown are Graphite's; every other theme has its own.) Each step is a token by name and by
-number: `--neutral-1` … `--neutral-12`.
+(Values shown are ace's; every other theme has its own.) Each step is a token by name and by
+number: `--neutral-1` … `--neutral-12`. Each theme also sets `--font-sans`, `--font-prose`
+(transcript text, the `font-prose` utility) and `--font-mono`, all system stacks.
 
 ### Palette fields
 
@@ -86,6 +98,7 @@ number: `--neutral-1` … `--neutral-12`.
 | `accentFg` / `accentText`                        | Label on an accent fill / the accent as text  |
 | `working`, `needs`, `failed`, `done` (+ `…Text`) | Status marks and status words                 |
 | `code`, `shadow`                                 | Code background; the shadow tint ("r g b")    |
+| `diffAdd`, `diffDel` (+ `…Fg`), `syntax`         | Diff rows and their gutter text; code colours |
 
 ## Tokens
 
@@ -109,7 +122,7 @@ existing components need no edits.
 | Focus                     | `--focus`                                                                         |
 | Status                    | `--status-{working,needs-you,waiting,unresponsive,failed,done}` and `…-text`      |
 | Errors                    | `--destructive`                                                                   |
-| Code                      | `--code`, `--syn-{kw,str,num,fn,type,com}`, `--diff-add`, `--diff-del`            |
+| Code                      | `--code`, `--syn-{kw,str,num,fn,type,com,punc}`, `--diff-{add,del}` (+ `-text`)   |
 | Loading                   | `--skel`, `--skel-hi`                                                             |
 | Modal backdrop            | `--scrim` (solid), `--scrim-glass` (over blur); modal panels `--glass-tint-modal` |
 | Floating material         | `--float-edge`, `--float-shadow` (= `--glass-shadow`), `--glass-*`, `--sliver`    |
@@ -132,7 +145,7 @@ To port prototype CSS, translate its names as follows:
 
 Static tokens (`tokens.css`):
 
-- **Type:** `--font-sans` and `--font-mono`.
+- **Type:** defaults for `--font-sans`, `--font-prose` and `--font-mono`; each theme sets its own.
 - **Layout:** `--header-h`, `--column` and `--composer-control`.
 - **Radii:**
   - `--radius-sm` is 8 px, for controls, rows and code.
@@ -267,7 +280,7 @@ Dialogs, sheets and the command palette (`components/ui/dialog.tsx`, `sheet.tsx`
 The theme provider writes `ace.boot-appearance` to storage. It holds the settings plus the chosen
 theme's CSS. `index.html` replays it before the app's script runs: it resolves System mode,
 reduced transparency and reduced motion against the OS, then sets every attribute. A first visit
-paints Graphite in the OS scheme. Reloading in any theme or mode never flashes the wrong one.
+paints ace in the OS scheme. Reloading in any theme or mode never flashes the wrong one.
 
 ## Layout rules (approved prototype)
 

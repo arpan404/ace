@@ -29,12 +29,12 @@ import UIKit
         static let shadow = adaptive(0x000000, 0x000000)
     }
     @MainActor enum Status {
-        static let needsYou = adaptive(0xC46A0B, 0xE9A14C)
-        static let working = adaptive(0x2A62E3, 0x5C8DF0)
+        static let needsYou = adaptive(0xB97811, 0xEDC070)
+        static let working = adaptive(0x2A55B0, 0x6A8FD8)
         static let waiting = adaptive(0x7A5BD6, 0xB49CF5)
         static let unresponsive = adaptive(0xC2508A, 0xE88BB3)
-        static let done = adaptive(0x2E8A50, 0x4DBE78)
-        static let failed = adaptive(0xD63B3B, 0xEE7272)
+        static let done = adaptive(0x2F906E, 0x57BD9B)
+        static let failed = adaptive(0xA3233A, 0xCF5468)
     }
     @MainActor enum StatusText {
         static let needsYou = adaptive(0xA35513, 0xF0A35E)

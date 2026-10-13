@@ -10,11 +10,11 @@ for (const mode of ["light", "dark"])
       }, mode);
       await page.goto("/settings/appearance");
       const themes = page.getByRole("radiogroup", { name: "Theme", exact: true });
-      const graphite = themes.getByRole("radio", { name: "Graphite", exact: true });
-      await expect(graphite).toBeChecked();
+      const ace = themes.getByRole("radio", { name: "ace", exact: true });
+      await expect(ace).toBeChecked();
       // Each swatch previews its theme with that theme's own tokens, in both schemes.
-      const paper = themes.getByRole("radio", { name: "Paper", exact: true });
-      const halves = paper.locator('[data-theme="paper"]');
+      const folio = themes.getByRole("radio", { name: "Folio", exact: true });
+      const halves = folio.locator('[data-theme="folio"]');
       await expect(halves).toHaveCount(2);
       const [lightHalf, darkHalf] = await halves.evaluateAll((nodes) =>
         nodes.map((node) => getComputedStyle(node).backgroundColor),
@@ -30,11 +30,10 @@ for (const mode of ["light", "dark"])
       await expect
         .poll(async () => (await row.boundingBox())?.height ?? 0)
         .toBe(comfortable?.height ?? 0);
-      await graphite.focus();
+      await ace.focus();
       await page.keyboard.press("ArrowRight");
-      const ace = themes.getByRole("radio", { name: "Ace", exact: true });
-      await expect(ace).toBeFocused();
-      await expect(ace).toBeChecked();
+      await expect(folio).toBeFocused();
+      await expect(folio).toBeChecked();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
         width,
       );
@@ -152,31 +151,31 @@ test.describe("touch archive actions", () => {
   });
 });
 
-test("an unknown saved theme falls back to Graphite and the swatches answer the keyboard", async ({
+test("a removed saved theme falls back to ace and the swatches answer the keyboard", async ({
   page,
 }) => {
   await page.addInitScript(() => {
     if (!localStorage.getItem("ace.appearance"))
-      localStorage.setItem("ace.appearance", JSON.stringify({ theme: "custom-missing" }));
+      localStorage.setItem("ace.appearance", JSON.stringify({ theme: "graphite" }));
   });
   await page.goto("/settings/appearance");
   const themes = page.getByRole("radiogroup", { name: "Theme", exact: true });
-  const graphite = themes.getByRole("radio", { name: "Graphite", exact: true });
-  await expect(graphite).toBeChecked();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "graphite");
-  await graphite.focus();
+  const ace = themes.getByRole("radio", { name: "ace", exact: true });
+  await expect(ace).toBeChecked();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "ace");
+  await ace.focus();
   await page.keyboard.press("ArrowLeft");
   // Arrows wrap: left of the first theme is the last.
-  const aurora = themes.getByRole("radio", { name: "Aurora", exact: true });
-  await expect(aurora).toBeChecked();
-  await expect(aurora).toBeFocused();
+  const harbor = themes.getByRole("radio", { name: "Harbor", exact: true });
+  await expect(harbor).toBeChecked();
+  await expect(harbor).toBeFocused();
   await expect
     .poll(() =>
       page.evaluate(() => JSON.parse(localStorage.getItem("ace.appearance") ?? "{}").theme),
     )
-    .toBe("aurora");
+    .toBe("harbor");
   await page.reload();
-  await expect(aurora).toBeChecked();
+  await expect(harbor).toBeChecked();
 });
 
 test("a waiting thread keeps its visible Answer status during hover and keyboard focus", async ({

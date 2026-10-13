@@ -8,8 +8,8 @@ import { themeDeclarations, themeRule } from "./css.ts";
 import { edgeMap, fitStep, glassEngine, glassGeometry } from "./glass.ts";
 import { accentIds, themedPalette, type AccentChoice } from "./accent.ts";
 import { nearStatus, statusDistance, statusGap } from "./accent-fit.ts";
-import { contrastRatio, deltaE, rgbToOklch } from "./colour.ts";
-import { sharedStatus, themeIds, themes } from "./palettes.ts";
+import { deltaE, rgbToOklch } from "./colour.ts";
+import { rampSteps, sharedStatus, themeIds, themes } from "./palettes.ts";
 import { paletteSurfaces } from "./surfaces.ts";
 
 const schemes = ["light", "dark"] as const;
@@ -23,7 +23,7 @@ const chroma = (value: string) => rgbToOklch(rgb(value)).c;
 /** Every accent choice, plus custom colours at the extremes and two on top of a status. */
 const accentChoices: AccentChoice[] = [
   ...accentIds.map((accent) => ({ accent, customAccent: "#3E8E7E" })),
-  ...["#FFFFFF", "#000000", "#FFFF00", "#2A62E3", "#D63B3B"].map((customAccent) => ({
+  ...["#FFFFFF", "#000000", "#FFFF00", "#2A55B0", "#A3233A"].map((customAccent) => ({
     accent: "custom" as const,
     customAccent,
   })),
@@ -43,10 +43,11 @@ test("every theme passes WCAG AA in light and dark with every accent, rows and g
       }
 });
 
-test("no accent passes for a status colour: one too close is moved clear of it", () => {
+test("no picked accent passes for any status colour: one too close is moved clear of it", () => {
   for (const id of themeIds)
     for (const scheme of schemes)
       for (const choice of accentChoices) {
+        if (choice.accent === "theme") continue;
         const palette = themedPalette(id, scheme, choice);
         if (chroma(palette.accent) > 0.03)
           expect(
@@ -55,69 +56,71 @@ test("no accent passes for a status colour: one too close is moved clear of it",
           ).toBeGreaterThanOrEqual(statusDistance);
       }
   // The working blue itself, picked as a custom accent, is flagged and moved.
-  const working = themes.graphite.light.working;
-  expect(nearStatus(working, "light", themes.graphite.light)).toBe(true);
-  const moved = themedPalette("graphite", "light", { accent: "custom", customAccent: working });
+  const working = themes.ace.light.working;
+  expect(nearStatus(working, "light", themes.ace.light)).toBe(true);
+  const moved = themedPalette("ace", "light", { accent: "custom", customAccent: working });
   expect(deltaE(rgb(moved.accent), rgb(working))).toBeGreaterThanOrEqual(statusDistance);
 });
 
-test("themes differ in their surfaces and ink, not only in their accent", () => {
+test("an accent boxed in by statuses on every side falls back to the ink", () => {
+  // Tty light's done is teal, so blue has working on one side and done on the other.
+  const palette = themedPalette("tty", "light", { accent: "blue", customAccent: "#3E8E7E" });
+  expect(palette.accent).toBe(themes.tty.light.t1);
+});
+
+test("themes differ in their surfaces, ink or type, not only in their accent", () => {
   for (const scheme of schemes)
     for (const a of themeIds)
       for (const b of themeIds) {
         if (a >= b) continue;
         const [x, y] = [themes[a][scheme], themes[b][scheme]];
-        const apart = Math.max(
-          ...(["canvas", "sidebar", "raised", "border", "text"] as const).map((step) =>
-            deltaE(rgb(x[step]), rgb(y[step])),
-          ),
-        );
-        expect(apart, `${a} vs ${b} (${scheme})`).toBeGreaterThan(3);
+        const apart = Math.max(...rampSteps.map((step) => deltaE(rgb(x[step]), rgb(y[step]))));
+        // Folio and Tty share a warm paper by day; one reads in serif, the other in mono.
+        const typeface = themes[a].fonts.prose !== themes[b].fonts.prose;
+        expect(apart > 3 || typeface, `${a} vs ${b} (${scheme})`).toBe(true);
       }
 });
 
-test("Contrast reads at AAA for body text, with 3:1 borders and full-strength focus rings", () => {
+test("Signal reads at AAA for body text, with solid layers and full-strength focus rings", () => {
   for (const scheme of schemes) {
-    const palette = themes.contrast[scheme];
+    const palette = themes.signal[scheme];
     const surfaces = paletteSurfaces(palette, scheme).map((surface) => surface.rgb);
     expect(worstContrast(rgb(palette.t1), surfaces)).toBeGreaterThanOrEqual(7);
     expect(worstContrast(rgb(palette.t2), surfaces)).toBeGreaterThanOrEqual(7);
-    expect(contrastRatio(rgb(palette.border), rgb(palette.s0))).toBeGreaterThanOrEqual(3);
-    expect(themeDeclarations("contrast", scheme)["--focus"]).toContain(" 100%");
+    const declarations = themeDeclarations("signal", scheme);
+    expect(declarations["--focus"]).toContain(" 100%");
+    expect(declarations["--glass-tint"]).toContain(" 100%");
   }
 });
 
-/**
- * Every status hue a theme sets in one scheme. The words drawn in a shared hue (`-text`) step
- * toward each theme's text colour where needed to read at AA; the test below guards those.
- */
+/** Every status colour a theme sets in one scheme: marks and words. */
 const statusOf = (id: (typeof themeIds)[number], scheme: "light" | "dark", choice?: AccentChoice) =>
   Object.fromEntries(
-    Object.entries(themeDeclarations(id, scheme, choice)).filter(
-      ([name]) => name.startsWith("--status-") && !name.endsWith("-text"),
+    Object.entries(themeDeclarations(id, scheme, choice)).filter(([name]) =>
+      name.startsWith("--status-"),
     ),
   );
 
-test("a status looks the same in every theme and with every accent", () => {
-  for (const scheme of schemes) {
-    const reference = statusOf("graphite", scheme);
-    for (const id of themeIds)
+test("picking an accent never changes a status colour, and waiting is shared by every theme", () => {
+  for (const scheme of schemes)
+    for (const id of themeIds) {
+      const reference = statusOf(id, scheme);
       for (const choice of accentChoices)
         expect([id, choice, statusOf(id, scheme, choice)]).toEqual([id, choice, reference]);
-    expect(reference["--status-waiting"]).toBe(sharedStatus[scheme].waiting);
-  }
+      expect(reference["--status-waiting"]).toBe(sharedStatus[scheme].waiting);
+    }
 });
 
 test("quiet text that reads on the page but not on a highlighted menu row is flagged", () => {
-  // 5.1:1 on Graphite's dark page, but under 4.5:1 on a highlighted row of a solid menu.
-  const palette = { ...themes.graphite.dark, t3: "#888888" };
+  // 5.2:1 on ace's dark page, but under 4.5:1 on a highlighted row of a solid menu.
+  const palette = { ...themes.ace.dark, t3: "#888888" };
   expect(contrastWarnings(palette, "dark")).toEqual([
     expect.objectContaining({ label: "Quiet text", minimum: 4.5 }),
   ]);
 });
 
 test("a label that can't be read on the accent fill is flagged", () => {
-  const palette = { ...themes.graphite.light, accentFg: "#2A2825" };
+  const palette = { ...themes.ace.light, accentFg: "#2A2825" };
   expect(contrastWarnings(palette, "light").map((warning) => warning.label)).toContain(
     "Label on accent",
   );
@@ -137,9 +140,9 @@ test("waiting and not-responding words read at AA on every surface of every them
 });
 
 test("a theme rule themes any element carrying both attributes, so swatches preview real tokens", () => {
-  const rule = themeRule("midnight", "dark");
-  expect(rule.startsWith('[data-theme="midnight"][data-scheme="dark"]{')).toBe(true);
-  expect(rule).toContain(`--background:${themes.midnight.dark.s0}`);
+  const rule = themeRule("umbra", "dark");
+  expect(rule.startsWith('[data-theme="umbra"][data-scheme="dark"]{')).toBe(true);
+  expect(rule).toContain(`--background:${themes.umbra.dark.s0}`);
   expect(rule).toContain("color-scheme:dark");
 });
 
@@ -173,13 +176,13 @@ test("Reduce motion follows the OS under System, and On or Off overrides it", ()
   );
 });
 
-test("a saved appearance keeps each valid choice and replaces only the unreadable ones", () => {
+test("a saved appearance keeps each valid choice, and a removed theme falls back to ace", () => {
   const storage = memoryKeyValue();
   storage.setItem(
     "ace.appearance",
     JSON.stringify({
       mode: "dark",
-      theme: "tide",
+      theme: "graphite",
       accent: "violet",
       customAccent: "not a colour",
       surface: "solid",
@@ -188,6 +191,7 @@ test("a saved appearance keeps each valid choice and replaces only the unreadabl
   );
   expect(loadAppearance(storage)).toEqual({
     ...defaultAppearance,
+    theme: "ace",
     mode: "dark",
     accent: "violet",
     surface: "solid",

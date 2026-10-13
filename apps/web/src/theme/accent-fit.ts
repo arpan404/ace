@@ -117,7 +117,9 @@ export function nearStatus(colour: string, scheme: Scheme, palette: Base): boole
  * Small moves away from a status colour, nearest first: a few degrees of hue either way, and a
  * step deeper (light themes) or brighter (dark themes), which keeps labels readable.
  */
-const nudges: readonly { turn: number; depth: number }[] = [-30, -20, -12, -6, 0, 6, 12, 20, 30]
+const nudges: readonly { turn: number; depth: number }[] = [
+  -60, -45, -30, -20, -12, -6, 0, 6, 12, 20, 30, 45, 60,
+]
   .flatMap((turn) => [0, 1, 2, 3, 4].map((depth) => ({ turn, depth })))
   .filter((nudge) => nudge.turn !== 0 || nudge.depth !== 0)
   .toSorted((a, b) => Math.abs(a.turn) / 6 + a.depth - (Math.abs(b.turn) / 6 + b.depth));
@@ -132,6 +134,9 @@ export function deriveAccent(colour: string, scheme: Scheme, palette: Base): Acc
   let chosen = fills(start, scheme, page);
   if (nearStatus(colour, scheme, palette)) {
     const direction = scheme === "light" ? -1 : 1;
+    // Boxed in by statuses on both sides (a theme whose done is teal, say), it falls back to the
+    // ink, which no status can be mistaken for.
+    chosen = fills(rgbToOklch(rgb(palette.t1)), scheme, page);
     for (const { turn, depth } of nudges) {
       const fitted = fills(
         { ...start, h: (start.h + turn + 360) % 360, l: start.l + direction * depth * 0.04 },

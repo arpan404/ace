@@ -1,5 +1,5 @@
 import { oklchToHex } from "./colour.ts";
-import { rampSteps, sharedStatus, syntax, type Palette, type Scheme } from "./palettes.ts";
+import { rampSteps, sharedStatus, type Palette, type Scheme } from "./palettes.ts";
 
 /*
  * One palette as every themed CSS variable. Components read these names only (through the
@@ -46,7 +46,7 @@ function neutralRamp(p: Palette): Record<`--neutral-${number}`, string> {
 
 export function themeTokens(p: Palette, scheme: Scheme) {
   const light = scheme === "light";
-  const sx = syntax[scheme];
+  const sx = p.syntax;
   const status = sharedStatus[scheme];
   const fill = wash(p.t1, light ? 4 : 5);
   const fillStrong = wash(p.t1, light ? 7 : 8);
@@ -122,14 +122,17 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     "--status-unresponsive": status.unresponsive,
 
     // Diffs and code.
-    "--diff-add": wash(p.done, light ? 11 : 14),
-    "--diff-del": wash(p.failed, light ? 10 : 14),
+    "--diff-add": p.diffAdd,
+    "--diff-add-text": p.diffAddFg,
+    "--diff-del": p.diffDel,
+    "--diff-del-text": p.diffDelFg,
     "--syn-kw": sx.kw,
     "--syn-str": sx.str,
     "--syn-num": sx.num,
     "--syn-fn": sx.fn,
     "--syn-type": sx.type,
     "--syn-com": sx.com,
+    "--syn-punc": sx.punc,
 
     // Controls.
     "--seg-bg": wash(p.t1, light ? 6 : 8),
