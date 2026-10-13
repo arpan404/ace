@@ -128,3 +128,15 @@ test("Cancel stays available while pairing is waiting and a late response does n
   expect(await screen.findByRole("button", { name: "Connect" })).toBeTruthy();
   expect(loadTarget(stores).target).toBeUndefined();
 });
+
+test("the bare pairing route with no connection opens the pairing form and says where links come from", async () => {
+  window.history.replaceState(null, "", "/pair");
+  try {
+    await setup(false);
+    expect(await screen.findByRole("form", { name: "Pair this device" })).toBeTruthy();
+    expect(screen.getByText(/open Settings › Pair a device/)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Connect to ace" })).toBeNull();
+  } finally {
+    window.history.replaceState(null, "", "/");
+  }
+});

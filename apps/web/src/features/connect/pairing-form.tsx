@@ -83,16 +83,13 @@ export function PairingForm(props: {
       setPending(false);
     }
   };
+  const cancel = () => {
+    controller.current?.abort();
+    props.cancel();
+  };
   const actions = (
     <>
-      <Button
-        type="button"
-        variant="ghost"
-        onClick={() => {
-          controller.current?.abort();
-          props.cancel();
-        }}
-      >
+      <Button type="button" variant="ghost" onClick={cancel}>
         Cancel
       </Button>
       <Button type="submit" variant="primary" disabled={pending}>
@@ -162,7 +159,15 @@ export function PairingForm(props: {
       {props.renderActions ? (
         props.renderActions(actions)
       ) : (
-        <div className="flex items-center gap-2">{actions}</div>
+        // The connect screen's own form: the same full-width primary as Connect beside it.
+        <div className="flex gap-2">
+          <Button type="submit" variant="primary" disabled={pending} className="h-9 flex-1">
+            {pending ? "Pairing…" : (props.submitLabel ?? "Pair and connect")}
+          </Button>
+          <Button type="button" onClick={cancel} className="h-9">
+            Cancel
+          </Button>
+        </div>
       )}
     </form>
   );
