@@ -43,7 +43,9 @@ test("the Changes toolbar counts the selected turn and keeps it when another tab
   await waitFor(() => expectTotal(panel, 8, 2));
   const card = await openWorkCard();
   expect(
-    await within(card).findByRole("button", { name: "Changes, 2 files: 38 added, 6 removed" }),
+    await within(card).findByRole("button", {
+      name: "Uncommitted changes, 2 files: 38 added, 6 removed",
+    }),
   ).toBeTruthy();
 });
 

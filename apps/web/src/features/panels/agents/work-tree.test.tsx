@@ -6,7 +6,7 @@ import {
   failingSubagent,
   type Scenario,
 } from "@ace/fake-daemon";
-import { act, screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -30,7 +30,8 @@ test("the agent tree shows subagents as they spawn and marks the one that fails"
 
   await act(async () => script.runThrough("tester-failed"));
   const failed = await within(panel).findByRole("treeitem", { name: "migration-tester: Failed" });
-  expect(within(failed).getByText("Couldn't finish. Open the agent for details.")).toBeTruthy();
+  // It says Failed once, as its badge: no second line repeating the status in words.
+  expect(within(failed).getAllByText(/Failed|Couldn't finish/)).toHaveLength(1);
   expect(within(failed).queryByText(/Context window exceeded/)).toBeNull();
   expect(within(panel).getByRole("treeitem", { name: "schema-writer: Working" })).toBeTruthy();
   // Opening it shows it as the whole chat, its status bar saying how it ended.
@@ -38,6 +39,24 @@ test("the agent tree shows subagents as they spawn and marks the one that fails"
   await screen.findByRole("heading", { level: 1, name: "migration-tester" });
   const bar = screen.getByRole("group", { name: "Subagent" });
   expect(within(bar).getByText(/^Failed/)).toBeTruthy();
+});
+
+test("the live line, the subagents block and the Summary count subagents by one rule", async () => {
+  const app = harness();
+  app.play(failingSubagent()).runThrough("tester-failed");
+  await app.open("/t/thread-settings");
+  await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
+  const live = await screen.findByRole("group", { name: "Turn in progress" });
+  await waitFor(() => expect(live.textContent).toContain("1 subagent working"));
+  const block = await screen.findByRole("region", { name: "2 subagents" });
+  await waitFor(() =>
+    expect(within(block).getByRole("status").textContent).toBe("1 working · 1 failed"),
+  );
+  await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  const agents = await within(panel).findByRole("region", { name: "Agents" });
+  await within(agents).findByRole("treeitem", { name: "migration-tester: Failed" });
+  expect(within(agents).getAllByRole("status")[0]?.textContent).toBe("1 working · 1 failed");
 });
 
 test("the Summary tree shows what each agent is doing, the background shell, and why the thread isn't done", async () => {

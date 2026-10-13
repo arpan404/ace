@@ -11,7 +11,7 @@ function Counts() {
   const facts = useTreeWork("thread");
   return <AgentCounts agents={facts.agents} work={facts.work} />;
 }
-test("a mounted Agents summary follows each child's status without calling failures done", async () => {
+test("the Summary's count line follows each subagent in the subagents block's words", async () => {
   const store = new ThreadStore(defaultLimits);
   const view = ThreadView.parse({
     kind: "thread",
@@ -64,7 +64,7 @@ test("a mounted Agents summary follows each child's status without calling failu
       </ThreadWindowProvider>
     </ClientProvider>,
   );
-  expect(screen.getByRole("status").textContent).toBe("No active subagents · 1 done");
+  expect(screen.getByRole("status").textContent).toBe("1 done");
   let seq = 0;
   const status = async (value: unknown, expected: string) => {
     const afterSeq = seq++;
@@ -87,16 +87,10 @@ test("a mounted Agents summary follows each child's status without calling failu
     });
     expect(screen.getByRole("status").textContent).toBe(expected);
   };
-  await status({ state: "working", activity: "thinking" }, "1 active · 0 done");
-  await status({ state: "idle" }, "No active subagents · 1 done");
-  await status({ state: "blocked", on: "human", refs: [] }, "1 active · 0 done");
-  await status(
-    { state: "failed", error: { kind: "unknown", message: "Failed" } },
-    "No active subagents · 0 done · 1 failed",
-  );
-  await status(
-    { state: "unresponsive", lastSignalAt: 0 },
-    "No active subagents · 0 done · 1 unresponsive",
-  );
+  await status({ state: "working", activity: "thinking" }, "1 working");
+  await status({ state: "idle" }, "1 done");
+  await status({ state: "blocked", on: "human", refs: [] }, "1 waiting on you");
+  await status({ state: "failed", error: { kind: "unknown", message: "Failed" } }, "1 failed");
+  await status({ state: "unresponsive", lastSignalAt: 0 }, "1 not responding");
   await client.close();
 });

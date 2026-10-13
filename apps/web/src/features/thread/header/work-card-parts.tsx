@@ -77,7 +77,7 @@ export function RowAction({ className, ...props }: ComponentProps<"button">) {
 }
 
 /**
- * One of the card's sections (Environment, Git, Running, Lineage). No heading row: a hairline
+ * One of the card's sections (Environment, Git, Lineage). No heading row: a hairline
  * between sections is all that divides them, as T3's details card does. `label` names it for
  * assistive tech; `title` shows a quiet caption where the rows alone don't say what they are.
  */

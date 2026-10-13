@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { ModelControl } from "./model-control.tsx";
@@ -96,6 +96,45 @@ test("the chip's effort opens Tune: speed, effort and the model's levels with it
   await userEvent.click(within(speed).getByRole("radio", { name: "Ultrafast" }));
   expect(actions.onSpeed).toHaveBeenCalledWith("ultrafast");
 });
+
+test.each([
+  {
+    model: "Claude Opus",
+    view: {
+      label: "Opus 5.5",
+      efforts: ["low", "medium", "high"],
+      effort: "medium",
+      speeds: [],
+      speed: "standard",
+    },
+  },
+  {
+    model: "Codex",
+    view: {
+      label: "GPT-6.1",
+      efforts: ["minimal", "low", "medium", "high"],
+      effort: "medium",
+      speed: "standard",
+    },
+  },
+] satisfies { model: string; view: Partial<ModelControlView> }[])(
+  "one click on the effort half of a $model chip opens the effort slider, the caret included",
+  async ({ view: overrides }) => {
+    const { chip } = draw(overrides);
+    const half = chip.querySelector("[data-model-tune]");
+    const caret = half?.querySelector("svg:last-child");
+    const effort = half?.querySelector("[data-slot=model-effort]");
+    if (!caret || !effort) throw new Error("The chip has no effort half");
+    for (const target of [effort, caret]) {
+      await userEvent.click(target);
+      const popover = await screen.findByRole("dialog", { name: "Model and effort" });
+      const slider = await within(popover).findByRole("slider", { name: "Effort" });
+      expect(slider.getAttribute("aria-valuetext")).toBe("Medium");
+      await userEvent.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    }
+  },
+);
 
 test("a model with a single speed has no speed segment", async () => {
   const { chip } = draw({ speeds: [], speed: "standard" });

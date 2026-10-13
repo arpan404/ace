@@ -1,5 +1,5 @@
 import { gitFailureText } from "../lib/git-failure.ts";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useConnectionState } from "@ace/client-react";
 import type {
   SourceControlContext,
@@ -13,12 +13,21 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 
-/** Requests are event-driven. Reconnect, edits and selection changes never request another draft. */
+/**
+ * Requests are event-driven: Generate draft, and with `auto` one draft as the form opens (and
+ * again when its files change, until the person edits the text), applied straight into the
+ * fields. Reconnects and edits never request another draft, and a draft that lands after the
+ * person typed is only offered, never applied.
+ */
 export function DraftWriter(props: {
   thread: ThreadRef;
   selection: SourceControlSelection | undefined;
   textRevision: number;
   disabled: boolean;
+  /** Draft as soon as there is a selection, and apply the result while the text is untouched. */
+  auto?: boolean;
+  /** The person has typed in the fields: drafts stop applying themselves. */
+  edited?: boolean;
   onApply(draft: SourceControlDraft, context: SourceControlContext): void;
 }) {
   const thread = useMemo(
@@ -86,7 +95,7 @@ export function DraftWriter(props: {
         });
     }
   }, [selectionKey, connection, workspace, thread]);
-  const generate = async () => {
+  const generate = async (auto = false) => {
     if (!props.selection || active.current || connection !== "ready") return;
     const generation = {
       id: crypto.randomUUID(),
@@ -117,6 +126,7 @@ export function DraftWriter(props: {
         generation.controller.signal,
       );
       if (active.current !== generation) return;
+      if (auto && applyUntouched(result.draft, result.context)) return;
       setProposal({ ...result, selection: selectionKey, textRevision: props.textRevision });
     } catch (failure) {
       if (active.current === generation) setError(gitFailureText(failure));
@@ -127,6 +137,28 @@ export function DraftWriter(props: {
       }
     }
   };
+  // Read at the moment a draft lands: whether the person has typed since the form opened.
+  const applyUntouched = useEffectEvent(
+    (draft: SourceControlDraft, context: SourceControlContext) => {
+      if (props.edited) return false;
+      props.onApply(draft, context);
+      return true;
+    },
+  );
+  const draftNow = useEffectEvent(() => {
+    cancel();
+    void generate(true);
+  });
+  // One draft per selection while the text is untouched: as the form opens, and when its files
+  // change. A reconnect keeps the same selection, so it never asks again.
+  const autoFor = useRef<string>(undefined);
+  const hasSelection = props.selection !== undefined;
+  useEffect(() => {
+    if (!props.auto || props.edited || !hasSelection || connection !== "ready") return;
+    if (autoFor.current === selectionKey) return;
+    autoFor.current = selectionKey;
+    draftNow();
+  }, [props.auto, props.edited, hasSelection, selectionKey, connection]);
   // With no selection the key is undefined, so the proposal itself must be checked first.
   const unchanged =
     proposal !== undefined &&

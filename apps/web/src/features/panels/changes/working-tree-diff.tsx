@@ -8,7 +8,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { GitDiffIcon } from "@phosphor-icons/react";
-import { ScopeMenu, type Scope } from "./changes-toolbar.tsx";
+import { ChangesGitAction, ScopeMenu, type Scope } from "./changes-toolbar.tsx";
 
 /** Read git rather than provider edit events: shell commands and manual edits count too. */
 export function WorkingTreeDiff(props: {
@@ -33,10 +33,12 @@ export function WorkingTreeDiff(props: {
       <div
         role="toolbar"
         aria-label="Changes"
-        className="flex items-center justify-between border-b px-2 py-1.5"
+        className="flex items-center gap-1 border-b px-2 py-1.5"
       >
         <ScopeMenu scope="working-tree" turns={props.turns} onScope={props.onScope} />
         {(stat.additions > 0 || stat.deletions > 0) && <DiffStat {...stat} />}
+        <span className="flex-1" />
+        <ChangesGitAction threadId={props.threadId} />
         <Button
           size="sm"
           variant="ghost"

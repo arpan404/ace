@@ -31,8 +31,9 @@ export type GitDialogKind =
   | "request-review";
 
 /**
- * What a commit or PR says, written by the person: the daemon commits and opens PRs exactly as
- * asked. The thread's title is the starting point for both.
+ * What a commit or PR says: the daemon commits and opens PRs exactly as asked. A commit's
+ * message is drafted from its changes as the form opens (the thread's title until then); a PR
+ * starts from the thread's title. Either way the person reviews and edits before submitting.
  */
 export function GitDialog(props: {
   kind: GitDialogKind;
@@ -47,6 +48,7 @@ export function GitDialog(props: {
   const [subject, setSubject] = useState(props.thread.title);
   const [body, setBody] = useState("");
   const [textRevision, setTextRevision] = useState(0);
+  const [edited, setEdited] = useState(false);
   const [draftSource, setDraftSource] = useState<{ fingerprint: string; selection: string }>();
   const [reviewerText, setReviewerText] = useState("");
   const [error, setError] = useState<string>();
@@ -157,6 +159,7 @@ export function GitDialog(props: {
               onChange={(event) => {
                 setSubject(event.target.value);
                 setTextRevision((value) => value + 1);
+                setEdited(true);
               }}
             />
             <Textarea
@@ -167,6 +170,7 @@ export function GitDialog(props: {
               onChange={(event) => {
                 setBody(event.target.value);
                 setTextRevision((value) => value + 1);
+                setEdited(true);
               }}
             />
             <DraftWriter
@@ -174,6 +178,8 @@ export function GitDialog(props: {
               selection={selection}
               textRevision={textRevision}
               disabled={props.pending}
+              auto={commit}
+              edited={edited}
               onApply={(generated, context) => {
                 setSubject(generated.subject);
                 setBody(generated.body);

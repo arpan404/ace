@@ -1,4 +1,5 @@
 import { CaretDownIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import { Suspense } from "react";
 import type { Turn } from "@ace/ui-core";
 import { scopeLabel, type Scope } from "@/lib/diffs/use-scoped-diff.ts";
 export { scopeLabel, type Scope };
@@ -17,6 +18,7 @@ import {
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
+import { useThreadParts } from "../agents/thread-parts.ts";
 import type { DiffPrefs } from "../services.ts";
 import { DiffStat } from "./diff-stat.tsx";
 
@@ -73,6 +75,20 @@ export function ScopeMenu(props: {
   );
 }
 
+/**
+ * The thread's git action (Commit & push, Push, Create PR), the same control as the thread
+ * details card's, provided by the thread screen. Nothing outside one.
+ */
+export function ChangesGitAction(props: { threadId: string }) {
+  const Action = useThreadParts().gitAction;
+  if (!Action) return null;
+  return (
+    <Suspense fallback={null}>
+      <Action threadId={props.threadId} className="h-7 max-w-48 shrink-0 border border-border" />
+    </Suspense>
+  );
+}
+
 const modeLabels: Record<DiffPrefs["mode"], string> = {
   auto: "Auto",
   unified: "Unified",
@@ -80,10 +96,11 @@ const modeLabels: Record<DiffPrefs["mode"], string> = {
 };
 
 /**
- * Changes' toolbar: scope and its totals on the left; wrap, fold every file, layout and the
- * files tree on the right. 40px tall with 28px controls on one centre line.
+ * Changes' toolbar: scope and its totals on the left; the thread's git action, then wrap, fold
+ * every file, layout and the files tree on the right. 40px tall with 28px controls on one centre line.
  */
 export function ChangesToolbar(props: {
+  threadId: string;
   scope: Scope;
   turns: readonly Turn[];
   onScope(scope: Scope): void;
@@ -114,6 +131,7 @@ export function ChangesToolbar(props: {
           Split needs more width
         </span>
       )}
+      <ChangesGitAction threadId={props.threadId} />
       <Menu>
         <MenuTrigger
           render={<IconButton icon={DotsThreeIcon} label="Diff options" className={control} />}

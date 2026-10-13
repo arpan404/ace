@@ -356,6 +356,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   return (
     <div ref={measure} className="flex h-full min-h-0 flex-col">
       <ChangesToolbar
+        threadId={threadId}
         scope={scope}
         turns={edited}
         onScope={changeScope}

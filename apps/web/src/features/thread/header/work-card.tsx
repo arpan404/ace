@@ -9,14 +9,14 @@ import { useGitFlow } from "./use-git-flow.tsx";
 import { EnvironmentGroup } from "./work-card-environment.tsx";
 import { GitGroup } from "./work-card-git.tsx";
 import { LineageSection } from "./work-card-lineage.tsx";
-import { RunningGroup } from "./work-card-running.tsx";
 
 const CreateFile = lazy(() => loadCreateFile().then((module) => ({ default: module.CreateFile })));
 
 /**
- * The thread details card's sections: Environment, Git, Lineage (a child thread's parent) and
- * Running, a hairline between each. Its forms (commit, PR, a guarded
- * checkout move, a new script file) outlive the card, which closes when one opens.
+ * The thread details card's sections: Environment, Git and Lineage (a child thread's parent), a
+ * hairline between each. What runs (the agent tree, background commands, automations) has one
+ * home, the Summary tab. Its forms (commit, PR, a guarded checkout move, a new script file)
+ * outlive the card, which closes when one opens.
  */
 export function WorkCard(props: { threadId: string; onClose(): void }) {
   const meta = useThreadMeta(props.threadId);
@@ -33,17 +33,12 @@ export function WorkCard(props: { threadId: string; onClose(): void }) {
         title: meta.title,
         provider: meta.provider,
       }}
-      workspacePath={meta.details?.workspace?.path}
       onClose={props.onClose}
     />
   );
 }
 
-function WorkGroups(props: {
-  thread: ThreadRef;
-  workspacePath: string | undefined;
-  onClose(): void;
-}) {
+function WorkGroups(props: { thread: ThreadRef; onClose(): void }) {
   const git = useGitFlow(props.thread);
   const checkout = useCheckoutMove(props.thread);
   const workspace = useWorkspaceActions(props.thread.id);
@@ -58,12 +53,6 @@ function WorkGroups(props: {
       />
       <GitGroup thread={props.thread} git={git} move={checkout.move} onClose={props.onClose} />
       <LineageSection threadId={props.thread.id} onClose={props.onClose} />
-      <RunningGroup
-        threadId={props.thread.id}
-        workspaceId={props.thread.workspaceId}
-        workspacePath={props.workspacePath}
-        onClose={props.onClose}
-      />
       {git.dialog}
       {checkout.dialog}
       {addingScript && (

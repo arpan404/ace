@@ -1,4 +1,10 @@
-import { machineRow, openMachineMenu, openWorkCard, workButton } from "@/test/open-work.ts";
+import {
+  machineRow,
+  openMachineMenu,
+  openWorkCard,
+  openWorkPanel,
+  workButton,
+} from "@/test/open-work.ts";
 import { facts, flakyCheckout, replayCursor, teamAtLimit, type Scenario } from "@ace/fake-daemon";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { configure, act, screen, waitFor, within } from "@testing-library/react";
@@ -182,9 +188,9 @@ test("an action from the card runs the project's script in a terminal tab of the
 
 test("an action an agent already runs in the background shows the agent's shell, not a second copy", async () => {
   const app = await openThread();
-  const card = await openWorkCard();
+  const summary = await openWorkPanel();
   await userEvent.click(
-    await within(card).findByRole("button", {
+    await within(summary).findByRole("button", {
       name: /^Show bun run dev:relay/,
     }),
   );
@@ -282,7 +288,9 @@ test("the branch keeps its complete status and one commit entry point", async ()
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openWorkCard();
   expect(
-    await within(card).findByRole("button", { name: "Changes, 3 files: 38 added, 6 removed" }),
+    await within(card).findByRole("button", {
+      name: "Uncommitted changes, 3 files: 38 added, 6 removed",
+    }),
   ).toBeTruthy();
   const git = within(card).getByRole("region", { name: "Git" });
   await userEvent.hover(within(git).getByText(branch));

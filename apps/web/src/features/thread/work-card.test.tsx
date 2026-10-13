@@ -1,6 +1,6 @@
 import { workCardScenario, type Scenario } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -9,6 +9,7 @@ import {
   gitAction,
   machineRow,
   openWorkCard,
+  openWorkPanel,
   workButton,
 } from "@/test/open-work.ts";
 
@@ -31,7 +32,7 @@ function ahead(app: ReturnType<typeof harness>, threadId: string) {
   return view && "thread" in view ? view.thread.details?.ahead : undefined;
 }
 
-test("the details icon opens the card with its Environment, Git and Running sections", async () => {
+test("the details card holds the environment and git only; what runs lives in Summary", async () => {
   const { card } = await open("changes");
   const environment = within(card).getByRole("region", { name: "Environment" });
   expect(within(environment).getByRole("button", { name: machineRow })).toBeTruthy();
@@ -42,8 +43,16 @@ test("the details icon opens the card with its Environment, Git and Running sect
   expect(
     await within(git).findByRole("button", { name: "Branch fix/restart-retry, switch branch" }),
   ).toBeTruthy();
-  const running = await within(card).findByRole("region", { name: "Running" });
-  expect(await within(running).findByRole("button", { name: "Stop bun run dev" })).toBeTruthy();
+  // The background command and the subagents have one home: the Summary tab.
+  expect(within(card).queryByRole("region", { name: "Running" })).toBeNull();
+  expect(within(card).queryByRole("button", { name: /^Show .* output$/ })).toBeNull();
+  expect(within(card).queryByRole("button", { name: /subagents? working/ })).toBeNull();
+  await userEvent.keyboard("{Escape}");
+  const summary = await openWorkPanel();
+  expect(
+    await within(summary).findByRole("button", { name: "Show bun run dev output" }),
+  ).toBeTruthy();
+  expect(within(summary).getByRole("tree", { name: "Agent tree" })).toBeTruthy();
 });
 
 test("the git action offers Commit & push while the checkout has uncommitted changes", async () => {
@@ -58,6 +67,28 @@ test("the git action offers Commit & push while the checkout has uncommitted cha
   ).toBe("true");
 });
 
+test("the Changes header offers the details card's git action and opens the same commit form", async () => {
+  const { card } = await open("changes");
+  const git = within(card).getByRole("region", { name: "Git" });
+  expect(await within(git).findByRole("button", { name: "Commit & push" })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  const toolbar = await within(panel).findByRole("toolbar", { name: "Changes" });
+  await userEvent.click(await within(toolbar).findByRole("button", { name: "Commit & push" }));
+  const dialog = await screen.findByRole("dialog", { name: "Commit to fix/restart-retry" });
+  expect(
+    within(dialog)
+      .getByRole("checkbox", { name: "Push after committing" })
+      .getAttribute("aria-checked"),
+  ).toBe("true");
+  // Its chevron holds every other step, as the card's does.
+  await userEvent.keyboard("{Escape}");
+  await userEvent.click(within(toolbar).getByRole("button", { name: "More git actions" }));
+  expect(await screen.findByRole("menuitem", { name: "Commit…" })).toBeTruthy();
+});
+
 test("with only unpushed commits the git action is Push, and once pushed it moves on to Create PR", async () => {
   const { app, threadId, card } = await open("worktree", { ahead: 2 });
   const git = within(card).getByRole("region", { name: "Git" });
@@ -68,6 +99,8 @@ test("with only unpushed commits the git action is Push, and once pushed it move
   expect(ahead(app, threadId)).toBe(2);
   await userEvent.click(within(confirm).getByRole("button", { name: "Push" }));
   await waitFor(() => expect(ahead(app, threadId)).toBe(0));
+  // The push confirms itself in a toast.
+  expect(await screen.findByText("Pushed")).toBeTruthy();
   const after = within(await openWorkCard()).getByRole("region", { name: "Git" });
   expect(await within(after).findByRole("button", { name: "Create PR" })).toBeTruthy();
   expect(within(after).queryByText("2 commits not pushed")).toBeNull();
@@ -91,51 +124,17 @@ test("commit without pushing stays available behind More git actions", async () 
   ).toBe("false");
 });
 
-test("Changes opens the Changes tab and the card gets out of the way", async () => {
+test("the card's uncommitted count names its scope and opens Changes on that same scope", async () => {
   const { card } = await open("changes");
-  await userEvent.click(
-    await within(card).findByRole("button", { name: "Changes, 2 files: 34 added, 1 removed" }),
-  );
+  const row = await within(card).findByRole("button", {
+    name: "Uncommitted changes, 2 files: 34 added, 1 removed",
+  });
+  expect(row.textContent).toContain("Uncommitted");
+  await userEvent.click(row);
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(await within(panel).findByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
+  expect(await within(panel).findByRole("button", { name: "Scope: Uncommitted" })).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull());
-});
-
-test("Stop on a background command stops it, and its row leaves the card", async () => {
-  const { card } = await open("changes");
-  const running = await within(card).findByRole("region", { name: "Running" });
-  await userEvent.click(await within(running).findByRole("button", { name: "Stop bun run dev" }));
-  await waitFor(() =>
-    expect(within(card).queryByRole("button", { name: "Show bun run dev output" })).toBeNull(),
-  );
-  // The subagents still work, so the group stays with them.
-  expect(within(card).getByRole("region", { name: "Running" })).toBeTruthy();
-});
-
-test("a running command's output opens from the card, and its row leaves once it ends", async () => {
-  const { app, threadId, card } = await open("changes");
-  expect(within(card).queryByText("git log -5")).toBeNull();
-  await userEvent.click(
-    await within(card).findByRole("button", { name: "Show bun run dev output" }),
-  );
-  expect(await screen.findByRole("tab", { name: /Watch/, selected: true })).toBeTruthy();
-  act(() =>
-    app.daemon.apply(threadId, [{ type: "background.ended", task: "watch", status: "completed" }]),
-  );
-  const again = await openWorkCard();
-  await waitFor(() =>
-    expect(within(again).queryByRole("button", { name: "Show bun run dev output" })).toBeNull(),
-  );
-});
-
-test("working subagents open the agent tree in the Summary tab", async () => {
-  const { card } = await open("changes");
-  await userEvent.click(
-    await within(card).findByRole("button", { name: /subagents? working, open the agent tree$/ }),
-  );
-  const panel = await screen.findByRole("region", { name: "Thread panel" });
-  expect(await within(panel).findByRole("tab", { name: "Summary", selected: true })).toBeTruthy();
-  expect(await within(panel).findByRole("tree", { name: "Agent tree" })).toBeTruthy();
 });
 
 test("the PR line names the pull request once, with its state and no stack noise", async () => {

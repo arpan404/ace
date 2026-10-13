@@ -64,7 +64,7 @@ test("a child keeps working through a non-blocking question and requests attenti
   await waitFor(() =>
     expect(within(card).queryByRole("treeitem", { name: /.*: Needs you/ })).toBeNull(),
   );
-  expect(within(card).getByText("2 active · 1 done")).toBeTruthy();
+  expect(within(card).getByText("1 working · 1 done")).toBeTruthy();
   expect(
     within(screen.getByRole("banner")).queryByRole("button", {
       name: "Thread details, something needs you",
@@ -75,7 +75,9 @@ test("a child keeps working through a non-blocking question and requests attenti
     await within(card).findByRole("treeitem", { name: "Check supervisor logs: Needs you" }),
   ).toBeTruthy();
   expect(within(card).getByRole("treeitem", { name: "Write retry tests: Needs you" })).toBeTruthy();
-  expect(within(card).getByRole("treeitem", { name: "Main agent: Needs you" })).toBeTruthy();
+  const root = within(card).getByRole("treeitem", { name: "Main agent: Needs you" });
+  // One status per row: the badge says Needs you, no second "Needs you" in words beside it.
+  expect(within(root).getAllByText("Needs you")).toHaveLength(1);
 });
 
 test.each(["completed", "interrupted"] as const)(
@@ -150,7 +152,7 @@ test("an ended parent remains active until its nested child settles", async () =
   });
   act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-1")]));
   await within(work).findByRole("treeitem", { name: "Write retry tests: Idle" });
-  expect(within(work).getByText("No active subagents · 3 done")).toBeTruthy();
+  expect(within(work).getByText("2 done")).toBeTruthy();
   expect(
     within(work).getByRole("treeitem", { name: /^Main agent: Waiting on (work|background task)$/ }),
   ).toBeTruthy();

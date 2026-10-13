@@ -127,6 +127,8 @@ export {
   subagentTerminal,
   rollupSubagent,
   subagentStatusLine,
+  workingSubagentsText,
+  subagentBranchStates,
   subagentLabels,
   type SubagentState,
 } from "./subagents.ts";

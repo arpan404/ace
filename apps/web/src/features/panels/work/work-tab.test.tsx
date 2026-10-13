@@ -41,7 +41,7 @@ test.each(["completed", "interrupted"] as const)(
       name: /^Write retry tests: Waiting on (work|subagents|background task)$/,
     });
     expect(within(work).queryByRole("treeitem", { name: "Write retry tests: Idle" })).toBeNull();
-    expect(within(work).getByRole("status").textContent).toContain("2 active · 1 done");
+    expect(within(work).getByRole("status").textContent).toBe("1 working · 1 done");
     act(() => app.daemon.apply(scenario.thread.id, [facts.endTurn("worker-1")]));
     await within(work).findByRole("treeitem", {
       name: `Write retry tests: ${outcome === "completed" ? "Idle" : "Interrupted"}`,
