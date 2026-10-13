@@ -132,3 +132,13 @@ it("JSON escape decoding cannot change a configured secret into visible credenti
   expect(safe).toContain("<ENV>");
   expect(safe).toContain('"code":7');
 });
+
+it("coloured CLI stderr stays readable while its credential is redacted", () => {
+  const line =
+    "\u001b[31mERROR\u001b[0m websocket: HTTP error: 403 Forbidden api_key=OPAQUE_STDERR_CREDENTIAL";
+  for (const input of [line, JSON.stringify({ type: "stderr", data: line })]) {
+    const safe = createDiagnosticRedactor({})(input);
+    expect(safe).toContain("403 Forbidden");
+    expect(safe).not.toContain("OPAQUE_STDERR_CREDENTIAL");
+  }
+});
