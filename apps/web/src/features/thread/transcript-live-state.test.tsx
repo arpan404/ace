@@ -5,13 +5,16 @@ import { ThreadId } from "@ace/protocol";
 import { facts, accountLimit, flakyCheckout, type Scenario } from "@ace/fake-daemon";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { createTimeSource, TimeContext } from "@/lib/time.ts";
 import { ActivityLine } from "./items/live-head.tsx";
 import { ToastProvider } from "@/components/ui/toast.tsx";
+import { answerStore } from "./interactions/answers.ts";
 
 beforeEach(() => localStorage.clear());
+// Answers are remembered in memory; one test's answer must not read as answered earlier in the next.
+afterEach(() => answerStore.forgetAll());
 
 const id = "thread-live-state";
 const initial = () => [
@@ -390,12 +393,11 @@ for (const waiting of [false, true]) {
       await screen.findByText("Second answer.");
       expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
       if (waiting) {
+        // The strip can show before its card has loaded.
         await userEvent.click(
-          within(await screen.findByRole("region", { name: "Waiting for you" })).getByRole(
+          await within(await screen.findByRole("region", { name: "Waiting for you" })).findByRole(
             "button",
-            {
-              name: "Deny",
-            },
+            { name: "Deny" },
           ),
         );
       }
@@ -525,6 +527,9 @@ for (const outcome of ["completed", "interrupted", "failed"] as const) {
       screen.getAllByRole("button", { name: /^(Worked for|Stopped after|Failed after)/ }),
     ).toHaveLength(1);
     expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
-    if (outcome === "failed") expect(await screen.findByText("Continuation failed.")).toBeTruthy();
+    if (outcome === "failed")
+      expect(
+        await screen.findByRole("group", { name: "Turn failed: Continuation failed." }),
+      ).toBeTruthy();
   });
 }

@@ -86,7 +86,7 @@ test.each(["save", "take back"])(
     const app = harness();
     app.play(replayCursor()).runThrough("finding");
     await app.open(`/t/${threadId}`);
-    const composer = await screen.findByRole("combobox", { name: "Message" });
+    await screen.findByRole("combobox", { name: "Message" });
     await act(async () => {
       for (let index = 0; index < 17; index++)
         await app.client.command(
@@ -146,7 +146,9 @@ test.each(["save", "take back"])(
       );
     } else {
       await userEvent.click(screen.getByRole("button", { name: "Take back to composer" }));
-      await waitFor(() => expect(composer.textContent).toBe("Saved 15"));
+      await waitFor(() =>
+        expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe("Saved 15"),
+      );
       expect((await queue(app)).messages.some((message) => message.id === entry.id)).toBe(false);
     }
   },
@@ -158,10 +160,13 @@ test("a pending keyboard reorder preserves focus deliberately moved to the compo
   await app.open(`/t/${threadId}`);
   const composer = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(composer, "First{Enter}Second{Enter}");
-  const handle = await screen.findByRole("button", { name: "Reorder queued message 2" });
-  await waitFor(() => expect(handle.getAttribute("aria-disabled")).toBe("false"));
+  const ready = await screen.findByRole("button", { name: "Reorder queued message 2" });
+  await waitFor(() => expect(ready.getAttribute("aria-disabled")).toBe("false"));
   act(() => app.daemon.refuseConnections(true));
   await waitFor(() => expect(app.client.state).not.toBe("ready"));
+  // The connection takes the composer's strip; its queue indicator brings the queue back.
+  await userEvent.click(await screen.findByRole("button", { name: "Show 2 queued messages" }));
+  const handle = await screen.findByRole("button", { name: "Reorder queued message 2" });
   handle.focus();
   await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
   await waitFor(() => expect(rows()[0]?.textContent).toContain("Second"));

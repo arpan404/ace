@@ -71,7 +71,7 @@ test("a vanished model shows one actionable notice and picking a replacement sen
   await userEvent.click(within(notice).getByRole("button", { name: "Pick another model" }));
   const search = await screen.findByRole("combobox", { name: "Search models" });
   const old = await screen.findByRole("option", {
-    name: /Muse Spark 1.3 Contributor, Unavailable/,
+    name: /^Muse Spark 1.3 Contributor, .*Unavailable$/,
   });
   expect(old.getAttribute("aria-disabled")).toBe("true");
   await userEvent.type(search, "Opus");

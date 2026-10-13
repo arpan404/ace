@@ -5,7 +5,7 @@ import { CalendarDotsIcon, TerminalIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useAutomations } from "@/features/automations/index.ts";
-import { useBackgroundShells } from "@/features/panels/index.ts";
+import { useAgentShells } from "@/features/panels/index.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import {
   RowAction,
@@ -33,7 +33,8 @@ export function RunningGroup(props: {
   const meta = useThreadMeta(props.threadId);
   const workspace = useWorkspaceActions(props.threadId);
   const navigate = useNavigate();
-  const shells = useBackgroundShells(props.threadId).filter(running);
+  // A helper the agent left running (a dev server) still runs on the machine: list it to stop.
+  const shells = useAgentShells(props.threadId).filter(running);
   const automations =
     useAutomations().data?.filter(
       ({ automation }) =>

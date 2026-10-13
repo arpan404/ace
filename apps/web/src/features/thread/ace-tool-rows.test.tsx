@@ -180,7 +180,8 @@ test("the Safari demo reports the time spent across its actions", async () => {
   app.play(aceToolsComputerUse()).runThrough("used-safari");
   const { feed } = await openSteps(app, "thread-ace-tools-safari");
   expect(within(feed).queryByRole("button", { name: /^Worked for 1s/ })).toBeNull();
-  expect(within(feed).getByRole("button", { name: /^Worked for 3[0-9]s/ })).toBeTruthy();
+  // Worked for spans the whole turn, from its start to its end.
+  expect(within(feed).getByRole("button", { name: /^Worked for 4[0-9]s/ })).toBeTruthy();
 });
 
 test("linked PR tools read as short PR steps with the result's list count", async () => {

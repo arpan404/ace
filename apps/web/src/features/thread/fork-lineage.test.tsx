@@ -4,7 +4,7 @@ import { configure, screen, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { selectAccount } from "@/test/model-control.ts";
+import { chooseSource } from "@/test/model-control.ts";
 import { harness } from "@/test/harness.tsx";
 import { openWorkCard } from "@/test/open-work.ts";
 
@@ -35,8 +35,7 @@ async function fork() {
   await userEvent.type(title, "Try another model");
   await userEvent.click(within(dialog).getByRole("button", { name: /^Fork model:/ }));
   const picker = await screen.findByRole("dialog", { name: "Fork model" });
-  await userEvent.click(await within(picker).findByRole("tab", { name: "Codex · Personal" }));
-  await selectAccount(picker, "Personal");
+  await chooseSource(picker, "Codex · Personal");
   await userEvent.type(
     within(picker).getByRole("combobox", { name: "Search models" }),
     "GPT-5 Codex",
@@ -125,7 +124,7 @@ test("a fork's details card shows its parent under Lineage and opens it; the par
   const card = await openWorkCard();
   const lineage = within(card).getByRole("region", { name: "Lineage" });
   await userEvent.click(
-    within(lineage).getByRole("button", { name: /^Open parent thread Document the router\b/ }),
+    within(lineage).getByRole("button", { name: /^Open parent Document the router\b/ }),
   );
   await screen.findByRole("heading", { level: 1, name: "Document the router" });
   expect(within(await openWorkCard()).queryByRole("region", { name: "Lineage" })).toBeNull();

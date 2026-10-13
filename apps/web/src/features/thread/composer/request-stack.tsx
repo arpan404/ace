@@ -118,6 +118,9 @@ export function RequestStack(props: {
       tabIndex={-1}
       role="region"
       aria-label="Waiting for you"
+      // Focus here is on purpose (an answer focused on open, or the person's); a route's
+      // title focus leaves it.
+      data-request-stack=""
       onFocusCapture={() => {
         ownsFocus.current = true;
       }}

@@ -133,6 +133,10 @@ test("the transcript live line counts the working subagents without a composer p
 test("a network retry holds still: no spinner, no shimmer", async () => {
   const { app } = await openReplay("finding");
   app.daemon.apply("thread-replay-cursor", [
+    // The root's hold is the line only once nothing else in its tree runs (48b911ea7).
+    facts.endTurn("audit"),
+    facts.endTurn("test"),
+    { type: "background.ended", task: "relay", status: "stopped" },
     { type: "retry", agent: "root", on: "network", message: "connection reset" },
   ]);
   const line = await screen.findByRole("status", { name: "Network trouble" });
@@ -170,8 +174,9 @@ test("returning to a thread shows new output without a divider and advances its 
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
   await act(async () => script.runThrough("finding"));
 
-  await userEvent.keyboard("{Meta>}[{/Meta}");
+  await userEvent.keyboard("{Meta>}[[{/Meta}");
   const again = await screen.findByRole("feed", { name: "Transcript" });
-  expect(await within(again).findByText(/reconnect-audit found one more path/)).toBeTruthy();
+  // "reconnect-audit" is bold, an element of its own.
+  expect(await within(again).findByText(/found one more path/)).toBeTruthy();
   expect(within(again).queryByRole("separator", { name: "New activity" })).toBeNull();
 });

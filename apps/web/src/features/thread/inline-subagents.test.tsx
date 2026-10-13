@@ -190,8 +190,8 @@ test("MCP batches separated by parent narration have disclosures at separate lau
   const second = await group(feed, "1 subagent");
   expect(first.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(message.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  // Narration stays outside the collapsible Work segments in both disclosure states.
-  for (const work of within(feed).getAllByRole("button", { name: /^Work/ })) {
+  // Narration stays outside the launch steps, each opened and closed again.
+  for (const work of within(feed).getAllByRole("button", { name: /^Delegated/ })) {
     await userEvent.click(work);
     expect(within(feed).getAllByText("Starting the next batch.")).toHaveLength(1);
     expect(first.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

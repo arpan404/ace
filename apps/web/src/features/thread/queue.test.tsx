@@ -598,14 +598,17 @@ test.each([17, 33, 257])(
           state: "uncertain",
         });
       await app.open(`/t/${threadId}`);
-      await screen.findByRole("list", { name: "Queued messages" });
+      const tray = await screen.findByRole("list", { name: "Queued messages" });
+      await within(tray).findByText("Retained input 1");
       expect(
         within(screen.getByRole("feed", { name: "Transcript" })).queryByText(lastInput),
       ).toBeNull();
-      for (let shown = 16; shown < count; shown += 16)
-        await userEvent.click(
-          await screen.findByRole("button", { name: "Load more queued messages" }),
-        );
+      // One button grows the list; finding it again by role scans every row's controls.
+      const more =
+        count > 16
+          ? await screen.findByRole("button", { name: "Load more queued messages" })
+          : undefined;
+      if (more) for (let shown = 16; shown < count; shown += 16) await userEvent.click(more);
       const last = await within(screen.getByRole("list", { name: "Queued messages" })).findByText(
         lastInput,
       );

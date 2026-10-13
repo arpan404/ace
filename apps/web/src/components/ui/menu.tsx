@@ -1,7 +1,7 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { CaretRightIcon, CheckIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
 import { describeKeys, type KeymapId } from "@/lib/keymap.ts";
 import {
@@ -40,14 +40,32 @@ function MenuContent({
         collisionPadding={8}
         className={cn(layers.popup, "isolate outline-none [-webkit-app-region:no-drag]")}
       >
-        <MenuPrimitive.Popup
+        <MenuPopup
           data-slot="menu-content"
           className={cn(popupSurface, popupBounds, "min-w-[220px]", className)}
-          finalFocus={() => !document.querySelector('[role="dialog"], [data-inline-rename]')}
           {...props}
         />
       </MenuPrimitive.Positioner>
     </MenuPrimitive.Portal>
+  );
+}
+
+const focusTakers = '[role="dialog"], [data-inline-rename]';
+
+/**
+ * Closing hands focus back to the trigger, unless an item opened a dialog or an inline rename,
+ * which takes it. A dialog the menu was opened from (a card it sits in) doesn't count.
+ */
+function MenuPopup(props: MenuPrimitive.Popup.Props) {
+  // Mounted on open: the dialogs already there are the menu's surroundings.
+  const [around] = useState(() => new Set(document.querySelectorAll(focusTakers)));
+  return (
+    <MenuPrimitive.Popup
+      finalFocus={() =>
+        ![...document.querySelectorAll(focusTakers)].some((element) => !around.has(element))
+      }
+      {...props}
+    />
   );
 }
 

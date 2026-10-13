@@ -150,7 +150,9 @@ test("a move to another provider from another device resets what its model can't
 
   await userEvent.type(message, "Cap the replay at 200{Enter}");
   await waitFor(() => expect(sent).toHaveLength(1));
-  expect(sent[0]?.options).toEqual({ effort: "medium" });
+  // Nothing picked for Codex goes along: the message inherits Opus 5.5 as the thread runs it,
+  // so it stays an ordinary follow-up (c84d480d3).
+  expect(sent[0]?.options).toBeUndefined();
 });
 
 test("Reset on a thread whose selection names an effort sends the model's default by name", async () => {

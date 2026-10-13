@@ -190,8 +190,11 @@ test.each(["agent", "spawn"] as const)(
     const source = settledTree(link);
     const read = createBlockReader();
     const before = read(source.store);
+    // The spawn's own turn has no steps; it still reads "Worked for", an empty work block.
     const work = (blocks: typeof before.value) =>
-      blocks.filter((block) => block.kind === "work").map((block) => block.itemIds);
+      blocks.flatMap((block) =>
+        block.kind === "work" && block.itemIds.length ? [block.itemIds] : [],
+      );
     expect(work(before.value)).toEqual([["second-before", "child-output", "second-after"]]);
     const order = source.store.order;
     source.update(

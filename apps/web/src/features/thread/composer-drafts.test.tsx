@@ -3,6 +3,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/re
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { newThreadDraftKey } from "@/lib/new-thread-draft-key.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -144,11 +145,12 @@ test("a draft and its uploaded files survive a reload, and go once the message i
 
 test("a new-thread draft restores after the project directory becomes available on a fresh page", async () => {
   const storage = memoryKeyValue();
+  const made = app(storage);
   storage.setItem(
     "ace.composer.drafts",
     JSON.stringify([
       [
-        "new:relay",
+        newThreadDraftKey(made.daemon.hostId, "relay"),
         {
           text: "Keep this new-thread draft",
           mentions: [],
@@ -157,6 +159,6 @@ test("a new-thread draft restores after the project directory becomes available 
       ],
     ]),
   );
-  await app(storage).open("/new?project=relay");
+  await made.open("/new?project=relay");
   expect((await message()).textContent).toBe("Keep this new-thread draft");
 });

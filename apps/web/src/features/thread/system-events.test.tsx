@@ -474,7 +474,7 @@ test("provider approval options include the session grant and send the chosen op
   expect(feed.textContent).not.toContain("/bin/zsh");
   await userEvent.click(always);
   await waitFor(() =>
-    expect(within(feed).getByText("Approved by you for this thread")).toBeTruthy(),
+    expect(within(feed).getByText(/^Approved by you for this thread\b/)).toBeTruthy(),
   );
 });
 

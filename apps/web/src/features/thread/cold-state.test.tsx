@@ -63,7 +63,8 @@ test("one input repeated under uncertain and queued states shows one message to 
   seedColdStartState(app.daemon);
   await app.open("/t/cold-uncertain");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
-  expect(within(queue).getAllByText("yo")).toHaveLength(1);
+  // The list can show before its rows are read.
+  expect(await within(queue).findAllByText("yo")).toHaveLength(1);
   expect(within(queue).getByRole("button", { name: "Send again" })).toBeTruthy();
   expect(within(queue).queryByText("Queued", { exact: true })).toBeNull();
   expect(
@@ -101,7 +102,8 @@ test("separate queued inputs with identical text remain individually visible", a
   });
   await app.open("/t/cold-uncertain");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
-  expect(within(queue).getAllByText("yo")).toHaveLength(2);
+  // The list can show before its rows are read.
+  expect(await within(queue).findAllByText("yo")).toHaveLength(2);
   expect(within(queue).getByRole("button", { name: "Send again" })).toBeTruthy();
   const steer = within(queue).getByRole("button", { name: "Steer" });
   expect(steer.getAttribute("aria-disabled")).toBe("true");
