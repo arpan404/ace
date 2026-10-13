@@ -1,9 +1,15 @@
 import { afterEach, expect, test } from "vitest";
-import { fixture, cleanupRecovery, replaceProvider, crashCopy } from "./recovery-test-support.ts";
+import {
+  fixture,
+  cleanupRecovery,
+  replaceProvider,
+  crashCopy,
+  dispatch,
+} from "./recovery-test-support.ts";
 import { scriptFrames, start, end } from "./test-support.ts";
 afterEach(cleanupRecovery);
 
-test("automatic restart sends only continue as one ace-originated input without a notice", async () => {
+test("resuming after a restart sends only continue as one ace-originated input", async () => {
   const frames = scriptFrames();
   const h = await fixture([{ on: "send", frames: [frames.frame(start)] }], frames);
   const id = await h.create();
@@ -30,7 +36,14 @@ test("automatic restart sends only continue as one ace-originated input without 
       ],
     },
   ]);
-  const recovered = await crashCopy(h, { preferences: { continueAfterRestart: true } });
+  const recovered = await crashCopy(h);
+  await recovered.engine.flush();
+  expect(replacement.commands.filter((command) => command.type === "send")).toEqual([]);
+  dispatch(recovered.store, recovered.engine, {
+    type: "thread.resume",
+    threadId: id,
+    expectedRevision: recovered.engine.queue(id).revision,
+  });
   await recovered.engine.flush();
   expect(replacement.commands.filter((command) => command.type === "send")).toEqual([
     { type: "send", input: [{ type: "text", text: "continue" }], delivery: "queue" },

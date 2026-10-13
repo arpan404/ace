@@ -10,7 +10,7 @@ const ended = {
   completed: "Finished",
   failed: "Failed",
   stopped: "Stopped",
-  unknown: "May still be running",
+  unknown: "Stopped",
   running: "Running in background",
 };
 

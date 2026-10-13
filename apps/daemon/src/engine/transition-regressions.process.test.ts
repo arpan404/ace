@@ -165,7 +165,7 @@ test("merge context admission rejects an escaped summary before changing git fil
     items.some(
       (item) =>
         item.type === "notice" &&
-        item.title === "Action failed" &&
+        item.title === "Couldn't merge the fork" &&
         item.raw.some(
           (raw) =>
             raw.type === "delivery_error" &&

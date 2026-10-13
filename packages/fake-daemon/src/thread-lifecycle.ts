@@ -12,15 +12,18 @@ export function reconcileFakeTerminals(host: ThreadHost, terminals: FakeTerminal
 
 /**
  * A provider that dies holds its queued input for an explicit resume (ADR 0053), and a
- * notice says the agent stopped when the death cost work.
+ * notice says the agent stopped when the death cost work. Nothing continues by itself.
  */
 export function withExitFacts(host: ThreadHost, facts: readonly Fact[], now: number): Fact[] {
   const exit = facts.find((fact) => fact.type === "process.exited");
   if (!exit || exit.deliberate || host.state.processExit) return [...facts];
-  host.queue.paused = true;
-  host.queue.reason = "stopped";
-  host.queueDirty = true;
   const lost = !["new", "done"].includes(host.view.thread.status.state);
+  // Like the daemon: work the death cost is an interrupted turn, held for the person's Resume.
+  // A hold already in place keeps its own reason.
+  host.queue.reason =
+    host.queue.paused && host.queue.reason ? host.queue.reason : lost ? "restart" : "stopped";
+  host.queue.paused = true;
+  host.queueDirty = true;
   return [
     ...facts,
     { type: "queue.changed", source: "provider", count: 0 },

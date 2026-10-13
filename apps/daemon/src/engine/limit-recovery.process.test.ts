@@ -138,15 +138,12 @@ test("a reset deadline that fires while history publication holds the store retr
   expect(sends(replacement)).toHaveLength(3);
 });
 
-test("a persisted reset timer resumes a limited thread even when restart auto-continue is disabled", async () => {
+test("a persisted reset timer the person chose resumes a limited thread across a restart", async () => {
   const { h, id, replacement } = await limitedThread({
     preferences: { limitPolicy: "resume_at_reset" },
     recovery: { resetAt: () => 5000 },
   });
-  const recovered = await restart(h, {
-    preferences: { continueAfterRestart: false },
-    recovery: { resetAt: () => 5000 },
-  });
+  const recovered = await restart(h, { recovery: { resetAt: () => 5000 } });
   expect(recovered.queue(id).resumeAt).toBe(5000);
   h.clock.advance(4999);
   await recovered.flush();
@@ -250,7 +247,7 @@ test("migration refusal retains the source binding and exposes an actionable hel
     Object.values(h.store.snapshotThread(id).items).some(
       (item) =>
         item.type === "notice" &&
-        item.title === "Action failed" &&
+        item.title === "Couldn't resume after the limit" &&
         item.detail?.includes("Writer exclusion unavailable"),
     ),
   ).toBe(true);
@@ -309,7 +306,6 @@ test("the default limit policy reloads layered settings when the active thread h
       resetAt: () => 5000,
       preferences: async () => ({
         followUpBehavior: "queue",
-        continueAfterRestart: false,
         limitPolicy: policy,
       }),
     },

@@ -1,3 +1,4 @@
+import { failedActionTitle, failureReason } from "./failure-copy.ts";
 import { ModelSelectionError } from "./models.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import type { ProviderErrorDetails } from "@ace/protocol";
@@ -332,7 +333,7 @@ export class IntentDelivery {
                 ? message
                 : ["thread.send", "thread.create"].includes(intent.kind)
                   ? "Message not sent"
-                  : "Action failed",
+                  : failureReason(message) || failedActionTitle(intent.kind),
         commandId: intent.commandId,
         ...(intent.resolutionId ? { interactionId: intent.resolutionId } : {}),
         code,
@@ -345,7 +346,7 @@ export class IntentDelivery {
                 ? "This question is no longer active"
                 : intent.kind === "thread.send" || intent.kind === "thread.create"
                   ? "Not sent"
-                  : "Action failed",
+                  : failedActionTitle(intent.kind),
         detail: message.slice(0, 4096),
         complete: true,
         raw: [

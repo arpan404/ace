@@ -1,4 +1,4 @@
-import { unexpectedStopNotice } from "./thread-liveness.ts";
+import { interruptedNotice } from "./thread-liveness.ts";
 import { lostWork } from "./lost-work.ts";
 import { providerCommandMetadata, type ProviderCommandEvent } from "./provider-command-metadata.ts";
 import { isDefaultSelection } from "@ace/models";
@@ -46,6 +46,8 @@ interface SessionDependencies {
     route?: import("./session-open-route.ts").SessionOpenRoute,
   ): void;
   released(id: ThreadId): void;
+  /** A provider died with work in flight: hold the thread until the person resumes it. */
+  interrupted(id: ThreadId): void;
   mcp?(
     threadId: ThreadId,
     agentId: string,
@@ -348,10 +350,12 @@ export class Sessions {
             actor.apply([
               { type: "process.exited", ...exit },
               ...(lost
-                ? [unexpectedStopNotice(before.rootKey, this.dependencies.clock.now())]
+                ? [interruptedNotice(before.rootKey, this.dependencies.clock.now(), "exit")]
                 : []),
               { type: "queue.changed", source: "provider", count: 0 },
             ]);
+            // The interrupted turn waits for the person; the queue behind it is not sent.
+            if (lost) this.dependencies.interrupted(actor.id);
             if (!actor.poisoned) this.dependencies.released(actor.id);
             this.dependencies.wake(actor.id);
           }),

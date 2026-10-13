@@ -119,6 +119,14 @@ export function systemInput(item: Item | undefined): SystemInput | undefined {
   return known ? { kind: known, text } : undefined;
 }
 
+/** The notice ace writes when a restart or a provider that died interrupted the turn. */
+export function interruptionNotice(item: Item | undefined): boolean {
+  return (
+    item?.type === "notice" &&
+    (item.code === "restart_interrupted" || item.code === "agent_stopped")
+  );
+}
+
 /** A notice ace writes beside its own input ("ace restarted…"): the same event, once. */
 export function noticeInput(item: Item | undefined): InputKind | undefined {
   if (item?.type !== "notice") return undefined;

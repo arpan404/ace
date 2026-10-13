@@ -89,6 +89,8 @@ export * from "./tool-labels.ts";
 export * from "./measurement-call.ts";
 export * from "./error-display.ts";
 export * from "./tool-refusals.ts";
+export * from "./repeated-events.ts";
+export * from "./background-groups.ts";
 export * from "./system-events.ts";
 export * from "./system-input.ts";
 export * from "./approvals.ts";

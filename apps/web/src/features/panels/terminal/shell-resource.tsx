@@ -47,7 +47,7 @@ const state = {
   completed: "Finished",
   failed: "Failed",
   stopped: "Stopped",
-  unknown: "May still be running",
+  unknown: "Stopped",
 };
 
 /** Why Take over is unavailable: background shells aren't PTYs ace can attach a keyboard to. */

@@ -17,7 +17,6 @@ import type { ContextWindowLookup } from "./context-meter.ts";
 
 export const RecoveryPreferences = z.object({
   followUpBehavior: z.enum(["steer", "queue"]).default("queue"),
-  continueAfterRestart: z.boolean().default(false),
   limitPolicy: z
     .enum(["manual", "resume_at_reset", "snooze_until_reset", "migrate_now"])
     .default("manual"),
@@ -184,6 +183,27 @@ export class Recovery {
     );
     if (!text) return;
     this.repo.queue.set(id, { continuation: "continue", trigger: "restart" }, this.clock.now());
+    this.sync(id);
+  }
+  /**
+   * A provider that died with work in flight leaves its turn interrupted. The turn is held for
+   * the person: Resume sends one continuation, and their next message carries on instead. ace
+   * never continues it by itself.
+   */
+  holdInterrupted(id: ThreadId): void {
+    if (this.repo.pending.uncertainContinuation(id)) return;
+    const queue = this.repo.queue.get(id);
+    this.repo.queue.set(
+      id,
+      {
+        continuation: queue.continuation ?? "continue",
+        trigger: queue.trigger ?? "restart",
+        paused: true,
+        reason: queue.paused && queue.reason ? queue.reason : "restart",
+        holdToken: queue.holdToken + 1,
+      },
+      this.clock.now(),
+    );
     this.sync(id);
   }
   observe(state: ThreadState, facts: Fact[], _events: EventPayload[], at: number): void {

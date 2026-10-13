@@ -6,11 +6,10 @@ claims a message; queue edits and command receipts share one SQLite transaction.
 
 Settings use the existing layered settings API:
 
-| Setting                        | Default  | UI label                                                                 |
-| ------------------------------ | -------- | ------------------------------------------------------------------------ |
-| `threads.followUpBehavior`     | `queue`  | Follow-up behavior: steer / queue                                        |
-| `threads.continueAfterRestart` | `false`  | Continue threads after restarts                                          |
-| `threads.limitPolicy`          | `manual` | Usage limit: manual / resume at reset / snooze until reset / migrate now |
+| Setting                    | Default  | UI label                                                                 |
+| -------------------------- | -------- | ------------------------------------------------------------------------ |
+| `threads.followUpBehavior` | `queue`  | Follow-up behavior: steer / queue                                        |
+| `threads.limitPolicy`      | `manual` | Usage limit: manual / resume at reset / snooze until reset / migrate now |
 
 An omitted `thread.send.delivery` resolves the server setting at admission. Explicit
 `steer` or `queue` overrides it for that message. Clients can use
@@ -52,13 +51,25 @@ index preventing removal while queued or unacknowledged. Preparation pins the
 provider's input until the owning root run ends or the process stops. Reorders
 change at most 256 newly admitted rows; stream deltas never scan message history.
 
-After update, crash or reboot, interrupted work becomes a persisted continuation.
-It counts as pending engine work even with no queued messages: the thread remains
-`waiting` on `queue` until resumed. A notice and the native continuation describe
-known dead shells, monitors and subagents. The resumed run has trigger `restart`.
-Auto-continue uses the same path, except that uncertain delivery always needs a
-human decision. Providers without native resume refuse continuation and keep the
-queue held. Claimed recovery operations interrupted by another restart are not
+ace never starts a turn by itself. After an update, crash, reboot or a provider
+process that dies with work in flight, the interrupted turn becomes a persisted
+continuation held with reason `restart`. It counts as pending engine work even with
+no queued messages: the thread remains `waiting` on `queue` until the person acts.
+The transcript gets one quiet `restart_interrupted` notice ("Interrupted by a
+restart"; a provider that died on its own writes `agent_stopped`), and background
+work that died is shown as stopped, never as finished. Only two things carry on:
+
+- `thread.resume` (the Resume action) sends one native continuation, trigger
+  `restart`, describing known dead shells, monitors and subagents. The held queue
+  then drains in order.
+- `thread.send` releases the restart hold and drops the continuation, so ace sends
+  no synthetic "continue". Messages already queued go first, in order, and the new
+  message goes last.
+
+Other holds (Stop, a limit, an uncertain delivery, a failed send) are not released
+by a send. A provider released after its idle window is not an interruption: the
+next message reopens it and is sent as is. Providers without native resume refuse
+continuation and keep the queue held. Claimed recovery operations interrupted by another restart are not
 replayed automatically; the operator can issue a fresh resume command.
 
 Rate-limit facts and structured quota errors derive `limited`; process exit does

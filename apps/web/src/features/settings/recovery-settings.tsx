@@ -6,7 +6,6 @@ import { settingKeys, type FollowUp } from "./data/setting-keys.ts";
 import { useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
-import { SettingSwitch } from "./setting-switch.tsx";
 
 const followUps: { value: FollowUp; label: string }[] = [
   { value: "queue", label: "Queue" },
@@ -14,7 +13,8 @@ const followUps: { value: FollowUp; label: string }[] = [
 ];
 
 /**
- * How threads carry on: messages sent while the agent works and work interrupted by a restart. Daemon settings, so every device follows them.
+ * How threads carry on: messages sent while the agent works. A daemon setting, so every device
+ * follows it. Work a restart interrupts never continues by itself, so it has no setting.
  * What happens at a usage limit lives with the accounts it concerns.
  */
 export function RecoverySettings() {
@@ -37,11 +37,6 @@ export function RecoverySettings() {
           />
         </DaemonSlot>
       </SettingRow>
-      <SettingSwitch
-        setting={settingKeys.continueAfterRestart}
-        entry="threads.continueAfterRestart"
-        description="Resume work after an update or reboot."
-      />
     </SettingSection>
   );
 }

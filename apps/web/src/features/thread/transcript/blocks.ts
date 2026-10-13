@@ -68,7 +68,15 @@ export type Block =
   /** The end of the newest working turn's flow: "Thinking" while no step is in flight. */
   | { kind: "thinking"; key: string }
   | { kind: "subagents"; key: string; itemIds: string[] }
-  | { kind: "background"; key: string; itemId: string; taskId: string }
+  | {
+      /** Background commands started one after another in a turn: one row, or one group. */
+      kind: "background";
+      key: string;
+      itemId: string;
+      taskId: string;
+      itemIds: string[];
+      taskIds: string[];
+    }
   | { kind: "files"; key: string; itemIds: string[] }
   | { kind: "item"; key: string; itemId: string }
   /**
@@ -498,7 +506,23 @@ export function buildBlocks(source: BlockSource): Block[] {
               mark?.agents.add(item.call.detail.childAgentId);
           } else if (taskId !== undefined) {
             mark?.tasks.add(taskId);
-            push({ kind: "background", key: id, itemId: id, taskId }, false);
+            const last = blocks.at(-1);
+            // Background commands started back to back in the same turn read as one group.
+            if (last?.kind === "background" && mark?.blocks.has(blocks.length - 1)) {
+              last.itemIds.push(id);
+              last.taskIds.push(taskId);
+            } else
+              push(
+                {
+                  kind: "background",
+                  key: id,
+                  itemId: id,
+                  taskId,
+                  itemIds: [id],
+                  taskIds: [taskId],
+                },
+                false,
+              );
           } else {
             group("work", id);
             if (editKinds.has(item.call.kind)) mark?.edits.push(id);

@@ -433,11 +433,11 @@ test("Continue uses the live restart reason while an older queue page remains on
   // The previous page remains mounted; the revision push requests a replacement that is held.
   made.daemon.holdRequests("queue.get");
   act(() => made.daemon.holdQueue("thread-router", "restart"));
-  const next = await screen.findByRole("button", { name: /^Continue$/ });
+  const pill = await screen.findByRole("status", { name: "Stopped by a restart" });
   made.daemon.restoreRequests();
-  await userEvent.click(next);
+  await userEvent.click(within(pill).getByRole("button", { name: "Continue" }));
   await waitFor(() =>
-    expect(screen.queryByRole("region", { name: "Stopped by a restart" })).toBeNull(),
+    expect(screen.queryByRole("status", { name: "Stopped by a restart" })).toBeNull(),
   );
   const page = await made.client.request({
     type: "queue.get",

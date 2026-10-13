@@ -186,45 +186,40 @@ test("claiming a message before provider startup makes a concurrent edit fail", 
   expect(sends(h.adapter)).toEqual([{ type: "send", input: text("claimed"), delivery: "queue" }]);
 });
 
-test.each([false, true])(
-  "restart preserves reordering and auto-continue=%s controls whether the queue starts",
-  async (auto) => {
-    const frames = scriptFrames();
-    const h = await fixture([{ on: "send", frames: [frames.frame(start, task, end)] }], frames);
-    const id = await h.create();
-    h.command({ type: "thread.send", threadId: id, input: text("a") }, "device", "a");
-    h.command({ type: "thread.send", threadId: id, input: text("b") }, "device", "b");
-    h.command({
-      type: "queue.move",
-      threadId: id,
-      expectedRevision: h.engine.queue(id).revision,
-      messageId: CommandId.parse("b"),
-      after: null,
-    });
-    const replacement = replaceProvider(h, frames, [
-      { on: "send", frames: [frames.frame(start, end)] },
-      { on: "send", frames: [frames.frame(start, end)] },
-      { on: "send", frames: [frames.frame(start, end)] },
-    ]);
-    const recovered = await restart(h, { preferences: { continueAfterRestart: auto } });
-    if (!auto) {
-      expect(sends(replacement)).toHaveLength(0);
-      expect(recovered.queue(id)).toMatchObject({ paused: true, reason: "restart" });
-      expect(resume(h, recovered, id).ok).toBe(true);
-      await recovered.flush();
-    }
-    expect(h.contexts.at(-1)?.resume).toEqual({ nativeSessionId: "native-1" });
-    const delivered = replacement.commands.filter((command) => command.type === "send");
-    expect(delivered[0]?.input[0]).toMatchObject({
-      type: "text",
-      text: "continue",
-    });
-    expect(delivered.slice(1).map((command) => command.input)).toEqual([text("b"), text("a")]);
-    expect(
-      Object.values(h.store.snapshotThread(id).runs).some((run) => run.trigger === "restart"),
-    ).toBe(true);
-  },
-);
+test("restart preserves reordering and holds the queue until the person resumes", async () => {
+  const frames = scriptFrames();
+  const h = await fixture([{ on: "send", frames: [frames.frame(start, task, end)] }], frames);
+  const id = await h.create();
+  h.command({ type: "thread.send", threadId: id, input: text("a") }, "device", "a");
+  h.command({ type: "thread.send", threadId: id, input: text("b") }, "device", "b");
+  h.command({
+    type: "queue.move",
+    threadId: id,
+    expectedRevision: h.engine.queue(id).revision,
+    messageId: CommandId.parse("b"),
+    after: null,
+  });
+  const replacement = replaceProvider(h, frames, [
+    { on: "send", frames: [frames.frame(start, end)] },
+    { on: "send", frames: [frames.frame(start, end)] },
+    { on: "send", frames: [frames.frame(start, end)] },
+  ]);
+  const recovered = await restart(h);
+  expect(sends(replacement)).toHaveLength(0);
+  expect(recovered.queue(id)).toMatchObject({ paused: true, reason: "restart" });
+  expect(resume(h, recovered, id).ok).toBe(true);
+  await recovered.flush();
+  expect(h.contexts.at(-1)?.resume).toEqual({ nativeSessionId: "native-1" });
+  const delivered = replacement.commands.filter((command) => command.type === "send");
+  expect(delivered[0]?.input[0]).toMatchObject({
+    type: "text",
+    text: "continue",
+  });
+  expect(delivered.slice(1).map((command) => command.input)).toEqual([text("b"), text("a")]);
+  expect(
+    Object.values(h.store.snapshotThread(id).runs).some((run) => run.trigger === "restart"),
+  ).toBe(true);
+});
 
 test("native restart settles lost shells monitors and subagents and sends one continuation", async () => {
   const frames = scriptFrames();
@@ -309,7 +304,7 @@ test("an unacknowledged send is never replayed automatically and must be removed
   const replacement = replaceProvider(h, frames, [
     { on: "send", frames: [frames.frame(start, end)] },
   ]);
-  const recovered = await crashCopy(h, { preferences: { continueAfterRestart: true } });
+  const recovered = await crashCopy(h);
   expect(recovered.engine.queue(id).messages[0]?.state).toBe("uncertain");
   expect(sends(replacement)).toHaveLength(0);
   expect(
@@ -360,7 +355,7 @@ test("an unacknowledged send is never replayed automatically and must be removed
 });
 
 test.each(["model_unavailable", "Cannot open directory"])(
-  "a known pre-delivery failure stays held across restart even when continuation is automatic: %s",
+  "a known pre-delivery failure stays held across restart with its own reason: %s",
   async (failure) => {
     const frames = scriptFrames();
     const h = await fixture([], frames);
@@ -378,7 +373,7 @@ test.each(["model_unavailable", "Cannot open directory"])(
     const replacement = replaceProvider(h, frames, [
       { on: "send", frames: [frames.frame(start, end)] },
     ]);
-    const recovered = await restart(h, { preferences: { continueAfterRestart: true } });
+    const recovered = await restart(h);
     expect(recovered.queue(id)).toMatchObject({
       paused: true,
       reason,

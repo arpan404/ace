@@ -385,7 +385,7 @@ export class OpenCodeSession implements ProviderSession {
         .parse(
           await request("interrupt request", () => this.client.session.interrupt({ sessionID })),
         );
-      if (!result.interrupted) throw new Error("OpenCode interrupt was not accepted");
+      if (!result.interrupted) throw new Error("OpenCode had nothing running to stop");
     }
     if (target.cascade)
       for (const [id, owner] of this.ownership.shells)

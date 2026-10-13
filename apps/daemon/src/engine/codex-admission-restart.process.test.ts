@@ -6,7 +6,7 @@ import { createCodexAdapter } from "@ace/adapter-codex";
 import { Engine, Store } from "@ace/daemon";
 import { harness, scriptFrames } from "./test-support.ts";
 
-test("fatal Codex admission expires pending permission and persists failed work across restart", async () => {
+test("fatal Codex admission expires pending permission and holds the interrupted turn across restart", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ace-admission-restart-"));
   const binary = join(directory, "offline-codex.mjs");
   await writeFile(
@@ -53,7 +53,7 @@ test("fatal Codex admission expires pending permission and persists failed work 
     const id = receipt.threadId;
     await exited.promise;
     await h.engine.flush();
-    expect(h.store.snapshotThread(id).thread.status.state).toBe("failed");
+    expect(h.store.snapshotThread(id).thread.status).toEqual({ state: "waiting", on: "queue" });
     expect(Object.values(h.store.snapshotThread(id).interactions)).toEqual([
       expect.objectContaining({ state: "expired" }),
     ]);
@@ -62,7 +62,8 @@ test("fatal Codex admission expires pending permission and persists failed work 
     reopened = new Engine(persisted, { registry: h.registry, clock: h.clock });
     await reopened.flush();
     const snapshot = persisted.snapshotThread(id);
-    expect(snapshot.thread.status.state).toBe("failed");
+    expect(snapshot.thread.status).toEqual({ state: "waiting", on: "queue" });
+    expect(reopened.queue(id)).toMatchObject({ paused: true, reason: "restart" });
     expect(Object.values(snapshot.interactions)).toEqual([
       expect.objectContaining({ state: "expired" }),
     ]);

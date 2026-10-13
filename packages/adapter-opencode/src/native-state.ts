@@ -223,6 +223,7 @@ export class NativeState {
     this.active.delete(id);
     this.ended.add(turn);
     return [
+      ...this.toolTails(id),
       { type: "retry.cleared", agent: this.key(id) },
       {
         type: "turn.ended",
@@ -289,9 +290,11 @@ export class NativeState {
           ? "OpenCode input acknowledgement uncertain"
           : task.startsWith("ancestry:")
             ? "Verifying OpenCode child ownership"
-            : kind === "shell"
-              ? "OpenCode shell"
-              : "OpenCode background work",
+            : task.startsWith("work:")
+              ? "Finishing a tool call"
+              : kind === "shell"
+                ? "OpenCode shell"
+                : "OpenCode background work",
         stoppable: !task.startsWith("admission:") && !task.startsWith("ancestry:"),
         ...(item ? { item } : {}),
         ...(kind === "subagent" ? { childAgent: this.key(task.slice(6)) } : {}),
@@ -305,6 +308,20 @@ export class NativeState {
       this.completedBackgrounds.add(task);
     if (!exists) return [];
     return [{ type: "background.ended", task, status }];
+  }
+  /**
+   * OpenCode can report an execution's end before a tool it ran finishes cleaning up. Each such
+   * tool is held as bookkeeping work until it settles, so the tree isn't done early. The work is
+   * not linked to the tool's row: the transcript keeps showing the tool, never a background row.
+   */
+  toolTail(item: string, session: string): Fact[] {
+    return this.background(`work:${item}`, session, "other");
+  }
+  private toolTails(session: string): Fact[] {
+    const facts: Fact[] = [];
+    for (const [item, tool] of this.tools)
+      if (tool.session === session && tool.live) facts.push(...this.toolTail(item, session));
+    return facts;
   }
   wake(id: string, created = Number.MAX_SAFE_INTEGER): Fact[] {
     this.wakes.set(id, created);

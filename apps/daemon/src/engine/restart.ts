@@ -1,4 +1,4 @@
-import { unexpectedStopNotice } from "./thread-liveness.ts";
+import { interruptedNotice } from "./thread-liveness.ts";
 import type { EngineRepository, IntentHeader } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
 import type { Recovery } from "./recovery.ts";
@@ -122,7 +122,7 @@ export function recoverEngine(
               message: "Daemon restarted; previous provider work stopped",
             },
             { type: "queue.changed", source: "provider", count: 0 },
-            unexpectedStopNotice(state.rootKey, clock.now()),
+            interruptedNotice(state.rootKey, clock.now(), "restart"),
           ],
           clock.now(),
         );
@@ -215,14 +215,9 @@ export function recoverEngine(
         },
         clock.now(),
       );
+      // Nothing starts by itself after a restart: the interrupted turn and the queue stay held
+      // until the person resumes or sends a message.
       recovery.sync(state.threadId);
-      if (
-        !uncertain &&
-        !queue.limited &&
-        !["stopped", "model_unavailable", "not_sent"].includes(queue.reason ?? "") &&
-        recovery.preferences(state.threadId).continueAfterRestart
-      )
-        recovery.automatic(state.threadId);
       // Recovery controls already accepted before a crash are safe only when unclaimed.
       if (
         (repo.pending.recovery(state.threadId) || repo.pending.transition(state.threadId)) &&

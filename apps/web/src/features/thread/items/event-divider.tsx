@@ -5,8 +5,10 @@ import {
   displayNotice,
   sanitizeUserText,
   echoesEarlierError,
+  failureCount,
   handoffSummary,
   inputLine,
+  interruptionNotice,
   isBareErrorCode,
   noticeInput,
   parseDelegationResults,
@@ -119,6 +121,18 @@ function useRefusalCount(threadId: string, itemId: string, refused: boolean): nu
   return useThread(threadId, ["order"], read) ?? 1;
 }
 
+/** How many identical failures this error row stands for; 0 when an earlier row counts it. */
+function useFailureCount(threadId: string, itemId: string, failed: boolean): number {
+  const read = useCallback(
+    (reader: ThreadReader) =>
+      failed
+        ? failureCount(reader.order, reader.order.indexOf(itemId), (id) => reader.item(id))
+        : 1,
+    [itemId, failed],
+  );
+  return useThread(threadId, ["order"], read) ?? 1;
+}
+
 /** A bare error code that only repeats the error just above it (IR-12). */
 function useEchoedCode(threadId: string, item: Item | undefined): boolean {
   const echo = item?.type === "notice" && isBareErrorCode(item.text);
@@ -147,6 +161,11 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
   const echoed = useEchoedCode(props.threadId, item);
   const refusal = toolRefusal(item);
   const refusals = useRefusalCount(props.threadId, props.itemId, !!refusal);
+  const failures = useFailureCount(
+    props.threadId,
+    props.itemId,
+    !refusal && item?.type === "notice" && item.level === "error",
+  );
   if (!item || repeated || echoed) return null;
   if (refusal) return refusals ? <RefusalRow refusal={refusal} count={refusals} /> : null;
   if (item.type === "message" && item.mergedContext)
@@ -203,15 +222,26 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
   switch (item.type) {
     case "notice": {
       if (item.code === "input_queued") return null;
+      // One quiet row; Continue lives on the pill over the composer, not here.
+      if (interruptionNotice(item))
+        return (
+          <SystemRow
+            text={item.text}
+            at={item.createdAt}
+            icon={<ArrowClockwiseIcon aria-hidden size={14} />}
+          />
+        );
       if (item.raw.some((raw) => raw.type === "permission.reviewed"))
         return <ReviewNote threadId={props.threadId} item={item} />;
       const kind = noticeInput(item);
       const line = kind && inputLine({ kind, text: item.text });
       if (line) return <EventRow line={line} at={item.createdAt} received={item.text} />;
       if (item.level === "error") {
+        if (!failures) return null;
         const error = noticeError(item);
         return (
           <ErrorRow
+            count={failures}
             error={{
               ...error,
               provider: error.provider ?? thread?.provider,

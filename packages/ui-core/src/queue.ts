@@ -30,6 +30,7 @@ export interface QueueNotice {
     | "resuming"
     | "snoozed"
     | "restart"
+    | "stopped"
     | "uncertain"
     | "paused"
     | "model"
@@ -133,16 +134,16 @@ export function queueNotice(
       };
     case "stopped":
       return {
-        kind: "paused",
+        kind: "stopped",
         title: "Agent stopped",
-        detail: "Your queued messages are kept until you continue.",
+        detail: "",
         actions: [{ id: "resume", label: "Continue" }],
       };
     case "restart":
       return {
         kind: "restart",
         title: "Stopped by a restart",
-        detail: "Continue where the agent left off, then send what's queued.",
+        detail: "",
         actions: [{ id: "resume", label: "Continue" }],
       };
     case "uncertain":
@@ -164,6 +165,14 @@ export function queueNotice(
     default:
       return undefined;
   }
+}
+
+/**
+ * A stopped turn (the person's Stop, a restart, a provider that died) is not a queue state: it
+ * reads as a pill over the composer with Continue, never as an item in the queue's strip.
+ */
+export function stoppedHold(notice: QueueNotice | undefined): boolean {
+  return notice?.kind === "restart" || notice?.kind === "stopped";
 }
 
 /**

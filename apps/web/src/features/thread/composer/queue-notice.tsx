@@ -27,6 +27,7 @@ const icons: Record<Notice["kind"], typeof PauseIcon> = {
   resuming: HourglassMediumIcon,
   snoozed: MoonIcon,
   restart: ArrowClockwiseIcon,
+  stopped: PauseIcon,
   uncertain: WarningIcon,
   paused: PauseIcon,
   model: WarningIcon,

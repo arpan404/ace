@@ -147,8 +147,11 @@ test("the side panel lists only the background commands still running", async ()
     await within(panel).findByRole("listitem", { name: "bun run dev:relay: running" }),
   ).toBeTruthy();
   expect(within(panel).queryByRole("listitem", { name: /^bun run build/ })).toBeNull();
-  // The finished build stays reachable from its transcript row, which opens its output.
-  const build = within(feed).getByRole("group", { name: "Background task bun run build" });
+  // The two commands read as one group; the finished build stays reachable inside it, and its
+  // row opens its output.
+  const group = within(feed).getByRole("group", { name: "2 background tasks · 1 running" });
+  await userEvent.click(within(group).getByRole("button", { name: /^2 background tasks/ }));
+  const build = within(group).getByRole("group", { name: "Background task bun run build" });
   expect(build.textContent).toContain("Finished");
   expect(within(build).getByRole("button", { name: "Show output of bun run build" })).toBeTruthy();
 });

@@ -5,6 +5,7 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useClaimConnectionNotice } from "@/features/shell/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { failedHead, withoutMessage } from "./failed-head.ts";
+import { stoppedHold } from "@ace/ui-core";
 import { useHeldQueue } from "./queue-notice.tsx";
 import { QueueStrip } from "./queue-strip.tsx";
 import { queuedCount } from "./queued.tsx";
@@ -44,7 +45,9 @@ export function ComposerStrip(props: {
   // A message that wasn't sent is in the transcript with its reason; the strip lists the rest.
   const failed = failedHead(allHeld, all);
   const queue = withoutMessage(all, failed?.id);
-  const held = allHeld?.notice.kind === "not_sent" ? undefined : allHeld;
+  // A failed send is in the transcript; a stopped turn is the pill over the composer.
+  const held =
+    allHeld?.notice.kind === "not_sent" || stoppedHold(allHeld?.notice) ? undefined : allHeld;
   const pending = useQueuedPending(props.threadId, all.page, all.retained).filter(
     (message) => message.id !== failed?.id,
   );

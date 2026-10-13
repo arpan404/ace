@@ -134,7 +134,8 @@ export function seedRealThreadState(daemon: FakeDaemon): void {
     ["legacy-restart", "restart"],
     ["legacy-send", "not_sent"],
   ] as const) {
-    daemon.holdQueue(id, reason);
+    // The message was queued before the hold: a send after a restart would start a turn.
+    daemon.holdQueue(id, reason === "restart" ? "manual" : reason);
     daemon.command({
       id: CommandId.parse(`queued-${id}`),
       deviceId,
@@ -145,5 +146,6 @@ export function seedRealThreadState(daemon: FakeDaemon): void {
         delivery: "queue",
       },
     });
+    if (reason === "restart") daemon.holdQueue(id, reason);
   }
 }

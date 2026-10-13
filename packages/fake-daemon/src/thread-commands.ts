@@ -90,7 +90,18 @@ export function sendFacts(
   const root = host.state.rootKey;
   if (root === undefined) return { ok: false, error: "no_agent" };
   const text = inputText(payload.input, payload.context);
-  // A held queue (paused, limited, after a restart) keeps every send in order.
+  // Like the daemon: a message is the person's go-ahead after a Stop or a restart, so it never
+  // waits behind that hold.
+  if (
+    host.queue.paused &&
+    (host.queue.reason === "stopped" || host.queue.reason === "restart") &&
+    !host.queued.some((message) => message.state === "uncertain")
+  ) {
+    host.queue.paused = false;
+    host.queue.reason = null;
+    host.queueDirty = true;
+  }
+  // A held queue (paused, limited, uncertain) keeps every send in order.
   if (!busy(host) && !host.queue.paused) {
     host.nextSelection = {
       ...(payload.model ? { model: payload.model } : {}),
