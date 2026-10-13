@@ -2,6 +2,7 @@ import type { ThreadReader } from "@ace/client";
 import { isTestCommand } from "@ace/projection";
 import type { AgentStatus, Interaction, Item, ThreadStatus } from "@ace/protocol";
 import { turnTreeOf } from "./turn-tree.ts";
+import { agentName } from "./agents.ts";
 import {
   askingLabel,
   describeLive,
@@ -44,6 +45,8 @@ export interface TurnActivity {
   current: string | undefined;
   subagents?: number | undefined;
   backgroundCommands?: number | undefined;
+  /** While waiting on the person: the subagent or delegated child that asks, when not the root. */
+  asker?: string | undefined;
 }
 
 export type ActivityReader = Pick<
@@ -92,12 +95,45 @@ export function pauseLabel(
 }
 
 /** "Waiting for your approval" / "… your review" / "… your answer", by what is asked. */
-function waitingOnYou(interactions: readonly Interaction[]): TurnActivity {
+function waitingOnYou(
+  reader: ActivityReader,
+  rootId: string,
+  interactions: readonly Interaction[],
+): TurnActivity {
   const kinds = new Set(interactions.map((interaction) => interaction.request.kind));
   const label = askingLabel(
     kinds.has("approval") ? "approval" : kinds.has("plan_review") ? "plan_review" : "question",
   );
-  return { label, tone: "needs-you", elapsedFrom: undefined, current: undefined };
+  return {
+    label,
+    tone: "needs-you",
+    elapsedFrom: undefined,
+    current: undefined,
+    asker: askerOf(reader, rootId, interactions),
+  };
+}
+
+/**
+ * Which agent below the root asks, when one does: the subagent behind the oldest open request,
+ * else a subagent or delegated child whose own tree waits on the person. Undefined when the root
+ * asks itself. Reads every agent only while the tree waits on the person with no request here.
+ */
+function askerOf(
+  reader: ActivityReader,
+  rootId: string,
+  interactions: readonly Interaction[],
+): string | undefined {
+  const first = interactions[0];
+  if (first) {
+    const agent = first.agentId === rootId ? undefined : reader.agent(first.agentId);
+    return agent && agent.origin !== "root" ? agentName(agent) : undefined;
+  }
+  for (const id of reader.agentIds()) {
+    const agent = reader.agent(id);
+    if (!agent || agent.origin === "root" || id === rootId) continue;
+    if (agent.status.state === "blocked" && agent.status.on === "human") return agentName(agent);
+  }
+  return undefined;
 }
 
 /** The live line for a fact every surface words alike (`live-status.ts`). */
@@ -147,7 +183,7 @@ export function readTurnActivity(
   const watch = [...tree.watch()];
   const pending = tree.pending();
   const activity = tree.needsYou
-    ? waitingOnYou(pending)
+    ? waitingOnYou(reader, rootId, pending)
     : readActivity(reader, rootId, options, watch);
   const status = reader.agent(rootId)?.status;
   const waitingCount =
@@ -266,7 +302,7 @@ function readActivity(
   if (options.stopping && live) return line("Stopping…", "working");
   // Anything the person must answer before the agent can go on: no timer, a needs-you mark.
   const blocking = pending.filter((interaction) => interaction.blocking);
-  if (blocking.length && live) return waitingOnYou(blocking);
+  if (blocking.length && live) return waitingOnYou(reader, rootId, blocking);
   switch (status.state) {
     case "starting":
       return line("Starting", "working");
@@ -287,7 +323,7 @@ function readActivity(
       return { label, tone: "working", elapsedFrom, current };
     }
     case "blocked": {
-      if (status.on === "human") return waitingOnYou(pending);
+      if (status.on === "human") return waitingOnYou(reader, rootId, pending);
       if (status.on === "subagents")
         return status.refs.length
           ? factLine({ kind: "subagents", count: status.refs.length }, "working")
@@ -331,7 +367,7 @@ function readActivity(
       return line("Not responding", "held");
     default:
       // The turn is over; a question it left behind still waits on the person.
-      return pending.length ? waitingOnYou(pending) : undefined;
+      return pending.length ? waitingOnYou(reader, rootId, pending) : undefined;
   }
 }
 
@@ -359,6 +395,7 @@ export function sameActivity(a: TurnActivity | undefined, b: TurnActivity | unde
       a.elapsedFrom === b.elapsedFrom &&
       a.current === b.current &&
       a.subagents === b.subagents &&
-      a.backgroundCommands === b.backgroundCommands)
+      a.backgroundCommands === b.backgroundCommands &&
+      a.asker === b.asker)
   );
 }

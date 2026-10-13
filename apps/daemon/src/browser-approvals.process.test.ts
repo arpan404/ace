@@ -49,7 +49,7 @@ it.each([":workspace", codexReviewerMode("auto_review")])(
     const revoked = approvals.evaluate(id, "https://site.example/other", undefined, "read-only");
     interaction = await opened;
     approvals.revoke(id, "https://site.example");
-    expect(await revoked).toBe(false);
+    await expect(revoked).rejects.toMatchObject({ code: "evaluate_approval_superseded" });
     expect(f.resolve(interaction, "allow_once").ok).toBe(false);
     opened = f.opened();
     const download = approvals.downloads(id, "https://site.example/file.zip");
@@ -130,4 +130,52 @@ it("shutdown expires pending permissions and refuses late decisions", async () =
   expect(await download).toBe(false);
   expect(f.store.getInteraction(interaction.id)?.state).toBe("expired");
   expect(f.resolve(interaction, "allow_once").ok).toBe(false);
+});
+
+it("an evaluate approval the person never answered reports superseded or timed out, never a cancel", async () => {
+  const timers: { delay: number; work: () => void }[] = [];
+  const f = await originFixture("ask", undefined, undefined, {
+    now: () => 1000,
+    set(delay, work) {
+      const timer = { delay, work };
+      timers.push(timer);
+      return () => void timers.splice(timers.indexOf(timer), 1);
+    },
+  });
+  const approvals = f.context.services.browserApprovals;
+  if (!approvals) throw new Error("approvals");
+  const id = f.thread.id;
+  f.browser.originsGrant(id, "https://site.example");
+
+  // Revoking the site while its request waits replaces that request: the agent hears why.
+  let opened = f.opened();
+  const revoked = approvals.evaluate(id, "https://site.example/a", undefined, "read-only");
+  await opened;
+  approvals.revoke(id, "https://site.example");
+  const superseded = await revoked.then(
+    () => new Error("approved"),
+    (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
+  );
+  expect(superseded).toMatchObject({ code: "evaluate_approval_superseded" });
+  expect(superseded.message).toBe("Browser evaluate approval request superseded");
+  expect(superseded.message).not.toMatch(/cancel/i);
+
+  // Nobody answers within the minute: it times out, and says so.
+  opened = f.opened();
+  const waiting = approvals.evaluate(id, "https://site.example/b", undefined, "unrestricted");
+  const interaction = await opened;
+  const deadline = timers.find((timer) => timer.delay === 60_000);
+  if (!deadline) throw new Error("no approval deadline");
+  deadline.work();
+  await expect(waiting).rejects.toMatchObject({
+    code: "evaluate_approval_timeout",
+    message: "Browser evaluate approval timed out",
+  });
+  expect(f.store.getInteraction(interaction.id)?.state).toBe("expired");
+
+  // The person's own refusal is still a plain refusal.
+  opened = f.opened();
+  const denied = approvals.evaluate(id, "https://site.example/c", undefined, "unrestricted");
+  expect(f.resolve(await opened, "deny").ok).toBe(true);
+  expect(await denied).toBe(false);
 });

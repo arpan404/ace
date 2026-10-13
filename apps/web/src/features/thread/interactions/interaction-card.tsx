@@ -124,6 +124,8 @@ export function InteractionCard(props: {
   interactionId: string;
   frame?: InteractionFrame | undefined;
   aside?: ReactNode;
+  /** Who asks, when the parent names it (a delegated child, "general assistant"). */
+  asker?: string | undefined;
   /** Keep a stable focus target while the decision controls are replaced. */
   onControlsChange?(): void;
 }) {
@@ -142,7 +144,7 @@ export function InteractionCard(props: {
     sender.answer(resolution);
   };
   if (!interaction) return null;
-  const asker = agent ? agentName(agent) : "The agent";
+  const asker = props.asker ?? (agent ? agentName(agent) : "The agent");
   const pending = interaction.state === "pending";
   const request = interaction.request;
   if (request.kind === "question") {

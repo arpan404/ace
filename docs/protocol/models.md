@@ -57,27 +57,34 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "defaultEffort": "example",
-  "deprecated": false,
+  "contextWindow": 8,
+  "defaultTier": "example",
+  "deprecated": true,
   "displayName": "example",
+  "free": true,
   "hidden": false,
   "id": "example",
   "inputModalities": [],
+  "installationId": "example",
   "instance": "example",
-  "isDefault": true,
-  "isNew": true,
-  "modelConfigId": "example",
+  "instanceId": "example",
+  "isDefault": false,
   "nativeModelId": "example",
-  "provider": "acp",
+  "provider": "antigravity",
   "raw": {
     "json": "example",
     "truncated": true
   },
   "reasoningEfforts": [],
+  "resolvedModelId": "example",
   "serviceTiers": [],
-  "sortKey": "example",
-  "version": "example"
+  "source": {
+    "id": "example",
+    "kind": "subscription",
+    "label": "example",
+    "service": "opencode_go"
+  },
+  "tier": "legacy"
 }
 ```
 
@@ -99,7 +106,8 @@ Example:
 {
   "code": "not_installed",
   "hint": "example",
-  "message": "example"
+  "message": "example",
+  "severity": "info"
 }
 ```
 
@@ -119,7 +127,8 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example"
+  "acpAgentId": "example",
+  "instanceId": "example"
 }
 ```
 
@@ -150,13 +159,20 @@ Example:
 ```json
 {
   "acpAgentId": "example",
+  "error": "persistence_failed",
+  "errorDetail": {
+    "actionId": "provider.sign_in",
+    "code": "persistence_failed",
+    "hint": "example",
+    "message": "example"
+  },
   "instance": "example",
   "instanceId": "example",
-  "provider": "claude",
-  "refreshedAt": 3,
+  "permissionModes": [],
+  "provider": "acp",
   "refreshing": true,
   "stale": true,
-  "status": "stale"
+  "status": "refreshing"
 }
 ```
 
@@ -179,8 +195,9 @@ Example:
 ```json
 {
   "acpAgentId": "example",
-  "installationId": "example",
-  "instanceId": "example"
+  "instanceId": "example",
+  "offset": 7,
+  "provider": "opencode"
 }
 ```
 
@@ -223,38 +240,43 @@ Example:
 ```json
 {
   "model": {
-    "deprecated": true,
-    "detail": "example",
+    "custom": false,
+    "deprecated": false,
     "displayName": "example",
-    "free": true,
-    "hidden": false,
+    "hidden": true,
     "id": "example",
     "inputModalities": [],
     "installationId": "example",
     "instance": "example",
     "instanceId": "example",
-    "isDefault": false,
+    "isDefault": true,
+    "isNew": false,
     "nativeModelId": "example",
-    "provider": "acp",
+    "nativeProviderId": "example",
+    "provider": "pi",
     "raw": {
       "json": "example",
       "truncated": false
     },
     "reasoningEfforts": [],
-    "selectorMethod": "session/set_config_option",
+    "resolvedModelId": "example",
     "serviceTiers": [],
+    "sortKey": "example",
     "source": {
       "id": "example",
       "kind": "api_key",
-      "label": "example"
-    }
+      "label": "example",
+      "service": "opencode_go"
+    },
+    "visibilityReason": "provider_hidden"
   },
   "ok": true,
   "reason": "example",
   "stale": true,
   "tier": {
     "id": "example",
-    "name": "example"
+    "name": "example",
+    "speed": "ultrafast"
   }
 }
 ```
@@ -298,9 +320,9 @@ Example:
 
 ```json
 {
-  "effort": "example",
-  "installationId": "example",
-  "instanceId": "example",
+  "imageInput": true,
+  "model": "example",
+  "provider": "claude",
   "role": "example"
 }
 ```
@@ -319,9 +341,6 @@ Example:
 ```json
 {
   "filter": {
-    "installationId": "example",
-    "instance": "example",
-    "instanceId": "example",
     "provider": "claude"
   },
   "type": "models.changed"
@@ -364,9 +383,8 @@ Example:
 ```json
 {
   "id": "example",
-  "kind": "account",
-  "label": "example",
-  "requiresAuth": false
+  "kind": "subscription",
+  "label": "example"
 }
 ```
 
@@ -385,13 +403,19 @@ Example:
 
 ```json
 {
+  "error": {
+    "actionId": "provider.sign_in",
+    "code": "persistence_failed",
+    "hint": "example",
+    "message": "example"
+  },
   "source": {
     "id": "example",
     "kind": "local",
     "label": "example",
-    "service": "opencode_zen"
+    "requiresAuth": true
   },
-  "status": "refreshing"
+  "status": "stale"
 }
 ```
 
@@ -409,9 +433,6 @@ Example:
 
 ```json
 {
-  "filter": {
-    "installationId": "example"
-  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -433,9 +454,8 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "instanceId": "example",
-    "model": "example",
-    "provider": "cursor",
+    "imageInput": false,
+    "preferenceOrder": [],
     "role": "example"
   },
   "type": "models.resolve"
@@ -459,8 +479,7 @@ Example:
   "requestId": "example",
   "result": {
     "instances": [],
-    "models": [],
-    "nextOffset": 0
+    "models": []
   },
   "type": "models.result"
 }

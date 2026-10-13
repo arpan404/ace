@@ -11,6 +11,11 @@ export { ScenarioPlayer } from "./scenario.ts";
 export type { PlayOptions, Scenario, Step, Timer } from "./scenario.ts";
 export { flakyCheckout } from "./scenarios/flaky-checkout.ts";
 export { delegatedDocs, delegatedDocsIds } from "./scenarios/delegated-docs.ts";
+export {
+  childStatus,
+  delegatedQuestion,
+  delegatedQuestionIds,
+} from "./scenarios/delegated-question.ts";
 export { failingSubagent } from "./scenarios/failing-subagent.ts";
 export { refusedDelegation } from "./scenarios/refused-delegation.ts";
 export { interruptedTurn, seedInterruptedTurn } from "./scenarios/interrupted-turn.ts";

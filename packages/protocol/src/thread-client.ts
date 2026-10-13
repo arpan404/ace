@@ -127,6 +127,15 @@ export const ThreadRunMetadata = z.object({
     .array(z.object({ id: InteractionId, kind: z.string().max(64) }))
     .max(8)
     .optional(),
+  /**
+   * Delegated child threads whose own request, or a request further down their tree, waits on
+   * the person, oldest first, at most the newest 8, with the name this thread gives each: what
+   * "general assistant needs you" names, and where its request is answered.
+   */
+  askingThreads: z
+    .array(z.object({ id: ThreadId, name: z.string().max(256).optional() }))
+    .max(8)
+    .optional(),
   /** How many subagents the root agent waits on, while it waits on them. */
   waitingOn: z.number().int().positive().optional(),
   /** What the root agent's step in flight does, when ace recognises it: `tests` runs tests. */

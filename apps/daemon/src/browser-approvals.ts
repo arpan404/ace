@@ -11,6 +11,7 @@ import {
   type PermissionMode,
 } from "@ace/protocol";
 import { browserOrigin } from "@ace/browser";
+import { PublicToolError } from "@ace/mcp-server/errors";
 import type { Store } from "./store.ts";
 const Metadata = z.object({
   key: z.string(),
@@ -103,20 +104,36 @@ export class BrowserApprovals {
       if (pending.threadId === threadId && metadata?.origin === origin) this.expire(id, pending);
     }
   }
-  evaluate(
+  /**
+   * Whether the agent may evaluate. A request the person never answered says why it ended
+   * (it timed out, or a revocation superseded it), so the agent is never told the person
+   * cancelled or refused what they never saw.
+   */
+  async evaluate(
     threadId: string,
     url: string,
     signal?: AbortSignal,
     mode: "read-only" | "unrestricted" = "unrestricted",
     expression?: string,
-  ) {
-    return this.request(threadId, url, "evaluate", signal, mode, undefined, expression);
+  ): Promise<boolean> {
+    const outcome = await this.request(
+      threadId,
+      url,
+      "evaluate",
+      signal,
+      mode,
+      undefined,
+      expression,
+    );
+    if (outcome === "timed_out") throw new PublicToolError("evaluate_approval_timeout");
+    if (outcome === "superseded") throw new PublicToolError("evaluate_approval_superseded");
+    return outcome === true;
   }
-  downloads(threadId: string, url: string, signal?: AbortSignal) {
-    return this.request(threadId, url, "downloads", signal);
+  async downloads(threadId: string, url: string, signal?: AbortSignal): Promise<boolean> {
+    return (await this.request(threadId, url, "downloads", signal)) === true;
   }
-  upload(threadId: string, paths: string[], signal?: AbortSignal) {
-    return this.request(threadId, "", "upload", signal, undefined, paths);
+  async upload(threadId: string, paths: string[], signal?: AbortSignal): Promise<boolean> {
+    return (await this.request(threadId, "", "upload", signal, undefined, paths)) === true;
   }
   private metadata(interaction: Interaction | undefined) {
     const raw = interaction?.raw.find((entry) => entry.type === "ace.browser.permission");
@@ -131,7 +148,7 @@ export class BrowserApprovals {
     mode?: "read-only" | "unrestricted",
     paths?: string[],
     expression?: string,
-  ): Promise<boolean> {
+  ): Promise<boolean | "timed_out" | "superseded"> {
     const threadId = ThreadId.parse(rawThreadId),
       origin = kind === "upload" ? "" : browserOrigin(url);
     if (this.closed) return false;
@@ -239,6 +256,7 @@ export class BrowserApprovals {
     });
     const pending = { threadId, key };
     this.pending.set(interaction.id, pending);
+    let timedOut = false;
     await new Promise<void>((resolve) => {
       let completed = false;
       let cancelTimer: (() => void) | undefined;
@@ -259,7 +277,10 @@ export class BrowserApprovals {
       if (signal?.aborted || this.closed) abort();
       else if (this.host.store.getInteraction(interaction.id)?.state !== "pending") finish();
       else {
-        cancelTimer = this.timers.set(60_000, abort);
+        cancelTimer = this.timers.set(60_000, () => {
+          timedOut = true;
+          abort();
+        });
         if (completed) cancelTimer();
       }
     });
@@ -270,11 +291,15 @@ export class BrowserApprovals {
         .run(interaction.id),
     );
     signal?.throwIfAborted();
-    if (this.closed || version !== (this.versions.get(versionKey) ?? 0)) return false;
+    if (this.closed) return false;
+    // A revocation while it waited replaced this request; the person never answered it.
+    if (version !== (this.versions.get(versionKey) ?? 0)) return "superseded";
+    if (timedOut) return "timed_out";
     const result = this.host.store.getInteraction(interaction.id);
     const latest = await this.host.mode(threadId);
     signal?.throwIfAborted();
-    if (this.closed || version !== (this.versions.get(versionKey) ?? 0)) return false;
+    if (this.closed) return false;
+    if (version !== (this.versions.get(versionKey) ?? 0)) return "superseded";
     if (latest === "read-only" && (kind !== "evaluate" || mode !== "read-only")) return false;
     return (
       result?.state === "resolved" &&

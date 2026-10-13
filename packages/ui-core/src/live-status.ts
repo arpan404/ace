@@ -15,6 +15,8 @@ import { formatClock } from "./time.ts";
 export type LiveFact =
   /** A request waits on the person; `request` is what it asks for (an interaction kind). */
   | { kind: "asking"; request: string }
+  /** A delegated child (or one further down its tree) waits on the person; `agent` names it. */
+  | { kind: "child-asking"; agent: string }
   | { kind: "limited"; until: number | undefined }
   | { kind: "subagents"; count: number }
   /** Background work holds the thread; `title` names it when there is exactly one. */
@@ -38,6 +40,11 @@ export function askingLabel(request: string): string {
   return "Waiting for your answer";
 }
 
+/** "general assistant needs you": a delegated child's request, answered from its parent. */
+export function childAskingLabel(agent: string): string {
+  return `${agent} needs you`;
+}
+
 /** "Limited until 3:20 PM" (with the day when it is further off), or "Limited". */
 export function limitedLabel(until: number | undefined, now: number, locale?: string): string {
   if (until === undefined || until <= now) return "Limited";
@@ -49,6 +56,8 @@ export function describeLive(fact: LiveFact, now: number, locale?: string): Live
   switch (fact.kind) {
     case "asking":
       return { label: askingLabel(fact.request), code: undefined, tone: "needs-you" };
+    case "child-asking":
+      return { label: childAskingLabel(fact.agent), code: undefined, tone: "needs-you" };
     case "limited":
       return { label: limitedLabel(fact.until, now, locale), code: undefined, tone: "waiting" };
     case "subagents":
@@ -87,7 +96,9 @@ export function threadLiveFact(thread: {
   switch (status.state) {
     case "needs_you": {
       const request = live?.asking?.[0]?.kind;
-      return request ? { kind: "asking", request } : undefined;
+      if (request) return { kind: "asking", request };
+      const child = live?.askingThreads?.[0];
+      return child ? { kind: "child-asking", agent: child.name ?? "Subagent" } : undefined;
     }
     case "limited":
       return { kind: "limited", until: status.until };

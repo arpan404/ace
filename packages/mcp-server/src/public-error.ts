@@ -44,6 +44,8 @@ export const PublicToolCode = z.enum([
   "element_unavailable",
   "not_visible",
   "evaluate_approval_required",
+  "evaluate_approval_timeout",
+  "evaluate_approval_superseded",
   "page_text_limit",
   "approval_required",
   "denied",
@@ -231,6 +233,15 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   evaluate_approval_required: {
     message: "Browser evaluate requires approval",
     hint: "Ask the user to approve evaluation.",
+  },
+  // Neither is the person cancelling or refusing: they never answered this request.
+  evaluate_approval_timeout: {
+    message: "Browser evaluate approval timed out",
+    hint: "The person did not answer within a minute; nobody cancelled it. Tell them it needs their approval, then retry.",
+  },
+  evaluate_approval_superseded: {
+    message: "Browser evaluate approval request superseded",
+    hint: "A revoked site grant replaced this request before it was answered; nobody cancelled it. Retry to ask again.",
   },
   page_text_limit: {
     message: "Browser text search exceeds the bounded page limit",

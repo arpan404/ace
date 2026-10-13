@@ -1,4 +1,5 @@
 import {
+  askingLabel,
   livePlanStep,
   subagentBranchStates,
   workingSubagentsText,
@@ -14,6 +15,7 @@ import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
+import { useDescendantRequest } from "../composer/descendant-request.ts";
 import { ThinkingRow } from "./step-groups-view.tsx";
 import { SystemRow } from "./system-row.tsx";
 
@@ -26,7 +28,13 @@ import { SystemRow } from "./system-row.tsx";
  */
 
 export function LiveHead(props: { threadId: string }) {
-  const activity = useTurnActivity(props.threadId);
+  const turn = useTurnActivity(props.threadId);
+  // The thread's tree waits on a delegated child's request: say what that request asks for.
+  const descendant = useDescendantRequest(props.threadId);
+  const activity =
+    turn?.tone === "needs-you" && descendant?.kind && turn.asker === descendant.name
+      ? { ...turn, label: askingLabel(descendant.kind) }
+      : turn;
   const workspace = useWorkspaceActions(props.threadId);
   const plans = useShownPlans(props.threadId);
   const live = useLiveConnection();
@@ -72,7 +80,11 @@ export function ActivityLine(props: {
         icon={<PauseCircleIcon aria-hidden size={14} />}
       />
     );
-  const label = activity.code ? `${activity.label} ${activity.code}` : activity.label;
+  const label = activity.code
+    ? `${activity.label} ${activity.code}`
+    : activity.tone === "needs-you" && activity.asker
+      ? `${activity.label} · ${activity.asker}`
+      : activity.label;
   return (
     <p
       role="status"

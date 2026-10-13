@@ -26,6 +26,25 @@
       "maxItems": 8,
       "type": "array"
     },
+    "askingThreads": {
+      "items": {
+        "properties": {
+          "id": {
+            "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+          },
+          "name": {
+            "maxLength": 256,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "backgroundTaskCount": {
       "maximum": 9007199254740991,
       "minimum": 0,
