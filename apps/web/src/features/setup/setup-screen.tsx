@@ -22,6 +22,7 @@ import { useProviderAccountModels } from "@/features/accounts/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
 import { ProviderRow } from "./provider-card.tsx";
+import { Disclosure } from "@/components/ui/disclosure.tsx";
 
 const names = new Intl.ListFormat("en", { type: "conjunction" });
 
@@ -178,14 +179,15 @@ export function SetupScreen() {
                     Start with a folder on this computer, or clone a repository.
                   </p>
                 </div>
-                <details className="py-3">
-                  <summary className="cursor-pointer text-ui text-muted-foreground">
-                    Bring an existing conversation
-                  </summary>
+                <Disclosure
+                  className="py-3"
+                  summaryClassName="text-ui"
+                  summary="Bring an existing conversation"
+                >
                   <div className="mt-4">
                     <PastSessions />
                   </div>
-                </details>
+                </Disclosure>
               </div>
             )}
           </div>

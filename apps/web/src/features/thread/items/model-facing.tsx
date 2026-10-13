@@ -2,6 +2,7 @@ import { CaretRightIcon } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import { handoffSummary, resultLead } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
+import { Disclosure } from "@/components/ui/disclosure.tsx";
 
 /**
  * The text ace sent the model on the person's behalf, kept out of sight: instructions,
@@ -33,12 +34,11 @@ export function ModelFacing(props: { text: string; label?: string; className?: s
           className="fx-rise-in mt-1 text-ui whitespace-pre-wrap text-muted-foreground"
         >
           <p>{summary}</p>
-          <details className="mt-1">
-            <summary className="cursor-pointer text-xs">Details</summary>
+          <Disclosure className="mt-1" summaryClassName="text-xs" summary="Details">
             <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-xs">
               {props.text}
             </pre>
-          </details>
+          </Disclosure>
         </div>
       )}
     </div>

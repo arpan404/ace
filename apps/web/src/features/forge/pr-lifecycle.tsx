@@ -13,6 +13,7 @@ import { readForge, forgeError } from "./source.ts";
 import { QueryState } from "./query-state.tsx";
 import { PrMetadataEditor } from "./pr-metadata-editor.tsx";
 import { PrRevertForm } from "./pr-revert-form.tsx";
+import { Disclosure } from "@/components/ui/disclosure.tsx";
 const labels = {
   ready: "Mark ready for review",
   draft: "Convert to draft",
@@ -167,15 +168,14 @@ export function PrLifecycle(props: {
           <p className="text-sm text-muted-foreground">
             Current state: {snapshot.state}. Actions reflect your GitHub permissions.
           </p>
-          <details>
-            <summary className="cursor-pointer focus-ring">Edit PR metadata</summary>
+          <Disclosure summary="Edit PR metadata">
             <PrMetadataEditor
               key={JSON.stringify(pr)}
               snapshot={snapshot}
               disabled={disabled}
               apply={apply}
             />
-          </details>
+          </Disclosure>
           <div className="flex flex-wrap gap-2">
             {snapshot.actions
               .filter((kind) => kind !== "revert")
@@ -205,15 +205,14 @@ export function PrLifecycle(props: {
             </p>
           )}
           {snapshot.actions.includes("revert") && (
-            <details>
-              <summary className="cursor-pointer focus-ring">Create a revert PR</summary>
+            <Disclosure summary="Create a revert PR">
               <PrRevertForm
                 key={JSON.stringify(pr)}
                 snapshot={snapshot}
                 disabled={disabled}
                 apply={apply}
               />
-            </details>
+            </Disclosure>
           )}
         </>
       )}

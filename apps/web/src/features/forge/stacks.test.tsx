@@ -139,10 +139,8 @@ test("a middle layer shows downstack blockers and reviews the native merge scope
   expect(
     within(section).getByRole<HTMLButtonElement>("button", { name: "Rebase local stack" }).disabled,
   ).toBe(true);
-  await userEvent.selectOptions(
-    within(section).getByRole("combobox", { name: "Stack merge method" }),
-    "merge",
-  );
+  await userEvent.click(within(section).getByRole("combobox", { name: "Stack merge method" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Merge commit" }));
   await userEvent.click(within(section).getByRole("button", { name: "Merge through #42" }));
   const confirmation = within(section).getByRole("group", { name: "Confirm stack action" });
   expect(within(confirmation).getByText(/Merge #41, #42 into main using merge/)).toBeTruthy();

@@ -20,6 +20,7 @@ import { usePrReview } from "./pr-review-context.tsx";
 import { PrOwnComment, PrReviewSubmission, PrThreadControls } from "./pr-review-forms.tsx";
 import { PrStack } from "./pr-stack.tsx";
 import { PrMergeState } from "./pr-merge-state.tsx";
+import { Disclosure } from "@/components/ui/disclosure.tsx";
 
 export function PrSection(props: { title: string; children: ReactNode; action?: ReactNode }) {
   const [open, setOpen] = useState(true);
@@ -221,11 +222,17 @@ export function PrSummary(props: {
         <PrSection title="Review threads">
           <div className="space-y-2">
             {detail.status.reviewThreads.map((thread) => (
-              <details key={thread.id}>
-                <summary className="cursor-pointer rounded-sm text-ui focus-ring">
-                  {thread.file}:{thread.line ?? ""} · {thread.resolved ? "Resolved" : "Unresolved"}
-                  {thread.outdated ? " · Outdated" : ""}
-                </summary>
+              <Disclosure
+                key={thread.id}
+                summaryClassName="text-ui"
+                summary={
+                  <span>
+                    {thread.file}:{thread.line ?? ""} ·{" "}
+                    {thread.resolved ? "Resolved" : "Unresolved"}
+                    {thread.outdated ? " · Outdated" : ""}
+                  </span>
+                }
+              >
                 <PrThreadControls
                   id={thread.id}
                   resolved={thread.resolved}
@@ -238,7 +245,7 @@ export function PrSummary(props: {
                     <Prose text={comment.body} className="text-ui leading-normal" />
                   </div>
                 ))}
-              </details>
+              </Disclosure>
             ))}
           </div>
         </PrSection>

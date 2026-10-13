@@ -10,6 +10,7 @@ import {
 } from "@ace/forge/stack-plan";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { Button } from "@/components/ui/button.tsx";
+import { Select } from "@/components/ui/select.tsx";
 import { openExternal } from "@/boot/open-external.ts";
 import { readForge, forgeError } from "./source.ts";
 import { QueryState } from "./query-state.tsx";
@@ -169,25 +170,25 @@ export function PrStack(props: {
               </li>
             ))}
           </ol>
-          <label className="block text-sm">
-            Stack task{" "}
-            <select
-              aria-label="Stack task"
+          <div className="flex items-center gap-2 text-sm">
+            Stack task
+            <Select
+              label="Stack task"
+              className="w-64"
               value={threadId}
-              onChange={(event) => {
-                setThread(event.target.value);
+              onValueChange={(value) => {
+                setThread(value);
                 setConfirmation(null);
               }}
-              className="bg-input p-1 focus-ring"
-            >
-              <option value="">Choose a linked task</option>
-              {props.detail.relatedThreads.map((thread) => (
-                <option key={thread.id} value={thread.id}>
-                  {thread.title}
-                </option>
-              ))}
-            </select>
-          </label>
+              options={[
+                { value: "", label: "Choose a linked task" },
+                ...props.detail.relatedThreads.map((thread) => ({
+                  value: thread.id,
+                  label: thread.title,
+                })),
+              ]}
+            />
+          </div>
           {!associated && (
             <p className="text-sm">
               Link the selected PR to a task to use stack actions. Other layers keep their existing
@@ -207,25 +208,22 @@ export function PrStack(props: {
               {operation.state}: {operation.message}
             </p>
           )}
-          <label className="text-sm">
-            Stack merge method{" "}
-            <select
-              aria-label="Stack merge method"
+          <div className="flex items-center gap-2 text-sm">
+            Stack merge method
+            <Select
+              label="Stack merge method"
               value={method}
-              onChange={(event) => {
-                const value = event.target.value;
-                if (value === "merge" || value === "squash" || value === "rebase") {
-                  setMethod(value);
-                  setConfirmation(null);
-                }
+              onValueChange={(value) => {
+                setMethod(value);
+                setConfirmation(null);
               }}
-              className="bg-input p-1 focus-ring"
-            >
-              <option value="squash">Squash</option>
-              <option value="merge">Merge commit</option>
-              <option value="rebase">Rebase</option>
-            </select>
-          </label>
+              options={[
+                { value: "squash", label: "Squash" },
+                { value: "merge", label: "Merge commit" },
+                { value: "rebase", label: "Rebase" },
+              ]}
+            />
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button
               disabled={

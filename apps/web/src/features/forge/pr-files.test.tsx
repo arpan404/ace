@@ -76,6 +76,11 @@ function DiffExample() {
   );
 }
 
+async function chooseCommit(name: string | RegExp) {
+  await userEvent.click(screen.getByRole("combobox", { name: "Commit range" }));
+  await userEvent.click(await screen.findByRole("option", { name }));
+}
+
 test("historical diffs bind annotations, line drafts and viewed marks to the displayed commit and parent", async () => {
   const app = harness();
   const workspaceId = WorkspaceId.parse("api");
@@ -143,8 +148,7 @@ test("historical diffs bind annotations, line drafts and viewed marks to the dis
     </AppFrame>,
   );
   await screen.findByText("current");
-  await screen.findByRole("option", { name: /Historical commit/ });
-  await userEvent.selectOptions(screen.getByRole("combobox", { name: "Commit range" }), historical);
+  await chooseCommit(/Historical commit/);
   await screen.findByText("historical");
   const identity = `${parent}/${historical}/${historical}`;
   expect(screen.getByRole("status", { name: "Annotation version" }).textContent).toBe(identity);
@@ -160,7 +164,7 @@ test("historical diffs bind annotations, line drafts and viewed marks to the dis
       screen.getByRole<HTMLInputElement>("checkbox", { name: "Viewed src/page.ts" }).checked,
     ).toBe(true),
   );
-  await userEvent.selectOptions(screen.getByRole("combobox", { name: "Commit range" }), "");
+  await chooseCommit("All commits");
   await screen.findByText("current");
   expect(
     screen.getByRole<HTMLInputElement>("checkbox", { name: "Viewed src/page.ts" }).checked,
@@ -168,7 +172,7 @@ test("historical diffs bind annotations, line drafts and viewed marks to the dis
   expect(screen.getByRole("status", { name: "Annotation version" }).textContent).toBe(
     `${detail.baseSha}/${detail.status.headSha}/all`,
   );
-  await userEvent.selectOptions(screen.getByRole("combobox", { name: "Commit range" }), historical);
+  await chooseCommit(/Historical commit/);
   await screen.findByText("historical");
   expect(
     screen.getByRole<HTMLInputElement>("checkbox", { name: "Viewed src/page.ts" }).checked,

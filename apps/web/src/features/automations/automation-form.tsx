@@ -26,6 +26,7 @@ import { SettingRow } from "@/components/setting-row.tsx";
 import { TimeZoneField, ScheduleFields } from "./schedule-fields.tsx";
 import { useAutomationForm, type AutomationFormApi } from "./use-automation-form.ts";
 import { githubEventLabels } from "./schedule.ts";
+import { Disclosure } from "@/components/ui/disclosure.tsx";
 
 const providers = ProviderKind.options.map((value) => ({ value, label: providerNames[value] }));
 const triggerOptions = {
@@ -223,10 +224,7 @@ export function AutomationEditor(props: {
         <form.Subscribe selector={(state) => state.values.trigger}>
           {(trigger) => <TriggerFields form={form} trigger={trigger} />}
         </form.Subscribe>
-        <details className="mt-5">
-          <summary className="rounded-sm text-sm text-muted-foreground focus-ring">
-            Advanced
-          </summary>
+        <Disclosure className="mt-5" summary="Advanced">
           <form.Subscribe selector={(state) => state.values.provider}>
             {(provider) => (
               <form.Field name="permissionMode">
@@ -289,7 +287,7 @@ export function AutomationEditor(props: {
               )
             }
           </form.Subscribe>
-        </details>
+        </Disclosure>
       </fieldset>
       {saveError && (
         <p role="alert" className="mt-4 text-sm text-destructive">
@@ -516,7 +514,7 @@ function DiscardDialog(props: { open: boolean; onKeep(): void; onDiscard(): void
           <Button ref={keep} variant="ghost" onClick={props.onKeep}>
             Keep editing
           </Button>
-          <Button variant="danger" onClick={props.onDiscard}>
+          <Button variant="ghost" tone="danger" onClick={props.onDiscard}>
             Discard
           </Button>
         </DialogFooter>

@@ -56,8 +56,10 @@ test("a required string, boolean and enum form sends entered values and prevents
   });
   expect(screen.getByRole("button", { name: "Continue" }).hasAttribute("disabled")).toBe(true);
   await userEvent.type(screen.getByRole("textbox", { name: "Project" }), "ace");
-  await userEvent.selectOptions(screen.getByRole("combobox", { name: "Approved" }), "false");
-  await userEvent.selectOptions(screen.getByRole("combobox", { name: "Region" }), "eu");
+  await userEvent.click(screen.getByRole("combobox", { name: "Approved" }));
+  await userEvent.click(await screen.findByRole("option", { name: "No" }));
+  await userEvent.click(screen.getByRole("combobox", { name: "Region" }));
+  await userEvent.click(await screen.findByRole("option", { name: "eu" }));
   await userEvent.click(screen.getByRole("button", { name: "Continue" }));
   await waitFor(() =>
     expect(app.daemon.resolution("elicitation", "connect")).toEqual({
