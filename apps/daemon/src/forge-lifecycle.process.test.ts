@@ -128,12 +128,7 @@ function mergedFixtures() {
 }
 
 test("lifecycle preflight failures never reserve an uncertain write and allow retry after restart", async () => {
-  for (const failure of [
-    { status: 503 },
-    { status: 504 },
-    { status: 429 },
-    { offline: true },
-  ]) {
+  for (const failure of [{ status: 503 }, { status: 504 }, { status: 429 }, { offline: true }]) {
     const fixtures = mergedFixtures();
     const key = "graphql:query AceLifecycleSnapshot";
     const valid = fixtures[key]?.[0];

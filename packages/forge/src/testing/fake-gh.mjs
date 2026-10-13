@@ -88,5 +88,4 @@ if (response.wait) {
   process.stdout.write(response.raw ?? JSON.stringify(response.body ?? null));
 }
 if (response.stderr) process.stderr.write(response.stderr);
-process.exitCode =
-  response.code ?? (response.offline || (response.status ?? 200) >= 400 ? 1 : 0);
+process.exitCode = response.code ?? (response.offline || (response.status ?? 200) >= 400 ? 1 : 0);

@@ -429,9 +429,11 @@ test.each(["collaborator commit", "queue entry"])(
       },
     }));
     const [checks] = stackChecksFixture["stack-checks"];
+    if (!checks) throw new Error("Missing stack checks fixture");
     // Check rollups are read at the head the host reports, so they follow the new commit.
     const changedChecks = structuredClone(checks);
-    if (event === "collaborator commit") changedChecks.body.data.repository.pr7.headRefOid = "f".repeat(40);
+    if (event === "collaborator commit")
+      changedChecks.body.data.repository.pr7.headRefOid = "f".repeat(40);
     const f = await fakeGh({
       "stack-checks": [checks, changedChecks],
       graphql: [stackResponse(), stackResponse(8, changed)],
