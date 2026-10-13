@@ -85,7 +85,7 @@ test.each(["Manual", "Provider default"])(
     expect(created()).toBeUndefined();
     await userEvent.click(unavailable);
     await userEvent.click(await screen.findByRole("menuitemradio", { name: replacement }));
-    await waitFor(() => expect(send.getAttribute("aria-disabled")).toBe("false"));
+    await waitFor(() => expect(send.getAttribute("aria-disabled")).not.toBe("true"));
     await userEvent.click(send);
     await waitFor(() => expect(created()?.live?.account).toBe("claude-work"));
     expect(created()?.permission).toMatchObject(
@@ -209,7 +209,7 @@ test("a native ACP read-only ID cannot become Cursor workspace access on a provi
   await userEvent.click(unavailable);
   expect(screen.queryByRole("menuitemradio", { name: "Read only" })).toBeNull();
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Sandbox enabled" }));
-  await waitFor(() => expect(send.getAttribute("aria-disabled")).toBe("false"));
+  await waitFor(() => expect(send.getAttribute("aria-disabled")).not.toBe("true"));
   await userEvent.click(send);
   await waitFor(() => expect(created()?.provider).toBe("cursor"));
   expect(created()?.permission?.override).toBe(

@@ -1,49 +1,27 @@
-import { Client } from "@ace/client";
-import { fakeTransport, workbench } from "@ace/fake-daemon";
-import { DeviceId } from "@ace/protocol";
+import { workbench } from "@ace/fake-daemon";
 import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
-import { z } from "zod";
 import { memoryStorage } from "@/boot/client.ts";
 import { harness } from "@/test/harness.tsx";
 
-const IdentityReply = z.object({ type: z.literal("host.identity.result") });
 afterEach(cleanup);
 
-test("overlapping new-thread submissions waiting for identity create one thread", async () => {
-  const held: (() => void)[] = [];
-  let delaying = true;
+test("overlapping new-thread submissions while the first is still saving create one thread", async () => {
+  const gate = Promise.withResolvers<void>();
+  const outbox = memoryStorage();
+  let holding = false;
+  let saves = 0;
   const app = harness({
-    client(daemon) {
-      const transport = fakeTransport(daemon);
-      let nextId = 0;
-      return new Client({
-        deviceId: DeviceId.parse("test-device"),
-        credential: async () => daemon.token,
-        storage: memoryStorage(),
-        transport: () => ({
-          ...transport,
-          open(events) {
-            transport.open({
-              ...events,
-              message(raw) {
-                if (delaying && IdentityReply.safeParse(JSON.parse(raw)).success)
-                  held.push(() => events.message(raw));
-                else events.message(raw);
-              },
-            });
-          },
-        }),
-        id: () => `identity-test-${++nextId}`,
-        random: () => 0.5,
-        scheduler: {
-          set(ms, run) {
-            const timer = setTimeout(run, ms);
-            return () => clearTimeout(timer);
-          },
-        },
-      });
+    outbox: {
+      load: outbox.load,
+      async save(value) {
+        if (holding) {
+          saves++;
+          await gate.promise;
+        }
+        await outbox.save(value);
+      },
     },
   });
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
@@ -58,13 +36,18 @@ test("overlapping new-thread submissions waiting for identity create one thread"
       "true",
     ),
   );
+  holding = true;
   await userEvent.keyboard("{Enter}");
-  await waitFor(() => expect(held.length).toBeGreaterThan(1));
+  await waitFor(() => expect(saves).toBeGreaterThan(0));
   await userEvent.type(prompt, "Start only once{Enter}");
-  delaying = false;
-  for (const release of held.splice(0)) release();
+  holding = false;
+  gate.resolve();
   await screen.findByRole("heading", { level: 1, name: "Start only once" });
-  const after = app.daemon.snapshot({ kind: "threads" });
-  if (after?.kind !== "threads") throw new Error("Expected sidebar after submission");
-  expect(Object.values(after.threads).filter((thread) => !initial.has(thread.id))).toHaveLength(1);
+  await waitFor(() => {
+    const after = app.daemon.snapshot({ kind: "threads" });
+    if (after?.kind !== "threads") throw new Error("Expected sidebar after submission");
+    expect(
+      Object.values(after.threads).filter((thread) => !initial.has(thread.id)),
+    ).toHaveLength(1);
+  });
 });
