@@ -45,10 +45,13 @@ export function QueuedTray(props: {
   notice?: ReactNode;
   /** The strip's other items, on the header row. */
   indicators?: ReactNode;
+  /** The message being edited, held by the strip so the editor outlives an emptied queue. */
+  editing: QueuedMessage | undefined;
+  onEdit(message: QueuedMessage | undefined): void;
 }) {
   const { queue } = props;
   const compact = useComposerCompact();
-  const [editing, setEditing] = useState<QueuedMessage>();
+  const { editing, onEdit: setEditing } = props;
   const [announcement, announce] = useState("");
   const restoreFocus = useRef<{ id: string; handle: HTMLButtonElement } | undefined>(undefined);
   const drag = useRef<{ id: string; revision: number | undefined; order: string } | undefined>(

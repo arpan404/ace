@@ -1,5 +1,5 @@
 import { useClient, useConnectionState, useInteractions } from "@ace/client-react";
-import type { ThreadStatus } from "@ace/protocol";
+import type { QueuedMessage, ThreadStatus } from "@ace/protocol";
 import { Suspense, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useShownPlans } from "@/lib/use-plans.ts";
@@ -40,11 +40,14 @@ export function ComposerStrip(props: {
   const plan = useShownPlans(props.threadId)[0]?.progress;
   const queued = queuedCount(queue, pending);
   const offline = connection === "offline";
+  // An open edit keeps the queue in the slot even once its message leaves the queue, so the
+  // editor can say so and keep the person's wording.
+  const [editing, setEditing] = useState<QueuedMessage>();
   const facts: StripFacts = {
     requests,
     target: props.requestTarget,
     connection: offline || connection === "reconnecting",
-    queue: queued > 0 || queue.failed || !!held,
+    queue: queued > 0 || queue.failed || !!held || !!editing,
     plan: !!plan,
   };
   const [pick, setPick] = useState<ReturnType<typeof pickStrip>>();
@@ -82,6 +85,8 @@ export function ComposerStrip(props: {
           queue={queue}
           pending={pending}
           held={held}
+          editing={editing}
+          onEdit={setEditing}
           indicators={indicators}
           onChooseModel={props.onChooseModel}
         />

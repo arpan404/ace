@@ -1,4 +1,5 @@
 import type { ThreadReader } from "@ace/client";
+import type { QueuedMessage } from "@ace/protocol";
 import { useThread, useThreadMeta } from "@ace/client-react";
 import type { ReactNode } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -21,6 +22,8 @@ export function QueueStrip(props: {
   pending: readonly PendingQueued[];
   held: HeldQueue | undefined;
   indicators: ReactNode;
+  editing: QueuedMessage | undefined;
+  onEdit(message: QueuedMessage | undefined): void;
   onChooseModel(): void;
 }) {
   const { queue, pending } = props;
@@ -65,6 +68,8 @@ export function QueueStrip(props: {
       attachments={attachments.data ?? []}
       steerReason={steerReason}
       indicators={props.indicators}
+      editing={props.editing}
+      onEdit={props.onEdit}
       notice={
         props.held && (
           <QueueNotice
