@@ -29,6 +29,7 @@ import {
 import { cn } from "@/lib/cn.ts";
 import { composerSurface, inputLine, inputMinLines } from "./composer-styles.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { useHandheld } from "@/lib/breakpoints.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { AddButton, type AddHandle } from "./add-button.tsx";
 import { AttachmentChips, maxAttachmentsPerMessage, useAttachments } from "./attachments.tsx";
@@ -72,9 +73,13 @@ export interface ComposerHandle {
   takeFiles(data: DataTransfer): void;
 }
 
-/** Below this width the footer drops labels to icons; below `terse` the hint shortens. */
-const compactWidth = 480;
-const terseWidth = 640;
+/**
+ * The composer's own width (not the window's) shapes it. Below `compact` the footer drops
+ * labels to icons and the hint shortens, keeping both rows and every control; only below `pill`,
+ * on a phone or touch screen, may an empty composer fold into one row.
+ */
+const compactWidth = 640;
+const pillWidth = 480;
 
 /**
  * The composer: an input area above a footer, inside one rounded surface, at every width and
@@ -259,7 +264,7 @@ function ComposerBody({
   );
   const empty = !text.trim() && !attachments.items.length;
   const compact = width > 0 && width < compactWidth;
-  const terse = width > 0 && width < terseWidth;
+  const handheld = useHandheld();
 
   const current: ComposerDraft = {
     text,
@@ -335,8 +340,15 @@ function ComposerBody({
       takeText(next);
     } else props.onReplaced(next);
   });
-  // An empty composer on a narrow width is one pill row: + · message · model · send.
-  const pill = compact && empty && !props.unavailable && suggestions.state === "closed";
+  // An empty composer on a narrow phone is one pill row: + · message · model · send. A narrow
+  // column on a desktop or tablet (a docked panel, say) keeps the full composer and approvals.
+  const pill =
+    handheld &&
+    width > 0 &&
+    width < pillWidth &&
+    empty &&
+    !props.unavailable &&
+    suggestions.state === "closed";
   useAutosize(input, text, width, pill ? 1 : inputMinLines);
   useTypeToFocus(input, !!props.typeToFocus && !props.unavailable);
   // After an inserted suggestion or mention has rendered, put the caret after it.
@@ -648,7 +660,7 @@ function ComposerBody({
       : "send";
   const placeholder =
     props.unavailable?.short ??
-    (terse ? (props.shortPlaceholder ?? props.placeholder) : props.placeholder) ??
+    (compact ? (props.shortPlaceholder ?? props.placeholder) : props.placeholder) ??
     "Ask anything";
   const expanded = suggestions.state === "ready";
 

@@ -10,7 +10,7 @@ import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { SidebarTrigger } from "@/components/ui/sidebar.tsx";
 import { HeaderMenu } from "./sidebar-menu.tsx";
-import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
+import { usePhone } from "@/lib/breakpoints.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { useHistoryNav } from "@/lib/history-nav.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
@@ -135,14 +135,13 @@ export function AppHeader(
     trailing?: ReactNode;
   },
 ) {
-  const sidebarInline = useSidebarInline();
   const phone = usePhone();
   // The title comes first. Beside an open side panel the header is a container: below 720px
   // the actions drop their labels (they keep their accessible names and shortcut tooltips);
   // only below 420px, or on a phone, do they fold, together with the title menu, into one ⋯.
   const header = useRef<HTMLElement>(null);
   const roomy = useElementSize(header).width >= foldBelow;
-  const wide = sidebarInline && roomy && !phone;
+  const wide = roomy && !phone;
   // Folded, the title menu joins the actions behind one ⋯: a header never shows two.
   const folded = !wide && !!props.actions;
   const titleMenu = props.menu && !phone && !folded;

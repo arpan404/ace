@@ -68,7 +68,7 @@ const SidebarSheet = lazy(() =>
 
 /**
  * The one sidebar (280px, translucent) and the selected view beside it. ⌘\ hides and shows the
- * sidebar. Below 768px it is a sheet opened from the header. Below 1100px it steps aside while
+ * sidebar. At 896px and below it is a sheet opened from the header. Below 1100px it steps aside while
  * the screen's right panel is open, so the panel can dock beside the column, and comes back when
  * it closes; where panels float anyway (896px and below) it stays put. It stays mounted for the
  * app's life; Home and Settings draw their list into its body.

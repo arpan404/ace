@@ -14,9 +14,10 @@ const tint: Record<DiffTextLine["kind"], string> = {
   context: "border-transparent",
 };
 
-// On a phone the tint and the +/− carry the diff; two number columns would take a quarter of it.
+// In a narrow column (a phone, a docked panel) the tint and the +/− carry the diff; two number
+// columns would take a quarter of it.
 const gutter =
-  "w-9 shrink-0 pr-2 text-right tabular-nums text-subtle-foreground select-none max-sm:hidden";
+  "w-9 shrink-0 pr-2 text-right tabular-nums text-subtle-foreground select-none @max-[30rem]/diff:hidden";
 
 function Row(props: { line: DiffTextLine; numbered: boolean }) {
   const { line } = props;
@@ -55,7 +56,7 @@ export function DiffBody(props: { diff: DiffText; tail?: ReactNode }) {
   return (
     <div
       {...(long ? { role: "region", "aria-label": "Scrollable code", tabIndex: 0 } : {})}
-      className={`overflow-x-auto pt-1 pb-2 font-mono text-xs leading-[1.6] text-foreground ${long ? "max-h-80 overflow-y-auto" : ""}`}
+      className={`@container/diff overflow-x-auto pt-1 pb-2 font-mono text-xs leading-[1.6] text-foreground ${long ? "max-h-80 overflow-y-auto" : ""}`}
     >
       <div className="inline-block min-w-full">
         <LongRows

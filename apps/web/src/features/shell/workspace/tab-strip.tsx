@@ -125,7 +125,7 @@ export function TabStrip(props: {
         role="tablist"
         aria-label={props.label}
         style={{
-          maskImage: `linear-gradient(to right, ${edges.left ? "transparent, black 16px" : "black, black 0px"}, ${edges.right ? "black calc(100% - 16px), transparent" : "black 100%, black"})`,
+          maskImage: `linear-gradient(to right, ${edges.left ? "transparent, black 24px" : "black, black 0px"}, ${edges.right ? "black calc(100% - 24px), transparent" : "black 100%, black"})`,
         }}
         onDragOver={(event) => onDragOver(event)}
         onDragLeave={(event) => {

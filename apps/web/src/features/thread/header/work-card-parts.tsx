@@ -68,7 +68,7 @@ export function RowAction({ className, ...props }: ComponentProps<"button">) {
     <button
       type="button"
       className={cn(
-        "focus-ring touch-hit -mr-1 ml-auto h-6 shrink-0 rounded-sm px-2 text-xs font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+        "relative focus-ring touch-hit -mr-1 ml-auto h-6 shrink-0 rounded-sm px-2 text-xs font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
         className,
       )}
       {...props}

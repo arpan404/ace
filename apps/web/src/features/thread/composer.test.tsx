@@ -5,7 +5,7 @@ import { fixtureImage, longHistory, replayCursor } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import {
   chooseModel,
@@ -25,7 +25,24 @@ function layoutWidth(width: number) {
     get: () => width,
   });
 }
-afterEach(() => layoutWidth(800));
+afterEach(() => {
+  layoutWidth(800);
+  vi.unstubAllGlobals();
+});
+
+/** A phone window: every max-width media query matches. */
+function phoneWindow() {
+  vi.stubGlobal("matchMedia", (query: string): MediaQueryList => ({
+    matches: query.includes("max-width"),
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  }));
+}
 
 async function open(scenario: "idle" | "busy") {
   const app = harness();
@@ -215,6 +232,7 @@ test("a wide composer spells out the @ and / hints", async () => {
 
 test("approvals and predefined effort keep their readable modes on a phone", async () => {
   layoutWidth(358);
+  phoneWindow();
   const { message } = await open("busy");
   // The empty phone composer is a pill; typing opens it to its approvals control.
   await userEvent.type(message, "x");
@@ -239,6 +257,7 @@ test("approvals and predefined effort keep their readable modes on a phone", asy
 
 test("an empty composer on a phone is one pill row that opens while typing", async () => {
   layoutWidth(358);
+  phoneWindow();
   const { message } = await open("busy");
   // The pill keeps +, the message, the model and send; approvals wait until it opens.
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Approvals: / })).toBeNull());
@@ -248,6 +267,13 @@ test("an empty composer on a phone is one pill row that opens while typing", asy
   expect(await screen.findByRole("button", { name: /^Approvals: / })).toBeTruthy();
   await userEvent.clear(message);
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Approvals: / })).toBeNull());
+});
+
+test("a narrow column on a wide window keeps the full composer with its approvals", async () => {
+  // A docked side panel at 768 or 1024 leaves the composer about 440px wide.
+  layoutWidth(440);
+  await open("busy");
+  expect(await screen.findByRole("button", { name: /^Approvals: / })).toBeTruthy();
 });
 
 test("a wide composer never collapses into the pill", async () => {

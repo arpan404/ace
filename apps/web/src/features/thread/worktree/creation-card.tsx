@@ -99,7 +99,10 @@ function CreationCard(props: {
   const note = worktreeNote(progress);
   const offered = actionOrder.filter((action) => progress.actions.includes(action));
   return (
-    <section aria-labelledby={heading} className="fx-view-in flex flex-col gap-2">
+    <section
+      aria-labelledby={heading}
+      className="@container/creation fx-view-in flex flex-col gap-2"
+    >
       <p id={heading} className="flex min-w-0 items-center gap-2 text-ui text-muted-foreground">
         {progress.state === "failed" ? (
           <Icon icon={WarningCircleIcon} size={14} className="text-status-failed" />
@@ -174,7 +177,7 @@ function ActionButton(props: {
         className={cn(stripControl, "shrink-0 text-ui text-muted-foreground")}
       >
         <Icon icon={action.icon} size={14} />
-        <span className="max-sm:sr-only">{label}</span>
+        <span className="@max-[26rem]/creation:sr-only">{label}</span>
       </button>
     </Tip>
   );

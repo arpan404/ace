@@ -237,16 +237,30 @@ test("at 1024px the right panel docks beside the thread instead of floating over
   expect(screen.getByRole("region", { name: "Thread panel" })).toBeTruthy();
 });
 
-test("on a small tablet the floating panel leaves the sidebar where the person put it", async () => {
-  windowWidth(860);
+test("on a tablet the sidebar waits in a sheet, so the thread keeps the window's width", async () => {
+  windowWidth(768);
   await openThread();
-  expect(sidebar()).toBeTruthy();
+  // Docked, a 280px sidebar would leave the thread under 500px and fold the composer.
+  expect(sidebar()).toBeNull();
+  await userEvent.click(
+    within(screen.getByRole("banner")).getByRole("button", { name: /sidebar/ }),
+  );
+  const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
+  expect(within(sheet).getByRole("complementary", { name: "Threads" })).toBeTruthy();
+  await userEvent.click(within(sheet).getByRole("button", { name: "Hide sidebar" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
+  // The floating panel opens over the thread and leaves no sidebar behind when it closes.
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const opened = await screen.findByRole("region", { name: "Thread panel" });
-  expect(sidebar()).toBeTruthy();
   await waitFor(() => expect(opened.contains(document.activeElement)).toBe(true));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+  expect(sidebar()).toBeNull();
+});
+
+test("past 896px the sidebar sits beside the thread", async () => {
+  windowWidth(960);
+  await openThread();
   expect(sidebar()).toBeTruthy();
 });
 

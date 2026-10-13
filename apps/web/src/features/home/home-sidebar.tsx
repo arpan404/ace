@@ -47,7 +47,7 @@ export function HomeSidebar() {
             <Link
               to="/new"
               aria-label="New thread"
-              className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground"
+              className="relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground"
             >
               <Icon icon={NotePencilIcon} />
             </Link>

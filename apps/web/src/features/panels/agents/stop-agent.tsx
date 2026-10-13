@@ -69,7 +69,8 @@ export function StopAgent(props: {
       onClick={onClick}
     >
       <StopIcon aria-hidden size={14} weight="fill" />
-      {stopping ? "Stopping…" : "Stop"}
+      {/* A narrow container may keep only the icon (`data-slot`), the name staying spoken. */}
+      <span data-slot="stop-label">{stopping ? "Stopping…" : "Stop"}</span>
     </Button>
   );
   const cold = <Tip label={label}>{renderButton(asks ? ask : send)}</Tip>;

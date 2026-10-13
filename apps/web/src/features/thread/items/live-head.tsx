@@ -62,7 +62,7 @@ export function ActivityLine(props: { activity: TurnActivity; progress?: string 
     <p
       role="status"
       aria-label={label}
-      className="flex min-h-8 min-w-0 items-center text-ui text-muted-foreground"
+      className="@container/live flex min-h-8 min-w-0 items-center text-ui text-muted-foreground"
     >
       {activity.tone === "working" ? (
         <span className="flex min-w-0 items-center gap-1.5">
@@ -113,17 +113,25 @@ export function TailThinking(props: { threadId: string }) {
 /** What else the whole tree is doing, quietly after the time: the plan's step, subagents, commands. */
 function Context(props: { activity: TurnActivity; progress: string | undefined }) {
   const { activity } = props;
+  const commands = activity.backgroundCommands;
   const parts = [
     props.progress,
     activity.subagents
       ? `${activity.subagents} ${activity.subagents === 1 ? "subagent" : "subagents"}`
       : undefined,
-    activity.backgroundCommands
-      ? `${activity.backgroundCommands} ${
-          activity.backgroundCommands === 1 ? "background command" : "background commands"
-        }`
-      : undefined,
   ].filter(Boolean);
-  if (!parts.length) return null;
-  return <span className="min-w-0 truncate">{` · ${parts.join(" · ")}`}</span>;
+  if (!parts.length && !commands) return null;
+  return (
+    <span className="min-w-0 truncate">
+      {` · ${parts.join(" · ")}`}
+      {commands ? (
+        <>
+          {parts.length ? " · " : ""}
+          {commands} {/* A narrow column says "1 command": the line keeps its counts whole. */}
+          <span className="@max-[30rem]/live:hidden">background </span>
+          {commands === 1 ? "command" : "commands"}
+        </>
+      ) : null}
+    </span>
+  );
 }
