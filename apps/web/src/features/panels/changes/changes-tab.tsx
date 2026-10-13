@@ -318,12 +318,18 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
             writing.side === target.side &&
             writing.end === target.line
           ) {
+            // The line's other saved comments stay in reach; the one being edited is the editor.
             return (
-              <CompositionEditor
-                key={composition.id}
-                composition={composition}
-                onReselect={() => setReselecting(composition.id)}
-              />
+              <>
+                {at(target)
+                  .filter((draft) => draft.key !== composition.key)
+                  .map((draft) => renderDraft(draft))}
+                <CompositionEditor
+                  key={composition.id}
+                  composition={composition}
+                  onReselect={() => setReselecting(composition.id)}
+                />
+              </>
             );
           }
           return at(target).map((draft) => renderDraft(draft));
