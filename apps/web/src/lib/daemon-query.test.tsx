@@ -89,8 +89,11 @@ test("a short reconnect refreshes shared fresh and Infinity daemon reads while d
     });
     daemon.refuseConnections(false);
     await act(async () => {
-      // Only reconnect callbacks are pending: both initial reads already completed.
-      for (const callback of retry) callback();
+      // Only reconnect callbacks are pending: both initial reads already completed. Run the
+      // ones scheduled so far; a callback that schedules its successor must not run it too.
+      const pending = [...retry];
+      retry.clear();
+      for (const callback of pending) callback();
     });
     await waitFor(() => expect(client.state).toBe("ready"));
     await waitFor(() => expect(screen.getByLabelText("first").textContent).toBe("Renamed site"));
