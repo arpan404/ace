@@ -4,6 +4,7 @@ import { configure, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { openWorkLog } from "@/test/open-work-log.ts";
 import { ModelFacing } from "./items/model-facing.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -31,13 +32,12 @@ test("only a command's final failure is labelled Failed after retries succeed", 
   app.play(scenario).runUntilBlocked();
   await app.open("/t/thread-ux-failed-commands");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  await openWorkLog(feed);
   await within(feed).findByText("Failed");
   expect(within(feed).getAllByText("Failed")).toHaveLength(1);
   expect(within(feed).queryByText(/exit [01]/)).toBeNull();
-  expect(within(feed).getByRole("button", { name: /^Worked for/ }).textContent).toContain(
-    "1 failed · 2 retried",
-  );
+  // The group counts only the failure no later run fixed.
+  expect(within(feed).getByText(/· 1 failed$/)).toBeTruthy();
 });
 
 test("an account usage warning appears beside the composer without repeating the provider notice in the transcript", async () => {

@@ -4,6 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { openWorkLog } from "@/test/open-work-log.ts";
 
 const urls = new Map<string, Blob>();
 const original = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
@@ -102,7 +103,7 @@ async function openTyped(mode: "claude" | "custom" | "standalone") {
   ]);
   await app.open("/t/thread-evidence");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  await openWorkLog(feed);
   const steps = await within(feed).findByRole("list", { name: "Steps" });
   await userEvent.click(
     await within(steps).findByRole("button", {

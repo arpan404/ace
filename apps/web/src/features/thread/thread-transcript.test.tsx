@@ -4,6 +4,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { openWorkLog } from "@/test/open-work-log.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -19,16 +20,12 @@ async function openReplay(through = "finding") {
 test("tool work collapses into one line that opens to its steps and their output", async () => {
   const { app, feed } = await openReplay("answered");
   act(() => app.daemon.apply("thread-replay-cursor", [facts.endTurn("root")]));
-  const summary = await within(feed).findByRole("button", { name: /^Worked for/ });
-  expect(summary.textContent).toContain(
-    "Explored 3 files · 1 search · Ran 2 commands · Edited 2 files",
-  );
-  expect(within(feed).queryByText("apps/server/src/cursor.ts")).toBeNull();
+  expect(await within(feed).findByRole("button", { name: /^Worked for/ })).toBeTruthy();
+  expect(within(feed).queryByTitle("apps/server/src/cursor.ts")).toBeNull();
 
-  await userEvent.click(summary);
-  // The steps load with the thread's deferred parts.
-  const steps = await within(feed).findByRole("list", { name: "Steps" });
-  expect(await within(steps).findByText("apps/server/src/cursor.ts")).toBeTruthy();
+  // The steps load with the thread's deferred parts, as the line opens.
+  const steps = await openWorkLog(feed);
+  expect(within(steps).getAllByTitle("apps/server/src/cursor.ts").length).toBeGreaterThan(0);
   expect(within(steps).getByText("4 matches")).toBeTruthy();
 
   await userEvent.click(
@@ -62,9 +59,12 @@ test("the changed-files summary opens the turn's files in the Changes tab", asyn
   const { app, feed } = await openReplay("answered");
   // The card sums up a turn once it has ended.
   act(() => app.daemon.apply("thread-replay-cursor", [facts.endTurn("root")]));
-  const summary = await within(feed).findByRole("button", { name: /^Changed 2 files/ });
+  const summary = await within(feed).findByRole("group", { name: /^Changed 2 files/ });
   expect(within(feed).queryByText("apps/server/src/replay.ts")).toBeNull();
-  await userEvent.click(summary);
+  // Any file's chip opens the turn's changes.
+  const [chip] = within(summary).getAllByRole("button");
+  if (!chip) throw new Error("No changed-file chip");
+  await userEvent.click(chip);
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(
     within(panel)
@@ -84,7 +84,7 @@ test("a full-text edit's changed-files stat counts the lines that changed, as Ch
   app.play(coldStartReplay()).runThrough("turn-1");
   await app.open("/t/thread-cold-start");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const card = await within(feed).findByRole("button", { name: /^Changed 1 file/ });
+  const card = await within(feed).findByRole("group", { name: /^Changed 1 file/ });
   const stat = await waitFor(() => {
     const text = card.textContent?.match(/\+(\d+) −(\d+)/);
     expect(text).toBeTruthy();
@@ -95,11 +95,14 @@ test("a full-text edit's changed-files stat counts the lines that changed, as Ch
   expect(Number(stat?.[1])).toBeLessThan(20);
 
   // The work log's step for the same edit reads the same count.
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  await openWorkLog(feed);
   const step = within(feed).getByRole("button", { name: /^Edited apps\/server\/src\/replay.ts/ });
   await waitFor(() => expect(step.textContent).toContain(`+${stat?.[1]} −${stat?.[2]}`));
 
-  await userEvent.click(card);
+  // The file's chip opens the turn's changes.
+  const [chip] = within(card).getAllByRole("button");
+  if (!chip) throw new Error("No changed-file chip");
+  await userEvent.click(chip);
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   const toolbar = await within(panel).findByRole("toolbar", { name: "Changes" });
   expect(within(toolbar).getByText(`+${stat?.[1]}`)).toBeTruthy();

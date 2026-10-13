@@ -1,89 +1,79 @@
-import { useItem } from "@ace/client-react";
-import { MessageAttachments } from "@/components/attachment-message.tsx";
-import { Suspense, use, useEffect, useId, useState } from "react";
-import { DeferredWorkLogSteps } from "./deferred-steps.ts";
+import { formatClock } from "@ace/ui-core";
+import { Suspense, use, useEffect, useId, useMemo, useState } from "react";
+import { useTurnSummary } from "../long/turn-index.ts";
+import { blockItems, type Block } from "../transcript/blocks.ts";
+import { DeferredTurnWork } from "./deferred-steps.ts";
 import { JumpedItem } from "./jumped-item.ts";
+import { GroupedSteps } from "./step-groups-view.tsx";
 import { useWorkLog } from "./use-work-log.ts";
-import { WorkLogHeader } from "./work-log-view.tsx";
+import { StepsSkeleton, WorkLogHeader } from "./work-log-view.tsx";
 
-const Steps = DeferredWorkLogSteps.Component;
+const TurnWork = DeferredTurnWork.Component;
+
+type WorkBlock = Extract<Block, { kind: "work" }>;
 
 /**
- * "Worked for 4m 12s › Explored 6 files · Ran 3 commands · Edited 2 files". The whole tool log
- * at rest; expanding shows each step as a quiet row, and what the agent said between steps.
- * A jump or search hit opens its steps. Live turns keep only their images here; the footer
- * owns their activity, and the composer owns pending approvals.
+ * A turn's tool work. While the turn works, its steps stream in groups under the turn's live
+ * header, the newest step in view. Once the whole tree settles, a completed turn folds into
+ * "Worked for 2m 5s ›" (its answer, failures and changed files stay in view) and its steps load
+ * when it opens; a failed or stopped one keeps its log a click away. A jump or search hit inside
+ * opens it.
  */
 export function WorkLog(props: {
   threadId: string;
-  itemIds: readonly string[];
-  live?: boolean;
-  ongoing?: boolean | undefined;
-  /** When its stretch closed: its time never runs past it. */
-  until?: number | undefined;
-  /** Time the agent sat idle between two of its runs inside the log. */
-  idle?: number | undefined;
-  startedAt?: number | undefined;
-  outcome?: "completed" | "interrupted" | "failed" | "paused" | undefined;
+  block: WorkBlock;
+  ordinal?: number | undefined;
 }) {
-  const headline = useWorkLog(props.threadId, props.itemIds, {
-    live: props.live,
-    ongoing: props.ongoing,
-    until: props.until,
-    idle: props.idle,
-    startedAt: props.startedAt,
-    outcome: props.outcome,
+  if (props.block.ongoing)
+    return <GroupedSteps threadId={props.threadId} itemIds={props.block.itemIds} live />;
+  return <SettledLog {...props} />;
+}
+
+function SettledLog(props: { threadId: string; block: WorkBlock; ordinal?: number | undefined }) {
+  const { block } = props;
+  // Only a turn's head (the block that carries its outcome) speaks for the whole turn.
+  const summary = useTurnSummary(
+    props.threadId,
+    block.outcome === undefined ? undefined : props.ordinal,
+  );
+  const headline = useWorkLog(props.threadId, block.itemIds, {
+    until: block.until,
+    idle: block.idle,
+    startedAt: block.startedAt,
+    outcome: block.outcome,
+    summary: summary?.endedAt === undefined ? undefined : summary,
   });
   const [toggled, setOpen] = useState<boolean>();
   const jumped = use(JumpedItem);
-  const landed = jumped !== undefined && props.itemIds.includes(jumped);
+  const items = useMemo(() => blockItems(block), [block]);
+  const landed = jumped !== undefined && items.includes(jumped);
   const open = toggled ?? landed;
   const panel = useId();
-  // Rows load after first paint, ready before the log is opened.
-  useEffect(() => void DeferredWorkLogSteps.preload(), []);
+  // The opened log's code loads after first paint, ready before it is opened.
+  useEffect(() => void DeferredTurnWork.preload(), []);
   if (!headline) return null;
-  if (props.ongoing && !open)
-    return props.itemIds.map((itemId) => (
-      <WorkLogImage key={itemId} threadId={props.threadId} itemId={itemId} />
-    ));
   return (
     <div>
       <WorkLogHeader
-        headline={
-          headline.awaiting
-            ? { ...headline, label: "Waiting for your approval", current: undefined }
-            : headline
-        }
+        label={headline.label}
+        time={headline.endedAt === undefined ? undefined : formatClock(headline.endedAt)}
         open={open}
         panel={panel}
         onToggle={() => setOpen(!open)}
       />
-      {!open &&
-        props.itemIds.map((itemId) => (
-          <WorkLogImage key={itemId} threadId={props.threadId} itemId={itemId} />
-        ))}
-      {open && props.itemIds.length > 0 && (
-        <Suspense fallback={null}>
-          <Steps threadId={props.threadId} itemIds={props.itemIds} panel={panel} />
-        </Suspense>
+      {open && (
+        <div className="pt-1 pb-1">
+          <Suspense fallback={<StepsSkeleton />}>
+            <TurnWork
+              threadId={props.threadId}
+              block={block}
+              ordinal={props.ordinal}
+              endSeq={summary?.endSeq}
+              panel={panel}
+            />
+          </Suspense>
+        </div>
       )}
     </div>
-  );
-}
-
-function WorkLogImage(props: { threadId: string; itemId: string }) {
-  const item = useItem(props.threadId, props.itemId);
-  if (
-    item?.type !== "tool_call" ||
-    item.call.detail.kind !== "image" ||
-    !item.call.detail.attachment
-  )
-    return null;
-  return (
-    <MessageAttachments
-      threadId={props.threadId}
-      attachments={[item.call.detail.attachment]}
-      className="my-2 items-start"
-    />
   );
 }

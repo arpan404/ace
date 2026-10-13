@@ -42,7 +42,7 @@ test("a background command appears once in the transcript while its row keeps th
 
 test("a thread waiting on subagents keeps the transcript live with their count", async () => {
   const { header, row } = await open(waitingOnSubagents());
-  expect(screen.getByRole("button", { name: "Open the summary" }).textContent).toContain(
+  expect(screen.getByRole("group", { name: "Turn in progress" }).textContent).toContain(
     "2 subagents",
   );
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
@@ -84,10 +84,11 @@ test("a thread that asked a question keeps the waiting state in the thread, row 
   ).toBeTruthy();
 });
 
-test("a thread running tests names its current action in the transcript live line", async () => {
+test("a thread running tests keeps its live head working and names the action in its row", async () => {
   const { header, row } = await open(runningTests());
-  expect(screen.getByRole("button", { name: "Open the summary" }).textContent).toContain(
-    "Running tests…",
+  // The step in flight closes the transcript's flow; the head says the turn works.
+  expect(screen.getByRole("group", { name: "Turn in progress" }).textContent).toContain(
+    "Working for",
   );
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Working · running tests");

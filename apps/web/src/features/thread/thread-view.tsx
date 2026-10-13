@@ -63,7 +63,7 @@ import { useShownTitle } from "./lib/shown-title.ts";
 import { DeferredComposerStrip } from "./composer/deferred-cards.ts";
 import { DeferredLocalSends } from "./composer/deferred-parts.tsx";
 import { UserMessage } from "./items/user-message.tsx";
-import { ActivityLine } from "./transcript/live-footer.tsx";
+import { ActivityLine } from "./items/live-head.tsx";
 import { LongThreadHotkeys } from "./long/nav-keys.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
 import { ThreadCrumb } from "./header/thread-crumb.tsx";

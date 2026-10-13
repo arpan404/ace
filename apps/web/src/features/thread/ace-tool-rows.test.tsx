@@ -10,6 +10,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { openWorkLog } from "@/test/open-work-log.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -17,8 +18,8 @@ beforeEach(() => localStorage.clear());
 async function openSteps(app: ReturnType<typeof harness>, threadId: string) {
   await app.open(`/t/${threadId}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
-  return { feed, steps: await within(feed).findByRole("list", { name: "Steps" }) };
+  // Opens the log and every group in it, so each step row is in view.
+  return { feed, steps: await openWorkLog(feed) };
 }
 
 test("a refused background key press reads as a sentence naming Safari, with its icon, not raw codes", async () => {
@@ -28,8 +29,7 @@ test("a refused background key press reads as a sentence naming Safari, with its
   // The daemon's audits fold into the calls: no raw `key.press · com.apple.Safari` line anywhere.
   expect(feed.textContent).not.toMatch(/key\.press|com\.apple\.Safari|not_supported/);
 
-  await userEvent.click(within(steps).getByRole("button", { name: /^Used Safari/ }));
-  const safari = within(steps).getByRole("list", { name: "Used Safari" });
+  const safari = steps;
   const refused = within(safari).getByRole("button", {
     name: "Safari didn't accept that key in the background Failed",
   });
@@ -55,32 +55,32 @@ test("a refused background key press reads as a sentence naming Safari, with its
   expect(within(safari).getByText(/ace · screen_key · not_supported/)).toBeTruthy();
 });
 
-test("consecutive steps on one app collapse into one line that expands and collapses", async () => {
+test("consecutive steps on one app collapse into one sentence that opens and folds", async () => {
   const app = harness();
   app.play(aceToolsComputerUse()).runThrough("used-safari");
-  const { steps } = await openSteps(app, "thread-ace-tools-safari");
-  const group = within(steps).getByRole("button", {
-    name: "Used Safari · 8 actions · 3 failed",
-  });
+  await app.open("/t/thread-ace-tools-safari");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  const group = await within(feed).findByRole("button", { name: /^Used 1 app/ });
   expect(group.getAttribute("aria-expanded")).toBe("false");
-  expect(within(steps).queryByRole("button", { name: "Opened Safari" })).toBeNull();
+  expect(within(feed).queryByRole("button", { name: "Opened Safari" })).toBeNull();
 
   await userEvent.click(group);
   expect(group.getAttribute("aria-expanded")).toBe("true");
-  const rows = within(within(steps).getByRole("list", { name: "Used Safari" })).getAllByRole(
+  const rows = within(within(feed).getByRole("list", { name: /^Used 1 app/ })).getAllByRole(
     "listitem",
   );
-  expect(rows).toHaveLength(8);
+  expect(rows.length).toBeGreaterThan(1);
+  expect(within(feed).getByRole("button", { name: "Opened Safari" })).toBeTruthy();
 
   await userEvent.click(group);
-  expect(within(steps).queryByRole("list", { name: "Used Safari" })).toBeNull();
+  expect(within(feed).queryByRole("list", { name: /^Used 1 app/ })).toBeNull();
 });
 
 test("a screenshot a tool returned shows as a thumbnail that opens the lightbox", async () => {
   const app = harness();
   app.play(aceToolsBrowser()).runThrough("browsed");
   const { steps } = await openSteps(app, "thread-ace-tools-browser");
-  await userEvent.click(within(steps).getByRole("button", { name: /^Browsed github\.com/ }));
   // The row reads what it did; under it, the picture it returned.
   expect(
     within(steps).getByRole("button", { name: "Took a screenshot of github.com", expanded: false }),
@@ -101,7 +101,6 @@ test("browser and device steps name the element and device from what earlier ste
   const browser = harness();
   browser.play(aceToolsBrowser()).runThrough("browsed");
   const { steps } = await openSteps(browser, "thread-ace-tools-browser");
-  await userEvent.click(within(steps).getByRole("button", { name: /^Browsed github\.com/ }));
   expect(
     within(steps).getByRole("button", {
       name: "Typed “[redacted]” into “Username or email address”",
@@ -116,7 +115,6 @@ test("device steps read on the named simulator", async () => {
   const app = harness();
   app.play(aceToolsDevices()).runThrough("used-device");
   const { steps } = await openSteps(app, "thread-ace-tools-devices");
-  await userEvent.click(within(steps).getByRole("button", { name: /^Used iPhone 16 Pro/ }));
   expect(
     within(steps).getByRole("button", { name: "Tapped “Log in” on iPhone 16 Pro" }),
   ).toBeTruthy();

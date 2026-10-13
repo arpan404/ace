@@ -15,7 +15,7 @@ import { turnTreeOf } from "./turn-tree.ts";
 import { ledgerOf } from "./thread-ledger.ts";
 import { listTreeFacts, treeWorking } from "./live-status.ts";
 import {
-  activityText,
+  timedWords,
   readTurnActivity,
   turnActivity,
   type ActivityReader,
@@ -218,7 +218,7 @@ test("a working turn times its work and names the step in flight readably", () =
   const activity = turnActivity(reader, "root");
   expect(activity?.tone).toBe("working");
   expect(activity?.current).toBe("Running bun install --frozen-lockfile");
-  expect(activityText(activity!, 84 * second)).toBe("Working for 1m 24s");
+  expect(activity).toMatchObject({ label: "Working", elapsedFrom: 0 });
 });
 
 test("the step in flight follows the step's own updates, and the line says which to watch", () => {
@@ -249,7 +249,8 @@ test("while a step waits for approval the line says so, with no timer", () => {
   );
   const activity = turnActivity(reader, "root");
   expect(activity).toMatchObject({ label: "Waiting for your approval", tone: "needs-you" });
-  expect(activityText(activity!, 400 * second)).toBe("Waiting for your approval");
+  // No timer: the line reads its label alone.
+  expect(activity?.elapsedFrom).toBeUndefined();
 });
 
 test("a subagent's pending approval reads as waiting on you, though the root works", () => {
@@ -267,9 +268,16 @@ test("after the answer the timer resumes from where it stopped, leaving out the 
     [said("ask", "user", 0), shell("install", "bun install", "running", 0)],
     [approval("ask-install", 10 * second)],
   );
-  expect(turnActivity(thread.reader, "root")?.tone).toBe("needs-you");
+  // While it waits, the line keeps the 10s it had reached, wherever it is drawn again.
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
+    tone: "needs-you",
+    elapsedMs: 10 * second,
+  });
   thread.ask(approval("ask-install", 10 * second, 370 * second));
-  expect(activityText(turnActivity(thread.reader, "root")!, 374 * second)).toBe("Working for 14s");
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
+    label: "Working",
+    elapsedFrom: 360 * second,
+  });
 });
 
 test("overlapping waits on a person count once, and only within the span asked about", () => {
@@ -294,15 +302,16 @@ test("the timer counts the whole turn's work, across what the agent said between
   // Items arriving one by one keep the turn's one stretch, as one long history read at once would.
   thread.add(said("progress", "assistant", 50 * second));
   thread.add(shell("late", "bun run build", "running", 60 * second));
-  expect(activityText(turnActivity(thread.reader, "root")!, 90 * second)).toBe(
-    "Working for 1m 30s",
-  );
+  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working", elapsedFrom: 0 });
   thread.runs.set("run-1", { ...run("run-1", "root"), state: "completed", endedAt: 90 * second });
   // The person's next message starts a new stretch.
   thread.runs.set("run-2", { ...run("run-2", "root"), startedAt: 100 * second });
   thread.add({ ...said("again", "user", 100 * second), runId: "run-2" as Run["id"] });
   thread.add({ ...shell("next", "ls", "running", 110 * second), runId: "run-2" as Run["id"] });
-  expect(activityText(turnActivity(thread.reader, "root")!, 120 * second)).toBe("Working for 20s");
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
+    label: "Working",
+    elapsedFrom: 100 * second,
+  });
 });
 
 test("a finished turn has no live line unless a question still waits on the person", () => {
@@ -364,7 +373,7 @@ test("a turn that left a command running watches it, by name when it is the only
     tone: "working",
     backgroundCommands: 1,
   });
-  expect(activityText(line!, 10 * second)).toBe("Working for 10s");
+  expect(line).toMatchObject({ label: "Working", elapsedFrom: 0 });
 
   thread.background("tunnel");
   thread.status({ state: "blocked", on: "background_task", refs: ["task-dev", "task-tunnel"] });
@@ -439,7 +448,7 @@ test("saved history has no live activity until a new turn starts", () => {
 
 test("continuations keep the entire tree’s server start without resetting its timer, including after replay", () => {
   const thread = world(working, [said("ask", "user", 0), shell("early", "ls", "succeeded", 0)]);
-  expect(activityText(turnActivity(thread.reader, "root")!, 10_000)).toBe("Working for 10s");
+  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working", elapsedFrom: 0 });
   thread.runs.set("run-1", { ...run("run-1", "root"), state: "completed", endedAt: 10_000 });
   thread.runs.set("run-2", {
     ...run("run-2", "root"),
@@ -449,14 +458,17 @@ test("continuations keep the entire tree’s server start without resetting its 
   thread.liveRun("run-2");
   expect(turnTreeOf(thread.reader).settled("run-1")).toBe(false);
   // The server can start the continuation before its first output arrives.
-  expect(activityText(turnActivity(thread.reader, "root")!, 40_000)).toBe("Working for 40s");
+  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working", elapsedFrom: 0 });
   thread.add({
     ...shell("continue", "bun run build", "running", 40_000),
     runId: "run-2" as Run["id"],
   });
-  expect(activityText(turnActivity(thread.reader, "root")!, 45_000)).toBe("Working for 45s");
+  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working", elapsedFrom: 0 });
   // A new reader replays the same server facts instead of inheriting client-side timer state.
-  expect(activityText(turnActivity({ ...thread.reader }, "root")!, 45_000)).toBe("Working for 45s");
+  expect(turnActivity({ ...thread.reader }, "root")).toMatchObject({
+    label: "Working",
+    elapsedFrom: 0,
+  });
   expect(turnTreeOf({ ...thread.reader }).settled("run-1")).toBe(false);
   thread.runs.set("run-2", {
     ...run("run-2", "root"),
@@ -618,6 +630,11 @@ test("a continuation recovered with only its new output still uses the original 
     ...shell("new-step", "bun run build", "running", 40_000),
     runId: "run-2" as Run["id"],
   });
-  expect(activityText(turnActivity(thread.reader, "root")!, 45_000)).toBe("Working for 45s");
+  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working", elapsedFrom: 0 });
   expect(turnTreeOf(thread.reader).settled("run-1")).toBe(false);
+});
+
+test('a turn\'s time reads after "for", except after a label already in motion', () => {
+  expect(timedWords("Working")).toBe("Working for");
+  expect(timedWords("Stopping…")).toBe("Stopping…");
 });

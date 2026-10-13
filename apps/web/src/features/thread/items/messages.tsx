@@ -1,6 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
 import { formatClock } from "@ace/ui-core";
+import { cn } from "@/lib/cn.ts";
 import { GitForkIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useCallback } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -18,8 +19,18 @@ const RewindControl = lazy(() =>
 
 const CopyAnswer = DeferredCopyAnswer.Component;
 
-/** Agent prose. A subagent's message carries its name, as the design's "reconnect-audit found…". */
-export function AssistantMessage(props: { threadId: string; itemId: string }) {
+/**
+ * Agent prose. A subagent's message carries its name, as the design's "reconnect-audit found…".
+ * What the agent says between its steps reads as plain prose in the work log (`between`): no
+ * time or actions under it.
+ */
+export function AssistantMessage(props: {
+  threadId: string;
+  itemId: string;
+  between?: boolean;
+  /** Its turn's "Worked for" row already says when it ended. */
+  timed?: boolean | undefined;
+}) {
   const item = useItem(props.threadId, props.itemId);
   const agent = useAgent(props.threadId, item?.agentId ?? "");
   // Text left incomplete by a turn that stopped or failed no longer streams.
@@ -64,9 +75,11 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
           {answer.problem && <p role="alert">{answer.problem}</p>}
         </div>
       )}
-      {(item.complete || (answer.truncated && !streaming)) && (
-        <div className="mt-1 flex min-h-6 items-center gap-2">
-          <span className="text-xs text-subtle-foreground">{formatClock(item.createdAt)}</span>
+      {!props.between && (item.complete || (answer.truncated && !streaming)) && (
+        <div className={cn("flex min-h-6 items-center gap-2", props.timed !== false && "mt-1")}>
+          {props.timed !== false && (
+            <span className="text-xs text-subtle-foreground">{formatClock(item.createdAt)}</span>
+          )}
           <div className="flex opacity-0 transition-opacity duration-(--motion-fast) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
             <Suspense fallback={null}>
               <CopyAnswer

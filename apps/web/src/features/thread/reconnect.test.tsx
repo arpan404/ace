@@ -3,6 +3,7 @@ import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { openWorkLog } from "@/test/open-work-log.ts";
 
 test("after a dropped connection the transcript catches up by replay, without duplicates", async () => {
   const app = harness();
@@ -34,7 +35,7 @@ test("after a dropped connection the transcript catches up by replay, without du
       facts.endTurn("root"),
     ]),
   );
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  await openWorkLog(feed);
   // The settled log preserves each replayed step and message once.
   await within(feed).findByText("I'll look for timing assumptions in the checkout flow first.");
   for (const text of [

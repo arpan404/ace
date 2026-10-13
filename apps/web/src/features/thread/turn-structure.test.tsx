@@ -100,8 +100,9 @@ test("a running turn keeps interim notes in its log and one working line after i
   await app.open("/t/thread-stuck");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   expect(within(feed).queryByText("Work so far")).toBeNull();
-  expect(screen.getByRole("status", { name: "Working" }).textContent).toContain("src/config");
-  expect(within(feed).queryByText("Installing; reading the config meanwhile.")).toBeNull();
+  // The step in flight closes the flow under the header; the note before it reads as prose.
+  await waitFor(() => expect(within(feed).getAllByTitle(/src\/config/).length).toBeGreaterThan(0));
+  expect(within(feed).getAllByText("Installing; reading the config meanwhile.")).toHaveLength(1);
   act(() => script.runThrough("answered"));
   expect(await within(feed).findByText("The config reads the lockfile path.")).toBeTruthy();
   expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
@@ -116,7 +117,7 @@ test("an approval is explained by its request card without repeated waiting stat
   const approval = await screen.findByRole("region", { name: "Waiting for you" });
   expect(within(approval).getByRole("button", { name: "Allow once" })).toBeTruthy();
   expect(within(feed).getByRole("link", { name: "Waiting for your approval" })).toBeTruthy();
-  expect(within(feed).queryByRole("button", { name: /^Working for/ })).toBeNull();
+  expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
 });
 
 function edit(key: string, path: string, agent = "root") {
@@ -168,11 +169,11 @@ test("a turn's changed files show once, after its last answer, when it has ended
   await app.open("/t/thread-edits");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   await within(feed).findByText("Renamed in both files.");
-  expect(within(feed).queryByRole("button", { name: /^Changed \d+ files?/ })).toBeNull();
+  expect(within(feed).queryByRole("group", { name: /^Changed \d+ files?/ })).toBeNull();
 
   act(() => script.runThrough("ended"));
-  const card = await within(feed).findByRole("button", { name: /^Changed 2 files/ });
-  expect(within(feed).getAllByRole("button", { name: /^Changed \d+ files?/ })).toHaveLength(1);
+  const card = await within(feed).findByRole("group", { name: /^Changed 2 files/ });
+  expect(within(feed).getAllByRole("group", { name: /^Changed \d+ files?/ })).toHaveLength(1);
   expect(follows(within(feed).getByText("Renamed in both files."), card)).toBe(true);
 });
 
@@ -358,11 +359,11 @@ test("the changed-files card waits until the subagents a turn started have finis
   await app.open("/t/thread-tree");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   await within(feed).findByText("Renamed; the subagent is finishing the tests.");
-  expect(within(feed).queryByRole("button", { name: /^Changed \d+ files?/ })).toBeNull();
+  expect(within(feed).queryByRole("group", { name: /^Changed \d+ files?/ })).toBeNull();
 
   // The subagent's run ends on its own: that alone settles the turn.
   act(() => script.runThrough("tree-done"));
-  expect(await within(feed).findByRole("button", { name: /^Changed 3 files/ })).toBeTruthy();
+  expect(await within(feed).findByRole("group", { name: /^Changed 3 files/ })).toBeTruthy();
 });
 
 test("the live line follows command refinements without rebuilding the transcript", async () => {
@@ -394,9 +395,8 @@ test("the live line follows command refinements without rebuilding the transcrip
     .runUntilBlocked();
   await app.open("/t/thread-run");
   await screen.findByRole("feed", { name: "Transcript" });
-  expect(screen.getByRole("status", { name: "Working" }).textContent).toContain(
-    "Running bun run build",
-  );
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  expect(within(feed).getByTitle("bun run build")).toBeTruthy();
 
   // The provider refines the command; the agent's own status doesn't change.
   act(() =>
@@ -412,11 +412,7 @@ test("the live line follows command refinements without rebuilding the transcrip
       },
     ]),
   );
-  await waitFor(() =>
-    expect(screen.getByRole("status", { name: "Working" }).textContent).toContain(
-      "Running bun run build apps/web",
-    ),
-  );
+  expect(await within(feed).findByTitle("bun run build apps/web")).toBeTruthy();
 });
 
 test("an open turn has a quiet work log that becomes timed history when the turn settles", async () => {
@@ -452,10 +448,11 @@ test("an open turn has a quiet work log that becomes timed history when the turn
   script.runThrough("spoke");
   await app.open("/t/thread-frozen");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  expect(screen.getByRole("status", { name: "Working" })).toBeTruthy();
+  // The turn's live head sits at its top, inside the transcript, until the whole tree settles.
+  expect(within(feed).getByRole("group", { name: "Turn in progress" }).textContent).toMatch(
+    /^Working for/,
+  );
   expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
-  expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
-  expect(within(feed).queryByText(/^Working for/)).toBeNull();
 
   now = 101_000;
   act(() => script.runThrough("settled"));
@@ -574,9 +571,12 @@ test("a finished child with no spawn link does not claim the active parent's tur
   script.runThrough("child-finished");
   await app.open("/t/thread-unlinked");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  expect(screen.getByRole("status", { name: "Working" })).toBeTruthy();
+  expect(within(feed).getByRole("group", { name: "Turn in progress" }).textContent).toMatch(
+    /^Working for/,
+  );
   expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
-  expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
   act(() => app.daemon.apply("thread-unlinked", [endTurn("root")]));
   expect(await within(feed).findByRole("button", { name: /^Worked for 4s/ })).toBeTruthy();
+  // Settled: the live head is gone.
+  expect(within(feed).queryByRole("group", { name: "Turn in progress" })).toBeNull();
 });

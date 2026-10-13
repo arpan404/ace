@@ -223,3 +223,36 @@
     transform: translateY(0);
   }
 }
+
+/*
+ * The step the agent is on right now ("Running bun install"): a light sweep across its words
+ * when it starts, three passes and then still (the static motion policy: nothing perpetual).
+ * The next step mounts its own words and sweeps again. Static under reduced motion.
+ */
+.step-shimmer {
+  color: transparent;
+  background-image: linear-gradient(
+    100deg,
+    var(--shimmer-ink, var(--muted-foreground)) 42%,
+    var(--foreground) 50%,
+    var(--shimmer-ink, var(--muted-foreground)) 58%
+  );
+  background-size: 300% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: fx-shimmer 2.4s linear 3;
+}
+@keyframes fx-shimmer {
+  to {
+    background-position: 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .step-shimmer {
+    animation: none;
+  }
+}
+:root[data-reduce-motion] .step-shimmer {
+  animation: none;
+}

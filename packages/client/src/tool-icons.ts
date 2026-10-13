@@ -17,6 +17,8 @@ export interface ToolIconCacheOptions {
   maxIcons?: number;
   /** How long to wait before asking again about an icon that may come later. */
   retryMs?: number;
+  /** Runs `run` after `ms`; the wait before asking again about an icon that may come later. */
+  schedule(run: () => void, ms: number): void;
   /** The clock retries are timed by. */
   now(): number;
   /** Run a batch soon (after the rows that ask for icons in one render have asked). */
@@ -81,9 +83,22 @@ export class ToolIconCache {
     return this.options.now();
   }
 
+  /** Whether a step's icon is in its wait before being asked for again. */
+  waiting(threadId: string, itemId: string): boolean {
+    return (this.retryAt.get(stepKey(threadId, itemId)) ?? 0) > this.now();
+  }
+
   private later(id: string): void {
     this.loading.delete(id);
-    this.retryAt.set(id, this.now() + (this.options.retryMs ?? 30_000));
+    const retryMs = this.options.retryMs ?? 30_000;
+    const due = this.now() + retryMs;
+    this.retryAt.set(id, due);
+    // When the wait is over, rows showing the step hear of it and ask again.
+    this.options.schedule(() => {
+      if (this.retryAt.get(id) !== due) return;
+      this.retryAt.delete(id);
+      this.emit();
+    }, retryMs);
     const max = (this.options.maxIcons ?? 256) * 4;
     for (const old of this.retryAt.keys()) {
       if (this.retryAt.size <= max) break;

@@ -14,10 +14,15 @@ const ref = (letter: string) => letter.repeat(64);
 function daemon(answers: Record<string, IconResult>) {
   const calls: string[] = [];
   const state = { offline: false, now: 0 };
+  const timers: (() => void)[] = [];
   return {
     calls,
     state,
+    timers,
     now: () => state.now,
+    schedule: (run: () => void) => {
+      timers.push(run);
+    },
     async resolve(threadId: ThreadId, itemIds: string[]) {
       calls.push(`resolve:${itemIds.join(",")}`);
       if (state.offline) throw new Error("offline");
@@ -96,6 +101,27 @@ test("an unanswered batch is asked again later too", async () => {
   expect(cache.image(thread, "open")).toBeUndefined();
   d.state.offline = false;
   d.state.now = 2000;
+  cache.load(thread, "open");
+  await settle();
+  expect(cache.image(thread, "open")).toMatch(/^data:image\/png/);
+});
+
+// Mutation: a row only learning its icon's wait is over on some later, unrelated render.
+test("rows hear when an icon's wait is over, and asking then reads it", async () => {
+  const answers: Record<string, IconResult> = { open: { state: "later" } };
+  const d = daemon(answers);
+  const cache = new ToolIconCache({ ...d, retryMs: 1000 });
+  let changes = 0;
+  cache.subscribe(() => changes++);
+  cache.load(thread, "open");
+  await settle();
+  expect(cache.waiting(thread, "open")).toBe(true);
+  answers.open = { state: "found", ref: ref("c") };
+  d.state.now = 1000;
+  const before = changes;
+  for (const run of d.timers.splice(0)) run();
+  expect(changes).toBeGreaterThan(before);
+  expect(cache.waiting(thread, "open")).toBe(false);
   cache.load(thread, "open");
   await settle();
   expect(cache.image(thread, "open")).toMatch(/^data:image\/png/);

@@ -1,6 +1,6 @@
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 
-/** An open work log's rows: logs start collapsed, so rows load after first paint. */
-export const DeferredWorkLogSteps = deferredComponent(() =>
-  import("./work-log-steps.tsx").then((module) => module.WorkLogSteps),
+/** An opened "Worked for" log: logs start folded, so its code loads after first paint. */
+export const DeferredTurnWork = deferredComponent(() =>
+  import("./turn-work.tsx").then((module) => module.TurnWork),
 );

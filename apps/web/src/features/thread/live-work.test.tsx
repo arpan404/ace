@@ -30,7 +30,7 @@ test("one turn's work reads as one Worked line and one subagent card, though sub
   const second = await within(feed).findByText(/Send coldStart with the ack/);
   await within(feed).findByRole("button", { name: "2 subagents" });
 
-  expect(screen.getByRole("button", { name: "Open the summary" }).textContent).toContain(
+  expect(screen.getByRole("group", { name: "Turn in progress" }).textContent).toContain(
     "subagents",
   );
   expect(within(feed).getAllByRole("button", { name: /^\d subagents?$/ })).toHaveLength(1);

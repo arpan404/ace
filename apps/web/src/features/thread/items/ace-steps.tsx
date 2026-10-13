@@ -1,93 +1,57 @@
 import type { Item } from "@ace/protocol";
 import {
+  aceCallOf,
   aceToolLog,
-  groupLine,
+  screenStep,
   type AceLog,
-  type AceLogRow,
   type AceToolView,
 } from "@ace/ui-core/ace-tools";
-import { CaretRightIcon } from "@phosphor-icons/react";
-import { useCallback, useId, useMemo, useState, type ReactNode } from "react";
+import { useMemo } from "react";
 import { useLightbox } from "@/components/attachment-open.tsx";
 import type { ShownImage } from "@/components/attachment-format.ts";
 import { ImageTile } from "@/components/attachment-tiles.tsx";
-import { LiveWorkMark } from "@/components/live-work-mark.tsx";
-import { cn } from "@/lib/cn.ts";
-import { useItemsSelect } from "../lib/use-items.ts";
-import { ToolMarkIcon } from "./tool-mark.tsx";
+import { useStepItemsSelect } from "./step-items.ts";
 
 /*
- * ace's own steps in an open work log: the log read as a whole (what each step acted on, the
- * daemon's audits folded into their calls), groups of steps on one app, site or device, and the
- * images a step answered with.
+ * ace's own steps in a work log: the log read as a whole (what each step acted on, the daemon's
+ * audits folded into their calls) and the images a step answered with.
  */
 
-const sameLog = (a: AceLog, b: AceLog) => a.signature === b.signature;
-
-/** The open log's rows and each step's context; plain rows until the items are read. */
-export function useAceLog(threadId: string, itemIds: readonly string[]): AceLog {
-  const select = useCallback(
-    (items: readonly (Item | undefined)[]) => aceToolLog(itemIds, items),
-    [itemIds],
-  );
-  const log = useItemsSelect(threadId, itemIds, select, sameLog);
-  return useMemo(
-    () =>
-      log ?? {
-        rows: itemIds.map((id): AceLogRow => ({ kind: "step", id })),
-        contexts: {},
-        signature: "",
-      },
-    [log, itemIds],
-  );
+/** Whether an item is one of ace's own steps or the daemon's audit of one; memoised per item. */
+const aceItems = new WeakMap<Item, boolean>();
+function isAce(item: Item): boolean {
+  let known = aceItems.get(item);
+  if (known === undefined) {
+    known = !!screenStep(item) || !!aceCallOf(item);
+    aceItems.set(item, known);
+  }
+  return known;
 }
 
-/** "Used Safari · 8 actions · 3 failed", opening to its steps. */
-export function StepGroup(props: {
-  group: Extract<AceLogRow, { kind: "group" }>;
-  children: ReactNode;
-}) {
-  const { group } = props;
-  const [toggled, setOpen] = useState<boolean>();
-  const open = toggled ?? group.awaiting;
-  const panel = useId();
-  const [label, ...counts] = groupLine(group).split(" · ");
-  return (
-    <li>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={panel}
-        aria-label={groupLine(group)}
-        onClick={() => setOpen(!open)}
-        className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent"
-      >
-        {group.running ? <LiveWorkMark className="mx-px" /> : <ToolMarkIcon mark={group.mark} />}
-        <span className="min-w-0 truncate">{label}</span>
-        <span className="shrink-0 text-xs text-subtle-foreground">
-          {counts.map((count, index) => (
-            <span key={count} className={cn(count.endsWith("failed") && "text-status-failed")}>
-              {index ? " · " : ""}
-              {count}
-            </span>
-          ))}
-        </span>
-        <CaretRightIcon
-          aria-hidden
-          size={14}
-          className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-(--motion-base) ease-spring",
-            open && "rotate-90",
-          )}
-        />
-      </button>
-      {open && (
-        <ul id={panel} aria-label={label} className="fx-rise-in flex flex-col border-l-2 pl-2.5">
-          {props.children}
-        </ul>
-      )}
-    </li>
+/** ace's steps in a log: what each acted on, and the audits folded into the call they record. */
+export interface AceReading {
+  contexts: AceLog["contexts"];
+  hidden: ReadonlySet<string>;
+  signature: string;
+}
+const empty: AceReading = { contexts: {}, hidden: new Set(), signature: "" };
+const sameReading = (a: AceReading, b: AceReading) => a.signature === b.signature;
+
+function readAceLog(items: readonly (Item | undefined)[]): AceReading {
+  const ace = items.filter((item): item is Item => !!item && isAce(item));
+  if (!ace.length) return empty;
+  // Only ace's own steps feed its reading, so a log of other tools costs nothing here.
+  const log = aceToolLog(
+    ace.map((item) => item.id),
+    ace,
   );
+  const shown = new Set(log.rows.flatMap((row) => (row.kind === "group" ? row.ids : [row.id])));
+  const hidden = new Set(ace.flatMap((item) => (shown.has(item.id) ? [] : [item.id])));
+  return { contexts: log.contexts, hidden, signature: log.signature };
+}
+
+export function useAceLog(threadId: string, itemIds: readonly string[]): AceReading {
+  return useStepItemsSelect(threadId, itemIds, readAceLog, sameReading) ?? empty;
 }
 
 /** A step's screenshots and images as small thumbnails; each opens the image lightbox. */

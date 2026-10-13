@@ -4,6 +4,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { openWorkLog } from "@/test/open-work-log.ts";
 import { StepDetail } from "./items/step-detail.tsx";
 import { MessageReferences } from "./items/message-references.tsx";
 import { Item, type ContentPart } from "@ace/protocol";
@@ -282,7 +283,7 @@ test("shell output strips colour codes and OSC hyperlinks without losing text", 
     },
   ]);
   act(() => app.daemon.apply("hygiene", [facts.endTurn("root")]));
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  await openWorkLog(feed);
   await userEvent.click(await within(feed).findByRole("button", { name: /Ran printf output/ }));
   expect((await within(feed).findByLabelText("Output")).textContent).toBe("green link\nnext");
 });

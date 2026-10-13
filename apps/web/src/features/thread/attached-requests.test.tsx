@@ -7,6 +7,7 @@ import { answerStore } from "@/features/thread/interactions/answers.ts";
 import { requestIdentity } from "@ace/ui-core";
 import { memoryStorage } from "@/boot/client.ts";
 import { harness } from "@/test/harness.tsx";
+import { openWorkLog } from "@/test/open-work-log.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -363,7 +364,7 @@ test("an approved command keeps its execution output in the finished work log", 
     ]),
   );
   const feed = screen.getByRole("feed", { name: "Transcript" });
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  await openWorkLog(feed);
   await userEvent.click(await within(feed).findByRole("button", { name: /^Ran rm -rf/ }));
   expect((await within(feed).findByLabelText("Output")).textContent).toContain("Cache cleared.");
   expect(within(feed).getByRole("note").textContent).toContain("Allowed once:");

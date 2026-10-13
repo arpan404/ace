@@ -4,7 +4,7 @@ import type { Run } from "@ace/protocol";
 import { formatElapsed, pauseLabel, providerNames } from "@ace/ui-core";
 import { Suspense, useCallback, useMemo } from "react";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
-import { DeferredWorkLogSteps } from "../items/deferred-steps.ts";
+import { GroupedSteps } from "../items/step-groups-view.tsx";
 import { DeferredFailedTurn } from "../items/deferred-review.ts";
 import type { Block } from "./blocks.ts";
 import type { Failure } from "./failure.ts";
@@ -112,13 +112,7 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
         <summary role="button" className="cursor-pointer py-1 focus-ring">
           {text}
         </summary>
-        <Suspense fallback={null}>
-          <DeferredWorkLogSteps.Component
-            threadId={props.threadId}
-            itemIds={block.itemIds ?? []}
-            panel={block.key}
-          />
-        </Suspense>
+        <GroupedSteps threadId={props.threadId} itemIds={block.itemIds ?? []} id={block.key} />
       </details>
     );
   }

@@ -13,6 +13,7 @@ import { QuestionBlock } from "./question-block.tsx";
 import { UserMessage } from "./user-message.tsx";
 import { WorktreeNote } from "../worktree/worktree-note.tsx";
 import { Subagents } from "./subagents.tsx";
+import { LiveHead, TailThinking } from "./live-head.tsx";
 import { WorkLog } from "./work-log.tsx";
 
 const EventView = DeferredEvent.Component;
@@ -26,26 +27,27 @@ const BlockContent = memo(function BlockContent(props: {
   block: Block;
   /** The last block of a turn still in progress. */
   live?: boolean;
+  /** The root turn the block belongs to, when known. */
+  ordinal?: number | undefined;
 }) {
   const { threadId, block } = props;
   switch (block.kind) {
     case "user":
       return <PersonMessage threadId={threadId} itemId={block.itemId} />;
     case "message":
-      return <AssistantMessage threadId={threadId} itemId={block.itemId} />;
-    case "work":
       return (
-        <WorkLog
+        <AssistantMessage
           threadId={threadId}
-          itemIds={block.itemIds}
-          live={props.live ?? false}
-          ongoing={block.ongoing}
-          until={block.until}
-          idle={block.idle}
-          startedAt={block.startedAt}
-          outcome={block.outcome}
+          itemId={block.itemId}
+          timed={block.headed ? false : undefined}
         />
       );
+    case "work":
+      return <WorkLog threadId={threadId} block={block} ordinal={props.ordinal} />;
+    case "live":
+      return <LiveHead threadId={threadId} />;
+    case "thinking":
+      return <TailThinking threadId={threadId} />;
     case "subagents":
       return <Subagents threadId={threadId} itemIds={block.itemIds} />;
     case "background":
