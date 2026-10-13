@@ -359,7 +359,7 @@ test("a stopped turn whose command still runs never reads Working", () => {
     shell("dev", "bun run dev:relay", "running", 9),
   ]);
   thread.background("dev");
-  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working" });
+  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Running in background" });
   thread.runs.set("run-1", { ...run("run-1", "root"), state: "interrupted", endedAt: 20 });
   expect(turnActivity(thread.reader, "root")).toBeUndefined();
   expect(readStoppedTurn(thread.reader, "root").stopped).toBe(true);
