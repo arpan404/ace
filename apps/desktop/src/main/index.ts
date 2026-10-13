@@ -23,6 +23,8 @@ import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { claimKeychainName } from "./keychain.ts";
 import { applicationMenu } from "./menu.ts";
+import { cliShimCheck, cliShimLog, type CliShimResult } from "./os/cli-shim.ts";
+import { installCliShim } from "./os/cli-shim-install.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { checkWithFeedback } from "./os/update-feedback.ts";
 import { appPaths } from "./paths.ts";
@@ -124,6 +126,7 @@ function main(target: DaemonTarget): void {
     join(app.getPath("userData"), "window-background.json"),
   );
   let window: BrowserWindow | undefined;
+  let cliShim: CliShimResult | undefined;
   let rendererUrl = "";
   let route = "/";
   const pending: DeepLink[] = [];
@@ -309,6 +312,10 @@ function main(target: DaemonTarget): void {
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),
       showLogs,
+      desktopChecks: () => {
+        const check = cliShim && cliShimCheck(cliShim);
+        return check ? [check] : [];
+      },
       setWindowBackground: (value) => {
         if (!backgrounds.set(value).changed || !window || window.isDestroyed()) return;
         window.setBackgroundColor(windowBackground(value, nativeTheme.shouldUseDarkColors));
@@ -370,5 +377,19 @@ function main(target: DaemonTarget): void {
     void runtime
       .start()
       .catch((error: unknown) => log("error", `Daemon start failed: ${String(error)}`));
+    // The `ace` command belongs to the installed app; development builds never write one.
+    if (app.isPackaged)
+      void installCliShim({
+        home: homedir(),
+        platform: process.platform,
+        node: paths.node,
+        entry: paths.daemonEntry,
+        loginPath: () => runtime.loginPath(),
+      }).then((result) => {
+        cliShim = result;
+        const line = cliShimLog(result);
+        const problem = result.state === "foreign" || result.state === "failed";
+        if (line) log(problem ? "warn" : "info", line);
+      });
   });
 }

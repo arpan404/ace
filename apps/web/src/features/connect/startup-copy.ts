@@ -22,6 +22,14 @@ const checks: Record<string, { label: string; fix: string }> = {
   chromium: { label: "Browser support", fix: "Install Chrome or Chromium, then restart ace." },
   port: { label: "Local connection", fix: "Close other copies of ace, then restart ace." },
   "remote.openssl": { label: "Secure connections", fix: "Install OpenSSL, then restart ace." },
+  "desktop.cli": {
+    label: "ace command",
+    fix: "Move aside the file at ~/.ace/bin/ace (ace.cmd on Windows), then restart ace.",
+  },
+  "desktop.cli-path": {
+    label: "ace command",
+    fix: "Add ~/.ace/bin to PATH in your shell profile to run ace from a terminal.",
+  },
   "provider.claude": {
     label: "Claude Code",
     fix: "Check its installation and sign in from a terminal.",
