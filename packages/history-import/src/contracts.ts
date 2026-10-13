@@ -25,6 +25,14 @@ export const Options = z.object({
       (instances) => new Set(instances.map((i) => i.id)).size === instances.length,
       "Instance IDs must be unique",
     ),
+  /** Bounds for private provider-database snapshots; defaults in snapshot-scratch.ts. */
+  snapshot: z
+    .object({
+      maxCopyBytes: z.number().int().nonnegative().optional(),
+      minFreeBytes: z.number().int().nonnegative().optional(),
+      minFreeRatio: z.number().min(0).max(1).optional(),
+    })
+    .optional(),
 });
 export type HistoryOptions = z.input<typeof Options>;
 export const ImportInit = z.object({

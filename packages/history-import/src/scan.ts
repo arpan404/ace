@@ -17,6 +17,8 @@ import {
 import { HistorySession } from "@ace/protocol/history";
 import { summary, sourceId } from "./metadata.ts";
 import { dbSessions, openProviderDb } from "./provider-db.ts";
+import { SnapshotBusy } from "./snapshot-scratch.ts";
+import { SnapshotChanged } from "./sqlite-snapshot.ts";
 import type { ProviderHome } from "./contracts.ts";
 import type { Catalog } from "./catalog.ts";
 import type { InventoryChanges } from "./inventory-watch.ts";
@@ -143,7 +145,7 @@ export async function scan(
                     hidden: false,
                   },
                   signal,
-                  catalog.scratchRoot,
+                  catalog.snapshots,
                 )
               : readJsonLines(instance.homeDir, path, signal)) {
               if (!isStorage) result.bytes += record.bytes;
@@ -280,10 +282,20 @@ export async function scan(
           result.skipped++;
           continue;
         }
+        const waiting = catalog.backoff.waiting(instance.id, path);
+        if (waiting !== undefined) {
+          // A recent failure keeps the last good rows and its notice. Later provider writes or
+          // a full scan after the backoff read it again; polling would only spin the scheduler.
+          catalog.preservePath(instance.id, path, epoch);
+          result.skipped++;
+          if (waiting && result.unsupported.length < 256)
+            result.unsupported.push({ instanceId: instance.id, reason: waiting });
+          continue;
+        }
         let db;
         catalog.db.exec("SAVEPOINT provider_scan");
         try {
-          db = await openProviderDb(instance, path, catalog.scratchRoot, signal);
+          db = await openProviderDb(instance, path, catalog.snapshots, signal);
           result.reads++;
           let rows = 0;
           for (const entry of dbSessions(instance, path, db.db)) {
@@ -310,20 +322,32 @@ export async function scan(
             if (instance.provider === "codex" && !s.title.startsWith("Session from "))
               catalog.setNativeTitle(instance.id, s.nativeId, s.title, "database");
           }
-          // The private snapshot is consistent even if the live provider has committed again.
+          await db.verify();
+          // The rows read are one committed state even if the live provider has committed again.
           // Remember the original fingerprint so its newer data is picked up next scan.
           const info = await lstat(path);
           catalog.remember(instance, path, info.size, info.mtimeMs, fp, epoch);
+          catalog.backoff.succeeded(instance.id, path);
           catalog.db.exec("RELEASE provider_scan");
         } catch (error) {
           catalog.db.exec("ROLLBACK TO provider_scan; RELEASE provider_scan");
           catalog.preservePath(instance.id, path, epoch);
           if (signal.aborted) throw error;
-          if (result.unsupported.length < 256)
-            result.unsupported.push({
-              instanceId: instance.id,
-              reason: error instanceof Error ? error.message : "Unreadable provider database",
-            });
+          if (error instanceof SnapshotBusy) {
+            if (result.retry.length < 4096) result.retry.push({ instanceId: instance.id, path });
+          } else {
+            // Races, refusals and unreadable schemas all wait before the next attempt. A race
+            // is not a notice: an active writer keeps producing changes that rescan it.
+            const reason =
+              error instanceof SnapshotChanged
+                ? undefined
+                : error instanceof Error
+                  ? error.message
+                  : "Unreadable provider database";
+            catalog.backoff.failed(instance.id, path, reason);
+            if (reason && result.unsupported.length < 256)
+              result.unsupported.push({ instanceId: instance.id, reason });
+          }
         } finally {
           await db?.close();
         }

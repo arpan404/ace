@@ -12,6 +12,7 @@ import {
 import type { ProviderHome } from "./contracts.ts";
 import type { Source } from "./catalog.ts";
 import { openProviderDb, supportsOpenCode } from "./provider-db.ts";
+import type { SnapshotScratch } from "./snapshot-scratch.ts";
 
 export type HistoryRecord =
   | { value: unknown; bytes: number; chunks: () => AsyncGenerator<Uint8Array> }
@@ -20,7 +21,7 @@ export async function* sourceRecords(
   instance: ProviderHome,
   source: Source,
   signal: AbortSignal,
-  scratchRoot: string,
+  scratch: SnapshotScratch,
 ): AsyncGenerator<HistoryRecord> {
   if (source.kind === "jsonl") {
     for await (const record of readJsonLines(instance.homeDir, source.path, signal)) {
@@ -36,7 +37,7 @@ export async function* sourceRecords(
     for await (const header of orderedMessages(
       instance,
       join(instance.homeDir, "storage/message", source.summary.nativeId),
-      scratchRoot,
+      scratch.root,
       signal,
     )) {
       const messagePath = header.path;
@@ -48,7 +49,7 @@ export async function* sourceRecords(
       };
       for await (const part of orderedParts(
         join(instance.homeDir, "storage/part", basename(messagePath, ".json")),
-        scratchRoot,
+        scratch.root,
         signal,
       )) {
         for await (const record of readJsonLines(instance.homeDir, part, signal)) {
@@ -72,13 +73,14 @@ export async function* sourceRecords(
     }
     return;
   }
-  const handle = await openProviderDb(instance, source.path, scratchRoot, signal);
+  const handle = await openProviderDb(instance, source.path, scratch, signal);
   const db = handle.db;
   try {
     if (!supportsOpenCode(db)) throw new Error("Unsupported provider database history");
     if (hasOpenCodeV2(db, source.summary.nativeId)) {
       if (!supportsOpenCodeV2(db)) throw new Error("Unsupported OpenCode history format");
       yield* openCodeV2Records(db, source.summary.nativeId, signal);
+      await handle.verify();
       return;
     }
     db.exec("BEGIN"); // Consistent read-only snapshot, including live WAL.
@@ -155,6 +157,8 @@ export async function* sourceRecords(
         }
       }
     }
+    // An in-place read must not hand a torn transcript to the importer.
+    await handle.verify();
   } finally {
     await handle.close();
   }

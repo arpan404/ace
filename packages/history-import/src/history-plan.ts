@@ -7,12 +7,13 @@ import { Completion, nativeCompletions } from "./native-tools.ts";
 import { sourceRecords } from "./source-records.ts";
 import type { ProviderHome } from "./contracts.ts";
 import type { Source } from "./catalog.ts";
+import type { SnapshotScratch } from "./snapshot-scratch.ts";
 
 /** Disk holds ancestry and result lookups; memory holds one bounded native record. */
 export async function prepareHistory(
   instance: ProviderHome,
   source: Source,
-  scratchRoot: string,
+  scratch: SnapshotScratch,
   signal: AbortSignal,
 ) {
   if (instance.provider === "opencode")
@@ -23,7 +24,7 @@ export async function prepareHistory(
       callItem: (_id: string): string | undefined => undefined,
       close: async () => {},
     };
-  const dir = await mkdtemp(join(scratchRoot, "history-plan-"));
+  const dir = await mkdtemp(join(scratch.root, "history-plan-"));
   const db = new DatabaseSync(join(dir, "plan.sqlite"));
   const close = async () => {
     db.close();
@@ -39,7 +40,7 @@ export async function prepareHistory(
     const result = db.prepare("INSERT OR REPLACE INTO results VALUES(?,?,?)");
     let ordinal = 0,
       leaf: string | undefined;
-    for await (const record of sourceRecords(instance, source, signal, scratchRoot)) {
+    for await (const record of sourceRecords(instance, source, signal, scratch)) {
       if (++ordinal % 64 === 0) await setImmediate();
       signal.throwIfAborted();
       if (!("value" in record)) continue;

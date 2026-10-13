@@ -91,11 +91,11 @@ export async function* importHistory(
         createdAt: init.at,
       }),
     };
-    const plan = await prepareHistory(instance, source, catalog.scratchRoot, signal);
+    const plan = await prepareHistory(instance, source, catalog.snapshots, signal);
     try {
       let seq = 0;
       let ordinal = 0;
-      for await (const record of sourceRecords(instance, source, signal, catalog.scratchRoot)) {
+      for await (const record of sourceRecords(instance, source, signal, catalog.snapshots)) {
         signal.throwIfAborted();
         if (!plan.includes(++ordinal)) continue;
         const prefix = `${init.threadId}:${s.id}:${seq++}`;

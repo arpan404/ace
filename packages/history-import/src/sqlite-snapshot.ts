@@ -4,6 +4,7 @@ import { lstat, writeFile } from "node:fs/promises";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { safeOpen, fingerprint } from "@ace/native-session";
+import type { SnapshotStage } from "./snapshot-scratch.ts";
 
 export class SnapshotChanged extends Error {
   constructor() {
@@ -11,18 +12,26 @@ export class SnapshotChanged extends Error {
   }
 }
 
-/** Copy a frozen WAL prefix. Appending commits is safe; reset/checkpoint/replacement is not. */
+/** Copy a frozen WAL prefix. Appending commits is safe; reset/checkpoint/replacement is not.
+ * The database is cloned copy-on-write when the filesystem allows it; otherwise it is streamed,
+ * and only after the stage has reserved the bytes against the scratch cap and free-space margin. */
 export async function copySqliteSnapshot(
   home: string,
   source: string,
   target: string,
   signal: AbortSignal,
+  stage: SnapshotStage,
   walPath?: string,
 ): Promise<void> {
   const base = await safeOpen(home, source);
   try {
-    const before = fingerprint(await base.stat());
-    await copyDatabase(base, target, signal);
+    const baseInfo = await base.stat();
+    const before = fingerprint(baseInfo);
+    const walBytes = walPath ? (await lstat(walPath)).size : 0;
+    const cloned = baseInfo.size > 0 && (await stage.clone(source, target, signal));
+    signal.throwIfAborted();
+    await stage.reserve((cloned ? 0 : baseInfo.size) + walBytes);
+    if (!cloned) await copyDatabase(base, target, signal);
     if (walPath) {
       const journal = await safeOpen(home, walPath);
       try {
