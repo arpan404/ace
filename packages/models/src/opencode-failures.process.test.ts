@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { discoverOpenCodeModels } from "@ace/adapter-opencode";
+import { openApiDocument } from "@ace/adapter-opencode/contract";
 import {
   ModelCatalog,
   createModelDiscovery,
@@ -23,28 +24,6 @@ const native = (providerID: string, modelID: string) => ({
   capabilities: { tools: true, input: ["text/plain", "image/png"], output: ["text/plain"] },
   variants: [],
 });
-const operations = [
-  "server.info",
-  "event.subscribe",
-  "session.create",
-  "session.get",
-  "session.switchModel",
-  "session.list",
-  "session.active",
-  "session.prompt",
-  "session.interrupt",
-  "session.message.list",
-  "session.permission.list",
-  "session.permission.reply",
-  "session.form.list",
-  "session.form.reply",
-  "session.form.cancel",
-  "session.inbox.list",
-  "shell.list",
-  "shell.get",
-  "shell.remove",
-  "model.list",
-];
 async function setup(
   onTestFinished: (cleanup: () => Promise<void>) => void,
   extraEnv: Record<string, string> = {},
@@ -89,12 +68,8 @@ async function setup(
       return;
     }
     if (path === "/openapi.json") {
-      json({
-        openapi: "3.1.0",
-        paths: Object.fromEntries(
-          operations.map((operationId) => ["/" + operationId, { get: { operationId } }]),
-        ),
-      });
+      // The routes ace drives, as a supported OpenCode serves them.
+      json(openApiDocument());
       return;
     }
     if (path === "/api/event") {
