@@ -40,7 +40,7 @@ export function SettledRow(props: { threadId: string; leaving?: boolean | undefi
   const unsettle = settleAction(entry, card.flags, actions);
   const body = (
     <>
-      <ProjectMark badge={card.badge} />
+      <ProjectMark id={entry.workspaceId} badge={card.badge} />
       <span className={cn("min-w-0 flex-1 truncate leading-5", titleTone(card))}>
         {renaming ? (
           <RenameField

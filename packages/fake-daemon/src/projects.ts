@@ -1,4 +1,4 @@
-import { parseCloneUrl } from "@ace/project-picker";
+import { parseCloneUrl, projectIconMatches } from "@ace/project-picker";
 import { fakeSearch, fakeComplete } from "./project-picker.ts";
 import {
   Project,
@@ -396,7 +396,9 @@ export class FakeProjects {
         .filter((t) => t.workspaceId === project.id && t.deletedAt === undefined);
       if (p.type === "workspace.rename" || p.type === "workspace.update") {
         const icon = p.type === "workspace.update" ? p.icon : undefined;
-        const workspace = { ...project, name: p.name, ...(icon === undefined ? {} : { icon }) };
+        if (typeof icon === "string" && !projectIconMatches(icon))
+          throw new Error("project_icon_invalid");
+        const workspace = edited(project, p);
         this.projects.set(project.id, workspace);
         for (const thread of threads)
           if (thread.details?.workspace)
@@ -695,4 +697,20 @@ export class FakeProjects {
         flight.wake?.();
       }
   }
+}
+
+/** A project after a rename or an edit; null clears a field and omitted keeps it. */
+function edited(
+  project: Project,
+  p: Extract<CommandPayload, { type: "workspace.rename" | "workspace.update" }>,
+): Project {
+  const next: Project = { ...project, name: p.name };
+  if (p.type === "workspace.rename") return next;
+  if (p.icon === null) delete next.icon;
+  else if (p.icon !== undefined) next.icon = p.icon;
+  if (p.badge === null) delete next.badge;
+  else if (p.badge !== undefined) next.badge = p.badge;
+  if (p.defaults === null) delete next.defaults;
+  else if (p.defaults !== undefined) next.defaults = p.defaults;
+  return next;
 }

@@ -465,7 +465,7 @@ test("project edits publish metadata to existing threads and preserve icons acro
     f.store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
     const changes: WorkspaceChanged[] = [];
     f.projects.subscribe((change) => changes.push(change));
-    const icon = "data:image/png;base64,aGVsbG8=";
+    const icon = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
     expect(
       await f.command({ type: "workspace.update", workspaceId: project.id, name: "Edited", icon }),
     ).toMatchObject({ ok: true, workspace: { name: "Edited", icon } });

@@ -45,7 +45,7 @@ export function ThreadHoverContent(props: {
       </div>
       <div className="mt-1.5 text-ui text-muted-foreground">
         <Fact>
-          <ProjectMark badge={card.badge} />
+          <ProjectMark id={entry.workspaceId} badge={card.badge} />
           <span className="min-w-0 truncate">{card.project}</span>
         </Fact>
         <Fact>

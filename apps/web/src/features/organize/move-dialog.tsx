@@ -17,7 +17,6 @@ import type { MoveRequest } from "./mover.ts";
 import { useThreadActions } from "./use-thread-actions.ts";
 
 interface Choice {
-  icon?: string | null;
   id: string;
   name: string;
   path: string;
@@ -44,7 +43,6 @@ export function MoveDialog(props: { request: MoveRequest; open: boolean; onClose
               id: project.id,
               name: directory.name(project.id),
               path: project.path,
-              icon: project.icon ?? project.defaultIcon ?? null,
             },
           ],
     );
@@ -91,7 +89,7 @@ export function MoveDialog(props: { request: MoveRequest; open: boolean; onClose
                     onClick={() => pick(choice)}
                   >
                     <ProjectMark
-                      icon={choice.icon}
+                      id={choice.id}
                       badge={projectBadge({ id: choice.id, name: choice.name })}
                     />
                     <span className="shrink-0 truncate">{choice.name}</span>

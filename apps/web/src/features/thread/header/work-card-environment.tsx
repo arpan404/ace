@@ -29,7 +29,7 @@ import { machineStatus } from "@/lib/machine-status.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { useFolderActions } from "../lib/folder-actions.ts";
+import { useFolderActions } from "@/lib/folder-actions.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { ThreadOpenIn, useThreadEditorLaunch } from "./thread-open-in.tsx";
 import type { Move } from "./checkout-move.tsx";

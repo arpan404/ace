@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectGlyph.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "code",
+    "terminal",
+    "globe",
+    "database",
+    "cloud",
+    "robot",
+    "rocket",
+    "flask",
+    "book",
+    "cube",
+    "game",
+    "mobile",
+    "palette",
+    "gear",
+    "lightning",
+    "leaf",
+    "star",
+    "heart"
+  ],
+  "type": "string"
+}

@@ -2,7 +2,7 @@ import { useAgent, useSidebarThread, useThreadMeta } from "@ace/client-react";
 import { agentName, projectBadge } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { ProjectMark } from "@/components/project-mark.tsx";
-import { useProjectMetadata, useProjectName } from "@/lib/projects.ts";
+import { useProjectName } from "@/lib/projects.ts";
 
 /**
  * Where a thread sits, before its title in the header: its project's badge and name, or, for a
@@ -17,13 +17,9 @@ export function ThreadCrumb(props: { threadId: string }) {
 
 function ProjectCrumb(props: { workspaceId: string }) {
   const name = useProjectName()(props.workspaceId);
-  const project = useProjectMetadata()(props.workspaceId);
   return (
     <>
-      <ProjectMark
-        badge={projectBadge({ id: props.workspaceId, name })}
-        icon={project?.icon ?? project?.defaultIcon}
-      />
+      <ProjectMark id={props.workspaceId} badge={projectBadge({ id: props.workspaceId, name })} />
       <span className="truncate">{name}</span>
     </>
   );

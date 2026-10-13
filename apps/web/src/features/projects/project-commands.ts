@@ -1,6 +1,12 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import type { CommandResult, Project, ProjectsResult } from "@ace/protocol";
+import type {
+  CommandResult,
+  Project,
+  ProjectBadgeStyle,
+  ProjectDefaults,
+  ProjectsResult,
+} from "@ace/protocol";
 import { projectProblem, type ProjectProblem } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
@@ -67,6 +73,14 @@ function added(result: CommandResult): Added {
   };
 }
 
+/** A project edit: its name, and the icon and defaults fields to change (omitted keeps them). */
+export interface ProjectEdit {
+  name: string;
+  icon?: string | null;
+  badge?: ProjectBadgeStyle | null;
+  defaults?: ProjectDefaults | null;
+}
+
 export interface CreateInput {
   parent: string;
   name: string;
@@ -120,8 +134,9 @@ export function useProjectCommandsOn() {
         /** Clone progress pushed by this machine; returns the unsubscribe. */
         onCloneProgress: (listener: Parameters<ClientApi["projects"]["onCloneProgress"]>[0]) =>
           client ? client.projects.onCloneProgress(listener) : () => {},
-        rename: async (workspaceId: string, name: string) => {
-          const receipt = accepted(await reach().projects.rename({ workspaceId, name }));
+        /** Save the name, icon and new-thread defaults; omitted fields keep their saved value. */
+        update: async (workspaceId: string, edit: ProjectEdit) => {
+          const receipt = accepted(await reach().projects.update({ workspaceId, ...edit }));
           if (receipt.workspace && shared) rememberProject(queryClient, receipt.workspace);
         },
         remove: async (workspaceId: string, archiveThreads: boolean) => {

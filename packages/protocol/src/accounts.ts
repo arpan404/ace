@@ -2,11 +2,12 @@ import { NativeSessionId } from "./ids.ts";
 import { z } from "zod";
 import { AcpIdentity } from "./agent-registry.ts";
 import { AccountId, AccountInstanceId } from "./account-ids.ts";
+import { BadgeColor } from "./badge-color.ts";
 
 export { AccountId, AccountInstanceId } from "./account-ids.ts";
 
-export const AccountBadgeColor = z.enum(["neutral", "blue", "green", "amber", "rose", "violet"]);
-export type AccountBadgeColor = z.infer<typeof AccountBadgeColor>;
+export const AccountBadgeColor = BadgeColor;
+export type AccountBadgeColor = BadgeColor;
 /** A curated icon an account badge can show instead of letters. */
 export const AccountBadgeIcon = z.enum([
   "briefcase",

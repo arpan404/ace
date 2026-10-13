@@ -1,6 +1,6 @@
 import type { SidebarReader } from "@ace/client";
 import { useSidebarAll } from "@ace/client-react";
-import { displayPath, projectNameProblem } from "@ace/ui-core";
+import { displayPath } from "@ace/ui-core";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -12,90 +12,13 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
-import { Footer, Problem, TextField } from "./form-parts.tsx";
+import { Footer, Problem } from "./form-parts.tsx";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
 import { useHostHome } from "./use-folders.ts";
-import { ProjectIconPreview } from "./project-icon-preview.tsx";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 
 function useProject(projectId: string) {
   return useProjectDirectory().projects.find((project) => project.id === projectId);
-}
-
-/** Edit the display name; the folder on disk keeps its own name. */
-export function EditProjectDialog(props: {
-  projectId: string;
-  open: boolean;
-  onOpenChange(open: boolean): void;
-}) {
-  const project = useProject(props.projectId);
-  const commands = useProjectCommands();
-  const toast = useToast();
-  const [name, setName] = useState<string>();
-  const [saving, setSaving] = useState(false);
-  const [problem, setProblem] = useState<string>();
-  const value = name ?? project?.name ?? "";
-  const nameProblem = projectNameProblem(value.trim());
-
-  const save = async () => {
-    if (!project || nameProblem || saving) return;
-    if (value.trim() === project.name) return props.onOpenChange(false);
-    setSaving(true);
-    setProblem(undefined);
-    try {
-      await commands.rename(project.id, value.trim());
-      toast.add({ title: `Updated ${value.trim()}` });
-      props.onOpenChange(false);
-    } catch (error) {
-      setProblem(projectFailure(error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent>
-        <form
-          noValidate
-          className="grid gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void save();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Edit project</DialogTitle>
-            <DialogDescription>
-              Changes the name ace shows on every device. The folder on disk keeps its name.
-            </DialogDescription>
-          </DialogHeader>
-          {project ? (
-            <div className="grid gap-4">
-              <TextField
-                label="Name"
-                value={value}
-                onChange={setName}
-                problem={nameProblem}
-                showProblem={name !== undefined}
-                autoFocus
-                disabled={saving}
-              />
-              <ProjectIconPreview name={value} icon={project.defaultIcon} />
-            </div>
-          ) : (
-            <Problem>That project is gone.</Problem>
-          )}
-          {problem && <Problem>{problem}</Problem>}
-          <Footer>
-            <Button type="submit" variant="primary" disabled={!project || saving || !!nameProblem}>
-              {saving ? "Saving…" : "Save changes"}
-            </Button>
-          </Footer>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 const settledStates = new Set(["new", "done", "failed"]);

@@ -837,6 +837,8 @@ Example:
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | name | yes | [ProjectName.json](schema/ProjectName.json) |  |
 | icon | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectIcon.json"},{"type":"null"}]} |
+| badge | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectBadgeStyle.json"},{"type":"null"}]} |
+| defaults | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectDefaults.json"},{"type":"null"}]} |
 
 Example:
 
@@ -860,7 +862,7 @@ Example:
 
 ```json
 {
-  "name": "||++(**,$($",
+  "name": "++(**,$($&",
   "type": "workspace.rename",
   "workspaceId": "example"
 }
@@ -878,7 +880,6 @@ Example:
 
 ```json
 {
-  "archiveThreads": false,
   "type": "workspace.remove",
   "workspaceId": "example"
 }
@@ -1824,69 +1825,93 @@ Example:
 
 ```json
 {
-  "alive": {
-    "agentsRunning": 2,
-    "operationsRunning": 7,
-    "terminalsOpen": 1
-  },
   "code": "example",
   "commandId": "example",
+  "commit": "bdd5098842430310bcdb0f409d4f4ed320931dc5",
   "forkThreadId": "example",
-  "inspection": {
-    "defaultIcon": null,
-    "git": {
-      "branch": null,
-      "defaultBranch": "example",
-      "remotes": [],
-      "root": "example"
+  "health": {
+    "activeSessions": null,
+    "at": 9,
+    "eventLoop": {
+      "maxMs": null,
+      "meanMs": null,
+      "p99Ms": 6
     },
-    "gitUnavailable": "git_quarantined",
+    "logs": {
+      "dropped": 3,
+      "failed": 2,
+      "queued": 2
+    },
+    "memory": {
+      "heapTotalBytes": 5,
+      "heapUsedBytes": 9,
+      "rssBytes": 2
+    },
+    "openHandles": 4,
+    "queues": {},
+    "sqlite": {
+      "pageBytes": 9,
+      "walBytes": null
+    }
+  },
+  "inspection": {
+    "git": null,
     "path": "example"
   },
-  "issue": {
-    "number": 2,
-    "repository": {
-      "forge": "github",
-      "host": "rPXO8EH",
-      "name": "qHqW",
-      "owner": "dkHqAA/x/9xhabG7/4T9xIHxD03/Cyf4wf/VQE9ROHd"
-    }
+  "issueAction": {
+    "action": "edit",
+    "error": "example",
+    "id": "example",
+    "state": "pending"
   },
   "ok": false,
-  "publication": {
-    "error": "example",
-    "input": {
-      "account": "j3Em0Bs",
-      "description": "example",
-      "host": "v.0m9cdm-yyybbefd-9do-owdjee4v-qb8rk-kwazfw7x98-ewd.yqqo9589",
-      "name": "ur.2U5Q",
-      "owner": "VnZ27R",
-      "visibility": "private"
-    },
-    "phase": "prepared",
-    "remote": null,
-    "updatedAt": 0,
-    "workspaceId": "example"
-  },
   "review": {
-    "nextCursor": "example",
-    "reply": {
-      "commentId": "example",
+    "comment": {
+      "anchor": {
+        "fingerprint": {
+          "after": [],
+          "before": [],
+          "lines": [
+            "example"
+          ]
+        },
+        "position": {
+          "end": 1,
+          "file": "example.ts",
+          "side": "new",
+          "start": 1
+        },
+        "revision": {
+          "kind": "working-tree"
+        },
+        "state": "active"
+      },
       "id": "example",
+      "originalAnchor": {
+        "fingerprint": {
+          "after": [],
+          "before": [],
+          "lines": [
+            "example"
+          ]
+        },
+        "position": {
+          "end": 1,
+          "file": "example.ts",
+          "side": "new",
+          "start": 1
+        },
+        "revision": {
+          "kind": "working-tree"
+        },
+        "state": "active"
+      },
+      "resolved": true,
+      "sessionId": "example",
       "text": "example"
-    }
+    },
+    "sessions": []
   },
-  "stackOperation": {
-    "action": "abort",
-    "message": "example",
-    "state": "push_partial"
-  },
-  "terminalId": "example",
-  "threadId": "example",
-  "workspace": {
-    "id": "example",
-    "name": "example",
-    "path": "example"
-  }
+  "title": "example"
 }
 ```

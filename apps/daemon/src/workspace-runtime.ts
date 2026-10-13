@@ -8,7 +8,7 @@ import {
 import { prBasePreparation, prReviewContext, type PrRemotes } from "./pr-worktree-resolution.ts";
 import type { ForgePrStatus, ForgeRepository } from "@ace/protocol";
 import type { CreationWorkspace } from "./creation-workspace.ts";
-import { decodeProjectRow } from "./project-storage.ts";
+import { decodeProjectRow, projectSelect } from "./project-storage.ts";
 import { CreationDrafts, type CreationProgress } from "./creation-progress.ts";
 import { threadCleaning, initializeThreadCleanup } from "./thread-cleanup-journal.ts";
 import type { WorkspaceChangeReservation } from "./engine/workspace-change.ts";
@@ -329,7 +329,7 @@ export class WorkspaceRuntime {
       return this.store.atomic((db) => {
         const rows = db
           .prepare(
-            "SELECT id,name,path,(SELECT icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS icon,(SELECT default_icon FROM workspace_metadata WHERE workspace_id=workspaces.id) AS defaultIcon FROM workspaces WHERE id>? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY id LIMIT ?",
+            `${projectSelect} WHERE w.id>? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id) ORDER BY w.id LIMIT ?`,
           )
           .all(op.after ?? "", op.limit + 1);
         const result = wrap({

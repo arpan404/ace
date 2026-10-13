@@ -1,6 +1,8 @@
 import { RepositoryPublishInput } from "./hosted-repositories.ts";
 import { z } from "zod";
 import { WorkspaceId } from "./ids.ts";
+import { BadgeColor } from "./badge-color.ts";
+import { ProviderKind } from "./provider-data.ts";
 
 /*
  * Projects as the core stream carries them: the project commands and the workspace and
@@ -57,12 +59,60 @@ export const ProjectIcon = z.union([
       /^data:image\/(?:png|jpeg|gif|webp|x-icon);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)$/,
     ),
 ]);
+/** The curated marks a project badge can show in place of its initials. */
+export const ProjectGlyph = z.enum([
+  "code",
+  "terminal",
+  "globe",
+  "database",
+  "cloud",
+  "robot",
+  "rocket",
+  "flask",
+  "book",
+  "cube",
+  "game",
+  "mobile",
+  "palette",
+  "gear",
+  "lightning",
+  "leaf",
+  "star",
+  "heart",
+]);
+export type ProjectGlyph = z.infer<typeof ProjectGlyph>;
+/**
+ * A badge the person chose: the project's initials, or a curated glyph, in a curated colour.
+ * Without a colour the badge keeps the tint derived from the project id. A custom `icon` image
+ * still wins over it; without either, the detected favicon and then the initials show.
+ */
+export const ProjectBadgeStyle = z.object({
+  color: BadgeColor.optional(),
+  glyph: ProjectGlyph.optional(),
+});
+export type ProjectBadgeStyle = z.infer<typeof ProjectBadgeStyle>;
+/** What new threads in the project start with; each omitted field inherits the global setting. */
+export const ProjectDefaults = z
+  .object({
+    provider: ProviderKind.optional(),
+    /** The provider's model id; needs `provider`. */
+    model: z.string().min(1).max(256).optional(),
+    worktree: z.boolean().optional(),
+    baseBranch: z.string().min(1).max(1024).optional(),
+  })
+  .refine((value) => value.model === undefined || value.provider !== undefined, {
+    message: "A default model needs its provider",
+  })
+  .meta({ "x-ace-constraint": "`model` is present only together with `provider`." });
+export type ProjectDefaults = z.infer<typeof ProjectDefaults>;
 export const Project = z.object({
   id: WorkspaceId,
   name: z.string().max(256),
   path,
   icon: ProjectIcon.nullable().optional(),
   defaultIcon: ProjectIcon.nullable().optional(),
+  badge: ProjectBadgeStyle.optional(),
+  defaults: ProjectDefaults.optional(),
 });
 export type Project = z.infer<typeof Project>;
 export const ProjectInspection = z.object({
@@ -119,7 +169,12 @@ export const ProjectCommands = [
     type: z.literal("workspace.update"),
     workspaceId: WorkspaceId,
     name: ProjectName,
+    /** A custom image; null clears it. Omitted keeps the saved one. */
     icon: ProjectIcon.nullable().optional(),
+    /** The chosen badge; null returns to the detected favicon or initials. */
+    badge: ProjectBadgeStyle.nullable().optional(),
+    /** Replaces the project's new-thread defaults; null inherits every global setting. */
+    defaults: ProjectDefaults.nullable().optional(),
   }),
   z.object({ type: z.literal("workspace.rename"), workspaceId: WorkspaceId, name: ProjectName }),
   z.object({

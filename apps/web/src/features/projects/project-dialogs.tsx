@@ -5,7 +5,8 @@ import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { AddProjectDialog } from "./add-project-dialog.tsx";
 import { useLandInProject } from "./land.ts";
 import { ProjectPermissionsDialog } from "./project-permissions.tsx";
-import { RemoveProjectDialog, EditProjectDialog } from "./manage-dialogs.tsx";
+import { RemoveProjectDialog } from "./manage-dialogs.tsx";
+import { EditProjectDialog } from "./edit-project-dialog.tsx";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
 import type { AddTab, FolderAttempt, ProjectRequest } from "./requests.ts";
 import { useCloneRun } from "./use-clone-run.ts";
@@ -127,6 +128,7 @@ export default function ProjectDialogs(props: {
         projectId={request.projectId}
         open={open}
         onOpenChange={onOpenChange}
+        onRequest={onRequest}
       />
     ) : null;
   if (request.kind === "remove")

@@ -103,10 +103,6 @@ export function ProjectFilter() {
               value={row.id}
               label={row.label}
               count={row.threads}
-              icon={
-                directory.projects.find((p) => p.id === row.id)?.icon ??
-                directory.projects.find((p) => p.id === row.id)?.defaultIcon
-              }
               registered={directory.projects.some((p) => p.id === row.id)}
             />
           ))}
@@ -123,13 +119,7 @@ export function ProjectFilter() {
 }
 
 /** A project in the filter, its folder in the project's tint as on its rows; All stays grey. */
-function ProjectItem(props: {
-  value: string;
-  label: string;
-  count: number;
-  icon?: string | null | undefined;
-  registered?: boolean;
-}) {
+function ProjectItem(props: { value: string; label: string; count: number; registered?: boolean }) {
   const item = (
     <MenuRadioItem value={props.value} aria-label={props.label} className="flex-1">
       <span className="flex items-center gap-[9px]">
@@ -145,7 +135,7 @@ function ProjectItem(props: {
             <Icon icon={FolderSimpleIcon} />
           ) : (
             <ProjectMark
-              icon={props.icon}
+              id={props.value}
               badge={projectBadge({ id: props.value, name: props.label })}
             />
           )}
