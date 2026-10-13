@@ -249,13 +249,14 @@ test("no linked task leaves stack navigation available while remote writes requi
   await waitFor(() => expect(screen.getByRole("heading", { name: "UI" })).toBeTruthy());
 });
 
-test("a locally rebased stack reviews each layer's leased push before publishing it", async () => {
+/** The stack after a local rebase, waiting to be published. */
+function rebasedStack(movedLayers: unknown[] = []) {
   const rebased: Record<number, string> = {
     41: "1".repeat(40),
     42: "2".repeat(40),
     43: "3".repeat(40),
   };
-  const value = ForgeStackWorkspace.parse({
+  return ForgeStackWorkspace.parse({
     ...stack,
     localUnavailable: null,
     local: {
@@ -277,7 +278,11 @@ test("a locally rebased stack reviews each layer's leased push before publishing
       state: "push_partial",
       message: "Local branches are rebased and not yet pushed.",
     },
+    movedLayers,
   });
+}
+test("a locally rebased stack reviews each layer's leased push before publishing it", async () => {
+  const value = rebasedStack();
   const app = setup(value);
   app.daemon.refuseCommands("forge_conflict", "forge.pr.stack.change");
   await app.open("/pull-requests?project=api&number=42");
@@ -309,6 +314,28 @@ test("a locally rebased stack reviews each layer's leased push before publishing
   expect(
     await within(section).findByText(/The GitHub resource changed while reading/),
   ).toBeTruthy();
+});
+
+test("layers a collaborator moved on GitHub are listed with both heads and block publishing", async () => {
+  const theirs = "9".repeat(40);
+  const app = setup(
+    rebasedStack([{ number: 42, branch: "api", reviewed: "b".repeat(40), current: theirs }]),
+  );
+  await app.open("/pull-requests?project=api&number=42");
+  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  const moved = await within(section).findByRole("list", { name: "Layers moved on GitHub" });
+  expect(
+    within(moved)
+      .getAllByRole("listitem")
+      .map((item) => item.textContent),
+  ).toEqual(["#42 api bbbbbbb → 9999999"]);
+  const publish = within(section).getByRole<HTMLButtonElement>("button", {
+    name: "Publish stack",
+  });
+  const refresh = within(section).getByRole<HTMLButtonElement>("button", { name: "Refresh stack" });
+  // Once the read settles, the same rebased stack without moved layers enables Publish.
+  await waitFor(() => expect(refresh.disabled).toBe(false));
+  expect(publish.disabled).toBe(true);
 });
 
 test("repository lists group only host-confirmed layers and use host positions for navigation", async () => {

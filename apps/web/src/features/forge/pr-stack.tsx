@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ArrowClockwiseIcon, ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
-import type { ForgePrDetail, ForgeStackOperation } from "@ace/protocol";
+import type { ForgePrDetail, ForgeStackMovedLayer, ForgeStackOperation } from "@ace/protocol";
 import { canPublishStack, matchesLocalStack, matchesStackBranches } from "@ace/forge/stack-plan";
 import { canPublishAfter, stackPublishUpdates } from "@ace/forge/stack-publish";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -33,6 +33,23 @@ function OperationStatus(props: { operation: ForgeStackOperation }) {
     <p role="status" className="text-ui">
       {`${stackOperationLabel(props.operation)} · ${props.operation.message}`}
     </p>
+  );
+}
+
+/** Layers a collaborator moved on GitHub after review: the reviewed head and GitHub's head now. */
+function MovedLayers(props: { moved: readonly ForgeStackMovedLayer[] }) {
+  return (
+    <div className="space-y-1 text-ui">
+      <p className="text-status-needs-you">Moved on GitHub since review</p>
+      <ul aria-label="Layers moved on GitHub" className="font-mono text-sm">
+        {props.moved.map((layer) => (
+          <li key={layer.number}>
+            #{layer.number} {layer.branch} {layer.reviewed.slice(0, 7)} →{" "}
+            {layer.current.slice(0, 7)}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -75,6 +92,7 @@ export function PrStack(props: {
   const stack = query.isError ? undefined : (query.data?.stack ?? undefined);
   const local = query.data?.local;
   const operation = query.data?.operation;
+  const moved = (!query.isError && query.data?.movedLayers) || [];
   const index = stack?.layers.findIndex((layer) => layer.number === ref.number) ?? -1;
   const scope = stack?.layers.slice(0, index + 1) ?? [];
   const incomplete =
@@ -212,6 +230,7 @@ export function PrStack(props: {
       {!(query.data && !query.isError && ready) && <QueryState query={query} />}
       {stack && <StackRail layers={stack.layers} current={ref.number} onOpen={props.onOpen} />}
       {operation && <OperationStatus operation={operation} />}
+      {moved.length > 0 && <MovedLayers moved={moved} />}
       {stack && (
         <div
           role="group"
@@ -267,7 +286,15 @@ export function PrStack(props: {
             </>
           )}
           {operation && canPublishAfter(operation) && (
-            <StackAction reason={recoverReason} onClick={() => prepare("push")}>
+            <StackAction
+              reason={
+                recoverReason ??
+                (moved.length
+                  ? "GitHub has newer commits on some layers. Bring them into the stack with gh stack, then rebase again."
+                  : undefined)
+              }
+              onClick={() => prepare("push")}
+            >
               Publish stack
             </StackAction>
           )}

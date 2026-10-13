@@ -6,6 +6,7 @@ import {
   repositoryKey,
   sameReviewedRevisions,
   canPublishAfter,
+  stackLayersMovedSinceReview,
 } from "@ace/forge";
 import {
   ForgeStackOperation,
@@ -15,6 +16,7 @@ import {
 } from "@ace/protocol";
 import type { Store } from "./store.ts";
 import {
+  awaitsPublication,
   isIncompleteStackOperation,
   reconcileStackPush,
   reconcileStackMerge,
@@ -218,6 +220,7 @@ export class WorkspaceForgeStacks {
       operation = this.#reconcile(backend.repository, entry, operation);
     if (!stack)
       return {
+        movedLayers: [],
         stack: null,
         local,
         localUnavailable:
@@ -245,7 +248,12 @@ export class WorkspaceForgeStacks {
     )
       localUnavailable =
         "This PR moved to a different native stack while an earlier operation remained unfinished. Inspect that operation before starting another stack action.";
-    return { stack, local, localUnavailable, operation };
+    // Collaborator commits GitHub gained after review; a leased publication refuses these layers.
+    const movedLayers =
+      entry && operation && awaitsPublication(operation)
+        ? stackLayersMovedSinceReview(entry.expected, stack)
+        : [];
+    return { stack, local, localUnavailable, operation, movedLayers };
   }
   async change(
     cwd: string,

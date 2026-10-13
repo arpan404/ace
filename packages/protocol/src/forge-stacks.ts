@@ -85,11 +85,21 @@ export const ForgeStack = z.object({
   raw: z.unknown(),
 });
 export type ForgeStack = z.infer<typeof ForgeStack>;
+/** A layer GitHub moved after the rebase was reviewed: the reviewed head and GitHub's head now. */
+export const ForgeStackMovedLayer = z.object({
+  number: z.number().int().positive(),
+  branch: text,
+  reviewed: sha,
+  current: sha,
+});
+export type ForgeStackMovedLayer = z.infer<typeof ForgeStackMovedLayer>;
 export const ForgeStackWorkspace = z.object({
   stack: ForgeStack.nullable(),
   local: ForgeLocalStack.nullable(),
   localUnavailable: text.nullable(),
   operation: ForgeStackOperation.nullable(),
+  /** Layers a collaborator moved on GitHub while a rebased stack waits to be published. */
+  movedLayers: z.array(ForgeStackMovedLayer).max(100).default([]),
 });
 export type ForgeStackWorkspace = z.infer<typeof ForgeStackWorkspace>;
 export const ForgeStackExpected = z.object({

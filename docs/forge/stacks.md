@@ -98,8 +98,16 @@ The decision rules are pure (`@ace/forge/stack-publish`):
   revisions becomes `push_partial`. Publishing again is safe, because the leases
   refuse any layer that already moved.
 
+- **Moved layers.** While a rebased stack waits to be published, or after a
+  publication was refused or never confirmed, every stack read compares GitHub's
+  layer heads with the reviewed revisions (`stackLayersMovedSinceReview`). A layer
+  at any other revision than the reviewed or the rebased one carries commits the
+  local rebase lacks. The workspace lists it with both heads and disables Publish.
+  Merged layers and a different native stack are not compared.
+
 After a refused publication, bring collaborator commits into the stack with
-`gh stack`, then rebase again.
+`gh stack`, then rebase again. ace does not yet replay the rebased layers onto
+the collaborator heads itself.
 
 ## Sources and verification
 

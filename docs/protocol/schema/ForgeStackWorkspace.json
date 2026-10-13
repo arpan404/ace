@@ -23,6 +23,14 @@
         }
       ]
     },
+    "movedLayers": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeStackMovedLayer.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
     "operation": {
       "anyOf": [
         {

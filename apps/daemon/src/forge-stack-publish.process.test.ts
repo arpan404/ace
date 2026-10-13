@@ -250,6 +250,22 @@ test("a collaborator commit pushed after review rejects the whole publication an
       stackOperation: { action: "push", state: "failed" },
     });
     expect(await f.published()).toEqual([f.reviewed.model, theirs, f.reviewed.ui]);
+    // GitHub now reports the collaborator's head: the refusal names that layer and both heads.
+    await f.gh.replace({
+      ...host({ ...f.reviewed, api: theirs }),
+      "stack-view": [{ body: after }],
+    });
+    expect(await f.read()).toMatchObject({
+      result: {
+        kind: "forge",
+        data: {
+          value: {
+            operation: { action: "push", state: "failed" },
+            movedLayers: [{ number: 8, branch: "api", reviewed: f.reviewed.api, current: theirs }],
+          },
+        },
+      },
+    });
   } finally {
     await f.close();
   }
@@ -267,6 +283,19 @@ test("a refreshed request carrying a newer GitHub revision cannot replace the re
       error: "forge_conflict",
     });
     expect(await f.published()).toEqual([f.reviewed.model, f.reviewed.api, f.reviewed.ui]);
+    expect(await f.read()).toMatchObject({
+      result: {
+        kind: "forge",
+        data: {
+          value: {
+            operation: { action: "rebase", state: "push_partial" },
+            movedLayers: [
+              { number: 8, branch: "api", reviewed: f.reviewed.api, current: "f".repeat(40) },
+            ],
+          },
+        },
+      },
+    });
   } finally {
     await f.close();
   }
