@@ -459,7 +459,7 @@ test("the card says when the thread's directory isn't a git checkout, and offers
   expect(within(actions).queryByRole("menuitem", { name: /Push|Create.*PR/ })).toBeNull();
 });
 
-test("with an open linked PR, the card opens it in the PR workspace and omits new PR actions", async () => {
+test("with an open linked PR, the card opens it in the thread's side panel and omits new PR actions", async () => {
   const history = createMemoryHistory({ initialEntries: ["/t/thread-linked-pr"] });
   const app = harness({ history });
   app
@@ -486,8 +486,10 @@ test("with an open linked PR, the card opens it in the PR workspace and omits ne
   await userEvent.keyboard("{Escape}");
 
   await userEvent.click(pr);
-  await waitFor(() => expect(history.location.pathname).toBe("/pull-requests"));
-  expect(history.location.search).toContain("number=188");
+  // The PR opens beside the conversation, which stays where it is.
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  expect(await within(panel).findByRole("tab", { name: /^#188/, selected: true })).toBeTruthy();
+  expect(history.location.pathname).toBe("/t/thread-linked-pr");
 });
 
 test("the commit dialog lists the checkout's uncommitted files and can push too, with ⌘↵", async () => {

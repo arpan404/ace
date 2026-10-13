@@ -98,7 +98,7 @@ const primary = buttonVariants({ variant: "primary", size: "sm" });
 function AgentMark(props: { threadId: string; agentId: string | undefined }) {
   const agent = useAgent(props.threadId, props.agentId ?? "");
   return (
-    <span className="flex min-w-0 items-center gap-1.5">
+    <span className="flex min-w-0 items-center">
       <span aria-hidden className="relative grid size-5 shrink-0 place-items-center">
         <span className="fx-ring absolute inset-0 rounded-full bg-status-working/40" />
         {agent ? (
@@ -112,21 +112,13 @@ function AgentMark(props: { threadId: string; agentId: string | undefined }) {
           <span className="size-1.5 rounded-full bg-status-working" />
         )}
       </span>
-      <span className="truncate text-xs text-muted-foreground @max-[36rem]:hidden">
-        {agent ? agentName(agent) : "Agent"}
-      </span>
     </span>
   );
 }
 
 /** A private page's mark is the address field's own (its tint and Make private, pressed). */
 const marks: Record<Exclude<ControlState["who"], "agent">, ReactNode> = {
-  you: (
-    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-      <Dot tone="needs-you" />
-      You
-    </span>
-  ),
+  you: <Dot tone="needs-you" />,
   private: null,
   held: <LockSimpleIcon aria-hidden size={15} className="text-status-needs-you" />,
   elsewhere: <DesktopIcon aria-hidden size={16} className="text-muted-foreground" />,

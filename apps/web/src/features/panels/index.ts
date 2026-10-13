@@ -22,6 +22,9 @@ export {
 export { useAgentShells, useBackgroundShells } from "./terminal/use-terminals.ts";
 /** A checkout file's tab, for whatever opens a file from outside the Files tool. */
 export { fileTab } from "./files/tab-id.ts";
+/** A pull request's tab, for the thread's PR line and the PRs a pull request links to. */
+export { pullRequestTab, PullRequestTabData } from "./pull-request-tab.ts";
+export { PullRequestViewProvider } from "./pull-request-view.tsx";
 export { useScriptConfigurations } from "./files/script-configurations.ts";
 export const loadCreateFile = () => import("./files/create-file.tsx");
 /** A provider's sign-in terminal, outside any thread (the sign-in dialog shows it). */

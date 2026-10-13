@@ -70,8 +70,8 @@ export function AttachmentChipImage(props: {
                   className="absolute inset-x-0 bottom-0 h-1 bg-foreground/20"
                 >
                   <span
-                    style={{ width: `${percent}%` }}
-                    className="block h-full bg-tint transition-[width] duration-(--motion-fast)"
+                    style={{ transform: `scaleX(${percent / 100})` }}
+                    className="block h-full w-full origin-left bg-tint transition-transform duration-(--motion-fast)"
                   />
                 </span>
               )}

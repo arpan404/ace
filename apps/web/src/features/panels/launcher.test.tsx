@@ -1,5 +1,5 @@
 import { coldStartReplay } from "@ace/fake-daemon";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -46,4 +46,35 @@ test("an address typed in the new tab's toolbar opens the Browser in its place",
   await userEvent.type(address, "localhost:4321{Enter}");
   expect(await within(panel).findByRole("tab", { name: /localhost/, selected: true })).toBeTruthy();
   expect(within(panel).queryByRole("tab", { name: "New tab" })).toBeNull();
+});
+
+test("opening a new tab puts the cursor in its address", async () => {
+  const { panel } = await openNewTab();
+  const address = await within(panel).findByRole("combobox", { name: "Address" });
+  await waitFor(() => expect(document.activeElement).toBe(address));
+});
+
+test("picking Terminal from the new tab leaves one tab: the terminal, in the new tab's place", async () => {
+  const { panel } = await openNewTab();
+  const tabs = within(panel).getAllByRole("tab").length;
+  const tools = await within(panel).findByRole("list", { name: "Tools" });
+  const terminal = within(tools)
+    .getAllByRole("button", { name: /^Terminal/ })
+    .find((button) => button.hasAttribute("data-tool"));
+  if (!terminal) throw new Error("No Terminal card");
+  await userEvent.click(terminal);
+  await waitFor(() => expect(within(panel).queryByRole("tab", { name: "New tab" })).toBeNull());
+  expect(within(panel).getAllByRole("tab")).toHaveLength(tabs);
+  expect(within(panel).getByRole("tab", { selected: true }).textContent).not.toMatch(/New tab/);
+});
+
+test("a tool's shortcut pressed on the new tab opens it in the new tab's place", async () => {
+  const { panel } = await openNewTab();
+  const tabs = within(panel).getAllByRole("tab").length;
+  await within(panel).findByRole("list", { name: "Tools" });
+  // ⌃⇧P: Preview.
+  await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
+  expect(await within(panel).findByRole("tab", { name: "Preview", selected: true })).toBeTruthy();
+  expect(within(panel).queryByRole("tab", { name: "New tab" })).toBeNull();
+  expect(within(panel).getAllByRole("tab")).toHaveLength(tabs);
 });

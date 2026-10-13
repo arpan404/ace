@@ -81,7 +81,7 @@ test("the model chip treats an ok false catalog reply as a failure and Retry loa
 test("Usage leaves loading and shows accounts when readiness alone fails", async () => {
   const made = app();
   made.daemon.failRequests("providers.request");
-  await made.open("/accounts");
+  await made.open("/usage");
   expect(await screen.findAllByRole("article")).toBeTruthy();
 });
 
@@ -122,7 +122,7 @@ test("New thread keeps approvals pending while its starting provider is unknown"
 test("Usage explains account read errors without exposing protocol codes", async () => {
   const made = app();
   made.daemon.refuseRequests("accounts_failed", "accounts.list");
-  await made.open("/accounts");
+  await made.open("/usage");
   expect(
     await screen.findByText("Couldn't read that account. Check its folder and try again."),
   ).toBeTruthy();
@@ -177,7 +177,7 @@ test("a committed account limit push updates Usage without reading its history a
     };
     return connection;
   };
-  await made.open("/accounts");
+  await made.open("/usage");
   await screen.findAllByRole("article");
   await screen.findByText("Reported cost");
   requests.length = 0;

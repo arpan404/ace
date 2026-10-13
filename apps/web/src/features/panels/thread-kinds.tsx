@@ -5,6 +5,7 @@ import {
   DeviceMobileIcon,
   FilesIcon,
   GitDiffIcon,
+  GitPullRequestIcon,
   GlobeSimpleIcon,
   PlusIcon,
   ClipboardTextIcon,
@@ -13,12 +14,14 @@ import { ChangesSkeleton, FilesSkeleton } from "./tab-skeletons.tsx";
 import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
 import { addressHost } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
+import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
 import { setLoading } from "./browser/loading.ts";
 import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
 import { fileTabId } from "./files/tab-id.ts";
 import { logsKind } from "./logs/logs-kind.tsx";
+import { PullRequestTabData } from "./pull-request-tab.ts";
 import { shellKind, terminalKind } from "./terminal/terminal-kinds.tsx";
 
 export { logsKind, shellKind, terminalKind };
@@ -178,6 +181,27 @@ export const workKind = defineTabKind({
   load: () => import("./work/work-tab.tsx"),
 });
 
+/**
+ * A pull request of the thread's project (id: project, repository and number), opened from the
+ * thread's PR line or a PR it links to. Its view is the forge's, which the app provides.
+ */
+export const pullRequestKind = defineTabKind({
+  kind: "pull-request",
+  label: "Pull request",
+  icon: GitPullRequestIcon,
+  TabIcon: (props) => {
+    const data = PullRequestTabData.safeParse(props.tab.data);
+    const state = data.success && data.data.state !== "unknown" ? data.data.state : undefined;
+    return (
+      <span className={props.className}>
+        <PullRequestGlyph state={state} size={14} />
+      </span>
+    );
+  },
+  title: (tab) => tab.title ?? "Pull request",
+  load: () => import("./pull-request-view.tsx"),
+});
+
 /** The + button's new tab: a catalog of tools and what this thread suggests opening. */
 export const launcherKind = defineTabKind({
   kind: "new-tab",
@@ -199,6 +223,7 @@ export const threadKinds: readonly TabKind[] = [
   computerUseKind,
   logsKind,
   shellKind,
+  pullRequestKind,
   launcherKind,
 ];
 

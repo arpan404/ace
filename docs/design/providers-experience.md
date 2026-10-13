@@ -83,11 +83,12 @@ tab that would be a blocked pop-up, so the button does it.
 
 ## First-run setup
 
-"Welcome to ace" and one sentence. A thin progress bar with "2 of 5 ready". Detected agents as
-cards in a two-column grid: mark tile, name, status line, one action or a green check. The
-suggested next card gets a ring. Agents that aren't installed sit in a quieter list below with
-"How to install" revealing the command. A footer holds "Skip for now" (quiet, left) and
-"Start a thread" (primary, right; shown once something is ready).
+Two steps, with no welcome page before them. First "Connect your agents": a thin progress bar
+with "2 of 5 ready", then the detected agents, each with its one action or a check, and the
+agents that aren't installed in a quieter list below. Then "Choose your first project", whose
+"Add a project" opens the folder browser itself, so a first launch reaches the composer in four
+actions. "Skip for now" stays at the footer's left on both steps. The computer's tools (Git and
+the device toolchains) are in Settings → Computer use, not in setup.
 
 ## Components
 

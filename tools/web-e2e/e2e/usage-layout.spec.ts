@@ -36,7 +36,7 @@ for (const theme of ["light", "dark"])
           ),
         });
       }, theme);
-      await page.goto("/accounts");
+      await page.goto("/usage");
       await expect(page.getByRole("article", { name: "Codex Personal" })).toBeVisible();
       for (const row of await page.getByRole("article").all()) {
         const label = (await row.getAttribute("aria-label")) ?? "";

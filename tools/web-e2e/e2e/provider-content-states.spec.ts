@@ -19,7 +19,7 @@ for (const theme of screenThemes)
             ? "/settings/providers"
             : surface === "provider"
               ? "/settings/providers/claude"
-              : "/accounts";
+              : "/usage";
         const loading =
           surface === "providers" ? "providers" : surface === "provider" ? "accounts" : "usage";
         await page.addInitScript(

@@ -1,4 +1,4 @@
-import { ChatCircleTextIcon } from "@phosphor-icons/react";
+import { ChatCircleTextIcon, SquareSplitHorizontalIcon } from "@phosphor-icons/react";
 import { Activity, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
@@ -141,10 +141,16 @@ export function Workspace(props: {
   );
   useEffect(() => {
     store.setFocused(scope);
+    // Switching threads keeps the side panel as it was: open on the same tool, or hidden. A
+    // phone's panel is a sheet over the screen, so a new thread there opens on its conversation.
+    const previous = store.previous;
+    if (previous && !sheet) actions.follow(previous);
     return () => {
       if (store.focused === scope) store.setFocused(undefined);
     };
-  }, [store, scope]);
+    // Only on arriving at a scope: a later resize to phone width must not replay the switch.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, scope, actions]);
 
   // Keep tab state after the first open; hidden Activity boundaries pause tool effects.
   const [shown, setShown] = useState(false);
@@ -166,6 +172,12 @@ export function Workspace(props: {
           else actions.setOpen(true);
         },
       }}
+      mobileTools={definition.mobileTools?.map((tool) => ({
+        label: tool.label,
+        icon: definition.kind(tool.kind)?.icon ?? SquareSplitHorizontalIcon,
+        shortcut: definition.shortcut(tool.kind),
+        onClick: () => actions.open({ kind: tool.kind }),
+      }))}
     />
   );
   const leading = expanded && (

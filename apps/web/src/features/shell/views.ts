@@ -4,9 +4,9 @@ import type { KeymapId } from "@/lib/keymap.ts";
 
 /** The app's views (DESIGN-fable.md, Principle 4). Projects and machines are never views. */
 export interface View {
-  id: "home" | "activity" | "automations" | "skills" | "pull-requests" | "issues";
+  id: "home" | "activity" | "automations" | "skills";
   label: string;
-  to: "/" | "/activity" | "/automations" | "/skills" | "/pull-requests" | "/issues";
+  to: "/" | "/activity" | "/automations" | "/skills";
   /** Path prefixes that belong to this view. */
   matches: readonly string[];
   shortcut?: KeymapId;
@@ -39,7 +39,7 @@ export const menuViews: readonly MenuView[] = [
 
 /**
  * Every view, in the palette's order. Home is the thread list the sidebar always shows;
- * Activity is available through the palette and its keyboard shortcut.
+ * Activity opens from the sidebar's needs-you link, the palette and its keyboard shortcut.
  */
 export const views: readonly View[] = [
   { id: "home", label: "Home", to: "/", matches: ["/t/", "/new"], shortcut: "goHome" },
@@ -50,13 +50,6 @@ export const views: readonly View[] = [
     matches: ["/activity"],
     shortcut: "goActivity",
   },
-  {
-    id: "pull-requests",
-    label: "Pull requests",
-    to: "/pull-requests",
-    matches: ["/pull-requests"],
-  },
-  { id: "issues", label: "Issues", to: "/issues", matches: ["/issues"] },
   ...menuViews,
 ];
 

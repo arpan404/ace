@@ -195,9 +195,9 @@ test("a provider's default model can be changed, even to a legacy one, and reads
 }, 30_000);
 
 test("a provider's page opens shared usage with daily tokens and API-price estimates", async () => {
-  await harness().open("/accounts");
+  await harness().open("/usage");
   await screen.findByRole("heading", { level: 1, name: "Usage" });
-  const usage = await screen.findByRole("region", { name: "Usage" }, { timeout: 10_000 });
+  const usage = await screen.findByRole("region", { name: "Tokens and cost" }, { timeout: 10_000 });
   await within(usage).findByRole("list", { name: "Tokens per day" });
   const table = await within(usage).findByRole("table", { name: "Usage by model" });
   expect(within(table).getByRole("columnheader", { name: "At API prices" })).toBeTruthy();

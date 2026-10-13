@@ -93,8 +93,9 @@ function ConversationTick(props: {
         <span
           aria-hidden="true"
           className={cn(
-            "h-px rounded-full transition-[width,background-color] duration-150 group-hover:w-4 group-hover:bg-foreground/70 group-focus-visible:w-4 motion-reduce:transition-none",
-            props.current ? "w-4 bg-foreground/80" : "w-2.5 bg-foreground/20",
+            // A short tick grows on hover by scaling, never by changing its width.
+            "h-px w-4 rounded-full transition-[scale,background-color] duration-150 group-hover:scale-x-100 group-hover:bg-foreground/70 group-focus-visible:scale-x-100 motion-reduce:transition-none",
+            props.current ? "scale-x-100 bg-foreground/80" : "scale-x-[0.625] bg-foreground/20",
           )}
         />
       </HoverCardTrigger>

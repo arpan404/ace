@@ -18,6 +18,9 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
  * other option the request offers) waits behind Details, so the decision row always fits.
  */
 
+/** On touch, and on a phone's width, an answer is a full 44px target, not a 26px one. */
+const touchAnswer = "pointer-coarse:h-11 pointer-coarse:px-4 max-sm:h-11 max-sm:px-4";
+
 /** ace's review in words: loaded with the Details that show it. */
 const ReviewSummary = deferredComponent(() =>
   import("./permission-review.tsx").then((module) => module.PermissionReviewSummary),
@@ -121,6 +124,7 @@ export function ApprovalRequest(props: {
                 key={decision.option.id}
                 size="sm"
                 variant={decision.emphasis === "primary" ? "primary" : "secondary"}
+                className={touchAnswer}
                 disabled={props.disabled}
                 data-approval-refusal={decision.verb === "deny" ? "" : undefined}
                 aria-keyshortcuts={
@@ -238,6 +242,7 @@ export function ApprovalRequest(props: {
                   key={choice.option.id}
                   size="sm"
                   variant="ghost"
+                  className={touchAnswer}
                   disabled={props.disabled}
                   onClick={() => props.onAnswer({ option: choice.option, verb: undefined })}
                 >

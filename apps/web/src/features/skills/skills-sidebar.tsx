@@ -84,7 +84,6 @@ export function SkillsSidebar() {
     .filter((group) => group.members.length);
   return (
     <ViewSidebar
-      title="Skills"
       actions={
         <>
           <Popover>

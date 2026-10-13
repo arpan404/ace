@@ -36,7 +36,7 @@ test("cached usage exposes its provider timestamp and Refresh cannot make an exp
     five_hour: { usedPercent: 5, resetsAt: Date.parse("2026-10-07T01:00:00Z") },
     seven_day: { usedPercent: 73, resetsAt: Date.parse("2099-10-13T12:00:00Z") },
   };
-  await app.open("/accounts");
+  await app.open("/usage");
   const card = await screen.findByRole("article", { name: "Claude Code Personal" });
   expect(within(card).queryByRole("meter", { name: "5-hour window" })).toBeNull();
   expect(

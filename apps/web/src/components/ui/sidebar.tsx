@@ -82,14 +82,16 @@ function Sidebar(props: { children: ReactNode; className?: string | undefined })
     >
       <div
         data-slot="sidebar-gap"
-        className="relative h-full w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-linear group-data-[collapsible=offcanvas]/sidebar:w-0 motion-reduce:transition-none"
+        className="relative h-full w-(--sidebar-width) bg-transparent group-data-[collapsible=offcanvas]/sidebar:w-0"
       />
       <div
         data-slot="sidebar-container"
         className={cn(
           // In light the canvas and the sidebar are near-twins, so the edge takes the stronger
           // hairline; in dark the sidebar sits well below the canvas and the quiet one is enough.
-          "absolute inset-y-0 left-0 z-10 flex w-(--sidebar-width) border-r border-border-strong dark:border-sidebar-border transition-[left,width] duration-200 ease-linear group-data-[collapsible=offcanvas]/sidebar:left-[calc(var(--sidebar-width)*-1)] motion-reduce:transition-none",
+          // Hiding and showing move the panel on transform alone: the gap beside it changes width
+          // once, so the main column lays out one time instead of on every frame.
+          "absolute inset-y-0 left-0 z-10 flex w-(--sidebar-width) border-r border-border-strong dark:border-sidebar-border transition-transform duration-(--motion-base) ease-sheet group-data-[collapsible=offcanvas]/sidebar:-translate-x-full motion-reduce:transition-none",
           props.className,
         )}
       >

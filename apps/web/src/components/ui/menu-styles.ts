@@ -12,11 +12,11 @@ export const layers = {
 
 /** Shared by Menu, ContextMenu, Select and the palette so every list of actions looks the same. */
 /**
- * Fade plus a 4px move away from the anchor on the spring, from the anchor's side; exits are
- * quicker and accelerate away (styles/motion.css).
+ * A fade that eases out plus a 4px move away from the anchor on the spring, from the anchor's
+ * side; exits are quicker and accelerate away (styles/motion.css).
  */
 export const popupMotion = [
-  "origin-(--transform-origin) transition-[opacity,transform] duration-(--motion-base) ease-spring",
+  "origin-(--transform-origin) transition-[opacity,transform] duration-(--motion-base) ease-[var(--ease-out),var(--ease-spring)]",
   "data-starting-style:scale-[0.98] data-starting-style:opacity-0",
   "data-[side=bottom]:data-starting-style:-translate-y-(--rise) data-[side=top]:data-starting-style:translate-y-(--rise)",
   "data-[side=right]:data-starting-style:-translate-x-(--rise) data-[side=left]:data-starting-style:translate-x-(--rise)",

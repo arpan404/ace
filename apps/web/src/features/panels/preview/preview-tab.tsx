@@ -2,7 +2,6 @@ import { BrowserIcon, BrowsersIcon, StopIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -12,7 +11,7 @@ import type { PreviewServer, PreviewSource, PreviewSuggestion } from "../sources
 import { AddressBar } from "../browser/address-bar.tsx";
 import { setLoading } from "../browser/loading.ts";
 import { PageNav, PageToolbar, toolbarButton } from "../browser/page-toolbar.tsx";
-import { noHistory, type FramePhase } from "./dev-server-frame.tsx";
+import type { FramePhase } from "./dev-server-frame.tsx";
 import { portLabel, portTab } from "./port.ts";
 import { forwardFailure } from "./preview-errors.ts";
 import { OpenPreviewOutside, PreviewFrame, previewUrl } from "./preview-frame.tsx";
@@ -35,37 +34,57 @@ function useServers(source: PreviewSource, threadId: string) {
   };
 }
 
+/** A previewed server offered again among the suggestions, at the address it was shown at. */
+const suggestionOf = (server: PreviewServer): PreviewSuggestion => ({
+  port: server.port,
+  url: previewUrl(server),
+  title: server.name,
+  source: server.source === "listener" ? "listener" : "terminal",
+});
+
 /**
  * Preview: a dev server of the thread, through the daemon's preview gateway, drawn edge to edge
  * on the panel. The browser an agent drives (with its address bar and control lease) is the
- * Browser tool; Preview binds to a port.
+ * Browser tool; Preview binds to a port. A server that answers nothing isn't held open as a
+ * failed page: Preview goes back to its suggestions, where picking it tries again.
  */
 export function PreviewTab(props: { threadId: string; tabKey: string }) {
   const { preview } = usePanelServices();
   const { servers, detected, canForward } = useServers(preview, props.threadId);
+  const [unreachable, setUnreachable] = useState<ReadonlySet<number>>(() => new Set());
+  const live = servers.filter((server) => !unreachable.has(server.port));
   // The tab names what it shows ("web · :5173"), and "Preview" while there is nothing yet.
   const actions = useWorkspaceActions(props.threadId);
   const [shown, setShown] = useState<PreviewServer>();
-  const title = servers.length && shown ? portLabel(shown) : "Preview";
+  const title = live.length && shown ? portLabel(shown) : "Preview";
   useEffect(() => {
     actions.update(props.tabKey, { title });
   }, [actions, props.tabKey, title]);
-  if (servers.length)
+  if (live.length)
     return (
       <DevServer
         source={preview}
         threadId={props.threadId}
         tabKey={props.tabKey}
-        servers={servers}
+        servers={live}
         onShown={setShown}
+        onUnreachable={(port) => setUnreachable((before) => new Set(before).add(port))}
       />
     );
+  const down = servers.filter((server) => unreachable.has(server.port));
   return (
     <NoPreview
       source={preview}
       threadId={props.threadId}
       canForward={canForward}
-      detected={detected}
+      suggested={[
+        ...down.map(suggestionOf),
+        ...detected.filter((each) => !down.some((server) => server.port === each.port)),
+      ]}
+      unreachable={down}
+      onRetry={(port) =>
+        setUnreachable((before) => new Set([...before].filter((each) => each !== port)))
+      }
     />
   );
 }
@@ -78,6 +97,7 @@ function DetectedServers(props: {
   source: PreviewSource;
   threadId: string;
   servers: readonly PreviewSuggestion[];
+  onPick(port: number): void;
 }) {
   const [error, setError] = useState<string>();
   if (props.servers.length === 0) return null;
@@ -90,6 +110,7 @@ function DetectedServers(props: {
               type="button"
               onClick={() => {
                 setError(undefined);
+                props.onPick(server.port);
                 props.source
                   .forward(props.threadId, server.port)
                   .catch((failure: unknown) => setError(forwardFailure(failure, server.port)));
@@ -126,39 +147,49 @@ function DetectedServers(props: {
   );
 }
 
-/** Nothing to preview yet: say so, offer a port, and point at the Browser for any page. */
+/**
+ * Nothing showing: the dev servers to preview (found running, or shown before and silent now),
+ * a port for anything else, and the Browser for any page.
+ */
 function NoPreview(props: {
   source: PreviewSource;
   threadId: string;
   canForward: boolean;
-  detected: readonly PreviewSuggestion[];
+  suggested: readonly PreviewSuggestion[];
+  unreachable: readonly PreviewServer[];
+  onRetry(port: number): void;
 }) {
   const actions = useWorkspaceActions(props.threadId);
+  const suggested = props.canForward && props.suggested.length > 0;
   return (
-    <EmptyState
-      icon={BrowserIcon}
-      title="No dev server yet"
-      description={
-        props.canForward
-          ? "When this thread starts a dev server, its page shows here. Preview one that's already running by its port."
-          : "ace on this machine runs no preview gateway, so dev servers can't be previewed here. Open them in the Browser instead."
-      }
-      action={
-        <div className="flex flex-col items-center gap-4">
-          {props.canForward && (
-            <DetectedServers
-              source={props.source}
-              threadId={props.threadId}
-              servers={props.detected}
-            />
-          )}
-          {props.canForward && <PortForm source={props.source} threadId={props.threadId} />}
-          <Button size="sm" variant="ghost" onClick={() => actions.open({ kind: "browser" })}>
-            Open the Browser
-          </Button>
-        </div>
-      }
-    />
+    <div className="flex h-full flex-col items-center justify-center gap-4 overflow-auto p-6 text-center">
+      <h2 className="text-md font-medium text-foreground">
+        {suggested ? "Suggested" : "No dev server"}
+      </h2>
+      {!props.canForward && (
+        <p className="max-w-[40ch] text-ui text-muted-foreground">
+          This machine can't preview dev servers. Open them in the Browser.
+        </p>
+      )}
+      {props.unreachable.length > 0 && (
+        <p role="status" className="text-ui text-muted-foreground">
+          Nothing answered at{" "}
+          {props.unreachable.map((server) => `localhost:${server.port}`).join(", ")}
+        </p>
+      )}
+      {suggested && (
+        <DetectedServers
+          source={props.source}
+          threadId={props.threadId}
+          servers={props.suggested}
+          onPick={props.onRetry}
+        />
+      )}
+      {props.canForward && <PortForm source={props.source} threadId={props.threadId} />}
+      <Button size="sm" variant="ghost" onClick={() => actions.open({ kind: "browser" })}>
+        Open the Browser
+      </Button>
+    </div>
   );
 }
 
@@ -220,6 +251,7 @@ function DevServer(props: {
   tabKey: string;
   servers: readonly PreviewServer[];
   onShown(server: PreviewServer | undefined): void;
+  onUnreachable(port: number): void;
 }) {
   const toast = useToast();
   const [port, setPort] = useState(props.servers[0]?.port);
@@ -241,8 +273,8 @@ function DevServer(props: {
       <PageToolbar
         nav={
           <PageNav
-            back={{ reason: noHistory }}
-            forward={{ reason: noHistory }}
+            back={{}}
+            forward={{}}
             reload={{ onClick: () => setAttempt((count) => count + 1) }}
           />
         }
@@ -264,7 +296,7 @@ function DevServer(props: {
             {server.source === "listener" && (
               <IconButton
                 icon={StopIcon}
-                label="Stop previewing · the server keeps running"
+                label="Stop previewing"
                 className={toolbarButton}
                 onClick={() =>
                   void props.source.unforward(props.threadId, server.port).catch((error: unknown) =>
@@ -294,6 +326,7 @@ function DevServer(props: {
         attempt={attempt}
         onPhase={setPhase}
         onRetry={() => setAttempt((count) => count + 1)}
+        onUnreachable={() => props.onUnreachable(server.port)}
       />
     </div>
   );

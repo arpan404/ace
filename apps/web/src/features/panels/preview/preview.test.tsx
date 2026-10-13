@@ -1,7 +1,7 @@
 import { failingSubagent } from "@ace/fake-daemon";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { configure, act, screen, within } from "@testing-library/react";
+import { configure, act, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
@@ -20,44 +20,44 @@ async function openPreview(app = harness()) {
   return { app, panel, browser: app.daemon.browser };
 }
 
-test("a thread without a dev server says so, and previews one once it is found", async () => {
+test("with no dev server previewed, Preview suggests the ones found, and previews one once it runs", async () => {
   const { panel, browser } = await openPreview();
-  expect(await within(panel).findByRole("heading", { name: "No dev server yet" })).toBeTruthy();
+  expect(await within(panel).findByRole("heading", { name: "Suggested" })).toBeTruthy();
   expect(within(panel).getByRole("tab", { name: "Preview", selected: true })).toBeTruthy();
+  const port = await answeringServer();
   browser.serve("thread-settings", {
-    port: 3000,
-    origin: "http://localhost:3000",
+    port,
+    origin: `http://127.0.0.1:${port}`,
     name: "api",
     source: "listener",
   });
   // Bringing the page back into view polls discovery immediately, even while tabs stay mounted.
   act(() => document.dispatchEvent(new Event("visibilitychange")));
-  const frame = await within(panel).findByTitle("Preview of http://localhost:3000");
-  expect(frame.getAttribute("src")).toBe("http://localhost:3000");
+  const frame = await within(panel).findByTitle(`Preview of http://127.0.0.1:${port}`);
+  expect(frame.getAttribute("src")).toBe(`http://127.0.0.1:${port}`);
   // Its tab now says which server it shows.
   expect(
-    await within(panel).findByRole("tab", { name: /^api · :3000/, selected: true }),
+    await within(panel).findByRole("tab", { name: new RegExp(`^api · :${port}`), selected: true }),
   ).toBeTruthy();
   expect((within(panel).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value).toBe(
-    "localhost:3000",
+    `127.0.0.1:${port}`,
   );
   expect(within(panel).getByRole("button", { name: "Open in your browser" })).toBeTruthy();
 });
 
 test("a dev server already running is previewed by its port until previewing stops", async () => {
   const { panel, browser } = await openPreview();
+  const running = await answeringServer();
   const port = await within(panel).findByRole("textbox", { name: "Dev server port" });
-  await userEvent.type(port, "4173");
+  await userEvent.type(port, String(running));
   await userEvent.click(within(panel).getByRole("button", { name: "Preview" }));
 
-  expect(await within(panel).findByTitle("Preview of http://127.0.0.1:4173")).toBeTruthy();
-  expect(browser.servers("thread-settings").map((server) => server.port)).toEqual([4173]);
+  expect(await within(panel).findByTitle(`Preview of http://127.0.0.1:${running}`)).toBeTruthy();
+  expect(browser.servers("thread-settings").map((server) => server.port)).toEqual([running]);
 
-  await userEvent.click(
-    within(panel).getByRole("button", { name: "Stop previewing · the server keeps running" }),
-  );
-  expect(await within(panel).findByRole("heading", { name: "No dev server yet" })).toBeTruthy();
-  expect(browser.servers("thread-settings")).toEqual([]);
+  await userEvent.click(await within(panel).findByRole("button", { name: "Stop previewing" }));
+  await waitFor(() => expect(browser.servers("thread-settings")).toEqual([]));
+  expect(await within(panel).findByRole("heading", { name: "Suggested" })).toBeTruthy();
 });
 
 test("an empty preview lists the detected dev servers above the manual port, and one click previews it", async () => {
@@ -84,34 +84,29 @@ test("Open the Browser from an empty preview opens the Browser tool", async () =
 
 test("a dev server opens in a tab of its own, which keeps its address while the server is gone", async () => {
   const app = harness();
-  app.daemon.browser.serve("thread-settings", {
-    port: 3000,
-    origin: "http://localhost:3000",
-    name: "api",
-    source: "listener",
-  });
+  const port = await answeringServer();
+  const origin = `http://127.0.0.1:${port}`;
+  app.daemon.browser.serve("thread-settings", { port, origin, name: "api", source: "listener" });
   const { panel, browser } = await openPreview(app);
   await userEvent.click(await within(panel).findByRole("button", { name: "Open in its own tab" }));
 
-  expect(within(panel).getByRole("tab", { name: "api · :3000", selected: true })).toBeTruthy();
+  expect(within(panel).getByRole("tab", { name: `api · :${port}`, selected: true })).toBeTruthy();
   const tabPanel = within(panel).getByRole("tabpanel");
   const address = await within(tabPanel).findByRole("textbox", { name: "Address" });
-  expect((address as HTMLInputElement).value).toBe("localhost:3000");
+  expect((address as HTMLInputElement).value).toBe(`127.0.0.1:${port}`);
   const tab = within(panel).getByRole("tabpanel");
-  expect(
-    (await within(tab).findByTitle("Preview of http://localhost:3000")).getAttribute("src"),
-  ).toBe("http://localhost:3000");
+  expect((await within(tab).findByTitle(`Preview of ${origin}`)).getAttribute("src")).toBe(origin);
 
   await userEvent.click(within(panel).getByRole("button", { name: "Stop previewing this port" }));
   expect(
-    await within(panel).findByRole("heading", { name: "Nothing is previewed on port 3000" }),
+    await within(panel).findByRole("heading", { name: `Nothing is previewed on port ${port}` }),
   ).toBeTruthy();
   expect(
     (within(tabPanel).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value,
-  ).toBe("localhost:3000");
-  await userEvent.click(within(panel).getByRole("button", { name: "Preview port 3000 again" }));
-  expect(await within(tab).findByTitle(/^Preview of http:\/\/127\.0\.0\.1:3000/)).toBeTruthy();
-  expect(browser.servers("thread-settings").map((server) => server.port)).toEqual([3000]);
+  ).toBe(`localhost:${port}`);
+  await userEvent.click(within(panel).getByRole("button", { name: `Preview port ${port} again` }));
+  expect(await within(tab).findByTitle(`Preview of ${origin}`)).toBeTruthy();
+  expect(browser.servers("thread-settings").map((server) => server.port)).toEqual([port]);
 });
 
 const servers: Server[] = [];
@@ -121,6 +116,14 @@ afterEach(() => {
     server.close();
   }
 });
+
+/** A real dev server that answers at once. */
+async function answeringServer() {
+  const server = createServer((_request, response) => response.end("<h1>api</h1>"));
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return (server.address() as AddressInfo).port;
+}
 
 /** A real dev server that answers only once `release` is called. */
 async function slowServer() {
@@ -155,7 +158,7 @@ test("while a dev server's page loads, the frame waits behind a spinner and its 
   release();
 });
 
-test("a dev server that doesn't answer keeps its address, says so and offers Retry", async () => {
+test("a dev server that doesn't answer isn't held open: Preview goes back to its suggestions", async () => {
   const app = harness();
   app.daemon.browser.serve("thread-settings", {
     port: 1,
@@ -164,13 +167,11 @@ test("a dev server that doesn't answer keeps its address, says so and offers Ret
     source: "listener",
   });
   const { panel } = await openPreview(app);
-  const failure = await within(panel).findByRole("alert");
-  expect(within(failure).getByRole("heading", { name: "Couldn't reach 127.0.0.1:1" })).toBeTruthy();
-  expect((within(panel).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value).toBe(
-    "127.0.0.1:1",
-  );
-  await userEvent.click(within(failure).getByRole("button", { name: "Retry" }));
-  expect(
-    await within(panel).findByRole("heading", { name: "Couldn't reach 127.0.0.1:1" }),
-  ).toBeTruthy();
+  expect(await within(panel).findByText("Nothing answered at localhost:1")).toBeTruthy();
+  expect(within(panel).getByRole("heading", { name: "Suggested" })).toBeTruthy();
+  // No failed page in its place, and the server stays one click away.
+  expect(within(panel).queryByRole("heading", { name: "Couldn't reach 127.0.0.1:1" })).toBeNull();
+  const suggested = within(panel).getByRole("list", { name: "Detected dev servers" });
+  expect(within(suggested).getByRole("button", { name: /^api/ })).toBeTruthy();
+  expect(within(panel).getByRole("tab", { name: "Preview", selected: true })).toBeTruthy();
 });

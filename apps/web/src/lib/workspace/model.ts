@@ -257,6 +257,22 @@ export function setPanelOpen(workspace: ScopeWorkspace, open: boolean): ScopeWor
   return patch(workspace, { open });
 }
 
+/**
+ * The panel as the person left it on another scope, carried to this one: hidden there, hidden
+ * here; showing there, showing here, on `tool` (the same tool, which this scope opens if it
+ * hasn't yet) or else on this scope's own tab, and in full view if it was. Tabs stay this
+ * scope's own.
+ */
+export function carryPanel(
+  workspace: ScopeWorkspace,
+  from: ScopeWorkspace,
+  tool?: OpenRequest,
+): ScopeWorkspace {
+  if (!from.open) return patch(workspace, { open: false });
+  const shown = tool ? openTab(workspace, tool) : setPanelOpen(workspace, true);
+  return patch(shown, { expanded: from.expanded });
+}
+
 export function setPanelSize(workspace: ScopeWorkspace, size: number): ScopeWorkspace {
   return patch(workspace, { size: Math.round(size) });
 }

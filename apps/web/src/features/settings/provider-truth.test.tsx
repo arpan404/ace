@@ -9,7 +9,7 @@ vi.setConfig({ testTimeout: 30_000 });
 beforeEach(() => localStorage.clear());
 
 test("Codex's usable sibling and Gemini's daily quota agree on Usage and provider pages", async () => {
-  await harness().open("/accounts");
+  await harness().open("/usage");
   const codex = await screen.findByRole("article", { name: "Codex Personal" });
   expect(
     within(codex).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),

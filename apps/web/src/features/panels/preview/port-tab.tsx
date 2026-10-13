@@ -7,7 +7,7 @@ import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts
 import { AddressBar } from "../browser/address-bar.tsx";
 import { setLoading } from "../browser/loading.ts";
 import { PageNav, PageToolbar, toolbarButton } from "../browser/page-toolbar.tsx";
-import { noHistory, OpenOutside, type FramePhase } from "./dev-server-frame.tsx";
+import { OpenOutside, type FramePhase } from "./dev-server-frame.tsx";
 import { forwardFailure } from "./preview-errors.ts";
 import { OpenPreviewOutside, PreviewFrame, previewUrl } from "./preview-frame.tsx";
 import { usePanelServices } from "../services.ts";
@@ -78,12 +78,9 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
       <PageToolbar
         nav={
           <PageNav
-            back={{ reason: noHistory }}
-            forward={{ reason: noHistory }}
-            reload={{
-              onClick: server ? () => setAttempt((count) => count + 1) : undefined,
-              reason: server ? undefined : "the dev server isn't previewed",
-            }}
+            back={{}}
+            forward={{}}
+            reload={{ onClick: server ? () => setAttempt((count) => count + 1) : undefined }}
           />
         }
         address={<AddressBar url={url} loading={loading} readOnly />}

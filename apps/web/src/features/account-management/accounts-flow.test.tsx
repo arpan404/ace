@@ -40,7 +40,7 @@ test("the provider name opens its accounts and cancelling a new API-key form lea
 
 test("Usage and the model picker leave account management on the provider page", async () => {
   const app = harness();
-  await app.open("/accounts");
+  await app.open("/usage");
   await screen.findByRole("article", { name: "Codex Personal" });
   expect(screen.queryByRole("button", { name: /Add account/ })).toBeNull();
   expect(

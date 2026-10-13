@@ -55,7 +55,7 @@ try {
       await page.getByRole("button", { name: /^Default model:/ }).click();
       await expect(page.getByRole("group", { name: "Ollama Cloud", exact: true })).toBeVisible();
       await shot("picker-pi");
-      await visit("/accounts");
+      await visit("/usage");
       const table = page.getByRole("table", { name: "Usage by model" });
       await expect(
         table.getByRole("cell", { name: "Muse Spark 1.3 Contributor", exact: true }),

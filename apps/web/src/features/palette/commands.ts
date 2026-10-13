@@ -41,7 +41,7 @@ import type { PaletteCommand, PaletteGroup } from "./types.ts";
 
 export type { PaletteCommand, PaletteGroup, PaletteIcon } from "./types.ts";
 
-type Destination = View["to"] | "/setup" | "/new" | "/accounts" | "/archived" | "/settings";
+type Destination = View["to"] | "/setup" | "/new" | "/usage" | "/archived" | "/settings";
 
 /** The order groups show in with an empty query: what's at hand first, the long lists after. */
 const groupOrder = [
@@ -147,7 +147,7 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
             run: run(() => openSearch()),
           },
           { id: "go-setup", label: "Setup", icon: "view", run: go("/setup") },
-          { id: "go-accounts", label: "Usage", icon: "view", run: go("/accounts") },
+          { id: "go-usage", label: "Usage", icon: "view", run: go("/usage") },
           { id: "go-archived", label: "Archived threads", icon: "view", run: go("/archived") },
           {
             id: "go-settings",

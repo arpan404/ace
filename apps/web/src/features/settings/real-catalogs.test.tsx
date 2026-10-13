@@ -57,7 +57,7 @@ test("the open Skills library receives discovered skills without a reload", asyn
 });
 
 test("Usage combines legacy bare and prefixed model ids and labels the Codex weekly quota", async () => {
-  await fixture().open("/accounts");
+  await fixture().open("/usage");
   const table = await screen.findByRole("table", { name: "Usage by model" });
   await waitFor(() =>
     expect(within(table).getAllByRole("cell", { name: "Muse Spark 1.3 Contributor" })).toHaveLength(

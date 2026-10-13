@@ -13,7 +13,7 @@ test("Usage groups limited and at least eighty-percent accounts ahead of everyth
   const personal = app.daemon.services.accounts.find((account) => account.id === "claude-personal");
   if (!personal) throw new Error("Missing account fixture");
   personal.quota.windows = { five_hour: { usedPercent: 80, resetsAt: null } };
-  await app.open("/accounts");
+  await app.open("/usage");
   const closest = await screen.findByRole("region", { name: "Closest to a limit" });
   expect(await within(closest).findByRole("article", { name: "Codex Team" })).toBeTruthy();
   expect(within(closest).getByRole("article", { name: "Claude Code Personal" })).toBeTruthy();
@@ -31,7 +31,7 @@ test("Usage groups limited and at least eighty-percent accounts ahead of everyth
 });
 
 test("Usage has no account-management actions and directs management to Providers", async () => {
-  await harness().open("/accounts");
+  await harness().open("/usage");
   await card("Codex Personal");
   expect(
     screen.queryByRole("button", { name: /Add account|Manage .*|Make default|Remove|Rename/ }),
@@ -47,7 +47,7 @@ test("Usage has no account-management actions and directs management to Provider
 });
 
 test("accounts without readings use a quiet state instead of empty meters", async () => {
-  await harness().open("/accounts");
+  await harness().open("/usage");
   await userEvent.click(await screen.findByText(/accounts without reported limits/));
   const opencode = await card("OpenCode Work");
   expect(within(opencode).queryByRole("meter")).toBeNull();
@@ -56,7 +56,7 @@ test("accounts without readings use a quiet state instead of empty meters", asyn
 
 test("Refresh updates percentages and moves an account below eighty percent into Reported limits", async () => {
   const app = harness();
-  await app.open("/accounts");
+  await app.open("/usage");
   const work = await card("Claude Code Work");
   expect(
     within(work).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
@@ -75,7 +75,7 @@ test("Refresh updates percentages and moves an account below eighty percent into
 });
 
 test("usage keeps daily totals and models available above the limits", async () => {
-  await harness().open("/accounts");
+  await harness().open("/usage");
   const days = await screen.findByRole("list", { name: "Tokens per day" });
   await waitFor(() => expect(within(days).getAllByRole("listitem")).toHaveLength(14));
   await userEvent.click(screen.getByRole("button", { name: "7 days" }));
@@ -88,7 +88,7 @@ test("usage keeps daily totals and models available above the limits", async () 
 test("failed usage reads explain what happened and Retry recovers", async () => {
   const app = harness();
   app.daemon.failRequests("accounts.list");
-  await app.open("/accounts");
+  await app.open("/usage");
   await screen.findByText("Couldn't load usage", {}, { timeout: 4000 });
   app.daemon.restoreRequests();
   await userEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -96,7 +96,7 @@ test("failed usage reads explain what happened and Retry recovers", async () => 
 });
 
 test("running threads are available in a tooltip without adding another line to the account", async () => {
-  await harness().open("/accounts");
+  await harness().open("/usage");
   const personal = await card("Claude Code Personal");
   await userEvent.hover(within(personal).getByText("Claude Code · Personal"));
   expect(
@@ -112,7 +112,7 @@ test("a provider limit without meter readings never claims No limits", async () 
   );
   if (!account) throw new Error("Missing OpenCode account fixture");
   account.quota.blockers.limitError = { usedPercent: 100, resetsAt: null };
-  await app.open("/accounts");
+  await app.open("/usage");
   const closest = await screen.findByRole("region", { name: "Closest to a limit" });
   const row = await within(closest).findByRole("article", { name: "OpenCode Work" });
   expect(within(row).getByText("Limit reached")).toBeTruthy();
@@ -124,7 +124,7 @@ test("a blocking limit with an unknown reset never borrows another window's rese
   const account = app.daemon.services.accounts.find((row) => row.id === "codex-team");
   if (!account) throw new Error("Missing Team account fixture");
   account.quota.blockers.limitError = { usedPercent: 100, resetsAt: null };
-  await app.open("/accounts");
+  await app.open("/usage");
   const row = await card("Codex Team");
   expect(within(row).getByText("Limit reached")).toBeTruthy();
   expect(within(row).queryByText(/^Resets/)).toBeNull();
@@ -135,7 +135,7 @@ test("a near-limit weekly window with an unknown reset does not show the five-ho
   const account = app.daemon.services.accounts.find((row) => row.id === "claude-work");
   if (!account) throw new Error("Missing Work account fixture");
   account.quota.windows.seven_day = { usedPercent: 90, resetsAt: null };
-  await app.open("/accounts");
+  await app.open("/usage");
   const row = await card("Claude Code Work");
   expect(
     within(row).getByRole("meter", { name: "Weekly window" }).getAttribute("aria-valuenow"),
@@ -145,7 +145,7 @@ test("a near-limit weekly window with an unknown reset does not show the five-ho
 
 test("every Usage row names its provider and account alongside the provider mark and account badge", async () => {
   const app = harness();
-  await app.open("/accounts");
+  await app.open("/usage");
   await card("Codex Personal");
   for (const account of app.daemon.services.accounts) {
     const provider = providerDisplayName(account.provider, account.acpAgentId);

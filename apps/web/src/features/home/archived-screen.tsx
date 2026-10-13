@@ -23,7 +23,7 @@ import {
   useOverlaidEntry,
   useThreadActions,
 } from "@/features/organize/index.ts";
-import { Page, PageTitle, Screen } from "@/features/shell/index.ts";
+import { Page, Screen } from "@/features/shell/index.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { ThreadPagination } from "./thread-pagination.tsx";
@@ -44,10 +44,9 @@ export function ArchivedScreen() {
   const actions = useThreadActions();
   const scope = project === null ? undefined : projectName(project);
   return (
-    <Screen title="Threads" subtitle={scope}>
+    <Screen title="Archived" subtitle={scope}>
       <Page>
-        <PageTitle title="Archived" />
-        <div className="mt-6">
+        <div>
           {!loaded ? (
             <ListSkeleton label="archived threads" shape="row" />
           ) : ids.length === 0 ? (

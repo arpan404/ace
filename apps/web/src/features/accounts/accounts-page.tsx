@@ -8,11 +8,16 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { useNow } from "@/lib/time.ts";
-import { PageTitle, Screen } from "@/features/shell/index.ts";
+import { Screen } from "@/features/shell/index.ts";
 import { AccountCard } from "./account-card.tsx";
 import { useAccounts, useRefreshAccounts } from "./accounts-source.ts";
 import { UsageSection } from "./usage-section.tsx";
 
+/**
+ * Usage (`/usage`): each account's limits, closest first, then tokens and cost over time. The
+ * page keeps its shape while it loads: the limits hold a skeleton the size of their cards and
+ * the figures below are drawn from the start, so nothing jumps as reads arrive.
+ */
 export function AccountsPage() {
   const accounts = useAccounts();
   const refresh = useRefreshAccounts();
@@ -41,22 +46,12 @@ export function AccountsPage() {
           style={{ maxWidth: 920 }}
         >
           <div className="flex items-start gap-3">
-            <div className="min-w-0 flex-1">
-              <PageTitle
-                title="Usage"
-                lede={
-                  <>
-                    Limits as last reported by each provider.{" "}
-                    <Link
-                      to="/settings/providers"
-                      className="hover:text-foreground hover:underline"
-                    >
-                      Manage accounts in Settings › Providers.
-                    </Link>
-                  </>
-                }
-              />
-            </div>
+            <p className="min-w-0 flex-1 text-base leading-normal text-muted-foreground">
+              Limits as last reported by each provider.{" "}
+              <Link to="/settings/providers" className="hover:text-foreground hover:underline">
+                Manage accounts in Settings › Providers.
+              </Link>
+            </p>
             <IconButton
               icon={ArrowsClockwiseIcon}
               label="Refresh"
@@ -65,7 +60,6 @@ export function AccountsPage() {
               onClick={() => void refresh()}
             />
           </div>
-          {accounts.data && <UsageSection />}
           {accounts.isError ? (
             <EmptyState
               icon={ChartBarIcon}
@@ -78,7 +72,7 @@ export function AccountsPage() {
               }
             />
           ) : !accounts.data ? (
-            <ListSkeleton label="usage" shape="row" rows={6} className="mt-7" />
+            <ListSkeleton label="usage" shape="row" rows={6} className="mt-7 min-h-80" />
           ) : !accounts.data.length ? (
             <EmptyState
               icon={ChartBarIcon}
@@ -114,6 +108,7 @@ export function AccountsPage() {
               </section>
             </SettingDisclosure>
           )}
+          <UsageSection />
         </div>
       </div>
     </Screen>

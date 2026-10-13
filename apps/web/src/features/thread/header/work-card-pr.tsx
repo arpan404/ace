@@ -1,8 +1,9 @@
 import type { CheckoutPr } from "@ace/ui-core";
 import { mergeMethods, prOverview, type MergeMethod } from "@ace/ui-core";
 import { useMergeMethod } from "./merge-method.ts";
-import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { pullRequestTab } from "@/features/panels/index.ts";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failure, type useGitFlow } from "./use-git-flow.tsx";
@@ -24,12 +25,18 @@ export function prSummary(pr: CheckoutPr): string {
 
 /**
  * The thread's pull request on one line: `#214 open · checks passed · Merge`. The number opens
- * the PR workspace; Merge reads the PR again, then asks before merging, as every merge does.
+ * the PR in the thread's side panel; Merge reads the PR again, then asks before merging, as
+ * every merge does.
  */
-export function PrLine(props: { git: GitFlow; workspaceId: string; onClose(): void }) {
+export function PrLine(props: {
+  git: GitFlow;
+  threadId: string;
+  workspaceId: string;
+  onClose(): void;
+}) {
   const { git } = props;
   const pr = git.checkout?.pr;
-  const navigate = useNavigate();
+  const panel = useWorkspaceActions(props.threadId);
   const method = useMergeMethod();
   const { merge, checking } = useMergePr(git);
   if (!pr) return null;
@@ -47,14 +54,9 @@ export function PrLine(props: { git: GitFlow; workspaceId: string; onClose(): vo
         onClick={() => {
           if (!repository) return;
           props.onClose();
-          void navigate({
-            to: "/pull-requests",
-            search: {
-              project: props.workspaceId,
-              repo: `${repository.host}/${repository.owner}/${repository.name}`,
-              number: pr.number,
-            },
-          });
+          panel.open(
+            pullRequestTab({ workspaceId: props.workspaceId, repository, number: pr.number }),
+          );
         }}
       >
         #{pr.number}

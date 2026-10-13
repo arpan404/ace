@@ -86,8 +86,8 @@ export function WorkspacePanel(props: {
         dismissable || expanded
           ? "h-full flex-1"
           : bottom
-            ? "w-full shrink-0 border-t"
-            : "shrink-0 border-l",
+            ? "fx-panel-in w-full shrink-0 border-t"
+            : "fx-panel-in shrink-0 border-l",
       )}
     >
       {layout.sheet && (

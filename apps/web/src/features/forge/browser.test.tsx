@@ -1,9 +1,8 @@
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   ForgePrDetail,
-  ForgePrSearch,
   ForgeLifecycleState,
   ForgeMergeState,
   ThreadId,
@@ -11,6 +10,7 @@ import {
 } from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
+import { openPullRequest } from "./test-support.ts";
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;
 const other = { ...repository, name: "web" };
 const detail = (
@@ -57,7 +57,6 @@ const detail = (
     relatedThreadsTruncated: false,
   });
 beforeEach(() => localStorage.clear());
-afterEach(() => vi.unstubAllGlobals());
 /** GitHub confirms PR #42 is in no native stack, so its merge isn't held for stack rules. */
 const notStacked = (app: ReturnType<typeof harness>, workspaceId = "api") =>
   app.daemon.workspace.setForgeRead(
@@ -78,86 +77,11 @@ test("checkout copied from another repository names that repository instead of t
     { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), repository: other, number: 42 },
     { resource: "prDetail", value: detail(other, "Other repository PR") },
   );
-  await app.open("/pull-requests?project=api&repo=github.com/acme/web&number=42");
+  await openPullRequest(app, { project: "api", repository: other, number: 42 });
   await screen.findByRole("heading", { name: "Other repository PR" });
   await user.click(screen.getByRole("button", { name: "Copy checkout command" }));
   expect(await navigator.clipboard.readText()).toBe("gh pr checkout 42 --repo github.com/acme/web");
   await screen.findByRole("button", { name: "Checkout command copied" });
-});
-
-test("a dismissed phone PR sheet reopens its PR from More actions and an empty workspace opens its PR launcher", async () => {
-  vi.stubGlobal("matchMedia", (media: string): MediaQueryList => ({
-    matches: media.includes("max-width"),
-    media,
-    onchange: null,
-    addListener() {},
-    removeListener() {},
-    addEventListener() {},
-    removeEventListener() {},
-    dispatchEvent: () => true,
-  }));
-  const app = harness();
-  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  app.daemon.workspace.setForgeRead(
-    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), number: 42 },
-    { resource: "prDetail", value: detail() },
-  );
-  await app.open("/pull-requests?project=api&number=42");
-  await screen.findByRole("heading", { name: "Retry reconnects" });
-  await userEvent.click(screen.getByRole("button", { name: "Done" }));
-  await waitFor(() =>
-    expect(screen.queryByRole("heading", { name: "Retry reconnects" })).toBeNull(),
-  );
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: /^Pull request workspace/ }));
-  await screen.findByRole("heading", { name: "Retry reconnects" });
-  expect(screen.queryByText("This tool isn't available")).toBeNull();
-  const panel = await screen.findByRole("region", { name: "Pull request workspace" });
-  await userEvent.click(within(panel).getByRole("button", { name: "Close #42" }));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Done" })).toBeNull());
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: /^Pull request workspace/ }));
-  await screen.findByRole("textbox", { name: "New tab PR URL or number" });
-  expect(screen.queryByText("This tool isn't available")).toBeNull();
-});
-
-test("new PR tabs keep independent repository identities and preserve the first tab's collapsed description", async () => {
-  const app = harness();
-  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  app.daemon.workspace.setForgeRead(
-    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), number: 42 },
-    { resource: "prDetail", value: detail(repository, "First repository PR") },
-  );
-  app.daemon.workspace.setForgeRead(
-    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), repository: other, number: 42 },
-    {
-      resource: "prDetail",
-      // Its own description: the other tab stays mounted, hidden, beside it.
-      value: { ...detail(other, "Second repository PR"), body: "Ship the web client." },
-    },
-  );
-  await app.open("/pull-requests?project=api&number=42");
-  await screen.findByRole("heading", { name: "First repository PR" });
-  const panel = await screen.findByRole("region", { name: "Pull request workspace" });
-  await userEvent.click(within(panel).getByRole("button", { name: "Description" }));
-  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
-  await userEvent.type(
-    await within(panel).findByRole("textbox", { name: "New tab PR URL or number" }),
-    "https://github.com/acme/web/pull/42",
-  );
-  await userEvent.click(within(panel).getByRole("button", { name: "Open PR" }));
-  await within(panel).findByRole("heading", { name: "Second repository PR" });
-  const tabs = within(
-    within(panel).getByRole("tablist", { name: "Pull request workspace tabs" }),
-  ).getAllByRole("tab");
-  const first = tabs[0];
-  if (!first) throw new Error("The first PR tab was lost");
-  await userEvent.click(first);
-  await within(panel).findByRole("heading", { name: "First repository PR" });
-  expect(
-    within(panel).getByRole("button", { name: "Description" }).getAttribute("aria-expanded"),
-  ).toBe("false");
-  expect(within(panel).queryByText("Preserve reconnect ordering.")).toBeNull();
 });
 
 test("a successful merge followed by a failed detail refresh stays disabled until reconciliation", async () => {
@@ -176,7 +100,7 @@ test("a successful merge followed by a failed detail refresh stays disabled unti
   } as const;
   app.daemon.workspace.setForgeRead(operation, { resource: "prDetail", value });
   notStacked(app);
-  await app.open("/pull-requests?project=api&number=42");
+  await openPullRequest(app, { project: "api", number: 42 });
   await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   const button = await screen.findByRole<HTMLButtonElement>("button", { name: "Merge PR" });
   await waitFor(() => expect(button.disabled).toBe(false));
@@ -222,7 +146,7 @@ test("an uncertain write blocks controls on a newly opened detail until GitHub c
   } as const;
   app.daemon.workspace.setForgeRead(operation, { resource: "prDetail", value });
   notStacked(app);
-  await app.open("/pull-requests?project=api&number=42");
+  await openPullRequest(app, { project: "api", number: 42 });
   await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   expect(
     (await screen.findByRole<HTMLButtonElement>("button", { name: "Merge PR" })).disabled,
@@ -241,50 +165,6 @@ test("an uncertain write blocks controls on a newly opened detail until GitHub c
       false,
     ),
   );
-});
-
-test("a repository PR opens without a task and returning retains its filters and page", async () => {
-  const app = harness();
-  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  const query = ForgePrSearch.parse({ state: "draft", search: "reconnect", page: 2 });
-  app.daemon.workspace.setForgeRead(
-    { op: "forge.pr.list", workspaceId: WorkspaceId.parse("api"), query },
-    {
-      resource: "prList",
-      value: {
-        repository,
-        items: [
-          {
-            ref: { repository, number: 42 },
-            title: "Retry reconnects",
-            url: "https://github.com/acme/api/pull/42",
-            author: "author",
-            state: "draft",
-            labels: [],
-            updatedAt: "2026-10-10",
-          },
-        ],
-        total: 26,
-        counts: { open: 0, draft: 26, closed: 0, merged: 0 },
-        incomplete: false,
-        truncated: false,
-      },
-    },
-  );
-  app.daemon.workspace.setForgeRead(
-    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), number: 42 },
-    { resource: "prDetail", value: detail() },
-  );
-  await app.open("/pull-requests?project=api&state=draft&search=reconnect&page=2");
-  await userEvent.click(await screen.findByRole("button", { name: /Retry reconnects/ }));
-  expect(await screen.findByRole("heading", { name: /^Retry reconnects$/ })).toBeTruthy();
-  expect(await screen.findByText("Preserve reconnect ordering.")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Write a comment or review" })).toBeNull();
-  expect(screen.getByRole("tab", { name: "Summary" }).getAttribute("aria-selected")).toBe("true");
-  await userEvent.click(screen.getByRole("button", { name: "Back to pull requests" }));
-  expect(await screen.findByText("Page 2")).toBeTruthy();
-  expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Search" }).value).toBe("reconnect");
-  expect(screen.getByRole("tab", { name: "Draft 26" }).getAttribute("aria-selected")).toBe("true");
 });
 
 test("the same PR number in another repository gets independent full detail and hosted diffs", async () => {
@@ -324,45 +204,13 @@ test("the same PR number in another repository gets independent full detail and 
       },
     },
   );
-  await app.open("/pull-requests?project=api&repo=github.com/acme/web&number=42");
+  await openPullRequest(app, { project: "api", repository: other, number: 42 });
   expect(await screen.findByRole("heading", { name: /^Different repository PR$/ })).toBeTruthy();
   await userEvent.click(screen.getByRole("tab", { name: "Code" }));
   const files = await screen.findByRole("region", { name: "Hosted PR diff" });
   expect(await within(files).findByRole("region", { name: "src/page.ts" })).toBeTruthy();
   expect(await within(files).findByText("before")).toBeTruthy();
   expect(await within(files).findByText("after")).toBeTruthy();
-});
-
-test("changing repositories replaces the old detail with an honest inaccessible state", async () => {
-  const app = harness();
-  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  app.daemon.workspace.setForgeRead(
-    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), number: 42 },
-    { resource: "prDetail", value: detail() },
-  );
-  await app.open("/pull-requests?project=api&number=42");
-  await screen.findByRole("heading", { name: /^Retry reconnects$/ });
-  await userEvent.type(
-    screen.getByRole("textbox", { name: "PR URL or number" }),
-    "https://github.com/acme/private/pull/42",
-  );
-  await userEvent.click(screen.getByRole("button", { name: "Open PR" }));
-  // The list above reports the same repository on its own; this is the PR tab's account.
-  const workspace = screen.getByRole("region", { name: "Pull request workspace" });
-  await waitFor(() =>
-    expect(
-      within(workspace)
-        .getAllByRole("alert")
-        .some((alert) =>
-          alert.textContent?.includes(
-            "This repository, issue or pull request is missing or inaccessible.",
-          ),
-        ),
-    ).toBe(true),
-  );
-  await waitFor(() =>
-    expect(screen.queryByRole("heading", { name: /^Retry reconnects$/ })).toBeNull(),
-  );
 });
 
 test("Work on PR opens a project-scoped task with its review description and a pinned isolated environment", async () => {
@@ -379,7 +227,7 @@ test("Work on PR opens a project-scoped task with its review description and a p
     { op: "forge.pr.detail", workspaceId, repository, number: 42 },
     { resource: "prDetail", value: pr },
   );
-  await app.open("/pull-requests?project=relay&number=42");
+  await openPullRequest(app, { project: "relay", number: 42 });
   await userEvent.click(await screen.findByRole("link", { name: "Work on PR in a new task" }));
   expect(await screen.findByText(/Isolated worktree · PR #42 · aaaaaaaaaaaa/)).toBeTruthy();
   expect((await screen.findByRole("combobox", { name: /Message/i })).textContent).toContain(
@@ -416,7 +264,7 @@ test("the PR workspace renders authoritative auto-merge and queue state and remo
     raw: {},
   };
   app.daemon.workspace.setForgeRead(operation, { resource: "prMergeState", value: state });
-  await app.open("/pull-requests?project=api&number=42");
+  await openPullRequest(app, { project: "api", number: 42 });
   const section = within(await screen.findByRole("region", { name: "Auto-merge and merge queue" }));
   expect(await section.findByText(/squash by octo/)).toBeTruthy();
   expect(section.getByText(/AWAITING_CHECKS, position 3/)).toBeTruthy();
@@ -481,7 +329,7 @@ async function linkedControls(state: ForgeMergeState) {
       },
     },
   );
-  await app.open("/pull-requests?project=relay&number=42");
+  await openPullRequest(app, { project: "relay", number: 42 });
   const section = within(await screen.findByRole("region", { name: "Auto-merge and merge queue" }));
   await section.findByText("Required reviews are outstanding.");
   return { app, section, seed };
@@ -599,7 +447,7 @@ test("the repository workspace shows current lifecycle permissions and reconcile
   });
   const operation = { op: "forge.pr.lifecycle", workspaceId, repository, number: 42 } as const;
   app.daemon.workspace.setForgeRead(operation, { resource: "prLifecycle", value: state });
-  await app.open("/pull-requests?project=api&number=42");
+  await openPullRequest(app, { project: "api", number: 42 });
   const region = await screen.findByRole("region", { name: "Pull request metadata and lifecycle" });
   expect(await within(region).findByRole("button", { name: "Mark ready for review" })).toBeTruthy();
   expect(within(region).queryByRole("button", { name: "Close PR" })).toBeNull();
@@ -665,7 +513,7 @@ test("a refused metadata write keeps its text and shows the daemon refusal", asy
       }),
     },
   );
-  await app.open("/pull-requests?project=api&number=42");
+  await openPullRequest(app, { project: "api", number: 42 });
   await screen.findByText(/Current state: open/);
   await userEvent.click(screen.getByText("Edit PR metadata"));
   const body = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "PR description" });
@@ -708,7 +556,7 @@ test("Refresh PR reloads metadata and permissions when title, head and state are
     operations: [],
   });
   app.daemon.workspace.setForgeRead(operation, { resource: "prLifecycle", value: state });
-  await app.open("/pull-requests?project=api&number=42");
+  await openPullRequest(app, { project: "api", number: 42 });
   await screen.findByText(/Current state: open/);
   await userEvent.click(screen.getByText("Edit PR metadata"));
   expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "PR description" }).value).toBe(
@@ -784,7 +632,7 @@ test("new commits visibly invalidate durable hosted drafts and disable all revie
       },
     },
   );
-  await app.open("/pull-requests?project=api&number=42");
+  const first = await openPullRequest(app, { project: "api", number: 42 });
   expect(await screen.findByText("Keep this unsent finding")).toBeTruthy();
   expect(screen.getByText(/Outdated anchor/)).toBeTruthy();
   for (const name of ["Submit comment review", "Approve on GitHub", "Request changes on GitHub"])
@@ -793,8 +641,9 @@ test("new commits visibly invalidate durable hosted drafts and disable all revie
     screen.getByRole("textbox", { name: "Review summary" }),
     "Preserve my summary",
   );
-  await userEvent.click(screen.getByRole("button", { name: "Back to pull requests" }));
-  await app.open("/pull-requests?project=api&number=42");
+  // Closed and opened again, the PR keeps the summary not yet sent.
+  first.unmount();
+  await openPullRequest(app, { project: "api", number: 42 });
   expect(
     await screen
       .findByRole<HTMLTextAreaElement>("textbox", { name: "Review summary" })
@@ -826,7 +675,7 @@ test("a refused GitHub review shows the daemon refusal and retains the unsent su
       },
     },
   );
-  await app.open("/pull-requests?project=api&number=42");
+  await openPullRequest(app, { project: "api", number: 42 });
   const summary = await screen.findByRole<HTMLTextAreaElement>("textbox", {
     name: "Review summary",
   });

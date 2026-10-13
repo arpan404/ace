@@ -9,16 +9,12 @@ export const narrowHidden = "@max-[28rem]:hidden";
 /** Navigation, the address taking the room that is left, the tab's actions. */
 const columns = { gridTemplateColumns: "auto minmax(0, 1fr) auto" };
 
-/** One navigation control: available with `onClick`, else disabled with the reason it isn't. */
+/** One navigation control: available with `onClick` unless `disabled`. */
 export interface NavControl {
   onClick?: (() => void) | undefined;
-  /** Why it can't be used now; shown in its tooltip and read with its name. */
-  reason?: string | undefined;
+  disabled?: boolean | undefined;
   keys?: string | undefined;
 }
-
-const label = (name: string, control: NavControl) =>
-  control.reason ? `${name} · ${control.reason}` : name;
 
 /**
  * Back, Forward and Reload (Stop while loading, which the relay can't do yet). Every page-like
@@ -40,9 +36,9 @@ export function PageNav(props: {
   ) => (
     <IconButton
       icon={icon}
-      label={label(name, value)}
+      label={name}
       {...(value.keys ? { keys: value.keys } : {})}
-      disabled={!value.onClick || !!value.reason}
+      disabled={!value.onClick || !!value.disabled}
       focusableWhenDisabled
       className={className ? `${tool} ${className}` : tool}
       onClick={value.onClick}

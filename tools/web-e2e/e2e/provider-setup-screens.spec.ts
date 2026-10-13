@@ -58,11 +58,6 @@ for (const theme of ["light", "dark"])
               ? "/settings/providers/antigravity"
               : "/settings/providers",
         );
-        if (surface === "setup") {
-          await expect(page.getByRole("button", { name: "Get started" })).toBeVisible();
-          await capture(page, `setup-${theme}-${width}-welcome`);
-          await page.getByRole("button", { name: "Get started" }).click();
-        }
         const row = () =>
           page.getByRole(
             surface === "setup" ? "listitem" : surface === "provider" ? "region" : "group",

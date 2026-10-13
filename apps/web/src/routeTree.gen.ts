@@ -10,29 +10,19 @@
 
 import { Route as rootRouteImport } from "./routes/__root"
 import { Route as HomeRouteImport } from "./routes/_home"
-import { Route as AccountsRouteImport } from "./routes/accounts"
 import { Route as ActivityRouteImport } from "./routes/activity"
 import { Route as AutomationsRouteImport } from "./routes/automations"
-import { Route as DeckRouteImport } from "./routes/deck"
-import { Route as IssuesRouteImport } from "./routes/issues"
-import { Route as MoreRouteImport } from "./routes/more"
-import { Route as OffsetsRouteImport } from "./routes/offsets"
-import { Route as OffshiftsRouteImport } from "./routes/offshifts"
 import { Route as PairRouteImport } from "./routes/pair"
-import { Route as PullRequestsRouteImport } from "./routes/pull-requests"
 import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SetupRouteImport } from "./routes/setup"
 import { Route as SkillsRouteImport } from "./routes/skills"
+import { Route as UsageRouteImport } from "./routes/usage"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
 import { Route as HomeArchivedRouteImport } from "./routes/_home.archived"
 import { Route as HomeNewRouteImport } from "./routes/_home.new"
 import { Route as ActivityIndexRouteImport } from "./routes/activity.index"
 import { Route as AutomationsIndexRouteImport } from "./routes/automations.index"
 import { Route as AutomationsNewRouteImport } from "./routes/automations.new"
-import { Route as DeckSplatRouteImport } from "./routes/deck.$"
-import { Route as MoreSplatRouteImport } from "./routes/more.$"
-import { Route as OffsetsSplatRouteImport } from "./routes/offsets.$"
-import { Route as OffshiftsSplatRouteImport } from "./routes/offshifts.$"
 import { Route as SettingsIndexRouteImport } from "./routes/settings.index"
 import { Route as SettingsAdvancedRouteImport } from "./routes/settings.advanced"
 import { Route as SettingsAppearanceRouteImport } from "./routes/settings.appearance"
@@ -57,11 +47,6 @@ const HomeRoute = HomeRouteImport.update({
   id: "/_home",
   getParentRoute: () => rootRouteImport,
 } as any)
-const AccountsRoute = AccountsRouteImport.update({
-  id: "/accounts",
-  path: "/accounts",
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ActivityRoute = ActivityRouteImport.update({
   id: "/activity",
   path: "/activity",
@@ -72,39 +57,9 @@ const AutomationsRoute = AutomationsRouteImport.update({
   path: "/automations",
   getParentRoute: () => rootRouteImport,
 } as any)
-const DeckRoute = DeckRouteImport.update({
-  id: "/deck",
-  path: "/deck",
-  getParentRoute: () => rootRouteImport,
-} as any)
-const IssuesRoute = IssuesRouteImport.update({
-  id: "/issues",
-  path: "/issues",
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MoreRoute = MoreRouteImport.update({
-  id: "/more",
-  path: "/more",
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OffsetsRoute = OffsetsRouteImport.update({
-  id: "/offsets",
-  path: "/offsets",
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OffshiftsRoute = OffshiftsRouteImport.update({
-  id: "/offshifts",
-  path: "/offshifts",
-  getParentRoute: () => rootRouteImport,
-} as any)
 const PairRoute = PairRouteImport.update({
   id: "/pair",
   path: "/pair",
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PullRequestsRoute = PullRequestsRouteImport.update({
-  id: "/pull-requests",
-  path: "/pull-requests",
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -120,6 +75,11 @@ const SetupRoute = SetupRouteImport.update({
 const SkillsRoute = SkillsRouteImport.update({
   id: "/skills",
   path: "/skills",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const UsageRoute = UsageRouteImport.update({
+  id: "/usage",
+  path: "/usage",
   getParentRoute: () => rootRouteImport,
 } as any)
 const HomeIndexRoute = HomeIndexRouteImport.update({
@@ -151,26 +111,6 @@ const AutomationsNewRoute = AutomationsNewRouteImport.update({
   id: "/new",
   path: "/new",
   getParentRoute: () => AutomationsRoute,
-} as any)
-const DeckSplatRoute = DeckSplatRouteImport.update({
-  id: "/$",
-  path: "/$",
-  getParentRoute: () => DeckRoute,
-} as any)
-const MoreSplatRoute = MoreSplatRouteImport.update({
-  id: "/$",
-  path: "/$",
-  getParentRoute: () => MoreRoute,
-} as any)
-const OffsetsSplatRoute = OffsetsSplatRouteImport.update({
-  id: "/$",
-  path: "/$",
-  getParentRoute: () => OffsetsRoute,
-} as any)
-const OffshiftsSplatRoute = OffshiftsSplatRouteImport.update({
-  id: "/$",
-  path: "/$",
-  getParentRoute: () => OffshiftsRoute,
 } as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: "/",
@@ -274,26 +214,16 @@ const HomeTThreadIdAgentsAgentIdRoute =
 
 export interface FileRoutesByFullPath {
   "/": typeof HomeIndexRoute
-  "/accounts": typeof AccountsRoute
   "/activity": typeof ActivityRouteWithChildren
   "/automations": typeof AutomationsRouteWithChildren
-  "/deck": typeof DeckRouteWithChildren
-  "/issues": typeof IssuesRoute
-  "/more": typeof MoreRouteWithChildren
-  "/offsets": typeof OffsetsRouteWithChildren
-  "/offshifts": typeof OffshiftsRouteWithChildren
   "/pair": typeof PairRoute
-  "/pull-requests": typeof PullRequestsRoute
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
+  "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
   "/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
-  "/deck/$": typeof DeckSplatRoute
-  "/more/$": typeof MoreSplatRoute
-  "/offsets/$": typeof OffsetsSplatRoute
-  "/offshifts/$": typeof OffshiftsSplatRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
@@ -317,22 +247,12 @@ export interface FileRoutesByFullPath {
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesByTo {
-  "/accounts": typeof AccountsRoute
-  "/deck": typeof DeckRouteWithChildren
-  "/issues": typeof IssuesRoute
-  "/more": typeof MoreRouteWithChildren
-  "/offsets": typeof OffsetsRouteWithChildren
-  "/offshifts": typeof OffshiftsRouteWithChildren
   "/pair": typeof PairRoute
-  "/pull-requests": typeof PullRequestsRoute
   "/setup": typeof SetupRoute
+  "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
   "/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
-  "/deck/$": typeof DeckSplatRoute
-  "/more/$": typeof MoreSplatRoute
-  "/offsets/$": typeof OffsetsSplatRoute
-  "/offshifts/$": typeof OffshiftsSplatRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
@@ -359,26 +279,16 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   "/_home": typeof HomeRouteWithChildren
-  "/accounts": typeof AccountsRoute
   "/activity": typeof ActivityRouteWithChildren
   "/automations": typeof AutomationsRouteWithChildren
-  "/deck": typeof DeckRouteWithChildren
-  "/issues": typeof IssuesRoute
-  "/more": typeof MoreRouteWithChildren
-  "/offsets": typeof OffsetsRouteWithChildren
-  "/offshifts": typeof OffshiftsRouteWithChildren
   "/pair": typeof PairRoute
-  "/pull-requests": typeof PullRequestsRoute
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
+  "/usage": typeof UsageRoute
   "/_home/archived": typeof HomeArchivedRoute
   "/_home/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
-  "/deck/$": typeof DeckSplatRoute
-  "/more/$": typeof MoreSplatRoute
-  "/offsets/$": typeof OffsetsSplatRoute
-  "/offshifts/$": typeof OffshiftsSplatRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
@@ -406,26 +316,16 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | "/"
-    | "/accounts"
     | "/activity"
     | "/automations"
-    | "/deck"
-    | "/issues"
-    | "/more"
-    | "/offsets"
-    | "/offshifts"
     | "/pair"
-    | "/pull-requests"
     | "/settings"
     | "/setup"
     | "/skills"
+    | "/usage"
     | "/archived"
     | "/new"
     | "/automations/new"
-    | "/deck/$"
-    | "/more/$"
-    | "/offsets/$"
-    | "/offshifts/$"
     | "/settings/advanced"
     | "/settings/appearance"
     | "/settings/computer-use"
@@ -449,22 +349,12 @@ export interface FileRouteTypes {
     | "/t/$threadId/agents/$agentId"
   fileRoutesByTo: FileRoutesByTo
   to:
-    | "/accounts"
-    | "/deck"
-    | "/issues"
-    | "/more"
-    | "/offsets"
-    | "/offshifts"
     | "/pair"
-    | "/pull-requests"
     | "/setup"
+    | "/usage"
     | "/archived"
     | "/new"
     | "/automations/new"
-    | "/deck/$"
-    | "/more/$"
-    | "/offsets/$"
-    | "/offshifts/$"
     | "/settings/advanced"
     | "/settings/appearance"
     | "/settings/computer-use"
@@ -490,26 +380,16 @@ export interface FileRouteTypes {
   id:
     | "__root__"
     | "/_home"
-    | "/accounts"
     | "/activity"
     | "/automations"
-    | "/deck"
-    | "/issues"
-    | "/more"
-    | "/offsets"
-    | "/offshifts"
     | "/pair"
-    | "/pull-requests"
     | "/settings"
     | "/setup"
     | "/skills"
+    | "/usage"
     | "/_home/archived"
     | "/_home/new"
     | "/automations/new"
-    | "/deck/$"
-    | "/more/$"
-    | "/offsets/$"
-    | "/offshifts/$"
     | "/settings/advanced"
     | "/settings/appearance"
     | "/settings/computer-use"
@@ -536,19 +416,13 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   HomeRoute: typeof HomeRouteWithChildren
-  AccountsRoute: typeof AccountsRoute
   ActivityRoute: typeof ActivityRouteWithChildren
   AutomationsRoute: typeof AutomationsRouteWithChildren
-  DeckRoute: typeof DeckRouteWithChildren
-  IssuesRoute: typeof IssuesRoute
-  MoreRoute: typeof MoreRouteWithChildren
-  OffsetsRoute: typeof OffsetsRouteWithChildren
-  OffshiftsRoute: typeof OffshiftsRouteWithChildren
   PairRoute: typeof PairRoute
-  PullRequestsRoute: typeof PullRequestsRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   SetupRoute: typeof SetupRoute
   SkillsRoute: typeof SkillsRouteWithChildren
+  UsageRoute: typeof UsageRoute
 }
 
 declare module "@tanstack/react-router" {
@@ -558,13 +432,6 @@ declare module "@tanstack/react-router" {
       path: ""
       fullPath: "/"
       preLoaderRoute: typeof HomeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    "/accounts": {
-      id: "/accounts"
-      path: "/accounts"
-      fullPath: "/accounts"
-      preLoaderRoute: typeof AccountsRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/activity": {
@@ -581,53 +448,11 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AutomationsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/deck": {
-      id: "/deck"
-      path: "/deck"
-      fullPath: "/deck"
-      preLoaderRoute: typeof DeckRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    "/issues": {
-      id: "/issues"
-      path: "/issues"
-      fullPath: "/issues"
-      preLoaderRoute: typeof IssuesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    "/more": {
-      id: "/more"
-      path: "/more"
-      fullPath: "/more"
-      preLoaderRoute: typeof MoreRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    "/offsets": {
-      id: "/offsets"
-      path: "/offsets"
-      fullPath: "/offsets"
-      preLoaderRoute: typeof OffsetsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    "/offshifts": {
-      id: "/offshifts"
-      path: "/offshifts"
-      fullPath: "/offshifts"
-      preLoaderRoute: typeof OffshiftsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     "/pair": {
       id: "/pair"
       path: "/pair"
       fullPath: "/pair"
       preLoaderRoute: typeof PairRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    "/pull-requests": {
-      id: "/pull-requests"
-      path: "/pull-requests"
-      fullPath: "/pull-requests"
-      preLoaderRoute: typeof PullRequestsRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/settings": {
@@ -649,6 +474,13 @@ declare module "@tanstack/react-router" {
       path: "/skills"
       fullPath: "/skills"
       preLoaderRoute: typeof SkillsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/usage": {
+      id: "/usage"
+      path: "/usage"
+      fullPath: "/usage"
+      preLoaderRoute: typeof UsageRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/_home/": {
@@ -692,34 +524,6 @@ declare module "@tanstack/react-router" {
       fullPath: "/automations/new"
       preLoaderRoute: typeof AutomationsNewRouteImport
       parentRoute: typeof AutomationsRoute
-    }
-    "/deck/$": {
-      id: "/deck/$"
-      path: "/$"
-      fullPath: "/deck/$"
-      preLoaderRoute: typeof DeckSplatRouteImport
-      parentRoute: typeof DeckRoute
-    }
-    "/more/$": {
-      id: "/more/$"
-      path: "/$"
-      fullPath: "/more/$"
-      preLoaderRoute: typeof MoreSplatRouteImport
-      parentRoute: typeof MoreRoute
-    }
-    "/offsets/$": {
-      id: "/offsets/$"
-      path: "/$"
-      fullPath: "/offsets/$"
-      preLoaderRoute: typeof OffsetsSplatRouteImport
-      parentRoute: typeof OffsetsRoute
-    }
-    "/offshifts/$": {
-      id: "/offshifts/$"
-      path: "/$"
-      fullPath: "/offshifts/$"
-      preLoaderRoute: typeof OffshiftsSplatRouteImport
-      parentRoute: typeof OffshiftsRoute
     }
     "/settings/": {
       id: "/settings/"
@@ -905,49 +709,6 @@ const AutomationsRouteWithChildren = AutomationsRoute._addFileChildren(
   AutomationsRouteChildren,
 )
 
-interface DeckRouteChildren {
-  DeckSplatRoute: typeof DeckSplatRoute
-}
-
-const DeckRouteChildren: DeckRouteChildren = {
-  DeckSplatRoute: DeckSplatRoute,
-}
-
-const DeckRouteWithChildren = DeckRoute._addFileChildren(DeckRouteChildren)
-
-interface MoreRouteChildren {
-  MoreSplatRoute: typeof MoreSplatRoute
-}
-
-const MoreRouteChildren: MoreRouteChildren = {
-  MoreSplatRoute: MoreSplatRoute,
-}
-
-const MoreRouteWithChildren = MoreRoute._addFileChildren(MoreRouteChildren)
-
-interface OffsetsRouteChildren {
-  OffsetsSplatRoute: typeof OffsetsSplatRoute
-}
-
-const OffsetsRouteChildren: OffsetsRouteChildren = {
-  OffsetsSplatRoute: OffsetsSplatRoute,
-}
-
-const OffsetsRouteWithChildren =
-  OffsetsRoute._addFileChildren(OffsetsRouteChildren)
-
-interface OffshiftsRouteChildren {
-  OffshiftsSplatRoute: typeof OffshiftsSplatRoute
-}
-
-const OffshiftsRouteChildren: OffshiftsRouteChildren = {
-  OffshiftsSplatRoute: OffshiftsSplatRoute,
-}
-
-const OffshiftsRouteWithChildren = OffshiftsRoute._addFileChildren(
-  OffshiftsRouteChildren,
-)
-
 interface SettingsRouteChildren {
   SettingsAdvancedRoute: typeof SettingsAdvancedRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
@@ -999,19 +760,13 @@ const SkillsRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRouteWithChildren,
-  AccountsRoute: AccountsRoute,
   ActivityRoute: ActivityRouteWithChildren,
   AutomationsRoute: AutomationsRouteWithChildren,
-  DeckRoute: DeckRouteWithChildren,
-  IssuesRoute: IssuesRoute,
-  MoreRoute: MoreRouteWithChildren,
-  OffsetsRoute: OffsetsRouteWithChildren,
-  OffshiftsRoute: OffshiftsRouteWithChildren,
   PairRoute: PairRoute,
-  PullRequestsRoute: PullRequestsRoute,
   SettingsRoute: SettingsRouteWithChildren,
   SetupRoute: SetupRoute,
   SkillsRoute: SkillsRouteWithChildren,
+  UsageRoute: UsageRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

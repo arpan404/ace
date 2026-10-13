@@ -58,7 +58,7 @@ for (const theme of ["light", "dark"])
       }
       await page.getByRole("link", { name: "Back to Providers" }).click();
     }
-    await page.goto("/accounts");
+    await page.goto("/usage");
     await expect(page.getByRole("article", { name: "Codex Personal" })).toBeVisible();
     for (const row of await page.getByRole("article").all()) {
       const label = (await row.getAttribute("aria-label")) ?? "";
@@ -266,7 +266,7 @@ for (const theme of ["light", "dark"])
           .getByRole("group", { name: "Claude Code", exact: true })
           .getByRole("img", { name: "Your CLI login account" }),
       );
-      await page.goto("/accounts");
+      await page.goto("/usage");
       await palette(
         page
           .getByRole("article", { name: "Claude Code Your CLI login" })

@@ -62,7 +62,7 @@ function labelTools(nodes: ReactNode): ReactNode {
         renderAction: (action) => (
           <MenuItem
             icon={<Icon icon={action.icon} size={16} />}
-            shortcut={action.shortcut}
+            {...(action.shortcut ? { shortcut: action.shortcut } : {})}
             onClick={action.onClick}
           >
             {action.label}

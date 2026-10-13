@@ -18,7 +18,8 @@ test("every view and settings page opens in the shell under its own title", asyn
     ["/activity", "Activity"],
     ["/automations", "Automations"],
     ["/skills", "Skills"],
-    ["/accounts", "Usage"],
+    ["/usage", "Usage"],
+    ["/archived", "Archived"],
     ["/settings", "Settings"],
   ];
   for (const [path, name] of pages) {
@@ -36,33 +37,34 @@ test("every view and settings page opens in the shell under its own title", asyn
   }
 });
 
-test("old addresses land where their pages live now", async () => {
-  for (const [path, name] of [
-    ["/deck", "Home"],
-    ["/deck/new", "Home"],
-    ["/offsets", "Home"],
-    ["/offsets/new", "Home"],
-    ["/offshifts", "Home"],
-    ["/offshifts/new", "Home"],
-    ["/offshifts/old-run/lane", "Home"],
-    ["/deck/old-run/lane", "Home"],
-    ["/offsets/old-run/lane", "Home"],
-    ["/more", "Usage"],
-    ["/more/accounts", "Usage"],
-    ["/more/files", "Home"],
-  ] as const) {
+test("removed pages are gone: their addresses show Not found and the palette never offers them", async () => {
+  for (const path of [
+    "/deck",
+    "/offsets/new",
+    "/offshifts",
+    "/more",
+    "/more/search",
+    "/pull-requests",
+    "/issues",
+    "/accounts",
+  ]) {
     const view = await harness().open(path);
-    await title(name);
+    await title("Not found");
     view.unmount();
   }
-  // An old search address opens the search dialog with its words, over Home.
-  await harness().open("/more/search?q=retry%20budget");
-  const dialog = await screen.findByRole("dialog", { name: "Search" });
-  expect(
-    within(dialog).getByRole<HTMLInputElement>("combobox", { name: "Search every thread" }).value,
-  ).toBe("retry budget");
-  await userEvent.keyboard("{Escape}");
+  await harness().open("/");
   await title("Home");
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  const search = await screen.findByRole("combobox", { name: "Search commands" });
+  await userEvent.type(search, "Usage");
+  expect(await screen.findByRole("option", { name: /^Usage/ })).toBeTruthy();
+  for (const removed of ["Pull requests", "Issues", "Deck", "Offshifts"]) {
+    await userEvent.clear(search);
+    await userEvent.type(search, removed);
+    // The palette has answered once it offers to search the threads for the words.
+    await screen.findByRole("option", { name: new RegExp(`^Search all threads for “${removed}”`) });
+    expect(screen.queryByRole("option", { name: new RegExp(`^${removed}`) })).toBeNull();
+  }
 });
 
 test("back and forward in the header follow profile view history", async () => {
