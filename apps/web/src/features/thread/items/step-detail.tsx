@@ -200,11 +200,27 @@ function AceStepDetail(props: { item: Item; view: AceToolView }) {
           {call?.error && (
             <p className="text-ui whitespace-pre-wrap text-muted-foreground">{call.error}</p>
           )}
-          {"raw" in item && item.raw.length > 0 && <JsonText label="Raw" value={item.raw} />}
-          {call && call.raw.length > 0 && <JsonText label="Raw" value={call.raw} />}
+          <RawFrames frames={[...("raw" in item ? item.raw : []), ...(call?.raw ?? [])]} />
         </div>
       </ToolDetails>
     </div>
+  );
+}
+
+/** The provider's own frames, for debugging only: one more closed disclosure, never inline. */
+function RawFrames(props: { frames: readonly unknown[] }) {
+  if (!props.frames.length) return null;
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="self-start text-xs text-subtle-foreground underline-offset-2 hover:text-foreground hover:underline">
+        Raw
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <pre className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
+          {JSON.stringify(props.frames, null, 2)}
+        </pre>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

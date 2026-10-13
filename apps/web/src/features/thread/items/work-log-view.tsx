@@ -43,6 +43,20 @@ export function WorkLogHeader(props: {
   );
 }
 
+/** "Worked for 1s" with nothing to open: the same line as the header, as plain text. */
+export function WorkLogLine(props: { label: string; time: string | undefined }) {
+  return (
+    <div className="flex min-h-8 items-center gap-3 border-b border-border pb-2">
+      <p className="min-w-0 truncate text-ui text-muted-foreground">{props.label}</p>
+      {props.time && (
+        <span className="ml-auto shrink-0 text-xs tabular-nums text-subtle-foreground">
+          {props.time}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** Rows standing in for a log's steps while they load. */
 export function StepsSkeleton() {
   return (
