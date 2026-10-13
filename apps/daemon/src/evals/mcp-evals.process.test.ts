@@ -43,10 +43,15 @@ test("catalogue a full-access thread sees", async () => {
       claude: withServer(claudeInjection(connection).developerInstructions),
       codex: Buffer.byteLength(codexInjection(connection).developerInstructions),
       opencode: withServer(openCodeInjection(connection).developerInstructions),
-      cursor: withServer(
-        cursorSdkInjection({ url: connection.url, bearer: connection.bearer })
-          .developerInstructions,
-      ),
+      cursor: (() => {
+        const cursor = cursorSdkInjection(connection);
+        // Cursor reads server instructions unless ace opts it out with this header.
+        return Object.entries(cursor.mcpServers.ace.headers).some(
+          ([name, value]) => name === "X-Ace-Instructions" && value === "native",
+        )
+          ? Buffer.byteLength(cursor.developerInstructions)
+          : withServer(cursor.developerInstructions);
+      })(),
       pi: Buffer.byteLength(developerInstructions("pi")),
       acp: withServer(developerInstructions("acp")),
     });

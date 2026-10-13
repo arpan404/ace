@@ -43,6 +43,19 @@ const whereAmI: EvalTask = {
       liveSiblings: liveOthers(world, threadId),
     };
     const seen: Record<string, unknown> = {};
+    // With a session brief in the instructions, every fact is already known: no calls.
+    const facts = readBrief(agent.instructions);
+    if (facts) {
+      const { delegates: _delegates, ...known } = facts;
+      Object.assign(seen, known);
+      const success = JSON.stringify(sorted(seen)) === JSON.stringify(sorted(truth));
+      return {
+        metrics: agent.finish(success),
+        note: success
+          ? "all facts from the brief"
+          : `saw ${JSON.stringify(seen)}, truth ${JSON.stringify(truth)}`,
+      };
+    }
     await agent.turn(async () => {
       const [status, info] = await Promise.all([
         agent.call("ace_status", {}),
@@ -88,13 +101,19 @@ const delegateTwo: EvalTask = {
   gate: false,
   async run(world) {
     const { agent } = await world.agent({});
-    const provider = await agent.turn(async () => {
-      const catalog = control(await agent.call("ace_agents_catalog", {}));
-      const instances = z
-        .object({ instances: z.array(z.object({ provider: z.string(), installed: z.boolean() })) })
-        .safeParse(catalog.data?.data).data?.instances;
-      return instances?.find((entry) => entry.installed && entry.provider === "claude")?.provider;
-    });
+    const listed = readBrief(agent.instructions)?.delegates.includes("claude");
+    const provider = listed
+      ? "claude"
+      : await agent.turn(async () => {
+          const catalog = control(await agent.call("ace_agents_catalog", {}));
+          const instances = z
+            .object({
+              instances: z.array(z.object({ provider: z.string(), installed: z.boolean() })),
+            })
+            .safeParse(catalog.data?.data).data?.instances;
+          return instances?.find((entry) => entry.installed && entry.provider === "claude")
+            ?.provider;
+        });
     if (!provider) return { metrics: agent.finish(false), note: "no provider found" };
     const tasks = [
       { requestId: "fix-header", task: "Fix the header spacing", answer: "Header spacing fixed" },
@@ -349,6 +368,28 @@ function liveOthers(world: EvalWorld, self: string): number {
 }
 function sorted(value: Record<string, unknown>) {
   return Object.fromEntries(Object.entries(value).toSorted(([a], [b]) => a.localeCompare(b)));
+}
+const accessLabels: Record<string, string> = {
+  "Read-only": "read-only",
+  Ask: "ask",
+  "Auto review": "auto-review",
+  "Full access": "full-access",
+};
+/** The session brief's facts, when the instructions carry one (proposal P1). */
+export function readBrief(instructions: string) {
+  if (!instructions.includes("ace session facts")) return undefined;
+  const pick = (pattern: RegExp) => pattern.exec(instructions)?.[1];
+  const project = pick(/Project "([^"]*)"/);
+  return {
+    project: project ?? null,
+    branch: pick(/(?:branch|worktree) "([^"]*)"/) ?? null,
+    access: accessLabels[pick(/Access: (Read-only|Ask|Auto review|Full access)/) ?? ""] ?? null,
+    provisional: /Title is provisional/.test(instructions),
+    liveSiblings: Number(pick(/Live: (\d+) other thread/) ?? Number.NaN),
+    delegates: (pick(/Delegate with delegate_task to: ([^\n]*)/) ?? "")
+      .split(";")
+      .map((entry) => /[a-z]+/.exec(entry)?.[0] ?? ""),
+  };
 }
 /** Field paths named by an error payload, if it names any. */
 export function issuePaths(text: string): string[] {

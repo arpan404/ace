@@ -1,5 +1,99 @@
 {
   "$id": "https://ace.local/protocol/v1/ace_agent_result.output.json",
-  "$ref": "https://ace.local/protocol/v1/ace_agent_cancel.output.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "unsupported",
+        "forbidden",
+        "not_found",
+        "limit",
+        "not_ready",
+        "invalid",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": {},
+      "properties": {
+        "outcome": {
+          "additionalProperties": false,
+          "properties": {
+            "before": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "outcome": {
+              "enum": [
+                "completed",
+                "failed",
+                "cancelled"
+              ],
+              "type": "string"
+            },
+            "result": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "threadId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "threadId",
+            "outcome",
+            "result",
+            "truncated",
+            "before"
+          ],
+          "type": "object"
+        },
+        "state": {
+          "enum": [
+            "working",
+            "waiting_on_human",
+            "waiting_on_children",
+            "result_available",
+            "failed",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        "threadId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "state"
+      ],
+      "type": "object"
+    },
+    "hint": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "type": "object"
 }

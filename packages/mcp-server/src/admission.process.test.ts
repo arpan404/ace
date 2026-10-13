@@ -106,8 +106,8 @@ for (const limit of ["tools", "HTTP"] as const) {
   });
 }
 
-for (const resource of ["thread", "agents"] as const) {
-  it(`rejects a foreign-thread ${resource} read port without exposing its data`, async () => {
+{
+  it("rejects a foreign-thread agents read port without exposing its data", async () => {
     const h = await harness(cleanups, scheduler);
     const foreign = Thread.parse({
       ...thread,
@@ -128,9 +128,6 @@ for (const resource of ["thread", "agents"] as const) {
     registerBuiltins(
       h.registry,
       {
-        async thread() {
-          return foreign;
-        },
         async agents() {
           return { agents: [agent], nextCursor: null };
         },
@@ -142,9 +139,7 @@ for (const resource of ["thread", "agents"] as const) {
       },
     );
     const { client } = await h.connect();
-    const result = await client.callTool({
-      name: resource === "thread" ? "ace_thread_info" : "ace_list_agents",
-    });
+    const result = await client.callTool({ name: "ace_list_agents" });
     expect(result).toMatchObject({ isError: true });
     expect(result.structuredContent).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain("foreign");

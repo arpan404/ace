@@ -204,7 +204,7 @@ export class OpenCodeSession implements ProviderSession {
         await s.client.session.instructions.entry.put({
           sessionID: info.id,
           key: "ace.tool-guidance",
-          value: developerInstructions("opencode"),
+          value: developerInstructions("opencode", ctx.aceMcp.session?.()),
         });
       s.ownership.establish(info);
       await s.ensureMcp(info.location.directory);

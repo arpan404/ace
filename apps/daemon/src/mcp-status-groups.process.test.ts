@@ -122,10 +122,9 @@ it("ace's guidance tells agents to edit files and run shell commands with their 
   );
   const statusTool = (await client.listTools()).tools.find((tool) => tool.name === "ace_status");
   expect(statusTool?.description).toContain("use your own workspace tools for files and shell");
-  for (const provider of ProviderKind.options) {
-    const injected = developerInstructions(provider);
-    expect(injected).toContain("with your own workspace tools");
-    expect(injected).toContain("never limits your own file and shell tools");
-    expect(injected).not.toMatch(/terminal tools/i);
-  }
+  // Providers that opt out of server instructions get the same text in their own channel.
+  for (const provider of ["codex", "cursor", "pi"] as const)
+    expect(developerInstructions(provider)).toContain("with your own workspace tools");
+  for (const provider of ProviderKind.options)
+    expect(developerInstructions(provider)).not.toMatch(/terminal tools/i);
 });

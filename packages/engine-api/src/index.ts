@@ -113,7 +113,16 @@ export interface SessionContext {
   onSessionConfirmed?(nativeSessionId: string): void;
   onInputMessage?(identity: { commandId: string; nativeId: string }): void;
   /** Ephemeral ace capability, revoked with this session. Never persisted. */
-  aceMcp?: { url: string; bearer: string; signal?: AbortSignal; end?(): void };
+  aceMcp?: {
+    url: string;
+    bearer: string;
+    signal?: AbortSignal;
+    end?(): void;
+    /** This session's brief and enabled ace groups, for the provider's native instructions. */
+    session?(): { brief?: string; groups?: readonly string[] };
+    /** What changed since this session's last ace call; for native turn-start hooks. */
+    changes?(): string | undefined;
+  };
   acpIdentity?: AcpIdentity;
   /** Immutable daemon-local plan; wrappers retain it when replacing lifetime signals. */
   acpLaunch?: LaunchPlan;

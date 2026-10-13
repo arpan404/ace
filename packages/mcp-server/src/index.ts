@@ -74,3 +74,15 @@ export { mcpStatusGroups, type StatusReader } from "./status.ts";
 export { withinJsonBudget } from "./json-budget.ts";
 
 export { htmlToolkit, htmlToolCatalog, type HtmlPublicationPort } from "./html-tools.ts";
+
+export {
+  renderBrief,
+  renderDigest,
+  maxBriefChars,
+  maxBriefLines,
+  maxDigestChars,
+  type SessionFacts,
+} from "./brief.ts";
+export { SessionAwareness, type AwarenessPort } from "./awareness.ts";
+export { aceInstructions } from "./status.ts";
+export type { SessionGuidance } from "./injection.ts";

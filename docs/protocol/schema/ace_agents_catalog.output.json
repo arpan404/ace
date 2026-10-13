@@ -1,5 +1,129 @@
 {
   "$id": "https://ace.local/protocol/v1/ace_agents_catalog.output.json",
-  "$ref": "https://ace.local/protocol/v1/ace_agent_cancel.output.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "unsupported",
+        "forbidden",
+        "not_found",
+        "limit",
+        "not_ready",
+        "invalid",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": {},
+      "properties": {
+        "caller": {
+          "additionalProperties": {},
+          "properties": {
+            "access": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "read-only",
+                    "ask",
+                    "auto-review",
+                    "full-access"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "threadId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "threadId",
+            "access"
+          ],
+          "type": "object"
+        },
+        "instances": {
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "allowedAccessModes": {
+                "items": {
+                  "enum": [
+                    "read-only",
+                    "ask",
+                    "auto-review",
+                    "full-access"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "auth": {
+                "type": "string"
+              },
+              "installed": {
+                "type": "boolean"
+              },
+              "provider": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider",
+              "installed",
+              "auth",
+              "allowedAccessModes"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "models": {
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "displayName": {
+                "type": "string"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "models",
+        "instances",
+        "caller"
+      ],
+      "type": "object"
+    },
+    "hint": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "type": "object"
 }

@@ -14,14 +14,14 @@ export async function proof(
       Accept: "application/json, text/event-stream",
       "MCP-Protocol-Version": "2026-07-28",
       "Mcp-Method": "tools/call",
-      "Mcp-Name": "ace_thread_info",
+      "Mcp-Name": "ace_status",
     },
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
       params: {
-        name: "ace_thread_info",
+        name: "ace_status",
         arguments: {},
         _meta: {
           "io.modelcontextprotocol/protocolVersion": "2026-07-28",
@@ -34,10 +34,10 @@ export async function proof(
   if (!response.ok) throw new Error(`MCP authentication failed: ${response.status}`);
   const body = z
     .object({
-      result: z.object({ structuredContent: z.object({ thread: z.object({ id: z.string() }) }) }),
+      result: z.object({ structuredContent: z.object({ threadId: z.string() }) }),
     })
     .parse(await response.json());
-  const threadId = body.result.structuredContent.thread.id;
+  const threadId = body.result.structuredContent.threadId;
   const featureUrl = features?.url ?? process.env["ACE_TEST_FEATURE_URL"];
   const deviceId = features?.deviceId ?? process.env["ACE_TEST_FEATURE_DEVICE"];
   if (featureUrl && deviceId) {

@@ -357,6 +357,8 @@ export const AgentControlResult = z.object({
   code: z
     .enum(["unsupported", "forbidden", "not_found", "limit", "not_ready", "invalid", "unavailable"])
     .optional(),
+  /** On failure: what to do next, authored by ace. */
+  hint: z.string().max(512).optional(),
   data: z.unknown().optional(),
 });
 export type AgentControlResult = z.infer<typeof AgentControlResult>;

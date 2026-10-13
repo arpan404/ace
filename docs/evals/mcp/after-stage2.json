@@ -1,0 +1,162 @@
+{
+  "label": "after stage 2 (brief, errors, catalogue)",
+  "tasks": [
+    {
+      "id": "where-am-i",
+      "title": "Find where I am: project, branch, access mode, title state, live siblings",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 0,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 1,
+        "contextBytes": 56537,
+        "tokens": 14135
+      },
+      "note": "all facts from the brief"
+    },
+    {
+      "id": "delegate-two",
+      "title": "Delegate two tasks and collect both results",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 1,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 57387,
+        "tokens": 14347
+      },
+      "note": "both results collected"
+    },
+    {
+      "id": "browser-check",
+      "title": "Open the dev server in the browser and report console and network errors",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 3,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 4,
+        "contextBytes": 57960,
+        "tokens": 14490
+      },
+      "note": "console error found, 500 found"
+    },
+    {
+      "id": "recent-work",
+      "title": "Read the project's recent work and its outcome",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 2,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 3,
+        "contextBytes": 61959,
+        "tokens": 15490
+      },
+      "note": "outcome found"
+    },
+    {
+      "id": "visualize",
+      "title": "Render a small comparison as HTML",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 1,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 56811,
+        "tokens": 14203
+      },
+      "note": "rendered"
+    },
+    {
+      "id": "recover-bad-argument",
+      "title": "Recover from a wrong argument using only the error",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 12,
+        "ownToolCalls": 0,
+        "failedCalls": 6,
+        "identicalRetries": 0,
+        "turns": 13,
+        "contextBytes": 60844,
+        "tokens": 15211
+      },
+      "note": "6/6 recovered on the second call"
+    },
+    {
+      "id": "child-waits-on-human",
+      "title": "A child waiting on the person is never reported done",
+      "gate": true,
+      "metrics": {
+        "success": true,
+        "aceCalls": 3,
+        "ownToolCalls": 0,
+        "failedCalls": 1,
+        "identicalRetries": 0,
+        "turns": 4,
+        "contextBytes": 57701,
+        "tokens": 14426
+      },
+      "note": "wait needs_you, child needs_you"
+    },
+    {
+      "id": "read-only-no-screen",
+      "title": "In read-only mode, screen tools are absent and never attempted",
+      "gate": true,
+      "metrics": {
+        "success": true,
+        "aceCalls": 0,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 1,
+        "contextBytes": 55663,
+        "tokens": 13916
+      },
+      "note": "effective :read-only; control serves screen: true; read-only lists 0, attempted 0"
+    }
+  ],
+  "catalogue": {
+    "tools": 79,
+    "toolsListBytes": 95702,
+    "descriptorBytes": 53412,
+    "outputSchemaBytes": 28158,
+    "largestOutputSchemas": [
+      {
+        "name": "ace_list_agents",
+        "bytes": 4634
+      },
+      {
+        "name": "delegate_task",
+        "bytes": 2002
+      },
+      {
+        "name": "ace_agents_status",
+        "bytes": 1529
+      }
+    ],
+    "readOnlyWithoutHint": [],
+    "instructionBytes": {
+      "claude": 3125,
+      "codex": 3026,
+      "opencode": 3107,
+      "cursor": 3031,
+      "pi": 2680,
+      "acp": 2655
+    }
+  }
+}

@@ -1,5 +1,31 @@
 {
   "$id": "https://ace.local/protocol/v1/ace_device_task_publish.output.json",
-  "$ref": "https://ace.local/protocol/v1/ace_agent_cancel.output.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "unsupported",
+        "forbidden",
+        "not_found",
+        "limit",
+        "not_ready",
+        "invalid",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "data": {},
+    "hint": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "type": "object"
 }

@@ -11,6 +11,8 @@ import { browserToolkit } from "../browser-toolkit.ts";
 import { screenToolkit } from "@ace/screen";
 import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
+import { hostname } from "node:os";
+import { mcpAwareness } from "../mcp-awareness.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startMcp(context: ServiceContext): Promise<void> {
   const { options, store, resources, services } = context;
@@ -127,6 +129,11 @@ export async function startMcp(context: ServiceContext): Promise<void> {
             }
           : {}),
       },
+    }),
+    mcpAwareness({
+      store,
+      delegations: () => services.agentControl?.delegations,
+      machine: hostname(),
     }),
   );
   resources.own(() => mcp.close());

@@ -95,14 +95,14 @@ async function setup() {
         Accept: "application/json, text/event-stream",
         "MCP-Protocol-Version": "2026-07-28",
         "Mcp-Method": "tools/call",
-        "Mcp-Name": "ace_thread_info",
+        "Mcp-Name": "ace_status",
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
         params: {
-          name: "ace_thread_info",
+          name: "ace_status",
           arguments: {},
           _meta: {
             "io.modelcontextprotocol/protocolVersion": "2026-07-28",
@@ -120,7 +120,7 @@ it("injects a live thread-scoped connection and revokes it on provider exit", as
   const session = await h.open();
   cleanup.push(() => session.close("shutdown"));
   expect(await (await h.read()).json()).toMatchObject({
-    result: { structuredContent: { thread: { id: h.thread.id, rootAgentId: "root" } } },
+    result: { structuredContent: { threadId: h.thread.id, agentId: "root" } },
   });
   h.native().onExit({ deliberate: false });
   expect((await h.read()).status).toBe(401);
@@ -195,9 +195,7 @@ it("daemon composition gives lazy engine sessions scoped MCP authority before pr
   if (!thread?.rootAgentId) throw new Error("Missing engine root");
   expect(await (await h.read()).json()).toMatchObject({
     result: {
-      structuredContent: {
-        thread: { id: thread.id, rootAgentId: thread.rootAgentId },
-      },
+      structuredContent: { threadId: thread.id, agentId: thread.rootAgentId },
     },
   });
   const caller = h.native();

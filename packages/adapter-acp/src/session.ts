@@ -383,7 +383,7 @@ class AcpSession implements ProviderSession {
               ? [
                   {
                     type: "text",
-                    text: `<ace-tool-guidance>\n${developerInstructions(this.quirks.provider)}\n</ace-tool-guidance>`,
+                    text: `<ace-tool-guidance>\n${developerInstructions(this.quirks.provider, this.ctx.aceMcp?.session?.())}\n</ace-tool-guidance>`,
                   },
                 ]
               : []),

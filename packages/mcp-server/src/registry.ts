@@ -30,6 +30,11 @@ export interface ToolDefinition<I extends z.ZodObject, O extends z.ZodObject> {
   output: O;
   capability: McpCapability | null;
   timeoutMs: number;
+  /**
+   * The output schema clients see, when the validated one is too large to be worth its context.
+   * It must accept every value `output` accepts (use open objects).
+   */
+  advertisedOutput?: z.ZodObject;
   /** Trusted definition override; ordinary tools remain capped at 64 KiB. */
   maxInputBytes?: number;
   run(input: z.output<I>, context: ToolContext): Promise<z.input<O>>;
@@ -45,6 +50,11 @@ export const nodeScheduler: Scheduler = {
   },
 };
 const JsonObjectSchema = z.object({ type: z.literal("object") }).passthrough();
+/**
+ * Claude Code defers MCP tools behind tool search; these few stay loaded because they are the
+ * entry points for ace's outcome-level work. Other clients ignore the key.
+ */
+const alwaysLoad = new Set(["delegate_task", "ace_browser_open", "ace_html_render"]);
 function noop(): void {}
 interface Entry {
   /** Built on first list or schema read: JSON Schema per tool would otherwise sit idle in heap. */
@@ -92,7 +102,7 @@ export class ToolRegistry {
       input,
       capability,
       timeoutMs,
-      output,
+      definition.advertisedOutput ?? output,
       definition.riskClass,
       definition.destructive,
     );
@@ -183,26 +193,31 @@ export class ToolRegistry {
     riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"],
     destructive?: boolean,
   ): Tool {
+    const risk = riskClass ?? "external-effect";
+    const inputSchema = JsonObjectSchema.parse({
+      ...z.toJSONSchema(input, { io: "input" }),
+      type: "object",
+    });
+    const properties = z.record(z.string(), z.unknown()).safeParse(inputSchema["properties"]).data;
     return {
       name,
       description,
-      // MCP reads a missing destructiveHint as true, so every hint is explicit. Opening or
-      // clicking a page reaches the open world without destroying anything.
-      ...(riskClass
-        ? {
-            annotations: {
-              readOnlyHint: riskClass === "read-only",
-              destructiveHint: destructive === true,
-              idempotentHint: riskClass === "read-only",
-              openWorldHint: riskClass === "external-effect",
-            },
-          }
-        : {}),
-      _meta: { "ace/timeoutMs": timeoutMs, "ace/riskClass": riskClass ?? "external-effect" },
-      inputSchema: JsonObjectSchema.parse({
-        ...z.toJSONSchema(input, { io: "input" }),
-        type: "object",
-      }),
+      // MCP reads a missing destructiveHint as true, so every tool states every hint, even one
+      // registered without a risk class. Opening or clicking a page reaches the open world
+      // without destroying anything.
+      annotations: {
+        readOnlyHint: risk === "read-only",
+        destructiveHint: destructive === true,
+        // Reads change nothing; a stable requestId makes a repeated call a no-op.
+        idempotentHint: risk === "read-only" || properties?.["requestId"] !== undefined,
+        openWorldHint: risk === "external-effect",
+      },
+      _meta: {
+        "ace/timeoutMs": timeoutMs,
+        "ace/riskClass": risk,
+        ...(alwaysLoad.has(name) ? { "anthropic/alwaysLoad": true } : {}),
+      },
+      inputSchema,
       ...(output
         ? {
             outputSchema: JsonObjectSchema.parse({

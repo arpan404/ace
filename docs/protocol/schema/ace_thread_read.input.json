@@ -18,8 +18,5 @@
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     }
   },
-  "required": [
-    "threadId"
-  ],
   "type": "object"
 }
