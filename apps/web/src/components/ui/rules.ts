@@ -4,8 +4,8 @@
  *
  * - `toolbarEdge`: the bottom edge of a tab strip or a panel toolbar. A box-shadow, not a
  *   border, so the strip's controls stay on its exact centre line.
- * - `sectionRule`: the top rule of a section that follows another (Summary's Background and
- *   Automations, a card's footer).
+ * - `sectionRule`: the top rule of a section that follows another (a card's footer). Side
+ *   panels never take one: their sections part by spacing and a small muted label.
  * - `listDivider`: hairlines between the rows of one list or card.
  * - `controlDivider`: a short vertical rule between two control groups in a toolbar.
  *
@@ -17,15 +17,14 @@ export const listDivider = "divide-y divide-border-soft";
 export const controlDivider = "mx-1 h-4 w-px shrink-0 bg-border";
 
 /*
- * Containers, two and only two:
+ * Containers:
  *
  * - `groupCard`: grouped, settings-like content (Settings, a skill's details, an automation's
  *   When / Runs on / Recent runs). Rows inside take `listDivider`.
- * - `rowCard`: one outlined row of a side-panel list (Summary's agents, background commands and
- *   automations). Each row is its own card; rows stack with a small gap.
+ * - `plainRow`: one borderless row of a side-panel list (Summary's agents, background commands
+ *   and automations), as sidebar rows are: a rounded hover fill and nothing at rest.
  *
  * Everything else (the transcript, the sidebar, menus) is borderless.
  */
 export const groupCard = "rounded-lg border border-border-soft bg-card";
-export const rowCard =
-  "rounded-md border border-border bg-surface-1 transition-colors duration-(--motion-fast) hover:bg-accent";
+export const plainRow = "rounded-md transition-colors duration-(--motion-fast) hover:bg-accent";

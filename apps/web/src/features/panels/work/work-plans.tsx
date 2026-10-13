@@ -5,9 +5,9 @@ export function WorkPlans(props: { threadId: string }) {
   const plans = useShownPlans(props.threadId);
   if (!plans.length) return null;
   return (
-    <div className="mx-1.5 border-b border-border">
+    <div>
       {plans.map(({ step, progress }) => (
-        <section key={step.agentId} aria-label="Plan" className="px-3.5 py-3">
+        <div key={step.agentId} className="px-2 py-1">
           <ol aria-label="Plan" className="space-y-2 text-ui">
             {progress.todos.map((todo, index) => (
               <li
@@ -32,7 +32,7 @@ export function WorkPlans(props: { threadId: string }) {
               </li>
             ))}
           </ol>
-        </section>
+        </div>
       ))}
     </div>
   );

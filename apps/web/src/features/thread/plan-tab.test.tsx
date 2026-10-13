@@ -42,7 +42,6 @@ test("operational plans show their progress in the composer strip and their full
   const work = await screen.findByRole("tabpanel", { name: "Summary" });
   const list = await within(work).findByRole("list", { name: "Plan" });
   expect(await within(work).findByRole("tree", { name: "Agent tree" })).toBeTruthy();
-  await within(work).findByRole("region", { name: "Automations" });
   expect(screen.getAllByRole("tab", { name: "Summary" })).toHaveLength(1);
   expect(screen.queryByRole("tab", { name: "Agents" })).toBeNull();
   expect(

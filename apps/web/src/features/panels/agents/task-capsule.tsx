@@ -1,18 +1,19 @@
 import { CheckIcon, ExclamationMarkIcon, XIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-import { rowCard } from "@/components/ui/rules.ts";
+import { plainRow } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
+import { useLiveConnection } from "@/lib/live-connection.ts";
 
 /*
- * The Summary tab's task capsules: one rounded row per agent or background command, with an
- * 18px status glyph, the name, muted meta, a small status badge and a chevron. ace's own
- * component, drawn in its tokens.
+ * The Summary tab's task capsules: one borderless row per agent or background command, with an
+ * 18px status glyph, the name, muted meta and, only when the person is needed, a small badge.
+ * ace's own component, drawn in its tokens.
  */
 
 export type CapsuleState = "working" | "waiting" | "needs-you" | "done" | "failed" | "stopped";
 
-/** A capsule's outer shell: the app's outlined row card. */
-export const capsule = rowCard;
+/** A capsule's outer shell: a plain list row, a hover fill and nothing at rest. */
+export const capsule = plainRow;
 
 const tones: Record<CapsuleState, string> = {
   working: "working",
@@ -24,19 +25,27 @@ const tones: Record<CapsuleState, string> = {
 };
 
 /**
- * The status glyph: a ring while it works, holding how many of its own still run; a check on
- * the done tone when it finished; a cross when it failed; "!" while it needs the person. The
- * ring stays still: working states don't animate (the motion policy).
+ * The status glyph: a ring while it works, turning slowly (the live-activity motion, still
+ * under reduced motion or while the facts are stale) and holding how many of its own still run;
+ * a still ring while it waits; a check when it finished; a cross when it failed; "!" while it
+ * needs the person.
  */
 export function CapsuleGlyph(props: { state: CapsuleState; count?: number | undefined }) {
+  const fresh = useLiveConnection().fresh;
   const tone = tones[props.state];
   if (props.state === "working" || props.state === "waiting")
     return (
       <span
         aria-hidden
         data-tone={tone}
-        className="relative grid size-[18px] shrink-0 place-items-center rounded-full border-[1.5px] border-(--tone)/25 border-t-(--tone) text-2xs leading-none font-semibold text-(--tone-text) tabular-nums"
+        className="relative grid size-[18px] shrink-0 place-items-center text-2xs leading-none font-semibold text-(--tone-text) tabular-nums"
       >
+        <span
+          className={cn(
+            "absolute inset-0 rounded-full border-[1.5px] border-(--tone)/25 border-t-(--tone)",
+            props.state === "working" && fresh && "fx-spin-slow",
+          )}
+        />
         {props.count ? props.count : null}
       </span>
     );
@@ -52,14 +61,17 @@ export function CapsuleGlyph(props: { state: CapsuleState; count?: number | unde
     <span
       aria-hidden
       data-tone={tone}
-      className="grid size-[18px] shrink-0 place-items-center rounded-full bg-(--tone) text-background"
+      className={cn(
+        "grid size-[18px] shrink-0 place-items-center rounded-full",
+        props.state === "done" ? "text-(--tone-text)" : "bg-(--tone) text-background",
+      )}
     >
       {Glyph ? <Glyph size={11} weight="bold" /> : <span className="size-1.5 bg-current" />}
     </span>
   );
 }
 
-/** A small status word on its tone's tint: "Completed", "Failed", "Needs you". */
+/** "Needs you" on its tone's tint: the one status a row raises above its muted meta. */
 export function CapsuleBadge(props: { state: CapsuleState; children: ReactNode }) {
   return (
     <span
@@ -71,8 +83,8 @@ export function CapsuleBadge(props: { state: CapsuleState; children: ReactNode }
   );
 }
 
-/** The words a capsule's badge shows for a state; a working capsule shows none (its ring says it). */
-export const badgeWords: Partial<Record<CapsuleState, string>> = {
+/** The words a settled capsule's meta says; a working capsule says what it is doing instead. */
+export const stateWords: Partial<Record<CapsuleState, string>> = {
   done: "Completed",
   failed: "Failed",
   "needs-you": "Needs you",

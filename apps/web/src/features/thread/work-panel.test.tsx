@@ -199,7 +199,7 @@ test("project schedules show their cadence and persist toggles and run-now resul
   // One row: its cadence is the tooltip, and Edit and Run show while it is hovered.
   await userEvent.hover(row);
   expect((await screen.findByRole("tooltip")).textContent).toContain("Every 5 minutes");
-  expect(section.textContent).toMatch(/In |Any moment|Today|Tomorrow/);
+  expect(section.textContent).toMatch(/in |any moment|today|tonight|tomorrow/i);
   expect(within(section).queryByText("Other project")).toBeNull();
   await userEvent.click(within(section).getByRole("button", { name: "Run Review changes now" }));
   await waitFor(async () => {

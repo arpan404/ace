@@ -1,42 +1,26 @@
-import { useStopIntent } from "./use-stop-intent.ts";
-import { agentName, backgroundCommand, agentWorkState, formatSpan, taskState } from "@ace/ui-core";
-import {
-  useAgent,
-  useAgentTree,
-  useItem,
-  useTask,
-  useThreadMeta,
-  type AgentTreeNode,
-} from "@ace/client-react";
-import { CaretDownIcon, CaretRightIcon, ClockIcon, RobotIcon } from "@phosphor-icons/react";
+import { agentName, agentWorkState, formatSpan } from "@ace/ui-core";
+import { useAgent, useItem, useThreadMeta, type AgentTreeNode } from "@ace/client-react";
+import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { createContext, use, useCallback, useId, useMemo, type KeyboardEvent } from "react";
-import { Button } from "@/components/ui/button.tsx";
-import { EmptyState } from "@/components/ui/empty.tsx";
-import { sectionRule } from "@/components/ui/rules.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
-import { useTreeWork } from "./use-tree-work.ts";
 import { TreeWorkContext } from "./tree-work-context.ts";
 import { useNow } from "@/lib/time.ts";
 import { ArrivalScope, useArrival } from "@/lib/arrival.tsx";
-import { useServerQueue } from "@/lib/server-queue.ts";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useOpenSubagent } from "@/lib/subagent-link.tsx";
 import { agentMark } from "./agent-status.tsx";
 import {
-  badgeWords,
   capsule,
   CapsuleBadge,
   CapsuleGlyph,
   CapsuleMeta,
+  stateWords,
   type CapsuleState,
 } from "./task-capsule.tsx";
 import { StopAgent } from "./stop-agent.tsx";
 import { subagentCounts } from "./subagents.ts";
-import { AgentCounts } from "./tree-extras.tsx";
-
-const heading = "flex h-7 items-center px-2.5 pt-1 text-xs text-muted-foreground";
 
 /** The tree's roving focus and folded branches, shared by its rows. */
 interface TreeState {
@@ -109,68 +93,15 @@ function treeKeys(tree: TreeState) {
 }
 
 /**
- * Work's Agents section: the whole agent tree with what each agent is doing and for how long (a row opens
- * that agent as its own tab), the background work still running with Stop, queued input,
- * and queued input. Every row subscribes to its own entity.
+ * Summary's agents: the whole agent tree with what each agent is doing (a subagent's row opens
+ * it as the whole chat). Every row subscribes to its own entity. Rows that join while the tab is
+ * open rise in.
  */
-export function WorkTree(props: { threadId: string }) {
-  const tree = useAgentTree(props.threadId) ?? [];
-  const facts = useTreeWork(props.threadId);
-  const tasks = facts.tasks.filter(
-    (task) => task.status === "running" || task.status === "unknown",
-  );
-  const thread = useThreadMeta(props.threadId);
-  const queuedCount = useServerQueue(props.threadId).page?.total ?? 0;
-  const queueWaiting = thread?.status.state === "waiting" && thread.status.on === "queue";
+export function WorkTree(props: { threadId: string; nodes: readonly AgentTreeNode[] }) {
   return (
-    <TreeWorkContext value={facts.work}>
-      <ArrivalScope>
-        <div className="pb-1">
-          <AgentCounts agents={facts.agents} work={facts.work} />
-          {tree.length ? (
-            <AgentTree threadId={props.threadId} nodes={tree} />
-          ) : (
-            <EmptyState icon={RobotIcon} title="No agents yet" className="h-auto py-4" />
-          )}
-          {(tasks.length > 0 || queuedCount > 0 || queueWaiting) && (
-            <section aria-labelledby="agents-background" className={cn("mt-2 pt-1", sectionRule)}>
-              <h3 id="agents-background" className={heading}>
-                Background
-              </h3>
-              <ul>
-                {tasks.map((task) => (
-                  <TaskRow key={task.id} threadId={props.threadId} taskId={task.id} />
-                ))}
-                {(queuedCount > 0 || queueWaiting) && <QueueRow count={queuedCount} />}
-              </ul>
-            </section>
-          )}
-        </div>
-      </ArrivalScope>
-    </TreeWorkContext>
-  );
-}
-
-/** "1 queued message · sends when the agent is free", the composer's queue in one line. */
-function QueueRow(props: { count: number }) {
-  const arrival = useArrival();
-  const label =
-    props.count > 1
-      ? `${props.count} queued messages`
-      : props.count === 1
-        ? "1 queued message"
-        : "Queued messages";
-  return (
-    <li
-      aria-label={`${label}: waiting for the agent`}
-      className={cn("mb-1 flex h-9 items-center gap-2 px-2.5 text-ui", capsule, arrival)}
-    >
-      <span className="grid size-[18px] shrink-0 place-items-center text-muted-foreground">
-        <ClockIcon aria-hidden size={15} />
-      </span>
-      <span className="font-medium">{label}</span>
-      <CapsuleMeta>{props.count > 1 ? "send" : "sends"} when the agent is free</CapsuleMeta>
-    </li>
+    <ArrivalScope>
+      <AgentTree threadId={props.threadId} nodes={props.nodes} />
+    </ArrivalScope>
   );
 }
 
@@ -238,8 +169,9 @@ function BranchNode(props: { threadId: string; node: AgentTreeNode; depth: numbe
         subagents={tree.subagents.get(node.id) ?? 0}
       />
       {open && (
-        // Owned by the row above (aria-owns): the tree item's children, in tree terms.
-        <ul role="group" id={group}>
+        // Owned by the row above (aria-owns): the tree item's children, in tree terms, hung
+        // on a thin rail under their parent's glyph.
+        <ul role="group" id={group} className="ml-4.5 border-l border-border-soft pl-1.5">
           <Branch threadId={props.threadId} nodes={node.children} depth={props.depth + 1} />
         </ul>
       )}
@@ -279,17 +211,20 @@ function AgentRow(props: {
   const end = agent.endedAt ?? (running ? Math.max(now, agent.createdAt) : agent.createdAt);
   const mark = agentMark(status, running, needsYou);
   const state: CapsuleState = mark === "spinner" ? "working" : mark;
-  const badge = needsYou ? "Needs you" : badgeWords[state];
+  // A row says its status once: the glyph and, in its muted meta, what it is doing or how it
+  // ended; only a request waiting on the person raises a badge.
+  const meta = needsYou ? undefined : (stateWords[state] ?? activity);
+  // The main agent's time is the thread's own, which the summary's head line already counts.
+  const elapsed = !root && end - agent.createdAt >= 1000 ? formatSpan(agent.createdAt, end) : "";
   const body = (
     <>
       <CapsuleGlyph state={state} count={running ? props.subagents : undefined} />
-      <span className="shrink-0 font-medium whitespace-nowrap">{name}</span>
-      {/* A row says its status once: the badge when there is one, else what it is doing. */}
-      <CapsuleMeta className="flex-1">{badge ? null : activity}</CapsuleMeta>
-      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-        {end - agent.createdAt >= 1000 ? formatSpan(agent.createdAt, end) : ""}
-      </span>
-      {badge && <CapsuleBadge state={state}>{badge}</CapsuleBadge>}
+      <span className="min-w-0 shrink truncate font-medium">{name}</span>
+      <CapsuleMeta className="flex-1">{meta}</CapsuleMeta>
+      {needsYou && <CapsuleBadge state={state}>Needs you</CapsuleBadge>}
+      {elapsed && (
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{elapsed}</span>
+      )}
       <ProviderIconTip
         provider={agent.native.provider}
         acpAgentId={agent.native.acpAgentId}
@@ -306,10 +241,7 @@ function AgentRow(props: {
       });
   };
   return (
-    <div
-      style={{ marginLeft: props.depth * 16 }}
-      className={cn("group/agent mb-1 flex flex-wrap items-center gap-1", capsule)}
-    >
+    <div className={cn("group/agent flex flex-wrap items-center gap-1", capsule)}>
       {/* The row is the tree item: Enter or a click opens the agent as the whole chat; a click on
           its chevron, or anywhere on the main agent (which opens nothing), folds its subagents. */}
       <div
@@ -330,7 +262,7 @@ function AgentRow(props: {
           open();
         }}
         className={cn(
-          "focus-ring-inset relative flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md pr-1 pl-2.5 text-left text-ui",
+          "focus-ring-inset relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md pr-0.5 pl-2 text-left text-ui",
           (!root || props.expanded !== undefined) && "cursor-pointer",
         )}
       >
@@ -344,7 +276,7 @@ function AgentRow(props: {
           subagents={props.subagents}
           pending={running}
           inTree
-          className="mr-1 hidden group-focus-within/agent:inline-flex group-hover/agent:inline-flex pointer-coarse:inline-flex"
+          className="mr-0.5 hidden group-focus-within/agent:inline-flex group-hover/agent:inline-flex pointer-coarse:inline-flex"
           onKeyDown={(event) => {
             // Back to the row it belongs to.
             if (event.key === "Escape" || event.key === "ArrowLeft") {
@@ -360,58 +292,6 @@ function AgentRow(props: {
   );
 }
 
-/** One background task still running: its command, how long it has run, and Stop. */
-function TaskRow(props: { threadId: string; taskId: string }) {
-  const task = useTask(props.threadId, props.taskId);
-  const arrival = useArrival();
-  const now = useNow();
-  const stop = useStopIntent();
-  const workspace = useWorkspaceActions(props.threadId);
-  const item = useItem(props.threadId, task?.toolCallId ?? "");
-  if (!task || (task.status !== "running" && task.status !== "unknown")) return null;
-  const stopping = stop.busy;
-  const end = Math.max(now, task.startedAt);
-  return (
-    <li
-      aria-label={`${task.title}: ${taskState(task)}`}
-      className={cn(
-        "mb-1 flex min-h-9 flex-wrap items-center gap-2 pr-1 pl-2.5 text-ui",
-        capsule,
-        arrival,
-      )}
-    >
-      <CapsuleGlyph state="working" />
-      <button
-        type="button"
-        className="focus-ring min-w-0 shrink truncate rounded-sm font-mono text-xs"
-        onClick={() => workspace.open({ kind: "shell", id: task.id })}
-        aria-label={`Show ${backgroundCommand(task, item)} output`}
-      >
-        {backgroundCommand(task, item)}
-      </button>
-      <CapsuleMeta className="flex-1">
-        {end - task.startedAt >= 1000 ? `${formatSpan(task.startedAt, end)} · ` : ""}
-        {taskState(task)}
-      </CapsuleMeta>
-      {task.stoppable && (
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={stopping}
-          onClick={() => void stop.send({ type: "background_task.stop", taskId: task.id })}
-        >
-          {stopping ? "Stopping…" : "Stop"}
-        </Button>
-      )}
-      {stop.failed && (
-        <span role="alert" className="w-full text-xs text-status-failed">
-          Couldn't stop this command. Try again.
-        </span>
-      )}
-    </li>
-  );
-}
-
 /**
  * A capsule's chevron, drawn inside its tree item, whose click handles it: ⌄ on an agent with
  * subagents folds them (as ← → do), › on one that opens as its own tab.
@@ -423,7 +303,12 @@ function CapsuleChevron(props: { expanded: boolean | undefined; opens: boolean }
     <span
       aria-hidden
       data-capsule-fold={props.expanded === undefined ? undefined : ""}
-      className="mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:text-foreground"
+      className={cn(
+        "grid size-6 shrink-0 place-items-center rounded-sm text-muted-foreground hover:text-foreground",
+        // An opening › is a hint, not state: it shows with the row's hover or focus.
+        props.expanded === undefined &&
+          "opacity-0 group-focus-within/agent:opacity-100 group-hover/agent:opacity-100 pointer-coarse:opacity-100",
+      )}
     >
       <Glyph
         size={14}
