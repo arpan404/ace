@@ -59,6 +59,8 @@ export function useDeliveryFailures(threadId: string | undefined): ReadonlyMap<s
 const noFailures: ReadonlyMap<string, string> = new Map();
 
 const revisionOf = (reader: ThreadReader) => reader.queue?.revision;
+const sameAdmitted = (a: readonly string[] | undefined, b: readonly string[] | undefined) =>
+  a === b || (!!a && !!b && arrayEqual(a, b));
 
 /**
  * Command ids of messages still waiting in the thread's queue: those on the queue page read at
@@ -110,18 +112,24 @@ export function useStaged(threadId: string): readonly StagedSend[] {
     () => new Map(pending.map((send) => [send.commandId, send.state])),
     [pending],
   );
+  // Undefined until the thread has loaded: only then can the transcript say it owns a send.
   const readAdmitted = useCallback(
     (reader: ThreadReader) =>
-      here
-        .filter((send) => reader.item(inputItemId(send.commandId))?.type === "message")
-        .map((send) => send.commandId),
+      reader.thread
+        ? here
+            .filter((send) => reader.item(inputItemId(send.commandId))?.type === "message")
+            .map((send) => send.commandId)
+        : undefined,
     [here],
   );
   const admitted = useThread(
     threadId,
-    here.map((send): ThreadKey => `item:${inputItemId(send.commandId)}`),
+    [
+      "thread",
+      ...here.map((send): ThreadKey => `item:${inputItemId(send.commandId)}`),
+    ],
     readAdmitted,
-    arrayEqual,
+    sameAdmitted,
   );
   const owned = useMemo(() => new Set(admitted), [admitted]);
   useEffect(() => {
@@ -131,11 +139,14 @@ export function useStaged(threadId: string): readonly StagedSend[] {
         unstage(send.commandId, true);
     }
   }, [here, outbox, owned]);
+  const loaded = admitted !== undefined;
   useEffect(() => {
+    // A copy left from before a reload may already be in the transcript: wait to know.
+    if (!loaded) return;
     if (!here.some((send) => !owned.has(send.commandId) && outbox.get(send.commandId) !== "saving"))
       return;
     void drainStaged(client, threadId);
-  }, [client, threadId, here, outbox, owned]);
+  }, [client, threadId, here, outbox, owned, loaded]);
   const now = useSeconds(here.some(uploadPending));
   return useMemo(
     () =>
