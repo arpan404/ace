@@ -17,6 +17,8 @@ beforeEach(() => localStorage.clear());
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 const card = (title: RegExp) => within(threads()).queryByRole("link", { name: title });
+/** The question archiving a thread that still works asks first. */
+const keep = () => screen.queryByRole("button", { name: "Archive, keep running" });
 
 async function openHome() {
   const app = harness();
@@ -45,6 +47,10 @@ async function archive(app: App, title: RegExp, id: string) {
   await userEvent.pointer({ keys: "[MouseRight]", target });
   const menu = await screen.findByRole("menu", { name: /^Actions for/ });
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
+  // A thread still working asks first; these tests keep it running.
+  await waitFor(() => expect(listed(app, id)?.archivedAt ?? keep()).toBeTruthy());
+  const ask = keep();
+  if (ask) await userEvent.click(ask);
   await waitFor(() => expect(listed(app, id)?.archivedAt).toBeDefined());
 }
 

@@ -66,6 +66,7 @@ test("hover menu shortcuts rename, pin and archive its row while another thread 
   expect(activeTitle.textContent).toBe(before);
   await openActions("Renamed row");
   await userEvent.keyboard("{Alt>}{Meta>}y{/Meta}{/Alt}");
+  await userEvent.click(await screen.findByRole("button", { name: "Archive, keep running" }));
   await waitFor(() =>
     expect(within(threads).queryByRole("link", { name: /^Renamed row/ })).toBeNull(),
   );

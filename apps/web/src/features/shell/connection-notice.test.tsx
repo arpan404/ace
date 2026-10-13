@@ -39,6 +39,7 @@ test("offline, the inline notice counts and lists waiting actions and offers Ret
   await userEvent.pointer({ keys: "[MouseRight]", target: row });
   const menu = await screen.findByRole("menu", { name: /^Actions for/ });
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Archive, keep running" }));
 
   const notice = await screen.findByRole("button", { name: /· 2 waiting$/ });
   expect(notice.textContent).toMatch(offline);

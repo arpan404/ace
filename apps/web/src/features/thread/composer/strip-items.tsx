@@ -8,6 +8,7 @@ import {
   CircleIcon,
   ListChecksIcon,
   ShieldWarningIcon,
+  TerminalIcon,
   TrayIcon,
   WifiSlashIcon,
   XCircleIcon,
@@ -25,6 +26,8 @@ export interface StripCounts {
   requests: number;
   /** The connection is down rather than coming back. */
   offline: boolean;
+  /** Background commands a stopped turn left running. */
+  running: number;
   queued: number;
   plan: Pick<PlanProgress, "done" | "total"> | undefined;
 }
@@ -63,17 +66,23 @@ function Indicator(props: { kind: StripKind; counts: StripCounts; onPick(kind: S
         ? counts.offline
           ? [<Icon key="i" icon={WifiSlashIcon} size={14} />, "Offline", "Show connection: Offline"]
           : [<Spinner key="i" />, "Reconnecting", "Show connection: Reconnecting"]
-        : props.kind === "queue"
+        : props.kind === "stopped"
           ? [
-              <Icon key="i" icon={TrayIcon} size={14} />,
-              `${counts.queued} queued`,
-              `Show ${plural(counts.queued, "queued message")}`,
+              <Icon key="i" icon={TerminalIcon} size={14} />,
+              `${counts.running} running`,
+              `Show ${plural(counts.running, "background command")} still running`,
             ]
-          : [
-              <Icon key="i" icon={ListChecksIcon} size={14} />,
-              counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Plan",
-              counts.plan ? `Show plan, ${planCount(counts.plan)} done` : "Show plan",
-            ];
+          : props.kind === "queue"
+            ? [
+                <Icon key="i" icon={TrayIcon} size={14} />,
+                `${counts.queued} queued`,
+                `Show ${plural(counts.queued, "queued message")}`,
+              ]
+            : [
+                <Icon key="i" icon={ListChecksIcon} size={14} />,
+                counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Plan",
+                counts.plan ? `Show plan, ${planCount(counts.plan)} done` : "Show plan",
+              ];
   return (
     <button
       type="button"

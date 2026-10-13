@@ -1,20 +1,32 @@
 /**
  * The composer's one strip slot. Several things want the room above the composer; it shows one,
- * the rest as small indicators inside it. By default the most urgent shows: a request needing the
- * person, then trouble with the connection, then the queue, then plan progress. The person can
- * switch the slot to any present item; a request that arrives after that, or one a notification
- * opens, takes it back. Pure.
+ * the rest as small indicators inside it. By default the most urgent shows: a Stop waiting for
+ * its second Esc (it answers the key just pressed, and lasts only a moment), a request needing
+ * the person, then trouble with the connection, then background commands a stopped turn left
+ * running, then the queue, then plan progress. The person can switch the slot to any present
+ * item; a request that arrives after that, or one a notification opens, takes it back. Pure.
  */
-export const stripPriority = ["request", "connection", "queue", "plan"] as const;
+export const stripPriority = [
+  "confirm-stop",
+  "request",
+  "connection",
+  "stopped",
+  "queue",
+  "plan",
+] as const;
 export type StripKind = (typeof stripPriority)[number];
 
 /** What could fill the slot right now. */
 export interface StripFacts {
+  /** One Esc pressed while the agent works: another one soon stops it. */
+  confirmStop: boolean;
   /** The open requests' ids, oldest first. */
   requests: readonly string[];
   /** The request a notification opened the thread on, if any. */
   target?: string | undefined;
   connection: boolean;
+  /** The turn was stopped and background commands it started still run. */
+  stopped: boolean;
   queue: boolean;
   plan: boolean;
 }
@@ -34,7 +46,11 @@ export interface StripSlot {
 }
 
 const present = (facts: StripFacts, kind: StripKind) =>
-  kind === "request" ? facts.requests.length > 0 : facts[kind];
+  kind === "request"
+    ? facts.requests.length > 0
+    : kind === "confirm-stop"
+      ? facts.confirmStop
+      : facts[kind];
 
 export function stripSlot(facts: StripFacts, pick: StripPick | undefined): StripSlot {
   const items = stripPriority.filter((kind) => present(facts, kind));
@@ -44,9 +60,14 @@ export function stripSlot(facts: StripFacts, pick: StripPick | undefined): Strip
     ? facts.requests.some((id) => !pick.seen.includes(id)) ||
       (targeted !== undefined && targeted !== pick.target)
     : false;
-  const shown =
-    pick && !arrived && items.includes(pick.kind) ? pick.kind : (items[0] as StripKind | undefined);
-  return { shown, others: items.filter((kind) => kind !== shown) };
+  // The pending Stop answers the key just pressed: no earlier choice hides it.
+  const shown = facts.confirmStop
+    ? "confirm-stop"
+    : pick && !arrived && items.includes(pick.kind)
+      ? pick.kind
+      : (items[0] as StripKind | undefined);
+  // It is never an indicator either: it is there only while it shows.
+  return { shown, others: items.filter((kind) => kind !== shown && kind !== "confirm-stop") };
 }
 
 /** The person chose `kind` from an indicator; choosing a request goes back to the default. */

@@ -2,11 +2,29 @@ import { expect, test } from "vitest";
 import { pickStrip, stripSlot, type StripFacts } from "./strip-slot.ts";
 
 const facts = (patch: Partial<StripFacts>): StripFacts => ({
+  confirmStop: false,
   requests: [],
   connection: false,
+  stopped: false,
   queue: false,
   plan: false,
   ...patch,
+});
+
+test("a pending Stop takes the slot over a request and a choice, and is never an indicator", () => {
+  const now = facts({ confirmStop: true, requests: ["approval-1"], queue: true });
+  expect(stripSlot(now, pickStrip("queue", now))).toEqual({
+    shown: "confirm-stop",
+    others: ["request", "queue"],
+  });
+  const later = { ...now, confirmStop: false };
+  expect(stripSlot(later, undefined).others).not.toContain("confirm-stop");
+});
+
+test("background commands left by a stopped turn rank below the connection, above the queue", () => {
+  const now = facts({ stopped: true, queue: true, plan: true });
+  expect(stripSlot(now, undefined)).toEqual({ shown: "stopped", others: ["queue", "plan"] });
+  expect(stripSlot({ ...now, connection: true }, undefined).shown).toBe("connection");
 });
 
 test("approval hides the queue strip but shows a queued indicator", () => {

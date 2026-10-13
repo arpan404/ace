@@ -190,9 +190,9 @@ test("a refused take-back keeps the queue and draft, then shows one delivered me
   ).toBeTruthy();
 
   // Once the agent is free the daemon delivers it, and its bubble shows. With a draft in the
-  // composer its button queues, so Escape stops the agent.
+  // composer its button queues, so Escape, twice, stops the agent.
   screen.getByRole("combobox", { name: "Message" }).focus();
-  await userEvent.keyboard("{Escape}");
+  await userEvent.keyboard("{Escape}{Escape}");
   await waitFor(() => {
     const view = app.daemon.snapshot({
       kind: "thread",

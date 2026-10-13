@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ArrowLeftIcon, GearSixIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
@@ -25,6 +25,18 @@ export function useNoProjects(): boolean {
 }
 
 /**
+ * Where Back to app goes: the app screen the person left for Settings, Automations or Skills
+ * (the thread, with its search), or New thread when they came straight to one of them.
+ */
+function useBackToApp(section: boolean) {
+  const location = useRouterState({ select: (state) => state.location });
+  const [back, setBack] = useState({ href: "/new", to: "/new", search: {} });
+  if (!section && location.href !== back.href)
+    setBack({ href: location.href, to: location.pathname, search: location.search });
+  return back;
+}
+
+/**
  * The one sidebar. At the top, the ace wordmark and Search (a dialog over any screen); back,
  * forward and the sidebar's toggle sit in the header. Then the thread list (or the selected
  * section's list) as its only scrolling part, and at the foot the profile with the Settings gear.
@@ -41,6 +53,7 @@ export function AppSidebar(props: {
   const { openSearch } = useLayout();
   const current = useRouterState({ select: (state) => activeView(state.location.pathname) });
   const section = current === "settings" || current === "automations" || current === "skills";
+  const back = useBackToApp(section);
   // A dialog opened from the sheet takes its place.
   const leaveSheet = () => {
     if (sheet) hideSidebar();
@@ -86,7 +99,7 @@ export function AppSidebar(props: {
       </div>
       {section && (
         <div className="shrink-0 p-2">
-          <Link to="/new" className={backRow} onClick={leaveSheet}>
+          <Link to={back.to} search={back.search} className={backRow} onClick={leaveSheet}>
             <Icon icon={ArrowLeftIcon} />
             Back to app
           </Link>

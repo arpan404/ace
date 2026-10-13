@@ -1,12 +1,13 @@
 import { useClient } from "@ace/client-react";
-import type { CommandPayload } from "@ace/protocol";
+import type { CommandPayload, ThreadListEntry } from "@ace/protocol";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, failureMessage, stillAlive, waitingNote } from "@/lib/daemon-command.ts";
 import { describeWake, type OrganizePatch } from "@ace/ui-core";
-import { useDeleteConfirmation } from "./delete-confirmation.ts";
+import { useArchiveConfirmation, useDeleteConfirmation } from "./delete-confirmation.ts";
+import { runningWork } from "./running-work.ts";
 import { useOrganizeOverlay } from "./overlay.ts";
 
 /** How long Undo stays on screen for reversible actions. */
@@ -48,7 +49,11 @@ export interface ThreadActions {
   moveMany(entries: readonly ThreadTarget[], to: { id: string; name: string }): void;
   setUnread(entry: ThreadTarget, unread: boolean): void;
   rename(entry: ThreadTarget, title: string): void;
-  archive(entry: ThreadTarget): void;
+  /**
+   * Archive with Undo, which opens the thread again. A thread still working or waiting on the
+   * person asks first: stop it too, or keep it running. `leave` runs once it is archived.
+   */
+  archive(entry: ThreadTarget, leave?: () => void): void;
   /** Back from the archive to Home, with Undo. */
   restore(entry: ThreadTarget): void;
   remove(entry: ThreadTarget): void;
@@ -108,6 +113,7 @@ interface Action {
 export function useThreadActions(): ThreadActions {
   const overlay = useOrganizeOverlay();
   const confirmation = useDeleteConfirmation();
+  const archiving = useArchiveConfirmation();
   const client = useClient();
   const toast = useToast();
   const navigate = useNavigate();
@@ -134,6 +140,7 @@ export function useThreadActions(): ThreadActions {
     const reversibleAll = (
       steps: readonly { entry: ThreadTarget; action: Action; undo: Action }[],
       done: string,
+      afterUndo?: () => void,
     ): Promise<boolean> => {
       const toastId = toast.add({
         title: done,
@@ -144,6 +151,7 @@ export function useThreadActions(): ThreadActions {
           onClick: () => {
             toast.close(toastId);
             for (const step of steps) void act(step.entry, step.undo);
+            afterUndo?.();
           },
         },
       });
@@ -216,6 +224,27 @@ export function useThreadActions(): ThreadActions {
       verb: "Restore",
       failed: "restore it",
     });
+    /** Stop the whole tree and the commands it watches, as Stop & archive promises. */
+    const stopTree = (listed: ThreadListEntry) => {
+      const runId = listed.live?.rootRunId ?? undefined;
+      const sends = [
+        client.enqueue(
+          {
+            type: "thread.interrupt",
+            threadId: listed.id,
+            cascade: true,
+            ...(runId ? { runId } : {}),
+          },
+          crypto.randomUUID(),
+        ),
+        ...(listed.live?.watching ?? []).map((task) =>
+          client.enqueue({ type: "background_task.stop", taskId: task.id }, crypto.randomUUID()),
+        ),
+      ];
+      void Promise.all(sends).catch((error: unknown) =>
+        toast.error({ title: "Couldn't stop the thread", description: failureMessage(error) }),
+      );
+    };
     const deleteOne = (entry: ThreadTarget, force: boolean) =>
       overlay
         .run(
@@ -370,8 +399,31 @@ export function useThreadActions(): ThreadActions {
           if (!renamed) overlay.refuseTitle(entry.id, title);
         });
       },
-      archive: (entry) =>
-        void reversible(entry, archive(entry), `Archived · ${entry.title}`, unarchive(entry)),
+      archive: (entry, leave) => {
+        const archiveNow = () => {
+          void reversibleAll(
+            [{ entry, action: archive(entry), undo: unarchive(entry) }],
+            `Archived · ${entry.title}`,
+            // Undo takes the person back to the thread they archived, wherever they went.
+            () => void navigate({ to: "/t/$threadId", params: { threadId: entry.id } }),
+          );
+          leave?.();
+        };
+        const lease = client.threads();
+        const listed = lease.store.thread(entry.id);
+        lease.release();
+        const running = listed && runningWork(listed);
+        if (!listed || !running) return archiveNow();
+        archiving.open({
+          title: entry.title,
+          running,
+          archive: archiveNow,
+          stopAndArchive: () => {
+            stopTree(listed);
+            archiveNow();
+          },
+        });
+      },
       restore: (entry) =>
         void reversible(entry, restore(entry), `Restored · ${entry.title}`, archive(entry)),
       deleteArchived: (entry) => removeAll([entry], () => `Deleted · ${entry.title}`),
@@ -400,5 +452,5 @@ export function useThreadActions(): ThreadActions {
         );
       },
     };
-  }, [overlay, client, toast, navigate, router, confirmation]);
+  }, [overlay, client, toast, navigate, router, confirmation, archiving]);
 }

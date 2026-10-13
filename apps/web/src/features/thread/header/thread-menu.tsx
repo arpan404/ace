@@ -129,9 +129,7 @@ export function ThreadHotkeys(props: { thread: ThreadRef; onRename(): void }) {
   useHotkey(
     keymap.archiveThread.keys,
     () => {
-      if (!meta) return;
-      actions.archive(meta);
-      void navigate({ to: "/" });
+      if (meta) actions.archive(meta, () => void navigate({ to: "/" }));
     },
     // An archived thread is restored from its menu or the archive, never archived again.
     { enabled: ready && meta.archivedAt === undefined },
