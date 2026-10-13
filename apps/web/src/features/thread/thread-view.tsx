@@ -10,7 +10,6 @@ import {
   useState,
   type ComponentProps,
 } from "react";
-import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import {
   loadThreadBrowser,
   threadWorkspace,
@@ -26,6 +25,7 @@ import { keymap } from "@/lib/keymap.ts";
 import type { ThreadRef } from "./sources/index.ts";
 import { ForkOpener } from "./transitions/fork-opener.ts";
 import { ThreadLoadError } from "./thread-load-error.tsx";
+import { SyncingNote, ThreadLoading } from "./thread-loading.tsx";
 import { useLatestForkPoint } from "./transitions/use-fork-point.ts";
 
 const ThreadBrowser = lazy(loadThreadBrowser);
@@ -128,8 +128,8 @@ export function ThreadView(props: { threadId: string; target?: ThreadTarget | un
     <ThreadNavProvider threadId={props.threadId}>
       <Suspense
         fallback={
-          <Screen title="Loading thread…">
-            <TranscriptSkeleton />
+          <Screen title="">
+            <ThreadLoading />
           </Screen>
         }
       >
@@ -209,9 +209,10 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
             ) : error ? (
               "Thread unavailable"
             ) : (
-              (title ?? "Loading thread…")
+              (title ?? "")
             )
           }
+          progress={meta && !error ? <SyncingNote threadId={id} /> : undefined}
           menu={
             thread && (
               <Suspense fallback={null}>
@@ -231,7 +232,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           {error ? (
             <ThreadLoadError error={error} />
           ) : !meta ? (
-            <TranscriptSkeleton />
+            <ThreadLoading />
           ) : (
             <ForkOpener value={setForking}>
               <div
@@ -283,17 +284,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
         </Screen>
       </WorkCardContext>
     </ThreadPartsProvider>
-  );
-}
-
-/** The shape of a transcript while its first window arrives: an ask, a work line, an answer. */
-function TranscriptSkeleton() {
-  return (
-    <LoadingRegion label="thread" className={`${readingColumn} flex flex-col pt-16`}>
-      <Skeleton className="ml-auto h-14 w-3/5 rounded-[16px_16px_4px_16px]" />
-      <Skeleton className="mt-10 h-3 w-48" />
-      <SkeletonText lines={4} className="mt-6" />
-    </LoadingRegion>
   );
 }
 
