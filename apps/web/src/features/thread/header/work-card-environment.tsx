@@ -15,6 +15,7 @@ import { Dot } from "@/components/ui/dot.tsx";
 import {
   Menu,
   MenuContent,
+  MenuGroup,
   MenuItem,
   MenuLabel,
   MenuSeparator,
@@ -100,10 +101,12 @@ function MachineRow(props: { thread: ThreadRef; move(move: Move): void; onClose(
         }
       />
       <MenuContent align="end" className="w-[280px]">
-        <MenuLabel className="truncate font-normal" title={path}>
-          {project}
-          {path ? ` · ${path}` : " · Reading checkout…"}
-        </MenuLabel>
+        <MenuGroup>
+          <MenuLabel className="truncate font-normal" title={path}>
+            {project}
+            {path ? ` · ${path}` : " · Reading checkout…"}
+          </MenuLabel>
+        </MenuGroup>
         <MenuItem
           icon={glyph(FolderIcon)}
           disabled={!worktree || !!switchReason}
