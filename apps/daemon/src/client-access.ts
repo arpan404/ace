@@ -4,6 +4,7 @@ import { request as httpRequest } from "node:http";
 import { connect, type ConnectionOptions } from "node:tls";
 import { X509Certificate } from "node:crypto";
 import { WebSocket } from "ws";
+import { z } from "zod";
 import { publicKeyFingerprint } from "./tls-identity.ts";
 import {
   ClientError,
@@ -11,6 +12,21 @@ import {
   webSocketTransport,
   type TransportEvents,
 } from "@ace/client";
+
+const AccessFailureBody = z.object({ error: z.string().min(1) });
+/** The daemon's refusal text is actionable (for example "Turn on remote access"), so keep it. */
+function accessFailure(status: number, body: string): ClientError {
+  const failure = accessResponseError(status);
+  let detail: string | undefined;
+  try {
+    detail = AccessFailureBody.safeParse(JSON.parse(body)).data?.error;
+  } catch {
+    detail = undefined;
+  }
+  return detail === undefined
+    ? failure
+    : new ClientError(failure.code, `${failure.message}: ${detail.slice(0, 512)}`);
+}
 
 /** Handshake pinning happens before HTTP headers or credentials are written. */
 export function pinnedAgent(fingerprint: string, now: () => number = Date.now): Agent {
@@ -100,7 +116,7 @@ export async function accessRequest(
               reject(
                 response.statusCode === undefined
                   ? new ClientError("protocol")
-                  : accessResponseError(response.statusCode),
+                  : accessFailure(response.statusCode, body),
               );
               return;
             }
