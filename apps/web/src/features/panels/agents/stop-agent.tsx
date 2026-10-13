@@ -3,23 +3,23 @@ import { ThreadId } from "@ace/protocol";
 import { useStopIntent } from "./use-stop-intent.ts";
 import { agentName, isRunning } from "@ace/ui-core";
 import { StopIcon } from "@phosphor-icons/react";
-import { useState, type KeyboardEvent } from "react";
+import { Suspense, useEffect, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import {
-  Popover,
-  PopoverClose,
-  PopoverContent,
-  PopoverDescription,
-  PopoverTitle,
-  PopoverTrigger,
-} from "@/components/ui/popover.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { whenIdle } from "@/lib/idle.ts";
 import { stopLabel } from "./subagents.ts";
+
+/** The question asked before stopping subagents too: its popover loads off the first paint. */
+const Confirm = deferredComponent(() =>
+  import("./stop-confirm.tsx").then((module) => module.StopConfirm),
+);
 
 /**
  * Stop for one agent: it stops the agent and everything under it, so it says how many
  * subagents go with it and, when any do, asks before stopping them all. The agent tree and the
- * agent's own tab share it, so both ask the same way.
+ * agent's own tab share it, so both ask the same way. The question's code warms while the
+ * browser is idle and mounts on the first press, so a closed Stop never needs it.
  */
 export function StopAgent(props: {
   threadId: string;
@@ -35,6 +35,12 @@ export function StopAgent(props: {
 }) {
   const stop = useStopIntent();
   const [asking, setAsking] = useState(false);
+  // Set by the first press; from then on the real popover owns the button.
+  const [armed, setArmed] = useState(false);
+  const asks = props.subagents > 0;
+  useEffect(() => {
+    if (asks) return whenIdle(() => void Confirm.preload().catch(() => {}));
+  }, [asks]);
   if (props.agent.origin === "root" || (!props.pending && !isRunning(props.agent))) return null;
   const label = stopLabel(agentName(props.agent), props.subagents);
   const stopping = stop.busy;
@@ -47,7 +53,11 @@ export function StopAgent(props: {
       cascade: true,
     });
   };
-  const button = (
+  const ask = () => {
+    setArmed(true);
+    setAsking(true);
+  };
+  const renderButton = (onClick: (() => void) | undefined) => (
     <Button
       size="sm"
       variant="ghost"
@@ -56,12 +66,13 @@ export function StopAgent(props: {
       {...(props.inTree ? { "data-stop": "", tabIndex: -1 } : {})}
       className={props.className}
       onKeyDown={props.onKeyDown}
-      onClick={props.subagents ? undefined : send}
+      onClick={onClick}
     >
       <StopIcon aria-hidden size={14} weight="fill" />
       {stopping ? "Stopping…" : "Stop"}
     </Button>
   );
+  const cold = <Tip label={label}>{renderButton(asks ? ask : send)}</Tip>;
   return (
     <>
       {stop.failed && (
@@ -76,26 +87,19 @@ export function StopAgent(props: {
           Couldn't stop this agent. Try again.
         </span>
       )}
-      {props.subagents ? (
-        <Popover open={asking} onOpenChange={setAsking}>
-          <Tip label={label}>
-            <PopoverTrigger render={button} />
-          </Tip>
-          <PopoverContent align="end" className="w-[260px]">
-            <PopoverTitle className="text-ui font-medium">{label}?</PopoverTitle>
-            <PopoverDescription className="mt-1 text-sm text-muted-foreground">
-              Their work so far stays in the thread.
-            </PopoverDescription>
-            <div className="mt-3 flex justify-end gap-2">
-              <PopoverClose render={<Button size="sm" variant="ghost" />}>Cancel</PopoverClose>
-              <Button size="sm" variant="danger" disabled={stopping} onClick={send}>
-                Stop all
-              </Button>
-            </div>
-          </PopoverContent>
-        </Popover>
+      {asks && armed ? (
+        <Suspense fallback={cold}>
+          <Confirm.Component
+            open={asking}
+            onOpenChange={setAsking}
+            trigger={renderButton(undefined)}
+            label={label}
+            stopping={stopping}
+            onStop={send}
+          />
+        </Suspense>
       ) : (
-        <Tip label={label}>{button}</Tip>
+        cold
       )}
     </>
   );
