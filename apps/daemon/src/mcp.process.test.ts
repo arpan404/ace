@@ -139,8 +139,6 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
 
 it("persists an attributed notice and notification intent together and preserves pending intents across restart", async () => {
   const directory = home();
-  // Exercise the durable MCP acceptance port without installing a spawn executor.
-  // Full daemon composition executes legacy spawns through delegation instead.
   async function openTransport() {
     const store = new Store(join(directory, "events.sqlite"));
     const mcp = await startDaemonMcp(store);
@@ -180,25 +178,19 @@ it("persists an attributed notice and notification intent together and preserves
     type: "item.created",
     item: { type: "notice", agentId: "root", text: "Need input", level: "warning", complete: true },
   });
-  expect(
-    await (await call(daemon.mcp.url, lease.bearer, "ace_spawn_agent", { task: "Review" })).json(),
-  ).toMatchObject({ result: { structuredContent: { accepted: true } } });
   expect(daemon.store.listMcpAgents(thread.id, "", 10)).toHaveLength(1);
   await daemon.close();
   expect(lease.principal.signal.aborted).toBe(true);
   expect(() => daemon.mcp.openSession(scope, new AbortController().signal)).toThrow();
   const reopened = await openTransport();
   cleanups.push(() => reopened.close());
-  expect(reopened.store.readMcpIntents()).toMatchObject([
-    pending[0],
-    { intent: { type: "mcp.spawn", input: { task: "Review" }, agentId: "root" } },
-  ]);
+  expect(reopened.store.readMcpIntents()).toMatchObject([pending[0]]);
   expect((await call(reopened.mcp.url, lease.bearer, "ace_thread_info")).status).toBe(401);
   const first = reopened.store.readMcpIntents()[0];
   if (!first) throw new Error("Expected pending intent");
   expect(reopened.store.acknowledgeMcpIntent(first.id)).toBe(true);
   expect(reopened.store.acknowledgeMcpIntent(first.id)).toBe(false);
-  expect(reopened.store.readMcpIntents()).toHaveLength(1);
+  expect(reopened.store.readMcpIntents()).toHaveLength(0);
 });
 
 it("rolls back both intent and notice when event persistence fails", () => {

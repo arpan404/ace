@@ -128,7 +128,6 @@ it("revokes authority when the provider session ends and rejects every later HTT
 it("attributes concurrent builtin intents to each credential's own node", async () => {
   const h = await harness(cleanups);
   const notices: unknown[] = [];
-  const spawns: unknown[] = [];
   registerBuiltins(
     h.registry,
     {
@@ -144,10 +143,6 @@ it("attributes concurrent builtin intents to each credential's own node", async 
         notices.push(intent);
         return { intentId: `notice-${intent.agentId}` };
       },
-      async spawn(intent) {
-        spawns.push(intent);
-        return { intentId: `spawn-${intent.agentId}` };
-      },
     },
   );
   const [root, child] = await Promise.all([
@@ -156,43 +151,41 @@ it("attributes concurrent builtin intents to each credential's own node", async 
   ]);
   const responses = await Promise.all([
     root.client.callTool({ name: "ace_notify_user", arguments: { text: "Help" } }),
-    child.client.callTool({
-      name: "ace_spawn_agent",
-      arguments: { task: "Review", provider: "claude" },
-    }),
+    child.client.callTool({ name: "ace_notify_user", arguments: { text: "Review" } }),
   ]);
   expect(responses).toMatchObject([
     { structuredContent: { accepted: true, intentId: "notice-root" } },
-    { structuredContent: { accepted: true, intentId: "spawn-child" } },
+    { structuredContent: { accepted: true, intentId: "notice-child" } },
   ]);
-  expect(notices).toEqual([
-    {
-      type: "mcp.notify",
-      threadId: "thread",
-      agentId: "root",
-      sessionId: "session-root",
-      notice: { text: "Help", level: "info" },
-    },
-  ]);
-  expect(spawns).toEqual([
-    {
-      type: "mcp.spawn",
-      threadId: "thread",
-      agentId: "child",
-      sessionId: "session-child",
-      input: { task: "Review", provider: "claude" },
-    },
-  ]);
+  expect(notices).toEqual(
+    expect.arrayContaining([
+      {
+        type: "mcp.notify",
+        threadId: "thread",
+        agentId: "root",
+        sessionId: "session-root",
+        notice: { text: "Help", level: "info" },
+      },
+      {
+        type: "mcp.notify",
+        threadId: "thread",
+        agentId: "child",
+        sessionId: "session-child",
+        notice: { text: "Review", level: "info" },
+      },
+    ]),
+  );
+  expect(notices).toHaveLength(2);
   expect(await root.client.callTool({ name: "ace_thread_info" })).toMatchObject({
     structuredContent: { thread: { status: { state: "waiting", on: "background_task" } } },
   });
   expect(
     await child.client.callTool({
-      name: "ace_spawn_agent",
-      arguments: { task: "Spoof", agentId: "root" },
+      name: "ace_notify_user",
+      arguments: { text: "Spoof", agentId: "root" },
     }),
   ).toMatchObject({ isError: true });
-  expect(spawns).toHaveLength(1);
+  expect(notices).toHaveLength(2);
 });
 
 it("starts independent tool calls while another call is still waiting", async () => {

@@ -4,9 +4,6 @@
   "oneOf": [
     {
       "$ref": "https://ace.local/protocol/v1/McpNotificationIntent.json"
-    },
-    {
-      "$ref": "https://ace.local/protocol/v1/McpSpawnIntent.json"
     }
   ]
 }

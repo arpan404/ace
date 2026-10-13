@@ -402,9 +402,10 @@ test("a new person input after Stop restores MCP delegation on the root thread",
     ).toBe(true);
     await f.daemon.engine?.flush();
     expect(
-      await mcpCall(connection, "ace_thread_create", {
+      await mcpCall(connection, "delegate_task", {
         requestId: "after-stop",
-        title: "greeter",
+        role: "greeter",
+        task: "Hello",
         provider: "claude",
       }),
     ).toMatchObject({ ok: true, data: { threadId: expect.any(String) } });

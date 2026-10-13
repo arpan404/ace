@@ -4,7 +4,6 @@ import {
   Agent,
   Thread,
   McpNoticeInput,
-  McpSpawnInput,
   HandoffPageInput,
   HandoffPage,
   HandoffChunkInput,
@@ -75,16 +74,6 @@ export const builtinToolCatalog = [
     input: McpNoticeInput,
     output: accepted,
     capability: "notify",
-    timeoutMs: 10_000,
-  },
-  {
-    name: "ace_spawn_agent",
-    riskClass: "agent-execution",
-    description:
-      "Request a child agent. Acceptance is not completion; inspect the tree for progress.",
-    input: McpSpawnInput,
-    output: accepted,
-    capability: "agents",
     timeoutMs: 10_000,
   },
 ] as const;

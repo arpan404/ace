@@ -1,0 +1,55 @@
+{
+  "$id": "https://ace.local/protocol/v1/MonitorSnapshot.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "children": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MonitoredChild.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "counts": {
+      "properties": {
+        "cancelled": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "done": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failed": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "needs_you": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "working": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "working",
+        "needs_you",
+        "done",
+        "failed",
+        "cancelled"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "children",
+    "counts"
+  ],
+  "type": "object"
+}

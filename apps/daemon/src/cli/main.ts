@@ -22,9 +22,11 @@ import { retentionCommand } from "./retention.ts";
 import { configCommand } from "./config.ts";
 const help = `ace run [PROMPT|-] [--provider codex|claude] [--project ID|PATH] [--worktree] [--model MODEL]
 ace threads list [--project ID]
-ace thread read|send|steer|wait|approve|deny|cancel|interrupt ID [TEXT]
+ace thread read|send|steer|approve|deny|cancel|interrupt ID [TEXT]
+ace thread wait ID... [--any|--all] [--tree]
 ace task spawn [PROMPT|-] --parent ID [--provider PROVIDER] [--model MODEL]
-ace task status|wait|cancel ID
+ace task status|cancel ID
+ace task wait ID... [--any|--all]
 ace start|status|token|pair [SCOPES]|devices list|revoke ID
 ace service install|uninstall|start|stop|status
 ace accounts add|list|status|discover
@@ -51,7 +53,7 @@ ace clean --compact [--abandon COMPACTION_ID]
 ace config get [retention-days|log-cap]|config set retention-days DAYS|config set log-cap SIZE
 
 All commands: --json, --jq EXPR, --timeout DURATION
-Mutations: --idempotency-key KEY. Waits: --tree. Run: --stream jsonl.
+Mutations: --idempotency-key KEY. Waits: --tree, --any or --all (default) for several IDs; --timeout DURATION. Run: --stream jsonl.
 Remote run/chat: --project WORKSPACE_ID from ace project list; paths are refused.
 Exit: 0 ok, 1 failed, 2 needs-human, 3 timeout, 4 refused, 5 uncertain, 6 port in use.
 `;

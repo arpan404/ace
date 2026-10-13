@@ -139,9 +139,6 @@ for (const resource of ["thread", "agents"] as const) {
         async notify() {
           throw new Error("Unexpected notification");
         },
-        async spawn() {
-          throw new Error("Unexpected spawn");
-        },
       },
     );
     const { client } = await h.connect();

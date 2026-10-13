@@ -8,7 +8,6 @@ import {
   registerBuiltins,
   startMcpServer,
   type Toolkit,
-  type McpIntentPort,
   type CallObserver,
 } from "@ace/mcp-server";
 import type { Store } from "./store.ts";
@@ -16,7 +15,6 @@ import type { Store } from "./store.ts";
 export async function startDaemonMcp(
   store: Store,
   toolkits: readonly Toolkit[] = [],
-  spawn?: McpIntentPort["spawn"],
   observations?: { observeCall: CallObserver; lease(sessionId: string): () => void },
   status?: StatusReader,
 ) {
@@ -66,13 +64,6 @@ export async function startDaemonMcp(
           ],
           at,
         );
-        return { intentId };
-      },
-      async spawn(intent, signal) {
-        if (spawn) return spawn(intent, signal);
-        const intentId = randomUUID();
-        signal.throwIfAborted();
-        store.enqueueMcpIntent(intentId, intent, [], Date.now());
         return { intentId };
       },
     },

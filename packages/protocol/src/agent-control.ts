@@ -10,6 +10,7 @@ import { AcpIdentity } from "./agent-registry.ts";
 import { AccountInstanceId } from "./account-ids.ts";
 import { AutomationRequest } from "./automations.ts";
 import { AgentCatalogInput, AgentWorkspace, ThreadListInput } from "./agent-orchestration.ts";
+import { WaitInput, WaitMode, WaitTimeoutSeconds } from "./agent-monitor.ts";
 
 const key = z
   .string()
@@ -41,6 +42,55 @@ export const DelegationRequest = z.strictObject({
   estimatedLoad: z.number().min(0).max(100).default(0),
 });
 export type DelegationRequest = z.infer<typeof DelegationRequest>;
+/** One task of a batch; batches wait through `await` rather than per-task flags. */
+export const DelegationTask = DelegationRequest.omit({ wait: true, waitMs: true });
+export type DelegationTask = z.infer<typeof DelegationTask>;
+const single = DelegationRequest.shape;
+const singleKeys = Object.keys(single);
+/**
+ * One child (`task`, `role`, `provider`, ...) or a batch of up to eight (`tasks`), never both.
+ * A batch may await `any` or `all` of its children up to `timeoutSeconds`.
+ */
+export const DelegateTaskOperation = z
+  .strictObject({
+    op: z.literal("delegate_task"),
+    ...AgentSelection.partial().shape,
+    requestId: single.requestId.optional(),
+    task: single.task.optional(),
+    role: single.role.optional(),
+    wait: z.boolean().optional(),
+    waitMs: z.number().int().min(1).max(240000).optional(),
+    workspace: AgentWorkspace.optional(),
+    estimatedLoad: z.number().min(0).max(100).optional(),
+    tasks: z.array(DelegationTask).min(1).max(8).optional(),
+    await: z.enum(["none", ...WaitMode.options]).optional(),
+    timeoutSeconds: WaitTimeoutSeconds.optional(),
+  })
+  .superRefine((input, context) => {
+    if (input.tasks) {
+      for (const field of singleKeys)
+        if (input[field as keyof typeof input] !== undefined)
+          context.addIssue({
+            code: "custom",
+            path: [field],
+            message: "Put each task's fields inside tasks.",
+          });
+      return;
+    }
+    for (const field of ["await", "timeoutSeconds"] as const)
+      if (input[field] !== undefined)
+        context.addIssue({ code: "custom", path: [field], message: "Only a tasks batch awaits." });
+    const { op: _op, tasks: _tasks, await: _await, timeoutSeconds: _timeout, ...rest } = input;
+    const parsed = DelegationRequest.safeParse(rest);
+    if (!parsed.success)
+      for (const issue of parsed.error.issues)
+        context.addIssue({ code: "custom", message: issue.message, path: issue.path });
+  })
+  .meta({
+    "x-ace-constraint":
+      "Either one task (requestId, task, role, provider) or tasks: [{ requestId, task, role, provider }, ...].",
+  });
+export type DelegateTaskOperation = z.infer<typeof DelegateTaskOperation>;
 export const DelegationPolicy = z.strictObject({
   maxConcurrent: z.number().int().min(1).max(64).default(4),
   maxChildren: z.number().int().min(1).max(64).default(64),
@@ -133,6 +183,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
   }),
   z.strictObject({ op: z.literal("agents.catalog"), ...AgentCatalogInput.shape }),
   z.strictObject({ op: z.literal("agent.status"), threadId: ThreadId }),
+  z.strictObject({ op: z.literal("agents.status") }),
   z.strictObject({ op: z.literal("agent.result"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("agent.cancel"), threadId: ThreadId, requestId: key }),
   z.strictObject({
@@ -142,7 +193,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     text: z.string().min(1).max(16384),
     delivery: z.enum(["queue", "steer"]).default("queue"),
   }),
-  z.strictObject({ op: z.literal("delegate_task"), ...DelegationRequest.shape }),
+  DelegateTaskOperation,
   z.strictObject({
     op: z.literal("thread.create"),
     requestId: key,
@@ -162,7 +213,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     text: z.string().min(1).max(16384),
     delivery: z.enum(["queue", "steer", "restart"]).default("queue"),
   }),
-  z.strictObject({ op: z.literal("thread.wait"), threadId: ThreadId }),
+  z.strictObject({ op: z.literal("wait"), ...WaitInput }),
   z.strictObject({
     op: z.literal("thread.read"),
     threadId: ThreadId,

@@ -2,7 +2,7 @@ import { SpawnAgentRequest, type OrchestrationState } from "@ace/protocol";
 import { apply } from "./reduce.ts";
 import type { Context } from "./state.ts";
 
-/** Pure ace_spawn_agent handler. Engine binds the caller to its authenticated MCP session. */
+/** Pure lane spawn. The executor binds the caller to its authenticated lane and attempt. */
 export function spawnAgent(
   state: OrchestrationState,
   caller: { laneId: string; attempt: number },

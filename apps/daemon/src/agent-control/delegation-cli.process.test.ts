@@ -5,9 +5,9 @@ import { z } from "zod";
 import { Command, AgentControlResult, ThreadId } from "@ace/protocol";
 import { cliDaemon } from "./cli-test-support.ts";
 
-/** Stop holds the root's queue: input sent afterwards waits until the person resumes it. */
+/** Releases a root queue held after a stop, if the stop held it, as the person would. */
 async function resumeQueue(f: Awaited<ReturnType<typeof cliDaemon>>) {
-  expect(f.engine.queue(f.caller.threadId)).toMatchObject({ paused: true, reason: "stopped" });
+  if (!f.engine.queue(f.caller.threadId).paused) return;
   expect(
     f.controls.delegations.command("resume-queue", {
       type: "queue.resume",
@@ -83,21 +83,21 @@ for (const parent of ["claude", "codex"] as const)
     });
   }
 
-test("all creation tools disclose actionable failures and keep diagnostic detail out of MCP and notices", async () => {
+const task = (requestId: string) => ({
+  requestId,
+  provider: "claude",
+  role: "Hello",
+  task: "Hello",
+});
+test("single and batch delegation disclose actionable failures and keep diagnostic detail out of MCP and notices", async () => {
   const f = await cliDaemon("codex");
-  for (const name of ["delegate_task", "ace_spawn_agent", "ace_thread_create"]) {
-    const args =
-      name === "ace_thread_create"
-        ? { requestId: `disabled-${name}`, provider: "claude", title: "Hello" }
-        : name === "ace_spawn_agent"
-          ? { provider: "claude", name: "Hello", task: "Hello" }
-          : { requestId: `disabled-${name}`, provider: "claude", role: "Hello", task: "Hello" };
+  for (const args of [task("disabled-single"), { tasks: [task("disabled-batch")] }]) {
     await f.daemon.settings.set(
       "providers.configuration",
       [{ provider: "claude", enabled: false }],
       { kind: "global" },
     );
-    const result = await f.call(name, args);
+    const result = await f.call("delegate_task", args);
     expect(result).toMatchObject({
       isError: true,
       content: [{ text: expect.stringContaining('"code":"provider_disabled"') }],
@@ -108,11 +108,12 @@ test("all creation tools disclose actionable failures and keep diagnostic detail
     ["antigravity", undefined, "provider_unavailable"],
     ["claude", "private-missing-account", "account_unavailable"],
   ] as const) {
-    const result = await f.call("ace_thread_create", {
+    const result = await f.call("delegate_task", {
+      role: "Hello",
+      task: "Hello",
       requestId: code,
       provider,
       accountId,
-      title: "Hello",
     });
     expect(result).toMatchObject({
       isError: true,
@@ -125,10 +126,11 @@ test("all creation tools disclose actionable failures and keep diagnostic detail
   await rename(path, `${path}-moved`);
   try {
     expect(
-      await f.call("ace_thread_create", {
+      await f.call("delegate_task", {
+        role: "Hello",
+        task: "Hello",
         requestId: "missing-workspace",
         provider: "claude",
-        title: "Hello",
       }),
     ).toMatchObject({
       isError: true,
@@ -138,11 +140,12 @@ test("all creation tools disclose actionable failures and keep diagnostic detail
     await rename(`${path}-moved`, path);
   }
   await f.daemon.models.invalidate({ provider: "claude" });
-  const result = await f.call("ace_thread_create", {
+  const result = await f.call("delegate_task", {
+    role: "Hello",
+    task: "Hello",
     requestId: "missing-model",
     provider: "claude",
     model: "private-model-evidence",
-    title: "Hello",
   });
   expect(result).toMatchObject({
     isError: true,
@@ -170,10 +173,11 @@ test("all creation tools disclose actionable failures and keep diagnostic detail
   expect(f.daemon.store.listThreads()).toHaveLength(1);
   f.controls.delegations.close();
   expect(
-    await f.call("ace_thread_create", {
+    await f.call("delegate_task", {
+      role: "Hello",
+      task: "Hello",
       requestId: "closed-admission",
       provider: "claude",
-      title: "Hello",
     }),
   ).toMatchObject({
     isError: true,
@@ -185,7 +189,7 @@ test("all creation tools disclose actionable failures and keep diagnostic detail
   expect(logs).toContain("private-missing-account");
 });
 
-test("legacy spawn and separate create/launch/wait tools work on a restarted OpenCode root", async () => {
+test("one batch delegation awaits every child on a restarted OpenCode root and retries create nothing", async () => {
   const f = await cliDaemon();
   expect(
     f.controls.delegations.command("stop", {
@@ -206,38 +210,34 @@ test("legacy spawn and separate create/launch/wait tools work on a restarted Ope
   await resumeQueue(f);
   await f.settled();
   // Children stay on OpenCode: its root can only vouch for its own exact policy (ADR 0013).
-  for (const provider of ["opencode"] as const) {
-    const spawned = await f.call("ace_spawn_agent", { provider, task: "Hello", name: "greeter" });
-    const accepted = z
-      .object({ intentId: ThreadId, accepted: z.literal(true) })
-      .parse(spawned.structuredContent);
-    const outcome = AgentControlResult.parse(
-      (await f.call("ace_thread_wait", { threadId: accepted.intentId })).structuredContent,
-    );
-    expect(outcome.data).toMatchObject({
-      outcome: "completed",
-      result: expect.stringContaining("delegated result"),
-    });
-  }
-  const prepared = AgentControlResult.parse(
-    (
-      await f.call("ace_thread_create", {
-        requestId: "created",
-        provider: "opencode",
-        title: "greeter",
-      })
-    ).structuredContent,
+  const batch = {
+    tasks: ["first", "second"].map((requestId) => ({
+      requestId,
+      provider: "opencode",
+      task: "Hello",
+      role: "greeter",
+    })),
+    await: "all",
+    timeoutSeconds: 60,
+  };
+  const result = AgentControlResult.parse((await f.call("delegate_task", batch)).structuredContent);
+  const data = z
+    .object({ threadIds: z.array(ThreadId).length(2), wait: z.unknown() })
+    .parse(result.data);
+  expect(data.wait).toMatchObject({
+    status: "ready",
+    threads: [
+      { threadId: data.threadIds[0], state: "done", result: "OpenCode delegated result" },
+      { threadId: data.threadIds[1], state: "done", result: "OpenCode delegated result" },
+    ],
+  });
+  const waited = AgentControlResult.parse(
+    (await f.call("ace_wait", { threadIds: data.threadIds, mode: "any" })).structuredContent,
   );
-  const childId = f.child(prepared.data);
-  expect(f.daemon.store.getThread(childId)?.status.state).toBe("new");
-  expect(
-    AgentControlResult.parse(
-      (await f.call("ace_thread_launch", { requestId: "launch", threadId: childId, text: "Hello" }))
-        .structuredContent,
-    ).ok,
-  ).toBe(true);
-  const result = AgentControlResult.parse(
-    (await f.call("ace_thread_wait", { threadId: childId })).structuredContent,
+  expect(waited.data).toMatchObject({ status: "ready" });
+  const retried = AgentControlResult.parse(
+    (await f.call("delegate_task", { ...batch, await: "none" })).structuredContent,
   );
-  expect(result.data).toMatchObject({ outcome: "completed", result: "OpenCode delegated result" });
+  expect(retried.data).toEqual({ threadIds: data.threadIds });
+  expect(f.daemon.store.listThreads()).toHaveLength(3);
 });

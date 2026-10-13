@@ -11,8 +11,15 @@
       "minLength": 1,
       "type": "string"
     },
+    "await": {
+      "enum": [
+        "none",
+        "any",
+        "all"
+      ],
+      "type": "string"
+    },
     "estimatedLoad": {
-      "default": 0,
       "maximum": 100,
       "minimum": 0,
       "type": "number"
@@ -57,8 +64,18 @@
       "minLength": 1,
       "type": "string"
     },
+    "tasks": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/DelegationTask.json"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "type": "array"
+    },
+    "timeoutSeconds": {
+      "$ref": "https://ace.local/protocol/v1/WaitTimeoutSeconds.json"
+    },
     "wait": {
-      "default": false,
       "type": "boolean"
     },
     "waitMs": {
@@ -70,11 +87,6 @@
       "$ref": "https://ace.local/protocol/v1/AgentWorkspace.json"
     }
   },
-  "required": [
-    "requestId",
-    "task",
-    "role",
-    "provider"
-  ],
-  "type": "object"
+  "type": "object",
+  "x-ace-constraint": "Either one task (requestId, task, role, provider) or tasks: [{ requestId, task, role, provider }, ...]."
 }

@@ -1,5 +1,5 @@
 {
-  "$id": "https://ace.local/protocol/v1/ace_thread_create.input.json",
+  "$id": "https://ace.local/protocol/v1/DelegationTask.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -10,6 +10,12 @@
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
+    },
+    "estimatedLoad": {
+      "default": 0,
+      "maximum": 100,
+      "minimum": 0,
+      "type": "number"
     },
     "installationId": {
       "maxLength": 256,
@@ -41,15 +47,24 @@
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
-    "title": {
-      "maxLength": 256,
+    "role": {
+      "maxLength": 1024,
       "minLength": 1,
       "type": "string"
+    },
+    "task": {
+      "maxLength": 16384,
+      "minLength": 1,
+      "type": "string"
+    },
+    "workspace": {
+      "$ref": "https://ace.local/protocol/v1/AgentWorkspace.json"
     }
   },
   "required": [
     "requestId",
-    "title",
+    "task",
+    "role",
     "provider"
   ],
   "type": "object"

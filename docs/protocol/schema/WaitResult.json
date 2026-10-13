@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/WaitResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/WaitMode.json"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/WaitStatus.json"
+    },
+    "threads": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/WatchedThread.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    }
+  },
+  "required": [
+    "status",
+    "mode",
+    "threads"
+  ],
+  "type": "object"
+}

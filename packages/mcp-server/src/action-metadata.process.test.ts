@@ -36,7 +36,7 @@ test("a read-only MCP lease can call transcript reads and receives accurate tool
     (await agents.client.listTools()).tools.find((tool) => tool.name === "delegate_task"),
   ).toMatchObject({
     annotations: { readOnlyHint: false },
-    _meta: { "ace/timeoutMs": 300000, "ace/riskClass": "agent-execution" },
+    _meta: { "ace/timeoutMs": 630000, "ace/riskClass": "agent-execution" },
   });
 });
 

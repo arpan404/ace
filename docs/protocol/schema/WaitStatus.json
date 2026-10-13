@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/WaitStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "ready",
+    "needs_you",
+    "timeout",
+    "interrupted"
+  ],
+  "type": "string"
+}

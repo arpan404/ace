@@ -50,10 +50,10 @@ and AbortSignal. The registry validates input and output and exposes only tools
 the caller can use. Read-only thread inspection needs no extra capability.
 Capabilities are `browser`, `preview`, `terminal`, `notify`, `agents`, `forge`.
 
-The built-ins are `ace_notify_user`, `ace_thread_info`, `ace_list_agents`,
-and `ace_spawn_agent`. Notification acceptance must persist the notice and
-notification intent together through a host port. Spawn acceptance returns an
-intent id, never claims an agent has started or completed. The orchestration
+The built-ins are `ace_notify_user`, `ace_thread_info` and `ace_list_agents`.
+Notification acceptance must persist the notice and notification intent
+together through a host port. Child work starts only through `delegate_task`
+(ADR 0052); the earlier `ace_spawn_agent` built-in was retired before release. The orchestration
 workstream owns execution and its state transitions. Thread and agent reads
 use bounded pages, preserve canonical status, and never recompute tree status.
 

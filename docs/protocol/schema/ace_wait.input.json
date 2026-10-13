@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_wait.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/WaitMode.json",
+      "default": "all"
+    },
+    "threadIds": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "type": "array"
+    },
+    "timeoutSeconds": {
+      "$ref": "https://ace.local/protocol/v1/WaitTimeoutSeconds.json",
+      "default": 120
+    }
+  },
+  "required": [
+    "threadIds"
+  ],
+  "type": "object"
+}

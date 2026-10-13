@@ -1,0 +1,99 @@
+{
+  "$id": "https://ace.local/protocol/v1/DelegateTaskOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "accountId": {
+      "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+    },
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "await": {
+      "enum": [
+        "none",
+        "any",
+        "all"
+      ],
+      "type": "string"
+    },
+    "estimatedLoad": {
+      "maximum": 100,
+      "minimum": 0,
+      "type": "number"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "op": {
+      "const": "delegate_task",
+      "type": "string"
+    },
+    "options": {
+      "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
+    },
+    "permissionMode": {
+      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "role": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "task": {
+      "maxLength": 16384,
+      "minLength": 1,
+      "type": "string"
+    },
+    "tasks": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/DelegationTask.json"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "type": "array"
+    },
+    "timeoutSeconds": {
+      "$ref": "https://ace.local/protocol/v1/WaitTimeoutSeconds.json"
+    },
+    "wait": {
+      "type": "boolean"
+    },
+    "waitMs": {
+      "maximum": 240000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "workspace": {
+      "$ref": "https://ace.local/protocol/v1/AgentWorkspace.json"
+    }
+  },
+  "required": [
+    "op"
+  ],
+  "type": "object",
+  "x-ace-constraint": "Either one task (requestId, task, role, provider) or tasks: [{ requestId, task, role, provider }, ...]."
+}
