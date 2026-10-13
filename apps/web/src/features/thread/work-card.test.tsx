@@ -166,7 +166,7 @@ test("Merge on a PR the forge can't read says so without the server's raw error"
   await userEvent.click(
     await within(card).findByRole("button", { name: "Merge pull request #188" }),
   );
-  expect(await screen.findByText("Couldn't merge")).toBeTruthy();
+  expect(await screen.findByRole("alertdialog", { name: "Couldn't merge" })).toBeTruthy();
   expect(screen.queryByText(/private_server_detail_571/)).toBeNull();
   expect(screen.queryByRole("dialog", { name: /^Merge PR/ })).toBeNull();
 });

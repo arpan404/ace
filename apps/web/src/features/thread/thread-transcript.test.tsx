@@ -170,7 +170,7 @@ test("returning to a thread shows new output without a divider and advances its 
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
   await act(async () => script.runThrough("finding"));
 
-  await userEvent.keyboard("{Meta>}[{/Meta}");
+  await userEvent.keyboard("{Meta>}[[{/Meta}");
   const again = await screen.findByRole("feed", { name: "Transcript" });
   expect(await within(again).findByText(/reconnect-audit found one more path/)).toBeTruthy();
   expect(within(again).queryByRole("separator", { name: "New activity" })).toBeNull();
