@@ -1,7 +1,7 @@
 import { useContext, useRef, useState } from "react";
 import { TimeContext } from "@/lib/time.ts";
 import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
-import { tokensFromInput } from "@ace/ui-core";
+import { baseName, tokensFromInput } from "@ace/ui-core";
 import type { PendingSend } from "@ace/client";
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
 import { CommandId, ThreadId } from "@ace/protocol";
@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { newThreadDraftKey } from "@/lib/new-thread-draft-key.ts";
+import { forgetReturnedStart, saveReturnedStart } from "@/lib/returned-start.ts";
 import { dismissSend } from "../composer/dismissed-sends.ts";
 import { draftOf, restoreReturnedDraft, type SendPayload } from "../composer/returned-draft.ts";
 import { returnDraft, saveOpenDraft, leasable } from "../composer/send-store.ts";
@@ -27,6 +28,8 @@ import {
 } from "../composer/staged-sends.ts";
 import { useThreadSources } from "../sources/index.ts";
 import { commandOf } from "./pending-sends.ts";
+
+type CreatePayload = Extract<SendPayload, { type: "thread.create" }>;
 
 /** "Not sent · the reason", with Retry (sends it again) and Edit (back into the composer). */
 export function FailedSend(props: {
@@ -96,6 +99,35 @@ export function useSendActions(threadId: string) {
   const host = useHostIdentity()?.hostId;
   const inFlight = useRef(new Set<string>());
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+  /**
+   * A new thread's start back in New thread for its project: its text, files and picks in the
+   * composer, its base in the strip, and `reason` (when given) in the strip's notice.
+   */
+  const returnStart = async (commandId: string, payload: CreatePayload, reason?: string) => {
+    const draft = draftOf(payload);
+    const { writeDraft } = await import("../composer/draft-store.ts");
+    // New thread reads its draft under this host and project; elsewhere it would be lost.
+    const key = host && newThreadDraftKey(host, payload.workspaceId);
+    if (!key || !writeDraft(storage, key, draft)) {
+      toast.error({
+        title: "Couldn't save the edit",
+        description: "The original message is still here.",
+      });
+      return false;
+    }
+    if (reason) saveReturnedStart(storage, key, reason);
+    else forgetReturnedStart(storage, key);
+    dismissSend(storage, commandId);
+    void navigate({
+      to: "/new",
+      search: {
+        project: payload.workspaceId,
+        ...(payload.mode === "worktree" && payload.base ? { base: baseName(payload.base) } : {}),
+      },
+      replace: reason !== undefined,
+    });
+    return true;
+  };
   return {
     retrying: (id: string) => pending.has(id),
     retry(commandId: string, payload: SendPayload) {
@@ -153,21 +185,10 @@ export function useSendActions(threadId: string) {
           setPending(new Set(inFlight.current));
         });
     },
+    returnStart,
     edit(commandId: string, payload: SendPayload) {
+      if (payload.type === "thread.create") return void returnStart(commandId, payload);
       const draft = draftOf(payload);
-      if (payload.type === "thread.create")
-        return void import("../composer/draft-store.ts").then(({ writeDraft }) => {
-          // New thread reads its draft under this host and project; elsewhere it would be lost.
-          if (!host || !writeDraft(storage, newThreadDraftKey(host, payload.workspaceId), draft)) {
-            toast.error({
-              title: "Couldn't save the edit",
-              description: "The original message is still here.",
-            });
-            return;
-          }
-          dismissSend(storage, commandId);
-          void navigate({ to: "/new", search: { project: payload.workspaceId } });
-        });
       const key = `thread:${threadId}`;
       if (restoreReturnedDraft(storage, key, draft)) dismissSend(storage, commandId);
       else

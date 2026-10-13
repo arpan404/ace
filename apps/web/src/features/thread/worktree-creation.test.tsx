@@ -211,7 +211,7 @@ test("Don't use worktree starts the thread on the local checkout and sends the m
   expect(within(feed).getAllByText("Bump the retry budget")).toHaveLength(1);
 }, 30_000);
 
-test("a worktree that fails says so, with Retry and Don't use worktree", async () => {
+test("a worktree that fails comes back to New thread with its message, and starts on the local checkout from there", async () => {
   const made = app();
   await made.open("/");
   await screen.findByRole("navigation", { name: "Threads" });
@@ -233,38 +233,27 @@ test("a worktree that fails says so, with Retry and Don't use worktree", async (
   await userEvent.click(within(starting).getByRole("link", { name: /^Start from a branch/ }));
   await screen.findByRole("region", { name: "Creating a worktree" });
   await made.stepUntil(
-    () => screen.queryByRole("region", { name: "Couldn't create the worktree" }) !== null,
+    () => screen.queryByRole("heading", { level: 1, name: "New thread" }) !== null,
   );
 
-  const failed = screen.getByRole("region", { name: "Couldn't create the worktree" });
-  expect(within(failed).getByRole("alert").textContent).toBe(
-    "We couldn't create the worktree. Try again or use the local checkout.",
+  // The message waits in New thread's composer; the reason takes its top strip.
+  const composer = await screen.findByRole("combobox", { name: "Message" });
+  await waitFor(() => expect(composer.textContent).toBe("Start from a branch that is gone"));
+  const reason = await screen.findByText(
+    "That branch doesn't exist any more. Pick another to start from.",
   );
-  expect(within(failed).getByRole("button", { name: "Retry" })).toBeTruthy();
-  expect(screen.queryByRole("region", { name: "Worktree" })).toBeNull();
-
-  // Retry runs the steps again.
-  await userEvent.click(within(failed).getByRole("button", { name: "Retry" }));
-  await screen.findByRole("region", { name: "Creating a worktree" });
-  await made.stepUntil(
-    () => screen.queryByRole("region", { name: "Couldn't create the worktree" }) !== null,
-  );
+  const notice = reason.closest<HTMLElement>('[role="alert"]');
+  if (!notice) throw new Error("The reason isn't announced");
+  expect(screen.queryByRole("region", { name: "Couldn't create the worktree" })).toBeNull();
 
   // The local checkout has no such base to miss: the thread starts there.
-  await userEvent.click(
-    within(screen.getByRole("region", { name: "Couldn't create the worktree" })).getByRole(
-      "button",
-      { name: "Don't use worktree" },
-    ),
-  );
-  await screen.findByRole("button", { name: /^Using the local checkout · / });
+  await userEvent.click(within(notice).getByRole("button", { name: "Don't use worktree" }));
+  await userEvent.click(screen.getByRole("combobox", { name: "Message" }));
+  await userEvent.keyboard("{Enter}");
   await waitFor(() =>
     expect(
       made.threads().find((thread) => thread.title === "Start from a branch that is gone")?.details
         ?.mode,
     ).toBe("local"),
-  );
-  await waitFor(() =>
-    expect(made.client.intent("worktree-fails").getSnapshot()?.state).toBe("acked"),
   );
 }, 30_000);
