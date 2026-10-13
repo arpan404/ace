@@ -42,10 +42,13 @@ test("after a dropped connection the transcript catches up by replay, without du
     /checkout.spec.ts fails about one run in five/,
     "I'll look for timing assumptions in the checkout flow first.",
     /The payment poller retries/,
-    "1 subagent",
     "bun run test --watch checkout",
   ])
     expect(within(feed).getAllByText(text)).toHaveLength(1);
+  // One subagent is its row alone, with no "1 subagent" header text (#637), listed once
+  // (getByRole throws on a duplicate).
+  const subagents = within(feed).getByRole("region", { name: "1 subagent" });
+  expect(within(subagents).getAllByRole("listitem")).toHaveLength(1);
   // The ask, the turn's one log (the plan, the search, the finding and the approval call, in
   // order), the subagents line and the watcher.
   expect(within(feed).queryAllByRole("link", { name: "Waiting for your approval" })).toHaveLength(
