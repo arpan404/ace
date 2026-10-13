@@ -175,6 +175,7 @@ export function startProviderStatuses(context: ServiceContext): void {
               ...installation,
               auth: status.status === "logged-in" ? "logged_in" : "logged_out",
               authDetail: status.source,
+              ...(revision !== undefined ? { observedRevision: revision } : {}),
             };
           } catch {
             return { ...installation, error: "Cursor SDK authentication status unavailable" };
