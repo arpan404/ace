@@ -36,10 +36,13 @@ export interface KeymapEntry {
 
 export const keymap = {
   shortcuts: { keys: "mod+/", also: ["shift+/"], label: "Keyboard shortcuts" },
-  palette: { keys: "mod+k", label: "Command palette" },
-  search: { keys: "shift+mod+k", label: "Search all threads" },
+  // One launcher: ⇧⌘K, once a separate search sheet, opens the same palette.
+  palette: { keys: "mod+k", also: ["shift+mod+k"], label: "Command palette" },
   newThread: { keys: "mod+n", web: "alt+mod+n", label: "New thread" },
   addProject: { keys: "shift+mod+o", label: "Add project" },
+  nextThread: { keys: "alt+mod+arrowdown", label: "Next thread" },
+  previousThread: { keys: "alt+mod+arrowup", label: "Previous thread" },
+  nextNeedsYou: { keys: "alt+mod+j", label: "Next thread that needs you" },
   back: { keys: "mod+[", label: "Back" },
   forward: { keys: "mod+]", label: "Forward" },
   toggleSidebar: { keys: "mod+\\", label: "Hide or show the sidebar" },
@@ -81,8 +84,8 @@ export const keymap = {
   takeControl: { keys: "ctrl+shift+c", label: "Take or hand back control of a browser or device" },
   // A long thread (features/thread/long): its turns, moving between them, searching it.
   turns: { keys: "alt+mod+g", label: "Turns of this thread" },
-  previousTurn: { keys: "alt+mod+arrowup", label: "Previous turn" },
-  nextTurn: { keys: "alt+mod+arrowdown", label: "Next turn" },
+  previousTurn: { keys: "shift+alt+mod+arrowup", label: "Previous turn" },
+  nextTurn: { keys: "shift+alt+mod+arrowdown", label: "Next turn" },
   findInThread: { keys: "mod+f", label: "Search this thread", scope: "thread" },
   settings: { keys: "mod+,", label: "Settings" },
   // The composer's own keys (Enter sends, ⌘↵ the other of queue or steer). Shown, not rebindable.

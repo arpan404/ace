@@ -37,7 +37,15 @@ export function RowActions(props: {
     >
       <Menu>
         <MenuTrigger
-          render={<IconButton icon={ClockIcon} size="sm" label={`Snooze ${title}`} tip="Snooze" />}
+          render={
+            <IconButton
+              icon={ClockIcon}
+              size="sm"
+              label={`Snooze ${title}`}
+              tip="Snooze"
+              tabIndex={-1}
+            />
+          }
         />
         <MenuContent align="end">
           <SnoozeItems entry={props.entry} actions={actions} snoozed={props.flags.snoozed} />
@@ -47,6 +55,7 @@ export function RowActions(props: {
         <button
           type="button"
           aria-label={`${settle.label} ${title}`}
+          tabIndex={-1}
           onClick={settle.run}
           className="inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-xs text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-accent hover:text-foreground"
         >
@@ -71,7 +80,12 @@ export function RowMoreMenu(props: {
     <Menu open={open} onOpenChange={setOpen}>
       <MenuTrigger
         render={
-          <IconButton icon={DotsThreeIcon} size="sm" label={`Actions for ${props.entry.title}`} />
+          <IconButton
+            icon={DotsThreeIcon}
+            size="sm"
+            label={`Actions for ${props.entry.title}`}
+            tabIndex={-1}
+          />
         }
       />
       <MenuContent align="end" onKeyDownCapture={onKeyDown}>

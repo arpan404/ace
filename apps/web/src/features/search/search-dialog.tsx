@@ -12,6 +12,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
+import { focusComposerSoon } from "@/lib/focus-composer.ts";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { searchSettleMs, useDebouncedValue } from "@/lib/debounced.ts";
 import { Select } from "@/components/ui/select.tsx";
@@ -163,6 +164,8 @@ function SearchBody(props: { initial: string; onClose(): void }) {
     await navigate(target);
     const location = router.state.location;
     props.onClose();
+    // The person picked where to go: the caret waits in that thread's message box.
+    focusComposerSoon();
     const seq = await hitSeq(client, hit, query);
     if (seq !== undefined && router.state.location === location)
       void navigate({ ...target, search: { q: query, seq }, replace: true });

@@ -12,6 +12,23 @@ configure({ asyncUtilTimeout: 10000 });
 const heading = (name: string) => screen.findByRole("heading", { level: 1, name });
 const palette = () => screen.queryByRole("combobox", { name: "Search commands" });
 
+test("the shortcut sheet groups shortcuts by where they work and says what Escape does", async () => {
+  await harness().open("/new");
+  await heading("New thread");
+  await userEvent.keyboard("{Control>}/{/Control}");
+  const sheet = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+  const groups = within(sheet)
+    .getAllByRole("region")
+    .map((group) => group.getAttribute("aria-label"));
+  expect(groups).toEqual(expect.arrayContaining(["Everywhere", "Composer", "Escape"]));
+  // A scope is its group's heading, never a tag glued to a label.
+  const composer = within(sheet).getByRole("region", { name: "Composer" });
+  expect(within(composer).getByText("Send").textContent).toBe("Send");
+  const escape = within(sheet).getByRole("region", { name: "Escape" });
+  expect(escape.textContent).toContain("Stop the working agent from an empty composer");
+  expect(escape.textContent).toContain("Close a dialog, menu or popover");
+});
+
 test("a rebound shortcut works at once, its old keys stop, and the palette shows the new keys", async () => {
   await harness().open("/settings/keyboard");
   const settings = await screen.findByRole("button", { name: "Settings shortcut" });

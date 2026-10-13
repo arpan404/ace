@@ -21,7 +21,7 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { matchesChord } from "@/lib/hotkeys.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
-import { focusListRow, rowFocusSelector } from "./list-focus.ts";
+import { focusListRow, roveListFocus, rowFocusSelector, stepIntoActions } from "./list-focus.ts";
 import { ManyDevices, useManyDevices } from "./row-parts.tsx";
 import { ThreadRow } from "./thread-row.tsx";
 import { SettledRow } from "./settled-row.tsx";
@@ -146,6 +146,11 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
   useLayoutEffect(() => {
     latest.current = { drawn, pinned };
   });
+  // One Tab stop for the whole list (a roving tabindex), kept as rows mount, move and leave.
+  const lastFocused = useRef<Element | null>(null);
+  useLayoutEffect(() => {
+    if (listRef.current) roveListFocus(listRef.current, lastFocused.current);
+  });
 
   /** A thread as this window shows it, with organize actions not yet confirmed. */
   const shownEntry = (id: string) => {
@@ -226,6 +231,8 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
       if (handled) startKeyboardMove(handled);
       return;
     }
+    // The row's actions are out of the Tab order: → reaches them from the row, ← steps back.
+    if (stepIntoActions(event)) return;
     // Only from a row itself: never while renaming, or inside a menu or the hover actions.
     if (!event.target.matches(rowFocusSelector)) return;
     const from = event.target.closest<HTMLElement>("[data-index]");
@@ -320,6 +327,11 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
           aria-label="Threads"
           onKeyDownCapture={onKeyDownCapture}
           onKeyDown={onKeyDown}
+          onFocus={(event) => {
+            if (!event.target.matches(rowFocusSelector)) return;
+            lastFocused.current = event.target;
+            roveListFocus(event.currentTarget, event.target);
+          }}
           onBlur={(event) => {
             const next = event.relatedTarget;
             if (next instanceof Node && event.currentTarget.contains(next)) return;

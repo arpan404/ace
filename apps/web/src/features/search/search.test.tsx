@@ -9,6 +9,7 @@ import { workbench } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
+import { openSearchSheet } from "@/test/open-search.ts";
 import { harness } from "@/test/harness.tsx";
 
 type Harness = ReturnType<typeof harness>;
@@ -16,14 +17,11 @@ type Harness = ReturnType<typeof harness>;
 const results = () => screen.findByRole("listbox", { name: "Results" });
 const field = () => screen.getByRole<HTMLInputElement>("combobox", { name: "Search every thread" });
 
-/** Open the app, then the search dialog from the sidebar's Search, and type `query`. */
+/** Open the app, then the search sheet from the launcher, and type `query`. */
 async function search(query = "", app: Harness = harness()) {
   const view = await app.open("/new");
   await screen.findByRole("heading", { level: 1, name: "New thread" });
-  await userEvent.click(
-    within(screen.getByRole("navigation", { name: "App" })).getByRole("button", { name: "Search" }),
-  );
-  await screen.findByRole("dialog", { name: "Search" });
+  await openSearchSheet();
   if (query) await userEvent.type(field(), query);
   return view;
 }
@@ -129,8 +127,7 @@ test("emptying the field empties the results; Esc puts the dialog away, and it o
   await userEvent.type(field(), "replay");
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull());
-  await userEvent.keyboard("{Shift>}{Meta>}k{/Meta}{/Shift}");
-  await screen.findByRole("dialog", { name: "Search" });
+  await openSearchSheet();
   expect(field().value).toBe("");
   await waitFor(() => expect(document.activeElement).toBe(field()));
 });

@@ -86,6 +86,7 @@ export function ProjectSourcePicker(props: { onChoose(tab: AddTab): void }) {
             role="option"
             aria-label={source.name}
             aria-selected={at === current}
+            tabIndex={-1}
             onPointerMove={() => setActive(at)}
             onClick={() => props.onChoose(source.tab)}
             className="flex min-h-(--picker-row-height) w-full items-center gap-3 rounded-md px-(--surface-inset) py-(--picker-row-padding) text-left focus-ring aria-selected:bg-accent"

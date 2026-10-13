@@ -2,18 +2,15 @@ import { workbench } from "@ace/fake-daemon";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { openSearchSheet } from "@/test/open-search.ts";
 import { harness } from "@/test/harness.tsx";
 
 async function open() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/new");
-  await userEvent.click(
-    within(await screen.findByRole("navigation", { name: "App" })).getByRole("button", {
-      name: "Search",
-    }),
-  );
-  const field = await screen.findByRole("combobox", { name: "Search every thread" });
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
+  const field = await openSearchSheet();
   return { app, field };
 }
 

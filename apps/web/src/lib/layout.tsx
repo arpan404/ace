@@ -29,9 +29,26 @@ export interface ScreenActions {
   turns(): void;
 }
 
+/**
+ * What the showing thread's composer can do when asked from elsewhere (the palette's Stop,
+ * Switch model and Effort). Registered by the composer while it shows.
+ */
+export interface ComposerActions {
+  /** The thread it belongs to. */
+  scope: string;
+  /** Stop the agent tree, as the composer's Stop does; undefined while there is nothing to stop. */
+  stop?: (() => void) | undefined;
+  /** Open the model list on the composer's model chip. */
+  chooseModel(): void;
+  /** Open the model chip's effort slider. */
+  tuneEffort(): void;
+}
+
 interface LayoutValue {
   screenActions: ScreenActions | undefined;
   setScreenActions(actions: ScreenActions | undefined): void;
+  composerActions: ComposerActions | undefined;
+  setComposerActions(actions: ComposerActions | undefined): void;
   layout: ShellLayout;
   setSidebarOpen(open: boolean): void;
   shortcutsOpen: boolean;
@@ -66,6 +83,7 @@ export function LayoutProvider(props: {
     readJson(storage, storageKey, ShellLayout, defaultLayout),
   );
   const [screenActions, setScreenActions] = useState<ScreenActions>();
+  const [composerActions, setComposerActions] = useState<ComposerActions>();
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [paletteOpen, setPaletteState] = useState(false);
   const [search, setSearch] = useState<{ query: string }>();
@@ -106,6 +124,8 @@ export function LayoutProvider(props: {
       layout,
       screenActions,
       setScreenActions,
+      composerActions,
+      setComposerActions,
       shortcutsOpen,
       setShortcutsOpen,
       paletteOpen,
@@ -124,6 +144,7 @@ export function LayoutProvider(props: {
       layout,
       screenActions,
       setScreenActions,
+      composerActions,
       shortcutsOpen,
       setShortcutsOpen,
       paletteOpen,

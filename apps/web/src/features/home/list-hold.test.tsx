@@ -96,11 +96,10 @@ test("a thread that needs you waits for the pointer to leave before it rises", a
 
 test("while the keyboard is in the list only a thread that needs you moves", async () => {
   const app = await openHome();
-  const newest = row(/^Newest thread/);
-  if (!newest) throw new Error("no row");
-  newest.focus();
+  // Tab into the list: the keyboard is in it, on its one Tab stop.
+  screen.getByRole("link", { name: "New thread" }).focus();
   await userEvent.tab();
-  expect(document.activeElement?.getAttribute("aria-label")).toBe("Snooze Newest thread");
+  expect(list().contains(document.activeElement)).toBe(true);
 
   app.daemon.apply("thread-oldest", working);
   app.daemon.apply("thread-middle", asks);

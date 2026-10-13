@@ -58,6 +58,40 @@ function OpenerProbe(props: { openerRef: RefObject<HTMLElement | null> }) {
   return null;
 }
 
+/** Where a dialog sends focus that strays behind it: the first thing it can focus. */
+const focusable =
+  'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+
+/**
+ * Keeps focus in an open modal. Base UI's trap holds Tab, but code behind the modal (a request
+ * card arriving, a list restoring its row) can still call focus() on the page it covers; that
+ * focus comes straight back to where it was in the dialog, else to its first control.
+ */
+function FocusHold() {
+  const marker = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const popup = marker.current?.closest<HTMLElement>('[data-slot="dialog-content"]');
+    if (!popup) return;
+    const doc = popup.ownerDocument;
+    let last: HTMLElement | null = null;
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (popup.contains(target)) {
+        last = target;
+        return;
+      }
+      // Only the page behind an open modal (Base UI marks it); never a menu or another layer.
+      if (!popup.hasAttribute("data-open") || !target.closest("[data-base-ui-inert]")) return;
+      const back = last?.isConnected ? last : popup.querySelector<HTMLElement>(focusable);
+      (back ?? popup).focus({ preventScroll: true });
+    };
+    doc.addEventListener("focusin", onFocusIn);
+    return () => doc.removeEventListener("focusin", onFocusIn);
+  }, []);
+  return <span ref={marker} hidden />;
+}
+
 /**
  * Modal card. Base UI traps focus; on close it returns to whatever had focus when the dialog
  * opened, so dialogs opened by a shortcut or from a menu behave like triggered ones. The card
@@ -99,6 +133,7 @@ function DialogContent({
         {...props}
       >
         <OpenerProbe openerRef={openerRef} />
+        <FocusHold />
         {/* A dialog is its own surface, even when a settings row opened it. */}
         <InCard value={false}>{children}</InCard>
         {showCloseButton && (

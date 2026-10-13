@@ -1,4 +1,5 @@
 import { useClient, useIntent, useInteractions, useThreadMeta } from "@ace/client-react";
+import { useComposerActions } from "./composer-actions.ts";
 import type { Interaction, ThreadStatus } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import {
@@ -89,6 +90,7 @@ export function ThreadComposer({
   const followUp = canSteer ? setting : "queue";
   const busy = isBusy(props.status);
   const [pickerRequest, requestPicker] = useState(0);
+  const [tuneRequest, requestTune] = useState(0);
   const activityState = useThreadLiveState(props.thread.id);
   const threadId = ThreadId.parse(props.thread.id);
   // Toasts (a thread elsewhere needs you, Undo) rise above the composer, never over it.
@@ -253,6 +255,13 @@ export function ThreadComposer({
       cancel?.();
     };
   }, [focusOnOpen, asking]);
+  // The palette's Stop, Switch model and Effort act through these.
+  const canStop = activityState.canStop && !questioned;
+  useComposerActions(props.thread.id, canStop ? stop : undefined, {
+    chooseModel: () => requestPicker((count) => count + 1),
+    tuneEffort: () => requestTune((count) => count + 1),
+  });
+
   // What the thread's provider and model read, for the files attached to the next message.
   const catalog = useModelCatalog();
   const selection = runsOn(meta);
@@ -318,6 +327,7 @@ export function ThreadComposer({
               busy={busy}
               next={next}
               pickerRequest={pickerRequest}
+              tuneRequest={tuneRequest}
             />
           </Suspense>
         }
