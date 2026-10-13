@@ -61,14 +61,19 @@ process.once("disconnect", () => {
       killed.add(group);
     }
     // Wait for kernel exit before releasing the profile to removal or reopening.
+    // SIGKILL always completes, but a loaded machine can take longer than any fixed
+    // number of inventories, so wait for the exit itself. Only processes still naming
+    // this profile count, so a reused group id cannot hold cleanup open.
     // Each inventory is an I/O boundary; zombies have already stopped writing.
-    for (let attempt = 0; killed.size && attempt < 64; attempt++) {
+    while (killed.size) {
       const live = (await processes()).some(
-        (entry) => killed.has(entry.group) && !entry.state.startsWith("Z"),
+        (entry) =>
+          killed.has(entry.group) &&
+          !entry.state.startsWith("Z") &&
+          (entry.command + " ").includes(` --user-data-dir=${profile} `),
       );
       if (!live) return;
     }
-    if (killed.size) throw new Error("Chromium process group did not exit");
   })().catch(() => {
     process.exitCode = 1;
   });
