@@ -809,6 +809,22 @@ export class Engine {
   stopForDeletion(id: ThreadId): Promise<void> {
     return this.liveness.stop(id);
   }
+  /**
+   * Storage purged this stopped thread's engine records. Drop the cached actor that still
+   * refers to them, so shutdown recovery and later wakes never read missing state.
+   */
+  forgetPurged(id: ThreadId): void {
+    const actor = this.actors.get(id);
+    if (actor) {
+      actor.stop();
+      this.actors.delete(id);
+    }
+    this.repo.evict(id);
+    if (this.repo.reservedSlot(id)) {
+      this.repo.release(id);
+      this.wakeQueued();
+    }
+  }
   hasUnfinishedWork(id: ThreadId): boolean {
     return this.liveness.unfinished(id);
   }

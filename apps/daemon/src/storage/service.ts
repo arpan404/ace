@@ -18,6 +18,7 @@ import { StorageJournal, type CleanupJournal, type CompactionJournal } from "./j
 import { planStorageItem } from "./planner.ts";
 import { applyStorageItems, compactStorage, type CompactionLimits } from "./apply.ts";
 import type { StorageOwner } from "./types.ts";
+import { RETENTION_REVIEWER, retentionKinds, retentionPolicy } from "./data-retention-policy.ts";
 
 const missing = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "ENOENT";
@@ -143,69 +144,103 @@ export class StorageService {
     },
   ): Promise<StoragePlan> {
     return this.serial(async () => {
-      const operation = StorageRequest.shape.operation.parse(input);
-      if (operation.op !== "cleanup.plan") throw new Error("storage_invalid_request");
-      const retention = operation.retention ?? (await this.retention());
-      const kinds = new Set(operation.kinds ?? StorageKind.options);
-      const force = new Set(operation.forceItems);
-      const now = this.owner.now();
-      const scan = await this.inventory.scan();
-      const selected = scan.candidates
-        .filter((candidate) => kinds.has(candidate.kind))
-        .map((candidate) => ({
-          candidate,
-          item: planStorageItem(candidate, retention, now, force),
-        }))
-        .toSorted(
-          (a, b) =>
-            Number(a.item.disposition === "protect") - Number(b.item.disposition === "protect") ||
-            a.item.modifiedAt - b.item.modifiedAt ||
-            a.item.id.localeCompare(b.item.id),
-        );
-      const bounded: typeof selected = [];
-      let publicBytes = 1024;
-      for (const entry of selected) {
-        const bytes = Buffer.byteLength(JSON.stringify(entry.item));
-        if (bounded.length >= 256 || publicBytes + bytes > 512 * 1024) break;
-        bounded.push(entry);
-        publicBytes += bytes;
-      }
-      const document = {
-        id: this.owner.id(),
-        createdAt: now,
-        expiresAt: now + 15 * 60000,
-        retention,
-        items: bounded.map((entry) => entry.item),
-        bytes: bounded.reduce(
-          (sum, entry) => sum + (entry.item.disposition === "remove" ? entry.item.bytes : 0),
-          0,
-        ),
-        complete: scan.complete && selected.length === bounded.length,
-      };
-      const revision = createHash("sha256")
-        .update(
-          JSON.stringify({
-            document,
-            identities: bounded.map((entry) => entry.candidate.fingerprint),
-          }),
-        )
-        .digest("hex");
-      const plan = StoragePlan.parse({ ...document, revision });
-      this.journal.admit(
-        {
-          plan,
-          owner: device,
-          state: "review",
-          entries: bounded.map(({ item, candidate }) => ({
-            item,
-            fingerprint: candidate.fingerprint,
-            target: candidate.target,
-            state: "pending",
-          })),
-        },
-        now,
+      const draft = await this.draft(device, input);
+      this.journal.admit(draft, draft.plan.createdAt);
+      return draft.plan;
+    });
+  }
+  /** Inventory and eligibility for one bounded plan, without admitting it to the journal. */
+  private async draft(
+    device: string,
+    input: Extract<StorageRequest["operation"], { op: "cleanup.plan" }>,
+  ): Promise<CleanupJournal> {
+    const operation = StorageRequest.shape.operation.parse(input);
+    if (operation.op !== "cleanup.plan") throw new Error("storage_invalid_request");
+    const retention = operation.retention ?? (await this.retention());
+    const kinds = new Set(operation.kinds ?? StorageKind.options);
+    const force = new Set(operation.forceItems);
+    const now = this.owner.now();
+    const scan = await this.inventory.scan();
+    const selected = scan.candidates
+      .filter((candidate) => kinds.has(candidate.kind))
+      .map((candidate) => ({
+        candidate,
+        item: planStorageItem(candidate, retention, now, force),
+      }))
+      .toSorted(
+        (a, b) =>
+          Number(a.item.disposition === "protect") - Number(b.item.disposition === "protect") ||
+          a.item.modifiedAt - b.item.modifiedAt ||
+          a.item.id.localeCompare(b.item.id),
       );
-      return plan;
+    const bounded: typeof selected = [];
+    let publicBytes = 1024;
+    for (const entry of selected) {
+      const bytes = Buffer.byteLength(JSON.stringify(entry.item));
+      if (bounded.length >= 256 || publicBytes + bytes > 512 * 1024) break;
+      bounded.push(entry);
+      publicBytes += bytes;
+    }
+    const document = {
+      id: this.owner.id(),
+      createdAt: now,
+      expiresAt: now + 15 * 60000,
+      retention,
+      items: bounded.map((entry) => entry.item),
+      bytes: bounded.reduce(
+        (sum, entry) => sum + (entry.item.disposition === "remove" ? entry.item.bytes : 0),
+        0,
+      ),
+      complete: scan.complete && selected.length === bounded.length,
+    };
+    const revision = createHash("sha256")
+      .update(
+        JSON.stringify({
+          document,
+          identities: bounded.map((entry) => entry.candidate.fingerprint),
+        }),
+      )
+      .digest("hex");
+    const plan = StoragePlan.parse({ ...document, revision });
+    return {
+      plan,
+      owner: device,
+      state: "review",
+      entries: bounded.map(({ item, candidate }) => ({
+        item,
+        fingerprint: candidate.fingerprint,
+        target: candidate.target,
+        state: "pending",
+      })),
+    };
+  }
+  /**
+   * Automatic data retention: one bounded plan of idle threads, unused attachments and log
+   * files older than `days`, applied under the scheduler's own reviewer identity. Nothing is
+   * journaled when nothing is eligible, and settled plans are dropped, so periodic passes
+   * never fill the plan journal. The same protections as reviewed cleanup apply, rechecked
+   * at removal time.
+   */
+  retain(days: number, allowed: () => boolean): Promise<{ removed: number; complete: boolean }> {
+    return this.serial(async () => {
+      if (!allowed()) return { removed: 0, complete: false };
+      const draft = await this.draft(RETENTION_REVIEWER, {
+        op: "cleanup.plan",
+        kinds: [...retentionKinds],
+        retention: retentionPolicy(days),
+        forceItems: [],
+      });
+      if (!draft.entries.some((entry) => entry.item.disposition === "remove"))
+        return { removed: 0, complete: draft.plan.complete };
+      draft.entries = draft.entries.filter((entry) => entry.item.disposition === "remove");
+      draft.state = "applying";
+      this.journal.admit(draft, draft.plan.createdAt);
+      const result = await this.run(draft, allowed);
+      if (result.state !== "pending") this.journal.discard(draft.plan.id);
+      return {
+        removed: result.items.filter((item) => item.state === "removed").length,
+        complete: result.state !== "pending" && draft.plan.complete,
+      };
     });
   }
   status(device: string, planId: string): StorageApply {

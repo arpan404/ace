@@ -7,6 +7,7 @@ import {
   type SettingsValues,
   type SettingsDiagnostic,
   type SettingsProvenance,
+  type SettingsLayerKind,
   type SettingsEntry,
 } from "@ace/protocol";
 import { WorkspaceGuards } from "./workspace.ts";
@@ -31,7 +32,7 @@ export type Notification =
   | { type: "changed"; entries: SettingsEntry[] }
   | { type: "diagnostic"; diagnostic: SettingsDiagnostic };
 interface LayerFile extends FileLease {
-  layer: SettingsProvenance;
+  layer: SettingsLayerKind;
 }
 interface Subscription {
   keys: SettingsKey[];
@@ -45,6 +46,11 @@ export interface SettingsOptions {
   scheduler?: Scheduler;
   debounceMs?: number;
   onListenerError?: (error: unknown) => void;
+  /**
+   * Host environment values. They win over every saved layer and resolve with
+   * `environment` provenance; assignments still save so they apply once the variable is unset.
+   */
+  overrides?: Partial<SettingsValues>;
 }
 export class SettingsService {
   private cache = new FileCache();
@@ -55,8 +61,15 @@ export class SettingsService {
   private closed = false;
   private changes = new Set<(layer: Layer, keys: readonly SettingsKey[]) => void>();
   private pendingSubscriptions = 0;
+  private overrides: Partial<SettingsValues>;
   constructor(options: SettingsOptions) {
     this.options = options;
+    const overrides: Partial<Record<SettingsKey, unknown>> = {};
+    for (const [key, value] of Object.entries(options.overrides ?? {})) {
+      const parsed = SettingsKey.parse(key);
+      overrides[parsed] = validateValue(parsed, value);
+    }
+    this.overrides = freeze(overrides as Partial<SettingsValues>);
     freeze(defaults);
   }
   private path(layer: Layer): string {
@@ -117,6 +130,12 @@ export class SettingsService {
     provenance: SettingsProvenance;
     localValue?: SettingsEntry["localValue"];
   } {
+    if (Object.hasOwn(this.overrides, key))
+      return freeze({
+        key,
+        value: this.overrides[key] as SettingsValues[K],
+        provenance: "environment",
+      });
     if (key === "permissions.providerModes") {
       let value: SettingsValues["permissions.providerModes"] = {};
       let provenance: SettingsProvenance = "defaults";

@@ -87,7 +87,7 @@ export class Catalog {
   constructor(path: string) {
     this.db = new DatabaseSync(path);
     this.db.exec(
-      "PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS resources (id TEXT PRIMARY KEY, kind TEXT NOT NULL, expires REAL NOT NULL, bytes REAL NOT NULL, body TEXT NOT NULL)",
+      "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216; CREATE TABLE IF NOT EXISTS resources (id TEXT PRIMARY KEY, kind TEXT NOT NULL, expires REAL NOT NULL, bytes REAL NOT NULL, body TEXT NOT NULL)",
     );
     this.getRow = this.db.prepare("SELECT body FROM resources WHERE id=?");
     this.listRows = this.db.prepare("SELECT body FROM resources WHERE kind=? ORDER BY id");

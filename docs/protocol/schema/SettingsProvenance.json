@@ -5,7 +5,8 @@
     "defaults",
     "global",
     "workspace",
-    "thread"
+    "thread",
+    "environment"
   ],
   "type": "string"
 }

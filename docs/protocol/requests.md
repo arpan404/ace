@@ -1302,7 +1302,7 @@ Example:
 
 ```json
 {
-  "key": "threads.limitPolicy",
+  "key": "threads.continueAfterRestart",
   "requestId": "example",
   "scope": {
     "workspaceId": "example"
@@ -1367,7 +1367,7 @@ Example:
 ```json
 {
   "keys": [
-    "browser.backend"
+    "browser.allowedOrigins"
   ],
   "requestId": "example",
   "scope": {},

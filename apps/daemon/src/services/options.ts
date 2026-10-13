@@ -17,6 +17,8 @@ import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
   storageSchedule?: import("../storage/schedule.ts").StorageSchedule;
+  /** Automatic data-retention pass timing; tests shorten it. */
+  retentionTiming?: import("../storage/data-retention-policy.ts").RetentionTiming;
   diagnostics?: {
     doctor(): Promise<import("@ace/protocol").DiagnosticReport>;
     toolchains(): Promise<import("@ace/protocol").Toolchain[]>;

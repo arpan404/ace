@@ -12,7 +12,15 @@ export type StorageKind = z.infer<typeof StorageKind>;
 const bytes = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const id = z.string().min(1).max(256);
 const days = z.number().int().min(1).max(36500).nullable();
-/** Null disables removal of a category. Scheduling is always an explicit host preference. */
+/** Days of data the host keeps. Bounded so a typo cannot select zero or an unbounded window. */
+export const RetentionDays = z.number().int().min(1).max(3650);
+/** Per-stream log cap in bytes: at least 1 MiB, at most 64 GiB. */
+export const LogMaxBytes = z
+  .number()
+  .int()
+  .min(1024 * 1024)
+  .max(64 * 1024 ** 3);
+/** Null disables removal of a category. Reviewed cleanup scheduling is an explicit host preference. */
 export const StorageRetention = z.object({
   threads: days.default(90),
   attachments: days.default(30),
@@ -20,6 +28,8 @@ export const StorageRetention = z.object({
   logs: days.default(14),
   worktrees: days.default(30),
   caches: days.default(7),
+  /** Automatic data retention also removes idle threads that were never archived. */
+  idleThreads: z.boolean().default(false),
 });
 export type StorageRetention = z.infer<typeof StorageRetention>;
 export const StorageReason = z.enum([

@@ -70,6 +70,9 @@
             }
           ]
         },
+        "logs.maxBytes": {
+          "$ref": "https://ace.local/protocol/v1/LogMaxBytes.json"
+        },
         "permissions.defaultMode": {
           "anyOf": [
             {
@@ -230,6 +233,9 @@
         },
         "storage.retention": {
           "$ref": "https://ace.local/protocol/v1/StorageRetention.json"
+        },
+        "storage.retentionDays": {
+          "$ref": "https://ace.local/protocol/v1/RetentionDays.json"
         },
         "storage.scheduledCleanup": {
           "type": "boolean"

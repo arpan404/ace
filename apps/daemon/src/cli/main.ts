@@ -19,6 +19,7 @@ import { taskCommand } from "./tasks.ts";
 import { projectCommand, remoteWorkProject } from "./projects.ts";
 import { openCommand } from "./open.ts";
 import { retentionCommand } from "./retention.ts";
+import { configCommand } from "./config.ts";
 const help = `ace run [PROMPT|-] [--provider codex|claude] [--project ID|PATH] [--worktree] [--model MODEL]
 ace threads list [--project ID]
 ace thread read|send|steer|wait|approve|deny|cancel|interrupt ID [TEXT]
@@ -47,6 +48,7 @@ ace storage [usage]|storage plan [--kinds logs,artifacts] [--older-than 30d]
 ace clean [--dry-run] [--threads] [--worktrees] [--artifacts] [--logs] [--attachments] [--caches] [--older-than 30d] [--yes]
 ace clean apply PLAN_ID --revision REVISION|clean status PLAN_ID
 ace clean --compact [--abandon COMPACTION_ID]
+ace config get [retention-days|log-cap]|config set retention-days DAYS|config set log-cap SIZE
 
 All commands: --json, --jq EXPR, --timeout DURATION
 Mutations: --idempotency-key KEY. Waits: --tree. Run: --stream jsonl.
@@ -116,6 +118,7 @@ export async function main(input: string[]): Promise<void> {
     if (command === "pair" && args.words[1] === "redeem")
       return await redeemCommand(args, config.dataDir);
     if (command === "logs") return await logsCommand(args, config.dataDir);
+    if (command === "config") return await configCommand(args, config.dataDir);
     if (command === "cloud") return await cloudCommand(args, config.dataDir);
     if (command === "stop") return await stopCommand(args, config.dataDir);
     if (["start", "serve", "service"].includes(command)) return await runtimeCommand(args, config);

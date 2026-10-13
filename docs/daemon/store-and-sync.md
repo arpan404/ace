@@ -1,6 +1,6 @@
 # Event store and local WebSocket API
 
-Start the daemon with `bun run --filter @ace/daemon dev`. Node 24+ executes the TypeScript directly. It prints its WebSocket URL and token-file path. Configuration comes from `ACE_HOME` (default `~/.ace-next`), `ACE_PORT` (default 4242, 0 selects an available port), and `ACE_LOG_LEVEL` (`debug`, `info`, `warn`, `error`, `silent`). The local listener always binds to 127.0.0.1. [Remote access](remote-access.md) adds an opt-in TLS listener with device pairing and scoped tickets.
+Start the daemon with `bun run --filter @ace/daemon dev`. Node 24+ executes the TypeScript directly. It prints its WebSocket URL and token-file path. Configuration comes from `ACE_HOME` (default `~/.ace-next`), `ACE_PORT` (default 4242, 0 selects an available port), `ACE_LOG_LEVEL` (`debug`, `info`, `warn`, `error`, `silent`), `ACE_LOG_MAX_BYTES` (per-stream log cap, default `1g`) and `ACE_RETENTION_DAYS` (data window, default 120). The last two override the saved settings that `ace config set log-cap` and `ace config set retention-days` change (ADR 0076). The local listener always binds to 127.0.0.1. [Remote access](remote-access.md) adds an opt-in TLS listener with device pairing and scoped tickets.
 
 The default Cursor SDK account lives in `<ACE_HOME>/instances/cursor-sdk-default`.
 `ACE_CURSOR_SDK_HOME=/absolute/fixture-instance` overrides its instance root for

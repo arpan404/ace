@@ -227,6 +227,12 @@ database maintenance. `storage.scheduledCleanup` defaults to false. Enabling it 
 one injected timer with a durable daily deadline. Disabling it also withdraws
 permission from an in-flight scheduled apply. No provider CLI is started.
 
+Automatic data retention is separate and always on. `storage.retentionDays` (default 120,
+`ACE_RETENTION_DAYS` overrides it) removes idle threads whether or not they were archived,
+unused attachments and rotated logs older than the window, through `StorageService.retain()`
+with the reviewer `storage:retention`. It uses the same protections and executor as reviewed
+cleanup. See ADR 0076.
+
 Behavior tests are written for real temporary SQLite, files, Git repositories
 and a daemon process killed after its first deletion. Additional UI tests guard
 preview, protected explanations and confirmation. Tests, mutation runs and

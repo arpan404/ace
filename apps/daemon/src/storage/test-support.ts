@@ -51,7 +51,12 @@ export async function storageFixture(
     },
     options.limits,
   );
-  const thread = (id: string, status: Thread["status"] = { state: "done" }) => {
+  /** Archived and idle since time 1 unless `fields` says otherwise. */
+  const thread = (
+    id: string,
+    status: Thread["status"] = { state: "done" },
+    fields: { archivedAt?: number | undefined } = { archivedAt: 1 },
+  ) => {
     const t = Thread.parse({
       id,
       workspaceId: WorkspaceId.parse(workspace),
@@ -60,7 +65,7 @@ export async function storageFixture(
       status,
       createdAt: 1,
       updatedAt: 1,
-      archivedAt: 1,
+      ...(fields.archivedAt === undefined ? {} : { archivedAt: fields.archivedAt }),
     });
     store.appendEvents(t.id, [{ type: "thread.created", thread: t }], 1);
     return t;

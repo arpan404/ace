@@ -1,4 +1,4 @@
-import { StorageRetention } from "./storage.ts";
+import { LogMaxBytes, RetentionDays, StorageRetention } from "./storage.ts";
 import { SourceControlPreferences } from "./source-control.ts";
 import { MachineIcon } from "./host-identity.ts";
 import { ProviderConfigurations } from "./provider-configuration.ts";
@@ -14,6 +14,10 @@ const effort = z.enum(["default", "none", "minimal", "low", "medium", "high", "x
 export const SettingsValues = z.object({
   "storage.retention": StorageRetention,
   "storage.scheduledCleanup": z.boolean(),
+  /** Automatic data retention window in days. Idle threads, unused attachments and logs older than it are removed. */
+  "storage.retentionDays": RetentionDays,
+  /** Disk cap in bytes for each log stream, rotated segments included. */
+  "logs.maxBytes": LogMaxBytes,
   "sourceControl.preferences": SourceControlPreferences.and(z.json()),
   "providers.configuration": ProviderConfigurations,
   "host.displayName": z.string().max(256),
@@ -101,7 +105,10 @@ export const SettingsLayer = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("thread"), threadId: ThreadId }),
 ]);
 export type SettingsLayer = z.infer<typeof SettingsLayer>;
-export const SettingsProvenance = z.enum(["defaults", "global", "workspace", "thread"]);
+export const SettingsLayerKind = z.enum(["defaults", "global", "workspace", "thread"]);
+export type SettingsLayerKind = z.infer<typeof SettingsLayerKind>;
+/** `environment`: a host environment variable overrides every saved layer for this key. */
+export const SettingsProvenance = z.enum([...SettingsLayerKind.options, "environment"]);
 export type SettingsProvenance = z.infer<typeof SettingsProvenance>;
 export const SettingsEntry = z.object({
   key: SettingsKey,
@@ -112,7 +119,7 @@ export const SettingsEntry = z.object({
 });
 export type SettingsEntry = z.infer<typeof SettingsEntry>;
 export const SettingsDiagnostic = z.object({
-  layer: SettingsProvenance,
+  layer: SettingsLayerKind,
   code: z.enum(["parse", "validation", "version", "secret", "size", "io", "limit"]),
   message: z.string().max(512),
   offset: z.number().int().nonnegative().optional(),

@@ -102,6 +102,7 @@ test("a dry run selecting worktrees older than 7 days plans only worktrees again
       logs: null,
       worktrees: 7,
       caches: null,
+      idleThreads: false,
     });
     expect(plan.items).toEqual([
       expect.objectContaining({ kind: "worktrees", disposition: "remove" }),

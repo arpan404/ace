@@ -41,6 +41,10 @@
       ],
       "default": 7
     },
+    "idleThreads": {
+      "default": false,
+      "type": "boolean"
+    },
     "logs": {
       "anyOf": [
         {

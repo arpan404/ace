@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { RedactionContext } from "@ace/redaction";
 import type { BatchSink, LogRecord } from "./logger.ts";
 import type { FileSinkOptions } from "./file-sink.ts";
-import { openFileSink } from "./file-sink.ts";
+import { appendLogLinesSync, openFileSink } from "./file-sink.ts";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 export interface LogWorkerRuntime {
   spawn(url: URL, data: unknown): Pick<Worker, "on" | "postMessage" | "terminate">;
@@ -15,12 +15,28 @@ export async function createFileSink(
   options: FileSinkOptions & { context: RedactionContext },
   runtime?: LogWorkerRuntime,
 ): Promise<BatchSink> {
+  const redact = createDiagnosticRedactor(options.context);
+  const lines = (records: readonly LogRecord[]) =>
+    records.map((entry) => redact(JSON.stringify(entry)) + "\n");
+  // Crash-path appends rescan the directory, so they need only the latest cap.
+  let limits: FileSinkOptions = {
+    directory: options.directory,
+    totalBytes: options.totalBytes,
+    ...(options.fileBytes !== undefined ? { fileBytes: options.fileBytes } : {}),
+  };
+  const writeSync = (records: readonly LogRecord[]) => appendLogLinesSync(limits, lines(records));
   if (!runtime) {
     const sink = await openFileSink(options);
-    const redact = createDiagnosticRedactor(options.context);
     // The logger bounds and serializes batches. File writes and rotation already use async I/O.
     return {
-      write: (records) => sink.write(records.map((entry) => redact(JSON.stringify(entry)) + "\n")),
+      async write(records) {
+        await sink.write(lines(records));
+      },
+      async resize(totalBytes) {
+        await sink.resize(totalBytes);
+        limits = { ...limits, totalBytes };
+      },
+      writeSync,
       async close() {},
     };
   }
@@ -70,16 +86,22 @@ export async function createFileSink(
     await worker.terminate();
     throw error;
   }
+  const send = (message: unknown) => {
+    if (failure) return Promise.reject(failure);
+    if (pending) return Promise.reject(new Error("Only one log batch may be outstanding"));
+    return new Promise<void>((resolve, reject) => {
+      pending = { resolve, reject };
+      arm();
+      worker.postMessage(message, []);
+    });
+  };
   return {
-    write(records: readonly LogRecord[]) {
-      if (failure) return Promise.reject(failure);
-      if (pending) return Promise.reject(new Error("Only one log batch may be outstanding"));
-      return new Promise<void>((resolve, reject) => {
-        pending = { resolve, reject };
-        arm();
-        worker.postMessage(records, []);
-      });
+    write: (records: readonly LogRecord[]) => send({ type: "write", records }),
+    async resize(totalBytes: number) {
+      await send({ type: "resize", totalBytes });
+      limits = { ...limits, totalBytes };
     },
+    writeSync,
     async close() {
       cancel?.();
       await worker.terminate();
