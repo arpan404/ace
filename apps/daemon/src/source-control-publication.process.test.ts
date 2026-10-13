@@ -95,6 +95,8 @@ process.stdout.write('HTTP/1.1 200 OK\\r\\n\\r\\n'+JSON.stringify(body));
     },
   ]);
   const runtime = new WorkspaceRuntime(store, home, () => 1, {
+    // The push URL is a local bare repository standing in for the hosted fork.
+    git: { transportProtocols: ["file"] },
     forgeRunner: (cwd) => {
       const run = createCommandRunner({ cwd, timeoutMs: 60000 });
       return (request) => run({ ...request, command: cli });
