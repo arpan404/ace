@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import {
   Command,
   type McpAttribution,
+  type ThreadId,
   type ThreadStartOperation,
   type AgentControlResult,
 } from "@ace/protocol";
+import { conversationAnswer } from "./conversation-answer.ts";
 import type { CreationWorkspace } from "../creation-workspace.ts";
 import { prepareAgentWorkspace, type AgentWorkspaceContext } from "./workspaces.ts";
 import { ConversationJournal } from "./conversation-journal.ts";
@@ -17,6 +19,20 @@ export function createConversationStarts(
   journal: ConversationJournal,
 ) {
   const pending = new Map<string, { identity: string; work: Promise<AgentControlResult> }>();
+  /** ace's answer: the started thread as the agent relays it and the person's card shows it. */
+  const answer = (threadId: ThreadId): AgentControlResult => {
+    const thread = context.store.getThread(threadId);
+    if (!thread) return { ok: true, data: { threadId } };
+    const account = thread.execution?.instanceId ?? thread.live?.account;
+    return { ok: true, data: conversationAnswer(thread, service.accountLabel(account)) };
+  };
+  /** A started conversation is a task from its first message, never an untouched draft. */
+  const listed = (threadId: ThreadId) =>
+    context.store.appendEvents(threadId, [
+      { type: "thread.client.updated", changes: { hasSentMessage: true } },
+    ]);
+  // Conversations started before ace recorded them as sent were hidden from the sidebar.
+  for (const threadId of journal.unlisted()) listed(threadId);
   // Git resource recovery is owned by WorkspaceCreations. These reservations never
   // launch autonomously after restart; a caller retries its original request.
   for (const reservation of service.journal.reservations())
@@ -38,7 +54,7 @@ export function createConversationStarts(
         JSON.stringify(previous.request) !== JSON.stringify(operation)
       )
         return { ok: false, code: "invalid" };
-      return { ok: true, data: { threadId: previous.threadId } };
+      return answer(previous.threadId);
     }
     const key = createHash("sha256")
       .update(JSON.stringify([caller.threadId, operation.requestId]))
@@ -92,6 +108,7 @@ export function createConversationStarts(
           parent.workspaceId,
           preparation ? { preparedWorkspace: preparation.workspace } : undefined,
         );
+        listed(child.id);
         journal.add({
           threadId: child.id,
           ownerThreadId: caller.threadId,
@@ -102,7 +119,7 @@ export function createConversationStarts(
         });
         const sent = service.message(caller, request.requestId, child.id, text, "queue");
         if (!sent.ok) throw new Error("Initial message rejected");
-        return { ok: true, data: { threadId: child.id } };
+        return answer(child.id);
       });
     } finally {
       watched.close();

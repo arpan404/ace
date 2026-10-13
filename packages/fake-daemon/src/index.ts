@@ -91,6 +91,7 @@ export { uxAudit, uxAuditScreens } from "./scenarios/ux-audit.ts";
 export { FakeScreen, type FakeScreenOptions } from "./screen.ts";
 
 export { aceToolRows, aceToolThreadIds } from "./scenarios/ace-tool-results.ts";
+export { startedConversation, startedConversationIds } from "./scenarios/started-conversation.ts";
 export { seedRealCatalogs } from "./scenarios/real-catalogs.ts";
 
 export { seedColdStartState, coldTdd } from "./cold-start-state.ts";

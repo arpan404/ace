@@ -104,6 +104,7 @@ const gap: Record<Block["kind"], string> = {
   subagents: "pb-1.5",
   background: "pb-2",
   item: "pb-3",
+  started: "pb-3",
   question: "pb-4",
   event: "pb-3",
   end: "pb-4",

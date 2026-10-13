@@ -4,6 +4,7 @@ import type { BackgroundTask, Item, Run } from "@ace/protocol";
 import {
   carriesOnStretch,
   isBareErrorCode,
+  isThreadStartCall,
   reviewedInteraction,
   toolRefusal,
   type InlineQuestion,
@@ -79,6 +80,11 @@ export type Block =
     }
   | { kind: "files"; key: string; itemIds: string[] }
   | { kind: "item"; key: string; itemId: string }
+  /**
+   * A conversation the agent started with ace's `ace_thread_start`: a card that opens it, where
+   * it was started and never folded. Its step stays in the work log too.
+   */
+  | { kind: "started"; key: string; itemId: string }
   /**
    * A question the agent asked the person, where it was asked: pending or answered, never
    * folded into a work log. `itemId` is the tool call it was asked from (its `ask_user` step,
@@ -504,6 +510,11 @@ export function buildBlocks(source: BlockSource): Block[] {
             group("subagents", id);
             if (item.call.detail.kind === "agent.spawn" && item.call.detail.childAgentId)
               mark?.agents.add(item.call.detail.childAgentId);
+          } else if (isThreadStartCall(item)) {
+            // Even when a provider tracked the call as a background task: it starts a thread,
+            // it is not a command left running.
+            group("work", id);
+            push({ kind: "started", key: `started:${id}`, itemId: id }, false);
           } else if (taskId !== undefined) {
             mark?.tasks.add(taskId);
             const last = blocks.at(-1);
@@ -805,7 +816,8 @@ export function blockItems(block: Block): readonly string[] {
   if (block.kind === "work" && block.folded)
     return [...new Set([...block.folded.flatMap((inner) => blockItems(inner)), ...block.itemIds])];
   if ("itemIds" in block) return block.itemIds ?? [];
-  if (block.kind === "live" || block.kind === "thinking") return [];
+  // A started thread's card repeats a step its work log already holds.
+  if (block.kind === "live" || block.kind === "thinking" || block.kind === "started") return [];
   if (block.kind === "question") {
     const shown = block.itemId ?? block.anchorId;
     return shown === undefined ? [] : [shown];

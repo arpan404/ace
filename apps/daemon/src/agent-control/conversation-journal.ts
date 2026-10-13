@@ -57,6 +57,22 @@ export class ConversationJournal {
       );
     });
   }
+  /** Started conversations still recorded as untouched drafts, which the sidebar leaves out. */
+  unlisted(): ThreadId[] {
+    return this.store
+      .atomic((db) =>
+        db
+          .prepare(
+            `SELECT c.thread_id FROM agent_conversations c JOIN threads t ON t.id=c.thread_id
+          WHERE json_extract(t.client,'$.hasSentMessage') = 0 ORDER BY c.thread_id LIMIT 10000`,
+          )
+          .all(),
+      )
+      .map(
+        (row) =>
+          z.object({ thread_id: AgentConversationRecord.shape.threadId }).parse(row).thread_id,
+      );
+  }
   unenrolledMembers() {
     return this.store
       .atomic((db) =>

@@ -10,6 +10,7 @@ import { BackgroundTaskGroup, BackgroundTaskLine } from "./background-task-line.
 import { ChangedFiles } from "./changed-files.tsx";
 import { AssistantMessage } from "./messages.tsx";
 import { QuestionBlock } from "./question-block.tsx";
+import { StartedThreadCard } from "./started-thread-card.tsx";
 import { UserMessage } from "./user-message.tsx";
 import { WorktreeNote } from "../worktree/worktree-note.tsx";
 import { Subagents } from "./subagents.tsx";
@@ -60,6 +61,8 @@ const BlockContent = memo(function BlockContent(props: {
       return <ChangedFiles threadId={threadId} itemIds={block.itemIds} />;
     case "question":
       return <QuestionBlock threadId={threadId} interactionId={block.interactionId} />;
+    case "started":
+      return <StartedThreadCard threadId={threadId} itemId={block.itemId} />;
     case "item":
     case "event":
       return <Event threadId={threadId} itemId={block.itemId} />;

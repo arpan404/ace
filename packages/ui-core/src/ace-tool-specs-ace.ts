@@ -87,6 +87,9 @@ const aceSpecs: Record<string, AceToolSpec> = {
     ),
   ),
   ace_thread_launch: fixed("threads", say(verbs.started, " a thread")),
+  ace_thread_start: spec("threads", ({ args }) =>
+    say(["Started a thread", "Starting a thread", "Start a thread"], "", named(args, ["title"])),
+  ),
   ace_thread_message: spec("threads", ({ args }) =>
     say(
       ["Messaged a thread", "Messaging a thread", "Message a thread"],
