@@ -38,7 +38,8 @@ registry.register(syntheticProvider().adapter, {
 const engine = new Engine(store, { registry });
 await engine.ready();
 const runtime = new WorkspaceRuntime(store, config.directory, () => 1000, {
-  gitService: new GatedGit(),
+  // The bare origin is a local stand-in for the hosted repository.
+  gitService: new GatedGit({ transportProtocols: ["file"] }),
   prRemote: () => "origin",
   changeWorkspace: (...args) => engine.changeWorkspace(...args),
   reconcileThread: (id) => engine.reconcileThread(id),
