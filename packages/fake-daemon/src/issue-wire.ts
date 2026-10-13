@@ -8,6 +8,34 @@ import {
   WorkspaceActionRequest,
 } from "@ace/protocol";
 
+/**
+ * A project's issues when no fixture seeded any: an empty, writable list, as a reachable
+ * repository with no open issues answers. Not a "missing repository" error.
+ */
+export function emptyIssueList(
+  op: WorkspaceActionRequest["operation"],
+): ForgeBrowserResult | undefined {
+  if (op.op !== "forge.issue.list") return undefined;
+  return {
+    resource: "issueList",
+    value: {
+      repository: op.repository ?? {
+        forge: "github",
+        host: "github.com",
+        owner: "acme",
+        name: op.workspaceId,
+      },
+      items: [],
+      total: 0,
+      counts: { open: 0, closed: 0 },
+      canCreate: true,
+      unavailableReason: "",
+      incomplete: false,
+      truncated: false,
+    },
+  };
+}
+
 /** Hosted issue fixtures change through the production command/read contracts. */
 export class FakeIssueWire {
   private reads: Map<string, ForgeBrowserResult>;

@@ -2,6 +2,7 @@ import { useClient, useConnectionState, useInteractions } from "@ace/client-reac
 import type { QueuedMessage, ThreadStatus } from "@ace/protocol";
 import { Suspense, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
+import { useClaimConnectionNotice } from "@/features/shell/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { useHeldQueue } from "./queue-notice.tsx";
 import { QueueStrip } from "./queue-strip.tsx";
@@ -40,6 +41,9 @@ export function ComposerStrip(props: {
   const plan = useShownPlans(props.threadId)[0]?.progress;
   const queued = queuedCount(queue, pending);
   const offline = connection === "offline";
+  // Reconnecting and offline are said here, so the header stays quiet; anything else (a
+  // fatal error) is the header's.
+  useClaimConnectionNotice(offline || connection === "reconnecting");
   // An open edit keeps the queue in the slot even once its message leaves the queue, so the
   // editor can say so and keep the person's wording.
   const [editing, setEditing] = useState<QueuedMessage>();

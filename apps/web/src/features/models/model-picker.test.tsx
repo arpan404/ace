@@ -164,9 +164,13 @@ test("Pi groups its models by the provider it is signed in to", async () => {
     "Haiku 4.5, Pi · GitHub Copilot · Your CLI login",
     "Legacy models, 1",
   ]);
-  // A provider that isn't installed has nothing to pick.
+  // A provider that isn't installed has nothing to pick: its tab opens on why, never on the
+  // previous tab's models.
   const antigravity = within(popover).getByRole("tab", { name: "Antigravity" });
-  expect(antigravity.getAttribute("aria-disabled")).toBe("true");
+  await userEvent.click(antigravity);
+  expect(antigravity.getAttribute("aria-selected")).toBe("true");
+  expect(within(list).getByRole("status").textContent).toMatch(/isn't installed/);
+  expect(within(list).queryAllByRole("option")).toHaveLength(0);
 });
 
 test("a provider whose sign-in expired says so and how to fix it, and Refresh models discovers again", async () => {

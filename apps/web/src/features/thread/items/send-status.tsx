@@ -7,6 +7,7 @@ import { Icon } from "@/components/icon.tsx";
 import { waitingNote } from "@/lib/daemon-command.ts";
 import { type StagedSend, leasable } from "../composer/send-store.ts";
 import { useWorktreeCreation } from "../worktree/use-worktree-creation.ts";
+import { worktreeSpeaks } from "../worktree/worktree-refusal.ts";
 import { FailedHeld, FailedSend } from "./failed-send.tsx";
 import { sendFailure } from "./send-failure.ts";
 
@@ -66,7 +67,8 @@ export function SendStatus(props: {
       ? send.commandId
       : undefined;
   const worktree = useWorktreeCreation(creating).state?.progress;
-  if (worktree) return props.otherwise;
+  if (worktreeSpeaks(worktree, send?.state === "failed" ? send.error : undefined))
+    return props.otherwise;
   if (staged?.failed || staged?.uploadInterrupted)
     return <FailedHeld threadId={props.threadId} staged={staged} />;
   if (staged)

@@ -1,5 +1,5 @@
 import { facts } from "@ace/fake-daemon";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -41,14 +41,22 @@ async function finished(withSteps: boolean) {
   return { app, feed };
 }
 
-// Mutation: treating a read with no steps as no read (a skeleton forever).
-test("a finished turn with nothing but its answer opens to say it recorded no steps", async () => {
+// Mutation: offering a disclosure with nothing behind it.
+test("a finished turn with nothing but its answer reads Worked for as plain text, with nothing to open", async () => {
   const { feed } = await finished(false);
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
-  expect(await within(feed).findByText("No steps recorded.")).toBeTruthy();
-  expect(within(feed).queryByRole("status", { name: "Loading steps" })).toBeNull();
+  expect(await within(feed).findByText(/^Worked for/)).toBeTruthy();
+  await waitFor(() =>
+    expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull(),
+  );
+  expect(within(feed).queryByText("No steps recorded.")).toBeNull();
   // The answer stays in view, outside the log.
   expect(await within(feed).findAllByText("The build passes.")).toHaveLength(1);
+});
+
+test("a finished turn with steps still opens on them", async () => {
+  const { feed } = await finished(true);
+  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  expect(await within(feed).findByText(/bun run build/)).toBeTruthy();
 });
 
 // Mutation: silently showing whatever the window holds after a failed read.

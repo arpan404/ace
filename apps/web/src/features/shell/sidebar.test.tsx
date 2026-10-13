@@ -239,15 +239,16 @@ test("with no project yet, the sidebar, ⌘N and the palette all lead to Add pro
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
 });
 
-test("the footer is quiet when connected and names daemon trouble when offline", async () => {
+test("the footer leaves daemon trouble to the screen's one notice, naming it only to assistive tech", async () => {
   const app = harness();
   await app.open("/new");
   await title("New thread");
   const profile = button(/^You, account/);
   expect(profile.textContent).toBe("You");
   app.client.networkOnline(false);
-  await waitFor(() => expect(profile.textContent).toContain("Daemon offline"));
-  expect(profile.getAttribute("aria-label")).toContain("offline");
+  await waitFor(() => expect(profile.getAttribute("aria-label")).toContain("offline"));
+  expect(profile.textContent).toBe("You");
+  expect(await screen.findAllByText(/^Offline/, { selector: "header *" })).toHaveLength(1);
   app.client.networkOnline(true);
   await waitFor(() => expect(profile.textContent).toBe("You"));
 });

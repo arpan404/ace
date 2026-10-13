@@ -50,21 +50,23 @@ function ThreadBrowser(props: { threadId: string }) {
       source.nativeShown?.(threadId, !!desktopBrowserViews() && view?.backend === "embedded");
   }, [source, threadId, showingBrowser, view?.backend]);
   return view?.pendingDialog && !showingBrowser ? (
-    <PageDialog
-      view={view}
-      browser={{
-        answerDialog: (...args) => {
-          const lifetime = presence.current;
-          return browser.answerBackgroundDialog(
-            () =>
-              lifetime !== undefined &&
-              presence.current === lifetime &&
-              workspaces.get(threadId).open,
-            ...args,
-          );
-        },
-      }}
-    />
+    <div className="pointer-events-auto overflow-hidden rounded-popup ace-floating shadow-glass">
+      <PageDialog
+        view={view}
+        browser={{
+          answerDialog: (...args) => {
+            const lifetime = presence.current;
+            return browser.answerBackgroundDialog(
+              () =>
+                lifetime !== undefined &&
+                presence.current === lifetime &&
+                workspaces.get(threadId).open,
+              ...args,
+            );
+          },
+        }}
+      />
+    </div>
   ) : null;
 }
 export default function ThreadBrowserBoundary(props: { threadId: string }) {

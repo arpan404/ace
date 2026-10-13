@@ -31,7 +31,10 @@ const problems: Record<ConnectionProblem, ReactNode> = {
 export function ConnectionScreen() {
   useDismissBootSplash();
   const connection = useDaemonConnection();
-  const [pairing, setPairing] = useState(connection.pairingLink !== undefined);
+  // A pairing link opens the pairing form, and so does the bare /pair route someone typed.
+  const [pairing, setPairing] = useState(
+    connection.pairingLink !== undefined || globalThis.location?.pathname === "/pair",
+  );
   const handoff = connection.handoff;
   if (handoff)
     return (
@@ -51,8 +54,13 @@ export function ConnectionScreen() {
         {pairing ? "Pair this device" : "Connect to ace"}
       </h1>
       <p className="mt-1.5 mb-6 text-ui leading-normal text-muted-foreground">
-        {pairing ? (
+        {pairing && connection.pairingLink !== undefined ? (
           "Give this device a name so you can recognize and revoke its access later."
+        ) : pairing ? (
+          <>
+            On the computer running ace, open Settings › Pair a device and scan its QR code or open
+            its link here. You can also paste the link below.
+          </>
         ) : connection.desktop ? (
           <>
             Connect to ace on another computer at a secure{" "}

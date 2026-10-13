@@ -14,7 +14,9 @@ export function permissionLabel(
 ): string {
   if (!mode) return "Provider default";
   const entry = capabilities?.permissionModes?.find((candidate) => candidate.id === mode);
-  return entry ? permissionModeLabel(entry) : `Unavailable mode: ${mode}`;
+  // A mode the provider no longer lists (or ids from elsewhere): short enough for the chip;
+  // the raw id, which can be a whole JSON policy, never shows.
+  return entry ? permissionModeLabel(entry) : "Other mode";
 }
 export const permissionShortLabel = permissionLabel;
 export function permissionChipText(

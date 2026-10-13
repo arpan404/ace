@@ -86,7 +86,10 @@ test("a worktree's steps advance under the first message, with checkout's percen
 
   // Progress lives once in the transcript. The next message can be drafted, but not sent.
   expect(screen.queryByRole("region", { name: "Worktree" })).toBeNull();
-  expect(screen.getByRole("button", { name: /^Model:/ })).toBeTruthy();
+  // The model chip keeps its provider mark and effort, as every composer's does.
+  const chip = screen.getByRole("button", { name: /^Model:/ });
+  expect(chip.querySelector("svg, img")).toBeTruthy();
+  expect(chip.textContent).toMatch(/·\s*(Low|Medium|High|Extra high|Max|Minimal)/);
   expect(screen.getByRole("button", { name: /^Approvals:/ })).toBeTruthy();
   const input = screen.getByRole("combobox", { name: "Message" });
   await userEvent.type(input, "Also cover the reconnect case");
@@ -179,6 +182,8 @@ test("Cancel stops the worktree, keeps the message unsent and offers Retry or th
   expect(made.threads().some((thread) => isNew(thread.id))).toBe(false);
   expect(within(screen.getByRole("main")).queryByText("Not sent")).toBeNull();
   expect(screen.queryByRole("region", { name: "Worktree" })).toBeNull();
+  // The card says it once; the composer's strip doesn't repeat it.
+  expect(within(screen.getByRole("main")).getAllByText("Worktree cancelled")).toHaveLength(1);
 
   // Retry makes it from the start, under the same message.
   await userEvent.click(within(stopped).getByRole("button", { name: "Retry" }));
@@ -195,6 +200,32 @@ test("Cancel stops the worktree, keeps the message unsent and offers Retry or th
       threadId: created[0]?.id,
     }),
   );
+}, 30_000);
+
+test("a start refused for its model after the worktree was made says why, not that the worktree failed", async () => {
+  const made = app();
+  made.daemon.refuseCommands("model_unavailable", "thread.create");
+  await startWorktree(made, "Recover this failed start");
+  await made.stepUntil(
+    () => screen.queryByRole("region", { name: "Creating a worktree" }) === null,
+  );
+  const main = screen.getByRole("main");
+  expect(await within(main).findByText("Not sent")).toBeTruthy();
+  expect(within(main).getByText(/That model isn.t available/)).toBeTruthy();
+  expect(within(main).queryByText(/Couldn't create the worktree/)).toBeNull();
+  expect(within(main).queryByRole("region", { name: "Couldn't create the worktree" })).toBeNull();
+}, 30_000);
+
+test("a worktree refused without its own words still names the worktree", async () => {
+  const made = app();
+  made.daemon.refuseCommands("workspace_unavailable", "thread.create");
+  await startWorktree(made, "Split the relay reconnect state machine").catch(() => undefined);
+  await made.stepUntil(
+    () => screen.queryByRole("heading", { level: 1, name: "New thread" }) !== null,
+  );
+  const alert = await screen.findByText(/^(We )?[Cc]ouldn.t create the worktree/);
+  expect(alert.closest('[role="alert"]')).toBeTruthy();
+  expect(screen.queryByText(/couldn't complete that action/)).toBeNull();
 }, 30_000);
 
 test("Don't use worktree starts the thread on the local checkout and sends the message", async () => {

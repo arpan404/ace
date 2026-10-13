@@ -207,7 +207,7 @@ test("approval inside a subagent holds the parent in a needs-you state, with no 
       },
     ]),
   );
-  expect(await screen.findByRole("link", { name: "Waiting for your approval" })).toBeTruthy();
+  expect(await screen.findAllByText("Waiting for your approval")).toHaveLength(1);
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
   expect(screen.queryByRole("status", { name: "Working" })).toBeNull();
   // The head names the wait, never Working, and no time runs while it lasts.
@@ -259,7 +259,8 @@ test("successive text-only turns each retain their own worked duration", async (
       facts.endTurn("root"),
     ]),
   );
-  expect(await screen.findByRole("button", { name: /^Worked for 10s/ })).toBeTruthy();
+  // Text-only turns have nothing to open: each reads its own duration as plain text.
+  expect(await screen.findByText(/^Worked for 10s/)).toBeTruthy();
   setTime(21_000);
   act(() =>
     app.daemon.apply(id, [
@@ -274,8 +275,8 @@ test("successive text-only turns each retain their own worked duration", async (
       { type: "turn.ended", agent: "root", nativeTurnId: "second", outcome: "completed" },
     ]),
   );
-  expect(await screen.findByRole("button", { name: /^Worked for 20s/ })).toBeTruthy();
-  expect(screen.getAllByRole("button", { name: /^Worked for/ })).toHaveLength(2);
+  expect(await screen.findByText(/^Worked for 20s/)).toBeTruthy();
+  expect(screen.getAllByText(/^Worked for/)).toHaveLength(2);
 });
 
 test("the live line ticks with an injected clock and names the wait, untimed, when approval waits", () => {

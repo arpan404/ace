@@ -19,6 +19,7 @@ export function useToastAnchor(): RefCallback<HTMLElement> {
       root.style.removeProperty(paneWidthVar);
       root.style.removeProperty("--toast-pane-top");
       root.style.removeProperty("--toast-pane-bottom");
+      root.style.removeProperty("--toast-stack-dir");
     };
     const pages = () => [
       ...element.ownerDocument.querySelectorAll<HTMLElement>("[data-browser-page]"),
@@ -48,9 +49,13 @@ export function useToastAnchor(): RefCallback<HTMLElement> {
       }
       root.style.setProperty(
         "--toast-pane-top",
-        fallback ? "auto" : "calc(max(var(--header-h,48px),env(safe-area-inset-top,0px)) + 12px)",
+        fallback
+          ? "auto"
+          : "calc(env(safe-area-inset-top,0px) + (var(--header-h,44px) - 36px) / 2)",
       );
       root.style.setProperty("--toast-pane-bottom", fallback ? "16px" : "auto");
+      // A deck pinned to the bottom fans out upwards.
+      root.style.setProperty("--toast-stack-dir", fallback ? "-1" : "1");
       const width = right - left;
       // A hidden/offscreen box must not replace the toast viewport's usable CSS defaults.
       if (width <= 32) return clear();

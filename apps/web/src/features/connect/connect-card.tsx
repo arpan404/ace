@@ -14,7 +14,9 @@ export function ConnectCard(props: {
   labelledBy?: string;
 }) {
   return (
-    <div className="relative grid h-full min-h-0 place-items-center overflow-auto bg-background p-6">
+    // Anchored from the top, not centred: a validation message or alert growing the form
+    // extends it downwards instead of moving the heading the person is reading.
+    <div className="relative flex h-full min-h-0 items-start justify-center overflow-auto bg-background p-6 pt-[18vh]">
       {/* The desktop window has no title bar; this strip moves it, as the shell's header does. */}
       <div aria-hidden className="fixed inset-x-0 top-0 z-[1] h-[50px] [-webkit-app-region:drag]" />
       <main

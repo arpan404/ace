@@ -49,3 +49,13 @@ test("an account usage warning appears beside the composer without repeating the
   expect(within(feed).queryByText(/has used 82%/)).toBeNull();
   expect(within(feed).queryByText("82% of 5-h limit")).toBeNull();
 });
+
+test("a pending switch to Full access reads as its modes' names on the approvals chip", async () => {
+  const app = harness();
+  const scenario = uxAudit().find((entry) => entry.thread.id === "thread-ux-pending-full-access");
+  if (!scenario) throw new Error("Missing pending-full-access scenario");
+  app.play(scenario).runUntilBlocked();
+  await app.open("/t/thread-ux-pending-full-access");
+  const chip = await screen.findByRole("button", { name: /^Approvals: Full access, applies at/ });
+  expect(chip.getAttribute("aria-label")).not.toMatch(/Other mode|Unavailable/);
+});

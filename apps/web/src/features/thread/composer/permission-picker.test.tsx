@@ -119,7 +119,7 @@ test("Full access selects the unchanged native id and switching catalogs removes
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Full access" }));
   expect(selected).toEqual(["yolo"]);
   rendered.rerender(view(native, "yolo"));
-  await userEvent.click(screen.getByRole("button", { name: "Approvals: Unavailable mode: yolo" }));
+  await userEvent.click(screen.getByRole("button", { name: "Approvals: Other mode" }));
   expect(screen.queryByRole("menuitemradio", { name: "Full access" })).toBeNull();
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Execute plan" }));
   expect(selected).toEqual(["yolo", "execute"]);

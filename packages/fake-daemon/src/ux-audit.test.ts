@@ -1,3 +1,4 @@
+import { codexReviewerMode } from "@ace/provider-kit/permission-modes";
 import { expect, test } from "vitest";
 import { Command, ThreadId } from "@ace/protocol";
 import { FakeDaemon, ScenarioPlayer, uxAudit } from "./index.ts";
@@ -60,8 +61,8 @@ test("audit scenarios retain terminal failures, stops, handoff and the pending p
     expect.objectContaining({ origin: expect.objectContaining({ kind: "handoff" }) }),
   );
   expect(thread(daemon, "thread-ux-pending-full-access").thread.permission).toMatchObject({
-    effective: "auto-review",
-    override: "full-access",
+    effective: codexReviewerMode("auto_review"),
+    override: ":danger-full-access",
     pending: true,
   });
 });

@@ -72,7 +72,7 @@ test("an approval is answered on the card attached to the composer, never inside
   });
   const feed = screen.getByRole("feed", { name: "Transcript" });
   expect(within(feed).queryByRole("article", { name: /^Run rm -rf/ })).toBeNull();
-  expect(within(feed).getByRole("link", { name: "Waiting for your approval" })).toBeTruthy();
+  expect(within(feed).getAllByText("Waiting for your approval")).toHaveLength(1);
 
   await userEvent.click(within(card).getByRole("button", { name: "Allow once" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull());
@@ -332,12 +332,9 @@ for (const [decision, outcome] of [
     await app.open("/t/thread-checkout");
     const region = await stack();
     const feed = screen.getByRole("feed", { name: "Transcript" });
-    const marker = await within(feed).findByRole("link", { name: "Waiting for your approval" });
+    expect(await within(feed).findAllByText("Waiting for your approval")).toHaveLength(1);
     expect(within(feed).queryByRole("button", { name: "Allow once" })).toBeNull();
     expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
-    await userEvent.click(marker);
-    await userEvent.tab();
-    expect(region.contains(document.activeElement)).toBe(true);
     await userEvent.click(within(region).getByRole("button", { name: decision }));
     await waitFor(() =>
       expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull(),
@@ -345,7 +342,7 @@ for (const [decision, outcome] of [
     const recorded = await within(feed).findByRole("note");
     expect(recorded.textContent).toContain(outcome);
     expect(recorded.textContent).toContain("rm -rf node_modules/.cache/vitest");
-    expect(within(feed).queryByRole("link", { name: "Waiting for your approval" })).toBeNull();
+    expect(within(feed).queryByText("Waiting for your approval")).toBeNull();
   });
 }
 

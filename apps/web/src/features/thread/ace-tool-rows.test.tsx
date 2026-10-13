@@ -53,6 +53,10 @@ test("a refused background key press reads as a sentence naming Safari, with its
   expect(within(safari).queryByText(/not_supported/)).toBeNull();
   await userEvent.click(within(safari).getByRole("button", { name: "Details" }));
   expect(within(safari).getByText(/ace · screen_key · not_supported/)).toBeTruthy();
+  // The provider's frames stay behind one more closed disclosure, not dumped in the transcript.
+  expect(feed.textContent).not.toMatch(/"type":/);
+  await userEvent.click(within(safari).getByRole("button", { name: "Raw" }));
+  expect(feed.textContent).toMatch(/"type":/);
 });
 
 test("consecutive steps on one app collapse into one sentence that opens and folds", async () => {

@@ -6,7 +6,7 @@ import { DeferredTurnWork } from "./deferred-steps.ts";
 import { JumpedItem } from "./jumped-item.ts";
 import { GroupedSteps } from "./step-groups-view.tsx";
 import { useWorkLog } from "./use-work-log.ts";
-import { StepsSkeleton, WorkLogHeader } from "./work-log-view.tsx";
+import { StepsSkeleton, WorkLogHeader, WorkLogLine } from "./work-log-view.tsx";
 
 const TurnWork = DeferredTurnWork.Component;
 
@@ -52,6 +52,22 @@ function SettledLog(props: { threadId: string; block: WorkBlock; ordinal?: numbe
   // The opened log's code loads after first paint, ready before it is opened.
   useEffect(() => void DeferredTurnWork.preload(), []);
   if (!headline) return null;
+  // Nothing behind it (only an answer, and the daemon's digest counts no tools): plain text,
+  // not a disclosure that opens on "No steps recorded".
+  const answers = new Set(block.answerIds);
+  const digest = summary?.digest;
+  if (
+    digest &&
+    !items.some((id) => !answers.has(id)) &&
+    digest.commandsRun === 0 &&
+    !Object.values(digest.toolCounts).some(Boolean)
+  )
+    return (
+      <WorkLogLine
+        label={headline.label}
+        time={headline.endedAt === undefined ? undefined : formatClock(headline.endedAt)}
+      />
+    );
   return (
     <div>
       <WorkLogHeader

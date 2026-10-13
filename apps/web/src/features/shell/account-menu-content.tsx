@@ -41,7 +41,9 @@ export function AccountMenuContent() {
   const navigate = useNavigate();
   const version = desktopVersion();
   return (
-    <MenuContent side="top" align="start" className="min-w-(--anchor-width)">
+    // About the sidebar's width: a narrower menu ended mid-row, where the rows' status text behind
+    // the glass ran on from its shortcut hints and read as clipped.
+    <MenuContent side="top" align="start" className="min-w-[max(var(--anchor-width),16rem)]">
       <div className="flex items-center gap-2 truncate px-2.5 py-1.5 text-ui text-muted-foreground">
         <span className="truncate">{name || "You"}</span>
       </div>
