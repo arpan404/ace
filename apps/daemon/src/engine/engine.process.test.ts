@@ -240,16 +240,42 @@ test("startup expires interactions and ends work saved by a daemon that died", a
   restartedStore.close();
 });
 
-test("queued input waits for background work and releases when the whole tree settles", async () => {
+test("a queued message starts the next turn while a background command keeps running", async () => {
   const frames = scriptFrames();
   const h = track(
     await harness(
       [
         { on: "send", frames: [frames.frame(start, task, end)] },
+        { on: "send", frames: [frames.frame(start, end)] },
         {
           on: "stopTask",
           frames: [frames.frame({ type: "background.ended", task: "shell", status: "stopped" })],
         },
+      ],
+      frames,
+    ),
+  );
+  const id = await h.create();
+  await h.engine.flush();
+  // The provider's turn ended and only the dev server runs: the thread must not read done.
+  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "background_task" });
+  h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });
+  await h.engine.flush();
+  expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(2);
+  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "background_task" });
+  const background = Object.values(view(h.store, id).backgroundTasks)[0];
+  if (!background) throw new Error("Missing task");
+  h.command({ type: "background_task.stop", taskId: background.id });
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status.state).toBe("done");
+});
+
+test("a queued message still waits while the provider's turn is running", async () => {
+  const frames = scriptFrames();
+  const h = track(
+    await harness(
+      [
+        { on: "send", frames: [frames.frame(start, task)] },
         { on: "send", frames: [frames.frame(start, end)] },
       ],
       frames,
@@ -259,13 +285,9 @@ test("queued input waits for background work and releases when the whole tree se
   h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });
   await h.engine.flush();
   expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
-  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "background_task" });
-  const background = Object.values(view(h.store, id).backgroundTasks)[0];
-  if (!background) throw new Error("Missing task");
-  h.command({ type: "background_task.stop", taskId: background.id });
+  h.contexts[0]?.onFrame(frames.frame(end));
   await h.engine.flush();
   expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(2);
-  expect(h.store.getThread(id)?.status.state).toBe("done");
 });
 
 test("a provider intent failure becomes a visible notice and is never resent", async () => {

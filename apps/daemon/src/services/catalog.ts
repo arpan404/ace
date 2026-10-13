@@ -117,6 +117,13 @@ export function createCatalogSession(context: SocketContext): SocketService {
               }
             } while (dirty);
           } catch (error) {
+            // The thread was deleted or became unreadable mid-refresh: the subscription simply
+            // ends. That is not a socket failure, and the session keeps serving.
+            if (!stopped && !(await authorized(request).catch(() => false))) {
+              stop();
+              if (stops.get(request.requestId) === stop) stops.delete(request.requestId);
+              return;
+            }
             context.options.log?.(error);
             if (!stopped && context.connected() && context.authorize("read"))
               context.fail("catalog_unavailable", "Catalog could not be refreshed", false, {

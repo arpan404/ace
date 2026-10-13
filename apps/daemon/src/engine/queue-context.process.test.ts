@@ -13,7 +13,7 @@ afterEach(cleanupRecovery);
 
 test("queue pages bound large messages and reject a cursor after reordering", async () => {
   const frames = scriptFrames();
-  const h = await fixture([{ on: "send", frames: [frames.frame(start, task, end)] }], frames);
+  const h = await fixture([{ on: "send", frames: [frames.frame(start)] }], frames);
   const id = await h.create();
   for (let i = 0; i < 5; i++)
     h.command(
@@ -246,7 +246,7 @@ test("a native queue draining wakes the server queue even while the visible wait
 
 test("queue admission rejects overflow without removing or changing the accepted messages", async () => {
   const frames = scriptFrames();
-  const h = await fixture([{ on: "send", frames: [frames.frame(start, task, end)] }], frames);
+  const h = await fixture([{ on: "send", frames: [frames.frame(start)] }], frames);
   const id = await h.create();
   for (let i = 0; i < 256; i++)
     expect(

@@ -51,7 +51,11 @@ remain part of readiness; engine reconciliation updates only its own queue sourc
 queue counts retire with the session and produce an uncertainty notice on crash recovery.
 Thread status also comes from core: human requests precede active work anywhere in the tree,
 then waiting reasons, unresponsiveness and settled outcomes. A running background child
-keeps the thread working; queued input waits until the entire tree settles.
+keeps the thread working. Queued input waits for subagents, live tools and human requests, but
+not for background commands (a dev server, a watcher): once the provider's turn has ended the
+next queued message starts a new turn while those commands keep running and keep the thread
+from reading done. Closing a host gate (private browser, screen or browser approval) wakes the
+queue.
 
 Delivered sends retain a durable acknowledgement target until core accepts a fresh
 root run caused by user input, queue delivery or an unknown partial stream. Replayed native

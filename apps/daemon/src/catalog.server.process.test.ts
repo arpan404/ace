@@ -213,3 +213,78 @@ test("cold composer and Skills subscribers receive discovery without another lis
     await h.close();
   }
 });
+
+test("deleting a thread ends its catalog subscription quietly and the session keeps serving", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+    provider: "cursor",
+  });
+  const root = await realpath(h.home);
+  const directory = join(root, ".cursor/skills/review");
+  await mkdir(directory, { recursive: true });
+  const file = join(directory, "SKILL.md");
+  await writeFile(file, "---\nname: review\ndescription: Review the project\n---\nBody");
+  const library = new CommandLibrary({
+    aceHome: root,
+    instances: [{ id: "cursor-personal", provider: "cursor", home: join(root, "provider") }],
+    context: () => ({ workspace: root, provider: "cursor", instance: "cursor-personal" }),
+    now: () => h.clock.now(),
+  });
+  const failures: unknown[] = [];
+  const server = await startServer({
+    port: 0,
+    token,
+    hostId: "deleted-catalog",
+    store: h.store,
+    handler: h.engine.handler,
+    engine: h.engine,
+    commands: library,
+    canReadThread: (_device, thread) => h.store.hasLiveThread(thread),
+    log: (error) => failures.push(error),
+  });
+  const client = new Client(server.url);
+  try {
+    await once(client.socket, "open");
+    const id = await h.create();
+    const workspaceId = h.store.getThread(id)?.workspaceId;
+    if (!workspaceId) throw new Error("Missing workspace");
+    client.send({ type: "hello", protocolVersion: 1, deviceId: DeviceId.parse("reader"), token });
+    expect((await client.next()).type).toBe("welcome");
+    for (const requestId of ["composer", "skills"]) {
+      client.send({
+        type: "catalog.list",
+        requestId,
+        query: "review",
+        subscribe: true,
+        limit: 100,
+        ...(requestId === "composer"
+          ? { threadId: id }
+          : { workspace: { workspaceId, provider: "cursor" as const } }),
+      });
+      for (;;) {
+        const reply = await client.next();
+        if (reply.type === "catalog.list.result" && reply.requestId === requestId) break;
+      }
+    }
+    h.store.appendEvents(id, [{ type: "thread.client.updated", changes: { deletedAt: 5 } }]);
+    await writeFile(file, "---\nname: review\ndescription: Changed review\n---\nNew body");
+    const seen: string[] = [];
+    for (;;) {
+      const message = await client.next();
+      if (message.type === "error") seen.push(`${message.requestId}:${message.code}`);
+      if (
+        message.type === "catalog.changed" &&
+        message.requestId === "skills" &&
+        message.entries.some((entry) => entry.description === "Changed review")
+      )
+        break;
+    }
+    expect(seen).toEqual([]);
+    expect(failures).toEqual([]);
+  } finally {
+    await client.close();
+    await server.close();
+    await library.close();
+    await h.close();
+  }
+});

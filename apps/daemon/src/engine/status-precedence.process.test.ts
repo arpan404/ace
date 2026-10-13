@@ -7,7 +7,7 @@ afterEach(async () => {
   for (const close of cleanups.splice(0)) await close();
 });
 
-test("clients see human requests ahead of active background children and queued input waits for the whole tree", async () => {
+test("clients see human requests ahead of active background children; queued input waits for subagents but not for a background command", async () => {
   const frames = scriptFrames();
   const h = await harness(
     [
@@ -109,7 +109,7 @@ test("clients see human requests ahead of active background children and queued 
   await h.engine.flush();
   await status({ state: "waiting", on: "background_task" });
   expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "background_task" });
-  expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
+  expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(2);
 
   context.onFrame(frames.frame({ type: "background.ended", task: "shell", status: "completed" }));
   await h.engine.flush();
