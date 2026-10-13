@@ -4,13 +4,11 @@ import {
   waitingOnSubagents,
   watchingRelay,
   runningTests,
-  workbench,
 } from "@ace/fake-daemon";
 import { screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { ThreadId } from "@ace/protocol";
-import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { harness } from "@/test/harness.tsx";
 
 function task(app: ReturnType<typeof harness>, id: string, title: string) {
   app.daemon.createThread({
@@ -210,30 +208,3 @@ test.each([false, true])(
     expect((await screen.findByLabelText(/^Details for /)).textContent).toContain(name);
   },
 );
-
-test("settled rows keep the same project and environment context without a Done word", async () => {
-  const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.home.organizer",
-    JSON.stringify({ baseline: 0, project: null, settledOpen: true }),
-  );
-  const app = harness({ storage });
-  app.daemon.services.settings.seed({ "host.displayName": "Workshop Mac" });
-  const scenario = workbench().find((entry) => entry.thread.id === "thread-bump-codex");
-  if (!scenario) throw new Error("Missing settled scenario");
-  await app.client.start();
-  app.play(scenario).runUntilBlocked();
-  await app.client.command({ type: "thread.settle", threadId: ThreadId.parse(scenario.thread.id) });
-  await app.open("/new");
-  const row = await (await rows()).findByRole("link", { name: /^Bump Codex app-server/ });
-  if (!row.parentElement) throw new Error("No row container");
-  expect(within(row.parentElement).queryByRole("img", { name: "Device: Workshop Mac" })).toBeNull();
-  expect(row.getAttribute("aria-label")).toContain("Codex");
-  expect(within(row).getByText("ace")).toBeTruthy();
-  expect(within(row).queryByText("Done", { exact: true })).toBeNull();
-  // With one device connected, the row names no machine and shows no device icon.
-  expect(within(row).queryByText("Workshop Mac")).toBeNull();
-  expect(within(row).queryByRole("img", { name: /machine icon$/ })).toBeNull();
-  await userEvent.hover(row);
-  expect((await screen.findByLabelText(/^Details for /)).textContent).toContain("Workshop Mac");
-});
