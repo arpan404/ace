@@ -123,6 +123,15 @@ export const NativeAppearance = z.object({
 });
 export type NativeAppearance = z.infer<typeof NativeAppearance>;
 
+const HexColour = z.string().regex(/^#[0-9a-f]{6}$/i);
+/**
+ * The page colour of the theme the page applies, in each scheme, and which scheme its mode picks.
+ * The window paints it behind the page before first paint and while resizing, so a theme other
+ * than the default, or a mode other than the OS's, never flashes the wrong colour.
+ */
+export const WindowBackground = z.object({ mode: ThemeSource, light: HexColour, dark: HexColour });
+export type WindowBackground = z.infer<typeof WindowBackground>;
+
 /** `ace://` links, parsed by `parseDeepLink`. */
 export const DeepLink = z.discriminatedUnion("kind", [
   z.object({

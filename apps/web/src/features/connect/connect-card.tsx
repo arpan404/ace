@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { AceLogo } from "@/components/ace-logo.tsx";
 import { cn } from "@/lib/cn.ts";
 
 /**
@@ -27,22 +28,11 @@ export function ConnectCard(props: {
   );
 }
 
-/** The app mark (the "a" ring and stem of the app icon) and the name, 20px and 15/600. */
-export function AceMark() {
+/** The app mark and the name, 20px and 15/600. */
+function AceMark() {
   return (
     <p className="flex items-center gap-2 text-md font-semibold tracking-title">
-      <svg
-        aria-hidden
-        viewBox="0 0 20 20"
-        className="size-5 shrink-0 rounded-[6px] bg-foreground text-background"
-      >
-        <path
-          fill="currentColor"
-          fillRule="evenodd"
-          d="M9.3 4.6a5.1 5.1 0 1 1 0 10.2a5.1 5.1 0 1 1 0 -10.2ZM9.3 6.4a3.3 3.3 0 1 0 0 6.6a3.3 3.3 0 1 0 0 -6.6Z"
-        />
-        <path fill="currentColor" d="M12.7 14.8V5.5a0.9 0.9 0 0 1 1.8 0V14.8Z" />
-      </svg>
+      <AceLogo className="size-5" />
       ace
     </p>
   );

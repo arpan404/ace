@@ -117,6 +117,21 @@ export function desktopDaemon(scope: object = globalThis): DesktopDaemon | undef
   };
 }
 
+/**
+ * Tell the desktop window the page's theme colours, for the colour behind the page. Nothing in
+ * a browser or on a desktop build that predates it; a refused call changes nothing on screen.
+ */
+export function setDesktopWindowBackground(
+  value: { mode: string; light: string; dark: string },
+  scope: object = globalThis,
+): void {
+  const set = call(record(record(Reflect.get(scope, "ace"))?.theme), "setWindowBackground");
+  if (!set) return;
+  void Promise.resolve()
+    .then(() => set(value))
+    .catch(() => {});
+}
+
 /** A bridge method, bound to its object, if the bridge has it. */
 function call(target: Record<string, unknown> | undefined, name: string) {
   const method = target?.[name];

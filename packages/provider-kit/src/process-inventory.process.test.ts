@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
-import { ProcessInventory } from "./process.ts";
+import { ProcessInventory } from "./process-inventory.ts";
 const execute = promisify(execFile);
 test("restart recovery kills a recorded orphan group after its owning daemon is hard-killed", async () => {
   const home = mkdtempSync(join(tmpdir(), "ace-process-journal-"));
@@ -16,7 +16,8 @@ test("restart recovery kills a recorded orphan group after its owning daemon is 
       "--input-type=module",
       "-e",
       `
-    import {ProcessInventory,observeProcessGroups,spawnSupervised} from ${JSON.stringify(new URL("./process.ts", import.meta.url).href)};
+    import {observeProcessGroups,spawnSupervised} from ${JSON.stringify(new URL("./process.ts", import.meta.url).href)};
+    import {ProcessInventory} from ${JSON.stringify(new URL("./process-inventory.ts", import.meta.url).href)};
     const inventory = new ProcessInventory(${JSON.stringify(path)});
     observeProcessGroups(inventory);
     const child = spawnSupervised({command:process.execPath,args:['-e','console.log("ready");setInterval(()=>{},1000)'],env:process.env,name:'synthetic-provider'});

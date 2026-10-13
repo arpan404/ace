@@ -12,14 +12,16 @@ import { DaemonConnectionContext } from "./boot/connection.tsx";
 import { createDaemonClient } from "./boot/daemon.ts";
 import { useRemoteAgentBroker } from "./boot/remote-agent-broker.ts";
 import { useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
-import { desktopConnection, desktopDaemon, hasDesktopBridge } from "./boot/desktop.ts";
-import { webStorage } from "./boot/web-storage.ts";
 import {
-  BareBootFailure,
-  BootFailure,
-  DesktopFailureScreen,
-  StartingScreen,
-} from "./features/connect/index.ts";
+  desktopConnection,
+  desktopDaemon,
+  hasDesktopBridge,
+  setDesktopWindowBackground,
+} from "./boot/desktop.ts";
+import { webStorage } from "./boot/web-storage.ts";
+import { BareBootFailure, BootFailure, DesktopFailureScreen } from "./features/connect/index.ts";
+import { StartupPending } from "./features/startup/index.ts";
+import { createStartup } from "./lib/startup/startup.tsx";
 import { watchKeyboardInset } from "./lib/keyboard-inset.ts";
 import { profileName, setProfileName } from "./lib/profile.ts";
 import { glassEngine } from "./theme/glass.ts";
@@ -34,6 +36,8 @@ const environment = {
   matchMedia: (query: string) => matchMedia(query),
   root: document.documentElement,
   glassEngine: glassEngine(navigator.userAgent, userAgentBrands()),
+  windowBackground: (value: { mode: string; light: string; dark: string }) =>
+    setDesktopWindowBackground(value),
 };
 const stores = { local, session };
 
@@ -140,30 +144,51 @@ const connectionSettings = daemonMode
     }
   : undefined;
 
+// One startup screen per page load: it covers the window from first paint until the app has
+// its first data, across the swap from connecting to the app.
+const startup = createStartup({
+  schedule: (delayMs, run) => {
+    const timer = setTimeout(run, delayMs);
+    return () => clearTimeout(timer);
+  },
+  frame: (run) => {
+    const frame = requestAnimationFrame(run);
+    return () => cancelAnimationFrame(frame);
+  },
+});
+
 async function start(root: Root) {
   // iOS covers the page with its keyboard instead of resizing it; bottom UI reads --kb-inset.
   watchKeyboardInset(window, document.documentElement);
+  const daemon = desktopDaemon();
   const render = (children: ReactNode) =>
     root.render(
       <StrictMode>
-        <AppFrame environment={environment} onConnectionSettings={connectionSettings}>
+        <AppFrame
+          environment={environment}
+          onConnectionSettings={connectionSettings}
+          startup={startup}
+          daemon={daemon}
+        >
           {children}
         </AppFrame>
       </StrictMode>,
     );
-  // The desktop app hands over its daemon only once it answers; until then, say so calmly.
-  // "Connect manually…" takes over from whatever the hand-off later says.
+  // The desktop app hands over its daemon only once it answers; until then the startup screen
+  // waits calmly. "Connect manually…" takes over from whatever the hand-off later says.
   let manual = false;
-  if (hasDesktopBridge())
-    render(
-      <StartingScreen
-        daemon={desktopDaemon()}
-        onConnectManually={() => {
-          manual = true;
-          render(gate({ desktop: true }));
-        }}
-      />,
-    );
+  render(
+    <StartupPending
+      onConnectManually={
+        hasDesktopBridge()
+          ? () => {
+              manual = true;
+              render(gate({ desktop: true }));
+            }
+          : undefined
+      }
+    />,
+  );
   try {
     const shown = await content();
     if (!manual) render(shown);
