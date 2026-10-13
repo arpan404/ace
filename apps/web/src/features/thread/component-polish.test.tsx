@@ -108,10 +108,11 @@ test("an approval is explained once in its inline request", async () => {
   expect(
     within(feed).queryByRole("article", { name: card.getAttribute("aria-label") ?? "" }),
   ).toBeNull();
+  // Beyond the live head's own status line, which names the wait.
   expect(
     within(feed)
       .queryAllByText(/Waiting for your approval/)
-      .every((mention) => mention.closest("a")),
+      .every((mention) => mention.closest("a") || inLiveHead(mention)),
   ).toBe(true);
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
 });
@@ -120,12 +121,19 @@ test("a pending question has one inline prompt and no repeated transcript reques
   await open("/t/thread-sheet-rotate");
   const request = await screen.findByRole("region", { name: "Waiting for you" });
   expect(within(request).getAllByRole("radio").length).toBeGreaterThan(1);
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  expect(within(feed).queryByText("How should the sheet recover after rotate?")).toBeNull();
+  expect(within(feed).queryByText(/Answer below/)).toBeNull();
+  // The live head names the wait once; nothing else in the transcript repeats it.
   expect(
-    within(screen.getByRole("feed", { name: "Transcript" })).queryByText(
-      /Waiting for your answer|Answer below/,
-    ),
-  ).toBeNull();
+    within(feed)
+      .queryAllByText(/Waiting for your answer/)
+      .filter((mention) => !inLiveHead(mention)),
+  ).toHaveLength(0);
 });
+
+const inLiveHead = (element: Element) =>
+  !!element.closest('[role="group"][aria-label="Turn in progress"]');
 
 test("the shortcut sheet opens with Command slash, question mark and the profile menu", async () => {
   await open();

@@ -4,6 +4,8 @@ import {
   runningTests,
   waitingOnSubagents,
   watchingRelay,
+  uxAudit,
+  workbench,
   type Scenario,
 } from "@ace/fake-daemon";
 import { configure, screen, within } from "@testing-library/react";
@@ -83,6 +85,31 @@ test("a thread that asked a question keeps the waiting state in the thread, row 
     await within(header).findByRole("button", { name: "Thread details, something needs you" }),
   ).toBeTruthy();
 });
+
+function find(scenarios: readonly Scenario[], id: string): Scenario {
+  const found = scenarios.find((candidate) => candidate.thread.id === id);
+  if (!found) throw new Error(`lost scenario ${id}`);
+  return found;
+}
+
+test.each([
+  ["Codex", () => find(workbench(), "thread-sheet-rotate")],
+  ["Claude", () => find(uxAudit(), "thread-ux-formatting-questions")],
+])(
+  "a %s thread waiting for an answer never reads Working in its live head, row or details icon",
+  async (_provider, scenario) => {
+    const { feed, header, row } = await open(scenario());
+    expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
+    const head = within(feed).getByRole("group", { name: "Turn in progress" });
+    expect(head.textContent).toBe("Waiting for your answer");
+    expect(within(feed).queryByRole("status", { name: /^Working/ })).toBeNull();
+    expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
+    expect(row.getAttribute("aria-label")).not.toContain("Working");
+    expect(
+      await within(header).findByRole("button", { name: "Thread details, something needs you" }),
+    ).toBeTruthy();
+  },
+);
 
 test("a thread running tests keeps its live head working and names the action in its row", async () => {
   const { header, row } = await open(runningTests());
