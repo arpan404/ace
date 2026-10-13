@@ -1,241 +1,1643 @@
-<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style id="t3-theme">:root{color-scheme:dark;--background:#0a0a0a;--foreground:#f5f5f5;--muted:#111111;--muted-foreground:#818181;--card:#111111;--card-foreground:#f5f5f5;--popover:#111111;--popover-foreground:#f5f5f5;--secondary:#111111;--secondary-foreground:#f5f5f5;--border:#191919;--input:#1e1e1e;--ring:#346bf1;--primary:#346bf1;--primary-foreground:#ffffff;--accent:#346bf1;--accent-foreground:#ffffff;--accent-surface:#141414;--accent-surface-foreground:#f5f5f5;--destructive:#fb414a;--destructive-foreground:#ff6467;--destructive-surface:#301214;--warning:#fe9a00;--warning-foreground:#ffb900;--warning-surface:#312108;--success:#10b981;--success-foreground:#34d399;--info:#3b82f6;--info-foreground:#60a5fa;--code-background:#111111;--code-foreground:#f5f5f5;--chart-1:#346bf1;--chart-2:#2dd4bf;--chart-3:#fbbf24;--chart-4:#c084fc;--chart-5:#fb7185;--chart-6:#a3e635;--radius:0.625rem;--font-sans:-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;--font-mono:"SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;}@media (prefers-color-scheme: light){:root{color-scheme:light;--background:#fcfcfc;--foreground:#27272a;--muted:#fafafa;--muted-foreground:#71717b;--card:#ffffff;--card-foreground:#27272a;--popover:#ffffff;--popover-foreground:#27272a;--secondary:#fafafa;--secondary-foreground:#27272a;--border:#e4e4e7;--input:#d4d4d8;--ring:#1b4ed8;--primary:#1b4ed8;--primary-foreground:#ffffff;--accent:#1b4ed8;--accent-foreground:#ffffff;--accent-surface:#f4f4f5;--accent-surface-foreground:#18181b;--destructive:#fb2c36;--destructive-foreground:#c10007;--destructive-surface:#fcebec;--warning:#fe9a00;--warning-foreground:#bb4d00;--warning-surface:#fcf4e8;--success:#10b981;--success-foreground:#047857;--info:#3b82f6;--info-foreground:#1d4ed8;--code-background:#ffffff;--code-foreground:#27272a;--chart-1:#1b4ed8;--chart-2:#0d9488;--chart-3:#d97706;--chart-4:#9333ea;--chart-5:#e11d48;--chart-6:#65a30d;--radius:0.625rem;--font-sans:-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;--font-mono:"SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;}}html{background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;scrollbar-width:none}html::-webkit-scrollbar{display:none}body{margin:0}code,kbd,pre,samp{font-family:var(--font-mono)}:where(:focus-visible){outline:2px solid var(--ring)}:focus-visible{outline-width:2px!important;outline-offset:-2px!important}</style><script>(function(){var s=document.getElementById("t3-theme"),n=0;if(!s)return;var b="html{background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;scrollbar-width:none}html::-webkit-scrollbar{display:none}body{margin:0}code,kbd,pre,samp{font-family:var(--font-mono)}:where(:focus-visible){outline:2px solid var(--ring)}:focus-visible{outline-width:2px!important;outline-offset:-2px!important}";function a(t){if(!t||typeof t!=="object"||!t.variables||typeof t.variables!=="object")return;var c=":root{color-scheme:"+(t.appearance==="light"?"light":"dark")+";";for(var k in t.variables){if(/^--[a-z0-9-]+$/.test(k))c+=k+":"+String(t.variables[k]).replace(/[;{}<>]/g,"")+";";}s.textContent=c+"}"+b;}try{var m=/[#&]t3-theme=([^&]*)/.exec(location.hash);if(m){a(JSON.parse(decodeURIComponent(m[1])));history.replaceState(history.state,"",location.pathname+location.search);}}catch(e){}window.addEventListener("message",function(e){var d=e.data,p=d&&d.params;if(d&&d.jsonrpc==="2.0"&&d.method==="ui/notifications/host-context-changed"&&p&&p.styles)a({appearance:p.theme,variables:p.styles.variables});});document.addEventListener("click",function(e){var l=e.isTrusted?e.composedPath().find(function(t){return t&&t.matches&&t.matches("a[href]");}):null,u;if(!l)return;try{u=new URL(l.getAttribute("href"),document.baseURI);}catch(x){return;}if(!/^https?:$/.test(u.protocol)||u.href.split("#")[0]===location.href.split("#")[0])return;if(window.parent!==window){e.preventDefault();window.parent.postMessage({jsonrpc:"2.0",id:"t3-link-"+(++n),method:"ui/open-link",params:{url:u.href}},"*");}else{l.setAttribute("target","_blank");l.setAttribute("rel","noopener");}},true);if(window.parent!==window){var h,o,z=function(){var r=document.documentElement,v=Math.ceil(r.scrollHeight>r.clientHeight?r.scrollHeight:r.getBoundingClientRect().height);if(v===h)return;h=v;window.parent.postMessage({jsonrpc:"2.0",method:"ui/notifications/size-changed",params:{height:v}},"*");};if(window.ResizeObserver){o=new ResizeObserver(z);o.observe(document.documentElement);}document.addEventListener("DOMContentLoaded",function(){if(o&&document.body)o.observe(document.body);z();});window.addEventListener("load",z);}})();</script><meta charset="utf-8"><style>
-:root{--s:.72}
-body{font-family:var(--font-sans,-apple-system,system-ui,sans-serif)}
-.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:2px 0 4px}
-.bar p{margin:0;color:var(--muted-foreground);font-size:13px;line-height:1.45;max-width:540px}
-.seg{display:inline-flex;padding:2px;border-radius:9px;background:var(--secondary);border:1px solid var(--border)}
-.seg button{all:unset;cursor:pointer;font-size:12px;padding:5px 12px;border-radius:7px;color:var(--muted-foreground)}
-.seg button[aria-pressed=true]{background:var(--card);color:var(--foreground);box-shadow:0 1px 2px rgb(0 0 0/.15)}
-.strip{display:flex;gap:26px;overflow-x:auto;scroll-snap-type:x mandatory;padding:14px 14px 18px;scroll-padding-left:14px}
-.shot{flex:0 0 auto;scroll-snap-align:start;display:flex;flex-direction:column;gap:10px}
-.frame{width:calc(390px*var(--s));height:calc(844px*var(--s));position:relative}
-.cap{width:calc(390px*var(--s));font-size:12.5px;line-height:1.4;color:var(--muted-foreground)}
-.cap b{display:block;color:var(--foreground);font-weight:600;font-size:13px;margin-bottom:2px}
-.ph{width:390px;height:844px;transform:scale(var(--s));transform-origin:top left;position:absolute;inset:0 auto auto 0;border-radius:54px;overflow:hidden;background:var(--bg);color:var(--fg);box-shadow:0 0 0 10px #101010,0 0 0 11px #3a3a3a,0 18px 40px rgb(0 0 0/.3);font:15px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;letter-spacing:-.01em}
-.light{--bg:#FFFFFF;--bg2:#F5F5F7;--card:#FFFFFF;--fg:#0B0B0C;--f2:#6E6E73;--f3:#AEAEB2;--sep:#E9E9EC;--fill:#F2F2F4;--glass:rgb(255 255 255/.78);--acc:#3269D4;--needs:#C9711A;--work:#3B74E0;--wait:#7A5BD6;--fail:#D23F3F;--done:#2E9A5E;--needs-s:#FFF4E8;--add:#E8F7EE;--del:#FDECEC;--shadow:0 8px 28px rgb(0 0 0/.10),0 1px 3px rgb(0 0 0/.06)}
-.dark{--bg:#0A0A0B;--bg2:#141416;--card:#1A1A1D;--fg:#F5F5F7;--f2:#9A9AA1;--f3:#5C5C63;--sep:#26262A;--fill:#1F1F23;--glass:rgb(28 28 31/.78);--acc:#7AA2F7;--needs:#F0A35E;--work:#7AA2F7;--wait:#B49CF5;--fail:#F07171;--done:#6CC48F;--needs-s:#2A1F12;--add:#11281A;--del:#2D1515;--shadow:0 8px 28px rgb(0 0 0/.5),0 0 0 .5px rgb(255 255 255/.06)}
-.isl{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:124px;height:36px;border-radius:20px;background:#000;z-index:20}
-.sb{height:54px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 30px 8px 40px;font-weight:600;font-size:16px;position:relative;z-index:10}
-.home{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:136px;height:5px;border-radius:3px;background:var(--fg);opacity:.85;z-index:40}
-.mono{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12.5px;letter-spacing:0}
-.circ{width:38px;height:38px;border-radius:50%;background:var(--glass);box-shadow:var(--shadow);display:grid;place-items:center;color:var(--fg);font-size:17px;backdrop-filter:blur(16px)}
-.top{display:flex;align-items:center;gap:10px;padding:6px 18px 6px}
-.word{font-size:22px;font-weight:700;letter-spacing:-.02em}
-.word i{font-style:normal;color:var(--acc)}
-.hosts{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--f2);background:var(--fill);padding:4px 9px;border-radius:999px;margin-left:2px}
-.dot{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block}
-.sect{display:flex;align-items:center;gap:8px;padding:14px 20px 4px;font-size:12.5px;font-weight:600;color:var(--f2)}
-.sect .ln{flex:1;height:1px;background:var(--sep)}
-.it{padding:10px 20px 11px;border-bottom:1px solid var(--sep)}
-.it .a{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--f2)}
-.pj{width:15px;height:15px;border-radius:4px;display:grid;place-items:center;font-size:9px;font-weight:800;color:#fff}
-.it .st{margin-left:auto;font-weight:600}
-.it .t{font-size:16px;font-weight:550;margin:3px 0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.it .b{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--f2);white-space:nowrap;overflow:hidden}
-.it .b .tree{margin-left:auto;display:inline-flex;gap:3px;align-items:center}
-.needs-row{background:var(--needs-s)}
-.coll{display:flex;align-items:center;padding:12px 20px;font-size:13px;color:var(--f3);gap:8px}
-.coll .ln{flex:1;height:1px;background:var(--sep)}
-.pulse{animation:p 1.6s ease-in-out infinite}@keyframes p{50%{opacity:.35}}
-@media (prefers-reduced-motion:reduce){.pulse,.caret{animation:none!important}}
-.dock{position:absolute;left:14px;right:14px;bottom:30px;z-index:30;background:var(--glass);backdrop-filter:blur(20px);border-radius:26px;box-shadow:var(--shadow);padding:10px 10px 10px 16px;display:flex;align-items:center;gap:10px}
-.dock .ph2{flex:1;color:var(--f3);font-size:15.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dock .ctx{font-size:12px;color:var(--f2);background:var(--fill);padding:4px 8px;border-radius:999px;white-space:nowrap}
-.go{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:#fff;background:var(--fg);flex:none}
-.go.idle{background:var(--fill);color:var(--f3)}
-.hdr{display:flex;align-items:center;gap:10px;padding:4px 14px 8px}
-.hdr .tt{flex:1;min-width:0}
-.hdr .tt div:first-child{font-weight:650;font-size:16.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hdr .tt div:last-child{font-size:12px;color:var(--f2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pill{display:flex;align-items:center;gap:2px;background:var(--glass);box-shadow:var(--shadow);border-radius:999px;padding:3px;backdrop-filter:blur(16px)}
-.pill span{width:34px;height:32px;display:grid;place-items:center;border-radius:16px;font-size:14px;color:var(--fg);position:relative}
-.pill .n{position:absolute;top:2px;right:2px;min-width:14px;height:14px;border-radius:7px;background:var(--work);color:#fff;font-size:9px;font-weight:700;display:grid;place-items:center;padding:0 3px;font-style:normal}
-.tx{padding:8px 18px 0;display:flex;flex-direction:column;gap:12px;font-size:15.5px;line-height:1.45}
-.you{align-self:flex-end;max-width:80%;background:var(--bg2);border-radius:20px 20px 6px 20px;padding:10px 14px}
-.meta{align-self:flex-end;font-size:11.5px;color:var(--f3);margin-top:-8px}
-.worked{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--f2)}
-.worked .ln{flex:1;height:1px;background:var(--sep)}
-.chips{display:flex;gap:6px;flex-wrap:wrap}
-.chip{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--f2);background:var(--fill);border-radius:999px;padding:4px 9px}
-.sub{border:1px solid var(--sep);border-radius:16px;padding:10px 12px;display:flex;flex-direction:column;gap:7px;font-size:13.5px}
-.sub .h{display:flex;align-items:center;gap:8px;font-weight:600}
-.sub .h span:last-child{margin-left:auto;font-weight:400;font-size:12px;color:var(--f2)}
-.sub .l{display:flex;align-items:center;gap:8px;color:var(--f2)}
-.caret{display:inline-block;width:7px;height:16px;vertical-align:-3px;background:var(--acc);border-radius:2px;animation:bl 1s steps(2) infinite}@keyframes bl{50%{opacity:0}}
-.ask{position:absolute;left:14px;right:14px;bottom:96px;z-index:30;background:var(--card);border-radius:22px;box-shadow:var(--shadow);padding:14px}
-.ask .q{display:flex;gap:10px;align-items:flex-start}
-.ask .ic{width:30px;height:30px;border-radius:9px;background:var(--needs-s);color:var(--needs);display:grid;place-items:center;font-weight:700;font-size:12px;flex:none}
-.cmd{margin:10px 0 0;background:var(--bg2);border-radius:12px;padding:10px 12px}
-.btns{display:flex;gap:8px;margin-top:12px}
-.btn{flex:1;text-align:center;font-weight:600;font-size:15px;padding:11px;border-radius:14px}
-.b1{background:var(--fg);color:var(--bg)} .b2{background:var(--fill);color:var(--fg)}
-.dim{position:absolute;inset:0;background:rgb(0 0 0/.18);z-index:25}
-.sheet{position:absolute;left:0;right:0;top:92px;bottom:0;z-index:26;background:var(--bg);border-radius:28px 28px 0 0;box-shadow:0 -6px 30px rgb(0 0 0/.12);padding:8px 0 0}
-.grab{width:38px;height:5px;border-radius:3px;background:var(--f3);opacity:.6;margin:0 auto 8px}
-.sh{display:flex;align-items:center;justify-content:space-between;padding:4px 14px 10px}
-.sh b{font-size:17px}
-.grp{margin:0 16px 14px;background:var(--bg2);border-radius:18px;overflow:hidden}
-.r{display:flex;align-items:center;gap:10px;padding:12px 14px}
-.r+.r{border-top:1px solid var(--sep)}
-.r .x{flex:1;min-width:0}.r .x div:first-child{font-weight:600;font-size:15px}.r .x div:last-child{font-size:12.5px;color:var(--f2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lbl{padding:4px 30px 6px;font-size:12px;font-weight:600;color:var(--f2);text-transform:uppercase;letter-spacing:.03em}
-.tog{width:46px;height:28px;border-radius:14px;background:var(--acc);position:relative;flex:none}.tog::after{content:"";position:absolute;top:2px;right:2px;width:24px;height:24px;border-radius:50%;background:#fff}
-.tog.off{background:var(--fill)}.tog.off::after{right:auto;left:2px}
-.ind{width:12px;height:16px;border-left:1.5px solid var(--f3);border-bottom:1.5px solid var(--f3);border-radius:0 0 0 5px;margin:-12px 0 0 6px;flex:none}
-.meter{height:5px;border-radius:3px;background:var(--fill);overflow:hidden;margin-top:6px}.meter i{display:block;height:100%;background:var(--acc);border-radius:3px}
-.file{margin:8px 12px;border-radius:16px;box-shadow:var(--shadow);background:var(--card);overflow:hidden}
-.fh{display:flex;align-items:center;gap:8px;padding:9px 12px;font-size:12.5px;border-bottom:1px solid var(--sep)}
-.fh .p{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hl{display:flex;font-size:11.5px;line-height:1.75;white-space:pre;overflow:hidden}
-.hl .n{width:28px;text-align:right;padding-right:8px;color:var(--f3);flex:none}
-.hl.a{background:var(--add)}.hl.d{background:var(--del)}
-.ship{position:absolute;left:14px;right:14px;bottom:30px;z-index:30;background:var(--card);border-radius:24px;box-shadow:var(--shadow);padding:14px}
-.lock{position:absolute;inset:0;background:radial-gradient(110% 70% at 70% 15%,#5b6b8f 0%,#2a3043 45%,#0d0f16 100%)}
-.la{position:absolute;left:12px;right:12px;top:470px;border-radius:26px;padding:14px 16px;background:rgb(30 30 34/.62);backdrop-filter:blur(26px);color:#fff}
-.la .h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
-.la .ln{display:flex;align-items:center;gap:8px;font-size:13.5px;padding:3px 0}
-.la .ln .w{margin-left:auto;font-weight:600;font-size:12.5px}
-.nt{position:absolute;left:12px;right:12px;top:648px;border-radius:22px;padding:12px 14px;background:rgb(30 30 34/.5);backdrop-filter:blur(26px);color:#fff;display:flex;gap:10px;align-items:center}
-.logo{width:28px;height:28px;border-radius:8px;background:#0B0B0C;color:#fff;display:grid;place-items:center;font-weight:800;font-size:13px;letter-spacing:-.04em;box-shadow:inset 0 0 0 1px rgb(255 255 255/.12)}
-.logo i{font-style:normal;color:#7AA2F7}
-</style></head><body>
-<div class="bar"><p>v2. There's no tab bar: one inbox, with threads pushed on top of it and everything else in sheets. Colour only ever shows state, and a thread reads done only when its whole agent tree is done. Scroll sideways for all seven screens.</p>
-<div class="seg"><button id="bl">Light</button><button id="bd">Dark</button></div></div>
-<div class="strip">
+<!doctype html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style id="t3-theme">
+      :root {
+        color-scheme: dark;
+        --background: #0a0a0a;
+        --foreground: #f5f5f5;
+        --muted: #111111;
+        --muted-foreground: #818181;
+        --card: #111111;
+        --card-foreground: #f5f5f5;
+        --popover: #111111;
+        --popover-foreground: #f5f5f5;
+        --secondary: #111111;
+        --secondary-foreground: #f5f5f5;
+        --border: #191919;
+        --input: #1e1e1e;
+        --ring: #346bf1;
+        --primary: #346bf1;
+        --primary-foreground: #ffffff;
+        --accent: #346bf1;
+        --accent-foreground: #ffffff;
+        --accent-surface: #141414;
+        --accent-surface-foreground: #f5f5f5;
+        --destructive: #fb414a;
+        --destructive-foreground: #ff6467;
+        --destructive-surface: #301214;
+        --warning: #fe9a00;
+        --warning-foreground: #ffb900;
+        --warning-surface: #312108;
+        --success: #10b981;
+        --success-foreground: #34d399;
+        --info: #3b82f6;
+        --info-foreground: #60a5fa;
+        --code-background: #111111;
+        --code-foreground: #f5f5f5;
+        --chart-1: #346bf1;
+        --chart-2: #2dd4bf;
+        --chart-3: #fbbf24;
+        --chart-4: #c084fc;
+        --chart-5: #fb7185;
+        --chart-6: #a3e635;
+        --radius: 0.625rem;
+        --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        --font-mono: "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          color-scheme: light;
+          --background: #fcfcfc;
+          --foreground: #27272a;
+          --muted: #fafafa;
+          --muted-foreground: #71717b;
+          --card: #ffffff;
+          --card-foreground: #27272a;
+          --popover: #ffffff;
+          --popover-foreground: #27272a;
+          --secondary: #fafafa;
+          --secondary-foreground: #27272a;
+          --border: #e4e4e7;
+          --input: #d4d4d8;
+          --ring: #1b4ed8;
+          --primary: #1b4ed8;
+          --primary-foreground: #ffffff;
+          --accent: #1b4ed8;
+          --accent-foreground: #ffffff;
+          --accent-surface: #f4f4f5;
+          --accent-surface-foreground: #18181b;
+          --destructive: #fb2c36;
+          --destructive-foreground: #c10007;
+          --destructive-surface: #fcebec;
+          --warning: #fe9a00;
+          --warning-foreground: #bb4d00;
+          --warning-surface: #fcf4e8;
+          --success: #10b981;
+          --success-foreground: #047857;
+          --info: #3b82f6;
+          --info-foreground: #1d4ed8;
+          --code-background: #ffffff;
+          --code-foreground: #27272a;
+          --chart-1: #1b4ed8;
+          --chart-2: #0d9488;
+          --chart-3: #d97706;
+          --chart-4: #9333ea;
+          --chart-5: #e11d48;
+          --chart-6: #65a30d;
+          --radius: 0.625rem;
+          --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+          --font-mono: "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+        }
+      }
+      html {
+        background: var(--background);
+        color: var(--foreground);
+        font-family: var(--font-sans);
+        font-size: 14px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        -webkit-text-size-adjust: 100%;
+        scrollbar-width: none;
+      }
+      html::-webkit-scrollbar {
+        display: none;
+      }
+      body {
+        margin: 0;
+      }
+      code,
+      kbd,
+      pre,
+      samp {
+        font-family: var(--font-mono);
+      }
+      :where(:focus-visible) {
+        outline: 2px solid var(--ring);
+      }
+      :focus-visible {
+        outline-width: 2px !important;
+        outline-offset: -2px !important;
+      }
+    </style>
+    <script>
+      (function () {
+        var s = document.getElementById("t3-theme"),
+          n = 0;
+        if (!s) return;
+        var b =
+          "html{background:var(--background);color:var(--foreground);font-family:var(--font-sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;scrollbar-width:none}html::-webkit-scrollbar{display:none}body{margin:0}code,kbd,pre,samp{font-family:var(--font-mono)}:where(:focus-visible){outline:2px solid var(--ring)}:focus-visible{outline-width:2px!important;outline-offset:-2px!important}";
+        function a(t) {
+          if (!t || typeof t !== "object" || !t.variables || typeof t.variables !== "object")
+            return;
+          var c = ":root{color-scheme:" + (t.appearance === "light" ? "light" : "dark") + ";";
+          for (var k in t.variables) {
+            if (/^--[a-z0-9-]+$/.test(k))
+              c += k + ":" + String(t.variables[k]).replace(/[;{}<>]/g, "") + ";";
+          }
+          s.textContent = c + "}" + b;
+        }
+        try {
+          var m = /[#&]t3-theme=([^&]*)/.exec(location.hash);
+          if (m) {
+            a(JSON.parse(decodeURIComponent(m[1])));
+            history.replaceState(history.state, "", location.pathname + location.search);
+          }
+        } catch (e) {}
+        window.addEventListener("message", function (e) {
+          var d = e.data,
+            p = d && d.params;
+          if (
+            d &&
+            d.jsonrpc === "2.0" &&
+            d.method === "ui/notifications/host-context-changed" &&
+            p &&
+            p.styles
+          )
+            a({ appearance: p.theme, variables: p.styles.variables });
+        });
+        document.addEventListener(
+          "click",
+          function (e) {
+            var l = e.isTrusted
+                ? e.composedPath().find(function (t) {
+                    return t && t.matches && t.matches("a[href]");
+                  })
+                : null,
+              u;
+            if (!l) return;
+            try {
+              u = new URL(l.getAttribute("href"), document.baseURI);
+            } catch (x) {
+              return;
+            }
+            if (
+              !/^https?:$/.test(u.protocol) ||
+              u.href.split("#")[0] === location.href.split("#")[0]
+            )
+              return;
+            if (window.parent !== window) {
+              e.preventDefault();
+              window.parent.postMessage(
+                {
+                  jsonrpc: "2.0",
+                  id: "t3-link-" + ++n,
+                  method: "ui/open-link",
+                  params: { url: u.href },
+                },
+                "*",
+              );
+            } else {
+              l.setAttribute("target", "_blank");
+              l.setAttribute("rel", "noopener");
+            }
+          },
+          true,
+        );
+        if (window.parent !== window) {
+          var h,
+            o,
+            z = function () {
+              var r = document.documentElement,
+                v = Math.ceil(
+                  r.scrollHeight > r.clientHeight
+                    ? r.scrollHeight
+                    : r.getBoundingClientRect().height,
+                );
+              if (v === h) return;
+              h = v;
+              window.parent.postMessage(
+                { jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { height: v } },
+                "*",
+              );
+            };
+          if (window.ResizeObserver) {
+            o = new ResizeObserver(z);
+            o.observe(document.documentElement);
+          }
+          document.addEventListener("DOMContentLoaded", function () {
+            if (o && document.body) o.observe(document.body);
+            z();
+          });
+          window.addEventListener("load", z);
+        }
+      })();
+    </script>
+    <meta charset="utf-8" />
+    <style>
+      :root {
+        --s: 0.72;
+      }
+      body {
+        font-family: var(--font-sans, -apple-system, system-ui, sans-serif);
+      }
+      .bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin: 2px 0 4px;
+      }
+      .bar p {
+        margin: 0;
+        color: var(--muted-foreground);
+        font-size: 13px;
+        line-height: 1.45;
+        max-width: 540px;
+      }
+      .seg {
+        display: inline-flex;
+        padding: 2px;
+        border-radius: 9px;
+        background: var(--secondary);
+        border: 1px solid var(--border);
+      }
+      .seg button {
+        all: unset;
+        cursor: pointer;
+        font-size: 12px;
+        padding: 5px 12px;
+        border-radius: 7px;
+        color: var(--muted-foreground);
+      }
+      .seg button[aria-pressed="true"] {
+        background: var(--card);
+        color: var(--foreground);
+        box-shadow: 0 1px 2px rgb(0 0 0/0.15);
+      }
+      .strip {
+        display: flex;
+        gap: 26px;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        padding: 14px 14px 18px;
+        scroll-padding-left: 14px;
+      }
+      .shot {
+        flex: 0 0 auto;
+        scroll-snap-align: start;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .frame {
+        width: calc(390px * var(--s));
+        height: calc(844px * var(--s));
+        position: relative;
+      }
+      .cap {
+        width: calc(390px * var(--s));
+        font-size: 12.5px;
+        line-height: 1.4;
+        color: var(--muted-foreground);
+      }
+      .cap b {
+        display: block;
+        color: var(--foreground);
+        font-weight: 600;
+        font-size: 13px;
+        margin-bottom: 2px;
+      }
+      .ph {
+        width: 390px;
+        height: 844px;
+        transform: scale(var(--s));
+        transform-origin: top left;
+        position: absolute;
+        inset: 0 auto auto 0;
+        border-radius: 54px;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--fg);
+        box-shadow:
+          0 0 0 10px #101010,
+          0 0 0 11px #3a3a3a,
+          0 18px 40px rgb(0 0 0/0.3);
+        font:
+          15px/1.35 -apple-system,
+          BlinkMacSystemFont,
+          "SF Pro Text",
+          system-ui,
+          sans-serif;
+        letter-spacing: -0.01em;
+      }
+      .light {
+        --bg: #ffffff;
+        --bg2: #f5f5f7;
+        --card: #ffffff;
+        --fg: #0b0b0c;
+        --f2: #6e6e73;
+        --f3: #aeaeb2;
+        --sep: #e9e9ec;
+        --fill: #f2f2f4;
+        --glass: rgb(255 255 255/0.78);
+        --acc: #3269d4;
+        --needs: #c9711a;
+        --work: #3b74e0;
+        --wait: #7a5bd6;
+        --fail: #d23f3f;
+        --done: #2e9a5e;
+        --needs-s: #fff4e8;
+        --add: #e8f7ee;
+        --del: #fdecec;
+        --shadow: 0 8px 28px rgb(0 0 0/0.1), 0 1px 3px rgb(0 0 0/0.06);
+      }
+      .dark {
+        --bg: #0a0a0b;
+        --bg2: #141416;
+        --card: #1a1a1d;
+        --fg: #f5f5f7;
+        --f2: #9a9aa1;
+        --f3: #5c5c63;
+        --sep: #26262a;
+        --fill: #1f1f23;
+        --glass: rgb(28 28 31/0.78);
+        --acc: #7aa2f7;
+        --needs: #f0a35e;
+        --work: #7aa2f7;
+        --wait: #b49cf5;
+        --fail: #f07171;
+        --done: #6cc48f;
+        --needs-s: #2a1f12;
+        --add: #11281a;
+        --del: #2d1515;
+        --shadow: 0 8px 28px rgb(0 0 0/0.5), 0 0 0 0.5px rgb(255 255 255/0.06);
+      }
+      .isl {
+        position: absolute;
+        top: 11px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 124px;
+        height: 36px;
+        border-radius: 20px;
+        background: #000;
+        z-index: 20;
+      }
+      .sb {
+        height: 54px;
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        padding: 0 30px 8px 40px;
+        font-weight: 600;
+        font-size: 16px;
+        position: relative;
+        z-index: 10;
+      }
+      .home {
+        position: absolute;
+        bottom: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 136px;
+        height: 5px;
+        border-radius: 3px;
+        background: var(--fg);
+        opacity: 0.85;
+        z-index: 40;
+      }
+      .mono {
+        font-family: "SF Mono", ui-monospace, Menlo, monospace;
+        font-size: 12.5px;
+        letter-spacing: 0;
+      }
+      .circ {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        background: var(--glass);
+        box-shadow: var(--shadow);
+        display: grid;
+        place-items: center;
+        color: var(--fg);
+        font-size: 17px;
+        backdrop-filter: blur(16px);
+      }
+      .top {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 18px 6px;
+      }
+      .word {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      .word i {
+        font-style: normal;
+        color: var(--acc);
+      }
+      .hosts {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12.5px;
+        color: var(--f2);
+        background: var(--fill);
+        padding: 4px 9px;
+        border-radius: 999px;
+        margin-left: 2px;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex: none;
+        display: inline-block;
+      }
+      .sect {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 20px 4px;
+        font-size: 12.5px;
+        font-weight: 600;
+        color: var(--f2);
+      }
+      .sect .ln {
+        flex: 1;
+        height: 1px;
+        background: var(--sep);
+      }
+      .it {
+        padding: 10px 20px 11px;
+        border-bottom: 1px solid var(--sep);
+      }
+      .it .a {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12.5px;
+        color: var(--f2);
+      }
+      .pj {
+        width: 15px;
+        height: 15px;
+        border-radius: 4px;
+        display: grid;
+        place-items: center;
+        font-size: 9px;
+        font-weight: 800;
+        color: #fff;
+      }
+      .it .st {
+        margin-left: auto;
+        font-weight: 600;
+      }
+      .it .t {
+        font-size: 16px;
+        font-weight: 550;
+        margin: 3px 0 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .it .b {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        font-size: 12px;
+        color: var(--f2);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .it .b .tree {
+        margin-left: auto;
+        display: inline-flex;
+        gap: 3px;
+        align-items: center;
+      }
+      .needs-row {
+        background: var(--needs-s);
+      }
+      .coll {
+        display: flex;
+        align-items: center;
+        padding: 12px 20px;
+        font-size: 13px;
+        color: var(--f3);
+        gap: 8px;
+      }
+      .coll .ln {
+        flex: 1;
+        height: 1px;
+        background: var(--sep);
+      }
+      .pulse {
+        animation: p 1.6s ease-in-out infinite;
+      }
+      @keyframes p {
+        50% {
+          opacity: 0.35;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .pulse,
+        .caret {
+          animation: none !important;
+        }
+      }
+      .dock {
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        bottom: 30px;
+        z-index: 30;
+        background: var(--glass);
+        backdrop-filter: blur(20px);
+        border-radius: 26px;
+        box-shadow: var(--shadow);
+        padding: 10px 10px 10px 16px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .dock .ph2 {
+        flex: 1;
+        color: var(--f3);
+        font-size: 15.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dock .ctx {
+        font-size: 12px;
+        color: var(--f2);
+        background: var(--fill);
+        padding: 4px 8px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+      .go {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: #fff;
+        background: var(--fg);
+        flex: none;
+      }
+      .go.idle {
+        background: var(--fill);
+        color: var(--f3);
+      }
+      .hdr {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 4px 14px 8px;
+      }
+      .hdr .tt {
+        flex: 1;
+        min-width: 0;
+      }
+      .hdr .tt div:first-child {
+        font-weight: 650;
+        font-size: 16.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .hdr .tt div:last-child {
+        font-size: 12px;
+        color: var(--f2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .pill {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        background: var(--glass);
+        box-shadow: var(--shadow);
+        border-radius: 999px;
+        padding: 3px;
+        backdrop-filter: blur(16px);
+      }
+      .pill span {
+        width: 34px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        border-radius: 16px;
+        font-size: 14px;
+        color: var(--fg);
+        position: relative;
+      }
+      .pill .n {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        min-width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        background: var(--work);
+        color: #fff;
+        font-size: 9px;
+        font-weight: 700;
+        display: grid;
+        place-items: center;
+        padding: 0 3px;
+        font-style: normal;
+      }
+      .tx {
+        padding: 8px 18px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        font-size: 15.5px;
+        line-height: 1.45;
+      }
+      .you {
+        align-self: flex-end;
+        max-width: 80%;
+        background: var(--bg2);
+        border-radius: 20px 20px 6px 20px;
+        padding: 10px 14px;
+      }
+      .meta {
+        align-self: flex-end;
+        font-size: 11.5px;
+        color: var(--f3);
+        margin-top: -8px;
+      }
+      .worked {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--f2);
+      }
+      .worked .ln {
+        flex: 1;
+        height: 1px;
+        background: var(--sep);
+      }
+      .chips {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12.5px;
+        color: var(--f2);
+        background: var(--fill);
+        border-radius: 999px;
+        padding: 4px 9px;
+      }
+      .sub {
+        border: 1px solid var(--sep);
+        border-radius: 16px;
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        font-size: 13.5px;
+      }
+      .sub .h {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+      }
+      .sub .h span:last-child {
+        margin-left: auto;
+        font-weight: 400;
+        font-size: 12px;
+        color: var(--f2);
+      }
+      .sub .l {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--f2);
+      }
+      .caret {
+        display: inline-block;
+        width: 7px;
+        height: 16px;
+        vertical-align: -3px;
+        background: var(--acc);
+        border-radius: 2px;
+        animation: bl 1s steps(2) infinite;
+      }
+      @keyframes bl {
+        50% {
+          opacity: 0;
+        }
+      }
+      .ask {
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        bottom: 96px;
+        z-index: 30;
+        background: var(--card);
+        border-radius: 22px;
+        box-shadow: var(--shadow);
+        padding: 14px;
+      }
+      .ask .q {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+      .ask .ic {
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+        background: var(--needs-s);
+        color: var(--needs);
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+        font-size: 12px;
+        flex: none;
+      }
+      .cmd {
+        margin: 10px 0 0;
+        background: var(--bg2);
+        border-radius: 12px;
+        padding: 10px 12px;
+      }
+      .btns {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .btn {
+        flex: 1;
+        text-align: center;
+        font-weight: 600;
+        font-size: 15px;
+        padding: 11px;
+        border-radius: 14px;
+      }
+      .b1 {
+        background: var(--fg);
+        color: var(--bg);
+      }
+      .b2 {
+        background: var(--fill);
+        color: var(--fg);
+      }
+      .dim {
+        position: absolute;
+        inset: 0;
+        background: rgb(0 0 0/0.18);
+        z-index: 25;
+      }
+      .sheet {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 92px;
+        bottom: 0;
+        z-index: 26;
+        background: var(--bg);
+        border-radius: 28px 28px 0 0;
+        box-shadow: 0 -6px 30px rgb(0 0 0/0.12);
+        padding: 8px 0 0;
+      }
+      .grab {
+        width: 38px;
+        height: 5px;
+        border-radius: 3px;
+        background: var(--f3);
+        opacity: 0.6;
+        margin: 0 auto 8px;
+      }
+      .sh {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 14px 10px;
+      }
+      .sh b {
+        font-size: 17px;
+      }
+      .grp {
+        margin: 0 16px 14px;
+        background: var(--bg2);
+        border-radius: 18px;
+        overflow: hidden;
+      }
+      .r {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px;
+      }
+      .r + .r {
+        border-top: 1px solid var(--sep);
+      }
+      .r .x {
+        flex: 1;
+        min-width: 0;
+      }
+      .r .x div:first-child {
+        font-weight: 600;
+        font-size: 15px;
+      }
+      .r .x div:last-child {
+        font-size: 12.5px;
+        color: var(--f2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .lbl {
+        padding: 4px 30px 6px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--f2);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+      .tog {
+        width: 46px;
+        height: 28px;
+        border-radius: 14px;
+        background: var(--acc);
+        position: relative;
+        flex: none;
+      }
+      .tog::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #fff;
+      }
+      .tog.off {
+        background: var(--fill);
+      }
+      .tog.off::after {
+        right: auto;
+        left: 2px;
+      }
+      .ind {
+        width: 12px;
+        height: 16px;
+        border-left: 1.5px solid var(--f3);
+        border-bottom: 1.5px solid var(--f3);
+        border-radius: 0 0 0 5px;
+        margin: -12px 0 0 6px;
+        flex: none;
+      }
+      .meter {
+        height: 5px;
+        border-radius: 3px;
+        background: var(--fill);
+        overflow: hidden;
+        margin-top: 6px;
+      }
+      .meter i {
+        display: block;
+        height: 100%;
+        background: var(--acc);
+        border-radius: 3px;
+      }
+      .file {
+        margin: 8px 12px;
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+        background: var(--card);
+        overflow: hidden;
+      }
+      .fh {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 12px;
+        font-size: 12.5px;
+        border-bottom: 1px solid var(--sep);
+      }
+      .fh .p {
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .hl {
+        display: flex;
+        font-size: 11.5px;
+        line-height: 1.75;
+        white-space: pre;
+        overflow: hidden;
+      }
+      .hl .n {
+        width: 28px;
+        text-align: right;
+        padding-right: 8px;
+        color: var(--f3);
+        flex: none;
+      }
+      .hl.a {
+        background: var(--add);
+      }
+      .hl.d {
+        background: var(--del);
+      }
+      .ship {
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        bottom: 30px;
+        z-index: 30;
+        background: var(--card);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        padding: 14px;
+      }
+      .lock {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(110% 70% at 70% 15%, #5b6b8f 0%, #2a3043 45%, #0d0f16 100%);
+      }
+      .la {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        top: 470px;
+        border-radius: 26px;
+        padding: 14px 16px;
+        background: rgb(30 30 34/0.62);
+        backdrop-filter: blur(26px);
+        color: #fff;
+      }
+      .la .h {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .la .ln {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13.5px;
+        padding: 3px 0;
+      }
+      .la .ln .w {
+        margin-left: auto;
+        font-weight: 600;
+        font-size: 12.5px;
+      }
+      .nt {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        top: 648px;
+        border-radius: 22px;
+        padding: 12px 14px;
+        background: rgb(30 30 34/0.5);
+        backdrop-filter: blur(26px);
+        color: #fff;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .logo {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        background: #0b0b0c;
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-weight: 800;
+        font-size: 13px;
+        letter-spacing: -0.04em;
+        box-shadow: inset 0 0 0 1px rgb(255 255 255/0.12);
+      }
+      .logo i {
+        font-style: normal;
+        color: #7aa2f7;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <p>
+        v2. There's no tab bar: one inbox, with threads pushed on top of it and everything else in
+        sheets. Colour only ever shows state, and a thread reads done only when its whole agent tree
+        is done. Scroll sideways for all seven screens.
+      </p>
+      <div class="seg"><button id="bl">Light</button><button id="bd">Dark</button></div>
+    </div>
+    <div class="strip">
+      <div class="shot">
+        <div class="frame">
+          <div class="ph">
+            <div class="isl"></div>
+            <div class="sb"><span>9:41</span><span>●●● ◗ ▮</span></div>
+            <div class="top">
+              <span class="word">ace<i>.</i></span
+              ><span class="hosts"
+                ><span class="dot" style="background: var(--done)"></span>3 machines</span
+              ><span style="flex: 1"></span><span class="circ">⌕</span><span class="circ">⋯</span>
+            </div>
+            <div class="sect">Needs you<span class="ln"></span>2</div>
+            <div class="it needs-row">
+              <div class="a">
+                <span class="pj" style="background: #3269d4">a</span>ace-next<span
+                  class="st"
+                  style="color: var(--needs)"
+                  >Approve push</span
+                >
+              </div>
+              <div class="t">Fix the flaky queue test</div>
+              <div class="b"><span class="mono">fix/queue</span>· arpan-mbp</div>
+            </div>
+            <div class="it needs-row">
+              <div class="a">
+                <span class="pj" style="background: #2e9a5e">d</span>docs<span
+                  class="st"
+                  style="color: var(--needs)"
+                  >Question</span
+                >
+              </div>
+              <div class="t">Release notes for 0.9</div>
+              <div class="b"><span class="mono">docs/0.9</span>· studio-linux</div>
+            </div>
+            <div class="sect">Working<span class="ln"></span>3</div>
+            <div class="it">
+              <div class="a">
+                <span class="pj" style="background: #3269d4">a</span>ace-next<span
+                  class="st"
+                  style="color: var(--work)"
+                  ><span class="dot pulse" style="background: var(--work)"></span> Working</span
+                >
+              </div>
+              <div class="t">ace CLI phase 2</div>
+              <div class="b">
+                <span class="mono">feat/ace-cli-control</span>· arpan-mbp<span class="tree"
+                  >◇ 3 agents</span
+                >
+              </div>
+            </div>
+            <div class="it">
+              <div class="a">
+                <span class="pj" style="background: #3269d4">a</span>ace-next<span
+                  class="st"
+                  style="color: var(--work)"
+                  ><span class="dot pulse" style="background: var(--work)"></span> Working</span
+                >
+              </div>
+              <div class="t">HTML visualizations in chat</div>
+              <div class="b"><span class="mono">feat/html-visualizations</span>· arpan-mbp</div>
+            </div>
+            <div class="it">
+              <div class="a">
+                <span class="pj" style="background: #7a5bd6">s</span>site<span
+                  class="st"
+                  style="color: var(--wait)"
+                  >Waiting on 1</span
+                >
+              </div>
+              <div class="t">Storage cleanup preview</div>
+              <div class="b"><span class="mono">feat/storage</span>· cloud · Codex</div>
+            </div>
+            <div class="sect">Unsent<span class="ln"></span>1</div>
+            <div class="it">
+              <div class="a">
+                <span class="pj" style="background: #3269d4">a</span>ace-next<span
+                  class="st"
+                  style="color: var(--f2); font-weight: 500"
+                  >Sends on reconnect</span
+                >
+              </div>
+              <div class="t">Tighten the composer spacing</div>
+              <div class="b"><span class="mono">main</span>· studio-linux (offline)</div>
+            </div>
+            <div class="coll">Done today (4) · Snoozed (2)<span class="ln"></span>⌄</div>
+            <div class="dock">
+              <span class="ph2">Start a task…</span><span class="ctx">ace-next · Codex</span
+              ><span class="go idle">↑</span>
+            </div>
+            <div class="home"></div>
+          </div>
+        </div>
+        <div class="cap">
+          <b>1 · Inbox</b>A single list across every machine, grouped by what needs you. Rows show
+          the project, branch, machine and size of the agent tree. Unsent drafts wait for the
+          machine to come back. The quick-start dock opens a new thread without leaving the list.
+        </div>
+      </div>
 
-<div class="shot"><div class="frame"><div class="ph">
-<div class="isl"></div><div class="sb"><span>9:41</span><span>●●● ◗ ▮</span></div>
-<div class="top"><span class="word">ace<i>.</i></span><span class="hosts"><span class="dot" style="background:var(--done)"></span>3 machines</span><span style="flex:1"></span><span class="circ">⌕</span><span class="circ">⋯</span></div>
-<div class="sect">Needs you<span class="ln"></span>2</div>
-<div class="it needs-row"><div class="a"><span class="pj" style="background:#3269D4">a</span>ace-next<span class="st" style="color:var(--needs)">Approve push</span></div><div class="t">Fix the flaky queue test</div><div class="b"><span class="mono">fix/queue</span>· arpan-mbp</div></div>
-<div class="it needs-row"><div class="a"><span class="pj" style="background:#2E9A5E">d</span>docs<span class="st" style="color:var(--needs)">Question</span></div><div class="t">Release notes for 0.9</div><div class="b"><span class="mono">docs/0.9</span>· studio-linux</div></div>
-<div class="sect">Working<span class="ln"></span>3</div>
-<div class="it"><div class="a"><span class="pj" style="background:#3269D4">a</span>ace-next<span class="st" style="color:var(--work)"><span class="dot pulse" style="background:var(--work)"></span> Working</span></div><div class="t">ace CLI phase 2</div><div class="b"><span class="mono">feat/ace-cli-control</span>· arpan-mbp<span class="tree">◇ 3 agents</span></div></div>
-<div class="it"><div class="a"><span class="pj" style="background:#3269D4">a</span>ace-next<span class="st" style="color:var(--work)"><span class="dot pulse" style="background:var(--work)"></span> Working</span></div><div class="t">HTML visualizations in chat</div><div class="b"><span class="mono">feat/html-visualizations</span>· arpan-mbp</div></div>
-<div class="it"><div class="a"><span class="pj" style="background:#7A5BD6">s</span>site<span class="st" style="color:var(--wait)">Waiting on 1</span></div><div class="t">Storage cleanup preview</div><div class="b"><span class="mono">feat/storage</span>· cloud · Codex</div></div>
-<div class="sect">Unsent<span class="ln"></span>1</div>
-<div class="it"><div class="a"><span class="pj" style="background:#3269D4">a</span>ace-next<span class="st" style="color:var(--f2);font-weight:500">Sends on reconnect</span></div><div class="t">Tighten the composer spacing</div><div class="b"><span class="mono">main</span>· studio-linux (offline)</div></div>
-<div class="coll">Done today (4) · Snoozed (2)<span class="ln"></span>⌄</div>
-<div class="dock"><span class="ph2">Start a task…</span><span class="ctx">ace-next · Codex</span><span class="go idle">↑</span></div>
-<div class="home"></div></div></div>
-<div class="cap"><b>1 · Inbox</b>A single list across every machine, grouped by what needs you. Rows show the project, branch, machine and size of the agent tree. Unsent drafts wait for the machine to come back. The quick-start dock opens a new thread without leaving the list.</div></div>
+      <div class="shot">
+        <div class="frame">
+          <div class="ph">
+            <div class="isl"></div>
+            <div class="sb"><span>9:41</span><span>●●● ◗ ▮</span></div>
+            <div class="hdr">
+              <span class="circ">‹</span>
+              <div class="tt">
+                <div>ace CLI phase 2</div>
+                <div>ace-next · arpan-mbp · Codex</div>
+              </div>
+              <div class="pill">
+                <span>◇<i class="n">3</i></span
+                ><span>±</span><span>›_</span>
+              </div>
+            </div>
+            <div class="tx">
+              <div class="you">
+                Add <span class="mono">ace stop</span> and a safe kill-all. Never kill a process we
+                don't own.
+              </div>
+              <div class="meta">11:52 PM</div>
+              <div class="worked">
+                Worked 14m · read 12 files · edited 4<span class="ln"></span>›
+              </div>
+              <div class="sub">
+                <div class="h">
+                  <span class="dot pulse" style="background: var(--work)"></span>3 agents<span
+                    >2 working · 1 done</span
+                  >
+                </div>
+                <div class="l"><span style="color: var(--done)">✓</span>Explore process groups</div>
+                <div class="l">
+                  <span class="dot pulse" style="background: var(--work)"></span>Write
+                  orphan-cleanup tests
+                </div>
+                <div class="l">
+                  <span class="dot pulse" style="background: var(--work)"></span>Review PID-reuse
+                  safety
+                </div>
+              </div>
+              <div>
+                Orphan cleanup now records each child's kernel start time and owner, so a reused PID
+                is never killed. Next I'll wire <span class="mono">kill-all</span> filters by
+                thread, provider and project<span class="caret"></span>
+              </div>
+              <div class="chips">
+                <span class="chip"
+                  >✎ process-owner.ts <b style="color: var(--done)">+48</b>
+                  <b style="color: var(--fail)">−9</b></span
+                ><span class="chip">▶ 214 passed</span>
+              </div>
+            </div>
+            <div class="dock">
+              <span style="font-size: 20px; color: var(--f2)">＋</span
+              ><span class="ph2">Steer or follow up…</span><span class="ctx">gpt-6.1 · high</span
+              ><span class="go" style="background: var(--fg)"
+                ><span
+                  style="width: 10px; height: 10px; background: var(--bg); border-radius: 2px"
+                ></span
+              ></span>
+            </div>
+            <div class="home"></div>
+          </div>
+        </div>
+        <div class="cap">
+          <b>2 · Thread</b>A quiet transcript where work collapses into one "Worked 14m" line.
+          Subagents appear inline. The header shows the agent tree, changes and terminal. While the
+          agent works, send turns into stop, and anything you type is queued as a steer.
+        </div>
+      </div>
 
-<div class="shot"><div class="frame"><div class="ph">
-<div class="isl"></div><div class="sb"><span>9:41</span><span>●●● ◗ ▮</span></div>
-<div class="hdr"><span class="circ">‹</span><div class="tt"><div>ace CLI phase 2</div><div>ace-next · arpan-mbp · Codex</div></div><div class="pill"><span>◇<i class="n">3</i></span><span>±</span><span>›_</span></div></div>
-<div class="tx">
-<div class="you">Add <span class="mono">ace stop</span> and a safe kill-all. Never kill a process we don't own.</div>
-<div class="meta">11:52 PM</div>
-<div class="worked">Worked 14m · read 12 files · edited 4<span class="ln"></span>›</div>
-<div class="sub"><div class="h"><span class="dot pulse" style="background:var(--work)"></span>3 agents<span>2 working · 1 done</span></div>
-<div class="l"><span style="color:var(--done)">✓</span>Explore process groups</div>
-<div class="l"><span class="dot pulse" style="background:var(--work)"></span>Write orphan-cleanup tests</div>
-<div class="l"><span class="dot pulse" style="background:var(--work)"></span>Review PID-reuse safety</div></div>
-<div>Orphan cleanup now records each child's kernel start time and owner, so a reused PID is never killed. Next I'll wire <span class="mono">kill-all</span> filters by thread, provider and project<span class="caret"></span></div>
-<div class="chips"><span class="chip">✎ process-owner.ts <b style="color:var(--done)">+48</b> <b style="color:var(--fail)">−9</b></span><span class="chip">▶ 214 passed</span></div>
-</div>
-<div class="dock"><span style="font-size:20px;color:var(--f2)">＋</span><span class="ph2">Steer or follow up…</span><span class="ctx">gpt-6.1 · high</span><span class="go" style="background:var(--fg)"><span style="width:10px;height:10px;background:var(--bg);border-radius:2px"></span></span></div>
-<div class="home"></div></div></div>
-<div class="cap"><b>2 · Thread</b>A quiet transcript where work collapses into one "Worked 14m" line. Subagents appear inline. The header shows the agent tree, changes and terminal. While the agent works, send turns into stop, and anything you type is queued as a steer.</div></div>
+      <div class="shot">
+        <div class="frame">
+          <div class="ph">
+            <div class="isl"></div>
+            <div class="sb"><span>9:41</span><span>●●● ◗ ▮</span></div>
+            <div class="hdr">
+              <span class="circ">‹</span>
+              <div class="tt">
+                <div>Fix the flaky queue test</div>
+                <div>ace-next · fix/queue · Codex</div>
+              </div>
+              <div class="pill"><span>◇</span><span>±</span><span>›_</span></div>
+            </div>
+            <div class="tx">
+              <div class="you">Fix the flaky queue test, then push the branch.</div>
+              <div class="meta">11:40 PM</div>
+              <div class="worked">Worked 6m · edited 2 files<span class="ln"></span>›</div>
+              <div>
+                Found it: the retry timer used wall-clock time, so a slow CI box could fire the
+                retry twice. It now uses the injected clock, and the test pins it. All 214 tests
+                pass.
+              </div>
+            </div>
+            <div class="ask">
+              <div class="q">
+                <span class="ic">›_</span>
+                <div style="flex: 1">
+                  <div style="font-weight: 650">Codex wants to run a command</div>
+                  <div style="font-size: 12.5px; color: var(--f2)">
+                    publishes 2 commits to GitHub
+                  </div>
+                </div>
+              </div>
+              <div class="cmd mono" style="font-size: 13.5px">git push origin fix/queue</div>
+              <div class="btns">
+                <span class="btn b2">Deny</span
+                ><span class="btn b2" style="flex: 1.3">Always here</span
+                ><span class="btn b1">Allow</span>
+              </div>
+            </div>
+            <div class="dock" style="opacity: 0.55">
+              <span style="font-size: 20px; color: var(--f2)">＋</span
+              ><span class="ph2">Reply instead of approving…</span><span class="go idle">↑</span>
+            </div>
+            <div class="home"></div>
+          </div>
+        </div>
+        <div class="cap">
+          <b>3 · Approval inline</b>Approvals and questions stay in the thread as a card above the
+          composer, with no modal. The same card opens from a push notification. Typing a reply
+          answers it in words instead.
+        </div>
+      </div>
 
-<div class="shot"><div class="frame"><div class="ph">
-<div class="isl"></div><div class="sb"><span>9:41</span><span>●●● ◗ ▮</span></div>
-<div class="hdr"><span class="circ">‹</span><div class="tt"><div>Fix the flaky queue test</div><div>ace-next · fix/queue · Codex</div></div><div class="pill"><span>◇</span><span>±</span><span>›_</span></div></div>
-<div class="tx">
-<div class="you">Fix the flaky queue test, then push the branch.</div>
-<div class="meta">11:40 PM</div>
-<div class="worked">Worked 6m · edited 2 files<span class="ln"></span>›</div>
-<div>Found it: the retry timer used wall-clock time, so a slow CI box could fire the retry twice. It now uses the injected clock, and the test pins it. All 214 tests pass.</div>
-</div>
-<div class="ask"><div class="q"><span class="ic">›_</span><div style="flex:1"><div style="font-weight:650">Codex wants to run a command</div><div style="font-size:12.5px;color:var(--f2)">publishes 2 commits to GitHub</div></div></div>
-<div class="cmd mono" style="font-size:13.5px">git push origin fix/queue</div>
-<div class="btns"><span class="btn b2">Deny</span><span class="btn b2" style="flex:1.3">Always here</span><span class="btn b1">Allow</span></div></div>
-<div class="dock" style="opacity:.55"><span style="font-size:20px;color:var(--f2)">＋</span><span class="ph2">Reply instead of approving…</span><span class="go idle">↑</span></div>
-<div class="home"></div></div></div>
-<div class="cap"><b>3 · Approval inline</b>Approvals and questions stay in the thread as a card above the composer, with no modal. The same card opens from a push notification. Typing a reply answers it in words instead.</div></div>
+      <div class="shot">
+        <div class="frame">
+          <div class="ph">
+            <div class="isl"></div>
+            <div class="sb"><span>9:41</span><span>●●● ◗ ▮</span></div>
+            <div class="hdr">
+              <span class="circ">‹</span>
+              <div class="tt">
+                <div>ace CLI phase 2</div>
+                <div>ace-next · Codex</div>
+              </div>
+            </div>
+            <div class="dim"></div>
+            <div class="sheet">
+              <div class="grab"></div>
+              <div class="sh">
+                <span class="circ" style="width: 34px; height: 34px">✕</span><b>Agents</b
+                ><span class="circ" style="width: 34px; height: 34px; color: var(--fail)">■</span>
+              </div>
+              <div class="grp">
+                <div class="r">
+                  <span class="dot pulse" style="background: var(--work)"></span>
+                  <div class="x">
+                    <div>Lead · Codex</div>
+                    <div>Wiring kill-all filters · 14m</div>
+                  </div>
+                </div>
+                <div class="r">
+                  <span class="ind"></span
+                  ><span style="color: var(--done); font-weight: 700">✓</span>
+                  <div class="x">
+                    <div>Explorer</div>
+                    <div>Done · 3m · 18k tokens</div>
+                  </div>
+                </div>
+                <div class="r">
+                  <span class="ind"></span
+                  ><span class="dot pulse" style="background: var(--work)"></span>
+                  <div class="x">
+                    <div>Test writer</div>
+                    <div>Working · 6m · 31k tokens</div>
+                  </div>
+                </div>
+                <div class="r">
+                  <span class="ind"></span
+                  ><span class="dot" style="background: var(--needs)"></span>
+                  <div class="x">
+                    <div>Reviewer · Claude</div>
+                    <div style="color: var(--needs)">Asked about PID reuse</div>
+                  </div>
+                  <span style="color: var(--f3)">›</span>
+                </div>
+              </div>
+              <div class="lbl">Budget</div>
+              <div class="grp" style="padding: 12px 14px">
+                <div style="display: flex; justify-content: space-between; font-size: 14px">
+                  <span>Tokens</span><span style="color: var(--f2)">92k / 200k</span>
+                </div>
+                <div class="meter"><i style="width: 46%"></i></div>
+                <div
+                  style="
+                    display: flex;
+                    justify-content: space-between;
+                    font-size: 14px;
+                    margin-top: 12px;
+                  "
+                >
+                  <span>Time</span><span style="color: var(--f2)">14m / 45m</span>
+                </div>
+                <div class="meter"><i style="width: 31%"></i></div>
+              </div>
+              <div class="lbl">Running in background</div>
+              <div class="grp">
+                <div class="r">
+                  <span class="mono" style="color: var(--f2)">›_</span>
+                  <div class="x">
+                    <div class="mono" style="font-size: 13.5px; font-weight: 500">
+                      bun run test --watch
+                    </div>
+                    <div>port 5173 · 8m</div>
+                  </div>
+                  <span style="color: var(--acc); font-size: 13px">Open</span>
+                </div>
+              </div>
+            </div>
+            <div class="home"></div>
+          </div>
+        </div>
+        <div class="cap">
+          <b>4 · Agents sheet</b>The whole tree in one sheet, with each agent's status, budget and
+          background processes. One stop button stops every agent in the tree. A tree only reads
+          done when nothing in it is working or waiting on you.
+        </div>
+      </div>
 
-<div class="shot"><div class="frame"><div class="ph">
-<div class="isl"></div><div class="sb"><span>9:41</span><span>●●● ◗ ▮</span></div>
-<div class="hdr"><span class="circ">‹</span><div class="tt"><div>ace CLI phase 2</div><div>ace-next · Codex</div></div></div>
-<div class="dim"></div>
-<div class="sheet"><div class="grab"></div>
-<div class="sh"><span class="circ" style="width:34px;height:34px">✕</span><b>Agents</b><span class="circ" style="width:34px;height:34px;color:var(--fail)">■</span></div>
-<div class="grp">
-<div class="r"><span class="dot pulse" style="background:var(--work)"></span><div class="x"><div>Lead · Codex</div><div>Wiring kill-all filters · 14m</div></div></div>
-<div class="r"><span class="ind"></span><span style="color:var(--done);font-weight:700">✓</span><div class="x"><div>Explorer</div><div>Done · 3m · 18k tokens</div></div></div>
-<div class="r"><span class="ind"></span><span class="dot pulse" style="background:var(--work)"></span><div class="x"><div>Test writer</div><div>Working · 6m · 31k tokens</div></div></div>
-<div class="r"><span class="ind"></span><span class="dot" style="background:var(--needs)"></span><div class="x"><div>Reviewer · Claude</div><div style="color:var(--needs)">Asked about PID reuse</div></div><span style="color:var(--f3)">›</span></div>
-</div>
-<div class="lbl">Budget</div>
-<div class="grp" style="padding:12px 14px">
-<div style="display:flex;justify-content:space-between;font-size:14px"><span>Tokens</span><span style="color:var(--f2)">92k / 200k</span></div><div class="meter"><i style="width:46%"></i></div>
-<div style="display:flex;justify-content:space-between;font-size:14px;margin-top:12px"><span>Time</span><span style="color:var(--f2)">14m / 45m</span></div><div class="meter"><i style="width:31%"></i></div>
-</div>
-<div class="lbl">Running in background</div>
-<div class="grp"><div class="r"><span class="mono" style="color:var(--f2)">›_</span><div class="x"><div class="mono" style="font-size:13.5px;font-weight:500">bun run test --watch</div><div>port 5173 · 8m</div></div><span style="color:var(--acc);font-size:13px">Open</span></div></div>
-</div>
-<div class="home"></div></div></div>
-<div class="cap"><b>4 · Agents sheet</b>The whole tree in one sheet, with each agent's status, budget and background processes. One stop button stops every agent in the tree. A tree only reads done when nothing in it is working or waiting on you.</div></div>
+      <div class="shot">
+        <div class="frame">
+          <div class="ph">
+            <div class="isl"></div>
+            <div class="sb"><span>9:41</span><span>●●● ◗ ▮</span></div>
+            <div class="hdr">
+              <span class="circ">‹</span>
+              <div class="tt">
+                <div>Changes</div>
+                <div>
+                  3 files · <span style="color: var(--done)">+198</span>
+                  <span style="color: var(--fail)">−9</span> · uncommitted
+                </div>
+              </div>
+              <span class="circ">⋯</span>
+            </div>
+            <div class="file">
+              <div class="fh">
+                <span>⌄</span><span class="p mono">provider-kit/src/process-owner.ts</span
+                ><span class="mono" style="color: var(--fail)">−9</span
+                ><span class="mono" style="color: var(--done)">+48</span>
+              </div>
+              <div
+                class="mono"
+                style="padding: 4px 0 6px; font-size: 11.5px; color: var(--f3); padding-left: 36px"
+              >
+                @@ -41,9 +41,14 @@
+              </div>
+              <div class="hl mono d">
+                <span class="n">41</span> if (alive(pid)) kill(pid, "SIGTERM");
+              </div>
+              <div class="hl mono a"><span class="n">41</span> const id = await identity(pid);</div>
+              <div class="hl mono a">
+                <span class="n">42</span> if (!id || !sameOwner(id, record)) return "skip";
+              </div>
+              <div class="hl mono a">
+                <span class="n">43</span> if (id.startedAt !== record.startedAt) return "skip";
+              </div>
+              <div class="hl mono a">
+                <span class="n">44</span> await terminate(record.group, clock);
+              </div>
+              <div class="hl mono"><span class="n">45</span> return "stopped";</div>
+            </div>
+            <div class="file">
+              <div class="fh">
+                <span>›</span><span class="p mono">daemon/src/cli/kill-all.ts</span
+                ><span class="mono" style="color: var(--done)">+112</span>
+              </div>
+            </div>
+            <div class="file">
+              <div class="fh">
+                <span>›</span><span class="p mono">daemon/src/cli/kill-all.test.ts</span
+                ><span class="mono" style="color: var(--done)">+38</span>
+              </div>
+            </div>
+            <div class="ship">
+              <div style="display: flex; align-items: center; gap: 10px">
+                <span
+                  style="
+                    width: 34px;
+                    height: 34px;
+                    border-radius: 10px;
+                    background: var(--add);
+                    color: var(--done);
+                    display: grid;
+                    place-items: center;
+                    font-weight: 700;
+                  "
+                  >⑂</span
+                >
+                <div style="flex: 1">
+                  <div style="font-weight: 650">Ready to ship</div>
+                  <div style="font-size: 12.5px; color: var(--f2)">
+                    214 tests passed · reviewed by Claude
+                  </div>
+                </div>
+              </div>
+              <div class="btns">
+                <span class="btn b2">Ask for changes</span
+                ><span class="btn b1">Commit &amp; open PR</span>
+              </div>
+            </div>
+            <div class="home"></div>
+          </div>
+        </div>
+        <div class="cap">
+          <b>5 · Changes</b>Review the diff from your phone. The bottom card offers the next step
+          for the branch, whether that's commit and open a PR, merge, or ask for changes. It goes
+          through ace's guarded git, never through a raw shell.
+        </div>
+      </div>
 
-<div class="shot"><div class="frame"><div class="ph">
-<div class="isl"></div><div class="sb"><span>9:41</span><span>●●● ◗ ▮</span></div>
-<div class="hdr"><span class="circ">‹</span><div class="tt"><div>Changes</div><div>3 files · <span style="color:var(--done)">+198</span> <span style="color:var(--fail)">−9</span> · uncommitted</div></div><span class="circ">⋯</span></div>
-<div class="file"><div class="fh"><span>⌄</span><span class="p mono">provider-kit/src/process-owner.ts</span><span class="mono" style="color:var(--fail)">−9</span><span class="mono" style="color:var(--done)">+48</span></div>
-<div class="mono" style="padding:4px 0 6px;font-size:11.5px;color:var(--f3);padding-left:36px">@@ -41,9 +41,14 @@</div>
-<div class="hl mono d"><span class="n">41</span>  if (alive(pid)) kill(pid, "SIGTERM");</div>
-<div class="hl mono a"><span class="n">41</span>  const id = await identity(pid);</div>
-<div class="hl mono a"><span class="n">42</span>  if (!id || !sameOwner(id, record)) return "skip";</div>
-<div class="hl mono a"><span class="n">43</span>  if (id.startedAt !== record.startedAt) return "skip";</div>
-<div class="hl mono a"><span class="n">44</span>  await terminate(record.group, clock);</div>
-<div class="hl mono"><span class="n">45</span>  return "stopped";</div></div>
-<div class="file"><div class="fh"><span>›</span><span class="p mono">daemon/src/cli/kill-all.ts</span><span class="mono" style="color:var(--done)">+112</span></div></div>
-<div class="file"><div class="fh"><span>›</span><span class="p mono">daemon/src/cli/kill-all.test.ts</span><span class="mono" style="color:var(--done)">+38</span></div></div>
-<div class="ship"><div style="display:flex;align-items:center;gap:10px"><span style="width:34px;height:34px;border-radius:10px;background:var(--add);color:var(--done);display:grid;place-items:center;font-weight:700">⑂</span><div style="flex:1"><div style="font-weight:650">Ready to ship</div><div style="font-size:12.5px;color:var(--f2)">214 tests passed · reviewed by Claude</div></div></div>
-<div class="btns"><span class="btn b2">Ask for changes</span><span class="btn b1">Commit &amp; open PR</span></div></div>
-<div class="home"></div></div></div>
-<div class="cap"><b>5 · Changes</b>Review the diff from your phone. The bottom card offers the next step for the branch, whether that's commit and open a PR, merge, or ask for changes. It goes through ace's guarded git, never through a raw shell.</div></div>
+      <div class="shot">
+        <div class="frame">
+          <div class="ph">
+            <div class="isl"></div>
+            <div class="sb"><span>9:41</span><span>●●● ◗ ▮</span></div>
+            <div class="top">
+              <span class="word">ace<i>.</i></span>
+            </div>
+            <div class="dim"></div>
+            <div class="sheet">
+              <div class="grab"></div>
+              <div class="sh">
+                <span class="circ" style="width: 34px; height: 34px">‹</span><b>Machines</b
+                ><span class="circ" style="width: 34px; height: 34px">＋</span>
+              </div>
+              <div class="grp">
+                <div class="r">
+                  <span class="dot" style="background: var(--done)"></span>
+                  <div class="x">
+                    <div>arpan-mbp</div>
+                    <div>This Mac · LAN TLS · 4 agents</div>
+                  </div>
+                  <span class="tog"></span>
+                </div>
+                <div class="r">
+                  <span class="dot" style="background: var(--done)"></span>
+                  <div class="x">
+                    <div>studio-linux</div>
+                    <div class="mono" style="font-size: 12px">
+                      100.82.16.5 · Tailscale · 1 agent
+                    </div>
+                  </div>
+                  <span class="tog"></span>
+                </div>
+                <div class="r">
+                  <span class="dot" style="background: var(--f3)"></span>
+                  <div class="x">
+                    <div>build-box</div>
+                    <div>Offline · last seen 2h ago</div>
+                  </div>
+                  <span class="tog off"></span>
+                </div>
+              </div>
+              <div class="lbl">Providers on arpan-mbp</div>
+              <div class="grp">
+                <div class="r">
+                  <div class="x">
+                    <div>Codex</div>
+                    <div>Signed in · gpt-6.1-sol</div>
+                  </div>
+                  <span style="color: var(--done); font-size: 13px">Ready</span>
+                </div>
+                <div class="r">
+                  <div class="x">
+                    <div>Claude Code</div>
+                    <div>Signed in · opus</div>
+                  </div>
+                  <span style="color: var(--done); font-size: 13px">Ready</span>
+                </div>
+                <div class="r">
+                  <div class="x">
+                    <div>Codex Cloud</div>
+                    <div>Uses your Codex login</div>
+                  </div>
+                  <span style="color: var(--done); font-size: 13px">Ready</span>
+                </div>
+              </div>
+              <div class="grp" style="background: transparent; border: 1px dashed var(--sep)">
+                <div class="r" style="justify-content: center; color: var(--acc); font-weight: 600">
+                  ⌗ Pair a machine with <span class="mono" style="margin-left: 4px">ace pair</span>
+                </div>
+              </div>
+            </div>
+            <div class="home"></div>
+          </div>
+        </div>
+        <div class="cap">
+          <b>6 · Machines</b>Every computer you've paired is one tap away, along with the state of
+          its provider logins. You pair a new one by scanning the QR code from
+          <code>ace pair</code>. ace never holds provider credentials.
+        </div>
+      </div>
 
-<div class="shot"><div class="frame"><div class="ph">
-<div class="isl"></div><div class="sb"><span>9:41</span><span>●●● ◗ ▮</span></div>
-<div class="top"><span class="word">ace<i>.</i></span></div>
-<div class="dim"></div>
-<div class="sheet"><div class="grab"></div>
-<div class="sh"><span class="circ" style="width:34px;height:34px">‹</span><b>Machines</b><span class="circ" style="width:34px;height:34px">＋</span></div>
-<div class="grp">
-<div class="r"><span class="dot" style="background:var(--done)"></span><div class="x"><div>arpan-mbp</div><div>This Mac · LAN TLS · 4 agents</div></div><span class="tog"></span></div>
-<div class="r"><span class="dot" style="background:var(--done)"></span><div class="x"><div>studio-linux</div><div class="mono" style="font-size:12px">100.82.16.5 · Tailscale · 1 agent</div></div><span class="tog"></span></div>
-<div class="r"><span class="dot" style="background:var(--f3)"></span><div class="x"><div>build-box</div><div>Offline · last seen 2h ago</div></div><span class="tog off"></span></div>
-</div>
-<div class="lbl">Providers on arpan-mbp</div>
-<div class="grp">
-<div class="r"><div class="x"><div>Codex</div><div>Signed in · gpt-6.1-sol</div></div><span style="color:var(--done);font-size:13px">Ready</span></div>
-<div class="r"><div class="x"><div>Claude Code</div><div>Signed in · opus</div></div><span style="color:var(--done);font-size:13px">Ready</span></div>
-<div class="r"><div class="x"><div>Codex Cloud</div><div>Uses your Codex login</div></div><span style="color:var(--done);font-size:13px">Ready</span></div>
-</div>
-<div class="grp" style="background:transparent;border:1px dashed var(--sep)"><div class="r" style="justify-content:center;color:var(--acc);font-weight:600">⌗  Pair a machine with <span class="mono" style="margin-left:4px">ace pair</span></div></div>
-</div>
-<div class="home"></div></div></div>
-<div class="cap"><b>6 · Machines</b>Every computer you've paired is one tap away, along with the state of its provider logins. You pair a new one by scanning the QR code from <code>ace pair</code>. ace never holds provider credentials.</div></div>
-
-<div class="shot"><div class="frame"><div class="ph" style="color:#fff">
-<div class="lock"></div><div class="isl"></div>
-<div class="sb" style="color:#fff"><span>Carrier</span><span>●●● ◗ ▮</span></div>
-<div style="position:relative;text-align:center;font-size:19px;font-weight:600;opacity:.85;margin-top:30px">Sunday 12 October</div>
-<div style="position:relative;text-align:center;font-size:96px;font-weight:600;letter-spacing:-.03em;line-height:1;margin-top:2px;opacity:.95">9:41</div>
-<div class="la"><div class="h"><span class="logo" style="width:22px;height:22px;font-size:11px">a<i>.</i></span>3 working<span style="color:#F0A35E;margin-left:auto">2 need you</span></div>
-<div style="height:8px"></div>
-<div class="ln"><span>Fix the flaky queue test</span><span class="w" style="color:#F0A35E">Approve</span></div>
-<div class="ln"><span>Release notes for 0.9</span><span class="w" style="color:#F0A35E">Question</span></div>
-<div class="ln"><span>ace CLI phase 2 <span style="opacity:.55">· 3 agents</span></span><span class="w" style="color:#7AA2F7">Working</span></div>
-<div class="ln"><span>HTML visualizations</span><span class="w" style="color:#6CC48F">Done</span></div></div>
-<div class="nt"><span class="logo">a<i>.</i></span><div style="flex:1"><div style="font-weight:600;font-size:14px">Fix the flaky queue test</div><div style="font-size:13px;opacity:.75">Codex wants to run git push · ace-next</div></div><span style="font-size:12px;opacity:.6">now</span></div>
-<div class="home" style="background:#fff"></div></div></div>
-<div class="cap"><b>7 · Lock Screen</b>A Live Activity and actionable notifications. Allow and Deny work straight from the notification. Status comes from the daemon, so "Done" never shows while an agent is still running.</div></div>
-
-</div>
-<script>
-const P=[...document.querySelectorAll('.ph')],bl=document.getElementById('bl'),bd=document.getElementById('bd');
-function set(m){P.forEach(p=>{p.classList.remove('light','dark');p.classList.add(m)});bl.setAttribute('aria-pressed',m==='light');bd.setAttribute('aria-pressed',m==='dark')}
-function dark(){const c=getComputedStyle(document.documentElement).getPropertyValue('--background').trim();const e=document.createElement('div');e.style.color=c||'#fff';document.body.appendChild(e);const m=getComputedStyle(e).color.match(/\d+(\.\d+)?/g);e.remove();if(!m)return false;const[r,g,b]=m.map(Number);return .2126*r+.7152*g+.0722*b<128}
-bl.onclick=()=>set('light');bd.onclick=()=>set('dark');set(dark()?'dark':'light');
-</script></body></html>
+      <div class="shot">
+        <div class="frame">
+          <div class="ph" style="color: #fff">
+            <div class="lock"></div>
+            <div class="isl"></div>
+            <div class="sb" style="color: #fff"><span>Carrier</span><span>●●● ◗ ▮</span></div>
+            <div
+              style="
+                position: relative;
+                text-align: center;
+                font-size: 19px;
+                font-weight: 600;
+                opacity: 0.85;
+                margin-top: 30px;
+              "
+            >
+              Sunday 12 October
+            </div>
+            <div
+              style="
+                position: relative;
+                text-align: center;
+                font-size: 96px;
+                font-weight: 600;
+                letter-spacing: -0.03em;
+                line-height: 1;
+                margin-top: 2px;
+                opacity: 0.95;
+              "
+            >
+              9:41
+            </div>
+            <div class="la">
+              <div class="h">
+                <span class="logo" style="width: 22px; height: 22px; font-size: 11px"
+                  >a<i>.</i></span
+                >3 working<span style="color: #f0a35e; margin-left: auto">2 need you</span>
+              </div>
+              <div style="height: 8px"></div>
+              <div class="ln">
+                <span>Fix the flaky queue test</span
+                ><span class="w" style="color: #f0a35e">Approve</span>
+              </div>
+              <div class="ln">
+                <span>Release notes for 0.9</span
+                ><span class="w" style="color: #f0a35e">Question</span>
+              </div>
+              <div class="ln">
+                <span>ace CLI phase 2 <span style="opacity: 0.55">· 3 agents</span></span
+                ><span class="w" style="color: #7aa2f7">Working</span>
+              </div>
+              <div class="ln">
+                <span>HTML visualizations</span><span class="w" style="color: #6cc48f">Done</span>
+              </div>
+            </div>
+            <div class="nt">
+              <span class="logo">a<i>.</i></span>
+              <div style="flex: 1">
+                <div style="font-weight: 600; font-size: 14px">Fix the flaky queue test</div>
+                <div style="font-size: 13px; opacity: 0.75">
+                  Codex wants to run git push · ace-next
+                </div>
+              </div>
+              <span style="font-size: 12px; opacity: 0.6">now</span>
+            </div>
+            <div class="home" style="background: #fff"></div>
+          </div>
+        </div>
+        <div class="cap">
+          <b>7 · Lock Screen</b>A Live Activity and actionable notifications. Allow and Deny work
+          straight from the notification. Status comes from the daemon, so "Done" never shows while
+          an agent is still running.
+        </div>
+      </div>
+    </div>
+    <script>
+      const P = [...document.querySelectorAll(".ph")],
+        bl = document.getElementById("bl"),
+        bd = document.getElementById("bd");
+      function set(m) {
+        P.forEach((p) => {
+          p.classList.remove("light", "dark");
+          p.classList.add(m);
+        });
+        bl.setAttribute("aria-pressed", m === "light");
+        bd.setAttribute("aria-pressed", m === "dark");
+      }
+      function dark() {
+        const c = getComputedStyle(document.documentElement)
+          .getPropertyValue("--background")
+          .trim();
+        const e = document.createElement("div");
+        e.style.color = c || "#fff";
+        document.body.appendChild(e);
+        const m = getComputedStyle(e).color.match(/\d+(\.\d+)?/g);
+        e.remove();
+        if (!m) return false;
+        const [r, g, b] = m.map(Number);
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b < 128;
+      }
+      bl.onclick = () => set("light");
+      bd.onclick = () => set("dark");
+      set(dark() ? "dark" : "light");
+    </script>
+  </body>
+</html>
