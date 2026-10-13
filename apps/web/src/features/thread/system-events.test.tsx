@@ -61,7 +61,7 @@ async function open(scenario: Scenario) {
 const restart =
   "ace restarted. The previous provider process stopped. Continue the interrupted task from native history. Recheck unfinished tools and expired approvals before relying on their results.\nNo known background work was live.";
 
-test("ace's restart input reads as one quiet divider, never as the person's message", async () => {
+test("ace's restart input reads as one quiet row, never as the person's message", async () => {
   const feed = await open(
     thread("thread-restart", [
       say("before", "assistant", "Looking at the redirect guard."),
@@ -76,6 +76,68 @@ test("ace's restart input reads as one quiet divider, never as the person's mess
   );
   expect(within(feed).queryByText(/ace restarted\./)).toBeNull();
   expect(within(feed).getByText("Fix the login redirect loop")).toBeTruthy();
+});
+
+/** The daemon's own resume: a fresh turn whose input is ace's "continue". */
+const resumed = (id: string): Scenario => ({
+  thread: { id, workspaceId: "relay", title: "Resumed", provider: "claude" },
+  steps: [
+    {
+      kind: "facts",
+      facts: [
+        {
+          type: "agent.seen",
+          agent: "root",
+          origin: "root",
+          fidelity: "full",
+          native: { provider: "claude", nativeId: "root" },
+          cwd: "/Users/dev/relay",
+        },
+        { type: "turn.started", agent: "root", nativeTurnId: "t1", trigger: "user" },
+        say("ask", "user", "Fix the login redirect loop"),
+        { type: "turn.ended", agent: "root", nativeTurnId: "t1", outcome: "interrupted" },
+        { type: "turn.started", agent: "root", nativeTurnId: "t2", trigger: "restart" },
+        {
+          type: "item.upsert",
+          agent: "root",
+          item: "continuation",
+          draft: {
+            type: "message",
+            role: "user",
+            complete: true,
+            synthetic: true,
+            origin: { kind: "restart" },
+            parts: [{ type: "text", text: "continue" }],
+          },
+        },
+        say("after", "assistant", "Picking up where I left off."),
+        { type: "turn.ended", agent: "root", nativeTurnId: "t2", outcome: "completed" },
+      ],
+    },
+  ],
+});
+
+test("a resumed thread shows one Resumed after restart row that hides what ace sent until opened", async () => {
+  const feed = await open(resumed("thread-resumed"));
+  await within(feed).findByText("Picking up where I left off.");
+  const rows = await within(feed).findAllByRole("note", { name: "Resumed after restart" });
+  expect(rows).toHaveLength(1);
+  const row = rows[0]!;
+  expect(within(feed).queryByText("continue")).toBeNull();
+  expect(within(feed).queryByText("What the agent received")).toBeNull();
+  // The row is its own and only disclosure.
+  expect(within(row).getAllByRole("button")).toHaveLength(1);
+  await userEvent.click(within(row).getByRole("button", { name: /Resumed after restart/ }));
+  expect(within(row).getByText("continue")).toBeTruthy();
+  expect(within(row).queryByRole("button", { name: /Details/ })).toBeNull();
+});
+
+test("nothing in the transcript holds focus once the resume renders", async () => {
+  const feed = await open(resumed("thread-resumed-focus"));
+  await within(feed).findByText("Picking up where I left off.");
+  await within(feed).findByRole("note", { name: "Resumed after restart" });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(feed.contains(document.activeElement)).toBe(false);
 });
 
 test("a person's message that only starts like ace's text stays their bubble", async () => {

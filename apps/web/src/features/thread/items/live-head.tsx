@@ -3,12 +3,13 @@ import { useShownPlans } from "@/lib/use-plans.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
-import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
+import { PauseCircleIcon } from "@phosphor-icons/react";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { ThinkingRow } from "./step-groups-view.tsx";
+import { SystemRow } from "./system-row.tsx";
 
 /*
  * The live turn's header, right under the ask that started it: one muted `[grid] Working for 3m 6s`
@@ -24,7 +25,7 @@ export function LiveHead(props: { threadId: string }) {
   const plans = useShownPlans(props.threadId);
   const live = useLiveConnection();
   const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
-  // A pause is the turn's own divider; a lost connection is the header's to say.
+  // A pause is the turn's own row; a lost connection is the header's to say.
   if (!activity || activity.tone === "paused" || live.staleLabel) return null;
   // The status line stays a live region of its own; the whole row also opens the Summary.
   return (
@@ -47,15 +48,17 @@ export function LiveHead(props: { threadId: string }) {
 /**
  * The live line, muted: `[grid] Working for 1m 14s` moving; `● Waiting for your answer`
  * while the person is asked (the request itself is in the composer's strip); a held line as it
- * is; a usage-limit pause as a divider.
+ * is; a usage-limit pause as a quiet row.
  */
 export function ActivityLine(props: { activity: TurnActivity; progress?: string | undefined }) {
   const { activity } = props;
   if (activity.tone === "paused")
     return (
-      <Marker role="status" aria-label={activity.label} variant="separator" className="text-xs">
-        <MarkerContent>{activity.label}</MarkerContent>
-      </Marker>
+      <SystemRow
+        role="status"
+        text={activity.label}
+        icon={<PauseCircleIcon aria-hidden size={14} />}
+      />
     );
   const label = activity.code ? `${activity.label} ${activity.code}` : activity.label;
   return (

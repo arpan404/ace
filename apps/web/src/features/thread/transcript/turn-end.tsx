@@ -3,8 +3,9 @@ import { useThreadMeta } from "@ace/client-react";
 import type { Run } from "@ace/protocol";
 import { formatElapsed, pauseLabel, providerNames } from "@ace/ui-core";
 import { Suspense, useCallback, useMemo } from "react";
-import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
+import { StopCircleIcon } from "@phosphor-icons/react";
 import { GroupedSteps } from "../items/step-groups-view.tsx";
+import { SystemRow } from "../items/system-row.tsx";
 import { DeferredFailedTurn } from "../items/deferred-review.ts";
 import type { Block } from "./blocks.ts";
 import type { Failure } from "./failure.ts";
@@ -122,11 +123,7 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
         ? ` · after ${formatElapsed(ending.ranMs)}`
         : "";
     const text = `Stopped${after}`;
-    return (
-      <Marker role="note" aria-label={text} variant="separator" className="text-xs">
-        <MarkerContent className="flex items-center gap-1.5">{text}</MarkerContent>
-      </Marker>
-    );
+    return <SystemRow text={text} icon={<StopCircleIcon aria-hidden size={14} />} />;
   }
   return (
     <Suspense fallback={null}>

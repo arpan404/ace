@@ -32,6 +32,9 @@ export function focusOpenRequest(root: Element, tries = 60): () => void {
       // An answer first (a numbered choice, an option, a field), never the card's own chrome
       // such as its pager; any other button only when it has none.
       const card = cards[index];
+      // The transcript keeps records of requests (an answered question, a subagent's turn);
+      // those are for reading, and focus stays where the person left it.
+      if (card?.closest('[role="feed"]')) continue;
       if (card?.querySelector("[data-approval-deliberate]")) {
         const deny = card.querySelector<HTMLElement>(
           "[data-approval-refusal]:not([disabled]):not([aria-disabled='true'])",

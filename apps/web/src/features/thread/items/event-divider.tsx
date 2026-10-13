@@ -20,6 +20,7 @@ import {
 } from "@ace/ui-core";
 import {
   ArrowClockwiseIcon,
+  ArrowsInLineVerticalIcon,
   ArrowsLeftRightIcon,
   ClockCounterClockwiseIcon,
   InfoIcon,
@@ -28,15 +29,14 @@ import {
   WarningIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { lazy, Suspense, useCallback, useId, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { ArtifactLine } from "@/components/attachment-artifact.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
-import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DelegationCard } from "./delegation-card.tsx";
 import { ErrorRow, noticeError } from "./error-row.tsx";
-import { ModelFacing } from "./model-facing.tsx";
 import { ReviewNote } from "./review-note.tsx";
+import { SystemRow } from "./system-row.tsx";
 import { TaskCard } from "./task-card.tsx";
 import { MergedForkNotice } from "../transitions/merged-fork-notice.tsx";
 import { UserMessage } from "./user-message.tsx";
@@ -54,55 +54,40 @@ const icons: Record<EventIcon, PhosphorIcon> = {
 };
 
 /**
- * A quiet centred divider for something that happened to the thread rather than in the
- * conversation: a resume, a switch, a handoff. `received` keeps what the model was sent behind
- * a disclosure; `summary` is a handoff's readable summary.
+ * Something that happened to the thread rather than in the conversation (a resume, a switch, a
+ * handoff) as one muted row. The line's note, a handoff's readable `summary` and otherwise what
+ * the model was sent (`received`) wait behind the row's own caret.
  */
-export function EventDivider(props: {
+export function EventRow(props: {
   line: EventLine;
+  at?: number | undefined;
   received?: string | undefined;
   summary?: string | undefined;
 }) {
   const { line } = props;
   const Glyph = icons[line.icon];
-  const [open, setOpen] = useState(false);
-  const body = useId();
+  const shown = props.summary ?? props.received;
   return (
-    <div role="note" aria-label={line.text} className="flex flex-col items-center gap-1">
-      <Marker variant="separator" className="text-xs">
-        <MarkerContent className="inline-flex items-center gap-1.5">
-          {line.provider ? (
-            <ProviderIcon provider={line.provider} size={12} decorative />
-          ) : (
-            <Glyph aria-hidden size={13} />
-          )}
-          {line.text}
-        </MarkerContent>
-      </Marker>
-      {line.note && <p className="text-xs text-subtle-foreground">{line.note}</p>}
-      {props.summary && (
+    <SystemRow
+      text={line.text}
+      at={props.at}
+      icon={
+        line.provider ? (
+          <ProviderIcon provider={line.provider} size={14} decorative />
+        ) : (
+          <Glyph aria-hidden size={14} />
+        )
+      }
+    >
+      {(line.note || shown) && (
         <>
-          <button
-            type="button"
-            aria-expanded={open}
-            aria-controls={body}
-            onClick={() => setOpen(!open)}
-            className="text-xs text-subtle-foreground underline-offset-2 hover:text-foreground hover:underline"
-          >
-            {open ? "Hide summary" : "Show summary"}
-          </button>
-          {open && (
-            <div
-              id={body}
-              className="fx-rise-in max-h-72 w-full overflow-auto rounded-md bg-code px-3 py-2 text-sm whitespace-pre-wrap text-muted-foreground"
-            >
-              {props.summary}
-            </div>
+          {line.note && <p>{line.note}</p>}
+          {shown && (
+            <p className={cn(line.note && "mt-1", !props.summary && "font-mono")}>{shown}</p>
           )}
         </>
       )}
-      {props.received && !props.summary && <ModelFacing text={props.received} />}
-    </div>
+    </SystemRow>
   );
 }
 
@@ -135,7 +120,7 @@ function useEchoedCode(threadId: string, item: Item | undefined): boolean {
 
 /**
  * Anything in the transcript that is neither the person's words nor the agent's answer or
- * work (IR-8, IR-9, IR-10, IR-11, IR-12, A3): ace's own inputs as dividers and cards, errors as
+ * work (IR-8, IR-9, IR-10, IR-11, IR-12, A3): ace's own inputs as quiet rows and cards, errors as
  * one readable row, notices as one quiet line. Never a chat bubble.
  */
 export function EventBlock(props: { threadId: string; itemId: string }) {
@@ -168,8 +153,9 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
             />
           );
         return (
-          <EventDivider
+          <EventRow
             line={{ icon: "automation", text: "Delegated work finished" }}
+            at={item.createdAt}
             received={input.text}
           />
         );
@@ -185,8 +171,9 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
         const line = inputLine(input);
         if (line)
           return (
-            <EventDivider
+            <EventRow
               line={line}
+              at={item.createdAt}
               received={input.text}
               summary={input.kind === "handoff" ? handoffSummary(input.text) : undefined}
             />
@@ -202,7 +189,7 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
         return <ReviewNote threadId={props.threadId} item={item} />;
       const kind = noticeInput(item);
       const line = kind && inputLine({ kind, text: item.text });
-      if (line) return <EventDivider line={line} received={item.text} />;
+      if (line) return <EventRow line={line} at={item.createdAt} received={item.text} />;
       if (item.level === "error") {
         const error = noticeError(item);
         return (
@@ -219,9 +206,11 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
     }
     case "compaction":
       return (
-        <Marker variant="separator" className="text-xs">
-          <MarkerContent>Context compacted</MarkerContent>
-        </Marker>
+        <SystemRow
+          text="Context compacted"
+          at={item.createdAt}
+          icon={<ArrowsInLineVerticalIcon aria-hidden size={14} />}
+        />
       );
     case "html":
       return (
