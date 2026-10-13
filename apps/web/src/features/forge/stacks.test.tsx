@@ -287,9 +287,8 @@ test("a locally rebased stack reviews each layer's leased push before publishing
   app.daemon.refuseCommands("forge_conflict", "forge.pr.stack.change");
   await app.open("/pull-requests?project=api&number=42");
   const section = await screen.findByRole("region", { name: "Pull request stack" });
-  await within(section).findByText(
-    "Rebased, not pushed · Local branches are rebased and not yet pushed.",
-  );
+  await within(section).findByText("Rebased, not pushed");
+  expect(within(section).queryByText(/not yet pushed/)).toBeNull();
   expect(within(section).queryByText(/push_partial/)).toBeNull();
   expect(
     within(section).getByRole<HTMLButtonElement>("button", { name: "Rebase local stack" }).disabled,

@@ -28,10 +28,14 @@ function StackAction(props: { reason: string | undefined; onClick(): void; child
   );
 }
 
+/** States whose daemon message is the reason the person has to act on. */
+const explainedStates = new Set<ForgeStackOperation["state"]>(["failed", "uncertain", "conflict"]);
+
 function OperationStatus(props: { operation: ForgeStackOperation }) {
+  const label = stackOperationLabel(props.operation);
   return (
     <p role="status" className="text-ui">
-      {`${stackOperationLabel(props.operation)} · ${props.operation.message}`}
+      {explainedStates.has(props.operation.state) ? `${label} · ${props.operation.message}` : label}
     </p>
   );
 }
