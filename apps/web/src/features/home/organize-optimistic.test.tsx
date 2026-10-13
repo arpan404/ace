@@ -13,6 +13,8 @@ beforeEach(() => localStorage.clear());
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 const card = (title: RegExp) => within(threads()).queryByRole("link", { name: title });
+/** The question archiving a thread that still works asks first. */
+const keep = () => screen.queryByRole("button", { name: "Archive, keep running" });
 
 async function openHome(options: Parameters<typeof harness>[0] = {}) {
   const app = harness(options);
@@ -35,6 +37,11 @@ async function choose(title: RegExp, item: string | RegExp) {
       within(dialog).getByRole("button", { name: /^(Delete|Stop and delete)$/ }),
     );
   }
+  // A thread still working asks before it is archived; these tests keep it running.
+  if (item !== "Archive") return;
+  await waitFor(() => expect(screen.queryByText(/^Archived ·/) ?? keep()).toBeTruthy());
+  const ask = keep();
+  if (ask) await userEvent.click(ask);
 }
 
 /** The thread as the daemon's list has it. */

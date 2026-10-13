@@ -122,6 +122,8 @@ function ComposerContent({
   /** A file selection owns a preparation even before its upload finishes. */
   onFilesAdded?: (() => void) | undefined;
   onStop?: (() => void) | undefined;
+  /** Esc in a busy composer that can stop, at the key's time; Esc does nothing without it. */
+  onStopKey?: ((at: number) => void) | undefined;
   /** A Stop is on its way: the button says so until the turn ends. */
   stopping?: boolean | undefined;
   /** Edit on a failed message brought back the effort and speed it was sent with. */
@@ -636,9 +638,16 @@ function ComposerBody({
         return;
       }
     }
-    if (event.key === "Escape" && props.busy && props.onStop && !props.stopping) {
+    // Esc only asks: the owner decides whether this press stops (a second one, soon) or arms.
+    if (
+      event.key === "Escape" &&
+      props.busy &&
+      props.onStop &&
+      props.onStopKey &&
+      !props.stopping
+    ) {
       event.preventDefault();
-      props.onStop();
+      props.onStopKey(event.timeStamp);
       return;
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {

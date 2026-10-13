@@ -7,8 +7,19 @@ export interface DeleteRequest {
   running: string;
   confirm(): void;
 }
-class DeleteConfirmation {
-  private request: DeleteRequest | undefined;
+
+/** Archiving a thread whose tree still works or waits on the person: stop it too, or not. */
+export interface ArchiveRequest {
+  title: string;
+  /** What is still going on: "2 subagents and 1 background command are still running." */
+  running: string;
+  stopAndArchive(): void;
+  archive(): void;
+}
+
+/** One question a thread action waits on, asked by a dialog the app shell hosts. */
+class Confirmation<Request> {
+  private request: Request | undefined;
   private listeners = new Set<() => void>();
   getState = () => this.request;
   subscribe = (listener: () => void) => {
@@ -17,7 +28,7 @@ class DeleteConfirmation {
       this.listeners.delete(listener);
     };
   };
-  open(request: DeleteRequest) {
+  open(request: Request) {
     this.request = request;
     this.emit();
   }
@@ -29,15 +40,29 @@ class DeleteConfirmation {
     for (const listener of this.listeners) listener();
   }
 }
-const confirmations = new WeakMap<ClientApi, DeleteConfirmation>();
-export function useDeleteConfirmation() {
-  const client = useClient();
-  return useMemo(() => {
+
+/** One confirmation per client, so every window part opening it reaches the same dialog. */
+function perClient<Request>() {
+  const confirmations = new WeakMap<ClientApi, Confirmation<Request>>();
+  return (client: ClientApi) => {
     let confirmation = confirmations.get(client);
     if (!confirmation) {
-      confirmation = new DeleteConfirmation();
+      confirmation = new Confirmation<Request>();
       confirmations.set(client, confirmation);
     }
     return confirmation;
-  }, [client]);
+  };
+}
+
+const deletes = perClient<DeleteRequest>();
+const archives = perClient<ArchiveRequest>();
+
+export function useDeleteConfirmation() {
+  const client = useClient();
+  return useMemo(() => deletes(client), [client]);
+}
+
+export function useArchiveConfirmation() {
+  const client = useClient();
+  return useMemo(() => archives(client), [client]);
 }

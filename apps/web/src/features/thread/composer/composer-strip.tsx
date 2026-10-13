@@ -13,19 +13,22 @@ import { RequestStack } from "./request-stack.tsx";
 import { ConnectionStrip, PlanStrip, StripIndicators, type StripCounts } from "./strip-items.tsx";
 import { pickStrip, stripSlot, type StripFacts } from "./strip-slot.ts";
 import { StripSurface } from "./strip-surface.tsx";
+import { ConfirmStopStrip, StoppedStrip, useStoppedCommands } from "./stop-strips.tsx";
 import { useQueue } from "./use-queue.ts";
 
 const noRequests: readonly string[] = [];
 
 /**
- * The one strip above the thread's composer (`stripSlot` decides what it shows): the agent's
- * open requests, trouble with the connection, the queue, or the main agent's plan, with the
- * others as indicators inside it. Loads after the thread has painted, unless the thread opens
- * on a request.
+ * The one strip above the thread's composer (`stripSlot` decides what it shows): a Stop waiting
+ * for its second Esc, the agent's open requests, trouble with the connection, background
+ * commands a stopped turn left running, the queue, or the main agent's plan, with the others as
+ * indicators inside it. Loads after the thread has painted, unless the thread opens on a request.
  */
 export function ComposerStrip(props: {
   threadId: string;
   status: ThreadStatus | undefined;
+  /** One Esc was pressed while the agent works: how many subagents a second one stops too. */
+  confirmStop?: { subagents: number } | undefined;
   /** A request to open on (a notification's target). */
   requestTarget?: string | undefined;
   /** Put the caret back in the message. */
@@ -51,20 +54,29 @@ export function ComposerStrip(props: {
   // Reconnecting and offline are said here, so the header stays quiet; anything else (a
   // fatal error) is the header's.
   useClaimConnectionNotice(offline || connection === "reconnecting");
+  const stopped = useStoppedCommands(props.threadId);
   // An open edit keeps the queue in the slot even once its message leaves the queue, so the
   // editor can say so and keep the person's wording.
   const [editing, setEditing] = useState<QueuedMessage>();
   const facts: StripFacts = {
+    confirmStop: !!props.confirmStop,
     requests,
     target: props.requestTarget,
     connection: offline || connection === "reconnecting",
+    stopped: stopped.length > 0,
     queue: queued > 0 || queue.failed || !!held || !!editing,
     plan: !!plan,
   };
   const [pick, setPick] = useState<ReturnType<typeof pickStrip>>();
   const slot = stripSlot(facts, pick);
   if (!slot.shown) return null;
-  const counts: StripCounts = { requests: requests.length, offline, queued, plan };
+  const counts: StripCounts = {
+    requests: requests.length,
+    offline,
+    running: stopped.length,
+    queued,
+    plan,
+  };
   const indicators = (
     <StripIndicators
       kinds={slot.others}
@@ -74,7 +86,11 @@ export function ComposerStrip(props: {
   );
   return (
     <StripSurface slot={slot.shown}>
-      {slot.shown === "request" ? (
+      {slot.shown === "confirm-stop" ? (
+        <ConfirmStopStrip subagents={props.confirmStop?.subagents ?? 0} />
+      ) : slot.shown === "stopped" ? (
+        <StoppedStrip commands={stopped} indicators={indicators} />
+      ) : slot.shown === "request" ? (
         <Suspense fallback={null}>
           <RequestStack
             threadId={props.threadId}

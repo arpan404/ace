@@ -13,6 +13,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
+  type RefObject,
 } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
 import { homeRowKey, homeRowThread, homeRows, type HomeRow, type RowBox } from "@ace/ui-core";
@@ -133,7 +134,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
     getItemKey: (index) => drawn[index]?.key ?? index,
   });
   useForgetGoneRows(virtualizer, drawn.length, (index) => drawn[index]?.key ?? index);
-  useRevealOpenThread(drawn, virtualizer.scrollToIndex);
+  useRevealOpenThread(drawn, virtualizer.scrollToIndex, viewport);
   /** Thread ids top to bottom, as drawn: what a Shift-click range runs over. */
   const order = useMemo(
     () => drawn.flatMap((row) => (row.phase === "exit" ? [] : (homeRowThread(row.item) ?? []))),
@@ -437,21 +438,41 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
 }
 
 /**
- * When a thread opens (from a link, the palette, history or a reload), bring its row into view
- * once, without fighting the person's own scrolling afterwards.
+ * When a thread opens (from a link, the palette, history, a reload or a send from New thread),
+ * bring its row into view, and keep it there while the list moves it (a new thread's row settles
+ * into its group after it first appears), until the person scrolls the list themselves.
  */
 function useRevealOpenThread(
   drawn: readonly { item: HomeRow }[],
   scrollToIndex: (index: number, options: { align: "auto" }) => void,
+  viewport: RefObject<HTMLElement | null>,
 ) {
   const threadId = useParams({ strict: false, select: (params) => params.threadId });
-  const revealed = useRef<string>(undefined);
+  const revealed = useRef<{ threadId: string; index: number | undefined }>(undefined);
+  const scrolled = useRef(false);
   useEffect(() => {
-    if (!threadId || revealed.current === threadId) return;
+    const element = viewport.current;
+    if (!element) return;
+    const mark = () => {
+      scrolled.current = true;
+    };
+    const events = ["wheel", "touchmove", "pointerdown"] as const;
+    for (const event of events) element.addEventListener(event, mark, { passive: true });
+    return () => {
+      for (const event of events) element.removeEventListener(event, mark);
+    };
+  }, [viewport]);
+  useEffect(() => {
+    if (!threadId) return;
+    if (revealed.current?.threadId !== threadId) {
+      revealed.current = { threadId, index: undefined };
+      scrolled.current = false;
+    }
     // By the thread a row shows, not its key: a row's key is encoded per kind.
     const index = drawn.findIndex((row) => homeRowThread(row.item) === threadId);
-    if (index < 0) return;
-    revealed.current = threadId;
+    if (index < 0 || index === revealed.current.index) return;
+    if (revealed.current.index !== undefined && scrolled.current) return;
+    revealed.current = { threadId, index };
     scrollToIndex(index, { align: "auto" });
   }, [threadId, drawn, scrollToIndex]);
 }

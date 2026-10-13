@@ -172,35 +172,54 @@ export function readTurnActivity(
     reader.thread?.live?.workingSince ??
     stretch.start;
   const root = rootStandOf(activity, status);
-  const working = treeWorking({
-    needsYou: tree.needsYou || activity?.tone === "needs-you",
-    root,
-    subagents,
-    backgroundCommands,
-  });
-  const shown = working
-    ? {
-        ...activity,
-        code: undefined,
-        label: options.stopping ? "Stopping…" : "Working",
-        tone: "working" as const,
-        elapsedFrom:
-          from === undefined
-            ? undefined
-            : from +
-              (clock?.idle ?? stretch.idle) +
-              ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from),
-        // A root held while its tree works names the hold as its step: "Rate limited · …".
-        current:
-          (root === "held" && activity ? heldText(activity) : undefined) ??
-          activity?.current ??
-          currentAction(stretch.current, options.labels) ??
-          tree.currentCommand(),
-        subagents,
-        backgroundCommands,
-      }
-    : activity;
+  const needsYou = tree.needsYou || activity?.tone === "needs-you";
+  // A stopped turn whose agents have all ended has no live line, though commands it started may
+  // still run: the composer's strip says so and offers to stop them. The person still comes first.
+  const stopped =
+    (status?.state === "interrupted" || run?.state === "interrupted") && !subagents && !needsYou;
+  const working = !stopped && treeWorking({ needsYou, root, subagents, backgroundCommands });
+  const shown = stopped
+    ? undefined
+    : working
+      ? {
+          ...activity,
+          code: undefined,
+          label: options.stopping ? "Stopping…" : "Working",
+          tone: "working" as const,
+          elapsedFrom:
+            from === undefined
+              ? undefined
+              : from +
+                (clock?.idle ?? stretch.idle) +
+                ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from),
+          // A root held while its tree works names the hold as its step: "Rate limited · …".
+          current:
+            (root === "held" && activity ? heldText(activity) : undefined) ??
+            activity?.current ??
+            currentAction(stretch.current, options.labels) ??
+            tree.currentCommand(),
+          subagents,
+          backgroundCommands,
+        }
+      : activity;
   return { activity: shown, watch: [...new Set(watch)] };
+}
+
+/**
+ * Whether the root's latest turn was stopped (interrupted rather than finished), with the run
+ * and item keys it was read from. A new turn starting clears it.
+ */
+export function readStoppedTurn(
+  reader: ActivityReader,
+  rootId: string,
+): { stopped: boolean; watch: readonly string[] } {
+  const stretch = ledgerOf(reader).currentStretch(reader);
+  const runId = reader.thread?.live?.rootRunId ?? stretch.runId;
+  const run = runId ? reader.run(runId) : undefined;
+  return {
+    stopped: reader.agent(rootId)?.status.state === "interrupted" || run?.state === "interrupted",
+    watch: [...stretch.watch.map((id) => `item:${id}`), ...(runId ? [`run:${runId}`] : [])],
+  };
 }
 
 /** A held root's line as its tree's step: the hold and the command it names. */

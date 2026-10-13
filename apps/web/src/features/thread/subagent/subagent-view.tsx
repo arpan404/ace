@@ -11,6 +11,7 @@ import {
 import type { Agent } from "@ace/protocol";
 import { agentName, modelLabel, providerNames, subagentEnded, subagentPhase } from "@ace/ui-core";
 import { RobotIcon } from "@phosphor-icons/react";
+import { useNavigate } from "@tanstack/react-router";
 import { Suspense, useCallback, useState } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
@@ -41,6 +42,13 @@ import { SubagentLiveLine } from "./subagent-live-line.tsx";
 import { SubagentStatusBar } from "./subagent-status-bar.tsx";
 import { SubagentPrompt } from "./subagent-prompt.tsx";
 
+/** A dialog, menu or list open over the page takes Esc for itself; a closed, kept one doesn't. */
+const overlays = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+const overlayOpen = () =>
+  [...document.querySelectorAll(overlays)].some(
+    (element) => !element.hasAttribute("data-closed") && !element.closest("[hidden]"),
+  );
+
 /**
  * A provider's own subagent as the whole chat: its transcript in the reading column, `parent /
  * name` in the header with the thread's details icon and card (where Lineage places it), and the
@@ -56,6 +64,19 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
   const root = !parent || parent.origin === "root";
   const [details] = useState(createWorkCardStore);
   useHotkey(keymap.workCard.keys, details.toggle, { id: "workCard" });
+  // Esc steps back up to the parent, as Open parent does, once nothing above the page has it.
+  const navigate = useNavigate();
+  useHotkey(
+    "escape",
+    () =>
+      void (root || !agent?.parentId
+        ? navigate({ to: "/t/$threadId", params: { threadId } })
+        : navigate({
+            to: "/t/$threadId/agents/$agentId",
+            params: { threadId, agentId: agent.parentId },
+          })),
+    { when: () => !overlayOpen() },
+  );
   return (
     <SubagentFocusProvider value={agentId}>
       <WorkCardContext value={details}>

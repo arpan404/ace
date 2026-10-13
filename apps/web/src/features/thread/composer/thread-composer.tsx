@@ -8,6 +8,7 @@ import {
   selectionInputs,
   currentModelChoice,
   resolveEffort,
+  runningSubagents,
   type AttachmentReader,
 } from "@ace/ui-core";
 import { Suspense, useContext, useEffect, useRef, useState, type Ref } from "react";
@@ -42,6 +43,9 @@ const loadSender = () => (sender ??= import("./send-message.ts"));
 /** Desktop widths put the caret in the composer when a thread opens; a phone's keyboard waits. */
 const wideEnoughToFocus = () =>
   typeof matchMedia === "function" && matchMedia("(min-width: 768px)").matches;
+
+/** How soon after the first Esc a second one stops the agent tree. */
+export const stopKeyWindowMs = 1_500;
 
 const pendingQuestion = (interaction: Interaction) =>
   interaction.state === "pending" && interaction.request.kind === "question";
@@ -207,13 +211,28 @@ export function ThreadComposer({
   useEffect(() => {
     if (!busy) clearStop(props.thread.id);
   }, [busy, props.thread.id]);
-
   // Opening a thread on a desktop puts the caret in the message, unless the agent is asking
   // something: then its first option takes focus (UX audit CMP-2).
   const open = useInteractions(props.thread.id);
   const asking = !!open?.length;
   // A question is answered on its card, so Stop never sits in the send slot while one waits.
   const questioned = !!useInteractions(props.thread.id, pendingQuestion)?.length;
+  const canStop = activityState.canStop && !questioned;
+  // Esc never stops on its own: the first press asks in the strip, a second one soon stops.
+  const [armedAt, setArmedAt] = useState<number>();
+  const armed = canStop && armedAt !== undefined;
+  useEffect(() => {
+    if (!canStop || armedAt === undefined) return;
+    const expire = setTimeout(() => setArmedAt(undefined), stopKeyWindowMs);
+    return () => clearTimeout(expire);
+  }, [canStop, armedAt]);
+  const stopKey = (at: number) => {
+    const again =
+      armed && armedAt !== undefined && at >= armedAt && at - armedAt <= stopKeyWindowMs;
+    setArmedAt(again ? undefined : at);
+    if (again) stop();
+  };
+  const subagents = meta ? (meta.live?.runningSubagentCount ?? runningSubagents(meta.status)) : 0;
   const toMessage = () =>
     box.current
       ?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')
@@ -262,7 +281,8 @@ export function ThreadComposer({
         followUp={selectionWaiting ? "queue" : followUp}
         canSteer={canSteer && !selectionWaiting}
         onSubmit={submit}
-        onStop={activityState.canStop && !questioned ? stop : undefined}
+        onStop={canStop ? stop : undefined}
+        onStopKey={stopKey}
         stopping={stopping}
         onReturnedOptions={(options) => {
           const identity = selectionIdentity(runsOn(meta));
@@ -279,6 +299,7 @@ export function ThreadComposer({
               key={props.thread.id}
               threadId={props.thread.id}
               status={props.status}
+              confirmStop={armed ? { subagents } : undefined}
               requestTarget={props.requestTarget}
               onLeave={toMessage}
               onChooseModel={() => requestPicker((count) => count + 1)}

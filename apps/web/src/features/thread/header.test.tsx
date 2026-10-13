@@ -655,6 +655,8 @@ test("archiving from the ⋯ menu leaves the thread", async () => {
   await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Archive/ }));
+  // Its agents still work, so it asks first.
+  await userEvent.click(await screen.findByRole("button", { name: "Archive, keep running" }));
   expect(await screen.findByText("Archived · Replay cursor resets on every resume")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
 });

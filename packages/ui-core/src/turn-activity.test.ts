@@ -16,6 +16,7 @@ import { ledgerOf } from "./thread-ledger.ts";
 import { listTreeFacts, treeWorking } from "./live-status.ts";
 import {
   timedWords,
+  readStoppedTurn,
   readTurnActivity,
   turnActivity,
   type ActivityReader,
@@ -349,6 +350,24 @@ test("a dev server left running in the background is not the step in flight", ()
     current: "dev",
     backgroundCommands: 1,
   });
+});
+
+test("a stopped turn whose command still runs never reads Working", () => {
+  // The daemon's shape: the stopped run ended interrupted, the root still holds its command.
+  const thread = world({ state: "blocked", on: "background_task", refs: ["task-dev"] }, [
+    said("ask", "user", 0),
+    shell("dev", "bun run dev:relay", "running", 9),
+  ]);
+  thread.background("dev");
+  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working" });
+  thread.runs.set("run-1", { ...run("run-1", "root"), state: "interrupted", endedAt: 20 });
+  expect(turnActivity(thread.reader, "root")).toBeUndefined();
+  expect(readStoppedTurn(thread.reader, "root").stopped).toBe(true);
+  thread.status({ state: "interrupted" });
+  expect(turnActivity(thread.reader, "root")).toBeUndefined();
+  // While a subagent is still winding down, the tree still works.
+  thread.subagent("web", working);
+  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working" });
 });
 
 test("a step that runs the tests reads Running tests", () => {

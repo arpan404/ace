@@ -2,7 +2,7 @@ import type { Fact } from "@ace/core";
 import { coldStartReplay, delegatedDocs, delegatedDocsIds, facts } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { createMemoryHistory } from "@tanstack/react-router";
-import { act, screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -46,6 +46,29 @@ test("opening a subagent from its card shows its own transcript as the whole cha
   expect(history.location.pathname).toBe("/t/thread-cold-start");
   act(() => history.forward());
   await screen.findByRole("heading", { level: 1, name: "resume-sweep" });
+});
+
+test("Esc in a subagent's chat goes back to its parent, unless a menu has it", async () => {
+  const history = createMemoryHistory({ initialEntries: ["/t/thread-cold-start"] });
+  const app = harness({ history });
+  app.play(coldStartReplay()).runThrough("audit-done");
+  await app.open("/t/thread-cold-start");
+  await screen.findByRole("heading", { level: 1, name: parentTitle });
+  await openFromCard("2 subagents", /^Open resume-sweep,/);
+  await screen.findByRole("heading", { level: 1, name: "resume-sweep" });
+
+  // Esc first closes what is open over the chat, and stays in it.
+  await userEvent.click(screen.getByRole("button", { name: /^Thread details/ }));
+  await screen.findByRole("dialog", { name: "Thread details" });
+  await userEvent.keyboard("{Escape}");
+  expect(history.location.pathname).toMatch(/^\/t\/thread-cold-start\/agents\/.+/);
+
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull());
+  // Reading the chat, not on a control that keeps Esc for its own tooltip.
+  await userEvent.click(screen.getByRole("feed", { name: "Transcript" }));
+  await userEvent.keyboard("{Escape}");
+  await screen.findByRole("heading", { level: 1, name: parentTitle });
+  expect(history.location.pathname).toBe("/t/thread-cold-start");
 });
 
 const spawnReviewer: Fact[] = [

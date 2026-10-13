@@ -1,5 +1,6 @@
 import { openProfileMenu, openProfileView } from "@/test/navigation.ts";
 import { longHistory, workbench, workbenchServices } from "@ace/fake-daemon";
+import { createMemoryHistory } from "@tanstack/react-router";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -69,6 +70,26 @@ test("Settings hides app navigation and returns through Back to app", async () =
   expect(screen.getByRole("link", { name: "Settings" })).toBeTruthy();
   expect(button(/^You, account/)).toBeTruthy();
   expect(list("Threads")).toBeTruthy();
+});
+
+test("Back to app returns to the thread the person left, across Settings pages", async () => {
+  const history = createMemoryHistory({ initialEntries: ["/t/thread-router"] });
+  const app = harness({ history });
+  app.play(longHistory(2)).runUntilBlocked();
+  await app.open("/t/thread-router");
+  await title("Document the router");
+  await userEvent.click(screen.getByRole("link", { name: "Settings" }));
+  await title("Settings");
+  await userEvent.click(
+    within(screen.getByRole("navigation", { name: "Settings pages" })).getByRole("link", {
+      name: "Appearance",
+    }),
+  );
+  await screen.findByRole("heading", { name: "Appearance" });
+
+  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await title("Document the router");
+  expect(history.location.pathname).toBe("/t/thread-router");
 });
 
 test("the sidebar shows a plain ace label and profile connection actions", async () => {

@@ -132,10 +132,7 @@ export function threadActions(
           icon: ArchiveIcon,
           shortcut: "archiveThread",
           section: "leave",
-          run: () => {
-            actions.archive(entry);
-            handlers.onLeave?.();
-          },
+          run: () => actions.archive(entry, handlers.onLeave),
         }
       : {
           id: "restore",

@@ -340,7 +340,7 @@ test("approval cards show the command, risk and decisions without an empty spinn
   expect(within(feed).queryByRole("button", { name: "Subagent actions" })).toBeNull();
 });
 
-test("the empty working composer exposes Stop and Escape stops the turn", async () => {
+test("the empty working composer exposes Stop, and Escape twice stops the turn", async () => {
   await running();
   expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
   expect(screen.queryByText("Beginning of thread")).toBeNull();
@@ -348,7 +348,7 @@ test("the empty working composer exposes Stop and Escape stops the turn", async 
   expect(screen.queryByText("Work so far")).toBeNull();
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
   screen.getByRole("combobox", { name: "Message" }).focus();
-  await userEvent.keyboard("{Escape}");
+  await userEvent.keyboard("{Escape}{Escape}");
   expect(await screen.findByRole("button", { name: /^Stopped after/ })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
 });
