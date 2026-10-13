@@ -39,6 +39,7 @@ const pillIcons: Record<LiveStatus["tone"], TaskPill["icon"]> = {
   failed: "failed",
   done: "done",
   idle: "waiting",
+  background: "background",
 };
 
 /** The pill for what a thread is doing beyond its state: "Watching `bun run dev:relay`". */
@@ -217,6 +218,7 @@ function compactStatus(
 ): string {
   // The transcript's live line reads the same rule, so the two never disagree.
   if (working) return "Working";
+  if (fact?.kind === "watching") return `Background · ${fact.count}`;
   if (fact?.kind === "asking") {
     if (fact.request === "approval") return "Approve";
     return fact.request === "plan_review" ? "Needs you" : "Answer";

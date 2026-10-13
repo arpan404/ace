@@ -56,6 +56,7 @@ import { useBlocks } from "./use-blocks.ts";
 import { useTurnActivity } from "./use-turn-activity.ts";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useReadMarker } from "./seen.ts";
+import { AgentPageReveal } from "./agent-page-reveal.tsx";
 
 const unsettledKeys = ["order", "interactions"] as const;
 interface Unsettled {
@@ -635,6 +636,7 @@ export function Feed(props: FeedProps) {
               <Suspense fallback={null}>
                 <DeferredLocalSends.Component threadId={threadId} />
                 <DeferredHeldSend.Component threadId={threadId} />
+                <AgentPageReveal threadId={threadId} />
               </Suspense>
             )}
           </div>

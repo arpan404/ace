@@ -362,25 +362,24 @@ test("a step that runs the tests reads Running tests", () => {
   });
 });
 
-test("a turn that left a command running watches it, by name when it is the only one", () => {
+test("a turn that left a command running reads as running in background, never Working", () => {
   const thread = world({ state: "blocked", on: "background_task", refs: ["task-dev"] }, [
     shell("dev", "bun run dev:relay", "running", 0),
   ]);
   thread.background("dev");
-  const line = turnActivity(thread.reader, "root");
-  expect(line).toMatchObject({
-    label: "Working",
-    current: "dev",
-    tone: "working",
-    backgroundCommands: 1,
+  // No agent is doing a turn: no "Working for" timer, the command named instead.
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
+    label: "Running in background",
+    code: "dev",
+    tone: "held",
+    elapsedFrom: undefined,
   });
-  expect(line).toMatchObject({ label: "Working", elapsedFrom: 0 });
 
   thread.background("tunnel");
   thread.status({ state: "blocked", on: "background_task", refs: ["task-dev", "task-tunnel"] });
   expect(turnActivity(thread.reader, "root")).toMatchObject({
-    label: "Working",
-    backgroundCommands: 2,
+    label: "Running 2 commands in background",
+    tone: "held",
   });
 });
 

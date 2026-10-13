@@ -308,7 +308,6 @@ function Browser(props: TabViewProps) {
               onViewport={setViewport}
               live={!!page.live}
               online={page.online}
-              backend={page.live?.backend}
               browser={browser}
               onFind={() => setFinding(true)}
               downloads={page.live?.downloads ?? []}

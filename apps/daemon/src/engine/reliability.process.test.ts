@@ -65,17 +65,15 @@ test("steering reaches a capable provider while background work remains live", a
 
 test("unsupported steering stays queued until provider work finishes", async () => {
   const frames = scriptFrames();
-  const h = track(
-    await harness([{ on: "send", frames: [frames.frame(start, task, end)] }], frames),
-  );
+  const h = track(await harness([{ on: "send", frames: [frames.frame(start)] }], frames));
   const id = await h.create();
   h.command({ type: "thread.send", threadId: id, input, delivery: "steer" });
   await h.engine.flush();
   expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
-  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "background_task" });
+  expect(h.store.getThread(id)?.status.state).toBe("working");
   const context = h.contexts[0];
   if (!context) throw new Error("Missing provider context");
-  context.onFrame(frames.frame({ type: "background.ended", task: "shell", status: "completed" }));
+  context.onFrame(frames.frame(end));
   await h.engine.flush();
   expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(2);
   expect(h.adapter.commands.at(-1)).toMatchObject({ delivery: "queue" });

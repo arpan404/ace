@@ -337,6 +337,11 @@ export class EngineRepository {
     if (!state.hasRun && this.pending.awaiting(state.threadId)) return false;
     return quiescent(state, this.readiness.agentsReady(state));
   }
+  /** The provider is between turns: a person's queued message may start the next one. */
+  acceptsPersonInput(state: ThreadState): boolean {
+    if (!state.hasRun && this.pending.awaiting(state.threadId)) return false;
+    return this.readiness.acceptsPersonInput(state);
+  }
 
   add(command: Command, id: ThreadId, resolutionId?: string): void {
     this.pending.add(

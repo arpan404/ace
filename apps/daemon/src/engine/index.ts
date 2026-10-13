@@ -773,6 +773,9 @@ export class Engine {
     },
   ): void {
     this.actor(threadId).apply([{ type: "interaction.closed", interaction: key, ...result }]);
+    // A host gate (private browser, screen, browser approvals) may be the last hold on the
+    // queue. Provider frames wake the thread on their own; a host-side close must too.
+    this.wake(threadId);
   }
   closeHostGate(threadId: ThreadId, key: string, state: "resolved" | "cancelled"): void {
     this.resolveHostApproval(threadId, key, { state });
@@ -1168,7 +1171,15 @@ export class Engine {
       const ready =
         intent.trigger === "subagent_result"
           ? readyForChildResults(state)
-          : ["new", "done", "failed"].includes(status.state) || this.repo.quiescent(state);
+          : ["new", "done", "failed"].includes(status.state) ||
+            this.repo.quiescent(state) ||
+            // A plain message only needs the provider between turns. One that changes the
+            // model or options may reopen the session, which would end its background
+            // commands, so it still waits for the whole tree.
+            (intent.kind === "thread.send" &&
+              (intent.trigger === undefined || intent.trigger === "user") &&
+              !this.repo.pending.hasSelection(intent.id) &&
+              this.repo.acceptsPersonInput(state));
       if (!this.repo.pending.awaiting(actor.id) && ready) {
         await this.delivery.run(actor, intent);
         this.wake(actor.id);

@@ -19,7 +19,7 @@ test("editing attachments, moving and removing queued messages changes only the 
   const frames = scriptFrames();
   const h = await fixture(
     [
-      { on: "send", frames: [frames.frame(start, task, end)] },
+      { on: "send", frames: [frames.frame(start)] },
       { on: "send", frames: [frames.frame(start, end)] },
       { on: "send", frames: [frames.frame(start, end)] },
     ],
@@ -61,9 +61,7 @@ test("editing attachments, moving and removing queued messages changes only the 
   ).toBe(true);
   expect(h.engine.queue(id).messages.map((message) => message.id)).toEqual(["c", "a"]);
   expect(h.engine.queue(id).messages[1]?.context).toBeUndefined();
-  h.contexts[0]?.onFrame(
-    frames.frame({ type: "background.ended", task: "shell", status: "completed" }),
-  );
+  h.contexts[0]?.onFrame(frames.frame(end));
   await h.engine.flush();
   expect(
     h.adapter.commands.filter((command) => command.type === "send").map((command) => command.input),
@@ -75,7 +73,7 @@ test("editing attachments, moving and removing queued messages changes only the 
 
 test("two devices racing the same revision get one winner and replaying its receipt cannot edit twice", async () => {
   const frames = scriptFrames();
-  const h = await fixture([{ on: "send", frames: [frames.frame(start, task, end)] }], frames);
+  const h = await fixture([{ on: "send", frames: [frames.frame(start)] }], frames);
   const id = await h.create();
   h.command({ type: "thread.send", threadId: id, input: text("before") }, "device", "queued");
   await h.engine.flush();
@@ -133,14 +131,10 @@ test("two devices racing the same revision get one winner and replaying its rece
 
 test("the configured steer default reaches a live capable provider while an explicit queue override waits", async () => {
   const frames = scriptFrames();
-  const h = await fixture(
-    [
-      { on: "send", frames: [frames.frame(start, task, end)] },
-      { on: "send", frames: [frames.frame(start, end)] },
-    ],
-    frames,
-    { steer: true, preferences: { followUpBehavior: "steer" } },
-  );
+  const h = await fixture([{ on: "send", frames: [frames.frame(start)] }, { on: "send" }], frames, {
+    steer: true,
+    preferences: { followUpBehavior: "steer" },
+  });
   const id = await h.create();
   h.command({ type: "thread.send", threadId: id, input: text("default") });
   await h.engine.flush();

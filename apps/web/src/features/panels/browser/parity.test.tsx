@@ -188,11 +188,33 @@ test("the browser has no new-tab shortcut or menu item", async () => {
 test("picking a page size from the options closes the menu so the page can receive input again", async () => {
   const { panel } = await openBrowser();
   await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Page size" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: /iPhone 16 Pro/ }));
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   expect(
     within(panel).getByRole("button", { name: "Browser options" }).getAttribute("aria-expanded"),
   ).toBe("false");
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Page size" }));
+  const sizes = await screen.findAllByRole("menuitemradio");
+  expect(
+    sizes.filter((size) => size.getAttribute("aria-checked") === "true").map((s) => s.textContent),
+  ).toEqual([expect.stringMatching(/iPhone 16 Pro/)]);
+});
+
+test("the browser options read like the app's other menus: shortcuts announced, no narration", async () => {
+  const { panel } = await openBrowser();
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  const menu = await screen.findByRole("menu");
+  const find = within(menu).getByRole("menuitem", { name: "Find in page" });
+  expect(find.getAttribute("aria-keyshortcuts")).toMatch(/^(Meta|Control)\+F$/);
+  expect(
+    within(menu).getByRole("menuitem", { name: "Page size" }).getAttribute("aria-haspopup"),
+  ).toBe("menu");
+  // The page sizes live in their own submenu, not as a flat list in this one.
+  expect(within(menu).queryByRole("menuitemradio")).toBeNull();
+  expect(within(menu).getByRole("menuitem", { name: "Close the thread's page" })).toBeTruthy();
+  expect(within(menu).queryByText(/ace desktop app's browser|ace's own/)).toBeNull();
 });
 
 test("Find reads the page without taking the agent's control", async () => {

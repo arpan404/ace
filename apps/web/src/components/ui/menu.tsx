@@ -3,7 +3,7 @@ import { CaretRightIcon, CheckIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useState, type ReactNode } from "react";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
-import { describeKeys, type KeymapId } from "@/lib/keymap.ts";
+import { applePlatform, describeKeys, type KeymapId } from "@/lib/keymap.ts";
 import {
   layers,
   menuDanger,
@@ -69,6 +69,22 @@ function MenuPopup(props: MenuPrimitive.Popup.Props) {
   );
 }
 
+const ariaModifiers: Record<string, string> = {
+  mod: applePlatform ? "Meta" : "Control",
+  ctrl: "Control",
+  alt: "Alt",
+  shift: "Shift",
+};
+
+/** "mod+f" as `aria-keyshortcuts` reads it ("Meta+F"); key sequences ("g h") aren't chords. */
+function ariaChord(keys: string): string | undefined {
+  if (keys.includes(" ")) return undefined;
+  return keys
+    .split("+")
+    .map((part) => ariaModifiers[part] ?? (part.length === 1 ? part.toUpperCase() : part))
+    .join("+");
+}
+
 /**
  * The trailing shortcut text: a keymap id, or keys (a default follows its rebinding unless
  * `resolve` is false).
@@ -82,7 +98,7 @@ function useShortcutText(
   const shown = shortcut
     ? resolved[shortcut]
     : keys && (resolve ? resolveKeys(keys, resolved) : keys);
-  return shown ? describeKeys(shown) : undefined;
+  return shown ? { text: describeKeys(shown), keys: shown } : undefined;
 }
 
 /**
@@ -109,7 +125,11 @@ function MenuItem({
   danger?: boolean;
   reason?: string | undefined;
 }) {
-  const shortcutText = useShortcutText(shortcut, keys, resolve);
+  const shown = useShortcutText(shortcut, keys, resolve);
+  const shortcutText = shown?.text;
+  // The visible glyphs are hidden from assistive tech; the chord itself is announced.
+  const chord = shown && ariaChord(shown.keys);
+  const announced = chord ? { "aria-keyshortcuts": chord } : {};
   if (reason)
     // Two lines: the row grows past 30px, and only the label and icon dim when disabled, so
     // the reason keeps its contrast.
@@ -121,6 +141,7 @@ function MenuItem({
           danger && menuDanger,
           className,
         )}
+        {...announced}
         {...props}
       >
         {icon && (
@@ -138,7 +159,11 @@ function MenuItem({
       </MenuPrimitive.Item>
     );
   return (
-    <MenuPrimitive.Item className={cn(menuItem, danger && menuDanger, className)} {...props}>
+    <MenuPrimitive.Item
+      className={cn(menuItem, danger && menuDanger, className)}
+      {...announced}
+      {...props}
+    >
       {icon}
       <span className="min-w-0 flex-1 truncate">{children}</span>
       {shortcutText && (

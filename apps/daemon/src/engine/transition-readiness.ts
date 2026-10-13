@@ -2,6 +2,7 @@ import type { DatabaseSync, StatementSync } from "node:sqlite";
 import type { AgentRecord, ThreadState } from "@ace/core";
 import type { EventPayload } from "@ace/protocol";
 import { recordSchemas } from "./snapshot.ts";
+import { acceptsPersonInput } from "./input-readiness.ts";
 /**
  * A root that has never started a run is a thread awaiting its first input. Core materializes
  * it as "starting" when any event arrives before a turn; that is not work in progress.
@@ -84,5 +85,10 @@ export class TransitionReadiness {
   }
   agentsReady(state: ThreadState): boolean {
     return !this.find.get(state.threadId);
+  }
+  /** Reads only this thread's blockers, so the check never walks historical agents. */
+  acceptsPersonInput(state: ThreadState): boolean {
+    const blockers = Array.from(this.keys.iterate(state.threadId), (row) => String(row.agent_key));
+    return acceptsPersonInput(state, blockers, this.now());
   }
 }

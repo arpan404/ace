@@ -1,6 +1,10 @@
 import type { AgentStatus, ThreadStatus } from "@ace/protocol";
 
-export type Tone = "working" | "needs-you" | "waiting" | "failed" | "done" | "idle";
+/**
+ * `background`: the agent's turn is over and only its background commands (a dev server, a
+ * watcher) still run. Neither Working nor Done: a quiet, neutral state.
+ */
+export type Tone = "working" | "needs-you" | "waiting" | "failed" | "done" | "idle" | "background";
 
 /** Thread status as shown in lists. The daemon derives it; the client only labels it. */
 export function threadStatusLabel(status: ThreadStatus): { label: string; tone: Tone } {
@@ -80,7 +84,7 @@ export function runningSubagents(status: ThreadStatus): number {
 }
 
 /** What a row's status draws beside its words: a ring while working, a check, a warning sign. */
-export type PillIcon = "working" | "needs-you" | "waiting" | "done" | "failed";
+export type PillIcon = "working" | "needs-you" | "waiting" | "done" | "failed" | "background";
 
 /** A task row's status: short coloured words, a tone and, while working, when it started. */
 export interface TaskPill {

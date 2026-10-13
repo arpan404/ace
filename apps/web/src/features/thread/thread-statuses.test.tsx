@@ -37,9 +37,23 @@ async function open(scenario: Scenario) {
 test("a background command appears once in the transcript while its row keeps the status", async () => {
   const { header, row, feed } = await open(watchingRelay());
   expect(within(feed).getAllByText("bun run dev:relay")).toHaveLength(1);
-  expect(screen.queryByRole("status", { name: "Watching bun run dev:relay" })).toBeNull();
-  expect(row.getAttribute("aria-label")).toContain("Working · bun run dev:relay");
+  expect(row.getAttribute("aria-label")).toContain("Running in background bun run dev:relay");
   expect(within(header).queryByRole("status")).toBeNull();
+});
+
+test("a thread whose turn ended with a background command reads Background, never Working or Done", async () => {
+  const { feed, header, row } = await open(watchingRelay());
+  // No agent is doing a turn: no "Working for" timer, the command named instead.
+  expect(within(feed).queryByRole("status", { name: /^Working/ })).toBeNull();
+  expect(
+    within(feed).getByRole("status", { name: "Running in background bun run dev:relay" }),
+  ).toBeTruthy();
+  expect(within(row).getByText("Background · 1", { exact: true })).toBeTruthy();
+  expect(within(row).queryByText("Working", { exact: true })).toBeNull();
+  expect(within(row).queryByText("Done", { exact: true })).toBeNull();
+  const spoken = row.getAttribute("aria-label") ?? "";
+  expect(spoken).not.toMatch(/\. Working|\. Done/);
+  expect(await within(header).findByRole("button", { name: /^Thread details$/ })).toBeTruthy();
 });
 
 test("a thread waiting on subagents keeps the transcript live with their count", async () => {
@@ -52,10 +66,7 @@ test("a thread waiting on subagents keeps the transcript live with their count",
   expect(within(header).queryByRole("status")).toBeNull();
 });
 
-test.each([
-  ["waiting on its subagents", waitingOnSubagents],
-  ["watching its background command", watchingRelay],
-])(
+test.each([["waiting on its subagents", waitingOnSubagents]])(
   "a thread %s reads Working in its sidebar row and its transcript alike",
   async (_name, scenario) => {
     const { feed, row } = await open(scenario());
