@@ -27,7 +27,8 @@
     "./discovery-failure": "./src/discovery-failure.ts",
     "./cleanup": "./src/cleanup.ts",
     "./cursor-selection": "./src/cursor-selection.ts",
-    "./process-identity": "./src/process-identity.ts"
+    "./process-identity": "./src/process-identity.ts",
+    "./process-inventory": "./src/process-inventory.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

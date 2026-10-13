@@ -1,4 +1,5 @@
 import { cn } from "@/lib/cn.ts";
+import { useStartupHold } from "@/lib/startup/startup.tsx";
 
 /**
  * Placeholder while something loads: quiet grey bars that breathe, shaped like what will
@@ -34,9 +35,11 @@ function SkeletonText(props: { lines?: number; className?: string }) {
 
 /**
  * A region that is loading: announces "Loading <label>" once and shows the skeleton.
- * Use in place of a spinner wherever the shape of the content is known.
+ * Use in place of a spinner wherever the shape of the content is known. At boot it keeps the
+ * startup screen up instead, so the first thing the app shows is its data, not placeholders.
  */
 function LoadingRegion(props: { label: string; className?: string; children: React.ReactNode }) {
+  useStartupHold();
   return (
     <div
       role="status"

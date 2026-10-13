@@ -52,8 +52,12 @@ Animate transform and opacity only. See `docs/design/visual-language.md`.
 - Loading: `ListSkeleton`, `SkeletonText` and `LoadingRegion` from `components/ui/skeleton.tsx`,
   shaped like the content. Never show an empty state before the data has arrived
   (`useSidebarLoaded()` for the thread list, `query.data === undefined` for reads).
-- Boot: `index.html` paints a static, themed shell (`#boot`) before the script runs; the app
-  shell and the connection screen fade it out with `useDismissBootSplash()` (`lib/boot-splash.ts`).
+- Boot: `index.html` paints the ace mark on the theme's background (`#boot`) before the script
+  runs. The startup screen (`features/startup`, state in `lib/startup`) replaces it unseen and
+  stays up until the daemon answers and the first views have their data, then cross-fades to the
+  app. A view loading its first data holds it with `useStartupHold()` (`LoadingRegion` does), so
+  boot never shows a skeleton. Screens that take over (connection form, failures) call
+  `useDismissBootSplash()` (`lib/boot-splash.ts`).
 - Toasts appear at the top centre below the header and safe area, clear of composer actions. Short confirmations use their natural width; descriptions and actions fit within 420px and phone gutters.
 
 ## Window sizes

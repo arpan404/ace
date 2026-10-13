@@ -138,6 +138,8 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
     theme: {
       appearance: () => call("theme.appearance"),
       setSource: (source: RequestOf<"theme.setSource">) => call("theme.setSource", source),
+      setWindowBackground: (value: RequestOf<"theme.setWindowBackground">) =>
+        call("theme.setWindowBackground", value),
       onChange: (listener: (value: EventOf<"theme.changed">) => void) =>
         subscribe("theme.changed", listener),
     },

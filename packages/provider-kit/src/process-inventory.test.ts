@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { ProcessInventory } from "./process.ts";
+import { ProcessInventory } from "./process-inventory.ts";
 import type { ProcessIdentity } from "./process-identity.ts";
 
 test.each(["pid", "start", "uid", "group", "missing", "unreadable"] as const)(

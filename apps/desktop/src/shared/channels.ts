@@ -24,6 +24,7 @@ import {
   Permissions,
   RevealPath,
   ThemeSource,
+  WindowBackground,
   SocketUrl,
   UpdateStatus,
   WindowAction,
@@ -76,6 +77,8 @@ export const requests = {
   "window.state": { request: None, result: WindowState },
   "theme.appearance": { request: None, result: NativeAppearance },
   "theme.setSource": { request: ThemeSource, result: NativeAppearance },
+  /** The page's theme colours, painted behind it from the next launch's first frame on. */
+  "theme.setWindowBackground": { request: WindowBackground, result: None },
   "settings.get": { request: None, result: DesktopSettings },
   "settings.update": { request: DesktopSettingsPatch, result: DesktopSettings },
   "permissions.status": { request: None, result: Permissions },

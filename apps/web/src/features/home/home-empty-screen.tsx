@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { useStartupHold } from "@/lib/startup/startup.tsx";
 import { useOnboarding } from "@/lib/provider-readiness.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { ProjectsEmptyState } from "@/features/projects/index.ts";
@@ -33,6 +34,8 @@ export function HomeEmptyScreen() {
   const target = listed ? last : loaded ? topThread(list) : undefined;
   // Asked only once the list is known to be empty: a returning person never waits on it.
   const onboarding = useOnboarding({ enabled: loaded && !target });
+  // At boot, the startup screen waits for where Home lands rather than showing a blank pane.
+  useStartupHold(!target && onboarding.data === undefined && !onboarding.isError);
   if (target) return <Navigate to="/t/$threadId" params={{ threadId: target }} replace />;
   if (onboarding.data && !onboarding.data.dismissed) return <Navigate to="/setup" replace />;
   // Until it's known whether setup comes first, show nothing rather than a hint that flashes.

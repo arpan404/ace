@@ -51,10 +51,8 @@ export type ToolSurface = z.infer<typeof ToolSurface>;
  */
 export const StepSurface = z.object({
   kind: z.string().max(32),
-  icon: z
-    .object({ kind: z.string().max(32) })
-    .loose()
-    .optional(),
+  // `z.looseObject`, not `.loose()`: browser worker builds strip that method (apps/web/zod-methods.ts).
+  icon: z.looseObject({ kind: z.string().max(32) }).optional(),
   iconRef: IconRef.optional(),
 });
 export type StepSurface = z.infer<typeof StepSurface>;

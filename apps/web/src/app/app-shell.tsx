@@ -1,7 +1,7 @@
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
-import { Outlet, useRouter } from "@tanstack/react-router";
+import { Outlet, useRouter, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { ActivityNotifier } from "@/features/activity/index.ts";
 import { DeleteConfirmationHost, MoveToProjectHost } from "@/features/organize/index.ts";
@@ -13,7 +13,7 @@ import { SearchHost } from "@/features/search/index.ts";
 import { SignInHost } from "@/features/sign-in/index.ts";
 import { AppSidebar, GlobalHotkeys, SidebarFrame, ShortcutHost } from "@/features/shell/index.ts";
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
-import { useDismissBootSplash } from "@/lib/boot-splash.ts";
+import { useStartupShell } from "@/lib/startup/startup.tsx";
 import { cn } from "@/lib/cn.ts";
 
 /**
@@ -25,8 +25,9 @@ export function AppShell() {
   const shell = useRouteFocus();
   useSeenWhileOpen();
   const connection = useConnectionState();
-  // The static boot shell from index.html fades into this one.
-  useDismissBootSplash();
+  // The startup screen stays over the shell until its route has resolved and every view has
+  // its first data, then cross-fades to it: boot never shows a skeleton.
+  useStartupShell(useRouterState({ select: (state) => !state.isLoading }));
   useDesktopUpdates();
   return (
     <ProjectsHost>
