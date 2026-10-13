@@ -16,7 +16,9 @@ const parentTitle = "Cap cold-start replay at 200 events";
 async function openFromCard(title: string, row: RegExp) {
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const card = await within(feed).findByRole("region", { name: title });
-  await userEvent.click(within(card).getByRole("button", { name: title }));
+  // Several subagents fold behind a one-line disclosure; one is just its row.
+  const disclosure = within(card).queryByRole("button", { name: title });
+  if (disclosure) await userEvent.click(disclosure);
   await userEvent.click(within(card).getByRole("link", { name: row }));
 }
 

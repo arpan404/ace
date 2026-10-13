@@ -89,6 +89,8 @@ function ResultRow(props: {
         }).title
       : resultLead(result.result);
   const label = subagentLabels[state];
+  // Status shows once: the avatar's dot, or words when it needs attention (failed, needs you).
+  const attention = state === "failed" || state === "human" || state === "unresponsive";
   return (
     <li>
       <Link
@@ -100,19 +102,21 @@ function ResultRow(props: {
         <SubagentAvatar
           provider={props.entry?.provider ?? thread?.provider}
           model={props.entry?.model ?? thread?.execution?.model}
-          state={state}
+          state={attention ? undefined : state}
         />
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
             <span className="min-w-0 truncate text-ui font-medium">{title}</span>
-            <span
-              className={cn(
-                "shrink-0 rounded-sm bg-secondary px-1.5 py-0.5 text-xs",
-                subagentTones[state],
-              )}
-            >
-              {label}
-            </span>
+            {attention && (
+              <span
+                className={cn(
+                  "shrink-0 rounded-sm bg-secondary px-1.5 py-0.5 text-xs",
+                  subagentTones[state],
+                )}
+              >
+                {label}
+              </span>
+            )}
           </span>
           {lead && (
             <span className="mt-0.5 block truncate text-xs text-muted-foreground">{lead}</span>
