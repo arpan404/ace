@@ -4,6 +4,8 @@ import { themeDeclarations } from "./css.ts";
 import { edgeMap, fitStep, glassEngine, glassGeometry, mapSize } from "./glass.ts";
 import { themeIds, themes } from "./palettes.ts";
 import { over } from "./surfaces.ts";
+import { themeAccent } from "./accent.ts";
+import { defaultTranslucency, translucencyMax, translucencyStep } from "./translucency.ts";
 
 const userAgents = {
   chrome:
@@ -112,25 +114,62 @@ const backdrops: Record<string, Rgb> = {
 /** Text and secondary text at AA over anything; quiet hints at 3:1. */
 const levels = { "--foreground": 4.5, "--muted-foreground": 4.5, "--subtle-foreground": 3 };
 
-test("text on glass reads at AA over a white and a black backdrop in every theme, light and dark", () => {
+/** The slider's least, middle and most translucent glass, and Solid. */
+const sliderStops = [0, translucencyStep, translucencyMax / 2, translucencyMax];
+
+test("text on glass reads at AA over a white and a black backdrop in every theme, light and dark, anywhere on the Translucency slider", () => {
   const failures: string[] = [];
   for (const id of themeIds)
-    for (const scheme of ["light", "dark"] as const) {
-      const tokens = themeDeclarations(id, scheme);
-      const glass = tint(tokens["--glass-tint"]);
-      for (const [backdrop, behind] of Object.entries(backdrops)) {
-        const surface = over(glass.rgb, glass.alpha, behind);
-        for (const [token, minimum] of Object.entries(levels)) {
-          const colour = parseOpaqueColor(tokens[token]);
-          const ratio = colour ? contrastRatio(colour, surface) : 0;
-          if (ratio < minimum)
-            failures.push(
-              `${id} ${scheme}: ${token} on glass over a ${backdrop} ${ratio.toFixed(2)}`,
-            );
+    for (const scheme of ["light", "dark"] as const)
+      for (const translucency of sliderStops) {
+        const tokens = themeDeclarations(id, scheme, themeAccent, translucency);
+        const glass = tint(tokens["--glass-tint"]);
+        for (const [backdrop, behind] of Object.entries(backdrops)) {
+          const surface = over(glass.rgb, glass.alpha, behind);
+          for (const [token, minimum] of Object.entries(levels)) {
+            const colour = parseOpaqueColor(tokens[token]);
+            const ratio = colour ? contrastRatio(colour, surface) : 0;
+            if (ratio < minimum)
+              failures.push(
+                `${id} ${scheme} at ${translucency}: ${token} on glass over a ${backdrop} ${ratio.toFixed(2)}`,
+              );
+          }
         }
       }
-    }
   expect(failures).toEqual([]);
+});
+
+test("the slider runs from a solid tint with no blur to the theme's AA-safe glass", () => {
+  for (const id of themeIds)
+    for (const scheme of ["light", "dark"] as const) {
+      const at = (translucency: number) => {
+        const tokens = themeDeclarations(id, scheme, themeAccent, translucency);
+        return {
+          alpha: tint(tokens["--glass-tint"]).alpha,
+          blur: Number.parseFloat(tokens["--glass-blur"] ?? ""),
+          saturate: Number.parseFloat(tokens["--glass-saturate"] ?? ""),
+        };
+      };
+      const solid = at(0);
+      expect([id, scheme, solid]).toEqual([id, scheme, { alpha: 1, blur: 0, saturate: 100 }]);
+      // The most translucent end is the floor the theme was solved for, and the default.
+      const most = at(translucencyMax);
+      expect(most).toEqual(at(defaultTranslucency));
+      expect(most.alpha, `${id} ${scheme}`).toBe(themes[id][scheme].glassTint);
+      // Each step toward it is thinner, blurrier and more saturated, never the other way.
+      let previous = solid;
+      for (
+        let translucency = translucencyStep;
+        translucency <= translucencyMax;
+        translucency += translucencyStep
+      ) {
+        const next = at(translucency);
+        expect(next.alpha).toBeLessThanOrEqual(previous.alpha);
+        expect(next.blur).toBeGreaterThanOrEqual(previous.blur);
+        expect(next.saturate).toBeGreaterThanOrEqual(previous.saturate);
+        previous = next;
+      }
+    }
 });
 
 test("glass stays visibly glass where a theme has it, and Signal has none", () => {

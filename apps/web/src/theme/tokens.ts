@@ -1,6 +1,7 @@
 import { oklchToHex } from "./colour.ts";
 import { dangerFill } from "./danger.ts";
 import { rampSteps, sharedStatus, type Palette, type Scheme } from "./palettes.ts";
+import { defaultTranslucency, glassVariables } from "./translucency.ts";
 
 /*
  * One palette as every themed CSS variable. Components read these names only (through the
@@ -12,9 +13,6 @@ import { rampSteps, sharedStatus, type Palette, type Scheme } from "./palettes.t
 /** "#RRGGBB" as "r g b", for the old `rgb(var(--x-rgb))` names. */
 const rgbTriple = (hex: string) =>
   [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16)).join(" ");
-
-/** An alpha as a whole percent. */
-const pct = (alpha: number) => Math.round(alpha * 100);
 
 /** `colour` at `percent` over transparent. */
 const wash = (colour: string, percent: number) =>
@@ -66,7 +64,7 @@ function neutralRamp(p: Palette): Record<`--neutral-${number}`, string> {
   return Object.fromEntries(rampSteps.map((step, index) => [`--neutral-${index + 1}`, p[step]]));
 }
 
-export function themeTokens(p: Palette, scheme: Scheme) {
+export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTranslucency) {
   const light = scheme === "light";
   const sx = p.syntax;
   const status = sharedStatus[scheme];
@@ -81,7 +79,6 @@ export function themeTokens(p: Palette, scheme: Scheme) {
   const glassRim = light
     ? "inset 0 1px 0 0 rgb(255 255 255 / 0.95), inset 0 0 0 1px rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(255 255 255 / 0.3)"
     : "inset 0 1px 0 0 rgb(255 255 255 / 0.16), inset 0 0 0 1px rgb(255 255 255 / 0.06), inset 0 -1px 0 0 rgb(255 255 255 / 0.04)";
-  const glass = p.material.glass;
   const danger = dangerFill(p.failed);
   return {
     // The neutral ramp, by step (`--neutral-1` canvas … `--neutral-12` text).
@@ -180,10 +177,9 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     // Floating layers: solid edge and shadow, and the glass material (styles/glass.css).
     "--float-edge": light ? `color-mix(in srgb, ${p.border}, ${p.t1} 4%)` : p.border,
     "--float-shadow": floatShadow,
-    // The tint is as thin as AA over a white or a black backdrop allows (`glassTintAlpha`).
-    "--glass-tint": `color-mix(in srgb, ${p.s2} ${pct(p.glassTint)}%, transparent)`,
-    "--glass-blur": `${glass?.blur ?? 0}px`,
-    "--glass-saturate": `${glass?.saturate ?? 100}%`,
+    // The tint at the chosen translucency, never thinner than AA over a white or a black
+    // backdrop allows (`glassTintAlpha`), with the blur and saturation that go with it.
+    ...glassVariables(p, translucency),
     "--glass-rim": glassRim,
     // A hairline just outside the rim, so the layer's silhouette holds over its own colour.
     "--glass-edge": light ? `rgb(${p.shadow} / 0.12)` : "rgb(0 0 0 / 0.55)",

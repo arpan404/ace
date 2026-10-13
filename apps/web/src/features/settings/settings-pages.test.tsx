@@ -175,13 +175,13 @@ test("searching Settings finds a single setting and opens its page at that row",
   await harness().open("/settings/general");
   await userEvent.type(await screen.findByRole("searchbox", { name: "Search settings" }), "glass");
   const results = screen.getByRole("region", { name: "Matching settings" });
-  await userEvent.click(within(results).getByRole("link", { name: /^Surfaces/ }));
+  await userEvent.click(within(results).getByRole("link", { name: /^Translucency/ }));
 
   await screen.findByRole("heading", { level: 2, name: "Appearance" });
-  const row = document.getElementById("appearance.surfaces");
-  // The page scrolls to that row, the one holding the Surfaces choice.
+  const row = document.getElementById("appearance.translucency");
+  // The page scrolls to that row, the one holding the Translucency slider.
   await waitFor(() => expect(scrolled).toContain(row));
-  expect(screen.getByRole("group", { name: "Surfaces" })).toBeTruthy();
+  expect(screen.getByRole("slider", { name: "Translucency" })).toBeTruthy();
   const nav = screen.getByRole("navigation", { name: "Settings pages" });
   expect(within(nav).getByRole("link", { name: "Appearance" }).getAttribute("aria-current")).toBe(
     "page",

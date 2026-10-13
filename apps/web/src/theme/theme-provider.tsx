@@ -26,6 +26,7 @@ import { themesStylesheet, themeStylesheet } from "./css.ts";
 import type { GlassEngine } from "./glass.ts";
 import { startLiquidGlass } from "./liquid-glass.ts";
 import { themes } from "./palettes.ts";
+import { glassVariables } from "./translucency.ts";
 import { withViewTransition } from "@/lib/motion.ts";
 
 export interface Environment {
@@ -46,7 +47,7 @@ interface ThemeValue {
   update(next: Partial<Appearance>): void;
   /** What's on screen, with "system" and the OS's accessibility settings applied. */
   resolved: ResolvedAppearance;
-  /** The OS asks for less transparency, so Translucent shows as solid. */
+  /** The OS asks for less transparency, so Translucency shows as Solid. */
   systemReducesTransparency: boolean;
 }
 const ThemeContext = createContext<ThemeValue | undefined>(undefined);
@@ -122,6 +123,17 @@ export function ThemeProvider(props: { environment: Environment; children: React
     setThemeColour(root.ownerDocument, themes[resolved.theme][resolved.scheme].s0);
   }, [root, stylesheet, resolved, appearance.density, appearance.transcriptSize, glassEngine]);
 
+  // The glass at the chosen translucency, over the stylesheet's default. A slider drag changes
+  // only these three variables: no stylesheet rebuild, and the liquid filters below stay put.
+  const { theme, scheme, translucency } = resolved;
+  useLayoutEffect(() => {
+    if (!root) return;
+    const variables = glassVariables(themes[theme][scheme], translucency);
+    for (const [name, value] of Object.entries(variables))
+      if (translucency > 0) root.style.setProperty(name, value);
+      else root.style.removeProperty(name);
+  }, [root, theme, scheme, translucency]);
+
   // Per-layer liquid glass filters, only while they can show.
   const liquid = glassEngine === "liquid" && resolved.surface === "translucent";
   useEffect(() => {
@@ -134,11 +146,15 @@ export function ThemeProvider(props: { environment: Environment; children: React
       theme: appearance.theme,
       mode: appearance.mode,
       // A theme with no glass boots solid, so its first frame never flashes translucent.
-      surface: themes[appearance.theme].light.material.glass ? appearance.surface : "solid",
+      surface:
+        themes[appearance.theme].light.material.glass && appearance.translucency > 0
+          ? "translucent"
+          : "solid",
+      translucency: appearance.translucency,
       reduceMotion: appearance.reduceMotion,
       density: appearance.density,
       transcriptPx: transcriptSizes[appearance.transcriptSize].px,
-      css: themeStylesheet(appearance.theme, appearance),
+      css: themeStylesheet(appearance.theme, appearance, appearance.translucency),
     };
     writeJson(storage, bootAppearanceKey, boot);
   }, [storage, appearance]);

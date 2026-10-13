@@ -3,17 +3,18 @@
  * is for controls floating above content (menus, popovers, toasts, the command palette, floating
  * action bars), never for content, and never glass on glass.
  *
- *   .ace-floating        glass under Surfaces: Translucent, solid otherwise
+ *   .ace-floating        glass while Translucency is above Solid, solid otherwise
  *   .ace-floating-solid  always solid (dialogs, tooltips, the composer, anything that is content)
  *
- * <html> carries the resolved choice: `data-surface` is "solid" under the Solid setting, while
+ * <html> carries the resolved choice: `data-surface` is "solid" with Translucency at Solid, while
  * the OS reduces transparency, and in a theme with no glass (Signal); `data-glass-engine` is
  * "liquid" only where SVG backdrop filters render (Chromium and Electron; src/theme/glass.ts).
  *
  * The material, in order: the backdrop blurred and saturated (per theme, `--glass-blur` and
  * `--glass-saturate`); on Chromium, that frosted backdrop bent inside a thin rim by a filter
  * sized to the layer (theme/liquid-glass.ts), so lensing lives at the edge and never warps text;
- * the tint, as thin as AA over a white or a black backdrop allows (`--glass-tint`); a specular
+ * the tint, never thinner than AA over a white or a black backdrop allows (`--glass-tint`,
+ * thicker as Translucency moves toward Solid); a specular
  * rim lit from above (`--glass-rim`); a hairline outside it; and the soft floating shadow.
  * No per-frame script, and filters sit only on floating layers, never on a scrolling area.
  */
