@@ -5,6 +5,7 @@ import type { KeyValueStorage } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { withBrowserLock } from "@/boot/web-locks.ts";
+import { newThreadDraftKey } from "@/lib/new-thread-draft-key.ts";
 import { discardSubmittedDraft, type SubmittedDraft } from "@/features/thread/index.ts";
 import { forgetCreateAttempt, readCreateAttempt, type CreateAttempt } from "./create-attempt.ts";
 
@@ -70,7 +71,7 @@ export async function settleCreateAttempt(
     if (receipt.ok)
       discardSubmittedDraft(
         storage,
-        attempt.draftKey ?? `new:${attempt.payload.workspaceId}`,
+        attempt.draftKey ?? newThreadDraftKey(attempt.hostId, attempt.payload.workspaceId),
         attempt.payload,
       );
     return forgetCreateAttempt(storage, key, receipt.commandId);

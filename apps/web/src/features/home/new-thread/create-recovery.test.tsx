@@ -262,3 +262,25 @@ test("a rejected new-thread save preserves both prompts and the original file th
       ),
   ).toBe(true);
 });
+
+test("Edit on a refused new thread puts its message back in New thread for its project", async () => {
+  const made = harness();
+  for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
+  // In the checkout, so the refusal is the message's, not a worktree's.
+  made.daemon.services.settings.seed({ "threads.useWorktree": false });
+  made.daemon.refuseCommands("model_unavailable", "thread.create");
+  await made.open("/new?project=relay");
+  await screen.findByRole("button", { name: /^Model: Opus/ });
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Message" }),
+    "Bring my refused start back{Enter}",
+  );
+  await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
+  expect(await screen.findByRole("button", { name: "Project: relay" })).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+      "Bring my refused start back",
+    ),
+  );
+});
