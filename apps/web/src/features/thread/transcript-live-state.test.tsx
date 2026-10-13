@@ -259,7 +259,8 @@ test("successive text-only turns each retain their own worked duration", async (
       facts.endTurn("root"),
     ]),
   );
-  expect(await screen.findByRole("button", { name: /^Worked for 10s/ })).toBeTruthy();
+  // Text-only turns have nothing to open: each reads its own duration as plain text.
+  expect(await screen.findByText(/^Worked for 10s/)).toBeTruthy();
   setTime(21_000);
   act(() =>
     app.daemon.apply(id, [
@@ -274,8 +275,8 @@ test("successive text-only turns each retain their own worked duration", async (
       { type: "turn.ended", agent: "root", nativeTurnId: "second", outcome: "completed" },
     ]),
   );
-  expect(await screen.findByRole("button", { name: /^Worked for 20s/ })).toBeTruthy();
-  expect(screen.getAllByRole("button", { name: /^Worked for/ })).toHaveLength(2);
+  expect(await screen.findByText(/^Worked for 20s/)).toBeTruthy();
+  expect(screen.getAllByText(/^Worked for/)).toHaveLength(2);
 });
 
 test("the live line ticks with an injected clock and names the wait, untimed, when approval waits", () => {

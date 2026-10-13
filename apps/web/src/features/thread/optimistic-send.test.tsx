@@ -42,7 +42,8 @@ test("a message sent offline shows as its bubble at once and becomes the daemon'
   expect(message.textContent).toBe("");
   expect(within(feed).getByText("Add a route for /settings")).toBeTruthy();
   expect(within(feed).getByText("Will apply when reconnected")).toBeTruthy();
-  expect(await screen.findByText("Reconnecting")).toBeTruthy();
+  // Said once, by the strip above the composer.
+  expect(await screen.findAllByText(/^Reconnecting/)).toHaveLength(1);
   expect(within(feed).queryByText(/^Offline since/)).toBeNull();
 
   act(() => app.daemon.refuseConnections(false));

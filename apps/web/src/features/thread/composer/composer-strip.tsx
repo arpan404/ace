@@ -31,8 +31,6 @@ export function ComposerStrip(props: {
   onLeave(): void;
   onChooseModel(): void;
 }) {
-  // This strip is where the thread hears about connection trouble; the header stays quiet.
-  useClaimConnectionNotice();
   const client = useClient();
   const daemon = useDaemonConnection();
   const requests = useInteractions(props.threadId) ?? noRequests;
@@ -43,6 +41,9 @@ export function ComposerStrip(props: {
   const plan = useShownPlans(props.threadId)[0]?.progress;
   const queued = queuedCount(queue, pending);
   const offline = connection === "offline";
+  // Reconnecting and offline are said here, so the header stays quiet; anything else (a
+  // fatal error) is the header's.
+  useClaimConnectionNotice(offline || connection === "reconnecting");
   // An open edit keeps the queue in the slot even once its message leaves the queue, so the
   // editor can say so and keep the person's wording.
   const [editing, setEditing] = useState<QueuedMessage>();

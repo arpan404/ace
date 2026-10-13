@@ -96,9 +96,10 @@ function eventElement(event: Event | undefined): Element | undefined {
  */
 function behindOpenPopup(trigger: Element | undefined): boolean {
   if (!trigger || trigger.closest(popupContent)) return false;
-  // A Base UI trigger with its popup open, or a combobox showing its list (the composer's +).
+  // A menu or popover trigger with its popup open (a tooltip's own trigger has no
+  // aria-expanded), or a combobox showing its list (the composer's +).
   const open = trigger.ownerDocument.querySelector(
-    '[data-popup-open], [aria-haspopup][aria-expanded="true"], [role="combobox"][aria-expanded="true"]',
+    '[data-popup-open][aria-expanded="true"], [aria-haspopup][aria-expanded="true"], [role="combobox"][aria-expanded="true"]',
   );
   return open !== null && open !== trigger && !open.contains(trigger);
 }

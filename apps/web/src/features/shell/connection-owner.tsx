@@ -1,4 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useState,
+  type ReactNode,
+} from "react";
 
 type Claim = () => () => void;
 
@@ -19,8 +26,9 @@ export function ConnectionOwner(props: { children(headerOwnsIt: boolean): ReactN
   );
 }
 
-/** Take over the screen's connection notice while this component is mounted. */
-export function useClaimConnectionNotice(): void {
+/** Take over the screen's connection notice while `active`: this component says it instead. */
+export function useClaimConnectionNotice(active: boolean): void {
   const claim = useContext(ClaimContext);
-  useEffect(() => claim?.(), [claim]);
+  // Before paint: the header never flashes a notice the strip is about to say.
+  useLayoutEffect(() => (active ? claim?.() : undefined), [claim, active]);
 }
