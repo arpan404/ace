@@ -116,8 +116,10 @@ export function WorkspacePanel(props: {
       )}
       <div
         className={cn(
-          // A box-shadow hairline, not a border: the strip's controls sit on its exact centre line.
-          "flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-2 shadow-[inset_0_-1px_0_var(--border)]",
+          // Beside the column, the strip continues the header's row: the header's own surface and
+          // no rule under it, so the window has one top bar across the transcript and the panel.
+          "flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-2",
+          !layout.sheet && !bottom && "bg-reading",
           // The panel's strip is the window's top row, so it drags the window.
           topRow && "[-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
           // The top row's 10px plus, on Windows, the room the window's own min/max/close
@@ -150,12 +152,7 @@ export function WorkspacePanel(props: {
             Done
           </Button>
         ) : (
-          props.controls && (
-            <>
-              <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
-              {props.controls}
-            </>
-          )
+          props.controls && <span className="ml-1 flex items-center">{props.controls}</span>
         )}
       </div>
       {props.notice}

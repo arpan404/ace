@@ -56,9 +56,9 @@ test("a plan review says Needs you and explains the request on hover", async () 
 
 test.each([
   [askingQuestion, "Answer", "Waiting for your answer"],
-  [waitingOnSubagents, "Waiting", "Waiting on 2 subagents"],
-  [watchingRelay, "Waiting", "Watching bun run dev:relay"],
-  [runningTests, "Working", "Running tests…"],
+  [waitingOnSubagents, "Working", "Claude Code · 2 subagents running"],
+  [watchingRelay, "Working", "Working · bun run dev:relay"],
+  [runningTests, "Working", "Working · running tests"],
 ])(
   "short row statuses keep the full explanation for hover and screen readers: %s",
   async (scenario, short, full) => {
@@ -159,7 +159,7 @@ test("renaming an empty draft cannot turn it into a task", async () => {
 });
 
 test.each([false, true])(
-  "device identity follows the live host in row context and hover details (remote=%s)",
+  "a row shows its device icon, never its name, while two devices are connected (remote=%s)",
   async (remote) => {
     const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
     app.daemon.services.settings.seed({
@@ -194,9 +194,11 @@ test.each([false, true])(
     ).findByRole("link", { name: new RegExp(`^${scenario.thread.title}`) });
     const name = remote ? "Build server" : "Workshop Mac";
     if (!row.parentElement) throw new Error("No row container");
-    const device = within(row.parentElement).queryByRole("img", { name: `Device: ${name}` });
-    expect(device).toBeNull();
-    expect(within(row).getByText(name, { exact: true })).toBeTruthy();
+    // Two devices are connected: the row shows the machine's icon, never its name.
+    expect(
+      within(row).getByRole("img", { name: `${remote ? "server" : "desktop"} machine icon` }),
+    ).toBeTruthy();
+    expect(within(row).queryByText(name, { exact: true })).toBeNull();
     expect(row.textContent).not.toContain("Stale server");
     expect(row.getAttribute("aria-label")).toContain(`Running on ${name}`);
     expect(row.getAttribute("aria-label")).toContain("Codex");
@@ -229,7 +231,9 @@ test("settled rows keep the same project and environment context without a Done 
   expect(row.getAttribute("aria-label")).toContain("Codex");
   expect(within(row).getByText("ace")).toBeTruthy();
   expect(within(row).queryByText("Done", { exact: true })).toBeNull();
-  expect(within(row).getByText("Workshop Mac")).toBeTruthy();
+  // With one device connected, the row names no machine and shows no device icon.
+  expect(within(row).queryByText("Workshop Mac")).toBeNull();
+  expect(within(row).queryByRole("img", { name: /machine icon$/ })).toBeNull();
   await userEvent.hover(row);
   expect((await screen.findByLabelText(/^Details for /)).textContent).toContain("Workshop Mac");
 });

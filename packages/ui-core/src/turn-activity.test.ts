@@ -4,6 +4,7 @@ import {
   Interaction,
   Item,
   Thread,
+  ThreadRunMetadata,
   type AgentStatus,
   type Run,
   type ToolCall,
@@ -12,6 +13,7 @@ import { expect, test, vi } from "vitest";
 import type { ThreadSource } from "@ace/client";
 import { turnTreeOf } from "./turn-tree.ts";
 import { ledgerOf } from "./thread-ledger.ts";
+import { listTreeFacts, treeWorking } from "./live-status.ts";
 import {
   activityText,
   readTurnActivity,
@@ -369,6 +371,33 @@ test("a turn that left a command running watches it, by name when it is the only
   expect(turnActivity(thread.reader, "root")).toMatchObject({
     label: "Working",
     backgroundCommands: 2,
+  });
+});
+
+test("a rate-limited root whose subagent still works reads Working, as the sidebar does", () => {
+  const thread = world({ state: "blocked", on: "rate_limit", refs: [], until: undefined }, []);
+  thread.subagent("web", working);
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
+    label: "Working",
+    tone: "working",
+    current: "Rate limited",
+    subagents: 1,
+  });
+  expect(
+    treeWorking(
+      listTreeFacts({
+        status: { state: "waiting", on: "rate_limit" },
+        live: ThreadRunMetadata.parse({ runningSubagentCount: 1 }),
+      }),
+    ),
+  ).toBe(true);
+});
+
+test("a rate-limited root with nothing else running says it is rate limited", () => {
+  const thread = world({ state: "blocked", on: "rate_limit", refs: [] }, []);
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
+    label: "Rate limited",
+    tone: "held",
   });
 });
 

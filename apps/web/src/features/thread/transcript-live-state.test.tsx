@@ -27,7 +27,7 @@ const scenario = (events = initial()): Scenario => ({
   thread: { id, title: "Replay cursor", workspaceId: "ace", provider: "codex" },
   steps: [{ kind: "facts", facts: events }],
 });
-const live = () => screen.getByRole("button", { name: "Open work and agents" });
+const live = () => screen.getByRole("button", { name: "Open the summary" });
 
 async function running(events = initial(), throughWorker = false) {
   let now = 1_000;
@@ -150,7 +150,7 @@ test("a parent answer stays working until its subagent finishes and its line ope
   expect(await screen.findByRole("region", { name: "Thread panel" })).toBeTruthy();
   act(() => app.daemon.apply(id, [facts.toolDone("audit", "audit-check"), facts.endTurn("audit")]));
   expect(await screen.findByRole("button", { name: /^Worked for 1m 14s/ })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Open work and agents" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Open the summary" })).toBeNull();
 });
 
 test("only a background shell keeps the live timer until the shell ends", async () => {
@@ -177,7 +177,7 @@ test("only a background shell keeps the live timer until the shell ends", async 
     ]),
   );
   expect(await screen.findByRole("button", { name: /^Worked for 1m 14s/ })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Open work and agents" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Open the summary" })).toBeNull();
 });
 
 test("approval inside a subagent holds the parent in a needs-you state without a timer", async () => {
@@ -222,7 +222,7 @@ for (const [outcome, label, at] of [
     expect(summary.getAttribute("aria-expanded")).toBe("false");
     await userEvent.click(summary);
     expect(await screen.findByRole("button", { name: "Ran bun run build" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open work and agents" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open the summary" })).toBeNull();
   });
 }
 
@@ -506,7 +506,7 @@ for (const outcome of ["completed", "interrupted", "failed"] as const) {
     expect(
       screen.getAllByRole("button", { name: /^(Worked for|Stopped after|Failed after)/ }),
     ).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: "Open work and agents" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open the summary" })).toBeNull();
     if (outcome === "failed") expect(await screen.findByText("Continuation failed.")).toBeTruthy();
   });
 }

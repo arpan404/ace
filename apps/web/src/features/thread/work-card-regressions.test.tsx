@@ -1,4 +1,4 @@
-import { openWorkPanel } from "@/test/open-work.ts";
+import { openMachineMenu, openWorkPanel } from "@/test/open-work.ts";
 import { facts, replayCursor, workCardScenario } from "@ace/fake-daemon";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -33,10 +33,8 @@ test("a script reuses an agent shell whose command arrives after the task", asyn
     },
   ]);
   await app.open(`/t/${threadId}`);
-  await openWorkPanel();
-  const card = screen.getByRole("tabpanel", { name: "Work" });
-  await userEvent.click(within(card).getByRole("button", { name: "Project actions" }));
-  const script = await screen.findByRole("menuitem", { name: "Run bun run dev:relay" });
+  const menu = await openMachineMenu();
+  const script = await within(menu).findByRole("menuitem", { name: "Run bun run dev:relay" });
   act(() =>
     app.daemon.apply(threadId, [
       facts.tool("root", "late-shell", {
@@ -46,6 +44,7 @@ test("a script reuses an agent shell whose command arrives after the task", asyn
       }),
     ]),
   );
+  const card = screen.getByRole("dialog", { name: "Thread details" });
   await within(card).findByRole("button", { name: "Show bun run dev:relay output" });
   await userEvent.click(script);
   const panel = await screen.findByRole("region", { name: "Thread panel" });
@@ -53,7 +52,7 @@ test("a script reuses an agent shell whose command arrives after the task", asyn
   expect(app.daemon.terminals.list(threadId)).toEqual([]);
 });
 
-test("tree folds and Work scroll position survive a remount", async () => {
+test("tree folds and Summary scroll position survive a remount", async () => {
   const resized = new Map<ResizeObserver, () => void>();
   // jsdom has no layout notifications. Deliver the card's real resize callback after its
   // asynchronously loaded agent rows give it enough height for the saved position.
@@ -95,7 +94,7 @@ test("tree folds and Work scroll position survive a remount", async () => {
   app.play(scenario).runUntilBlocked();
   const view = await app.open(`/t/${scenario.thread.id}`);
   await openWorkPanel();
-  const card = screen.getByRole("tabpanel", { name: "Work" });
+  const card = screen.getByRole("tabpanel", { name: "Summary" });
   const parent = within(card).getByRole("treeitem", { name: /^Write retry tests 1:/ });
   parent.focus();
   await userEvent.keyboard("{ArrowLeft}");
@@ -106,7 +105,7 @@ test("tree folds and Work scroll position survive a remount", async () => {
   fireEvent(scroll, new Event("scrollend"));
   view.unmount();
   await app.open(`/t/${scenario.thread.id}`);
-  const restored = await screen.findByRole("tabpanel", { name: "Work" });
+  const restored = await screen.findByRole("tabpanel", { name: "Summary" });
   expect(
     within(restored)
       .getByRole("treeitem", { name: /^Write retry tests 1:/ })

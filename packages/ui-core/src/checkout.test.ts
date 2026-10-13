@@ -1,6 +1,6 @@
 import type { ForgePrStatus, ThreadDetails } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { checkoutOf, nextGitStep } from "./checkout.ts";
+import { checkoutNote, checkoutOf, nextGitStep } from "./checkout.ts";
 
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "relay" } as const;
 const details = (patch: Partial<ThreadDetails> = {}): ThreadDetails => ({
@@ -110,4 +110,17 @@ test("GitLab checkouts explain the unsupported forge before creating a PR", () =
   expect(
     step({ repository: { ...repository, forge: "gitlab", host: "gitlab.com" } }),
   ).toMatchObject({ kind: "create-pr", blocked: /^GitLab merge requests aren't supported yet/ });
+});
+
+const note = (patch: Partial<ThreadDetails>) => {
+  const checkout = checkoutOf(details(patch));
+  if (!checkout) throw new Error("expected a checkout");
+  return checkoutNote(checkout);
+};
+
+test("the sync note says what the remote lacks and what it has that the checkout doesn't", () => {
+  expect(note({ ahead: 2 })).toBe("2 commits not pushed");
+  expect(note({ behind: 1 })).toBe("1 commit to pull");
+  expect(note({ ahead: 1, behind: 3 })).toBe("1 commit not pushed · 3 to pull");
+  expect(note({})).toBeUndefined();
 });

@@ -36,36 +36,61 @@ test("a background command appears once in the transcript while its row keeps th
   const { header, row, feed } = await open(watchingRelay());
   expect(within(feed).getAllByText("bun run dev:relay")).toHaveLength(1);
   expect(screen.queryByRole("status", { name: "Watching bun run dev:relay" })).toBeNull();
-  expect(row.getAttribute("aria-label")).toContain("Watching bun run dev:relay");
+  expect(row.getAttribute("aria-label")).toContain("Working · bun run dev:relay");
   expect(within(header).queryByRole("status")).toBeNull();
 });
 
 test("a thread waiting on subagents keeps the transcript live with their count", async () => {
   const { header, row } = await open(waitingOnSubagents());
-  expect(screen.getByRole("button", { name: "Open work and agents" }).textContent).toContain(
+  expect(screen.getByRole("button", { name: "Open the summary" }).textContent).toContain(
     "2 subagents",
   );
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
-  expect(row.getAttribute("aria-label")).toContain("Waiting on 2 subagents");
+  expect(row.getAttribute("aria-label")).toContain("2 subagents running");
   expect(within(header).queryByRole("status")).toBeNull();
 });
 
-test("a thread that asked a question keeps the waiting state in the thread and row", async () => {
+test.each([
+  ["waiting on its subagents", waitingOnSubagents],
+  ["watching its background command", watchingRelay],
+])(
+  "a thread %s reads Working in its sidebar row and its transcript alike",
+  async (_name, scenario) => {
+    const { feed, row } = await open(scenario());
+    expect(within(feed).getByRole("status", { name: "Working" }).textContent).toMatch(
+      /^Working for/,
+    );
+    expect(within(row).getByText("Working", { exact: true })).toBeTruthy();
+    expect(within(row).queryByText("Waiting", { exact: true })).toBeNull();
+    // What the row says aloud and what its hover card shows read the same word.
+    const spoken = row.getAttribute("aria-label") ?? "";
+    expect(spoken).toContain(". Working");
+    expect(spoken).not.toMatch(/Waiting on|Watching/);
+    await userEvent.hover(row);
+    const details = await screen.findByLabelText(/^Details for /);
+    expect(details.textContent).toContain("Working");
+    expect(details.textContent).not.toMatch(/Waiting on|Watching/);
+  },
+);
+
+test("a thread that asked a question keeps the waiting state in the thread, row and details icon", async () => {
   const { header, row } = await open(askingQuestion());
   expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
   expect(screen.getByRole("status", { name: "Waiting for your answer" })).toBeTruthy();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
   expect(within(header).queryByRole("status")).toBeNull();
-  expect(within(header).queryByRole("button", { name: /^Work card/ })).toBeNull();
+  expect(
+    await within(header).findByRole("button", { name: "Thread details, something needs you" }),
+  ).toBeTruthy();
 });
 
 test("a thread running tests names its current action in the transcript live line", async () => {
   const { header, row } = await open(runningTests());
-  expect(screen.getByRole("button", { name: "Open work and agents" }).textContent).toContain(
+  expect(screen.getByRole("button", { name: "Open the summary" }).textContent).toContain(
     "Running tests…",
   );
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
-  expect(row.getAttribute("aria-label")).toContain("Running tests…");
+  expect(row.getAttribute("aria-label")).toContain("Working · running tests");
   expect(within(header).queryByRole("status")).toBeNull();
 });
 

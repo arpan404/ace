@@ -123,6 +123,6 @@ test("Stop in an idle parent's detail tab interrupts its working child", async (
   expect(await within(detail).findByText("Done", { exact: true })).toBeTruthy();
   expect(within(detail).queryByRole("button", { name: /^Stop Parent/ })).toBeNull();
   await userEvent.click(within(detail).getByRole("button", { name: /Back to agents/ }));
-  const work = await screen.findByRole("tabpanel", { name: "Work" });
+  const work = await screen.findByRole("tabpanel", { name: "Summary" });
   expect(await within(work).findByRole("treeitem", { name: "Child: Interrupted" })).toBeTruthy();
 });

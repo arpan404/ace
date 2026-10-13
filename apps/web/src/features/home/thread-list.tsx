@@ -21,6 +21,7 @@ import { matchesChord } from "@/lib/hotkeys.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
 import { focusListRow, rowFocusSelector } from "./list-focus.ts";
+import { ManyDevices, useManyDevices } from "./row-parts.tsx";
 import { ThreadRow } from "./thread-row.tsx";
 import { UnsentRows } from "./unsent-rows.tsx";
 import type { HomeList } from "./use-home-threads.ts";
@@ -36,6 +37,7 @@ import {
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
+/** A thread row is 80px tall and keeps 4px below it: rows are apart by spacing, not rules. */
 const estimates: Record<HomeRow["kind"], number> = {
   "pinned-header": 33,
   pinned: 84,
@@ -57,9 +59,9 @@ const loadDrag = () => import("./list-drag.ts");
 const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) => module.BulkBar));
 
 const header =
-  "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-2 text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--motion-fast)";
+  "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-2.5 text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--motion-fast)";
 
-/** A section's quiet heading: its name, how many, a thin rule, and whatever closes the line. */
+/** A section's quiet heading: its name and how many. No rule: spacing sets the sections apart. */
 function HeadingText(props: { label: string; count?: number | undefined }) {
   return (
     <>
@@ -67,7 +69,6 @@ function HeadingText(props: { label: string; count?: number | undefined }) {
       {/* A flex gap draws the space; the text keeps it for the heading's name. */}
       {props.count !== undefined && " "}
       {props.count !== undefined && <span className="font-normal tabular-nums">{props.count}</span>}
-      <span aria-hidden className="h-px flex-1 bg-sidebar-border" />
     </>
   );
 }
@@ -291,8 +292,9 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
     });
   };
   const movingSet = useMemo(() => new Set(moving), [moving]);
+  const manyDevices = useManyDevices();
   return (
-    <>
+    <ManyDevices value={manyDevices}>
       <div
         ref={viewport}
         {...hold.handlers}
@@ -345,8 +347,9 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                 ref={virtualizer.measureElement}
                 data-index={item.index}
                 className={cn(
-                  "absolute inset-x-0 top-0",
-                  !("id" in row) && row.kind !== "unsent" && "pb-px",
+                  // The list sits a little in from the sidebar's edges, so a row's fill is a card.
+                  "absolute inset-x-2 top-0",
+                  "id" in row ? "pb-1" : row.kind !== "unsent" && "pb-px",
                   // While rows slide past each other each is opaque, and the one moving up
                   // passes over the others: a swap never shows two rows through each other.
                   sliding && "bg-sidebar",
@@ -365,9 +368,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                     <ThreadRow threadId={row.id} settled leaving={leaving} />
                   )}
                   {row.kind === "unsent" && <UnsentRows />}
-                  {row.kind === "pinned-end" && (
-                    <div className="mx-2 my-1 h-px bg-sidebar-border" />
-                  )}
+                  {row.kind === "pinned-end" && <div aria-hidden className="h-2" />}
                   {row.kind === "pinned-header" && (
                     <div data-pin-zone="" className={cn(header, "mt-0")}>
                       {row.count ? (
@@ -386,11 +387,13 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                       className={cn(header, "hover:text-muted-foreground")}
                     >
                       <span>Snoozed ({row.count})</span>
-                      <span aria-hidden className="h-px flex-1 bg-sidebar-border" />
                       <CaretDownIcon
                         aria-hidden
                         size={12}
-                        className={cn(!snoozedOpen && "-rotate-90")}
+                        className={cn(
+                          "ml-auto transition-transform duration-(--motion-base) ease-spring",
+                          !snoozedOpen && "-rotate-90",
+                        )}
                       />
                     </button>
                   )}
@@ -407,7 +410,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                         aria-hidden
                         size={12}
                         className={cn(
-                          "transition-transform duration-(--motion-base) ease-spring",
+                          "ml-auto transition-transform duration-(--motion-base) ease-spring",
                           !settledOpen && "-rotate-90",
                         )}
                       />
@@ -427,7 +430,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
           <BulkBar.Component />
         </Suspense>
       )}
-    </>
+    </ManyDevices>
   );
 }
 

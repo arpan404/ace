@@ -23,8 +23,10 @@ import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
+// Rows are apart by the list's spacing, not rules: hover fills a rounded box, and the open
+// thread is a raised card.
 const row =
-  "flex w-full items-center border-b border-sidebar-border px-3 text-left text-ui outline-none transition-colors duration-(--motion-fast)";
+  "flex w-full items-center rounded-md px-2.5 text-left text-ui outline-none transition-colors duration-(--motion-fast)";
 
 /** Every task shows project and status/time, title, then branch, environment and provider. */
 export function ThreadRow(props: {
@@ -45,7 +47,6 @@ export function ThreadRow(props: {
   const current = useLocation({
     select: (location) => location.pathname === `/t/${props.threadId}`,
   });
-  const highlighted = selected || current;
   if (!data) return null;
   const { entry } = data;
   // A thread this window started reads its provisional title until the daemon titles it.
@@ -58,16 +59,10 @@ export function ThreadRow(props: {
     (entry.switch?.state === "queued" ? entry.switch.selection.instanceId : undefined) ??
     entry.live?.account ??
     entry.execution?.instanceId;
-  const height = "h-21 py-3";
+  const height = "h-20 py-3";
   const title = (
     <div className="flex min-w-0 items-center gap-1.5">
-      <div
-        className={cn(
-          "min-w-0 flex-1 truncate leading-5 group-hover/row:pr-7 group-focus-within/row:pr-7",
-          "text-base",
-          titleTone(card),
-        )}
-      >
+      <div className={cn("min-w-0 flex-1 truncate leading-5", "text-base", titleTone(card))}>
         {renaming ? (
           <RenameField
             entry={entry}
@@ -82,10 +77,23 @@ export function ThreadRow(props: {
   );
   const body = (
     <div className="flex min-w-0 w-full flex-col gap-0.5">
-      <div className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
+      <div
+        className={cn(
+          "flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground",
+          // Under the pointer or focus the row's actions take the status's place (RowActions).
+          !renaming && "group-hover/row:pr-28 group-focus-within/row:pr-28",
+        )}
+      >
         <ProjectMark badge={card.badge} />
         <span className="min-w-0 flex-1 truncate">{card.project}</span>
-        <RowStatus card={card} />
+        <span
+          className={cn(
+            "flex shrink-0",
+            !renaming && "group-hover/row:hidden group-focus-within/row:hidden",
+          )}
+        >
+          <RowStatus card={card} />
+        </span>
       </div>
       {title}
       <RowContext card={card} />
@@ -100,8 +108,9 @@ export function ThreadRow(props: {
           onRename={() => selection.rename(props.threadId, card.title)}
         >
           <HoverCardTrigger
-            delay={600}
-            closeDelay={100}
+            // Opens once the pointer settles; leaving the row closes it at once, so it never lingers.
+            delay={450}
+            closeDelay={0}
             onClick={() => hover.change(false)}
             onContextMenu={() => hover.change(false)}
             render={<div />}
@@ -122,8 +131,13 @@ export function ThreadRow(props: {
                 className={cn(
                   row,
                   height,
-                  "group/link focus-ring-inset hover:bg-foreground/3 focus-visible:bg-foreground/3 data-[status=active]:bg-foreground/3",
-                  highlighted && "bg-foreground/3",
+                  "group/link focus-ring-inset",
+                  // The open thread is a raised card; a picked one keeps its fill under the pointer.
+                  current
+                    ? "bg-surface-2 shadow-raised"
+                    : selected
+                      ? "bg-sidebar-accent"
+                      : "hover:bg-accent",
                   handle && "pointer-coarse:pr-11",
                 )}
               >

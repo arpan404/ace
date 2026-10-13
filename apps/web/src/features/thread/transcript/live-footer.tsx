@@ -17,7 +17,7 @@ export function LiveFooter(props: { threadId: string; activity: TurnActivity | u
   return (
     <button
       type="button"
-      aria-label="Open work and agents"
+      aria-label="Open the summary"
       onClick={() => workspace.open({ kind: "work" })}
       className="block w-full rounded-md py-2 text-left focus-ring"
     >

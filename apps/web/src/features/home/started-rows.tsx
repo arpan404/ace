@@ -107,7 +107,7 @@ function StartedRow(props: { send: PendingSend }) {
   const provider =
     send.payload.type === "thread.create" ? providerNames[send.payload.provider] : "";
   return (
-    <li>
+    <li className="pb-1">
       <Link
         data-row-focus=""
         to="/t/$threadId"
@@ -115,8 +115,8 @@ function StartedRow(props: { send: PendingSend }) {
         aria-label={`${titleOf(send)}. ${label}, ${provider}, Project ${project}`}
         className={cn(
           // The thread rows' shape, so the row doesn't jump when the daemon's row replaces it.
-          "flex h-21 w-full flex-col justify-center gap-0.5 border-b border-sidebar-border px-3 py-3 text-ui text-foreground outline-none transition-[background-color,opacity] duration-(--motion-fast) focus-ring-inset hover:bg-foreground/3",
-          "data-[status=active]:bg-foreground/3",
+          "flex h-20 w-full flex-col justify-center gap-0.5 rounded-md px-2.5 py-3 text-ui text-foreground outline-none transition-[background-color,opacity] duration-(--motion-fast) focus-ring-inset hover:bg-accent",
+          "data-[status=active]:bg-sidebar-accent",
         )}
       >
         <span className="flex w-full min-w-0 items-center gap-1.5 text-xs text-muted-foreground">

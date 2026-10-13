@@ -178,7 +178,6 @@ export function Workspace(props: {
           <span className="min-w-0 truncate">{props.title}</span>
         </button>
       </Tip>
-      <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
     </>
   );
   return (

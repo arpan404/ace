@@ -16,6 +16,7 @@ import {
   selectAccount,
 } from "@/test/model-control.ts";
 import { Choices } from "./choices.ts";
+import { openWorkCard } from "@/test/open-work.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -355,10 +356,9 @@ test("when the remote can't be reached, the thread starts from the last fetched 
 
   const created = await started(made);
   expect(created?.details?.base).toMatchObject({ remote: "origin", fetch: "unreachable" });
-  // Once its agent is stopped, the composer's tab shows where it runs, and raises the details.
+  // Once its agent is stopped, the Work card shows the branch, whose tooltip gives the details.
   await userEvent.click(await screen.findByRole("button", { name: "Stop the agent" }));
-  await userEvent.click(await screen.findByRole("button", { name: /^Work card/ }));
-  const card = await screen.findByRole("complementary", { name: "Work card" });
+  const card = await openWorkCard();
   const branch = await within(card).findByText(created?.details?.branch ?? "");
   await userEvent.hover(branch);
   expect((await screen.findByRole("tooltip")).textContent).toContain(

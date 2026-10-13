@@ -5,8 +5,8 @@ import { DraftRows } from "./new-thread/draft-rows.tsx";
 export function UnsentRows() {
   return (
     <div className="hidden has-[ul]:block">
-      <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-        Unsent <span aria-hidden className="h-px flex-1 bg-sidebar-border" />
+      <div className="flex items-center gap-2 px-2.5 py-2 text-xs text-muted-foreground">
+        Unsent
       </div>
       <DraftRows />
       <StartedRows />

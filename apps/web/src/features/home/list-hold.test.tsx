@@ -100,7 +100,7 @@ test("while the keyboard is in the list only a thread that needs you moves", asy
   if (!newest) throw new Error("no row");
   newest.focus();
   await userEvent.tab();
-  expect(document.activeElement?.getAttribute("aria-label")).toBe("Actions for Newest thread");
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Snooze Newest thread");
 
   app.daemon.apply("thread-oldest", working);
   app.daemon.apply("thread-middle", asks);

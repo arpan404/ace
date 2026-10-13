@@ -344,7 +344,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         const file = files[index];
         if (file) jump(file.path);
       }}
-      className={beside ? "w-[240px] shrink-0 border-l" : "max-h-[40%] shrink-0 border-b"}
+      className={beside ? "w-[240px] shrink-0" : "max-h-[40%] shrink-0 pb-1"}
     />
   );
   return (

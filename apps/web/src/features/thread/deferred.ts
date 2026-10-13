@@ -11,6 +11,7 @@ import { DeferredReviewNote } from "./items/deferred-review.ts";
 import { DeferredBackgroundTask } from "./items/background-task-line.tsx";
 import { DeferredSubagents } from "./items/subagents.tsx";
 import { preloadJump } from "./long/jump.ts";
+import { DeferredWorkCard } from "./header/work-button.tsx";
 
 export { DeferredInteractionCard };
 
@@ -32,10 +33,6 @@ export const DeferredThreadMenu = deferredComponent(() =>
 /** The open thread's rename, pin and archive shortcuts, from the same chunk as its ⋯ menu. */
 export const DeferredThreadHotkeys = deferredComponent(() =>
   import("./header/thread-menu.tsx").then((module) => module.ThreadHotkeys),
-);
-/** Checkout and git actions, mounted only by the Work tab. */
-export const DeferredWorkEnvironment = deferredComponent(() =>
-  import("./header/work-environment.tsx").then((m) => m.WorkEnvironment),
 );
 /**
  * The long-thread tools, loaded when first opened and warmed while idle: the turn timeline,
@@ -93,6 +90,8 @@ export function preloadDeferred(): Promise<unknown> {
     // An approval card's Details, with ace's review in words.
     import("@/components/approval-request.tsx").then((module) => module.preloadApprovalDetails()),
     DeferredThreadMenu.preload(),
+    // The header's Work card, so its first open draws at once.
+    DeferredWorkCard.preload(),
     // The workspace's tab kinds (icons, badges, loaders), so a tool opens without waiting.
     threadWorkspace.load(),
     preloadComposerParts(),

@@ -1,85 +1,127 @@
-import { ProjectScriptItems } from "./work-card-actions.tsx";
-import { Suspense } from "react";
-import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { useThreadMeta } from "@ace/client-react";
 import {
-  ArrowsSplitIcon,
   CopyIcon,
-  DotsThreeIcon,
-  CaretDownIcon,
-  PlusIcon,
+  FolderIcon,
   FolderOpenIcon,
+  GearSixIcon,
   GitForkIcon,
   LaptopIcon,
+  PlusIcon,
   TerminalWindowIcon,
 } from "@phosphor-icons/react";
-import type { ReactElement, ReactNode } from "react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
+import { useNavigate } from "@tanstack/react-router";
+import { EditorIcon } from "@/components/editor-icon.tsx";
+import { Dot } from "@/components/ui/dot.tsx";
 import {
   Menu,
   MenuContent,
+  MenuGroup,
   MenuItem,
+  MenuLabel,
   MenuSeparator,
-  MenuSub,
-  MenuSubTrigger,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
+import { useAppIcon } from "@/lib/app-icons.ts";
+import { useEditors } from "@/lib/editors.ts";
 import { keymap } from "@/lib/keymap.ts";
+import { useMachineIdentity } from "@/lib/machine-identity.ts";
+import { machineStatus } from "@/lib/machine-status.ts";
+import { useMachines } from "@/lib/machines.ts";
 import { useProjectName } from "@/lib/projects.ts";
-import { RowButton, RowNote, rowIcon } from "./work-card-parts.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useFolderActions } from "../lib/folder-actions.ts";
-import { BranchItems, useCheckoutMoves } from "./work-card-branches.tsx";
-import { ScriptConfigurationItems } from "./work-card-scripts.tsx";
 import type { ThreadRef } from "../sources/index.ts";
+import { ThreadOpenIn, useThreadEditorLaunch } from "./thread-open-in.tsx";
 import type { Move } from "./checkout-move.tsx";
-
-const DeferredOpenIn = deferredComponent(() =>
-  import("./thread-open-in.tsx").then((m) => m.ThreadOpenIn),
-);
-
-const DeferredOpenButton = deferredComponent(() =>
-  import("./thread-open-in.tsx").then((m) => m.ThreadOpenButton),
-);
+import { ProjectScriptItems } from "./work-card-actions.tsx";
+import { useCheckoutMoves } from "./work-card-branches.tsx";
+import { RowButton, RowCaret, RowLabel, Section, rowIcon } from "./work-card-parts.tsx";
+import { ScriptConfigurationItems } from "./work-card-scripts.tsx";
 
 const glyph = (Glyph: typeof CopyIcon) => <Glyph aria-hidden size={16} />;
 
-/**
- * Checkout actions: unavailable moves stay out of the menu while agents work.
- */
-export function EnvironmentItems(props: {
+/** The bundle id the desktop reads Finder's own icon from. */
+const finder = "com.apple.finder";
+
+/** Where the thread runs: its machine and checkout, how to open it, and the project's scripts. */
+export function EnvironmentGroup(props: {
   thread: ThreadRef;
   move(move: Move): void;
   onClose(): void;
+  onAddScript(): void;
 }) {
+  return (
+    <Section label="Environment">
+      <MachineRow {...props} />
+      <OpenInRow thread={props.thread} />
+      <AddScriptRow {...props} />
+    </Section>
+  );
+}
+
+/**
+ * The machine, whether it is reachable, and its checkout: local or a worktree (its glyph beside
+ * the machine's). Its menu moves the checkout and reaches the folder, a terminal and the scripts.
+ */
+function MachineRow(props: { thread: ThreadRef; move(move: Move): void; onClose(): void }) {
   const meta = useThreadMeta(props.thread.id);
-  const details = meta?.details;
-  const { checkout, switchReason, worktreeReason } = useCheckoutMoves(props.thread);
-  const path = details?.worktree ?? details?.workspace?.path;
+  const saved = meta?.details?.machine;
+  const identity = useMachineIdentity(saved);
+  const machines = useMachines();
+  const machine = identity.primary
+    ? machines.find((each) => each.primary)
+    : machines.find((each) => each.id === saved?.host);
+  const status = machineStatus[machine?.status ?? "offline"];
+  const project = useProjectName()(meta?.workspaceId ?? props.thread.workspaceId);
+  const path = meta?.details?.worktree ?? meta?.details?.workspace?.path;
   const folder = useFolderActions(path);
   const workspace = useWorkspaceActions(props.thread.id);
+  const navigate = useNavigate();
+  const { checkout, switchReason, worktreeReason } = useCheckoutMoves(props.thread);
   const worktree = checkout?.mode === "worktree";
+  const Mode = worktree ? GitForkIcon : FolderIcon;
   return (
-    <>
-      {!switchReason && (
-        <MenuSub>
-          <MenuSubTrigger icon={glyph(ArrowsSplitIcon)}>Switch branch</MenuSubTrigger>
-          <MenuContent
-            side="right"
-            align="end"
-            className="max-h-[min(360px,var(--available-height))] overflow-y-auto"
+    <Menu>
+      <MenuTrigger
+        render={
+          <RowButton
+            aria-label={`${identity.name}, ${status.label}`}
+            title={`${worktree ? "Worktree" : "Local checkout"} · ${path ?? ""}`}
           >
-            <BranchItems thread={props.thread} move={props.move} />
-          </MenuContent>
-        </MenuSub>
-      )}
-      {!worktreeReason && (
+            <span className="flex shrink-0 items-center gap-1">
+              <LaptopIcon aria-hidden size={16} className={rowIcon} />
+              <Mode aria-hidden size={16} className={rowIcon} />
+            </span>
+            <RowLabel>{identity.name}</RowLabel>
+            <Dot
+              tone={status.tone === "done" ? "done" : status.tone === "failed" ? "failed" : "idle"}
+            />
+            <RowCaret />
+          </RowButton>
+        }
+      />
+      <MenuContent align="end" className="w-[280px]">
+        <MenuGroup>
+          <MenuLabel className="truncate font-normal" title={path}>
+            {project}
+            {path ? ` · ${path}` : " · Reading checkout…"}
+          </MenuLabel>
+        </MenuGroup>
+        <MenuItem
+          icon={glyph(FolderIcon)}
+          disabled={!worktree || !!switchReason}
+          reason={worktree ? switchReason : undefined}
+          onClick={() =>
+            props.move({ change: { mode: "local" }, done: "Moved to the local checkout" })
+          }
+        >
+          Local
+          {!worktree && <span className="ml-auto text-xs text-subtle-foreground">current</span>}
+        </MenuItem>
         <MenuItem
           icon={glyph(GitForkIcon)}
-          disabled={!!worktreeReason}
-          reason={worktreeReason}
+          disabled={worktree || !!worktreeReason}
+          reason={worktree ? undefined : worktreeReason}
           onClick={() =>
             props.move({
               change: { mode: "worktree", branch: checkout?.branch ?? undefined },
@@ -87,150 +129,135 @@ export function EnvironmentItems(props: {
             })
           }
         >
-          Move to a worktree
+          Worktree
+          {worktree && <span className="ml-auto text-xs text-subtle-foreground">current</span>}
         </MenuItem>
-      )}
-      {worktree && !switchReason && (
+        <MenuSeparator />
+        <MenuItem icon={glyph(CopyIcon)} disabled={!folder.copy} onClick={folder.copy}>
+          Copy path
+        </MenuItem>
         <MenuItem
-          icon={glyph(LaptopIcon)}
-          disabled={!!switchReason}
-          reason={switchReason}
-          onClick={() =>
-            props.move({ change: { mode: "local" }, done: "Moved to the local checkout" })
-          }
+          icon={glyph(TerminalWindowIcon)}
+          keys={keymap.terminal.keys}
+          onClick={() => {
+            workspace.open({ kind: "terminal" });
+            props.onClose();
+          }}
         >
-          Move to local checkout
+          Open terminal
         </MenuItem>
-      )}
-      <MenuSub>
-        <MenuSubTrigger icon={glyph(FolderOpenIcon)}>Open in…</MenuSubTrigger>
-        <MenuContent>
-          <Suspense fallback={<MenuItem disabled>Looking for editors…</MenuItem>}>
-            <DeferredOpenIn.Component thread={props.thread} />
-          </Suspense>
-        </MenuContent>
-      </MenuSub>
-      <MenuSeparator />
-      <MenuItem icon={glyph(CopyIcon)} disabled={!folder.copy} onClick={folder.copy}>
-        Copy path
-      </MenuItem>
-      {folder.reveal && (
+        <ProjectScriptItems thread={props.thread} onClose={props.onClose} />
+        <MenuSeparator />
         <MenuItem
-          icon={glyph(FolderOpenIcon)}
-          disabled={!folder.reveal}
-          reason={folder.revealReason}
-          onClick={folder.reveal}
+          icon={glyph(GearSixIcon)}
+          onClick={() => {
+            props.onClose();
+            void navigate({ to: "/settings/remote" });
+          }}
         >
-          {folder.revealLabel}
+          Machine settings…
         </MenuItem>
-      )}
-      <MenuItem
-        icon={glyph(TerminalWindowIcon)}
-        keys={keymap.terminal.keys}
-        onClick={() => {
-          workspace.open({ kind: "terminal" });
-          props.onClose();
-        }}
-      >
-        Open terminal
-      </MenuItem>
-      <MenuSeparator />
-      <ProjectScriptItems thread={props.thread} onClose={props.onClose} />
-    </>
-  );
-}
-
-/** The project's checkout actions. */
-function EnvironmentMenu(props: {
-  thread: ThreadRef;
-  trigger: ReactElement;
-  actions?: ReactNode;
-  menuFocus?: (() => HTMLElement | boolean) | undefined;
-  move(move: Move): void;
-  onClose(): void;
-}) {
-  return (
-    <Menu>
-      <MenuTrigger render={props.trigger} />
-      <MenuContent align="end" className="w-[300px]" finalFocus={props.menuFocus}>
-        <EnvironmentItems thread={props.thread} move={props.move} onClose={props.onClose} />
-        {props.actions}
       </MenuContent>
     </Menu>
   );
 }
 
-/** Machine, checkout openers and the project's existing script editor. */
-export function ProjectRow(props: {
-  thread: ThreadRef;
-  move(move: Move): void;
-  onClose(): void;
-  actions?: ReactNode;
-  menuFocus?: (() => HTMLElement | boolean) | undefined;
-  onAddScript(): void;
-}) {
-  const meta = useThreadMeta(props.thread.id);
-  const project = useProjectName()(meta?.workspaceId ?? props.thread.workspaceId);
-  const machine = useMachineIdentity(meta?.details?.machine);
-  const path = meta?.details?.worktree ?? meta?.details?.workspace?.path;
+/**
+ * Open the checkout: in Finder (or the file manager) on this computer, else in the editor used
+ * last, with that app's own icon; the chevron lists every installed editor.
+ */
+function OpenInRow(props: { thread: ThreadRef }) {
+  const details = useThreadMeta(props.thread.id)?.details;
+  const machine = useMachineIdentity(details?.machine);
+  const path = details?.worktree ?? details?.workspace?.path;
   const folder = useFolderActions(path);
+  const { editors, current, unavailable } = useEditors();
+  const editor = current ?? editors?.[0];
+  const launch = useThreadEditorLaunch(props.thread);
+  const finderIcon = useAppIcon(folder.revealLabel === "Show in Finder" ? finder : undefined);
+  const local = machine.primary ? folder.reveal : undefined;
+  const label = local
+    ? folder.revealLabel === "Show in Finder"
+      ? "Open in Finder"
+      : "Open in file manager"
+    : editor
+      ? `Open in ${editor.name}`
+      : "Open in editor";
   return (
-    <section aria-label="Environment" className="py-3">
-      <div className="flex min-w-0 items-center">
-        <div className="flex min-h-(--row-height) min-w-0 flex-1 items-center gap-(--surface-gap) px-2 text-foreground">
-          <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
-            <LaptopIcon aria-hidden size={16} />
-          </span>
-          <Tip label={`${project} · ${path ?? "Reading checkout"}`}>
-            <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{machine.name}</h2>
-          </Tip>
-        </div>
-        <EnvironmentMenu
-          {...props}
-          trigger={<IconButton icon={DotsThreeIcon} label="Project actions" size="sm" />}
-        />
-      </div>
-      <p className="truncate px-8 pb-1 text-xs text-muted-foreground" title={path}>
-        {project}
-        {path ? ` · ${path}` : " · Reading checkout…"}
-      </p>
-      <div className="flex items-center">
-        <Suspense fallback={<RowNote className="flex-1">Reading checkout openers…</RowNote>}>
-          <DeferredOpenButton.Component thread={props.thread} />
-        </Suspense>
-        <Menu>
-          <MenuTrigger
-            render={<IconButton icon={CaretDownIcon} label="Other checkout openers" size="sm" />}
-          />
-          <MenuContent align="end">
-            <Suspense fallback={<MenuItem disabled>Looking for editors…</MenuItem>}>
-              <DeferredOpenIn.Component thread={props.thread} />
-            </Suspense>
-            <MenuSeparator />
-            <MenuItem disabled={!folder.copy} onClick={folder.copy}>
-              Copy path
-            </MenuItem>
-          </MenuContent>
-        </Menu>
-      </div>
+    <div className="flex h-8 items-center rounded-md transition-colors duration-(--motion-fast) hover:bg-accent">
+      <button
+        type="button"
+        title={path}
+        disabled={launch.isPending || (!local && !editor)}
+        aria-description={!local && !editor ? unavailable : undefined}
+        onClick={() => {
+          if (local) local();
+          else if (editor) launch.mutate(editor.id);
+        }}
+        className="focus-ring-inset flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-l-md px-2.5 text-left text-ui text-foreground disabled:text-muted-foreground"
+      >
+        {local ? (
+          finderIcon ? (
+            <img alt="" src={finderIcon} width={16} height={16} className="shrink-0" />
+          ) : (
+            <FolderOpenIcon aria-hidden size={16} className={rowIcon} />
+          )
+        ) : editor ? (
+          <EditorIcon id={editor.id} />
+        ) : (
+          <FolderOpenIcon aria-hidden size={16} className={rowIcon} />
+        )}
+        <RowLabel>{label}</RowLabel>
+      </button>
+      <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
       <Menu>
         <MenuTrigger
           render={
-            <RowButton>
-              <PlusIcon aria-hidden size={16} className={rowIcon} />
-              Add project script
-              <CaretDownIcon aria-hidden size={12} className="ml-auto" />
-            </RowButton>
+            <button
+              type="button"
+              aria-label="Other ways to open"
+              className="focus-ring-inset grid size-8 shrink-0 place-items-center rounded-r-md text-muted-foreground hover:text-foreground"
+            >
+              <RowCaret />
+            </button>
           }
         />
         <MenuContent align="end">
-          <ScriptConfigurationItems
-            thread={props.thread}
-            onClose={props.onClose}
-            onAddScript={props.onAddScript}
-          />
+          <ThreadOpenIn thread={props.thread} />
+          {folder.reveal && !local && (
+            <MenuItem icon={glyph(FolderOpenIcon)} onClick={folder.reveal}>
+              {folder.revealLabel}
+            </MenuItem>
+          )}
+          <MenuSeparator />
+          <MenuItem icon={glyph(CopyIcon)} disabled={!folder.copy} onClick={folder.copy}>
+            Copy path
+          </MenuItem>
         </MenuContent>
       </Menu>
-    </section>
+    </div>
+  );
+}
+
+/** The project's script files to edit, or a new one, from one quiet row. */
+function AddScriptRow(props: { thread: ThreadRef; onClose(): void; onAddScript(): void }) {
+  return (
+    <Menu>
+      <MenuTrigger
+        render={
+          <RowButton>
+            <PlusIcon aria-hidden size={16} className={rowIcon} />
+            <RowLabel>Add project script</RowLabel>
+          </RowButton>
+        }
+      />
+      <MenuContent align="end">
+        <ScriptConfigurationItems
+          thread={props.thread}
+          onClose={props.onClose}
+          onAddScript={props.onAddScript}
+        />
+      </MenuContent>
+    </Menu>
   );
 }

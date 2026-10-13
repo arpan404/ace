@@ -1,10 +1,19 @@
+import { createContext, use } from "react";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
-import { type ThreadCard } from "@ace/ui-core";
+import { type ThreadCard, type Tone } from "@ace/ui-core";
+import {
+  CheckCircleIcon,
+  CircleDashedIcon,
+  HandPalmIcon,
+  XCircleIcon,
+} from "@phosphor-icons/react";
+import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { formatSpan } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
+import { useMachines } from "@/lib/machines.ts";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -67,18 +76,43 @@ export function PullRequest(props: { card: ThreadCard }) {
   );
 }
 
-/** The first line keeps its status word visible during hover, focus and renaming. */
+/** A small glyph beside the status word: the colour is never the only clue. */
+const statusGlyphs: Partial<Record<Tone, IconGlyph>> = {
+  done: CheckCircleIcon,
+  // Drawn still: the app doesn't spin marks, and the elapsed time beside it shows the motion.
+  working: CircleDashedIcon,
+  "needs-you": HandPalmIcon,
+  failed: XCircleIcon,
+};
+
+/**
+ * The first line's status: a glyph and a word in the status colour (Working carries its elapsed
+ * time). A thread at rest, or one already settled, reads its age instead.
+ */
 export function RowStatus(props: { card: ThreadCard }) {
   const { card } = props;
-  if (card.status.tone === "done" || card.status.tone === "idle") return <RowTime card={card} />;
+  const { tone } = card.status;
+  if (tone === "idle" || (tone === "done" && card.flags.settled)) return <RowTime card={card} />;
+  const glyph = statusGlyphs[tone];
   return (
     <StatusLabel
-      tone={card.status.tone}
+      tone={tone}
       label={card.status.compact}
-      mark={false}
-      className="gap-0 text-xs font-normal"
-    />
+      mark={glyph ? <Icon icon={glyph} size={13} className="text-(--tone)" /> : false}
+      className="gap-1 text-xs font-normal"
+    >
+      {tone === "working" && <WorkingFor card={card} />}
+    </StatusLabel>
   );
+}
+
+/** How long the tree has been working, on the shared second clock while the facts are fresh. */
+function WorkingFor(props: { card: ThreadCard }) {
+  const { since } = props.card.status;
+  const fresh = useLiveConnection().fresh;
+  const now = useSeconds(fresh && since !== undefined);
+  if (!fresh || since === undefined) return null;
+  return <span className="tabular-nums">{formatSpan(since, now)}</span>;
 }
 
 /** Only visible, fresh working rows subscribe to the shared second clock. */
@@ -96,9 +130,14 @@ export function RowTime(props: { card: ThreadCard }) {
   );
 }
 
-/** Branch and environment share the last line; the provider keeps the trailing slot. */
+/**
+ * Branch and pull request lead the last line; the provider keeps the trailing slot. A row never
+ * names its machine: with more than one device connected, the machine's icon sits beside the
+ * provider's, its name in the tooltip and the row's spoken details.
+ */
 export function RowContext(props: { card: ThreadCard }) {
   const { card } = props;
+  const devices = use(ManyDevices);
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
       {card.branch && (
@@ -111,24 +150,39 @@ export function RowContext(props: { card: ThreadCard }) {
           <PullRequest card={card} />
         </span>
       )}
-      {card.branch && <span aria-hidden>·</span>}
-      <span
-        className="flex min-w-0 max-w-[45%] items-center gap-1 truncate"
-        title={card.machine ?? "This machine"}
-      >
-        <MachineMark icon={card.machineIcon} />
-        <span className="truncate">{card.machine ?? "This machine"}</span>
-      </span>
-      <span
-        role="img"
-        aria-label={card.providerLabel}
-        className="ml-auto flex shrink-0 items-center gap-1"
-      >
-        {card.subagents > 0 && <span className="tabular-nums">{card.subagents}</span>}
-        <ProviderIcon provider={card.provider} acpAgentId={card.acpAgentId} size={14} decorative />
+      <span className="ml-auto flex shrink-0 items-center gap-1.5">
+        {devices && (
+          <Tip label={card.machine ?? "This machine"}>
+            <span className="inline-flex">
+              <MachineMark icon={card.machineIcon} />
+            </span>
+          </Tip>
+        )}
+        <span role="img" aria-label={card.providerLabel} className="flex items-center gap-1">
+          {card.subagents > 0 && <span className="tabular-nums">{card.subagents}</span>}
+          {/* A black-and-white mark (OpenAI, OpenCode) takes the row's muted ink beside the
+              machine glyph; coloured marks keep their own colours. */}
+          <ProviderIcon
+            provider={card.provider}
+            acpAgentId={card.acpAgentId}
+            size={14}
+            decorative
+            className="text-muted-foreground"
+          />
+        </span>
       </span>
     </div>
   );
+}
+
+/**
+ * More than one of the person's devices is connected: rows show their machine's icon. The list
+ * reads the machines once and hands the answer to every row.
+ */
+export const ManyDevices = createContext(false);
+
+export function useManyDevices(): boolean {
+  return useMachines().filter((machine) => machine.status === "online").length > 1;
 }
 
 /** Unread results and requests take priority over the canonical dimmed flag. */

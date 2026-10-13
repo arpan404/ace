@@ -71,7 +71,7 @@ function ListSkeleton(props: {
           return (
             <span
               key={index}
-              className="flex h-21 flex-col justify-center gap-0.5 border-b border-sidebar-border px-3 py-3"
+              className="mx-2 mb-1 flex h-20 flex-col justify-center gap-0.5 px-2.5 py-3"
             >
               <Skeleton className="h-4 w-5 rounded-xs" style={style} />
               <Skeleton className="h-3" style={{ ...style, width }} />

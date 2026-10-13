@@ -48,6 +48,7 @@ export function Screen(
       title={props.title}
       subtitle={props.subtitle}
       breadcrumb={props.breadcrumb}
+      crumb={props.crumb}
       menu={props.menu}
       tools={props.tools}
       actions={props.actions}

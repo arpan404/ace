@@ -22,8 +22,10 @@ import {
 import { formatAge, formatShortClock } from "./time.ts";
 import {
   describeLive,
+  listTreeFacts,
   liveStatusText,
   threadLiveFact,
+  treeWorking,
   type LiveStatus,
   type LiveFact,
 } from "./live-status.ts";
@@ -191,20 +193,37 @@ export function middleTruncateText(text: string, max: number): string {
   return `${chars.slice(0, head).join("")}…${chars.slice(-tail).join("")}`;
 }
 
+/**
+ * A working tree's full status: "Working", then what holds it when that names something the
+ * row doesn't already say ("Working · bun run dev:relay"). Its subagents are already in the
+ * provider label ("Claude Code · 2 subagents running").
+ */
+function workingLabel(fact: LiveFact | undefined): string {
+  if (fact?.kind === "watching")
+    return fact.count === 1 && fact.title
+      ? `Working · ${fact.title}`
+      : `Working · ${fact.count} background tasks`;
+  if (fact?.kind === "tests") return "Working · running tests";
+  return "Working";
+}
+
 /** Short row wording; the full status remains in the row name and tooltip. */
 function compactStatus(
   entry: ThreadListEntry,
   fact: LiveFact | undefined,
+  working: boolean,
   now: number,
   locale?: string,
 ): string {
+  // The transcript's live line reads the same rule, so the two never disagree.
+  if (working) return "Working";
   if (fact?.kind === "asking") {
     if (fact.request === "approval") return "Approve";
     return fact.request === "plan_review" ? "Needs you" : "Answer";
   }
   if (fact?.kind === "limited" && fact.until !== undefined && fact.until > now)
     return `Limited ${formatShortClock(fact.until, locale)}`;
-  if (fact?.kind === "subagents" || entry.status.state === "waiting") return "Waiting";
+  if (entry.status.state === "waiting") return "Waiting";
   if (entry.status.state === "unresponsive") return "Failed";
   return threadStatusLabel(entry.status).label;
 }
@@ -224,10 +243,20 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
   const subagents = entry.live?.runningSubagentCount ?? runningSubagents(entry.status);
   // What it is doing, when the daemon's live hints say more than its state.
   const fact = threadLiveFact(entry);
-  const live = fact && describeLive(fact, now, input.locale);
+  const described = fact && describeLive(fact, now, input.locale);
+  // A tree still running reads as Working on every surface, whatever its root waits on.
+  const working = treeWorking(listTreeFacts(entry));
+  const since = entry.live?.workingSince ?? activityOf(entry);
+  // Every surface's word for a working tree is Working, spoken label and hover card included;
+  // what it waits on or runs only follows it.
+  const live = working ? undefined : described;
   const { label, tone } =
     recovery ??
-    (live ? { label: liveStatusText(live), tone: live.tone } : threadStatusLabel(entry.status));
+    (working
+      ? { label: workingLabel(fact), tone: "working" as const }
+      : live
+        ? { label: liveStatusText(live), tone: live.tone }
+        : threadStatusLabel(entry.status));
   return {
     id: entry.id,
     title: entry.title,
@@ -241,12 +270,14 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
       ? undefined
       : recovery
         ? { ...recovery, icon: recovery.tone === "failed" ? "failed" : "waiting" }
-        : live
-          ? livePill(live)
-          : taskPill(entry.status, {
-              unread,
-              since: entry.live?.workingSince ?? activityOf(entry),
-            }),
+        : working
+          ? { label: "Working", tone: "working", icon: "working", since }
+          : live
+            ? livePill(live)
+            : taskPill(entry.status, {
+                unread,
+                since: entry.live?.workingSince ?? activityOf(entry),
+              }),
     diff:
       details?.diff && (details.diff.added > 0 || details.diff.removed > 0)
         ? details.diff
@@ -273,10 +304,8 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
       label,
       tone,
       mark: recovery?.mark ?? threadStatusMark(entry.status),
-      compact: recovery?.label ?? compactStatus(entry, fact, now, input.locale),
-      ...(entry.status.state === "working" && fact?.kind !== "subagents"
-        ? { since: entry.live?.workingSince ?? activityOf(entry) }
-        : {}),
+      compact: recovery?.label ?? compactStatus(entry, fact, working, now, input.locale),
+      ...(working ? { since } : {}),
     },
     provider: entry.provider,
     subagents,

@@ -20,7 +20,7 @@ test("the agent tree shows subagents as they spawn and marks the one that fails"
 
   await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  expect(within(panel).getByRole("tab", { name: "Work", selected: true })).toBeTruthy();
+  expect(within(panel).getByRole("tab", { name: "Summary", selected: true })).toBeTruthy();
   await within(panel).findByRole("treeitem", { name: "Main agent: Working" });
   expect(within(panel).queryByRole("treeitem", { name: /migration-tester/ })).toBeNull();
 
@@ -39,7 +39,7 @@ test("the agent tree shows subagents as they spawn and marks the one that fails"
   expect(within(detail).getByRole("heading", { name: "migration-tester" })).toBeTruthy();
 });
 
-test("the Work tree shows what each agent is doing, the background shell, and why the thread isn't done", async () => {
+test("the Summary tree shows what each agent is doing, the background shell, and why the thread isn't done", async () => {
   const app = harness();
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
@@ -154,7 +154,7 @@ test("a subagent opens as its own tab: who started it, what it was asked, and on
   expect(within(panel).getByText(/Ask the main agent in the thread's composer/)).toBeTruthy();
 
   await userEvent.click(within(panel).getByRole("button", { name: /Back to agents/ }));
-  expect(within(panel).getByRole("tab", { name: "Work", selected: true })).toBeTruthy();
+  expect(within(panel).getByRole("tab", { name: "Summary", selected: true })).toBeTruthy();
   // The agent's tab stays open beside the tree.
   expect(within(panel).getByRole("tab", { name: "resume-sweep" })).toBeTruthy();
 });
@@ -245,6 +245,28 @@ const nested: Scenario = {
     },
   ],
 };
+
+test("a click on a nested agent's chevron folds its subagents without opening it; the rest of the row opens it", async () => {
+  const app = harness();
+  app.play(nested).runUntilBlocked();
+  const panel = await openAgents(app, "/t/thread-nested");
+  const sweep = await within(panel).findByRole("treeitem", { name: /^resume-sweep:/ });
+  expect(sweep.getAttribute("aria-expanded")).toBe("true");
+  // The chevron is a pointer target only (the row folds with ← → from the keyboard).
+  const chevron = sweep.querySelector("[data-capsule-fold]");
+  if (!(chevron instanceof HTMLElement)) throw new Error("No chevron on a row with subagents");
+  await userEvent.click(chevron);
+  expect(sweep.getAttribute("aria-expanded")).toBe("false");
+  expect(within(panel).queryByRole("treeitem", { name: /^web-probe:/ })).toBeNull();
+  expect(within(panel).queryByRole("tab", { name: "resume-sweep" })).toBeNull();
+  await userEvent.click(chevron);
+  expect(await within(panel).findByRole("treeitem", { name: /^web-probe:/ })).toBeTruthy();
+
+  await userEvent.click(within(sweep).getByText("resume-sweep"));
+  expect(
+    await within(panel).findByRole("tab", { name: "resume-sweep", selected: true }),
+  ).toBeTruthy();
+});
 
 test("Stop on an agent with subagents says how many go with it and asks first", async () => {
   const app = harness();

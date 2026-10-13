@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { modelLabel, providerDisplayName, type ThreadCard } from "@ace/ui-core";
 import { GitBranchIcon } from "@phosphor-icons/react";
@@ -6,7 +6,12 @@ import { HoverCardContent } from "@/components/ui/hover-card.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useAccountViews } from "@/lib/account-views.ts";
-import { PullRequest, RowStatus } from "./row-parts.tsx";
+import { ProjectMark, PullRequest, RowStatus } from "./row-parts.tsx";
+
+/** One compact line of the card: a glyph and its fact. */
+function Fact(props: { children: ReactNode }) {
+  return <div className="flex h-7 min-w-0 items-center gap-2">{props.children}</div>;
+}
 
 /** Metadata already in the row and shared account cache; no history or per-thread fetch. */
 export function ThreadHoverContent(props: {
@@ -24,81 +29,91 @@ export function ThreadHoverContent(props: {
     entry.switch?.state === "queued" && entry.switch.selection.instanceId === account?.id;
   return (
     <HoverCardContent
-      side="bottom"
-      sideOffset={6}
+      // Beside the row, level with its top, so it never covers the rows below; it flips to the
+      // left only when the window has no room on the right.
+      side="right"
+      sideOffset={8}
       align="start"
       collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
       aria-label={`Details for ${card.title}`}
-      className="w-[calc(var(--anchor-width)-16px)] max-w-[calc(100vw-24px)] max-h-[min(var(--available-height),400px,calc(100dvh-24px))] space-y-2 overflow-y-auto px-3 py-2.5 break-words"
+      className="w-72 max-h-[min(var(--available-height),400px,calc(100dvh-24px))] overflow-y-auto px-3 py-2.5 break-words"
     >
-      <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <span
-          className="rounded-sm bg-secondary px-2 py-1 font-medium text-foreground"
-          aria-label={`Project ${card.project}`}
-        >
-          {card.project}
-        </span>
-        <span aria-hidden>·</span>
+      <p className="text-ui leading-5 font-medium text-foreground">{card.title}</p>
+      {/* The row's own status, so the card and the row can never word it differently. */}
+      <div data-hover-status className="mt-0.5 flex">
         <RowStatus card={card} />
       </div>
-      <p className="text-ui leading-5 font-medium text-foreground">{card.title}</p>
-      <p className="text-xs text-muted-foreground">
-        {card.status.label} · {card.age}
-      </p>
-      <div className="space-y-1.5 text-xs leading-4 text-muted-foreground">
-        <div className="flex items-center gap-2">
+      <div className="mt-1.5 text-ui text-muted-foreground">
+        <Fact>
+          <ProjectMark badge={card.badge} />
+          <span className="min-w-0 truncate">{card.project}</span>
+        </Fact>
+        <Fact>
           <MachineMark icon={card.machineIcon} />
-          <span>{card.machine ?? "This machine"}</span>
-        </div>
+          <span className="min-w-0 truncate">{card.machine ?? "This machine"}</span>
+        </Fact>
         {card.branch && (
-          <div className="flex items-start gap-2">
-            <GitBranchIcon aria-hidden size={14} className="mt-px shrink-0" />
-            <span>{card.branch.name}</span>
-          </div>
+          <Fact>
+            <GitBranchIcon aria-hidden size={14} className="shrink-0" />
+            <span className="min-w-0 truncate" title={card.branch.name}>
+              {card.branch.name}
+            </span>
+          </Fact>
         )}
-        <div className="flex items-start gap-2">
+        <Fact>
+          {/* A black-and-white mark takes the card's muted ink, as in the row. */}
           <ProviderIcon
             provider={card.provider}
             acpAgentId={card.acpAgentId}
             size={14}
             decorative
+            className="text-muted-foreground"
           />
-          <span>
+          <span className="shrink-0">
             {providerDisplayName(card.provider, card.acpAgentId)}
             {account ? ` · ${account.label}${queued ? " (queued)" : ""}` : ""}
-            {card.subagents > 0 && (
-              <span
-                className="ml-2 whitespace-nowrap"
-                aria-label={`${card.subagents} subagents running`}
-              >
-                ⑂ {card.subagents}
-              </span>
-            )}
           </span>
-        </div>
-        {model && (
-          <p className="pl-[22px]" data-model={model} aria-label={`Model: ${modelLabel(model)}`}>
-            {modelLabel(model)}
-          </p>
-        )}
-        {(card.pr !== undefined || card.diff) && (
-          <div className="flex flex-wrap items-center gap-3 pt-0.5">
-            {card.prs?.length
-              ? card.prs.map((pr) => (
-                  <div
-                    key={`${pr.repo.host}/${pr.repo.owner}/${pr.repo.name}/${pr.number}`}
-                    className="flex w-full min-w-0 items-center gap-2"
-                  >
-                    <PullRequest
-                      card={{ ...card, pr: pr.number, prState: pr.state, prs: undefined }}
-                    />
+          {model && (
+            <span
+              className="min-w-0 truncate text-subtle-foreground"
+              data-model={model}
+              aria-label={`Model: ${modelLabel(model)}`}
+            >
+              {modelLabel(model)}
+            </span>
+          )}
+          {card.subagents > 0 && (
+            <span
+              className="ml-auto shrink-0 tabular-nums"
+              aria-label={`${card.subagents} subagents running`}
+            >
+              ⑂ {card.subagents}
+            </span>
+          )}
+        </Fact>
+      </div>
+      {(card.pr !== undefined || card.diff) && (
+        <div className="mt-1.5 border-t border-border pt-1.5 text-ui text-muted-foreground">
+          {card.prs?.length
+            ? card.prs.map((pr) => (
+                <Fact key={`${pr.repo.host}/${pr.repo.owner}/${pr.repo.name}/${pr.number}`}>
+                  <PullRequest
+                    card={{ ...card, pr: pr.number, prState: pr.state, prs: undefined }}
+                  />
+                  {pr.title && (
                     <span className="min-w-0 truncate" title={pr.title}>
                       {pr.title}
                     </span>
-                  </div>
-                ))
-              : card.pr !== undefined && <PullRequest card={card} />}
-            {card.diff && (
+                  )}
+                </Fact>
+              ))
+            : card.pr !== undefined && (
+                <Fact>
+                  <PullRequest card={card} />
+                </Fact>
+              )}
+          {card.diff && (
+            <Fact>
               <span
                 role="img"
                 aria-label={`${card.diff.added} lines added, ${card.diff.removed} lines removed`}
@@ -107,10 +122,10 @@ export function ThreadHoverContent(props: {
                 <span className="text-status-done">+{card.diff.added}</span>
                 <span className="text-status-failed">−{card.diff.removed}</span>
               </span>
-            )}
-          </div>
-        )}
-      </div>
+            </Fact>
+          )}
+        </div>
+      )}
     </HoverCardContent>
   );
 }

@@ -35,7 +35,7 @@ test("completed rows announce unread results and retain full status after markin
     expect(card(done).getAttribute("aria-label")).not.toContain(", unread");
   });
   expect(card(done).getAttribute("aria-label")).not.toContain(", unread");
-  expect(within(card(done)).queryByText("Done", { exact: true })).toBeNull();
+  expect(within(card(done)).getByText("Done", { exact: true })).toBeTruthy();
   await read(done, true);
   await waitFor(() => expect(card(done).getAttribute("aria-label")).toContain(", unread"));
   expect(card(done).getAttribute("aria-label")).toContain(", unread");

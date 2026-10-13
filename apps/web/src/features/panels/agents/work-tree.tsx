@@ -8,7 +8,7 @@ import {
   useThreadMeta,
   type AgentTreeNode,
 } from "@ace/client-react";
-import { ClockIcon, RobotIcon, TerminalIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CaretRightIcon, ClockIcon, RobotIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { createContext, use, useCallback, useId, useMemo, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -21,12 +21,20 @@ import { ArrivalScope, useArrival } from "@/lib/arrival.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { AgentStatusMark } from "./agent-status.tsx";
+import { agentMark } from "./agent-status.tsx";
+import {
+  badgeWords,
+  capsule,
+  CapsuleBadge,
+  CapsuleGlyph,
+  CapsuleMeta,
+  type CapsuleState,
+} from "./task-capsule.tsx";
 import { StopAgent } from "./stop-agent.tsx";
 import { subagentCounts } from "./subagents.ts";
 import { AgentCounts } from "./tree-extras.tsx";
 
-const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-muted-foreground";
+const heading = "flex h-7 items-center px-2.5 pt-1 text-xs text-muted-foreground";
 
 /** The tree's roving focus and folded branches, shared by its rows. */
 interface TreeState {
@@ -115,7 +123,7 @@ export function WorkTree(props: { threadId: string }) {
   return (
     <TreeWorkContext value={facts.work}>
       <ArrivalScope>
-        <div className="px-2.5 pt-2 pb-5">
+        <div className="pb-1">
           <AgentCounts agents={facts.agents} work={facts.work} />
           {tree.length ? (
             <AgentTree threadId={props.threadId} nodes={tree} />
@@ -153,13 +161,13 @@ function QueueRow(props: { count: number }) {
   return (
     <li
       aria-label={`${label}: waiting for the agent`}
-      className={cn("flex h-8 items-center gap-2 rounded-lg px-2 text-ui", arrival)}
+      className={cn("mb-1 flex h-9 items-center gap-2 px-2.5 text-ui", capsule, arrival)}
     >
-      <ClockIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
-      <span className="font-medium">{label}</span>
-      <span className="truncate text-xs text-muted-foreground">
-        {props.count > 1 ? "send" : "sends"} when the agent is free
+      <span className="grid size-[18px] shrink-0 place-items-center text-muted-foreground">
+        <ClockIcon aria-hidden size={15} />
       </span>
+      <span className="font-medium">{label}</span>
+      <CapsuleMeta>{props.count > 1 ? "send" : "sends"} when the agent is free</CapsuleMeta>
     </li>
   );
 }
@@ -267,28 +275,20 @@ function AgentRow(props: {
     toolTitle: tool?.type === "tool_call" ? tool.call.title : undefined,
   });
   const end = agent.endedAt ?? (running ? Math.max(now, agent.createdAt) : agent.createdAt);
+  const mark = agentMark(status, running, needsYou);
+  const state: CapsuleState = mark === "spinner" ? "working" : mark;
+  const badge = needsYou ? "Needs you" : badgeWords[state];
   const body = (
     <>
-      {props.depth > 0 && (
-        <span
-          aria-hidden
-          style={{ left: props.depth * 22 - 7 }}
-          className="absolute -top-1.5 bottom-1/2 w-2.5 rounded-bl-md border-b-[1.5px] border-l-[1.5px]"
-        />
-      )}
-      <AgentStatusMark status={status} pending={running} needsYou={needsYou} />
+      <CapsuleGlyph state={state} count={running ? props.subagents : undefined} />
       <span className="shrink-0 font-medium whitespace-nowrap">{name}</span>
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate text-xs text-muted-foreground",
-          status.state === "failed" && "text-status-failed",
-        )}
-      >
+      <CapsuleMeta className={cn("flex-1", status.state === "failed" && "text-status-failed")}>
         {activity}
-      </span>
+      </CapsuleMeta>
       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
         {end - agent.createdAt >= 1000 ? formatSpan(agent.createdAt, end) : ""}
       </span>
+      {badge && <CapsuleBadge state={state}>{badge}</CapsuleBadge>}
       <ProviderIconTip
         provider={agent.native.provider}
         acpAgentId={agent.native.acpAgentId}
@@ -300,8 +300,12 @@ function AgentRow(props: {
     if (!root) workspace.open({ kind: "agent", id: agent.id, title: name });
   };
   return (
-    <div className="group/agent flex flex-wrap items-center gap-1 rounded-lg hover:bg-accent">
-      {/* The row is the tree item: Enter or a click opens the agent as its own tab. */}
+    <div
+      style={{ marginLeft: props.depth * 16 }}
+      className={cn("group/agent mb-1 flex flex-wrap items-center gap-1", capsule)}
+    >
+      {/* The row is the tree item: Enter or a click opens the agent as its own tab; a click on
+          its chevron, or anywhere on the main agent (which has no tab), folds its subagents. */}
       <div
         role="treeitem"
         data-agent={agent.id}
@@ -312,14 +316,20 @@ function AgentRow(props: {
         aria-description={root ? undefined : `Opens ${name}`}
         tabIndex={tree.active === agent.id ? 0 : -1}
         onFocus={() => tree.setActive(agent.id)}
-        onClick={open}
-        style={{ paddingLeft: 8 + props.depth * 22 }}
+        onClick={(event) => {
+          const onChevron =
+            event.target instanceof Element && event.target.closest("[data-capsule-fold]");
+          if (props.expanded !== undefined && (root || onChevron))
+            return tree.fold(agent.id, !props.expanded);
+          open();
+        }}
         className={cn(
-          "focus-ring-inset relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg pr-2 text-left text-ui",
-          !root && "cursor-pointer",
+          "focus-ring-inset relative flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[10px] pr-1 pl-2.5 text-left text-ui",
+          (!root || props.expanded !== undefined) && "cursor-pointer",
         )}
       >
         {body}
+        <CapsuleChevron expanded={props.expanded} opens={!root} />
       </div>
       {running && !root && thread && (
         <StopAgent
@@ -359,23 +369,24 @@ function TaskRow(props: { threadId: string; taskId: string }) {
     <li
       aria-label={`${task.title}: ${taskState(task)}`}
       className={cn(
-        "flex min-h-8 flex-wrap items-center gap-2 rounded-lg px-2 text-ui hover:bg-accent",
+        "mb-1 flex min-h-9 flex-wrap items-center gap-2 pr-1 pl-2.5 text-ui",
+        capsule,
         arrival,
       )}
     >
-      <TerminalIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
+      <CapsuleGlyph state="working" />
       <button
         type="button"
-        className="focus-ring min-w-0 shrink truncate rounded-sm font-mono text-sm"
+        className="focus-ring min-w-0 shrink truncate rounded-sm font-mono text-xs"
         onClick={() => workspace.open({ kind: "shell", id: task.id })}
         aria-label={`Show ${backgroundCommand(task, item)} output`}
       >
         {backgroundCommand(task, item)}
       </button>
-      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+      <CapsuleMeta className="flex-1">
         {end - task.startedAt >= 1000 ? `${formatSpan(task.startedAt, end)} · ` : ""}
         {taskState(task)}
-      </span>
+      </CapsuleMeta>
       {task.stoppable && (
         <Button
           size="sm"
@@ -392,5 +403,29 @@ function TaskRow(props: { threadId: string; taskId: string }) {
         </span>
       )}
     </li>
+  );
+}
+
+/**
+ * A capsule's chevron, drawn inside its tree item, whose click handles it: ⌄ on an agent with
+ * subagents folds them (as ← → do), › on one that opens as its own tab.
+ */
+function CapsuleChevron(props: { expanded: boolean | undefined; opens: boolean }) {
+  if (props.expanded === undefined && !props.opens) return null;
+  const Glyph = props.expanded === undefined ? CaretRightIcon : CaretDownIcon;
+  return (
+    <span
+      aria-hidden
+      data-capsule-fold={props.expanded === undefined ? undefined : ""}
+      className="mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:text-foreground"
+    >
+      <Glyph
+        size={14}
+        className={cn(
+          "transition-transform duration-(--motion-base) ease-spring",
+          props.expanded === false && "-rotate-90",
+        )}
+      />
+    </span>
   );
 }

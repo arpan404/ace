@@ -38,8 +38,9 @@ export function useStayPinned(
       glideToEnd(el, true);
     });
     observer.observe(el);
-    // Its bottom padding changes when the overlaid composer grows, including a deferred mount.
-    if (content) observer.observe(content);
+    // Its bottom padding changes when the overlaid composer grows (a staged attachment, a
+    // deferred mount). Padding sits outside the content box a default observer watches.
+    if (content) observer.observe(content, { box: "border-box" });
     return () => observer.disconnect();
   }, [viewport, pinned, glidingUntil]);
 }

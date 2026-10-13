@@ -81,7 +81,7 @@ export function AppearanceSettings() {
       <SettingSection label="Display" card scope="device">
         <SettingRow
           {...settingRow("appearance.density")}
-          description="Spacing in settings, lists and Work details."
+          description="Spacing in settings, lists and details."
         >
           <SegmentedControl
             label="Density"

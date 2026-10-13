@@ -122,23 +122,8 @@ export function threadActions(
       run: handlers.onMove,
     },
   ];
-  if (flags.settled)
-    list.push({
-      id: "unsettle",
-      label: "Unsettle",
-      icon: ArrowCounterClockwiseIcon,
-      section: "settle",
-      run: () => actions.unsettle(entry),
-    });
-  // The daemon settles only finished work.
-  else if (entry.status.state === "done")
-    list.push({
-      id: "settle",
-      label: "Settle",
-      icon: CheckIcon,
-      section: "settle",
-      run: () => actions.settle(entry),
-    });
+  const settle = settleAction(entry, flags, actions);
+  if (settle) list.push(settle);
   list.push(
     entry.archivedAt === undefined
       ? {
@@ -171,6 +156,33 @@ export function threadActions(
     },
   );
   return list;
+}
+
+/**
+ * Settle a finished thread, or Unsettle a settled one; nothing while work continues, since the
+ * daemon settles only finished work. The menus and the Home row's hover action share it.
+ */
+export function settleAction(
+  entry: ThreadListEntry,
+  flags: ThreadRowFlags,
+  actions: ThreadActions,
+): ThreadAction | undefined {
+  if (flags.settled)
+    return {
+      id: "unsettle",
+      label: "Unsettle",
+      icon: ArrowCounterClockwiseIcon,
+      section: "settle",
+      run: () => actions.unsettle(entry),
+    };
+  if (entry.status.state !== "done") return undefined;
+  return {
+    id: "settle",
+    label: "Settle",
+    icon: CheckIcon,
+    section: "settle",
+    run: () => actions.settle(entry),
+  };
 }
 
 /**

@@ -9,7 +9,7 @@ import {
   GlobeSimpleIcon,
   PlusIcon,
   RobotIcon,
-  ListBulletsIcon,
+  ClipboardTextIcon,
 } from "@phosphor-icons/react";
 import { ChangesSkeleton, FilesSkeleton } from "./tab-skeletons.tsx";
 import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
@@ -180,10 +180,11 @@ export const deviceKind = defineTabKind({
   load: () => import("./devices-view.tsx").then((m) => ({ default: m.DeviceView })),
 });
 
+/** The thread's Summary: its plans, the whole agent tree, background commands and schedules. */
 export const workKind = defineTabKind({
   kind: "work",
-  label: "Work",
-  icon: ListBulletsIcon,
+  label: "Summary",
+  icon: ClipboardTextIcon,
   singleton: true,
   pinned: true,
   launcher: 0,

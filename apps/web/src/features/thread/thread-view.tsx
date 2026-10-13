@@ -23,7 +23,6 @@ import { useFileDrop } from "./composer/file-drop.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import type { ThreadRef } from "./sources/index.ts";
-import { ThreadLink } from "./transitions/thread-link.tsx";
 import { ForkOpener } from "./transitions/fork-opener.ts";
 import { ThreadLoadError } from "./thread-load-error.tsx";
 import { SyncingNote, ThreadLoading } from "./thread-loading.tsx";
@@ -55,7 +54,6 @@ import {
   DeferredAgentComposer,
   DeferredThreadHotkeys,
   DeferredThreadMenu,
-  DeferredWorkEnvironment,
   DeferredTurnsPanel,
   preloadDeferred,
 } from "./deferred.ts";
@@ -68,7 +66,10 @@ import { UserMessage } from "./items/user-message.tsx";
 import { ActivityLine } from "./transcript/live-footer.tsx";
 import { LongThreadHotkeys } from "./long/nav-keys.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
-import { useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { ThreadCrumb } from "./header/thread-crumb.tsx";
+import { WorkButton } from "./header/work-button.tsx";
+import { createWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
+import { WorkSide } from "./header/work-side.tsx";
 
 /**
  * A thread New thread started a moment ago, until the daemon names it: its view's code loads
@@ -115,9 +116,9 @@ export interface ThreadTarget {
 }
 
 /**
- * A thread: the transcript and composer in the main column; in the header only its title, the ⋯
- * menu and the side panel toggle; its panel tabs include Work, Changes, terminals, Files
- * and Browser. A long
+ * A thread: the transcript and composer in the main column; in the header its title, the ⋯
+ * menu, the thread details icon and the side panel toggle; its panel tabs include Summary, Changes,
+ * terminals, Files and Browser. A long
  * thread adds its turns and search.
  */
 export function ThreadView(props: { threadId: string; target?: ThreadTarget | undefined }) {
@@ -157,7 +158,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
     () => ({
       ...outer,
       AgentTranscript,
-      WorkEnvironment: DeferredWorkEnvironment.Component,
       SideChatComposer,
       AgentComposer,
       fork: forkPoint && (() => setForking(forkPoint)),
@@ -187,7 +187,8 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const composer = useRef<ComposerHandle>(null);
   // Files dropped anywhere on the thread, or pasted outside a field, go to its composer.
   const drop = useFileDrop(composer);
-  useWorkShortcut(id);
+  const [workCard] = useState(createWorkCardStore);
+  useHotkey(keymap.workCard.keys, workCard.toggle, { id: "workCard" });
   const thread = useMemo<ThreadRef | undefined>(
     () =>
       meta && title !== undefined
@@ -197,93 +198,91 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   );
   return (
     <ThreadPartsProvider value={parts}>
-      <Screen
-        breadcrumb={
-          meta?.lineage && (
-            <>
-              Forked from{" "}
-              <ThreadLink threadId={meta.lineage.parentThreadId} fallback="parent thread" />
-            </>
-          )
-        }
-        title={
-          renaming && thread ? (
-            <Suspense fallback={null}>
-              <InlineRenameField thread={thread} onDone={() => setRenaming(false)} />
-            </Suspense>
-          ) : error ? (
-            "Thread unavailable"
-          ) : (
-            (title ?? "")
-          )
-        }
-        progress={meta && !error ? <SyncingNote threadId={id} /> : undefined}
-        menu={
-          thread && (
-            <Suspense fallback={null}>
-              <DeferredThreadMenu.Component
-                onAttachments={() => setAttachmentsOpen(true)}
-                thread={thread}
-                onRename={() => setRenaming(true)}
-                onFork={setForking}
-                onMerge={() => setMerging(true)}
-              />
-            </Suspense>
-          )
-        }
-        workspace={{ scope: id, definition: threadWorkspace }}
-      >
-        {error ? (
-          <ThreadLoadError error={error} />
-        ) : !meta ? (
-          <ThreadLoading />
-        ) : (
-          <ForkOpener value={setForking}>
-            <div
-              data-thread-column
-              className="relative grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
-              {...drop.handlers}
-            >
-              {drop.overlay}
-              {nav.turnsOpen && (
-                <Suspense fallback={null}>
-                  <DeferredTurnsPanel.Component nav={nav} />
-                </Suspense>
-              )}
-              <div className="col-start-1 row-start-1 min-h-0 min-w-0">
-                <Transcript threadId={id} />
-              </div>
-              <TargetJump target={props.target} pending={requests ?? []} />
+      <WorkCardContext value={workCard}>
+        <Screen
+          crumb={meta && <ThreadCrumb threadId={id} />}
+          title={
+            renaming && thread ? (
               <Suspense fallback={null}>
-                <ThreadBrowser threadId={id} />
+                <InlineRenameField thread={thread} onDone={() => setRenaming(false)} />
               </Suspense>
-              {thread && (
-                <ThreadComposer
+            ) : error ? (
+              "Thread unavailable"
+            ) : (
+              (title ?? "")
+            )
+          }
+          progress={meta && !error ? <SyncingNote threadId={id} /> : undefined}
+          menu={
+            thread && (
+              <Suspense fallback={null}>
+                <DeferredThreadMenu.Component
+                  onAttachments={() => setAttachmentsOpen(true)}
                   thread={thread}
-                  status={meta?.status}
-                  composer={composer}
-                  requestTarget={props.target?.itemId}
+                  onRename={() => setRenaming(true)}
+                  onFork={setForking}
+                  onMerge={() => setMerging(true)}
                 />
-              )}
-            </div>
-          </ForkOpener>
-        )}
-        <LongThreadHotkeys />
-        {thread && (
+              </Suspense>
+            )
+          }
+          tools={thread && !error && <WorkButton threadId={id} />}
+          workspace={{ scope: id, definition: threadWorkspace }}
+        >
+          {error ? (
+            <ThreadLoadError error={error} />
+          ) : !meta ? (
+            <ThreadLoading />
+          ) : (
+            <ForkOpener value={setForking}>
+              <div
+                data-thread-column
+                className="relative grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
+                {...drop.handlers}
+              >
+                {/* First in the area: Tab reaches an open details card straight after the header. */}
+                <WorkSide threadId={id} />
+                {drop.overlay}
+                {nav.turnsOpen && (
+                  <Suspense fallback={null}>
+                    <DeferredTurnsPanel.Component nav={nav} />
+                  </Suspense>
+                )}
+                <div className="col-start-1 row-start-1 min-h-0 min-w-0">
+                  <Transcript threadId={id} />
+                </div>
+                <TargetJump target={props.target} pending={requests ?? []} />
+                <Suspense fallback={null}>
+                  <ThreadBrowser threadId={id} />
+                </Suspense>
+                {thread && (
+                  <ThreadComposer
+                    thread={thread}
+                    status={meta?.status}
+                    composer={composer}
+                    requestTarget={props.target?.itemId}
+                  />
+                )}
+              </div>
+            </ForkOpener>
+          )}
+          <LongThreadHotkeys />
+          {thread && (
+            <Suspense fallback={null}>
+              <DeferredThreadHotkeys.Component thread={thread} onRename={() => setRenaming(true)} />
+            </Suspense>
+          )}
           <Suspense fallback={null}>
-            <DeferredThreadHotkeys.Component thread={thread} onRename={() => setRenaming(true)} />
+            {attachmentsOpen && thread && (
+              <AttachmentsSheet thread={thread} onClose={() => setAttachmentsOpen(false)} />
+            )}
+            {merging && thread && <MergeDialog thread={thread} onClose={() => setMerging(false)} />}
+            {forking && thread && (
+              <ForkDialog thread={thread} point={forking} onClose={() => setForking(undefined)} />
+            )}
           </Suspense>
-        )}
-        <Suspense fallback={null}>
-          {attachmentsOpen && thread && (
-            <AttachmentsSheet thread={thread} onClose={() => setAttachmentsOpen(false)} />
-          )}
-          {merging && thread && <MergeDialog thread={thread} onClose={() => setMerging(false)} />}
-          {forking && thread && (
-            <ForkDialog thread={thread} point={forking} onClose={() => setForking(undefined)} />
-          )}
-        </Suspense>
-      </Screen>
+        </Screen>
+      </WorkCardContext>
     </ThreadPartsProvider>
   );
 }
@@ -303,10 +302,4 @@ function TargetJump(props: { target: ThreadTarget | undefined; pending: readonly
     else nav.jump.live();
   }, [nav.jump, seq, query, itemId, pending]);
   return null;
-}
-
-/** The former Work-card shortcut now opens the shared Work tab. */
-function useWorkShortcut(threadId: string) {
-  const actions = useWorkspaceActions(threadId);
-  useHotkey(keymap.workCard.keys, () => actions.toggleKind("work"), { id: "workCard" });
 }
