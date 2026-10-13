@@ -230,7 +230,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
               void this.#intents
                 .refuse(message.commandId, message.code, message.retryable === true)
                 .catch(() => this.connection.fail(new ClientError("storage")));
-            } else this.connection.fail(new ClientError("daemon", message.code));
+            }
+            // An error tied to nothing (a refused fire-and-forget message such as
+            // `notification.preferences`) leaves the connection up: message listeners still
+            // see it, and the daemon closes the socket itself when the session can't go on.
             break;
           default:
             this.#subscriptions.receive(message);
@@ -420,7 +423,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         if (stored !== null) {
           const host = HostId.parse(stored);
           if (this.#hostId && this.#hostId !== host)
-            throw new ClientError("auth", "Outbox belongs to another daemon");
+            throw new ClientError("storage", "Outbox belongs to another daemon");
           this.#hostId = host;
           this.options.expectedHostId = host;
           this.#binding = Promise.resolve();
@@ -519,7 +522,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     if (this.options.storage.hostBinding) {
       if (!this.#hostId)
         throw new ClientError(
-          "auth",
+          "offline",
           "Connect to verify the outbox's daemon identity before saving work",
         );
       await this.#bindHost(this.#hostId);

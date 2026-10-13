@@ -12,6 +12,13 @@ import type { NotificationTransport } from "./service.ts";
 import { FromWorker, WorkerConfig, ToWorker, type WorkerCall } from "./worker-wire.ts";
 import { metadata, type MetadataEvent } from "./metadata.ts";
 
+/** A message that claims to be a worker reply: an object with a string `type`. */
+function isWireFrame(input: unknown): boolean {
+  return (
+    typeof input === "object" && input !== null && typeof Reflect.get(input, "type") === "string"
+  );
+}
+
 type WorkerOptionsInput = {
   path: string;
   windowMs?: number;
@@ -91,6 +98,9 @@ export class NotificationWorker {
     });
     worker.on("message", (input: unknown) => {
       if (this.worker !== worker || this.failed) return;
+      // Node's own tooling posts on the same channel (`node --watch` sends `watch:import`
+      // records from every worker). Only frames that claim to be this wire's are judged.
+      if (!isWireFrame(input)) return;
       const parsed = FromWorker.safeParse(input);
       if (!parsed.success) {
         this.fail(new Error("Invalid notification worker reply"));
