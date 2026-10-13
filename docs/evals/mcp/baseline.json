@@ -1,0 +1,162 @@
+{
+  "label": "baseline (main 888534473)",
+  "tasks": [
+    {
+      "id": "where-am-i",
+      "title": "Find where I am: project, branch, access mode, title state, live siblings",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 3,
+        "ownToolCalls": 1,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 4,
+        "contextBytes": 59964,
+        "tokens": 14991
+      },
+      "note": "all facts correct"
+    },
+    {
+      "id": "delegate-two",
+      "title": "Delegate two tasks and collect both results",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 5,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 4,
+        "contextBytes": 58057,
+        "tokens": 14515
+      },
+      "note": "2 children settled"
+    },
+    {
+      "id": "browser-check",
+      "title": "Open the dev server in the browser and report console and network errors",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 3,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 4,
+        "contextBytes": 56569,
+        "tokens": 14143
+      },
+      "note": "console error found, 500 found"
+    },
+    {
+      "id": "recent-work",
+      "title": "Read the project's recent work and its outcome",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 2,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 3,
+        "contextBytes": 60568,
+        "tokens": 15142
+      },
+      "note": "outcome found"
+    },
+    {
+      "id": "visualize",
+      "title": "Render a small comparison as HTML",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 2,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 3,
+        "contextBytes": 55682,
+        "tokens": 13921
+      },
+      "note": "rendered"
+    },
+    {
+      "id": "recover-bad-argument",
+      "title": "Recover from a wrong argument using only the error",
+      "gate": false,
+      "metrics": {
+        "success": false,
+        "aceCalls": 12,
+        "ownToolCalls": 0,
+        "failedCalls": 12,
+        "identicalRetries": 6,
+        "turns": 13,
+        "contextBytes": 57932,
+        "tokens": 14483
+      },
+      "note": "0/6 recovered on the second call"
+    },
+    {
+      "id": "child-waits-on-human",
+      "title": "A child waiting on the person is never reported done",
+      "gate": true,
+      "metrics": {
+        "success": true,
+        "aceCalls": 3,
+        "ownToolCalls": 0,
+        "failedCalls": 1,
+        "identicalRetries": 0,
+        "turns": 3,
+        "contextBytes": 55699,
+        "tokens": 13925
+      },
+      "note": "child state waiting_on_human"
+    },
+    {
+      "id": "read-only-no-screen",
+      "title": "In read-only mode, screen tools are absent and never attempted",
+      "gate": true,
+      "metrics": {
+        "success": false,
+        "aceCalls": 1,
+        "ownToolCalls": 0,
+        "failedCalls": 1,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 55233,
+        "tokens": 13809
+      },
+      "note": "effective :read-only; control serves screen: true; read-only lists 1, attempted 1"
+    }
+  ],
+  "catalogue": {
+    "tools": 83,
+    "toolsListBytes": 167835,
+    "descriptorBytes": 52087,
+    "outputSchemaBytes": 103012,
+    "largestOutputSchemas": [
+      {
+        "name": "ace_read_handoff",
+        "bytes": 56757
+      },
+      {
+        "name": "ace_thread_info",
+        "bytes": 27597
+      },
+      {
+        "name": "ace_list_agents",
+        "bytes": 4634
+      }
+    ],
+    "readOnlyWithoutHint": [],
+    "instructionBytes": {
+      "claude": 3059,
+      "codex": 2534,
+      "opencode": 3170,
+      "cursor": 3060,
+      "pi": 2565,
+      "acp": 3060
+    }
+  }
+}
