@@ -114,11 +114,15 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       }),
     observations,
     (caller) => ({
-      permissionMode: "ask",
+      // Report the thread's own native selector; a fixed placeholder misleads agents.
+      permissionMode: store.getThread(caller.threadId)?.permission?.effective ?? null,
       get screenApproved() {
         return services.screen?.hasAppApproval(caller) ?? false;
       },
       disabled: {
+        ...(!services.browser
+          ? { browser: "ace's built-in browser failed to start in this daemon." }
+          : {}),
         ...(!services.screen?.isEnabled()
           ? {
               screen: "Computer use is disabled.",

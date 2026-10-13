@@ -95,7 +95,8 @@ it("agents discover ace through initialize, resources and status even when compu
     expect(disabled).toMatchObject({
       threadId: thread.id,
       agentId: agent.id,
-      permissionMode: "ask",
+      // The thread's own native selector, never a placeholder.
+      permissionMode: daemon.store.getThread(thread.id)?.permission?.effective ?? null,
     });
     expect(disabled.groups).toContainEqual({
       name: "screen",

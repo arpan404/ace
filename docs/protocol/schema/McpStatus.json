@@ -17,17 +17,13 @@
             "enum": [
               "thread",
               "browser",
-              "preview",
-              "terminal",
               "notify",
               "agents",
               "thread_control",
               "automations",
               "projects",
-              "forge",
               "screen",
-              "devices",
-              "files"
+              "devices"
             ],
             "type": "string"
           },
@@ -42,7 +38,7 @@
         ],
         "type": "object"
       },
-      "maxItems": 13,
+      "maxItems": 9,
       "type": "array"
     },
     "permissionMode": {

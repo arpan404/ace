@@ -21,8 +21,8 @@
       "sha256": "3a598d0f23fd08398fcee5e4d505e4b48f5000d0f7d8d7698a657e326b8a7427"
     },
     "mcp.md": {
-      "bytes": 149049,
-      "sha256": "9ad56ff9bffc6c44c02b8dfe99a678b4285966c4c4a63c7ee3a501faa33a2f02"
+      "bytes": 149103,
+      "sha256": "71a188556385a626c96e3e02dd0ce9b7ed423eb4b00f6743c182759d71eed5d6"
     },
     "models.md": {
       "bytes": 14864,
@@ -1365,8 +1365,8 @@
       "sha256": "67324e46697b3f8c4ddfb094b9328291743d5abc5cba09732a3803b940b68fa7"
     },
     "schema/McpCapability.json": {
-      "bytes": 334,
-      "sha256": "756a6d4e37e838d03dc279803366beef1796b84a1a2b75a33fbd8e19896b22e8"
+      "bytes": 290,
+      "sha256": "51f2c9956d2138f9bbcfec3f8f7516de71cd2f34006d866dcda8d9aab2927935"
     },
     "schema/McpIntent.json": {
       "bytes": 303,
@@ -1389,8 +1389,8 @@
       "sha256": "fc0f2208d474d5e120b7a3b176b7fb2050094fffe2a2bc4942c307c083655f3c"
     },
     "schema/McpScope.json": {
-      "bytes": 679,
-      "sha256": "e0273dc90ef53c29a85885f6d660894dae1ff6dcb75bde425e4b6e81f1570bef"
+      "bytes": 678,
+      "sha256": "ad501b997e521fadaaab982d65b3855aa2ae4dc5edf624cee9942a51fae44ca1"
     },
     "schema/McpServerInput.json": {
       "bytes": 1267,
@@ -1413,8 +1413,8 @@
       "sha256": "fd05b15bfd02251ed1433afe9dc91865798f218fc2c8cbe85e1bdd31a7b74f5b"
     },
     "schema/McpStatus.json": {
-      "bytes": 1493,
-      "sha256": "c54460c52d4fef99d3815eae49503b9e4eb755a2f9ae6b1f35284b5bf2893325"
+      "bytes": 1395,
+      "sha256": "d14d491dadbc1ab765abf0dfcc2792d2b6f2ff57dae8995192ccf7e28aaa0211"
     },
     "schema/Mention.json": {
       "bytes": 720,
@@ -3341,8 +3341,8 @@
       "sha256": "75001d27a304f8918fdf010f0012c746e22b8f84f39ff62fdd4d1ed7dbffca1c"
     },
     "schema/ace_status.output.json": {
-      "bytes": 1484,
-      "sha256": "722cb33af55e90c990c76cc8e6359800cf616b392afc96c99e4af2ab329e8aef"
+      "bytes": 1386,
+      "sha256": "698068b593c279f6308101a8471297d8d1575ae79c7eb6647d7ac0403bdfb694"
     },
     "schema/ace_thread_configure.input.json": {
       "bytes": 682,
@@ -3529,10 +3529,10 @@
       "sha256": "8483e2fd08a5b7f6d6ca7be1172e25765a4dbcc863fa1983e8bcea54b8dd5593"
     },
     "types.md": {
-      "bytes": 735484,
-      "sha256": "d1992343db6c37db6b6a64fa23dbc1b01b696fa6e93ca7281da908c28906ea38"
+      "bytes": 735416,
+      "sha256": "46b6dd80de36704f2af02d5251bb36be2f8577d30ad8ee3716ef734481732a19"
     }
   },
-  "input": "3f95a56cd98ff4e4aa0948be08b78f367780ca44eca3e5e7989ad044b0bf4de3",
+  "input": "811974464500c6a88e8da63a111cefa27e39781dca3d7c3c1bde623c420c8cea",
   "version": 1
 }

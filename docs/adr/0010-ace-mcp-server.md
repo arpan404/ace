@@ -168,3 +168,14 @@ a request error on its own deadline without closing the connection.
 Tool admission includes a per-thread cap of sixteen alongside the global cap.
 Legacy notification transports release their slots when their stream closes, and
 reinitialization retains at most four transports per principal.
+
+## Amendment: groups are what ace serves (2026-10-13)
+
+The capability enum listed `preview`, `terminal` and `forge`, and status added a
+`files` pseudo-group, but no toolkit ever registered tools for them. `ace_status`
+reported them as disabled, and an agent read "terminal disabled" as "I cannot edit
+files". The enum now holds only groups with registered tools. Files and shell belong
+to the provider's own workspace tools; the instructions and `ace_status` description
+say so, and no ace group limits them. A disabled group's reason states the actual
+cause and never points at a setting that does not exist. Status reports the
+thread's effective native permission selector instead of a fixed placeholder.

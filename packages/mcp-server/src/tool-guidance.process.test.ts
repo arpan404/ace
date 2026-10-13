@@ -1,5 +1,6 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { z } from "zod";
+import { McpStatus } from "@ace/protocol";
 import { expect, test, onTestFinished } from "vitest";
 import { CredentialRegistry, ToolRegistry, nodeScheduler, startMcpServer } from "./index.ts";
 import { scope } from "./test-support.ts";
@@ -167,7 +168,7 @@ test.each([
       }),
     ).toEqual(["ace_status", "screen_request_app", "screen_open_app", "device_list"]);
     for (const tool of await listed())
-      expect(tool.description).not.toContain("ace tools for this thread.");
+      expect(tool.description).not.toContain("ace tools add ace-specific actions");
     expect(await client.callTool({ name: "screen_open_app", arguments: {} })).not.toMatchObject({
       isError: true,
     });
@@ -227,4 +228,52 @@ test("legacy notification streams cannot be reused with another lease and end on
   lease.end();
   expect((await request(lease.bearer)).status).toBe(401);
   expect((await request(other.bearer)).status).toBe(404);
+});
+
+test("status names why a group is off without pointing at a setting that does not exist", async () => {
+  const registry = new ToolRegistry({ scheduler: nodeScheduler });
+  registry.register({
+    name: "ace_list_things",
+    capability: "agents",
+    description: "List things",
+    input: z.object({}),
+    output: z.object({}),
+    timeoutMs: 1000,
+    async run() {
+      return {};
+    },
+  });
+  const credentials = new CredentialRegistry(() => "d".repeat(64));
+  const server = await startMcpServer({
+    registry,
+    credentials,
+    status: () => ({ permissionMode: null }),
+  });
+  onTestFinished(() => server.close());
+  const lease = credentials.issue(scope("root", ["browser"]), new AbortController().signal);
+  const client = new Client(
+    { name: "status", version: "test" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
+  onTestFinished(() => client.close());
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(server.url), {
+      requestInit: { headers: { Authorization: `Bearer ${lease.bearer}` } },
+    }),
+  );
+  const status = McpStatus.parse(
+    (await client.callTool({ name: "ace_status", arguments: {} })).structuredContent,
+  );
+  expect(status.groups).toContainEqual({
+    name: "browser",
+    enabled: false,
+    reason: "This ace daemon is not running this tool group.",
+  });
+  expect(status.groups).toContainEqual({
+    name: "agents",
+    enabled: false,
+    reason: "ace does not offer this tool group to this provider session.",
+  });
+  for (const group of status.groups)
+    expect(group.reason ?? "").not.toMatch(/configure|Ask the person/);
 });
