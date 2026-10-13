@@ -76,3 +76,33 @@ test.each(["trigger", "item"])(
     }
   },
 );
+
+test("a control clicked before the new view's title settles keeps focus", async () => {
+  await harness().open("/new");
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
+  const frames = new Map<number, FrameRequestCallback>();
+  let id = 0;
+  const schedule = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
+    frames.set(++id, callback);
+    return id;
+  });
+  const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation((frame) => {
+    frames.delete(frame);
+  });
+  try {
+    await userEvent.click(screen.getByRole("link", { name: "Settings" }));
+    await userEvent.click(await screen.findByRole("link", { name: "Keyboard" }));
+    const recorder = await screen.findByRole("button", { name: "Settings shortcut" });
+    await userEvent.click(recorder);
+    expect(recorder.textContent).toBe("Press keys…");
+    // The navigation's focus frames run only now, after the person chose a control.
+    await act(async () => {
+      for (const [frame, callback] of new Map(frames)) if (frames.delete(frame)) callback(0);
+    });
+    expect(document.activeElement).toBe(recorder);
+    expect(recorder.textContent).toBe("Press keys…");
+  } finally {
+    schedule.mockRestore();
+    cancel.mockRestore();
+  }
+});

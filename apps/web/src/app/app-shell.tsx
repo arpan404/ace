@@ -131,9 +131,14 @@ function useRouteFocus() {
         if (!event.pathChanged) return;
         cancelAnimationFrame(frame);
         let left = settleFrames;
+        // Focus as the new screen renders; if it moves on before the title shows (a click on
+        // the new screen), the person has already chosen where to be and keeps it.
+        const rendered = document.activeElement;
         const focusTitle = () => {
           const active = document.activeElement;
           if (active instanceof HTMLElement && active.closest(keepFocusIn)) return;
+          if (active !== rendered && active instanceof HTMLElement && active !== document.body)
+            return;
           const target = title();
           // A lazy screen (or a redirect) can paint its header a few frames after the route
           // renders; until then the outgoing title may still be there. A screen that keeps
