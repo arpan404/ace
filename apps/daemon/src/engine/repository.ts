@@ -332,6 +332,9 @@ export class EngineRepository {
     );
   }
   quiescent(state: ThreadState): boolean {
+    // A never-started root reads as ready. A first send the provider accepted but has not
+    // started yet is still live work, so its awaited run keeps the thread unsettled.
+    if (!state.hasRun && this.pending.awaiting(state.threadId)) return false;
     return quiescent(state, this.readiness.agentsReady(state));
   }
 

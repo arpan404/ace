@@ -2,12 +2,24 @@ import type { DatabaseSync, StatementSync } from "node:sqlite";
 import type { AgentRecord, ThreadState } from "@ace/core";
 import type { EventPayload } from "@ace/protocol";
 import { recordSchemas } from "./snapshot.ts";
+/**
+ * A root that has never started a run is a thread awaiting its first input. Core materializes
+ * it as "starting" when any event arrives before a turn; that is not work in progress.
+ */
+function neverStarted(record: AgentRecord): boolean {
+  return (
+    record.agent.origin === "root" &&
+    record.agent.status.state === "starting" &&
+    record.lastRun === undefined
+  );
+}
 function agentReady(record: AgentRecord, now: number): boolean {
   return (
     !record.activeRun &&
     (record.wakeUntil === undefined || record.wakeUntil <= now) &&
     record.disconnectedAt === undefined &&
-    (["idle", "interrupted", "failed"].includes(record.agent.status.state) ||
+    (neverStarted(record) ||
+      ["idle", "interrupted", "failed"].includes(record.agent.status.state) ||
       (record.agent.status.state === "blocked" && record.agent.status.on === "rate_limit") ||
       (record.agent.status.state === "working" &&
         record.agent.status.activity === "starting_turn" &&
