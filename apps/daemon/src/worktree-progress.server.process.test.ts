@@ -42,7 +42,10 @@ async function fixture() {
   ]);
   await h.engine.ready();
   let now = 1000;
-  const runtime = new WorkspaceRuntime(h.store, join(h.home, "data"), () => ++now);
+  // Tests fetch from a local bare origin standing in for a hosted remote.
+  const runtime = new WorkspaceRuntime(h.store, join(h.home, "data"), () => ++now, {
+    git: { transportProtocols: ["file"] },
+  });
   const server = await startServer({
     store: h.store,
     engine: h.engine,

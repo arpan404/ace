@@ -9,7 +9,7 @@ test("failed preflight reads retain drafts and permit retry after reconnect or r
     { status: 503 },
     { status: 504 },
     { status: 429 },
-    { raw: "offline", code: 1 },
+    { offline: true },
   ];
   for (const failure of failures) {
     const fixtures = reviewFixtures();

@@ -14,11 +14,13 @@ it.skipIf(!executablePath)(
     const next = tabs.parse(await f.execute({ action: "tabs", operation: "open", url: f.url }));
     expect(next.tabs).toHaveLength(1);
     expect(next.activeTabId).toBe(initial.activeTabId);
+    // The reloaded page's iframe commits invalidate refs; take them after the page loads.
+    await f.execute({ action: "wait_for", text: "Fixture ready" });
     await f.execute({
       action: "click",
       ref: ref(await f.execute({ action: "snapshot" }), "Popup"),
     });
-    await expect.poll(() => f.service.state("thread").url).toBe(f.url + "/other");
+    await f.until(() => f.service.state("thread").url === f.url + "/other");
     expect(f.service.state("thread").tabs).toHaveLength(1);
   },
 );
@@ -81,7 +83,7 @@ it.skipIf(!executablePath)(
       action: "click",
       ref: ref(await f.execute({ action: "snapshot" }), "Prompt"),
     });
-    await expect.poll(() => f.service.state("thread").pending_dialog?.type).toBe("prompt");
+    await f.until(() => f.service.state("thread").pending_dialog?.type === "prompt");
     const dialog = f.service.state("thread").pending_dialog;
     if (!dialog) throw new Error("dialog");
     await f.execute({
@@ -95,7 +97,7 @@ it.skipIf(!executablePath)(
       action: "click",
       ref: ref(await f.execute({ action: "snapshot" }), "Download"),
     });
-    await expect.poll(() => f.artifacts.length).toBe(1);
+    await f.until(() => f.artifacts.length === 1);
     const artifact = f.artifacts[0];
     if (!artifact) throw new Error("artifact");
     expect(artifact).toMatchObject({
@@ -202,10 +204,10 @@ it.skipIf(!executablePath)(
       action: "click",
       ref: ref(await f.execute({ action: "snapshot" }), "Slow download"),
     });
-    await expect.poll(() => f.service.state("thread").downloads?.[0]?.state).toBe("pending");
+    await f.until(() => f.service.state("thread").downloads?.[0]?.state === "pending");
     f.service.takeover("thread", "human", "private");
     f.finishSlow();
-    await expect.poll(() => f.service.state("thread").downloads?.[0]?.state).toBe("denied");
+    await f.until(() => f.service.state("thread").downloads?.[0]?.state === "denied");
     expect(f.artifacts).toEqual([]);
     f.service.handback("thread", "human");
     expect(f.service.state("thread").downloads?.[0]?.path).toBeUndefined();
@@ -217,9 +219,9 @@ it.skipIf(!executablePath)("oversized downloads never publish artifacts", async 
     action: "click",
     ref: ref(await f.execute({ action: "snapshot" }), "Download"),
   });
-  await expect
-    .poll(() => f.service.state("thread").downloads?.[0]?.state)
-    .toMatch(/failed|too_large/);
+  await f.until(() =>
+    /failed|too_large/.test(f.service.state("thread").downloads?.[0]?.state ?? ""),
+  );
   expect(f.artifacts).toEqual([]);
   expect(f.service.state("thread").downloads?.[0]?.path).toBeUndefined();
 });
@@ -241,10 +243,10 @@ it.skipIf(!executablePath)("each same-URL download needs its own approval", asyn
   const f = await setup({ downloadPolicy: () => allowed });
   const file = ref(await f.execute({ action: "snapshot" }), "Plain download");
   await f.execute({ action: "click", ref: file });
-  await expect.poll(() => f.service.downloadsList("thread")[0]?.state).toBe("complete");
+  await f.until(() => f.service.downloadsList("thread")[0]?.state === "complete");
   allowed = false;
   await f.execute({ action: "click", ref: file });
-  await expect.poll(() => f.service.downloadsList("thread")[1]?.state).toBe("denied");
+  await f.until(() => f.service.downloadsList("thread")[1]?.state === "denied");
   expect(f.artifacts).toHaveLength(1);
   expect(await readFile(f.artifacts[0]?.path ?? "", "utf8")).toBe("plain-fixture");
 });
@@ -259,7 +261,7 @@ it.skipIf(!executablePath)("attachment-like reads cannot authorize a later downl
     action: "click",
     ref: ref(await f.execute({ action: "snapshot" }), "Plain download"),
   });
-  await expect.poll(() => f.service.downloadsList("thread")[0]?.state).toBe("denied");
+  await f.until(() => f.service.downloadsList("thread")[0]?.state === "denied");
   expect(f.artifacts).toEqual([]);
 });
 it.skipIf(!executablePath)("a pending dialog survives a read on the reused page", async () => {

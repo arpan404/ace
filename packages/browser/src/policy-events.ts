@@ -12,7 +12,8 @@ export function compactPolicyEvent(method: string, raw: unknown): unknown {
 }
 function compact(method: string, raw: unknown, depth: number): unknown {
   if (depth > 16) throw new Error("Browser policy event nesting limit");
-  if (method === "Fetch.requestPaused") {
+  // Frame inspection enables Network in child targets, whose request events carry the same bytes.
+  if (method === "Fetch.requestPaused" || method === "Network.requestWillBeSent") {
     const event = Paused.parse(raw);
     delete event.request["postData"];
     delete event.request["postDataEntries"];

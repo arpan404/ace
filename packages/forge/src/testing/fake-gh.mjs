@@ -75,6 +75,9 @@ if (response.wait) {
       await new Promise((resolve) => process.stdout.once("drain", resolve));
   }
   process.stdout.write(response.suffix ?? "");
+} else if (response.offline) {
+  // gh reached no host: it prints no HTTP response and fails.
+  process.stderr.write("error connecting to api.github.com");
 } else {
   if (args.includes("--include")) {
     process.stdout.write(`HTTP/2.0 ${response.status ?? 200} status\r\n`);
@@ -85,4 +88,4 @@ if (response.wait) {
   process.stdout.write(response.raw ?? JSON.stringify(response.body ?? null));
 }
 if (response.stderr) process.stderr.write(response.stderr);
-process.exitCode = response.code ?? ((response.status ?? 200) >= 400 ? 1 : 0);
+process.exitCode = response.code ?? (response.offline || (response.status ?? 200) >= 400 ? 1 : 0);

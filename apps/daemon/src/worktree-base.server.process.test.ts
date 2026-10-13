@@ -41,7 +41,10 @@ async function daemonWithOrigin() {
   await git("git", ["clone", "--quiet", "--", origin, publisher]);
   await run(publisher, "config", "user.name", "Publisher");
   await run(publisher, "config", "user.email", "publisher@ace.local");
-  const runtime = new WorkspaceRuntime(h.store, join(h.home, "data"), () => 1000);
+  // The bare origin is a local stand-in for a hosted remote.
+  const runtime = new WorkspaceRuntime(h.store, join(h.home, "data"), () => 1000, {
+    git: { transportProtocols: ["file"] },
+  });
   cleanups.push(() => runtime.close());
   const server = await startServer({
     store: h.store,
