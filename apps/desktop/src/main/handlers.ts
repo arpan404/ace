@@ -4,6 +4,7 @@ import type {
   AppInfo,
   DaemonConnection,
   NativeAppearance,
+  VisualizationWindow,
   WindowBackground,
 } from "../shared/contract.ts";
 import type { DoctorReport } from "../shared/onboarding.ts";
@@ -46,6 +47,8 @@ export function createHandlers(options: {
   desktopChecks(): DoctorReport["checks"];
   /** The page's theme colours, for the window behind it (now and from the next launch). */
   setWindowBackground(value: WindowBackground): void;
+  /** A chat visualization in its own window, in the locked visualization session. */
+  openVisualization(request: VisualizationWindow): void;
 }): Handlers {
   const { runtime, settings, background } = options;
   const editorIcon = editorIcons(
@@ -142,6 +145,10 @@ export function createHandlers(options: {
     },
     "theme.setWindowBackground": (value) => {
       options.setWindowBackground(value);
+      return undefined;
+    },
+    "visualization.open": (request) => {
+      options.openVisualization(request);
       return undefined;
     },
     "settings.get": () => settings.get(),

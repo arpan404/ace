@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { visualizationScripts } from "@ace/html/scripts";
 
 /** The custom scheme the packaged renderer is served from (`app://ace/…`). */
 export const appScheme = "app";
@@ -63,8 +62,9 @@ export function contentSecurityPolicy(options: {
       ...(dev && devSocket ? [dev, devSocket] : []),
     ],
     "media-src": ["'self'", "blob:", "data:"],
-    // `blob:` holds typed attachment previews; opaque `data:` frames hold offline visualizations.
-    "frame-src": ["http://127.0.0.1:*", "http://localhost:*", previews, "blob:", "data:"],
+    // `blob:` holds typed attachment previews. Chat visualizations are `<webview>` guests, never
+    // frames under this policy.
+    "frame-src": ["http://127.0.0.1:*", "http://localhost:*", previews, "blob:"],
     "worker-src": ["'self'", "blob:"],
     "object-src": ["'none'"],
     "base-uri": ["'none'"],
@@ -88,9 +88,8 @@ export function inlineScriptHashes(html: string): string[] {
 }
 
 /**
- * The packaged renderer's policy. Chat visualizations are `data:` and `srcdoc` frames, which
- * inherit this CSP, so their two fixed bridge scripts are allowed by hash. Authored scripts
- * are stripped before rendering and stay blocked.
+ * The packaged renderer's policy. Chat visualizations are `<webview>` guests in their own locked
+ * session (visualization-isolation.ts), so this policy never applies to their scripts.
  */
 export function packagedPolicy(options: {
   index: string;
@@ -98,7 +97,7 @@ export function packagedPolicy(options: {
   dynamicDaemons: boolean;
 }): string {
   return contentSecurityPolicy({
-    inlineScripts: [...inlineScriptHashes(options.index), ...visualizationScripts.map(scriptHash)],
+    inlineScripts: inlineScriptHashes(options.index),
     daemonOrigins: options.daemonOrigins,
     dynamicDaemons: options.dynamicDaemons,
   });

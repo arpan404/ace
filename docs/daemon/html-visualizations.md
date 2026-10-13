@@ -1,7 +1,7 @@
 # HTML visualizations in chat
 
 Agents use `ace_html_preview({ html })` to validate a page, then
-`ace_html_render({ title, html, height? })` to publish it above their next reply.
+`ace_html_render({ title, html, height? })` to publish it inline in their reply.
 Preview returns size, nesting and unsupported-feature diagnostics. It does not execute
 scripts or publish an item. HTML in a normal message remains text.
 
@@ -20,73 +20,127 @@ Remote and relay clients fetch through their owning connection's attachment API.
 
 ## Browser execution
 
-`@ace/html` owns the pure validator and document builder. It parses HTML with
-parse5 and rejects authored frames, forms, plugins, base URLs, refresh metadata
-and external resource declarations. Diagnostics are authoring guidance. Every display path removes authored
-executable content; CSP limits the trusted resize bridge and resource loading.
+A visualization is a page, not a picture: explainers, step-throughs, quizzes, simulations,
+comparisons, diagrams, mockups and charts. Authored scripts run. The decision and its proof
+are in [ADR 0077](../adr/0077-interactive-visualizations.md).
 
-The web renderer is lazy-loaded only for a canonical HTML item. Its outer frame
-loads a data document with an opaque origin and `sandbox="allow-scripts"`. The
-trusted outer document has `frame-src 'none'` and holds the authored page in a
-second sandboxed `srcdoc` frame. This prevents the inner page navigating its own
-frame to an external address. Both documents deny external resources, fetch,
-WebSocket, workers, forms and plugins through CSP. Each head starts with a DNS
-prefetch opt-out meta element before any author content. No frame has same-origin,
-popup, top-navigation, storage-access or download permissions.
+`@ace/html` owns the pure validator, the document builder and the two fixed bridge scripts
+(`@ace/html/scripts`). The validator parses with parse5 and rejects authored frames, forms,
+plugins, `<link>`, base URLs, HTTP-equivalent metadata and every external URL in markup or
+CSS. Every display path wraps the page the same way:
 
-Chromium gives `data:` and `srcdoc` frames the embedder's CSP as well as their own.
-The two fixed bridge scripts therefore live in `@ace/html/scripts`, and the packaged
-desktop renderer's `script-src` allows exactly their hashes. Without them every
-visualization stays blank in the packaged app while working under the development
-CSP. Both nested documents declare the app's `color-scheme`. A frame whose scheme
-differs from its embedder's gets an opaque light canvas, which would put a white box
-behind a transparent page on the dark theme.
+- **Outer document.** A trusted document with `frame-src 'none'` holds the page in a
+  `sandbox="allow-scripts"` `srcdoc` frame, so the page cannot navigate its frame elsewhere.
+  Its bridge relays only height out and theme in.
+- **Page.** It gets an opaque origin: no `allow-same-origin`, popups, top navigation, modals,
+  forms, downloads or storage access. Its CSP is `default-src 'none'`, with inline scripts and
+  styles only; `data:`/`blob:` for images, fonts and media; `connect-src`, `frame-src`,
+  `worker-src`, `form-action`, `base-uri` and `object-src` all `'none'`; no `eval`; and Trusted
+  Types with only the bridge's two policies. A DNS-prefetch opt-out meta element comes first in
+  each head.
+- **Page bridge.** It runs before any authored script and locks what CSP does not govern. It
+  removes WebRTC and `XSLTProcessor`. `createElement`, `createElementNS` and customized
+  built-ins refuse `link`, `meta`, `base` and every frame element; a frame would hand back a
+  fresh realm with unguarded constructors. The Trusted Types default policy drops those
+  elements from every HTML string sink (`innerHTML`, `insertAdjacentHTML`, `DOMParser`,
+  `document.write`).
 
-Authored scripts and event handlers are removed on every render and export path.
-The guest CSP permits only the hash of the fixed resize bridge. Every client gets
-a static view, including browsers with Trusted Types. The preview's `static-view`
-diagnostic tells authors to replace script-driven content with HTML or SVG.
+### Desktop: a locked session
 
-This fallback is necessary because Blink's `DnsPrefetchIfNeeded` checks its frame
-settings instead of `document.IsDNSPrefetchEnabled()`. Its `PreconnectIfNeeded`
-also dispatches to the network-hints interface without a document opt-out or CSP
-check. Setting `x-dns-prefetch-control=off` changes the document flag and latches it
-off, but does not block those explicit link-loader paths. Preload, prefetch and
-modulepreload use the resource fetch machinery and its CSP checks. Static link
-markup is rejected by validation, and inactive authored code cannot create any
-of these hints at runtime. Electron sets `blink-settings=dnsPrefetchingEnabled=false` before Chromium
-starts as defense in depth; this setting is not relied on for preconnect isolation.
+Blink's `PreconnectIfNeeded` and `DnsPrefetchIfNeeded` dispatch network hints without a CSP
+check, so CSP alone cannot keep a scripted page off the network. In the desktop app a
+visualization is therefore a `<webview>` in its own in-memory session, `ace-visualization`.
+`apps/desktop/src/main/visualization-isolation.ts` locks that session:
 
-Scripted visuals can return only when a browser-owned network-hint deny policy is
-available and verified. Source inspection used Chromium's
-[preload helper](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/loader/preload_helper.cc),
-[HTTP-equivalent metadata handling](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/loader/http_equiv.cc),
-[document DNS control](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/dom/document.cc),
-and [command-line Blink settings](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/exported/web_view_impl.cc).
+- `webRequest.onBeforeRequest` cancels everything except `data:`, `blob:`, `about:blank` and
+  `about:srcdoc`. That covers fetch, XHR, images, CSS, prefetch, preload, beacons, pings and
+  WebSocket.
+- The session proxy is an unreachable `http://0.0.0.0:0` with `<-loopback>`, so a request
+  that reached the network stack without passing `webRequest` (a preconnect) could not
+  resolve or connect anywhere, loopback included.
+- Every permission request and check is refused, downloads are cancelled and the spellchecker
+  is off.
+- Chromium starts with `blink-settings=dnsPrefetchingEnabled=false`. A DNS-only hint goes
+  straight to the host resolver and never meets `webRequest` or the proxy; this frame setting
+  is what `DnsPrefetchIfNeeded` reads.
 
-Height messages contain exactly `{ type: "ace.html.height", height }`. Both
-bridges validate the sending window, opaque origin, finite number and bounds.
-No other child message becomes an app action. Frame height is capped, changes
-are coalesced by animation frame, and the virtualizer measures the resulting row.
-Theme CSS tokens follow the app theme. The static document is rebuilt when the
-theme changes or virtualization remounts the row. Published document bytes remain
-durable.
+The app window enables `webviewTag`, but `will-attach-webview` refuses any guest that is not in
+that partition or does not load a `data:text/html` document. It strips any preload and forces
+sandboxed, context-isolated, Node-free preferences with dialogs disabled. Each guest denies
+window opening, every navigation and redirect, and any subframe navigation other than
+`about:srcdoc`. A webview has no preload, so the outer document reports height through its own
+title (`ace.html.height:N`), which the authored page cannot set. The renderer sends theme
+updates with `executeJavaScript` as a message from the outer document's own window.
 
-The title and compact action row follow the existing chat density tokens. Expand,
-fullscreen, new window, copy and download are user actions. New windows and
-exports contain the same sandbox wrapper. Desktop viewer windows have no Node
-integration or preload bridge. An exported file can be viewed offline; it does
-not receive subsequent theme changes.
+"Open in window" asks the main process (`visualization.open`) for a plain window in the same
+session with the same guards. The renderer's packaged CSP no longer allows any `data:` frame or
+visualization script hashes: nothing of the visualization runs under the app's policy.
 
-DNS-level regression coverage reads Chromium NetLog host-resolver events for
-published and exported pages, with an unprotected DNS/preconnect hint as a positive
-control. Other behavior guards cover inactive authored scripts and event handlers,
-resource requests, frame navigation, parent data, popups, forged resize messages,
-normal-message text, and daemon restart/replay. They were
-written but not executed during development, per the owner's verification limit.
+`visualization-isolation.process.test.ts` proves this with real Electron and a real resolver.
+The test renders two pages under the packaged renderer CSP. The first is the real
+visualization document. The second is the same leaking page with none of the in-page defences.
+Both try preconnect and dns-prefetch hints (to a counting local server and to unresolvable
+names), prefetch, preload, `insertAdjacentHTML` links, fetch, an external image, a WebSocket and
+`sendBeacon`. Neither produces a request, a socket connection or a NetLog resolver lookup. The
+first page's inline slider handler runs and its height crosses out. A control run of the same
+page in the default session without the isolation reaches the server and the resolver, and
+disabling the session guards makes the test fail.
+
+### Web client: residual risk
+
+A browser offers a page no equivalent of a session network layer, and the daemon serves the
+web client from the person's own machine without a proxy. The web client still runs scripts:
+it is how the owner uses visualizations away from the desktop app, and the remaining channel
+is narrow. With the page bridge, a script has no known way to create a hint element in
+Chromium. `html-network-hints.spec.ts` tries direct creation, namespaced creation, markup sinks,
+`DOMParser`, a customized built-in and a fresh frame realm. No `<link>` ever enters the page,
+and NetLog shows no lookup for the page's hosts. The control frame's fetch-backed hints are
+observed. Every other channel is CSP-governed.
+
+What remains is defence in depth, not a boundary:
+
+- **Unknown paths.** A browser bug or an element-creation path the bridge does not know could
+  still produce a hint.
+- **Browsers without Trusted Types.** There, HTML string sinks are not routed through the
+  sanitizing policy.
+- **Exported files.** A downloaded page opened later runs with the same CSP and bridge, but
+  outside any ace session.
+
+A hint carries no request body or response. The page can read only what the agent wrote and
+what the person types into it; it cannot read the app or its data. The worst case is a
+DNS-encoded hostname that reveals the page was viewed (and from which network), or what the
+person typed into that page. The agent that wrote the page already has its own network access
+on the daemon's machine.
+
+### Height, theme and resources
+
+- **Height.** Height messages contain exactly `{ type: "ace.html.height", height }`. Both
+  bridges validate the sending window, opaque origin, finite number and bounds. The frame
+  fits the content height up to the item's `height` (default 800 px) and scrolls inside beyond
+  it. Full screen fills the screen.
+- **Theme.** A page receives the app theme as CSS variables (`themeProperties`): surfaces,
+  text, border, primary, accent (the accent picker), status colours (`--success`, `--warning`,
+  `--info`, `--destructive`), `--chart-1`…`--chart-6`, radius and fonts. When the theme or mode
+  changes, the renderer posts `{ type: "ace.html.theme", tokens, scheme }`. The outer bridge
+  forwards it only from its parent, and the page bridge applies the values and its
+  `color-scheme`, then fires `ace:theme`. The page is not rebuilt, so its state survives.
+- **Resources.** Each page runs its own scripts (a separate renderer process on desktop). A
+  page stays loaded only while its row is within a viewport of the visible area, and the
+  transcript keeps at most four live pages (`LiveFrames`), the most recently revealed. An
+  unloaded page keeps its last height and is rebuilt when it returns. The virtualizer
+  unmounts rows further away.
+
+The item renders inline in the agent's reply at the message column's full width, on the
+thread's background, with no card or title bar. Open in window, full screen, copy source (the
+authored HTML) and download sit in one row that appears only on hover or focus. The fake
+daemon seeds `thread-explainer`, an interactive binary search explainer, and `visualize-inline.spec.ts`
+covers inline width, running scripts, fitted height, live theme and hover-only actions.
 
 Browser rules are based on the [HTML iframe specification](https://html.spec.whatwg.org/multipage/iframe-embed-object.html),
-[CSP](https://www.w3.org/TR/CSP/), and [Trusted Types](https://www.w3.org/TR/trusted-types/).
+[CSP](https://www.w3.org/TR/CSP/) and [Trusted Types](https://www.w3.org/TR/trusted-types/).
+Chromium source inspection used the
+[preload helper](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/loader/preload_helper.cc)
+and [document DNS control](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/dom/document.cc).
 
 ## Built-in skills
 
@@ -133,7 +187,8 @@ Node provider survives, verifies that restart keeps the skill, then terminates t
 provider and verifies reclamation. Additional guards cover pending spawn records,
 missing evidence, denied inspection, failed recovery and fresh projections.
 
-The skill teaches when a visual is useful, self-contained assets, accessible
-colour and semantic HTML, fluid widths, theme tokens, preview before render,
-and concise prose after publication. Native provider skill discovery sees it as
-part of the `ace-builtins` plugin.
+The skill teaches when a page helps (explanations, interactive learning, comparisons,
+diagrams, mockups and charts) and how to write one: self-contained, theme variables, no
+network, fluid width, content-driven height, accessible controls. It covers preview before
+render and concise prose after publication. Native provider skill discovery sees it as part
+of the `ace-builtins` plugin.

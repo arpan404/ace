@@ -214,7 +214,9 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
       );
     case "html":
       return (
-        <Suspense fallback={<p role="status">Loading visualization…</p>}>
+        <Suspense
+          fallback={<div role="status" aria-label="Loading visualization" className="h-40" />}
+        >
           <HtmlView threadId={props.threadId} visualization={item.visualization} />
         </Suspense>
       );

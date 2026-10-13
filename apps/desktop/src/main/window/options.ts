@@ -34,7 +34,8 @@ export function windowOptions(options: {
       nodeIntegrationInWorker: false,
       webSecurity: true,
       allowRunningInsecureContent: false,
-      webviewTag: false,
+      // Only chat visualizations, in their own session (`will-attach-webview` refuses others).
+      webviewTag: true,
       // A hidden or minimised window runs timers at background rate and draws no frames; the
       // client worker sends a hidden page nothing until it is shown (ADR 0056).
       backgroundThrottling: true,

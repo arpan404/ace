@@ -8,7 +8,7 @@ Built-in definitions come from `@ace/mcp-server`. The local /mcp endpoint uses s
 
 ## ace_html_preview
 
-Validate a self-contained HTML visualization without publishing or executing it. Returns UTF-8 size and unsupported-feature diagnostics. Fix errors before ace_html_render; authored scripts and event handlers render as static content.
+Validate a self-contained HTML page for ace_html_render without publishing or executing it. Returns UTF-8 size and unsupported-feature diagnostics (external resources, frames, forms, links). Fix errors before rendering.
 
 Required capability: none beyond session authentication. Timeout: 10000 ms.
 
@@ -52,7 +52,7 @@ Example:
 
 ## ace_html_render
 
-Publish a durable HTML visualization in the calling thread above your next reply. Preview first. Use static HTML, inline CSS, SVG and embedded data images; authored scripts and event handlers do not execute. No external requests. Optional height is 80–2000 CSS pixels. Maximum HTML size is 256 KiB UTF-8.
+Publish a self-contained, interactive HTML page inline in your reply, at full message width: explanations, step-throughs, sliders, quizzes, simulations, comparisons, diagrams, mockups and charts. Inline scripts run in a sandbox with no network or app access. Inline CSS/JS/SVG and data: images only; use the theme CSS variables. Preview first. Optional max height is 80–2000 CSS pixels. Maximum 256 KiB UTF-8.
 
 Required capability: none beyond session authentication. Timeout: 30000 ms.
 

@@ -3,6 +3,10 @@ import { writeFile } from "node:fs/promises";
 import { app, BrowserWindow, nativeTheme, screen, shell } from "electron";
 import type { WindowState } from "../../shared/contract.ts";
 import { isAppUrl, isExternalUrl } from "../csp.ts";
+import {
+  acceptVisualizationWebview,
+  guardVisualizationContents,
+} from "../visualization-isolation.ts";
 import { restoreBounds, SavedWindow } from "./bounds.ts";
 import { macTitleBarCss, titleBarSymbolColor, windowOptions } from "./options.ts";
 
@@ -54,22 +58,8 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   if (bounds.fullScreen) window.setFullScreen(true);
 
   const contents = window.webContents;
+  // Nothing opens app windows; a visualization's window comes from `visualization.open`.
   contents.setWindowOpenHandler(({ url }) => {
-    // Only the trusted renderer can open its local blob wrapper. Authored content has no
-    // allow-popups token. This viewer gets no preload bridge or Node privileges.
-    if (url.startsWith("blob:") && isAppUrl(url.slice(5), options.url))
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          title: "ace visualization",
-          webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            sandbox: true,
-            preload: "",
-          },
-        },
-      };
     if (isExternalUrl(url)) void shell.openExternal(url);
     return { action: "deny" };
   });
@@ -81,7 +71,11 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   contents.on("will-redirect", (event, url) => {
     if (!isAppUrl(url, options.url)) event.preventDefault();
   });
-  contents.on("will-attach-webview", (event) => event.preventDefault());
+  // The only embedded guest is a chat visualization, in its locked session.
+  contents.on("will-attach-webview", (event, preferences, params) => {
+    if (!acceptVisualizationWebview(preferences, params)) event.preventDefault();
+  });
+  contents.on("did-attach-webview", (_event, guest) => guardVisualizationContents(guest));
   contents.on("did-navigate-in-page", (_event, url) => options.onRoute(new URL(url).pathname));
   contents.on("did-navigate", (_event, url) => options.onRoute(new URL(url).pathname));
   contents.on("dom-ready", () => {

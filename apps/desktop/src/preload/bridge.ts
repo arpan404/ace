@@ -143,6 +143,10 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       onChange: (listener: (value: EventOf<"theme.changed">) => void) =>
         subscribe("theme.changed", listener),
     },
+    visualizations: {
+      /** A visualization's `data:` document in its own window, in the locked session. */
+      open: (request: RequestOf<"visualization.open">) => call("visualization.open", request),
+    },
     settings: {
       get: () => call("settings.get"),
       update: (patch: RequestOf<"settings.update">) => call("settings.update", patch),

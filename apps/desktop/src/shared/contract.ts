@@ -136,6 +136,19 @@ const HexColour = z.string().regex(/^#[0-9a-f]{6}$/i);
 export const WindowBackground = z.object({ mode: ThemeSource, light: HexColour, dark: HexColour });
 export type WindowBackground = z.infer<typeof WindowBackground>;
 
+/**
+ * A chat visualization for its own window: the sandboxed `data:` document the transcript shows.
+ * 4 MiB covers a 256 KiB page after escaping and URL encoding.
+ */
+export const VisualizationWindow = z.object({
+  title: z.string().trim().min(1).max(160),
+  url: z
+    .string()
+    .max(4 * 1024 * 1024)
+    .startsWith("data:text/html"),
+});
+export type VisualizationWindow = z.infer<typeof VisualizationWindow>;
+
 /** `ace://` links, parsed by `parseDeepLink`. */
 export const DeepLink = z.discriminatedUnion("kind", [
   z.object({
