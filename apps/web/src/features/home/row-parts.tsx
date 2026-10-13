@@ -5,6 +5,7 @@ import {
   CheckCircleIcon,
   CircleDashedIcon,
   HandPalmIcon,
+  TerminalIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
@@ -83,6 +84,8 @@ const statusGlyphs: Partial<Record<Tone, IconGlyph>> = {
   working: CircleDashedIcon,
   "needs-you": HandPalmIcon,
   failed: XCircleIcon,
+  // The turn is over; only its background commands run (neither Working nor Done).
+  background: TerminalIcon,
 };
 
 /**

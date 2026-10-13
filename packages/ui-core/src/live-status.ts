@@ -22,7 +22,7 @@ export type LiveFact =
   | { kind: "tests" };
 
 export interface LiveStatus {
-  /** "Waiting on 2 subagents", "Watching", "Limited until 3:20 PM". */
+  /** "Waiting on 2 subagents", "Running in background", "Limited until 3:20 PM". */
   label: string;
   /** A command the label names, shown as code after it: "bun run dev:relay". */
   code: string | undefined;
@@ -59,18 +59,18 @@ export function describeLive(fact: LiveFact, now: number, locale?: string): Live
       };
     case "watching":
       return fact.count === 1 && fact.title
-        ? { label: "Watching", code: fact.title, tone: "waiting" }
+        ? { label: "Running in background", code: fact.title, tone: "background" }
         : {
-            label: `Watching ${pluralCount(fact.count, "background task", "background tasks")}`,
+            label: `Running ${pluralCount(fact.count, "command", "commands")} in background`,
             code: undefined,
-            tone: "waiting",
+            tone: "background",
           };
     case "tests":
       return { label: "Running tests…", code: undefined, tone: "working" };
   }
 }
 
-/** The status as one line of text: "Watching bun run dev:relay". */
+/** The status as one line of text: "Running in background bun run dev:relay". */
 export function liveStatusText(status: LiveStatus): string {
   return status.code ? `${status.label} ${status.code}` : status.label;
 }
@@ -107,11 +107,11 @@ export function threadLiveFact(thread: {
 
 /**
  * Where a thread's root agent stands, for `treeWorking`: working on its own; waiting on its own
- * subagents or background commands; held by something outside the tree (a usage limit, the
- * network, a provider that stopped answering); or idle (its turn is over, or it waits on queued
- * input).
+ * subagents; its turn over with only background commands running; held by something outside
+ * the tree (a usage limit, the network, a provider that stopped answering); or idle (its turn
+ * is over, or it waits on queued input).
  */
-export type RootStand = "working" | "on-tree" | "held" | "idle";
+export type RootStand = "working" | "on-tree" | "background" | "held" | "idle";
 
 /** What every surface knows about a thread's agent tree, read from whatever it has loaded. */
 export interface TreeFacts {
@@ -125,17 +125,24 @@ export interface TreeFacts {
 }
 
 /**
- * The one rule the transcript's live line, the sidebar row and the header's Work dot share: a
- * tree reads as Working while its root works or waits on its own subagents or background
- * commands, or while any of them still runs, whatever holds the root itself (a finished turn,
- * a usage limit, the network). A request waiting on the person always outranks it. A held
- * root says so only when nothing else in its tree runs, which every surface can tell from the
- * same counts.
+ * The one rule the transcript's live line, the sidebar row and the header's Work dot share:
+ * Working means an agent is doing a turn. The tree reads as Working while its root works or
+ * waits on its own subagents, or while any subagent still runs, whatever holds the root itself
+ * (a finished turn, a usage limit, the network). Background commands alone never make it
+ * Working (see `treeInBackground`). A request waiting on the person always outranks it.
  */
 export function treeWorking(facts: TreeFacts): boolean {
   if (facts.needsYou) return false;
   if (facts.root === "working" || facts.root === "on-tree") return true;
-  return facts.subagents > 0 || facts.backgroundCommands > 0;
+  return facts.subagents > 0;
+}
+
+/**
+ * The turn is over and only background commands still run: not Working (no agent is doing a
+ * turn) and never Done (something still runs). The person's next message goes straight in.
+ */
+export function treeInBackground(facts: TreeFacts): boolean {
+  return !facts.needsYou && !treeWorking(facts) && facts.backgroundCommands > 0;
 }
 
 /** The tree facts a listed thread carries in its status and the daemon's live hints. */
@@ -162,7 +169,7 @@ function rootStand(status: ThreadStatus): RootStand {
     case "working":
       return "working";
     case "waiting":
-      if (status.on === "background_task") return "on-tree";
+      if (status.on === "background_task") return "background";
       return status.on === "queue" ? "idle" : "held";
     case "limited":
     case "failed":

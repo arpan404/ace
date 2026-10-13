@@ -158,7 +158,7 @@ test("a parent answer stays working until its subagent finishes and its line ope
   expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
 });
 
-test("only a background shell keeps the live timer until the shell ends", async () => {
+test("a turn that leaves a background shell running reads as running in background, with no timer, until the shell ends", async () => {
   const { app } = await running([
     ...initial(),
     {
@@ -172,8 +172,8 @@ test("only a background shell keeps the live timer until the shell ends", async 
     },
   ]);
   act(() => app.daemon.apply(id, [facts.endTurn("root")]));
-  await waitFor(() => expect(live().textContent).toContain("1 background command"));
-  expect(live().textContent).toContain("Working for 1m 14s");
+  await waitFor(() => expect(live().textContent).toBe("Running in background bun run build"));
+  expect(screen.queryByRole("status", { name: /^Working/ })).toBeNull();
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
   act(() =>
     app.daemon.apply(id, [

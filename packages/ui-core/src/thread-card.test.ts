@@ -221,13 +221,18 @@ test("a row says what its thread is doing when the daemon's live hints know more
     { state: "waiting", on: "background_task" },
     { watching: [{ id: "relay", title: "bun run dev:relay" }] },
   );
-  // The command still runs, so every word for the row is the transcript's: Working, with the
-  // command it watches after it.
-  expect(watching.pill).toMatchObject({ label: "Working", tone: "working" });
+  // The turn is over and only the command runs: neither Working nor Done, a quiet Background.
+  expect(watching.pill).toMatchObject({
+    label: "Running in background",
+    code: "bun run dev:relay",
+    tone: "background",
+    icon: "background",
+  });
+  expect(watching.pill?.since).toBeUndefined();
   expect(watching.status).toMatchObject({
-    label: "Working · bun run dev:relay",
-    compact: "Working",
-    tone: "working",
+    label: "Running in background bun run dev:relay",
+    compact: "Background · 1",
+    tone: "background",
   });
 
   const subagents = card({ state: "working", agents: 3 }, { waitingOn: 2 });
@@ -277,7 +282,7 @@ test("another surface naming a thread uses its sidebar row's word", () => {
     { state: "waiting", on: "background_task" },
     { watching: [{ id: "relay", title: "bun run dev:relay" }] },
   );
-  expect(threadRowStatus(watching, now, "en-US")).toBe("Working");
+  expect(threadRowStatus(watching, now, "en-US")).toBe("Background · 1");
   const asking = live(
     { state: "needs_you", interactions: 1 },
     { asking: [{ id: "a", kind: "approval" }] },

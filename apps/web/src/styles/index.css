@@ -231,6 +231,11 @@
     --tone: var(--subtle-foreground);
     --tone-text: var(--subtle-foreground);
   }
+  /* Only background commands run: quiet and neutral, never the working colour. */
+  [data-tone="background"] {
+    --tone: var(--muted-foreground);
+    --tone-text: var(--muted-foreground);
+  }
 }
 
 @layer components {

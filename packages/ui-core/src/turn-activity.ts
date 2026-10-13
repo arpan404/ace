@@ -215,12 +215,10 @@ function rootStandOf(
 ): RootStand {
   if (!activity) return "idle";
   if (activity.tone === "working") return "working";
-  if (
-    activity.tone === "held" &&
-    status?.state === "blocked" &&
-    (status.on === "subagents" || status.on === "background_task")
-  )
+  if (activity.tone === "held" && status?.state === "blocked" && status.on === "subagents")
     return "on-tree";
+  if (activity.tone === "held" && status?.state === "blocked" && status.on === "background_task")
+    return "background";
   return "held";
 }
 

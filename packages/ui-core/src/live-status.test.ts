@@ -1,6 +1,6 @@
 import { ThreadRunMetadata, type ThreadStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { listTreeFacts, treeWorking } from "./live-status.ts";
+import { listTreeFacts, treeInBackground, treeWorking } from "./live-status.ts";
 
 const listed = (status: ThreadStatus, live?: Record<string, unknown>) =>
   treeWorking(listTreeFacts({ status, live: live && ThreadRunMetadata.parse(live) }));
@@ -9,13 +9,20 @@ test("a listed thread whose root waits on its own running subagents reads as wor
   expect(listed({ state: "working", agents: 3 }, { waitingOn: 2 })).toBe(true);
 });
 
-test("a listed thread held open by a background command reads as working", () => {
-  expect(
-    listed(
-      { state: "waiting", on: "background_task" },
-      { watching: [{ id: "relay", title: "bun run dev:relay" }] },
-    ),
-  ).toBe(true);
+test("a listed thread whose turn ended with a background command reads Background, not working", () => {
+  const facts = listTreeFacts({
+    status: { state: "waiting", on: "background_task" },
+    live: ThreadRunMetadata.parse({ watching: [{ id: "relay", title: "bun run dev:relay" }] }),
+  });
+  expect(treeWorking(facts)).toBe(false);
+  expect(treeInBackground(facts)).toBe(true);
+  // A subagent still running is agent work: Working, not Background.
+  const tree = listTreeFacts({
+    status: { state: "waiting", on: "background_task" },
+    live: ThreadRunMetadata.parse({ runningSubagentCount: 1, backgroundTaskCount: 1 }),
+  });
+  expect(treeWorking(tree)).toBe(true);
+  expect(treeInBackground(tree)).toBe(false);
 });
 
 test("subagents still running keep a thread working while queued input waits", () => {
