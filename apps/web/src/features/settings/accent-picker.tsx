@@ -15,7 +15,9 @@ import { themes } from "@/theme/palettes.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
 
 const swatch =
-  "relative size-6 shrink-0 rounded-full outline-none transition-shadow duration-(--motion-fast) shadow-[inset_0_0_0_1px_rgb(0_0_0/0.12)] aria-checked:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--ring)] focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus)]";
+  "relative size-7 shrink-0 rounded-full outline-none transition-[box-shadow,translate] duration-(--motion-fast) motion-safe:hover:-translate-y-px shadow-[inset_0_0_0_1px_rgb(0_0_0/0.12),inset_0_1px_0_rgb(255_255_255/0.25)] aria-checked:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--ring)] focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus)]";
+/** The same light from the top-left corner as the theme tiles. */
+const gloss = "radial-gradient(circle at 32% 26%, rgb(255 255 255 / 0.32), transparent 62%)";
 const hexPattern = /^#[0-9a-f]{6}$/i;
 
 /**
@@ -42,12 +44,12 @@ export function AccentPicker() {
     if (hexPattern.test(value)) update({ accent: "custom", customAccent: value.toUpperCase() });
   };
   return (
-    <div className="flex flex-col items-end gap-2">
+    <div className="flex flex-col items-start gap-3">
       <div
         role="radiogroup"
         aria-label="Accent"
         onKeyDown={onRadioKeys}
-        className="flex flex-wrap items-center justify-end gap-2"
+        className="flex flex-wrap items-center gap-2.5 px-0.5"
       >
         {accentIds.map((id) => {
           const checked = appearance.accent === id;
@@ -86,13 +88,10 @@ export function AccentPicker() {
                 tabIndex={checked ? 0 : -1}
                 onClick={() => update({ accent: id })}
                 className={swatch}
-                style={{ background: fitted(id) }}
+                style={{ backgroundColor: fitted(id), backgroundImage: gloss }}
               >
                 {id === "theme" && (
-                  <span
-                    aria-hidden
-                    className="absolute inset-[7px] rounded-full bg-background/90"
-                  />
+                  <span aria-hidden className="absolute inset-2 rounded-full bg-background/90" />
                 )}
               </button>
             </Tip>
