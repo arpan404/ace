@@ -8,7 +8,11 @@ export interface ConversationMarker {
   ordinal: number;
 }
 
-/** A bounded outline of turn positions; transcript navigation and data stay with the caller. */
+/**
+ * A bounded outline of turn positions; transcript navigation and data stay with the caller.
+ * Its ticks preview on hover and sit 24px apart, so it shows only with a fine pointer: on touch
+ * the Turns panel reaches the same turns at a tappable size.
+ */
 export function ConversationRail(props: {
   markers: readonly ConversationMarker[];
   currentId?: string;
@@ -40,7 +44,7 @@ export function ConversationRail(props: {
   return (
     <nav
       aria-label="Conversation turns"
-      className={cn("hidden w-7 flex-col items-center py-2 md:flex", props.className)}
+      className={cn("hidden w-7 flex-col items-center py-2 md:pointer-fine:flex", props.className)}
     >
       {props.markers.map((marker, index) => (
         <ConversationTick

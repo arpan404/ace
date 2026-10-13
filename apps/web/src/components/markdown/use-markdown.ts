@@ -18,9 +18,16 @@ export function useMarkdown(text: string, stream?: string, final = true): Markdo
     [key],
   );
   const read = useCallback(() => markdownService.read(key), [key]);
-  const doc = useSyncExternalStore(subscribe, read, read);
+  const stored = useSyncExternalStore(subscribe, read, read);
+  // While the worker starts, a finished message is built here so it shows on this render; the
+  // store keeps it once the view has committed.
+  const cold = useMemo(
+    () => (stored || !final ? undefined : markdownService.buildCold(key, text)),
+    [stored, final, key, text],
+  );
   useEffect(() => {
+    if (cold) markdownService.adopt(key, text, cold);
     markdownService.want(key, text, final);
-  }, [key, text, final]);
-  return doc;
+  }, [cold, key, text, final]);
+  return stored ?? cold;
 }

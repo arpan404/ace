@@ -52,6 +52,7 @@ export function Screen(
       tools={props.tools}
       actions={props.actions}
       status={props.status}
+      progress={props.progress}
       notice={<ConnectionNotice />}
       scrolled={scrolled}
       trailing={trailing}

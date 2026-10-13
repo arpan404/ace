@@ -3,6 +3,7 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import { useEffect } from "react";
 import { refreshOnReconnect } from "./daemon-query-reconnect.ts";
 import {
+  hashKey,
   useQuery,
   useQueryClient,
   type QueryKey,
@@ -32,7 +33,9 @@ export function useDaemonQuery<T>(
     queryFn: ({ signal }) => read(client, signal),
     enabled: ready && (enabled ?? true),
   });
-  const hash = cache.getQueryCache().find({ queryKey: rest.queryKey, exact: true })?.queryHash;
+  // The query's own hash (no view sets `queryKeyHashFn`). Finding it in the cache would match
+  // every cached query against the key, on every render of every row that reads one.
+  const hash = hashKey(rest.queryKey);
   useEffect(
     () => (hash === undefined ? undefined : refreshOnReconnect(client, cache, hash)),
     [client, cache, hash],

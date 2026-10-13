@@ -60,9 +60,11 @@ export interface Presence {
   toggled: boolean;
 }
 
-/** Keeps something mounted for `exitMs` after `open` turns false, so it can play its exit. */
+/**
+ * Keeps something mounted for `exitMs` after `open` turns false, so it can play its exit. Under
+ * reduced motion it still leaves this way: the exit's movement is zero, so it fades.
+ */
 export function usePresence(open: boolean, exitMs: number = motionMs.exit): Presence {
-  const reduced = useReducedMotion();
   const [leaving, setLeaving] = useState(false);
   const [wasOpen, setWasOpen] = useState(open);
   const [toggled, setToggled] = useState(false);
@@ -70,7 +72,7 @@ export function usePresence(open: boolean, exitMs: number = motionMs.exit): Pres
   if (wasOpen !== open) {
     setWasOpen(open);
     setToggled(true);
-    setLeaving(!open && !reduced);
+    setLeaving(!open);
   }
   useEffect(() => {
     if (!leaving) return;

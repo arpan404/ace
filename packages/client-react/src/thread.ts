@@ -39,12 +39,17 @@ export function useThread<T>(
 const readMeta = (reader: ThreadReader) => reader.thread;
 const readOrder = (reader: ThreadReader) => reader.order;
 const readError = (reader: ThreadReader) => reader.error;
+const readSyncing = (reader: ThreadReader) => reader.syncing ?? false;
 
 export function useThreadMeta(threadId: string | undefined) {
   return useThread(threadId, ["thread"], readMeta);
 }
 export function useThreadError(threadId: string | undefined) {
   return useThread(threadId, ["error"], readError);
+}
+/** Whether the thread is catching up after a reconnect (`ThreadReader.syncing`). */
+export function useThreadSyncing(threadId: string | undefined): boolean {
+  return useThread(threadId, ["sync"], readSyncing) ?? false;
 }
 /** Ids of the loaded transcript window, oldest first. */
 export function useItemOrder(threadId: string | undefined): readonly string[] | undefined {

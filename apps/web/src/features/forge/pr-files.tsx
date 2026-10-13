@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { Suspense, useMemo, useRef, useState } from "react";
 import type { ForgePrDetail, ForgeRepository, ForgeFile } from "@ace/protocol";
 import type { FileChanges } from "@ace/ui-core";
 import {
@@ -16,7 +16,12 @@ import {
 import { useScopeWorkspace } from "@/lib/workspace/index.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useFileChanges } from "@/lib/diffs/use-file-diffs.ts";
-import { FileDiffBlock, FileTree, freshView, type FileView } from "@/features/panels/index.ts";
+import {
+  DeferredFileDiffBlock,
+  DeferredFileTree,
+  freshView,
+  type FileView,
+} from "@/features/panels/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -26,6 +31,16 @@ import { usePrCommits } from "./pr-commits.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions, PrDiffContext } from "./pr-extensions.ts";
 import { PrFileReview } from "./pr-file-review.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
+
+// The diff renderer loads with this view, not with the app's first paint (`preloadPrFiles`).
+const FileDiffBlock = DeferredFileDiffBlock.Component;
+const FileTree = DeferredFileTree.Component;
+
+/** Warm the diff renderer while a pull request is open, before its Files tab is chosen. */
+export function preloadPrFiles(): void {
+  void DeferredFileDiffBlock.preload().catch(() => {});
+  void DeferredFileTree.preload().catch(() => {});
+}
 
 const fileStatus = (file: ForgeFile) =>
   file.status === "added"
@@ -238,131 +253,139 @@ function PrFilePage(
               PR files. Open GitHub for the complete diff.
             </p>
           )}
-          <div className="flex min-w-0">
-            {tree && (
-              <FileTree
-                threadId={scope}
-                tabKey={workspace.active}
-                className="w-48 shrink-0 border-r border-border"
-                files={query.data.files.map((file) => ({
-                  path: file.path,
-                  additions: file.additions,
-                  deletions: file.deletions,
-                }))}
-                current={current}
-                viewed={
-                  new Set(
-                    query.data.files
-                      .filter((file) =>
-                        props.extensions?.viewed
-                          ? props.extensions.viewed(file, diffContext)?.checked
-                          : nativeViewed?.some((viewed) => viewed.path === file.path),
-                      )
-                      .map((file) => file.path),
-                  )
-                }
-                comments={new Map()}
-                onJump={(index) => {
-                  const file = query.data?.files[index];
-                  if (file) setCurrent(file.path);
-                  filesElement.current
-                    ?.querySelector<HTMLElement>(`[id="pr-file-${page}-${index}"]`)
-                    ?.scrollIntoView({ block: "start" });
-                }}
-              />
-            )}
-            <div ref={filesElement} className="min-w-0 flex-1">
-              {query.data.files.map((file, index) => {
-                const diff = byPath.get(file.path);
-                const Icon =
-                  file.status === "added"
-                    ? PlusCircleIcon
-                    : file.status === "removed"
-                      ? MinusCircleIcon
-                      : file.status === "renamed"
-                        ? ArrowCircleRightIcon
-                        : PencilCircleIcon;
-                const viewed = props.extensions?.viewed?.(file, diffContext);
-                const view = views.get(file.path) ?? { ...freshView, open: !collapsed };
-                return (
-                  <PrFileReview key={file.path} file={file} context={diffContext}>
-                    {(native) => (
-                      <div className="border-b border-border">
-                        {diff ? (
-                          <FileDiffBlock
-                            id={`pr-file-${page}-${index}`}
-                            file={{
-                              ...diff,
-                              status: fileStatus(file),
-                              additions: file.additions,
-                              deletions: file.deletions,
-                            }}
-                            view={view}
-                            onView={(next) =>
-                              setViews((previous) => new Map(previous).set(file.path, next))
-                            }
-                            mode={mode}
-                            wrap={wrap}
-                            whitespace={whitespace}
-                            statusIcon={<Icon aria-label={file.status} size={18} />}
-                            highlighted={() => false}
-                            renderAnnotation={(target) =>
-                              props.extensions?.annotation?.(file.path, target, diffContext)
-                            }
-                            onComment={
-                              props.extensions?.onLineComment && !diffContext.disabled
-                                ? (range) =>
-                                    props.extensions?.onLineComment?.(file.path, range, diffContext)
-                                : !props.extensions?.onLineComment
-                                  ? native.onComment
-                                  : undefined
-                            }
-                            viewed={props.extensions?.viewed ? viewed?.checked : native.viewed}
-                            actions={
-                              viewed ? (
-                                <label className="flex shrink-0 items-center gap-2 px-2 text-xs text-muted-foreground">
-                                  <input
-                                    type="checkbox"
-                                    aria-label={`Viewed ${file.path}`}
-                                    checked={viewed.checked}
-                                    disabled={diffContext.disabled || viewed.disabled}
-                                    onChange={(e) =>
-                                      void viewed
-                                        .change(e.target.checked)
-                                        .catch(() =>
-                                          toast.error({ title: "Couldn't save viewed state" }),
-                                        )
-                                    }
-                                    className="size-4 rounded-sm focus-ring"
-                                  />
-                                  Viewed
-                                </label>
-                              ) : !props.extensions?.viewed ? (
-                                native.actions
-                              ) : null
-                            }
-                          />
-                        ) : (
-                          <p className="p-3 text-sm">Preparing {file.path}…</p>
-                        )}
-                        {view.open && (file.patch === null || file.truncated) && (
-                          <p role="status" className="p-3 text-sm text-muted-foreground">
-                            {file.patch === null
-                              ? "Binary or large file: GitHub did not provide a text patch."
-                              : "This patch is truncated."}{" "}
-                            Open GitHub to inspect the complete file.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </PrFileReview>
-                );
-              })}
-              {!query.data.files.length && (
-                <p className="p-3 text-sm text-muted-foreground">No changed files on this page.</p>
+          <Suspense fallback={null}>
+            <div className="flex min-w-0">
+              {tree && (
+                <FileTree
+                  threadId={scope}
+                  tabKey={workspace.active}
+                  className="w-48 shrink-0 border-r border-border"
+                  files={query.data.files.map((file) => ({
+                    path: file.path,
+                    additions: file.additions,
+                    deletions: file.deletions,
+                  }))}
+                  current={current}
+                  viewed={
+                    new Set(
+                      query.data.files
+                        .filter((file) =>
+                          props.extensions?.viewed
+                            ? props.extensions.viewed(file, diffContext)?.checked
+                            : nativeViewed?.some((viewed) => viewed.path === file.path),
+                        )
+                        .map((file) => file.path),
+                    )
+                  }
+                  comments={new Map()}
+                  onJump={(index) => {
+                    const file = query.data?.files[index];
+                    if (file) setCurrent(file.path);
+                    filesElement.current
+                      ?.querySelector<HTMLElement>(`[id="pr-file-${page}-${index}"]`)
+                      ?.scrollIntoView({ block: "start" });
+                  }}
+                />
               )}
+              <div ref={filesElement} className="min-w-0 flex-1">
+                {query.data.files.map((file, index) => {
+                  const diff = byPath.get(file.path);
+                  const Icon =
+                    file.status === "added"
+                      ? PlusCircleIcon
+                      : file.status === "removed"
+                        ? MinusCircleIcon
+                        : file.status === "renamed"
+                          ? ArrowCircleRightIcon
+                          : PencilCircleIcon;
+                  const viewed = props.extensions?.viewed?.(file, diffContext);
+                  const view = views.get(file.path) ?? { ...freshView, open: !collapsed };
+                  return (
+                    <PrFileReview key={file.path} file={file} context={diffContext}>
+                      {(native) => (
+                        <div className="border-b border-border">
+                          {diff ? (
+                            <FileDiffBlock
+                              id={`pr-file-${page}-${index}`}
+                              file={{
+                                ...diff,
+                                status: fileStatus(file),
+                                additions: file.additions,
+                                deletions: file.deletions,
+                              }}
+                              view={view}
+                              onView={(next) =>
+                                setViews((previous) => new Map(previous).set(file.path, next))
+                              }
+                              mode={mode}
+                              wrap={wrap}
+                              whitespace={whitespace}
+                              statusIcon={<Icon aria-label={file.status} size={18} />}
+                              highlighted={() => false}
+                              renderAnnotation={(target) =>
+                                props.extensions?.annotation?.(file.path, target, diffContext)
+                              }
+                              onComment={
+                                props.extensions?.onLineComment && !diffContext.disabled
+                                  ? (range) =>
+                                      props.extensions?.onLineComment?.(
+                                        file.path,
+                                        range,
+                                        diffContext,
+                                      )
+                                  : !props.extensions?.onLineComment
+                                    ? native.onComment
+                                    : undefined
+                              }
+                              viewed={props.extensions?.viewed ? viewed?.checked : native.viewed}
+                              actions={
+                                viewed ? (
+                                  <label className="flex shrink-0 items-center gap-2 px-2 text-xs text-muted-foreground">
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`Viewed ${file.path}`}
+                                      checked={viewed.checked}
+                                      disabled={diffContext.disabled || viewed.disabled}
+                                      onChange={(e) =>
+                                        void viewed
+                                          .change(e.target.checked)
+                                          .catch(() =>
+                                            toast.error({ title: "Couldn't save viewed state" }),
+                                          )
+                                      }
+                                      className="size-4 rounded-sm focus-ring"
+                                    />
+                                    Viewed
+                                  </label>
+                                ) : !props.extensions?.viewed ? (
+                                  native.actions
+                                ) : null
+                              }
+                            />
+                          ) : (
+                            <p className="p-3 text-sm">Preparing {file.path}…</p>
+                          )}
+                          {view.open && (file.patch === null || file.truncated) && (
+                            <p role="status" className="p-3 text-sm text-muted-foreground">
+                              {file.patch === null
+                                ? "Binary or large file: GitHub did not provide a text patch."
+                                : "This patch is truncated."}{" "}
+                              Open GitHub to inspect the complete file.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </PrFileReview>
+                  );
+                })}
+                {!query.data.files.length && (
+                  <p className="p-3 text-sm text-muted-foreground">
+                    No changed files on this page.
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
+          </Suspense>
           <div className="flex items-center gap-3 p-3">
             <Button disabled={page === 1} onClick={() => setPage(page - 1)}>
               Previous files

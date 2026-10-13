@@ -53,3 +53,61 @@ test("a minified long line stays plain and exact while ordinary lines retain syn
   fireEvent.click(screen.getByRole("button", { name: "Full source" }));
   expect(screen.getByRole("textbox", { name: "Full code source" })).toHaveProperty("value", code);
 });
+
+test("a diff fence reads as a unified diff: changes marked, counted, numbered and copied exactly", async () => {
+  const code = [
+    "--- a/src/replay.ts",
+    "+++ b/src/replay.ts",
+    "@@ -3,2 +3,3 @@",
+    " const start = 0;",
+    "-const end = 1;",
+    "+const end = 2;",
+    "+const cap = 200;",
+  ].join("\n");
+  const writeText = vi.fn(async () => {});
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const view = render(<CodeBlock code={code} lang="diff" />);
+  const figure = screen.getByRole("figure");
+  // The header names the file and the change; no language label stands in for it.
+  expect(figure.querySelector("figcaption")?.textContent).toContain("src/replay.ts");
+  expect(figure.querySelector("figcaption")?.textContent).toContain("+2");
+  expect(figure.querySelector("figcaption")?.textContent).toContain("−1");
+  expect([...view.container.querySelectorAll("ins")].map((line) => line.textContent)).toEqual([
+    "+const end = 2;",
+    "+const cap = 200;",
+  ]);
+  expect([...view.container.querySelectorAll("del")].map((line) => line.textContent)).toEqual([
+    "-const end = 1;",
+  ]);
+  // Hunk numbers sit beside the lines, outside the code itself.
+  const codeText = [...figure.querySelectorAll("code")].map((line) => line.textContent).join("\n");
+  expect(codeText).toBe(code);
+  fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(code));
+});
+
+test("a long block is numbered beside its code, and its code stays exactly the source", () => {
+  const code = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join("\n");
+  render(<CodeBlock code={code} lang="ts title=src/lines.ts" />);
+  const figure = screen.getByRole("figure");
+  expect(figure.querySelector("figcaption")?.textContent).toContain("src/lines.ts");
+  expect(figure.querySelector("code")?.textContent).toBe(code);
+  const numbers = figure.querySelector("pre[aria-hidden]")?.textContent;
+  expect(numbers?.split("\n")).toEqual(Array.from({ length: 12 }, (_, index) => String(index + 1)));
+});
+
+test("a short block has no line numbers and names its language", () => {
+  render(<CodeBlock code={"echo ready"} lang="sh" />);
+  const figure = screen.getByRole("figure");
+  expect(figure.querySelector("pre[aria-hidden]")).toBeNull();
+  expect(figure.querySelector("figcaption")?.textContent).toContain("sh");
+});
+
+test("Copy on a fence still being written copies everything that has arrived", async () => {
+  const writeText = vi.fn(async () => {});
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const view = render(<CodeBlock code={"const a = 1;"} lang="ts" plain />);
+  view.rerender(<CodeBlock code={"const a = 1;\nconst b = 2;"} lang="ts" plain />);
+  fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith("const a = 1;\nconst b = 2;"));
+});

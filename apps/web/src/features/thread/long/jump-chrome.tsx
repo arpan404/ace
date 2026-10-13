@@ -1,9 +1,12 @@
 import { formatCount } from "@ace/ui-core";
+import { useState } from "react";
 import { ClockCounterClockwiseIcon, XIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { cn } from "@/lib/cn.ts";
+import { floatingControl, floatingMotion } from "./floating.ts";
 import { useTurnHead } from "./turn-index.ts";
 
 /*
@@ -19,21 +22,38 @@ export function JumpBar(props: {
   reading: number | undefined;
   threadId: string;
   failed: string | undefined;
+  /** Leaving: it plays its exit and takes no input. */
+  phase?: "enter" | "exit";
   onLive(): void;
 }) {
-  const count = useTurnHead(props.threadId)?.count;
+  const headCount = useTurnHead(props.threadId)?.count;
+  const leaving = props.phase === "exit";
+  // Leaving, it keeps saying what it said: the window it described is already gone.
+  const live = { turn: props.turn, reading: props.reading, count: headCount, failed: props.failed };
+  const [shown, setShown] = useState(live);
+  const changed =
+    shown.turn !== live.turn ||
+    shown.reading !== live.reading ||
+    shown.count !== live.count ||
+    shown.failed !== live.failed;
+  if (!leaving && changed) setShown(live);
+  const { turn, reading, count, failed } = leaving ? shown : live;
   const where =
-    props.turn === undefined
-      ? "Viewing earlier history"
-      : `Jumped to turn ${formatCount(props.turn)}`;
-  const at = props.reading ?? props.turn;
-  const moved = at !== undefined && at !== props.turn;
+    turn === undefined ? "Viewing earlier history" : `Jumped to turn ${formatCount(turn)}`;
+  const at = reading ?? turn;
+  const moved = at !== undefined && at !== turn;
   return (
     <div
-      role="status"
-      aria-label="Jumped"
-      style={{ pointerEvents: "auto" }}
-      className="ace-floating fx-rise-in flex h-8 items-center gap-2 rounded-full pr-1 pl-3 text-sm text-muted-foreground"
+      role={leaving ? undefined : "status"}
+      aria-label={leaving ? undefined : "Jumped"}
+      aria-hidden={leaving || undefined}
+      inert={leaving}
+      style={{ pointerEvents: leaving ? "none" : "auto" }}
+      className={cn(
+        floatingControl,
+        floatingMotion(props.phase ?? "enter"),
+        "gap-2 pr-1 pl-3 text-muted-foreground",
+      )}
     >
       <ClockCounterClockwiseIcon aria-hidden size={14} className="shrink-0" />
       <span className="font-medium text-foreground">{where}</span>
@@ -43,7 +63,7 @@ export function JumpBar(props: {
           {count !== undefined && count >= at ? ` of ${formatCount(count)}` : ""}
         </span>
       )}
-      {props.failed && <span className="text-status-failed">{props.failed}</span>}
+      {failed && <span className="text-status-failed">{failed}</span>}
       <IconButton icon={XIcon} label="Back to live" size="sm" onClick={props.onLive} />
     </div>
   );
@@ -98,7 +118,7 @@ export function JumpFailed(props: { message: string; onDismiss(): void }) {
     <p
       role="alert"
       style={{ pointerEvents: "auto" }}
-      className="ace-floating flex h-8 items-center gap-2 rounded-full pr-1 pl-3 text-sm text-status-failed"
+      className={cn(floatingControl, floatingMotion("enter"), "gap-2 pr-1 pl-3 text-status-failed")}
     >
       {props.message}
       <Button variant="ghost" size="sm" onClick={props.onDismiss}>

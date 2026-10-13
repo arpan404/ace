@@ -10,6 +10,7 @@ import { LongRows } from "@/components/virtual-rows.tsx";
 import { DiffStat } from "./diff-stat.tsx";
 import { createPairedRowHeights } from "./paired-row-heights.ts";
 import { useDiffRenderer } from "./diff-renderer.ts";
+import type { FileView } from "./file-view.ts";
 
 const GpuDiff = lazy(() => import("./gpu-diff.tsx"));
 
@@ -44,16 +45,7 @@ const ordered = (side: LineRange["side"], a: number, b: number): LineRange => {
 const virtualAbove = 400;
 const rowHeight = 20;
 
-/**
- * How a file is shown: open or collapsed, which folds are expanded, and whether a huge diff is
- * read as text. Held by the list, so a file scrolled out of a long list and back keeps it.
- */
-export interface FileView {
-  open: boolean;
-  expanded: ReadonlySet<number>;
-  asText: boolean;
-}
-export const freshView: FileView = { open: true, expanded: new Set(), asText: false };
+export { freshView, type FileView } from "./file-view.ts";
 
 /** Typical height of a file block before it is measured: its header and, if open, its rows. */
 export const fileHeight = (file: FileDiff, view: FileView) =>

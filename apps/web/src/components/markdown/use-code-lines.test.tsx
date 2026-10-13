@@ -58,3 +58,35 @@ test("plain results preserve caller source and reopening never requeues its high
   legacy.reply(0);
   await expect(result).resolves.toEqual({ hash: request.input.hash, plain: true });
 });
+
+test("a fence scrolled back into view after many others shows its colours with no new job", async () => {
+  vi.stubGlobal("Worker", FakeWorker);
+  const { useCodeLines } = await import("./use-code-lines.ts");
+  const fences = Array.from({ length: 40 }, (_, index) => `const fence${index} = ${index};`);
+  const worker = () => FakeWorker.instances[0];
+  const before = worker()?.requests.length ?? 0;
+  for (const [index, code] of fences.entries()) {
+    const view = renderHook(() => useCodeLines(code, "typescript"));
+    await waitFor(() => expect(worker()?.requests.length).toBe(before + index + 1));
+    const request = worker()?.requests.at(-1);
+    if (!request) throw new Error("Missing worker request");
+    await act(async () =>
+      worker()?.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            id: request.id,
+            output: { hash: request.input.hash, lines: [[{ kind: "keyword", text: "const" }]] },
+          },
+        }),
+      ),
+    );
+    expect(view.result.current?.lines[0]?.[0]?.text).toBe("const");
+    view.unmount();
+  }
+  const sent = worker()?.requests.length;
+  const back = renderHook(() => useCodeLines(fences[0], "typescript"));
+  expect(back.result.current?.lines[0]?.[0]?.text).toBe("const");
+  await act(async () => {});
+  expect(worker()?.requests.length).toBe(sent);
+  back.unmount();
+});

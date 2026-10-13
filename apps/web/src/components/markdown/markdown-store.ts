@@ -8,6 +8,10 @@ import type { StreamJob, StreamReply } from "./stream-registry.ts";
  * settled, so a growing answer costs work proportional to what changed. One job is in flight
  * per stream, always for the newest text. While a message streams its jobs are paced (the
  * first goes at once, so the first words show with no delay); a final one goes at once.
+ *
+ * A worker takes a moment to start. Until it first answers, finished messages a view asks for
+ * are built in place, within a small budget, so opening a thread shows its latest messages with
+ * the first paint rather than a skeleton per message while the worker loads.
  */
 
 export interface MarkdownBackend {
@@ -17,6 +21,8 @@ export interface MarkdownBackend {
   local(job: StreamJob): StreamReply;
   /** Drop the worker's parser for a stream no view shows any more. */
   release(stream: string): void;
+  /** Start the worker now, ahead of the first job it will get; settles once it has answered. */
+  warm?(): Promise<unknown>;
 }
 
 export interface MarkdownStoreOptions {
@@ -29,6 +35,11 @@ export interface MarkdownStoreOptions {
   updated?(update: { stream: string; chars: number; ms: number }): void;
   /** What unwatched documents may hold, in UTF-16 units weighed as `park` does (16 Mi). */
   parkedWeight?: number;
+  /**
+   * Characters of finished text that may be built in place before the worker first answers,
+   * in all and per document (none by default).
+   */
+  cold?: { total: number; each: number };
 }
 
 interface Wanted {
@@ -68,8 +79,20 @@ export class MarkdownStore {
    * session, so a row that mounts again shows its blocks at once.
    */
   private parked: LruCache<string, Stream>;
+  /** Whether the worker has answered once (a job or the warm-up); until then small finished texts build in place. */
+  private warm = false;
+  /** Whether a job, or a warm-up, has gone to the worker. */
+  private started = false;
+  private coldLeft: number;
+  /**
+   * Budget held by documents built in render but not yet adopted, by key: a first paint builds
+   * every visible row before any of them commits, and together they must stay in budget.
+   */
+  private reserved = new Map<string, number>();
+  private reservedTotal = 0;
   constructor(options: MarkdownStoreOptions) {
     this.options = options;
+    this.coldLeft = options.cold?.total ?? 0;
     this.parked = new LruCache<string, Stream>({
       maxEntries: 400,
       maxWeight: options.parkedWeight ?? 16 * 1024 * 1024,
@@ -111,6 +134,59 @@ export class MarkdownStore {
   read(key: string): MarkdownDoc | undefined {
     return (this.live.get(key) ?? this.parked.get(key))?.doc;
   }
+  /**
+   * While the worker is still starting: finished `text` built here, within the cold budget, for
+   * a stream the worker has never been sent. It holds its share of the budget (per key, so a
+   * re-render doesn't count twice) but changes no document; `adopt` keeps it once the view has
+   * committed.
+   */
+  buildCold(key: string, text: string): MarkdownDoc | undefined {
+    const { backend, cold } = this.options;
+    if (this.warm || !backend.parallel || !cold || !text || this.read(key)) return undefined;
+    const held = this.reserved.get(key) ?? 0;
+    const left = this.coldLeft - (this.reservedTotal - held);
+    if (text.length > cold.each || text.length > left) return undefined;
+    // A stream with a job on its way is the worker's: its reply would replace this document.
+    const known = this.live.get(key) ?? this.parked.get(key);
+    if (known?.sent || known?.busy) return undefined;
+    const reply = backend.local({ stream: key, at: 0, append: text, final: true });
+    if ("resync" in reply) return undefined;
+    this.reservedTotal += text.length - held;
+    this.reserved.set(key, text.length);
+    return { blocks: reply.settled, settled: reply.settled.length };
+  }
+  /**
+   * Keep a document `buildCold` made for `text` as the stream's own, so the worker is never
+   * asked for it, and start the worker for what comes next.
+   */
+  adopt(key: string, text: string, doc: MarkdownDoc): void {
+    // Whether or not it is kept, the render that built it is over.
+    this.reservedTotal -= this.reserved.get(key) ?? 0;
+    this.reserved.delete(key);
+    const known = this.live.get(key) ?? this.parked.get(key);
+    if (known?.doc || known?.sent || known?.busy) return;
+    this.coldLeft -= text.length;
+    if (!this.started) {
+      this.started = true;
+      this.options.backend.warm?.().then(
+        () => {
+          this.warm = true;
+        },
+        () => {},
+      );
+    }
+    const stream = known ?? this.fresh(key);
+    stream.settled = doc.blocks.slice();
+    stream.doc = doc;
+    // The worker never held this stream, and a final job leaves nothing to release.
+    stream.sent = { text, final: true };
+    if (this.live.has(key)) {
+      for (const listener of stream.listeners) listener();
+    } else {
+      stream.weight = text.length * 4 + 256;
+      this.parked.set(key, stream);
+    }
+  }
   /** Ask for `text`'s document in this stream; `final` once no more text will come. */
   want(key: string, text: string, final: boolean): void {
     const stream = this.stream(key);
@@ -118,26 +194,26 @@ export class MarkdownStore {
     this.pump(stream);
   }
   private stream(key: string): Stream {
-    let stream = this.live.get(key) ?? this.parked.get(key);
-    if (!stream) {
-      stream = {
-        key,
-        sent: undefined,
-        wanted: undefined,
-        settled: [],
-        doc: undefined,
-        busy: false,
-        failures: 0,
-        waiting: undefined,
-        readyAt: 0,
-        listeners: new Set(),
-        epoch: 0,
-        weight: 0,
-      };
-    }
+    const stream = this.live.get(key) ?? this.parked.get(key) ?? this.fresh(key);
     this.parked.delete(key);
     this.live.set(key, stream);
     return stream;
+  }
+  private fresh(key: string): Stream {
+    return {
+      key,
+      sent: undefined,
+      wanted: undefined,
+      settled: [],
+      doc: undefined,
+      busy: false,
+      failures: 0,
+      waiting: undefined,
+      readyAt: 0,
+      listeners: new Set(),
+      epoch: 0,
+      weight: 0,
+    };
   }
   private pump(stream: Stream): void {
     const wanted = stream.wanted;
@@ -179,9 +255,11 @@ export class MarkdownStore {
       return;
     }
     stream.busy = true;
+    this.started = true;
     const epoch = stream.epoch;
     void backend.run(job).then(
       (reply) => {
+        this.warm = true;
         if (stream.epoch !== epoch) return;
         stream.busy = false;
         this.answer(stream, wanted, reply, now);

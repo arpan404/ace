@@ -4,6 +4,7 @@ import { useItemOrder, type HistoryPager } from "@ace/client-react";
 import { ledgerOf } from "@ace/ui-core";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import {
+  memo,
   Suspense,
   useCallback,
   useEffect,
@@ -16,7 +17,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useTopFade } from "@/lib/edge-fade.ts";
-import { scrollToEnd as glideToEnd, useListMotion } from "@/lib/motion.ts";
+import { scrollToEnd as glideToEnd, useListMotion, usePresence } from "@/lib/motion.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import {
   DeferredFoldedTurn,
@@ -38,7 +39,15 @@ import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
 import { blockItems, type Block } from "./blocks.ts";
 import { LiveFooter } from "./live-footer.tsx";
-import { newestOrdinal, recentFrom, rowOf, transcriptRows, turnCount, type Row } from "./rows.ts";
+import {
+  newestOrdinal,
+  recentFrom,
+  rowOf,
+  sameRow,
+  transcriptRows,
+  turnCount,
+  type Row,
+} from "./rows.ts";
 import { useDockShift, useGutter, useKeepPlace, useStayPinned, type Anchor } from "./scroll.ts";
 import { useRunOrdinals } from "./run-ordinals.ts";
 import { useBlocks } from "./use-blocks.ts";
@@ -242,7 +251,12 @@ export function Feed(props: FeedProps) {
     count: rows.length,
     getScrollElement: () => viewport.current,
     estimateSize: (index) => (rows[index]?.kind === "block" ? 96 : 36),
-    overscan: 8,
+    // Rows are tall (a message, a log): four either side cover a fast flick with no gap, and
+    // half the eight it was halves what mounts per scrolled frame on a slow device.
+    overscan: 4,
+    // Scroll-driven range changes render with the next update rather than synchronously in
+    // the scroll event: one commit per frame however many scroll events it brings.
+    useFlushSync: false,
     scrollMargin: feed.current?.offsetTop ?? 0,
     scrollPaddingStart: topRoom,
     getItemKey: (index) => rows[index]?.key ?? index,
@@ -468,7 +482,24 @@ export function Feed(props: FeedProps) {
     else if (viewport.current) glideToEnd(viewport.current, true);
   };
 
+  // Stable, so a row re-renders only when its own row changes, not on every scroll or delta.
+  const openTurn = useCallback(
+    (ordinal: number) => setOpened((previous) => new Set(previous).add(ordinal)),
+    [],
+  );
+  const foldTurn = useCallback(
+    (ordinal: number) =>
+      setOpened((previous) => {
+        const next = new Set(previous);
+        next.delete(ordinal);
+        return next;
+      }),
+    [],
+  );
   const lastWindowOrdinal = window ? ordinalOf(window.items.at(-1)?.id ?? "") : undefined;
+  // The floating controls stay mounted through their exit.
+  const livePill = usePresence(!pinned || detached);
+  const jumpBar = usePresence(!!window);
   const fadeTop = useTopFade(viewport);
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -547,16 +578,8 @@ export function Feed(props: FeedProps) {
                           threadId={threadId}
                           row={row}
                           live={false}
-                          onOpen={(ordinal) =>
-                            setOpened((previous) => new Set(previous).add(ordinal))
-                          }
-                          onFold={(ordinal) =>
-                            setOpened((previous) => {
-                              const next = new Set(previous);
-                              next.delete(ordinal);
-                              return next;
-                            })
-                          }
+                          onOpen={openTurn}
+                          onFold={foldTurn}
                         />
                       </div>
                     </div>
@@ -602,9 +625,10 @@ export function Feed(props: FeedProps) {
               <DeferredSearchBar.Component nav={nav} />
             </Suspense>
           )}
-          {window && (
+          {jumpBar.mounted && (
             <Suspense fallback={null}>
               <DeferredJumpBar.Component
+                phase={jumpBar.phase}
                 turn={jump.turn}
                 reading={reading}
                 threadId={threadId}
@@ -637,9 +661,10 @@ export function Feed(props: FeedProps) {
           toLive={toLive}
         />
       </Suspense>
-      {(!pinned || detached) && (
+      {livePill.mounted && (
         <Suspense fallback={null}>
           <DeferredLivePill.Component
+            phase={livePill.phase}
             newItems={props.fresh.count}
             more={props.fresh.more}
             paused={activity?.tone === "working"}
@@ -651,13 +676,22 @@ export function Feed(props: FeedProps) {
   );
 }
 
-function RowView(props: {
+interface RowViewProps {
   threadId: string;
   row: Row;
   live: boolean;
   onOpen(ordinal: number): void;
   onFold(ordinal: number): void;
-}) {
+}
+/** Rows are rebuilt when blocks change (history paging in); an unchanged row draws nothing. */
+const sameRowView = (a: RowViewProps, b: RowViewProps) =>
+  a.threadId === b.threadId &&
+  a.live === b.live &&
+  a.onOpen === b.onOpen &&
+  a.onFold === b.onFold &&
+  sameRow(a.row, b.row);
+
+const RowView = memo(function RowView(props: RowViewProps) {
   const { row } = props;
   switch (row.kind) {
     case "block":
@@ -683,7 +717,7 @@ function RowView(props: {
         </Suspense>
       );
   }
-}
+}, sameRowView);
 
 /** An item a row shows, for finding it again once it folds or opens. */
 function rowItem(row: Row): string | undefined {

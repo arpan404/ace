@@ -1,5 +1,5 @@
-import { expect, test } from "vitest";
-import { diffTexts, fold, pairRows, parseUnifiedDiff, type DiffRow } from "./diff.ts";
+import { describe, expect, test } from "vitest";
+import { diffTexts, fold, pairRows, parseUnifiedDiff, readDiffText, type DiffRow } from "./diff.ts";
 import { changeStat } from "./file-changes.ts";
 
 const text = (rows: readonly DiffRow[]) =>
@@ -96,5 +96,82 @@ test("a full-text edit counts the lines that changed, not the size of the file",
   expect(changeStat({ path: "a.ts", kind: "update", oldText: before, newText: after })).toEqual({
     added: 2,
     removed: 1,
+  });
+});
+
+describe("a diff someone wrote, read line by line", () => {
+  const patch = [
+    "diff --git a/src/replay.ts b/src/replay.ts",
+    "index 1a2b3c4..5d6e7f8 100644",
+    "--- a/src/replay.ts",
+    "+++ b/src/replay.ts",
+    "@@ -10,4 +10,5 @@ export function replay()",
+    " const start = 0;",
+    "-const end = 1;",
+    "+const end = 2;",
+    "+const cap = 200;",
+    " return frames;",
+  ].join("\n");
+
+  test("keeps every line, numbers them from the hunk and counts the changes", () => {
+    const diff = readDiffText(patch);
+    expect(diff.lines.map((line) => line.text).join("\n")).toBe(patch);
+    expect(diff.files).toEqual(["src/replay.ts"]);
+    expect({ additions: diff.additions, deletions: diff.deletions }).toEqual({
+      additions: 2,
+      deletions: 1,
+    });
+    expect(diff.numbered).toBe(true);
+    expect(diff.lines.map((line) => [line.kind, line.old, line.new])).toEqual([
+      ["meta", undefined, undefined],
+      ["meta", undefined, undefined],
+      ["meta", undefined, undefined],
+      ["meta", undefined, undefined],
+      ["hunk", undefined, undefined],
+      ["context", 10, 10],
+      ["del", 11, undefined],
+      ["add", undefined, 11],
+      ["add", undefined, 12],
+      ["context", 12, 13],
+    ]);
+  });
+
+  test("without headers it still reads as changes, unnumbered", () => {
+    const diff = readDiffText("-old line\n+new line\n unchanged");
+    expect(diff.lines.map((line) => line.kind)).toEqual(["del", "add", "context"]);
+    expect(diff.numbered).toBe(false);
+    expect(diff.files).toEqual([]);
+  });
+
+  test("a removed line starting with dashes is a change, with or without a hunk header", () => {
+    expect(readDiffText("--- a comment\n kept").lines.map((line) => line.kind)).toEqual([
+      "del",
+      "context",
+    ]);
+    const inHunk = readDiffText("@@ -1,2 +1,1 @@\n--- a comment\n kept");
+    expect(inHunk.lines.map((line) => line.kind)).toEqual(["hunk", "del", "context"]);
+    expect(inHunk.deletions).toBe(1);
+  });
+
+  test("a diff of several files names each, and a deleted file by its old path", () => {
+    const diff = readDiffText(
+      [
+        "--- a/one.ts",
+        "+++ b/one.ts",
+        "@@ -1 +1 @@",
+        "-a",
+        "+b",
+        "--- a/gone.ts",
+        "+++ /dev/null",
+        "@@ -1 +0,0 @@",
+        "-c",
+      ].join("\n"),
+    );
+    expect(diff.files).toEqual(["one.ts", "gone.ts"]);
+    expect(diff.lines.filter((line) => line.kind === "meta")).toHaveLength(4);
+    expect({ additions: diff.additions, deletions: diff.deletions }).toEqual({
+      additions: 1,
+      deletions: 2,
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { contentHash, LruCache } from "@ace/ui-core";
 import type { Token } from "marked";
+import { fenceInfo } from "./fence-info.ts";
 import { highlight, type CodeToken } from "./highlight.ts";
 
 /*
@@ -40,8 +41,9 @@ export function highlightCached(code: string, lang: string | undefined): CodeTok
 /** A settled block: a fenced code block is highlighted once, here. */
 export function settledBlock(token: Token): MarkdownBlock {
   if (token.type !== "code" || typeof token.text !== "string") return { token };
-  return {
-    token,
-    code: highlightCached(token.text, typeof token.lang === "string" ? token.lang : undefined),
-  };
+  // The info string may carry a file name too (`ts title="a.ts"`, `src/a.ts`).
+  const info = fenceInfo(typeof token.lang === "string" ? token.lang : undefined);
+  // A diff is drawn as a unified diff, not syntax-highlighted.
+  if (info.diff) return { token };
+  return { token, code: highlightCached(token.text, info.lang) };
 }

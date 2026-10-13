@@ -11,6 +11,7 @@ export {
   useStoreSelect,
   useThreadMeta,
   useThreadError,
+  useThreadSyncing,
   useItemOrder,
   useItem,
   useAgent,

@@ -8,6 +8,8 @@ import {
   DeferredApprovalRecord,
 } from "./interactions/deferred-card.ts";
 import { DeferredReviewNote } from "./items/deferred-review.ts";
+import { DeferredBackgroundTask } from "./items/background-task-line.tsx";
+import { DeferredSubagents } from "./items/subagents.tsx";
 import { preloadJump } from "./long/jump.ts";
 
 export { DeferredInteractionCard };
@@ -105,6 +107,8 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredFoldedTurn.preload(),
     DeferredOpenTurnHead.preload(),
     DeferredTurnKeys.preload(),
+    DeferredSubagents.preload(),
+    DeferredBackgroundTask.preload(),
     preloadJump(),
     // Thumbnails and file chips: their shell, then their tiles.
     import("@/components/attachment-message.tsx").then((module) => module.preloadAttachments()),

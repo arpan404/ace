@@ -108,6 +108,17 @@
   .fx-panel-out[data-edge="bottom"] {
     --fx-y: var(--slide);
   }
+  /*
+   * Controls floating over the transcript (Jump to live, the jump bar): fade and rise in, fade
+   * and sink out quicker. Under reduced motion --rise is 0px, so only the fades are left.
+   */
+  .fx-float-in {
+    animation: fx-rise-in var(--motion-base) var(--ease-spring) both;
+  }
+  .fx-float-out {
+    pointer-events: none;
+    animation: fx-sink-out var(--motion-exit) var(--ease-exit) both;
+  }
   /* Counts and badges that change: a small pop, never a bounce. */
   .fx-pop {
     animation: fx-pop var(--motion-base) var(--ease-spring) both;
@@ -155,6 +166,12 @@
 
 @keyframes fx-rise-in {
   from {
+    opacity: 0;
+    transform: translateY(var(--rise));
+  }
+}
+@keyframes fx-sink-out {
+  to {
     opacity: 0;
     transform: translateY(var(--rise));
   }

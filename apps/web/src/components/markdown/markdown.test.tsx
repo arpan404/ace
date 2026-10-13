@@ -142,9 +142,17 @@ test("a streamed answer, once finished, has the same readable content as its who
   }
 });
 
-test("a message waits for the lazy renderer without showing its markdown source", async () => {
+test("a message shows its rendered text and never its markdown source", async () => {
   const view = render(<Prose text="**New thread message**" />);
-  expect(screen.getByRole("status", { name: "Loading message" })).toBeTruthy();
   expect(view.container.textContent).not.toContain("**New thread message**");
   expect(await screen.findByText("New thread message")).toBeTruthy();
+});
+
+test("a message is never blank while its renderer loads, with no loading boundary above it", async () => {
+  render(<Prose text="**Opened thread message**" />);
+  expect(
+    screen.queryByRole("status", { name: "Loading message" }) ??
+      screen.queryByText("Opened thread message"),
+  ).toBeTruthy();
+  expect(await screen.findByText("Opened thread message")).toBeTruthy();
 });

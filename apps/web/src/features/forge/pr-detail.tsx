@@ -11,7 +11,8 @@ import { PrLifecycle } from "./pr-lifecycle.tsx";
 import { PrSummary } from "./pr-summary.tsx";
 import { PrComposer } from "./pr-composer.tsx";
 import { PrChecksPill } from "./pr-presentation.tsx";
-import { PrFiles } from "./pr-files.tsx";
+import { PrFiles, preloadPrFiles } from "./pr-files.tsx";
+import { whenIdle } from "@/lib/idle.ts";
 import { QueryState } from "./query-state.tsx";
 import { readForge } from "./source.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
@@ -65,6 +66,8 @@ export function PrDetail(props: {
   useEffect(() => {
     if (detail) onState?.(detail.status.state);
   }, [detail, onState]);
+  // An open pull request warms its diff renderer while the browser is idle.
+  useEffect(() => whenIdle(preloadPrFiles), []);
   const refresh = async () => {
     setRefreshVersion((version) => version + 1);
     return !(await query.refetch()).isError;
