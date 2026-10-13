@@ -4,6 +4,7 @@ import {
   cardDetails,
   middleTruncateText,
   threadCard,
+  threadRowStatus,
   type ThreadCardInput,
 } from "./thread-card.ts";
 
@@ -267,4 +268,23 @@ test("a linked pull request stays available when the thread has no feature branc
     if (branch) expect(card.branch?.name).toBe(branch);
     else expect(card.branch).toBeUndefined();
   }
+});
+
+test("another surface naming a thread uses its sidebar row's word", () => {
+  const live = (status: Parameters<typeof entry>[1], hints: object) =>
+    entry("t", status, now, { live: { provider: "claude", ...hints } });
+  const watching = live(
+    { state: "waiting", on: "background_task" },
+    { watching: [{ id: "relay", title: "bun run dev:relay" }] },
+  );
+  expect(threadRowStatus(watching, now, "en-US")).toBe("Working");
+  const asking = live(
+    { state: "needs_you", interactions: 1 },
+    { asking: [{ id: "a", kind: "approval" }] },
+  );
+  expect(threadRowStatus(asking, now, "en-US")).toBe("Approve");
+  expect(threadRowStatus(entry("t", { state: "waiting", on: "network" }, now), now)).toBe(
+    "Waiting",
+  );
+  expect(threadRowStatus(entry("t", { state: "done" }, now), now)).toBe("Done");
 });
