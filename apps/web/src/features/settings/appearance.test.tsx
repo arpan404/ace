@@ -114,22 +114,19 @@ test("the mode cards preview whichever theme is on, System in both schemes", asy
   expect(drawn("Dark")).toEqual(["harbor dark"]);
 });
 
-test("the active theme is the checked radio and its swatch for the mode on screen carries the badge", async () => {
+test("only the active theme is a checked radio, and choosing another moves it", async () => {
   await harness({ matchMedia: system({}) }).open("/settings/appearance");
   await settled();
   const group = screen.getByRole("radiogroup", { name: "Theme" });
+  const checked = () =>
+    within(group)
+      .getAllByRole("radio")
+      .filter((radio) => radio.getAttribute("aria-checked") === "true")
+      .map((radio) => radio.getAttribute("aria-label"));
+  expect(checked()).toEqual(["ace"]);
   await userEvent.click(within(group).getByRole("radio", { name: "Umbra" }));
-  const checked = within(group)
-    .getAllByRole("radio")
-    .filter((radio) => radio.getAttribute("aria-checked") === "true");
-  expect(checked.map((radio) => radio.getAttribute("aria-label"))).toEqual(["Umbra"]);
-  const badges = () =>
-    [...group.querySelectorAll("[data-badge]")].map((badge) => badge.getAttribute("data-badge"));
-  expect(badges()).toEqual(["light"]);
-  expect(checked[0]?.querySelector("[data-badge]")).toBeTruthy();
-
-  await userEvent.click(screen.getByRole("radio", { name: "Dark" }));
-  expect(badges()).toEqual(["dark"]);
+  expect(checked()).toEqual(["Umbra"]);
+  expect(within(group).getByRole("radio", { name: "Umbra" }).getAttribute("tabindex")).toBe("0");
 });
 
 test("the theme swatches can be changed by keyboard", async () => {
@@ -166,14 +163,19 @@ test("Settings offers the six themes with ace first, each previewed in its own t
     "Tty",
     "Harbor",
   ]);
-  // Each card paints both schemes of its own theme from its canvas, whatever theme is on.
+  // Each card draws both schemes of its own theme, whatever theme the app is in, and those are
+  // the rules the app itself uses: the preview's canvas is the theme's.
   const folio = within(group).getByRole("radio", { name: "Folio" });
-  const swatches = [...folio.querySelectorAll<HTMLElement>("[data-swatch]")];
-  expect(swatches.map((swatch) => parseOpaqueColor(swatch.style.backgroundColor))).toEqual([
-    parseOpaqueColor(themes.folio.light.s0),
-    parseOpaqueColor(themes.folio.dark.s0),
-  ]);
-  expect(themes.folio.light.s0).not.toBe(themes.ace.light.s0);
+  const previews = [...folio.querySelectorAll("[data-theme]")].map(
+    (node) => `${node.getAttribute("data-theme")} ${node.getAttribute("data-scheme")}`,
+  );
+  expect(previews).toEqual(["folio light", "folio dark"]);
+  const sheet = document.getElementById("ace-themes")?.textContent ?? "";
+  for (const scheme of ["light", "dark"] as const) {
+    const selector = `[data-theme="folio"][data-scheme="${scheme}"]{`;
+    const body = sheet.slice(sheet.indexOf(selector) + selector.length).split("}")[0] ?? "";
+    expect(body).toContain(`--background:${themes.folio[scheme].s0}`);
+  }
 });
 
 /** The value the page's stylesheet gives `name` for the theme and scheme on <html>. */
