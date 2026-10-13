@@ -637,7 +637,12 @@ for (const transport of ["websocket", "relay"])
       canReadThread: (_device, thread) => readable && thread === allowed.id,
     });
     cleanup.push(() => server.close());
-    const paired = store.devices.create("Reader", ["read"], 1);
+    // A local socket accepts only desktop device credentials; the relay refuses them.
+    const paired = store.devices.create(
+      "Reader",
+      transport === "relay" ? ["read"] : ["read", "desktop"],
+      1,
+    );
     let client: { send(value: unknown): void | Promise<void>; next(): Promise<unknown> };
     if (transport === "relay") {
       const relay = await startRelay();
