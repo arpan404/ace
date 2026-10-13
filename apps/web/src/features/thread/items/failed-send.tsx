@@ -11,6 +11,8 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useLayout } from "@/lib/layout.tsx";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import { newThreadDraftKey } from "@/lib/new-thread-draft-key.ts";
 import { dismissSend } from "../composer/dismissed-sends.ts";
 import { draftOf, restoreReturnedDraft, type SendPayload } from "../composer/returned-draft.ts";
 import { returnDraft, saveOpenDraft, leasable } from "../composer/send-store.ts";
@@ -91,6 +93,7 @@ export function useSendActions(threadId: string) {
   const toast = useToast();
   const navigate = useNavigate();
   const { storage } = useLayout();
+  const host = useHostIdentity()?.hostId;
   const inFlight = useRef(new Set<string>());
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   return {
@@ -154,7 +157,8 @@ export function useSendActions(threadId: string) {
       const draft = draftOf(payload);
       if (payload.type === "thread.create")
         return void import("../composer/draft-store.ts").then(({ writeDraft }) => {
-          if (!writeDraft(storage, `new:${payload.workspaceId}`, draft)) {
+          // New thread reads its draft under this host and project; elsewhere it would be lost.
+          if (!host || !writeDraft(storage, newThreadDraftKey(host, payload.workspaceId), draft)) {
             toast.error({
               title: "Couldn't save the edit",
               description: "The original message is still here.",
