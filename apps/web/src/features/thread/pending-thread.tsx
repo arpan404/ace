@@ -3,7 +3,6 @@ import type { PermissionMode, WorktreeCreationProgress } from "@ace/protocol";
 import { usePermissionCapabilities } from "@/lib/use-permission-modes.ts";
 import { useConnectionState, useIntent, usePendingSends, useThreadMeta } from "@ace/client-react";
 import {
-  modelLabel,
   permissionLabel,
   provisionalTitle,
   providerNames,
@@ -14,12 +13,7 @@ import { GitForkIcon, ShieldIcon, WarningCircleIcon } from "@phosphor-icons/reac
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, type Ref, type ComponentType, type ReactNode } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import {
-  chipControl,
-  iconControl,
-  environmentRow,
-  environmentSurface,
-} from "./composer/composer-styles.ts";
+import { iconControl, environmentRow, environmentSurface } from "./composer/composer-styles.ts";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Screen } from "@/features/shell/index.ts";
@@ -31,7 +25,12 @@ import type { ThreadRef } from "./sources/index.ts";
 import { useSendActions } from "./items/failed-send.tsx";
 import { WorktreeCreationCard } from "./worktree/creation-card.tsx";
 import { useWorktreeCreation } from "./worktree/use-worktree-creation.ts";
-import { worktreeUnmade, worktreeUnmadeReason } from "./worktree/worktree-refusal.ts";
+import {
+  worktreeSpeaks,
+  worktreeUnmade,
+  worktreeUnmadeReason,
+} from "./worktree/worktree-refusal.ts";
+import { PendingModelChip } from "./pending-model-chip.tsx";
 
 /** What the new thread is doing before it exists: a worktree first, then its provider. */
 function startingLine(payload: PendingSend["payload"], accepted: boolean): TurnActivity {
@@ -133,7 +132,7 @@ export function PendingThreadView(props: {
                 {props.parts.bubble}
               </div>
             </div>
-            {progress ? (
+            {worktreeSpeaks(progress, failed ? code : undefined) ? (
               <WorktreeCreationCard state={worktree.state} onAction={worktree.act} />
             ) : (
               payload && !failed && <props.parts.Line activity={startingLine(payload, !!realId)} />
@@ -153,6 +152,7 @@ export function PendingThreadView(props: {
             draftKey={`thread:${props.threadId}`}
             composer={composer}
             model={payload.model}
+            options={payload.options}
             permission={payload.permissionMode}
             progress={progress}
           />
@@ -178,6 +178,7 @@ function PendingComposer({
   thread,
   draftKey,
   model,
+  options,
   permission,
   progress,
 }: {
@@ -185,6 +186,7 @@ function PendingComposer({
   draftKey: string;
   composer: Ref<ComposerHandle>;
   model: string | undefined;
+  options: Readonly<Record<string, unknown>> | undefined;
   permission: PermissionMode | undefined;
   progress: WorktreeCreationProgress | undefined;
 }) {
@@ -216,26 +218,25 @@ function PendingComposer({
           </Tip>
         }
         trailing={
-          <Tip label="Model controls are available when the thread starts" side="top">
-            <button
-              type="button"
-              aria-disabled
-              aria-label={`Model: ${model ? modelLabel(model) : "Provider default"}`}
-              className={chipControl}
-            >
-              {model ? modelLabel(model) : "Provider default"}
-            </button>
-          </Tip>
+          <PendingModelChip
+            provider={thread.provider}
+            instanceId={thread.instanceId}
+            model={model}
+            options={options}
+          />
         }
         environment={
-          <section aria-label="Environment" className={environmentSurface}>
-            <div className={environmentRow}>
-              <p role="status" className="flex w-fit min-w-0 max-w-full items-center gap-1">
-                <GitForkIcon aria-hidden size={14} className="shrink-0" />
-                <span className="truncate">{worktreeTabLabel(progress)}</span>
-              </p>
-            </div>
-          </section>
+          // Only while the worktree is made: once it stops, its card above says how it ended.
+          (!progress || progress.state === "running" || progress.state === "cancelling") && (
+            <section aria-label="Environment" className={environmentSurface}>
+              <div className={environmentRow}>
+                <p role="status" className="flex w-fit min-w-0 max-w-full items-center gap-1">
+                  <GitForkIcon aria-hidden size={14} className="shrink-0" />
+                  <span className="truncate">{worktreeTabLabel(progress)}</span>
+                </p>
+              </div>
+            </section>
+          )
         }
         placeholder="Draft your next message while the worktree is prepared"
         shortPlaceholder="Draft your next message"

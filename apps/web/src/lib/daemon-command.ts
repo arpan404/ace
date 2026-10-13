@@ -69,6 +69,7 @@ const refusals: Record<string, string> = {
     "Couldn't rewind this conversation. Wait for all agents to finish. If the session has closed, send a message to resume it, then try again.",
   fork_point_unavailable: "That turn can't be forked.",
   provider_unavailable: "That provider isn't installed or signed in.",
+  model_unavailable: "That model isn't available. Pick another model and try again.",
   not_implemented: "ace on this machine can't do that yet.",
   forbidden: "This device isn't allowed to do that.",
 };
