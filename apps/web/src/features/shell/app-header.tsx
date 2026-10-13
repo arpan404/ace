@@ -94,7 +94,9 @@ export function HeaderNav() {
   const frame = useViewFrame();
   // A phone leaves history to the system.
   const phone = usePhone();
-  if (!frame.hasSidebar) return null;
+  // No sidebar at all (first-run setup): nothing to show, but the desktop app still clears the
+  // macOS traffic lights by this slot's margin, so the title never sits under them.
+  if (!frame.hasSidebar) return <div aria-hidden data-slot="header-nav" className="shrink-0" />;
   if (!phone && frame.sidebarShown && !frame.sheet) return null;
   return (
     // `header-nav`: with no sidebar beside it, the desktop app clears the traffic lights here.

@@ -1,14 +1,17 @@
 import { useConnectionState, useThreadSyncing } from "@ace/client-react";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { useHeld } from "@/lib/held.ts";
+import { useStartupHold } from "@/lib/startup/startup.tsx";
 import { readingColumn } from "./lib/column.ts";
 
 /**
  * A thread whose first messages haven't arrived. Nothing for a moment (most threads open
  * sooner), then "Loading messages…" over the shape of a transcript: an ask, a work line and
- * an answer. Shown only while there is nothing of the thread to show.
+ * an answer. Shown only while there is nothing of the thread to show. At boot the startup screen
+ * stays up instead (from the first moment, not only once this shows), so boot never shows it.
  */
 export function ThreadLoading() {
+  useStartupHold();
   if (!useHeld(true)) return null;
   return (
     <LoadingRegion label="messages" className={`${readingColumn} flex flex-col pt-10`}>
