@@ -56,18 +56,15 @@ test("work still running offers Snooze on hover but no Settle", async () => {
   expect(screen.queryByRole("button", { name: `Settle ${title}` })).toBeNull();
 });
 
-test("the hover clock snoozes a thread below the others until the time picked", async () => {
+test("the hover clock folds quiet work into Snoozed until the time picked", async () => {
   const app = await openHome();
-  const title = "Retry budget for app-server restarts";
+  const title = "Dedupe thread events after reconnect";
   const id = workbench().find((scenario) => scenario.thread.title === title)?.thread.id;
   if (!id) throw new Error("Missing scenario");
   await userEvent.click(screen.getByRole("button", { name: `Snooze ${title}` }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
-  await waitFor(() => expect(card(/^Retry budget.*Snoozed until tomorrow/)).toBeTruthy());
+  await userEvent.click(await within(threads()).findByRole("button", { name: "Snoozed (1)" }));
+  expect(card(/^Dedupe.*Snoozed until tomorrow/)).toBeTruthy();
   expect(threadOf(app, id)?.snoozedUntil).toBeDefined();
-
-  const list = threads().querySelector("[data-virtual-viewport]");
-  if (!(list instanceof HTMLElement)) throw new Error("no list");
-  await userEvent.unhover(list);
-  await waitFor(() => expect(before("Backpressure on broadcast fan-out", title)).toBe(true));
+  expect(before("Backpressure on broadcast fan-out", title)).toBe(true);
 });

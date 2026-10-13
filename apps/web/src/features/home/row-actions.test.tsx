@@ -79,9 +79,8 @@ test("the row overflow opens Snooze presets without navigation and can wake the 
   await userEvent.click(await screen.findByRole("button", { name: `Actions for ${title}` }));
   await userEvent.hover(await screen.findByRole("menuitem", { name: /^Snooze/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
-  await waitFor(() =>
-    expect(screen.getByRole("link", { name: /^Dedupe.*Snoozed until tomorrow/ })).toBeTruthy(),
-  );
+  await userEvent.click(await screen.findByRole("button", { name: "Snoozed (1)" }));
+  expect(screen.getByRole("link", { name: /^Dedupe.*Snoozed until tomorrow/ })).toBeTruthy();
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(before);
   await userEvent.click(screen.getByRole("button", { name: `Actions for ${title}` }));
   await userEvent.hover(await screen.findByRole("menuitem", { name: /^Snooze/ }));
