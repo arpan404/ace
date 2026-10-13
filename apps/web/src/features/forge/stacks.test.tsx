@@ -124,15 +124,23 @@ function setup(value = stack, linked = true) {
 }
 beforeEach(() => localStorage.clear());
 
-test("a middle layer shows downstack blockers and reviews the native merge scope and method before execution", async () => {
+test("a middle layer reveals merge blockers on expand and reviews the native merge scope and method before execution", async () => {
   const app = setup();
   await app.open("/pull-requests?project=api&number=42");
   const section = await screen.findByRole("region", { name: "Pull request stack" });
+  const details = await within(section).findByRole("button", { name: "Details for #42" });
+  expect(within(section).queryByText("Blocked by merge rules")).toBeNull();
+  await userEvent.click(details);
+  expect(within(section).getByText("Blocked by merge rules")).toBeTruthy();
+  expect(within(section).getByText("Review required")).toBeTruthy();
   expect(
-    await within(section).findByText(/Reviews: REVIEW_REQUIRED.*GitHub merge rules: BLOCKED/),
-  ).toBeTruthy();
-  expect(within(section).getByText(/Native stacks do not support/)).toBeTruthy();
-  expect(within(section).getAllByText("Reported required checks: Tests: SUCCESS")).toHaveLength(2);
+    within(within(section).getByRole("list", { name: "Required checks for #42" }))
+      .getAllByRole("listitem")
+      .map((item) => item.textContent),
+  ).toEqual(["Tests: passing"]);
+  expect(
+    within(section).getByRole("button", { name: "Layer 2: #42 API" }).getAttribute("aria-current"),
+  ).toBe("page");
   expect(
     screen.getByRole<HTMLButtonElement>("button", { name: "Enable auto-merge" }).disabled,
   ).toBe(true);
@@ -164,7 +172,11 @@ test("a refreshed uncertain request blocks another merge and remains visible aft
   );
   await app.open("/pull-requests?project=api&number=42");
   const section = await screen.findByRole("region", { name: "Pull request stack" });
-  expect(await within(section).findByText(/uncertain: Inspect GitHub/)).toBeTruthy();
+  expect(
+    await within(section).findByText(
+      "Merge outcome unknown · Inspect GitHub before repeating this request.",
+    ),
+  ).toBeTruthy();
   expect(
     within(section).getByRole<HTMLButtonElement>("button", { name: "Merge through #42" }).disabled,
   ).toBe(true);
@@ -184,15 +196,52 @@ test("a refreshed uncertain request blocks another merge and remains visible aft
     },
   );
   await userEvent.click(within(section).getByRole("button", { name: "Refresh stack" }));
-  expect(await within(section).findByText(/uncertain: The original stack changed/)).toBeTruthy();
+  expect(
+    await within(section).findByText(/Merge outcome unknown · The original stack changed/),
+  ).toBeTruthy();
   expect(within(section).queryByRole("button", { name: "Merge through #42" })).toBeNull();
+});
+
+test("a cancelled required check blocks its layer even when GitHub's rollup and merge state look clean", async () => {
+  const app = setup(
+    ForgeStackWorkspace.parse({
+      ...stack,
+      stack: {
+        ...stack.stack,
+        layers: layers.map((layer) =>
+          layer.number === 43
+            ? {
+                ...layer,
+                mergeState: "CLEAN",
+                checksState: "PENDING",
+                requiredChecks: [
+                  { name: "Tests", state: "CANCELLED" },
+                  { name: "Lint", state: "SUCCESS" },
+                ],
+              }
+            : layer,
+        ),
+      },
+    }),
+  );
+  await app.open("/pull-requests?project=api&number=42");
+  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  expect(within(section).getByRole("img", { name: "Tests failing" })).toBeTruthy();
+  await userEvent.click(within(section).getByRole("button", { name: "Details for #43" }));
+  expect(within(section).getByText("Blocked by failing required checks")).toBeTruthy();
+  expect(
+    within(within(section).getByRole("list", { name: "Required checks for #43" }))
+      .getAllByRole("listitem")
+      .map((item) => item.textContent),
+  ).toEqual(["Tests: failing", "Lint: passing"]);
+  expect(within(section).queryByText("More checks on GitHub")).toBeNull();
 });
 
 test("no linked task leaves stack navigation available while remote writes require an explicit association", async () => {
   const app = setup(stack, false);
   await app.open("/pull-requests?project=api&number=42");
   const section = await screen.findByRole("region", { name: "Pull request stack" });
-  await within(section).findByText(/Link the selected PR to a task/);
+  await within(section).findByText("No linked task");
   expect(
     within(section).getByRole<HTMLButtonElement>("button", { name: "Merge through #42" }).disabled,
   ).toBe(true);
@@ -233,7 +282,10 @@ test("a locally rebased stack reviews each layer's leased push before publishing
   app.daemon.refuseCommands("forge_conflict", "forge.pr.stack.change");
   await app.open("/pull-requests?project=api&number=42");
   const section = await screen.findByRole("region", { name: "Pull request stack" });
-  await within(section).findByText(/push_partial: Local branches are rebased/);
+  await within(section).findByText(
+    "Rebased, not pushed · Local branches are rebased and not yet pushed.",
+  );
+  expect(within(section).queryByText(/push_partial/)).toBeNull();
   expect(
     within(section).getByRole<HTMLButtonElement>("button", { name: "Rebase local stack" }).disabled,
   ).toBe(true);
@@ -296,11 +348,11 @@ test("repository lists group only host-confirmed layers and use host positions f
   );
   await app.open("/pull-requests?project=api");
   const groups = await screen.findByRole("region", { name: "Native pull request stacks" });
-  await within(groups).findByText("Native stack #2 → main · 3 layers");
+  await within(groups).findByText("acme/api · Stack #2 → main · 3 layers");
   expect(
     within(groups)
       .getAllByRole("button")
-      .map((button) => button.textContent),
+      .map((button) => button.getAttribute("aria-label")),
   ).toEqual(["#41 · layer 1", "#43 · layer 3"]);
   await userEvent.click(within(groups).getByRole("button", { name: "#43 · layer 3" }));
   expect(await screen.findByRole("heading", { name: "UI" })).toBeTruthy();

@@ -1,22 +1,41 @@
 import { useState } from "react";
+import { ArrowClockwiseIcon, ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
-import type { ForgePrDetail, ForgeStackExpected, ForgeStackOperation } from "@ace/protocol";
+import type { ForgePrDetail, ForgeStackOperation } from "@ace/protocol";
 import { canPublishStack, matchesLocalStack, matchesStackBranches } from "@ace/forge/stack-plan";
 import { canPublishAfter, stackPublishUpdates } from "@ace/forge/stack-publish";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { Button } from "@/components/ui/button.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { openExternal } from "@/boot/open-external.ts";
 import { readForge, forgeError } from "./source.ts";
 import { QueryState } from "./query-state.tsx";
+import { StackRail } from "./pr-stack-rail.tsx";
+import { StackConfirm, type StackConfirmation } from "./pr-stack-confirm.tsx";
+import { stackOperationLabel } from "./pr-stack-labels.ts";
 
-type Confirmation = {
-  action: ForgeStackOperation["action"];
-  method: "merge" | "squash" | "rebase";
-  expected: ForgeStackExpected;
-  numbers: number[];
-};
+/** One action in the stack toolbar; while disabled its reason is a hover/focus tip. */
+function StackAction(props: { reason: string | undefined; onClick(): void; children: string }) {
+  return (
+    <DisabledReason reason={props.reason}>
+      <Button size="sm" disabled={props.reason !== undefined} onClick={props.onClick}>
+        {props.children}
+      </Button>
+    </DisabledReason>
+  );
+}
+
+function OperationStatus(props: { operation: ForgeStackOperation }) {
+  return (
+    <p role="status" className="text-ui">
+      {`${stackOperationLabel(props.operation)} · ${props.operation.message}`}
+    </p>
+  );
+}
+
 export function PrStack(props: {
   workspaceId: string;
   detail: ForgePrDetail;
@@ -28,7 +47,7 @@ export function PrStack(props: {
   const ref = props.detail.status.ref;
   const [threadId, setThread] = useState(props.detail.relatedThreads[0]?.id ?? "");
   const [method, setMethod] = useState<"merge" | "squash" | "rebase">("squash");
-  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [confirmation, setConfirmation] = useState<StackConfirmation | null>(null);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const query = useDaemonQuery({
@@ -53,7 +72,7 @@ export function PrStack(props: {
       return result.value;
     },
   });
-  const stack = query.data?.stack;
+  const stack = query.isError ? undefined : (query.data?.stack ?? undefined);
   const local = query.data?.local;
   const operation = query.data?.operation;
   const index = stack?.layers.findIndex((layer) => layer.number === ref.number) ?? -1;
@@ -61,7 +80,8 @@ export function PrStack(props: {
   const incomplete =
     operation && ["pending", "uncertain", "conflict", "push_partial"].includes(operation.state);
   const associated = props.detail.relatedThreads.some((thread) => thread.id === threadId);
-  const disabled = !ready || pending || query.isFetching || query.isError || !stack || !associated;
+  const busy = !ready || pending || query.isFetching || query.isError || !stack;
+  const disabled = busy || !associated;
   const canRebase =
     stack && local && !query.data?.localUnavailable && matchesLocalStack(local, stack);
   const canRecover =
@@ -73,7 +93,43 @@ export function PrStack(props: {
     !local?.branches.some((branch) => branch.isQueued);
   const publishing =
     confirmation?.action === "push" ? stackPublishUpdates(confirmation.expected) : [];
-  const prepare = (action: ForgeStackOperation["action"]) => {
+  // Why a toolbar action can't run now, checked in the order the person can fix them.
+  const writeReason = !associated
+    ? "Link this pull request to a task first."
+    : busy
+      ? "Wait for the stack to refresh."
+      : undefined;
+  const localReason =
+    writeReason ??
+    query.data?.localUnavailable ??
+    (!canPublish ? "Reconcile queued, closed or unavailable layers on GitHub first." : undefined);
+  const busyReason = incomplete
+    ? "Finish or reconcile the current stack operation first."
+    : undefined;
+  const mergeReason =
+    writeReason ??
+    busyReason ??
+    (!stack?.canMerge
+      ? "GitHub doesn't allow merging this stack."
+      : scope.some((layer) => layer.state !== "OPEN" && layer.state !== "MERGED")
+        ? "A lower layer is closed."
+        : undefined);
+  const rebaseReason =
+    localReason ??
+    busyReason ??
+    (!canRebase ? "The task checkout doesn't match this stack." : undefined);
+  const recoverReason =
+    localReason ?? (!canRecover ? "The task checkout doesn't match this stack." : undefined);
+  const abortReason =
+    writeReason ??
+    query.data?.localUnavailable ??
+    (!canRecover ? "The task checkout doesn't match this stack." : undefined);
+  const recovering =
+    operation &&
+    operation.action !== "merge" &&
+    operation.action !== "push" &&
+    ["conflict", "uncertain"].includes(operation.state);
+  const prepare = (action: StackConfirmation["action"]) => {
     if (!stack || disabled) return;
     setConfirmation({
       action,
@@ -119,220 +175,122 @@ export function PrStack(props: {
       setPending(false);
     }
   };
+  // A PR outside any native stack, with nothing to recover, shows no section at all.
+  const loadedEmpty = !!query.data && !query.isError && !stack && !operation;
+  if ((!query.data && !query.error) || (loadedEmpty && !message)) return null;
+  const refresh = (
+    <IconButton
+      icon={ArrowClockwiseIcon}
+      size="sm"
+      className="ml-auto"
+      label="Refresh stack"
+      disabled={!ready || pending || query.isFetching}
+      onClick={() => void query.refetch()}
+    />
+  );
   return (
-    <section aria-label="Pull request stack" className="space-y-3 border-t border-border py-4">
-      <h3 className="text-base font-medium">Pull request stack</h3>
-      <QueryState query={query} />
-      <Button disabled={!ready || pending || query.isFetching} onClick={() => void query.refetch()}>
-        Refresh stack
-      </Button>
-      {query.data && !stack && !query.isError && (
-        <p>This pull request is not in a native GitHub stack.</p>
-      )}
-      {stack && !query.isError && (
-        <>
-          <p>
-            Native stack #{stack.number} · trunk {stack.trunk}
-          </p>
-          <p className="text-sm">
-            Merging #{ref.number} requests layers{" "}
-            {scope.map((layer) => `#${layer.number}`).join(", ")} together. GitHub enforces the
-            trunk's required reviews, checks and queue rules. Native stacks do not support
-            auto-merge.
-          </p>
-          <ol aria-label="Stack layers" className="space-y-3">
-            {stack.layers.map((layer) => (
-              <li key={layer.number} className="border-l border-border pl-3 text-sm">
-                <Button
-                  aria-current={layer.number === ref.number ? "page" : undefined}
-                  onClick={() => props.onOpen(layer.number)}
-                >
-                  Layer {layer.position}: #{layer.number} {layer.title}
-                </Button>
-                <p>
-                  {layer.state} · {layer.baseBranch} ← {layer.branch} · head{" "}
-                  {layer.headSha.slice(0, 12)}
-                </p>
-                <p>
-                  Reported required checks:{" "}
-                  {layer.requiredChecks
-                    .map((check) => `${check.name}: ${check.state}`)
-                    .join(" · ") || "None reported"}
-                  {layer.checksTruncated ? " · More checks on GitHub" : ""}
-                </p>
-                <p>
-                  Checks: {layer.checksState ?? "Unknown"} · Reviews:{" "}
-                  {layer.reviewDecision ?? "Unknown"} · GitHub merge rules: {layer.mergeState}
-                  {layer.queueState ? ` · Queue: ${layer.queueState}` : ""}
-                </p>
-              </li>
-            ))}
-          </ol>
-          <div className="flex items-center gap-2 text-sm">
-            Stack task
+    <section aria-label="Pull request stack" className="space-y-2">
+      <div className="flex items-center gap-1">
+        <h3 className="text-ui font-medium text-muted-foreground">
+          {stack ? `Stack #${stack.number} → ${stack.trunk}` : "Stack"}
+        </h3>
+        {refresh}
+        {stack && (
+          <IconButton
+            icon={ArrowSquareOutIcon}
+            size="sm"
+            label="Open stack on GitHub"
+            onClick={() =>
+              void openExternal(props.detail.status.url).catch(() =>
+                setMessage("Couldn't open GitHub."),
+              )
+            }
+          />
+        )}
+      </div>
+      {/* Background refreshes keep the rail in place; only a first read, error or offline shows. */}
+      {!(query.data && !query.isError && ready) && <QueryState query={query} />}
+      {stack && <StackRail layers={stack.layers} current={ref.number} onOpen={props.onOpen} />}
+      {operation && <OperationStatus operation={operation} />}
+      {stack && (
+        <div
+          role="group"
+          aria-label="Stack actions"
+          className="flex flex-wrap items-center gap-1.5"
+        >
+          {props.detail.relatedThreads.length > 1 && (
             <Select
               label="Stack task"
-              className="w-64"
+              className="h-6.5 w-44 text-sm"
               value={threadId}
               onValueChange={(value) => {
                 setThread(value);
                 setConfirmation(null);
               }}
-              options={[
-                { value: "", label: "Choose a linked task" },
-                ...props.detail.relatedThreads.map((thread) => ({
-                  value: thread.id,
-                  label: thread.title,
-                })),
-              ]}
+              options={props.detail.relatedThreads.map((thread) => ({
+                value: thread.id,
+                label: thread.title,
+              }))}
             />
-          </div>
-          {!associated && (
-            <p className="text-sm">
-              Link the selected PR to a task to use stack actions. Other layers keep their existing
-              association choices.
-            </p>
           )}
-          {query.data?.localUnavailable && <p className="text-sm">{query.data.localUnavailable}</p>}
-          {!canPublish && (
-            <p className="text-sm">
-              Queued, closed or unavailable layers must be reconciled on GitHub before publishing
-              local branches.
-            </p>
+          {!props.detail.relatedThreads.length && (
+            <span className="text-ui text-muted-foreground">No linked task</span>
           )}
-          {operation && (
-            <p role="status">
-              {operation.state}: {operation.message}
-            </p>
+          <Select
+            label="Stack merge method"
+            className="h-6.5 w-32 text-sm"
+            value={method}
+            onValueChange={(value) => {
+              setMethod(value);
+              setConfirmation(null);
+            }}
+            options={[
+              { value: "squash", label: "Squash" },
+              { value: "merge", label: "Merge commit" },
+              { value: "rebase", label: "Rebase" },
+            ]}
+          />
+          <StackAction reason={mergeReason} onClick={() => prepare("merge")}>
+            {`Merge through #${ref.number}`}
+          </StackAction>
+          <StackAction reason={rebaseReason} onClick={() => prepare("rebase")}>
+            Rebase local stack
+          </StackAction>
+          {recovering && (
+            <>
+              <StackAction reason={recoverReason} onClick={() => prepare("continue")}>
+                Continue local rebase
+              </StackAction>
+              <StackAction reason={abortReason} onClick={() => prepare("abort")}>
+                Abort rebase
+              </StackAction>
+            </>
           )}
-          <div className="flex items-center gap-2 text-sm">
-            Stack merge method
-            <Select
-              label="Stack merge method"
-              value={method}
-              onValueChange={(value) => {
-                setMethod(value);
-                setConfirmation(null);
-              }}
-              options={[
-                { value: "squash", label: "Squash" },
-                { value: "merge", label: "Merge commit" },
-                { value: "rebase", label: "Rebase" },
-              ]}
-            />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              disabled={
-                disabled ||
-                !!incomplete ||
-                !stack.canMerge ||
-                scope.some((layer) => layer.state !== "OPEN" && layer.state !== "MERGED")
-              }
-              onClick={() => prepare("merge")}
-            >
-              Merge through #{ref.number}
-            </Button>
-            <Button
-              disabled={disabled || !!incomplete || !canRebase || !canPublish}
-              onClick={() => prepare("rebase")}
-            >
-              Rebase local stack
-            </Button>
-            {operation &&
-              operation.action !== "merge" &&
-              operation.action !== "push" &&
-              ["conflict", "uncertain"].includes(operation.state) && (
-                <>
-                  <Button
-                    disabled={disabled || !canRecover || !canPublish}
-                    onClick={() => prepare("continue")}
-                  >
-                    Continue local rebase
-                  </Button>
-                  <Button disabled={disabled || !canRecover} onClick={() => prepare("abort")}>
-                    Abort rebase
-                  </Button>
-                </>
-              )}
-            {operation && canPublishAfter(operation) && (
-              <Button
-                disabled={disabled || !canRecover || !canPublish}
-                onClick={() => prepare("push")}
-              >
-                Publish stack
-              </Button>
-            )}
-            <Button
-              onClick={() =>
-                void openExternal(props.detail.status.url).catch(() =>
-                  setMessage("Couldn't open GitHub."),
-                )
-              }
-            >
-              Open stack on GitHub
-            </Button>
-          </div>
-          {confirmation && (
-            <div
-              role="group"
-              aria-label="Confirm stack action"
-              className="space-y-2 rounded-md border border-border p-3"
-            >
-              {confirmation.action === "push" ? (
-                <>
-                  <p>Push to origin together:</p>
-                  <ul aria-label="Layers to publish" className="font-mono text-sm">
-                    {publishing.map((update) => (
-                      <li key={update.number}>
-                        #{update.number} {update.branch} {update.lease.slice(0, 7)} →{" "}
-                        {update.target.slice(0, 7)}
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="text-sm">
-                    A layer updates only if GitHub still has the revision reviewed before the
-                    rebase. Otherwise nothing is pushed.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p>
-                    {confirmation.action === "merge"
-                      ? `Merge ${confirmation.numbers.map((number) => `#${number}`).join(", ")} into ${confirmation.expected.trunk} using ${confirmation.method}. A merge queue chooses its own method.`
-                      : `${confirmation.action === "abort" ? "Restore" : "Rebase"} local branches for ${confirmation.numbers.map((number) => `#${number}`).join(", ")}. Nothing is pushed until you publish.`}
-                  </p>
-                  <p className="text-sm">
-                    ace checks every reviewed layer revision again before execution. GitHub makes
-                    the final merge decision.
-                  </p>
-                </>
-              )}
-              <Button
-                disabled={disabled || (confirmation.action === "push" && !publishing.length)}
-                onClick={() => void run()}
-              >
-                Confirm{" "}
-                {confirmation.action === "merge"
-                  ? "stack merge"
-                  : confirmation.action === "push"
-                    ? "push"
-                    : "stack action"}
-              </Button>
-              <Button disabled={pending} onClick={() => setConfirmation(null)}>
-                Cancel
-              </Button>
-            </div>
+          {operation && canPublishAfter(operation) && (
+            <StackAction reason={recoverReason} onClick={() => prepare("push")}>
+              Publish stack
+            </StackAction>
           )}
-        </>
+        </div>
       )}
-      {!stack && operation && (
-        <p role="status">
-          {operation.state}: {operation.message}
+      {stack && confirmation && (
+        <StackConfirm
+          confirmation={confirmation}
+          publishing={publishing}
+          disabled={disabled}
+          pending={pending}
+          onConfirm={() => void run()}
+          onCancel={() => setConfirmation(null)}
+        />
+      )}
+      {!stack && query.data?.localUnavailable && operation && (
+        <p className="text-ui">{query.data.localUnavailable}</p>
+      )}
+      {message && (
+        <p role="status" className="text-ui">
+          {message}
         </p>
       )}
-      {!stack && query.data?.localUnavailable && <p>{query.data.localUnavailable}</p>}
-      {message && <p role="status">{message}</p>}
     </section>
   );
 }
