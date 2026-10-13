@@ -13,12 +13,15 @@ export function ToastView({ onReady }: { onReady: () => void }) {
       <Toast.Viewport
         data-slot="toast-viewport"
         style={{
-          top: "var(--toast-pane-top,calc(max(var(--header-h,48px),env(safe-area-inset-top,0px)) + 12px))",
+          // In the header's band, clear of every page's heading and content.
+          top: "var(--toast-pane-top,calc(env(safe-area-inset-top,0px) + (var(--header-h,44px) - 36px) / 2))",
           bottom: "var(--toast-pane-bottom,auto)",
         }}
         className={cn(
           layers.toast,
-          "pointer-events-none fixed left-[var(--toast-pane-center,50%)] flex w-max max-w-[min(420px,calc(var(--toast-pane-width,100vw)-2rem))] -translate-x-1/2 flex-col items-center gap-2 outline-none [-webkit-app-region:no-drag]",
+          // One deck the front toast's size: older toasts tuck behind it and fan out on hover
+          // or focus, so a burst never spills over the page or lands at odd widths.
+          "pointer-events-none fixed left-[var(--toast-pane-center,50%)] h-(--toast-frontmost-height,36px) w-[min(400px,calc(var(--toast-pane-width,100vw)-2rem))] -translate-x-1/2 outline-none [-webkit-app-region:no-drag]",
         )}
       >
         <ToastList />
@@ -38,15 +41,22 @@ function ToastList() {
       aria-hidden={false}
       className={cn(
         overlaySurface,
-        "group/toast pointer-events-auto relative w-max max-w-full rounded-popup text-ui font-medium text-popover-foreground",
+        "group/toast pointer-events-auto absolute inset-x-0 top-0 z-[calc(10-var(--toast-index))] rounded-popup text-ui font-medium text-popover-foreground",
+        "translate-y-[calc(var(--toast-stack-dir,1)*var(--toast-index)*6px)] scale-[calc(1-var(--toast-index)*0.04)] data-expanded:translate-y-[calc(var(--toast-stack-dir,1)*(var(--toast-offset-y)+var(--toast-index)*8px))] data-expanded:scale-100",
         "transition-[opacity,transform] duration-(--motion-slow) ease-spring data-ending-style:-translate-y-[calc(var(--rise)*2)] data-ending-style:opacity-0 data-limited:hidden data-starting-style:-translate-y-[calc(var(--rise)*2)] data-starting-style:scale-[0.97] data-starting-style:opacity-0",
       )}
     >
-      <Toast.Content className="flex items-center gap-2.5 py-[9px] pr-9 pl-3.5">
+      <Toast.Content
+        className={cn(
+          "flex min-h-9 items-center gap-2.5 py-1 pl-3.5 opacity-[calc(1-min(var(--toast-index),1))] transition-opacity duration-(--motion-fast) group-data-expanded/toast:opacity-100",
+          // Room for the Dismiss button only where there is one.
+          toast.timeout === 0 ? "pr-9" : "pr-1",
+        )}
+      >
         {toast.type === "error" && (
           <WarningCircleIcon aria-hidden size={14} className="shrink-0 text-status-failed" />
         )}
-        <div className="flex min-w-0 items-baseline gap-1">
+        <div className="flex min-w-0 flex-1 items-baseline gap-1">
           <Toast.Title className="truncate" />
           <Toast.Description className="truncate font-normal text-muted-foreground empty:hidden" />
         </div>

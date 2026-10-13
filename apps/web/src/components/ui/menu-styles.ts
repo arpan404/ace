@@ -31,7 +31,7 @@ export const popupBounds =
 export const menuItem =
   "flex h-[30px] w-full cursor-default items-center gap-[9px] rounded-sm px-2 text-ui whitespace-nowrap text-foreground outline-none focus-visible:bg-accent select-none data-highlighted:bg-accent data-disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground";
 export const menuDanger = "text-destructive [&_svg]:text-destructive";
-export const menuShortcut = "ml-auto pl-[18px] text-xs text-subtle-foreground";
+export const menuShortcut = "ml-auto shrink-0 pl-[18px] text-xs text-subtle-foreground";
 export const menuSeparator = "mx-1.5 my-[5px] h-px bg-border";
 export const menuLabel =
   "px-2.5 pt-[7px] pb-1 text-xs font-medium tracking-[0.02em] text-muted-foreground";
