@@ -24,8 +24,6 @@ export function RowActions(props: {
   onRename(): void;
   onHover(): void;
 }) {
-  const [open, setOpen] = useState(false);
-  const onKeyDown = useRowMenuShortcuts({ ...props, onClose: () => setOpen(false) });
   const actions = useThreadActions();
   const settle = settleAction(props.entry, props.flags, actions);
   const title = props.entry.title;
@@ -56,19 +54,34 @@ export function RowActions(props: {
           {settle.label}
         </button>
       )}
-      <Menu open={open} onOpenChange={setOpen}>
-        <MenuTrigger
-          render={<IconButton icon={DotsThreeIcon} size="sm" label={`Actions for ${title}`} />}
-        />
-        <MenuContent align="end" onKeyDownCapture={onKeyDown}>
-          <ThreadActionItems
-            entry={props.entry}
-            flags={props.flags}
-            onRename={props.onRename}
-            fork={{ point: undefined, onFork: () => {} }}
-          />
-        </MenuContent>
-      </Menu>
+      <RowMoreMenu entry={props.entry} flags={props.flags} onRename={props.onRename} />
     </div>
+  );
+}
+
+/** The row's ⋯ menu: every thread action, the same registry as the row's context menu. */
+export function RowMoreMenu(props: {
+  entry: ThreadListEntry;
+  flags: ThreadRowFlags;
+  onRename(): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const onKeyDown = useRowMenuShortcuts({ ...props, onClose: () => setOpen(false) });
+  return (
+    <Menu open={open} onOpenChange={setOpen}>
+      <MenuTrigger
+        render={
+          <IconButton icon={DotsThreeIcon} size="sm" label={`Actions for ${props.entry.title}`} />
+        }
+      />
+      <MenuContent align="end" onKeyDownCapture={onKeyDown}>
+        <ThreadActionItems
+          entry={props.entry}
+          flags={props.flags}
+          onRename={props.onRename}
+          fork={{ point: undefined, onFork: () => {} }}
+        />
+      </MenuContent>
+    </Menu>
   );
 }

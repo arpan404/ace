@@ -23,6 +23,7 @@ import { parseChord } from "@/lib/keymap.ts";
 import { focusListRow, rowFocusSelector } from "./list-focus.ts";
 import { ManyDevices, useManyDevices } from "./row-parts.tsx";
 import { ThreadRow } from "./thread-row.tsx";
+import { SettledRow } from "./settled-row.tsx";
 import { UnsentRows } from "./unsent-rows.tsx";
 import type { HomeList } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
@@ -37,7 +38,10 @@ import {
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
-/** A thread row is 80px tall and keeps 4px below it: rows are apart by spacing, not rules. */
+/**
+ * A thread row is 80px tall and keeps 4px below it: rows are apart by spacing, not rules. A
+ * settled row is one 32px line.
+ */
 const estimates: Record<HomeRow["kind"], number> = {
   "pinned-header": 33,
   pinned: 84,
@@ -47,7 +51,7 @@ const estimates: Record<HomeRow["kind"], number> = {
   "snoozed-header": 37,
   snoozed: 84,
   "settled-header": 37,
-  settled: 84,
+  settled: 36,
 };
 
 /** Keys that move focus between rows: arrows, and j/k as in other lists. */
@@ -364,9 +368,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                   {(row.kind === "thread" || row.kind === "pinned" || row.kind === "snoozed") && (
                     <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
                   )}
-                  {row.kind === "settled" && (
-                    <ThreadRow threadId={row.id} settled leaving={leaving} />
-                  )}
+                  {row.kind === "settled" && <SettledRow threadId={row.id} leaving={leaving} />}
                   {row.kind === "unsent" && <UnsentRows />}
                   {row.kind === "pinned-end" && <div aria-hidden className="h-2" />}
                   {row.kind === "pinned-header" && (
