@@ -17,7 +17,7 @@ per operation; failures are `{ok:false,status,error}`. `--jq` runs the installed
 jq against that JSON without a shell and implies JSON output. Streams use
 `--stream jsonl`: one typed JSON object per line, including a final outcome.
 Diagnostics and human progress go to stderr in machine mode. No ANSI in JSON.
-Exit codes are 0 ok, 1 failed, 2 needs-human, 3 timeout, 4 refused and 5 uncertain.
+Exit codes are 0 ok, 1 failed, 2 needs-human, 3 timeout, 4 refused and 5 uncertain. `ace start` exits 6 when another process holds its port, so the desktop app can say so.
 Timeout stops observing, not accepted work. Disconnected or unresponsive work
 never means success. Whole-tree waits use canonical daemon facts and check all
 linked descendants before returning success; missing descendants stay uncertain.

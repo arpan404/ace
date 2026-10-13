@@ -47,7 +47,8 @@ task status returns uncertain. Interactive account login progress is shown as it
 arrives, on stderr when JSON output is selected.
 
 Exit codes: 0 successful operation, 1 failed work, 2 needs human input, 3 observation
-timeout, 4 refused/invalid invocation, 5 uncertain outcome. A wait timeout leaves
+timeout, 4 refused/invalid invocation, 5 uncertain outcome, 6 `ace start` found its port
+in use. A wait timeout leaves
 work running. An acknowledgement timeout is uncertain; retry the identical mutation
 with its printed idempotency key. The SDK persists pending commands before sending
 and validates daemon identity before replay. No disconnect is treated as completion.

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import type { DesktopDaemon, DesktopDaemonStatus, DiagnosticCheck } from "@/boot/desktop.ts";
 import { StatusLabel } from "@/components/status-label.tsx";
-import { startupCheck, startupFailure } from "./startup-copy.ts";
+import { startupCause, startupCheck, startupFailure } from "./startup-copy.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { ConnectCard } from "./connect-card.tsx";
 
@@ -11,16 +11,37 @@ const busyStates = new Set(["starting", "restarting"]);
 
 /**
  * The desktop app's own daemon failed to start. The desktop manages that daemon, so this
- * never asks the person to run a command: it says why, and offers a restart, diagnostics,
- * the logs and Quit. The desktop reloads the window once its daemon runs again.
+ * never asks the person to run a command. While the desktop retries on its own (a bounded
+ * number of times) it says which attempt it is on; once it gives up it says why and offers
+ * Try again, diagnostics, the logs and Quit. The desktop reloads the window once its daemon
+ * runs again.
  */
 export function DesktopFailureScreen(props: { reason: string; daemon: DesktopDaemon }) {
   useDismissBootSplash();
   const { daemon } = props;
   const [status, setStatus] = useState<DesktopDaemonStatus | undefined>(undefined);
   const [checks, setChecks] = useState<DiagnosticCheck[] | "running" | { error: string }>();
-  useEffect(() => daemon.onStatus(setStatus), [daemon]);
+  useEffect(() => {
+    // The current state, unless a newer one has already arrived as an event.
+    let heard = false;
+    let live = true;
+    const stop = daemon.onStatus((next) => {
+      heard = true;
+      setStatus(next);
+    });
+    void daemon.status().then(
+      (next) => {
+        if (live && next && !heard) setStatus(next);
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [daemon]);
   const busy = status !== undefined && busyStates.has(status.state);
+  const retry = busy ? status.retry : undefined;
   const restart = async () => {
     setStatus({ state: "restarting" });
     try {
@@ -38,33 +59,34 @@ export function DesktopFailureScreen(props: { reason: string; daemon: DesktopDae
     }
   };
   const reason = status?.state === "failed" && status.message ? status.message : props.reason;
+  // While ace is on its way back only a known cause is worth reading; the rest is noise.
+  const copy = busy ? startupCause(status.cause) : startupFailure(reason, status?.cause);
   return (
     <ConnectCard labelledBy="desktop-failure-title" wide={Array.isArray(checks)}>
       <h1 id="desktop-failure-title" className="mt-4 text-xl font-semibold tracking-title">
-        ace didn't start
+        {retry ? "ace is retrying" : busy ? "Trying again" : "ace didn't start"}
       </h1>
-      <p className="mt-1.5 text-ui leading-normal text-muted-foreground">
-        ace stopped before this window could connect.
-      </p>
-      <p className="mt-4 text-sm text-foreground">{startupFailure(reason)}</p>
+      {!busy && (
+        <p className="mt-1.5 text-ui leading-normal text-muted-foreground">
+          ace stopped before this window could connect.
+        </p>
+      )}
+      {copy && <p className="mt-4 text-sm text-foreground">{copy}</p>}
       <div role="status" aria-live="polite" className="text-sm">
         {busy && (
           <p className="mt-3 flex items-center gap-2 text-muted-foreground">
             <Spinner />
-            {status.state === "restarting" ? "Restarting ace…" : "Starting ace…"}
+            {retry ? `Attempt ${retry.attempt} of ${retry.of}` : "Starting ace…"}
           </p>
         )}
       </div>
       <div className="mt-5 flex flex-wrap gap-2">
-        <Button
-          variant="primary"
-          className="h-9 flex-1"
-          disabled={busy}
-          focusableWhenDisabled
-          onClick={() => void restart()}
-        >
-          Restart ace
-        </Button>
+        {/* Hidden, never disabled, while ace is on its way back: the attempts are bounded. */}
+        {!busy && (
+          <Button variant="primary" className="h-9 flex-1" onClick={() => void restart()}>
+            Try again
+          </Button>
+        )}
         <Button
           className="h-9 flex-1"
           disabled={checks === "running"}

@@ -55,12 +55,67 @@ test("a desktop daemon that failed says why and offers restart, diagnostics, log
   expect(report.textContent).toContain("Check that you can read and write the ace data folder.");
   expect(report.textContent).not.toContain("chmod");
 
-  await user.click(screen.getByRole("button", { name: "Restart ace" }));
-  expect(await screen.findByText("Restarting ace…")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByText("Starting ace…")).toBeTruthy();
   emit({ state: "failed", message: 'daemon_internal_302: {"bad": true}' });
-  expect(screen.getByText(/Restart ace to try again/)).toBeTruthy();
+  expect(screen.getByText(/If ace still doesn't start, open the logs/)).toBeTruthy();
   expect(document.body.textContent).not.toContain("daemon_internal_302");
   await user.click(screen.getByRole("button", { name: "Show logs" }));
   await user.click(screen.getByRole("button", { name: "Quit ace" }));
   expect(asked).toEqual(["restart", "logs", "quit"]);
+});
+
+const portInUse = "Another app is using ace's port. Quit it, then try again.";
+
+test("while the desktop retries on its own the screen says so, then offers Try again once it gives up", async () => {
+  const user = userEvent.setup();
+  const { daemon, asked, emit } = desktop();
+  daemon.status = async () => ({
+    state: "restarting",
+    message: "The daemon exited (code 6)",
+    cause: "port-in-use",
+    retry: { attempt: 2, of: 5 },
+  });
+  render(
+    <AppFrame environment={{}}>
+      <DesktopFailureScreen reason="The daemon exited (code 6)" daemon={daemon} />
+    </AppFrame>,
+  );
+  expect(await screen.findByRole("heading", { name: "ace is retrying" })).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toContain("Attempt 2 of 5");
+  expect(screen.getByText(portInUse)).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "ace didn't start" })).toBeNull();
+  // No primary action that cannot be used: the retries end on their own.
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  for (const button of screen.getAllByRole("button"))
+    expect(button.hasAttribute("disabled") || button.getAttribute("aria-disabled") === "true").toBe(
+      false,
+    );
+
+  emit({
+    state: "failed",
+    message: "The daemon exited (code 6). Restart it or run diagnostics.",
+    cause: "port-in-use",
+  });
+  expect(screen.getByRole("heading", { name: "ace didn't start" })).toBeTruthy();
+  expect(screen.getByText(portInUse)).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toBe("");
+  const again = screen.getByRole("button", { name: "Try again" });
+  expect(again.hasAttribute("disabled")).toBe(false);
+  await user.click(again);
+  expect(asked).toEqual(["restart"]);
+  expect(await screen.findByText("Starting ace…")).toBeTruthy();
+});
+
+test("a daemon that failed for another reason is not blamed on the port", async () => {
+  const { daemon, emit } = desktop();
+  render(
+    <AppFrame environment={{}}>
+      <DesktopFailureScreen reason="The daemon exited (code 1)" daemon={daemon} />
+    </AppFrame>,
+  );
+  emit({ state: "failed", message: "The daemon exited (code 1). Restart it or run diagnostics." });
+  expect(screen.getByRole("heading", { name: "ace didn't start" })).toBeTruthy();
+  expect(document.body.textContent).not.toContain("ace's port");
+  expect(screen.getByRole("button", { name: "Try again" }).hasAttribute("disabled")).toBe(false);
 });

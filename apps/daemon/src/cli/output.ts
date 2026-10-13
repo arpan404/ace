@@ -1,12 +1,6 @@
 export { statusOutcome, treeOutcome } from "../work-outcome.ts";
-export const exitCodes = {
-  ok: 0,
-  failed: 1,
-  "needs-human": 2,
-  timeout: 3,
-  refused: 4,
-  uncertain: 5,
-} as const;
+import { exitCodes } from "@ace/service/exit-codes";
+export { exitCodes };
 export type Outcome = keyof typeof exitCodes;
 export function formatOutput(value: unknown, json: boolean): string {
   if (!json && typeof value === "string") return `${value}\n`;

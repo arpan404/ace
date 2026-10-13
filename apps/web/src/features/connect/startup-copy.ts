@@ -1,12 +1,20 @@
-import type { DiagnosticCheck } from "@/boot/desktop.ts";
+import type { DesktopDaemonStatus, DiagnosticCheck } from "@/boot/desktop.ts";
+
+/** A cause the desktop reported by the daemon's exit code, in plain words. */
+export function startupCause(cause: DesktopDaemonStatus["cause"]): string | undefined {
+  if (cause === "port-in-use") return "Another app is using ace's port. Quit it, then try again.";
+  return undefined;
+}
 
 /** Startup failures cross the desktop bridge; keep technical details in Show logs. */
-export function startupFailure(reason: string): string {
+export function startupFailure(reason: string, cause?: DesktopDaemonStatus["cause"]): string {
+  const known = startupCause(cause);
+  if (known) return known;
   if (/legacy|older (?:ace|data)/i.test(reason))
-    return "ace found data from an older installation. Choose a separate data folder, then restart ace.";
+    return "ace found data from an older installation. Choose a separate data folder, then try again.";
   if (/permission|not writable|EACCES/i.test(reason))
-    return "ace cannot use its data folder. Check that you can read and write it, then restart ace.";
-  return "Restart ace to try again. If it still cannot start, open the logs for details.";
+    return "ace cannot use its data folder. Check that you can read and write it, then try again.";
+  return "Try again. If ace still doesn't start, open the logs for details.";
 }
 
 const checks: Record<string, { label: string; fix: string }> = {
@@ -20,7 +28,7 @@ const checks: Record<string, { label: string; fix: string }> = {
   git: { label: "Git", fix: "Install Git and check that it works in a terminal." },
   "node-pty": { label: "Terminal support", fix: "Reinstall ace, then try opening a terminal." },
   chromium: { label: "Browser support", fix: "Install Chrome or Chromium, then restart ace." },
-  port: { label: "Local connection", fix: "Close other copies of ace, then restart ace." },
+  port: { label: "Local connection", fix: "Quit the app using ace's port, then try again." },
   "remote.openssl": { label: "Secure connections", fix: "Install OpenSSL, then restart ace." },
   "desktop.cli": {
     label: "ace command",

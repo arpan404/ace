@@ -53,7 +53,7 @@ ace config get [retention-days|log-cap]|config set retention-days DAYS|config se
 All commands: --json, --jq EXPR, --timeout DURATION
 Mutations: --idempotency-key KEY. Waits: --tree. Run: --stream jsonl.
 Remote run/chat: --project WORKSPACE_ID from ace project list; paths are refused.
-Exit: 0 ok, 1 failed, 2 needs-human, 3 timeout, 4 refused, 5 uncertain.
+Exit: 0 ok, 1 failed, 2 needs-human, 3 timeout, 4 refused, 5 uncertain, 6 port in use.
 `;
 export async function main(input: string[]): Promise<void> {
   let args: Args = { words: [], flags: input.includes("--json") ? { json: true } : {} };

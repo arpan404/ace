@@ -130,6 +130,7 @@ export function renderChat(state: ChatRenderState, record: ChatRecord): string {
               uncertain: "Work state is uncertain",
               timeout: "Observation timed out",
               refused: "Operation refused",
+              "address-in-use": "Another process is using the daemon's port",
             }[record.status];
       break;
     case "interaction": {

@@ -351,6 +351,59 @@ describe("daemon supervisor", () => {
     expect(m.children).toHaveLength(spawned + 1);
   });
 
+  it("says which retry it is on, gives up after the bound and starts counting again on Try again", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports, { maxRestarts: 3 });
+    await supervisor.start();
+    const portInUse = 6;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      m.children.at(-1)?.die(portInUse);
+      expect(supervisor.current()).toMatchObject({
+        state: "restarting",
+        cause: "port-in-use",
+        retry: { attempt, of: 3 },
+      });
+      await m.advance(10_000);
+      // The retried daemon is starting: still the same attempt, still not a failure.
+      expect(supervisor.current()).toMatchObject({ state: "restarting", retry: { attempt } });
+    }
+    m.children.at(-1)?.die(portInUse);
+    expect(supervisor.current()).toMatchObject({ state: "failed", cause: "port-in-use" });
+    expect(supervisor.current().retry).toBeUndefined();
+    const spawned = m.children.length;
+    await m.advance(600_000);
+    expect(m.children).toHaveLength(spawned);
+    expect(supervisor.current().state).toBe("failed");
+
+    const retried = await supervisor.restart();
+    expect(m.children).toHaveLength(spawned + 1);
+    expect(retried.cause).toBeUndefined();
+    expect(retried.retry).toBeUndefined();
+    m.children.at(-1)?.die(portInUse);
+    expect(supervisor.current()).toMatchObject({
+      state: "restarting",
+      retry: { attempt: 1, of: 3 },
+    });
+  });
+
+  it("names a port conflict only for the exit that reported one", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    m.children.at(-1)?.die(6);
+    expect(supervisor.current().cause).toBe("port-in-use");
+    await m.advance(10_000);
+    m.children.at(-1)?.die(1);
+    expect(supervisor.current()).toMatchObject({ state: "restarting", retry: { attempt: 2 } });
+    expect(supervisor.current().cause).toBeUndefined();
+    await m.advance(10_000);
+    m.state.answering = true;
+    await m.advance(300);
+    expect(supervisor.current().state).toBe("running");
+    expect(supervisor.current().retry).toBeUndefined();
+    expect(supervisor.current().message).toBeUndefined();
+  });
+
   it("forgets earlier crashes once the daemon has run stably", async () => {
     const m = machine();
     const supervisor = new DaemonSupervisor(m.ports, { maxRestarts: 1, stableMs: 1_000 });
