@@ -227,8 +227,9 @@ test("local originals pace exact image bytes and worker reads transfer buffers w
       { code: "aborted" },
     );
     expect(transferred).toHaveLength(0);
+    // An invalid deadline is refused as a limit whether the read runs in the worker or directly.
     await expect(remote.attachmentBytes(f.input, { timeoutMs: 0 })).rejects.toMatchObject({
-      code: "protocol",
+      code: "limit",
     });
     await expect(client.attachmentBytes(f.input, { timeoutMs: 0 })).rejects.toMatchObject({
       code: "limit",

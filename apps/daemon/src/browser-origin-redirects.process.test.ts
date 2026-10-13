@@ -77,7 +77,8 @@ it("handback before a late redirect approval cannot retain consent from the prev
   const interaction = await opened;
   f.browser.handback(f.thread.id, "owner");
   expect(f.resolve(interaction, "allow_once").ok).toBe(true);
-  await navigation;
+  // The approval belonged to the human lease that was handed back, so the redirect stays refused.
+  await expect(navigation).rejects.toThrow("Browser origin approval denied");
   expect(f.browser.originsList(f.thread.id)).toEqual([]);
 });
 it("denying an agent redirect returns its typed block and publishes the same blocked state to the wire viewer", async () => {

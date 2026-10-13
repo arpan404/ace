@@ -174,6 +174,34 @@ static napi_value open_metadata_at(napi_env env, napi_callback_info info) {
   int flags = O_PATH;
 #endif
   int descriptor = openat(parent, name, flags | O_NOFOLLOW | O_CLOEXEC);
+#ifdef __APPLE__
+  // macOS has no O_PATH, and O_EVTONLY still checks read permission. A regular file this
+  // process owns gains owner read only long enough to hold it; the held inode then gets its
+  // mode back. A different inode behind the name is closed and reported as changed.
+  if (descriptor < 0 && errno == EACCES) {
+    struct stat before, after;
+    if (fstatat(parent, name, &before, AT_SYMLINK_NOFOLLOW) < 0) return fail(env, errno);
+    if (!S_ISREG(before.st_mode) || before.st_uid != geteuid()) return fail(env, EACCES);
+    mode_t mode = before.st_mode & 0777;
+    if (fchmodat(parent, name, mode | S_IRUSR, AT_SYMLINK_NOFOLLOW) < 0) return fail(env, errno);
+    descriptor = openat(parent, name, flags | O_NOFOLLOW | O_CLOEXEC);
+    if (descriptor < 0) {
+      int number = errno;
+      fchmodat(parent, name, mode, AT_SYMLINK_NOFOLLOW);
+      return fail(env, number);
+    }
+    if (fstat(descriptor, &after) < 0 || after.st_dev != before.st_dev ||
+        after.st_ino != before.st_ino) {
+      close(descriptor);
+      return fail(env, ESTALE);
+    }
+    if (fchmod(descriptor, mode) < 0) {
+      int number = errno;
+      close(descriptor);
+      return fail(env, number);
+    }
+  }
+#endif
   if (descriptor < 0) return fail(env, errno);
   napi_create_int32(env, descriptor, &result);
   return result;
