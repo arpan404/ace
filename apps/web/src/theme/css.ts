@@ -1,5 +1,6 @@
+import { themeAccent, themedPalette, type AccentChoice } from "./accent.ts";
 import { readableAcross } from "./colour.ts";
-import { themeIds, themes, type Palette, type Scheme, type ThemeId } from "./palettes.ts";
+import { themeIds, type Palette, type Scheme, type ThemeId } from "./palettes.ts";
 import { paletteSurfaces } from "./surfaces.ts";
 import { themeTokens } from "./tokens.ts";
 
@@ -18,9 +19,13 @@ function sharedStatusText(palette: Palette, scheme: Scheme, tokens: Record<strin
   };
 }
 
-/** Every declaration one theme sets in one scheme, as the page receives it. */
-export function themeDeclarations(id: ThemeId, scheme: Scheme): Record<string, string> {
-  const palette = themes[id][scheme];
+/** Every declaration one theme sets in one scheme with an accent, as the page receives it. */
+export function themeDeclarations(
+  id: ThemeId,
+  scheme: Scheme,
+  accent: AccentChoice = themeAccent,
+): Record<string, string> {
+  const palette = themedPalette(id, scheme, accent);
   const tokens: Record<string, string> = themeTokens(palette, scheme);
   return {
     "color-scheme": scheme,
@@ -41,17 +46,19 @@ export function themeDeclarations(id: ThemeId, scheme: Scheme): Record<string, s
  * One theme in one scheme as a rule. It matches any element carrying both attributes, so
  * `<html>` themes the app and a swatch can preview another theme with the same tokens.
  */
-export function themeRule(id: ThemeId, scheme: Scheme): string {
-  const body = Object.entries(themeDeclarations(id, scheme))
+export function themeRule(id: ThemeId, scheme: Scheme, accent: AccentChoice = themeAccent): string {
+  const body = Object.entries(themeDeclarations(id, scheme, accent))
     .map(([name, value]) => `${name}:${value}`)
     .join(";");
   return `[data-theme="${id}"][data-scheme="${scheme}"]{${body}}`;
 }
 
 /** Both schemes of one theme: what the boot record replays before first paint. */
-export function themeStylesheet(id: ThemeId): string {
-  return schemes.map((scheme) => themeRule(id, scheme)).join("\n");
+export function themeStylesheet(id: ThemeId, accent: AccentChoice = themeAccent): string {
+  return schemes.map((scheme) => themeRule(id, scheme, accent)).join("\n");
 }
 
-/** Every theme in both schemes, for the app and the theme swatches. */
-export const allThemesStylesheet: string = themeIds.map(themeStylesheet).join("\n");
+/** Every theme in both schemes with one accent, for the app and the theme swatches. */
+export function themesStylesheet(accent: AccentChoice = themeAccent): string {
+  return themeIds.map((id) => themeStylesheet(id, accent)).join("\n");
+}

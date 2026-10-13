@@ -32,13 +32,30 @@ Mode and theme are separate settings.
 
 - **Mode:** Light, Dark or System. System follows `prefers-color-scheme`, and a change
   cross-fades the window.
-- **Theme:** Graphite (the default), Ace, Mono, Paper, Dusk, Tide, Ember or Moss.
+- **Theme:** Graphite (the default), Midnight, Paper, Slate, Contrast or Aurora.
+- **Accent:** the theme's own, Blue, Violet, Teal, Green, Amber, Rose, Mono (the text colour) or
+  a custom colour. It applies over any theme.
 
-Every theme shares one **neutral ramp** per scheme: twelve near-true greys generated in OKLCH
-(`palettes.ts`). Only Paper and Ember warm the greys, and only slightly (chroma 0.006). A theme's
-identity is its accent; Mono's accent is the text colour itself. Status colours never change with
-the theme: working is always blue, needs-you amber, waiting violet, failed red and done green. Graphite is pure grey with a
-restrained blue, close to T3 Code and Codex.
+A theme is a material, not an accent. Each owns its **neutral ramp** per scheme: twelve steps
+generated in OKLCH (`palettes.ts`) with the theme's own lightness curve, hue and chroma, plus its
+glass and focus strength.
+
+| Theme    | Character                                                                        |
+| -------- | -------------------------------------------------------------------------------- |
+| Graphite | True greys at medium contrast, close to T3 Code and Codex; a steel accent        |
+| Midnight | Deep blue-black dark and a cool daylight light with navy ink; a cyan accent      |
+| Paper    | Warm cream and umber at a soft contrast; a terracotta accent                     |
+| Slate    | Mid-tone blue-grey with low glare in both schemes; a teal accent                 |
+| Contrast | Black and white, AAA body text, 3:1 borders, no glass, full-strength focus rings |
+| Aurora   | Violet dusk with clearer glass on floating layers; a magenta accent              |
+
+Any accent is fitted to the theme and scheme it lands on (`accent-fit.ts`): light themes deepen
+it until white labels read at AA (a bright colour such as amber keeps its brightness and takes a
+deep label instead), dark themes brighten it until a deep label reads, links step toward the
+text colour until they read on every surface, and an accent within ΔE 10 of a status colour is
+nudged clear of it. Status colours never change with the theme or accent: working is always
+blue, needs-you amber, waiting violet, failed red and done green. Status words step toward the
+text colour only where a theme's surfaces need it to read at AA.
 
 | Step | Name           | Light   | Dark    | For                                      |
 | ---- | -------------- | ------- | ------- | ---------------------------------------- |
@@ -55,7 +72,7 @@ restrained blue, close to T3 Code and Codex.
 | 11   | `muted`        | #4A4A4A | #C1C1C1 | Secondary text (`--muted-foreground`)    |
 | 12   | `text`         | #191919 | #F0F0F0 | Text (`--foreground`)                    |
 
-(Values shown are Graphite's; warm themes differ by a hair.) Each step is a token by name and by
+(Values shown are Graphite's; every other theme has its own.) Each step is a token by name and by
 number: `--neutral-1` … `--neutral-12`.
 
 ### Palette fields

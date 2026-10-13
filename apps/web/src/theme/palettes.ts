@@ -1,154 +1,85 @@
-import { oklchToHex } from "./colour.ts";
+import { deriveAccent } from "./accent-fit.ts";
+import { oklchToHex, readableAcross } from "./colour.ts";
+import { paletteSurfaces } from "./surfaces.ts";
+import { status } from "./status.ts";
+import {
+  rampSteps,
+  type Base,
+  type Material,
+  type Palette,
+  type Ramp,
+  type RampStep,
+  type Scheme,
+  type ThemeDefinition,
+} from "./types.ts";
+
+export { rampSteps } from "./types.ts";
+export { sharedStatus, status } from "./status.ts";
+export type {
+  Accent,
+  Base,
+  Material,
+  Palette,
+  PaletteColour,
+  Ramp,
+  RampStep,
+  Scheme,
+  StatusSet,
+  ThemeDefinition,
+} from "./types.ts";
 
 /*
- * The themes (docs/design/visual-language.md, "Themes"). Every theme shares one neutral ramp:
- * twelve near-true greys per scheme, from canvas to text, so surfaces, borders and text read the
- * same whichever theme is on. Only Paper and Ember warm their greys, and only slightly; a theme's
- * identity is its accent. These are the only colours the app owns: every CSS token derives from
- * one palette in `tokens.ts`, and every palette passes WCAG AA on every surface (`contrast.ts`).
+ * The themes (docs/design/visual-language.md, "Themes"). A theme is a material, not an accent:
+ * each one owns its neutral ramp (twelve steps from canvas to text, with its own lightness
+ * curve, temperature and chroma), its contrast, its glass and its default accent. The accent is
+ * a separate choice (`accent.ts`) laid over any theme; status colours are the same everywhere.
+ * These are the only colours the app owns: every CSS token derives from one palette in
+ * `tokens.ts`, and every palette passes WCAG AA on every surface (`contrast.ts`).
  */
 
-export type Scheme = "light" | "dark";
+/** Steps drawn as ink. They carry less of the theme's tint than its surfaces do. */
+const inkSteps: ReadonlySet<RampStep> = new Set(["faint", "subtle", "muted", "text"]);
 
-/** The neutral ramp, in order. Each name is also a palette field and a CSS token. */
-export const rampSteps = [
-  "canvas",
-  "sidebar",
-  "surface",
-  "raised",
-  "hover",
-  "active",
-  "border",
-  "borderStrong",
-  "faint",
-  "subtle",
-  "muted",
-  "text",
-] as const;
-export type RampStep = (typeof rampSteps)[number];
-
-/** Perceptual lightness (OKLCH L) of each step. Dark sidebars sit below the canvas, as in T3. */
-const rampLightness: Record<Scheme, Record<RampStep, number>> = {
-  light: {
-    canvas: 0.993,
-    sidebar: 0.973,
-    surface: 0.962,
-    raised: 1,
-    hover: 0.948,
-    active: 0.928,
-    border: 0.912,
-    borderStrong: 0.858,
-    faint: 0.64,
-    subtle: 0.5,
-    muted: 0.41,
-    text: 0.215,
-  },
-  dark: {
-    canvas: 0.2,
-    sidebar: 0.178,
-    surface: 0.232,
-    raised: 0.25,
-    hover: 0.268,
-    active: 0.298,
-    border: 0.31,
-    borderStrong: 0.38,
-    faint: 0.54,
-    subtle: 0.7,
-    muted: 0.81,
-    text: 0.955,
-  },
-};
-
-/** A theme's greys: hue in degrees and chroma, near zero. */
-interface Neutral {
+/** One scheme of a theme's greys: perceptual lightness (OKLCH L) per step, hue and chroma. */
+interface RampSpec {
   hue: number;
   chroma: number;
+  /** Chroma of the ink steps; 0.6 of `chroma` when unset. */
+  inkChroma?: number;
+  lightness: Record<RampStep, number>;
 }
-const trueGrey: Neutral = { hue: 0, chroma: 0 };
 
-export type Ramp = Record<RampStep, string>;
-
-function ramp(scheme: Scheme, neutral: Neutral): Ramp {
-  const steps = rampLightness[scheme];
+function ramp(spec: RampSpec): Ramp {
   return Object.fromEntries(
-    rampSteps.map((step) => [step, oklchToHex(steps[step], neutral.chroma, neutral.hue)]),
+    rampSteps.map((step) => [
+      step,
+      oklchToHex(
+        spec.lightness[step],
+        inkSteps.has(step) ? (spec.inkChroma ?? spec.chroma * 0.6) : spec.chroma,
+        spec.hue,
+      ),
+    ]),
   ) as Ramp;
 }
 
-/** What a theme chooses for itself in one scheme: its accent. Statuses are the same in every theme. */
-interface Accent {
-  accent: string;
-  accentHover: string;
-  accentPressed: string;
-  /** Labels on an accent fill. */
-  accentFg: string;
-  /** The accent as text: links, the current view. */
-  accentText: string;
+interface SchemeSpec extends RampSpec {
+  /** Lightness of code blocks. */
+  code: number;
 }
-type StatusSet = {
-  working: string;
-  workingText: string;
-  needs: string;
-  needsText: string;
-  failed: string;
-  failedText: string;
-  done: string;
-  doneText: string;
-};
-
-export interface Palette extends Ramp, Accent, StatusSet {
-  /** The page; also `canvas`. */
-  s0: string;
-  /** Quiet raised fills: bubbles, cards, hunk headers; also `surface`. */
-  s1: string;
-  /** Floating layers when solid; also `raised`. */
-  s2: string;
-  /** Primary, secondary and quiet text; also `text`, `muted`, `subtle`. */
-  t1: string;
-  t2: string;
-  t3: string;
-  code: string;
-  /** "r g b" of the shadow tint. */
-  shadow: string;
-}
-
-export interface ThemeDefinition {
+interface ThemeSpec {
   name: string;
-  light: Palette;
-  dark: Palette;
+  character: string;
+  accent: Record<Scheme, string>;
+  material: Record<Scheme, Material>;
+  light: SchemeSpec;
+  dark: SchemeSpec;
 }
 
-/**
- * Status colours, the same in every theme: one status vocabulary means green is always done and
- * blue always working, whatever the accent. Only the accent changes between themes.
- */
-const status: Record<Scheme, StatusSet> = {
-  light: {
-    working: "#2A62E3",
-    workingText: "#2458CC",
-    needs: "#C46A0B",
-    needsText: "#9C520A",
-    failed: "#D63B3B",
-    failedText: "#B12B2B",
-    done: "#2E8A50",
-    doneText: "#23723F",
-  },
-  dark: {
-    working: "#5C8DF0",
-    workingText: "#86A9F5",
-    needs: "#E9A14C",
-    needsText: "#EFB46B",
-    failed: "#EE7272",
-    failedText: "#F29090",
-    done: "#4DBE78",
-    doneText: "#73CC94",
-  },
-};
-
-function palette(scheme: Scheme, neutral: Neutral, accent: Accent): Palette {
-  const greys = ramp(scheme, neutral);
+function base(scheme: Scheme, spec: SchemeSpec, material: Material): Base {
+  const greys = ramp(spec);
   const light = scheme === "light";
-  return {
+  const shadow = oklchToHex(light ? 0.24 : 0.08, spec.chroma * 1.5, spec.hue);
+  const palette: Base = {
     ...greys,
     s0: greys.canvas,
     s1: greys.surface,
@@ -156,187 +87,322 @@ function palette(scheme: Scheme, neutral: Neutral, accent: Accent): Palette {
     t1: greys.text,
     t2: greys.muted,
     t3: greys.subtle,
-    code: oklchToHex(light ? 0.968 : 0.152, neutral.chroma, neutral.hue),
-    shadow: light ? "20 20 22" : "0 0 0",
-    ...accent,
+    code: oklchToHex(spec.code, spec.chroma, spec.hue),
+    shadow: [1, 3, 5].map((at) => Number.parseInt(shadow.slice(at, at + 2), 16)).join(" "),
+    material,
     ...status[scheme],
+  };
+  // Status marks are the same everywhere; their words step toward the text colour where a
+  // theme's surfaces need it to read at AA.
+  const surfaces = paletteSurfaces(palette, scheme).map((surface) => surface.rgb);
+  const words = (colour: string) => readableAcross(colour, surfaces, !light) ?? greys.text;
+  return {
+    ...palette,
+    workingText: words(palette.workingText),
+    needsText: words(palette.needsText),
+    failedText: words(palette.failedText),
+    doneText: words(palette.doneText),
   };
 }
 
-interface ThemeSpec {
-  name: string;
-  neutral: Neutral;
-  light: Accent;
-  dark: Accent;
+/** A palette with `accentColour` fitted to it (AA labels, marks and links on its surfaces). */
+export function withAccent(palette: Base, scheme: Scheme, accentColour: string): Palette {
+  return { ...palette, ...deriveAccent(accentColour, scheme, palette) };
 }
 
 function theme(spec: ThemeSpec): ThemeDefinition {
+  const scheme = (name: Scheme) =>
+    withAccent(base(name, spec[name], spec.material[name]), name, spec.accent[name]);
   return {
     name: spec.name,
-    light: palette("light", spec.neutral, spec.light),
-    dark: palette("dark", spec.neutral, spec.dark),
+    character: spec.character,
+    accent: spec.accent,
+    light: scheme("light"),
+    dark: scheme("dark"),
   };
 }
 
-export const themeIds = [
-  "graphite",
-  "ace",
-  "mono",
-  "paper",
-  "dusk",
-  "tide",
-  "ember",
-  "moss",
-] as const;
+const glassy: Record<Scheme, Material> = {
+  light: { glass: { blur: 0.64, liquid: 0.56 }, focus: 60 },
+  dark: { glass: { blur: 0.68, liquid: 0.62 }, focus: 60 },
+};
+
+export const themeIds = ["graphite", "midnight", "paper", "slate", "contrast", "aurora"] as const;
 export type ThemeId = (typeof themeIds)[number];
 export const defaultThemeId: ThemeId = "graphite";
 
 export const themes: Record<ThemeId, ThemeDefinition> = {
-  // Pure grey with a restrained blue: the quiet default.
   graphite: theme({
     name: "Graphite",
-    neutral: trueGrey,
+    character: "True greys at medium contrast, with a steel accent",
+    accent: { light: "#4F6A8F", dark: "#9FB3D1" },
+    material: glassy,
     light: {
-      accent: "#3A63C4",
-      accentHover: "#3257B0",
-      accentPressed: "#2A4A97",
-      accentFg: "#FFFFFF",
-      accentText: "#355CBA",
+      hue: 0,
+      chroma: 0,
+      code: 0.968,
+      lightness: {
+        canvas: 0.993,
+        sidebar: 0.973,
+        surface: 0.962,
+        raised: 1,
+        hover: 0.948,
+        active: 0.928,
+        border: 0.912,
+        borderStrong: 0.858,
+        faint: 0.64,
+        subtle: 0.5,
+        muted: 0.41,
+        text: 0.215,
+      },
     },
     dark: {
-      accent: "#7C9CE0",
-      accentHover: "#8FABE6",
-      accentPressed: "#6D8ED6",
-      accentFg: "#0E1628",
-      accentText: "#93AEEA",
+      hue: 0,
+      chroma: 0,
+      code: 0.152,
+      lightness: {
+        canvas: 0.2,
+        sidebar: 0.178,
+        surface: 0.232,
+        raised: 0.25,
+        hover: 0.268,
+        active: 0.298,
+        border: 0.31,
+        borderStrong: 0.38,
+        faint: 0.54,
+        subtle: 0.7,
+        muted: 0.81,
+        text: 0.955,
+      },
     },
   }),
-  // Pure grey with ace's bright blue.
-  ace: theme({
-    name: "Ace",
-    neutral: trueGrey,
+  midnight: theme({
+    name: "Midnight",
+    character: "Deep blue-black, cool and crisp, with a cyan accent",
+    accent: { light: "#0B7FA8", dark: "#4CC4E8" },
+    material: glassy,
     light: {
-      accent: "#2A62E3",
-      accentHover: "#2256CC",
-      accentPressed: "#1C49AF",
-      accentFg: "#FFFFFF",
-      accentText: "#2458CC",
+      hue: 255,
+      chroma: 0.02,
+      inkChroma: 0.045,
+      code: 0.95,
+      lightness: {
+        canvas: 0.978,
+        sidebar: 0.952,
+        surface: 0.944,
+        raised: 1,
+        hover: 0.93,
+        active: 0.908,
+        border: 0.893,
+        borderStrong: 0.846,
+        faint: 0.62,
+        subtle: 0.495,
+        muted: 0.405,
+        text: 0.215,
+      },
     },
     dark: {
-      accent: "#5C8DF0",
-      accentHover: "#729DF3",
-      accentPressed: "#4D7EE3",
-      accentFg: "#0B1530",
-      accentText: "#86A9F5",
-    },
-  }),
-  // Black and white: the accent is the text colour.
-  mono: theme({
-    name: "Mono",
-    neutral: trueGrey,
-    light: {
-      accent: "#1A1A1A",
-      accentHover: "#333333",
-      accentPressed: "#000000",
-      accentFg: "#FFFFFF",
-      accentText: "#1A1A1A",
-    },
-    dark: {
-      accent: "#EDEDED",
-      accentHover: "#FFFFFF",
-      accentPressed: "#D4D4D4",
-      accentFg: "#111111",
-      accentText: "#EDEDED",
+      hue: 258,
+      chroma: 0.03,
+      code: 0.135,
+      lightness: {
+        canvas: 0.172,
+        sidebar: 0.15,
+        surface: 0.202,
+        raised: 0.222,
+        hover: 0.24,
+        active: 0.27,
+        border: 0.288,
+        borderStrong: 0.36,
+        faint: 0.55,
+        subtle: 0.71,
+        muted: 0.82,
+        text: 0.948,
+      },
     },
   }),
   paper: theme({
     name: "Paper",
-    neutral: { hue: 80, chroma: 0.006 },
+    character: "Warm cream and umber at a soft contrast, with a terracotta accent",
+    accent: { light: "#B0552E", dark: "#E39A6B" },
+    material: glassy,
     light: {
-      accent: "#1E6A4E",
-      accentHover: "#195C43",
-      accentPressed: "#134A36",
-      accentFg: "#FFFFFF",
-      accentText: "#1E6A4E",
+      hue: 78,
+      chroma: 0.017,
+      code: 0.935,
+      lightness: {
+        canvas: 0.97,
+        sidebar: 0.945,
+        surface: 0.938,
+        raised: 0.99,
+        hover: 0.925,
+        active: 0.905,
+        border: 0.885,
+        borderStrong: 0.83,
+        faint: 0.6,
+        subtle: 0.485,
+        muted: 0.4,
+        text: 0.28,
+      },
     },
     dark: {
-      accent: "#6FBF98",
-      accentHover: "#83CBA8",
-      accentPressed: "#5EAD87",
-      accentFg: "#0B2318",
-      accentText: "#86CBA9",
+      hue: 70,
+      chroma: 0.014,
+      code: 0.185,
+      lightness: {
+        canvas: 0.225,
+        sidebar: 0.2,
+        surface: 0.255,
+        raised: 0.272,
+        hover: 0.29,
+        active: 0.315,
+        border: 0.332,
+        borderStrong: 0.4,
+        faint: 0.58,
+        subtle: 0.72,
+        muted: 0.81,
+        text: 0.915,
+      },
     },
   }),
-  dusk: theme({
-    name: "Dusk",
-    neutral: trueGrey,
+  slate: theme({
+    name: "Slate",
+    character: "Mid-tone blue-grey with low glare in light and dark, with a teal accent",
+    accent: { light: "#2A8C80", dark: "#5CC2B3" },
+    material: glassy,
     light: {
-      accent: "#5753C4",
-      accentHover: "#4C48B3",
-      accentPressed: "#403C9C",
-      accentFg: "#FFFFFF",
-      accentText: "#504CBA",
+      hue: 245,
+      chroma: 0.009,
+      code: 0.915,
+      lightness: {
+        canvas: 0.952,
+        sidebar: 0.93,
+        surface: 0.928,
+        raised: 0.972,
+        hover: 0.912,
+        active: 0.892,
+        border: 0.872,
+        borderStrong: 0.81,
+        faint: 0.585,
+        subtle: 0.47,
+        muted: 0.39,
+        text: 0.24,
+      },
     },
     dark: {
-      accent: "#9693F0",
-      accentHover: "#A8A5F4",
-      accentPressed: "#8582E2",
-      accentFg: "#15132D",
-      accentText: "#ABA8F5",
+      hue: 245,
+      chroma: 0.016,
+      code: 0.25,
+      lightness: {
+        canvas: 0.29,
+        sidebar: 0.265,
+        surface: 0.315,
+        raised: 0.33,
+        hover: 0.35,
+        active: 0.374,
+        border: 0.392,
+        borderStrong: 0.46,
+        faint: 0.64,
+        subtle: 0.77,
+        muted: 0.85,
+        text: 0.94,
+      },
     },
   }),
-  tide: theme({
-    name: "Tide",
-    neutral: trueGrey,
+  contrast: theme({
+    name: "Contrast",
+    character: "Black and white at the highest contrast, solid layers and full focus rings",
+    accent: { light: "#1D3FB8", dark: "#FFD447" },
+    material: {
+      light: { glass: { blur: 1, liquid: 1 }, focus: 100 },
+      dark: { glass: { blur: 1, liquid: 1 }, focus: 100 },
+    },
     light: {
-      accent: "#0D6B75",
-      accentHover: "#0A5D66",
-      accentPressed: "#084E56",
-      accentFg: "#FFFFFF",
-      accentText: "#0D6B75",
+      hue: 0,
+      chroma: 0,
+      code: 0.965,
+      lightness: {
+        canvas: 1,
+        sidebar: 1,
+        surface: 0.968,
+        raised: 1,
+        hover: 0.935,
+        active: 0.9,
+        border: 0.56,
+        borderStrong: 0.42,
+        faint: 0.5,
+        subtle: 0.36,
+        muted: 0.28,
+        text: 0,
+      },
     },
     dark: {
-      accent: "#3FB6C0",
-      accentHover: "#57C3CC",
-      accentPressed: "#33A4AE",
-      accentFg: "#052629",
-      accentText: "#5DC5CE",
+      hue: 0,
+      chroma: 0,
+      code: 0.13,
+      lightness: {
+        canvas: 0,
+        sidebar: 0,
+        surface: 0.17,
+        raised: 0.19,
+        hover: 0.255,
+        active: 0.3,
+        border: 0.58,
+        borderStrong: 0.72,
+        faint: 0.72,
+        subtle: 0.86,
+        muted: 0.94,
+        text: 1,
+      },
     },
   }),
-  ember: theme({
-    name: "Ember",
-    neutral: { hue: 60, chroma: 0.006 },
+  aurora: theme({
+    name: "Aurora",
+    character: "Violet dusk with clear glass layers, with a magenta accent",
+    accent: { light: "#B0359F", dark: "#E77BD6" },
+    material: {
+      light: { glass: { blur: 0.5, liquid: 0.42 }, focus: 60 },
+      dark: { glass: { blur: 0.54, liquid: 0.46 }, focus: 60 },
+    },
     light: {
-      accent: "#B1522A",
-      accentHover: "#9D4723",
-      accentPressed: "#853C1D",
-      accentFg: "#FFFFFF",
-      accentText: "#A04A25",
+      hue: 300,
+      chroma: 0.02,
+      inkChroma: 0.04,
+      code: 0.942,
+      lightness: {
+        canvas: 0.972,
+        sidebar: 0.944,
+        surface: 0.938,
+        raised: 0.995,
+        hover: 0.93,
+        active: 0.908,
+        border: 0.893,
+        borderStrong: 0.838,
+        faint: 0.61,
+        subtle: 0.485,
+        muted: 0.4,
+        text: 0.225,
+      },
     },
     dark: {
-      accent: "#E08A5C",
-      accentHover: "#E79C72",
-      accentPressed: "#D27B4D",
-      accentFg: "#2A1206",
-      accentText: "#E99A6F",
-    },
-  }),
-  moss: theme({
-    name: "Moss",
-    neutral: trueGrey,
-    light: {
-      accent: "#486A38",
-      accentHover: "#3E5C30",
-      accentPressed: "#334D28",
-      accentFg: "#FFFFFF",
-      accentText: "#456635",
-    },
-    dark: {
-      accent: "#9DBE84",
-      accentHover: "#AECB98",
-      accentPressed: "#8EB075",
-      accentFg: "#17210F",
-      accentText: "#AFCB99",
+      hue: 300,
+      chroma: 0.042,
+      inkChroma: 0.03,
+      code: 0.135,
+      lightness: {
+        canvas: 0.2,
+        sidebar: 0.178,
+        surface: 0.232,
+        raised: 0.25,
+        hover: 0.268,
+        active: 0.298,
+        border: 0.315,
+        borderStrong: 0.385,
+        faint: 0.585,
+        subtle: 0.73,
+        muted: 0.83,
+        text: 0.955,
+      },
     },
   }),
 };
@@ -362,10 +428,4 @@ export const syntax: Record<
     type: "#6CCFD8",
     com: "#8A8F98",
   },
-};
-
-/** Waiting and not-responding hues: shared by every theme of a scheme. */
-export const sharedStatus: Record<Scheme, { waiting: string; unresponsive: string }> = {
-  light: { waiting: "#7A5BD6", unresponsive: "#C2508A" },
-  dark: { waiting: "#B49CF5", unresponsive: "#E88BB3" },
 };

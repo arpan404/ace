@@ -22,7 +22,7 @@ import {
   type ResolvedAppearance,
   type SystemPreferences,
 } from "./appearance.ts";
-import { allThemesStylesheet, themeStylesheet } from "./css.ts";
+import { themesStylesheet, themeStylesheet } from "./css.ts";
 import type { GlassEngine } from "./glass.ts";
 import { startLiquidGlass } from "./liquid-glass.ts";
 import { themes } from "./palettes.ts";
@@ -97,11 +97,17 @@ export function ThemeProvider(props: { environment: Environment; children: React
   const [appearance, setAppearance] = useState(() => loadAppearance(storage));
   const system = useSystemPreferences(matchMedia);
   const resolved = useMemo(() => resolveAppearance(appearance, system), [appearance, system]);
+  const { accent, customAccent } = appearance;
+  // Every theme with the chosen accent: one sheet, so a theme switch is an attribute flip.
+  const stylesheet = useMemo(
+    () => themesStylesheet({ accent, customAccent }),
+    [accent, customAccent],
+  );
 
   // Layout effect, so a theme switch inside a view transition lands before the new snapshot.
   useLayoutEffect(() => {
     if (!root) return;
-    applyTheme(root, {
+    applyTheme(root, stylesheet, {
       "data-theme": resolved.theme,
       "data-scheme": resolved.scheme,
       "data-surface": resolved.surface,
@@ -114,7 +120,7 @@ export function ThemeProvider(props: { environment: Environment; children: React
       `${transcriptSizes[appearance.transcriptSize].px}px`,
     );
     setThemeColour(root.ownerDocument, themes[resolved.theme][resolved.scheme].s0);
-  }, [root, resolved, appearance.density, appearance.transcriptSize, glassEngine]);
+  }, [root, stylesheet, resolved, appearance.density, appearance.transcriptSize, glassEngine]);
 
   // Per-layer liquid glass filters, only while they can show.
   const liquid = glassEngine === "liquid" && resolved.surface === "translucent";
@@ -131,7 +137,7 @@ export function ThemeProvider(props: { environment: Environment; children: React
       reduceMotion: appearance.reduceMotion,
       density: appearance.density,
       transcriptPx: transcriptSizes[appearance.transcriptSize].px,
-      css: themeStylesheet(appearance.theme),
+      css: themeStylesheet(appearance.theme, appearance),
     };
     writeJson(storage, bootAppearanceKey, boot);
   }, [storage, appearance]);
@@ -151,7 +157,7 @@ export function ThemeProvider(props: { environment: Environment; children: React
           return merged;
         });
       // A new palette cross-fades the window; the other settings apply directly.
-      if (next.theme !== undefined || next.mode !== undefined)
+      if (next.theme !== undefined || next.mode !== undefined || next.accent !== undefined)
         withViewTransition(() => flushSync(apply));
       else apply();
     },
@@ -169,7 +175,11 @@ export function ThemeProvider(props: { environment: Environment; children: React
   return <ThemeContext.Provider value={value}>{props.children}</ThemeContext.Provider>;
 }
 
-function applyTheme(root: HTMLElement, attributes: Record<string, string | undefined>) {
+function applyTheme(
+  root: HTMLElement,
+  stylesheet: string,
+  attributes: Record<string, string | undefined>,
+) {
   const document = root.ownerDocument;
   let sheet = document.getElementById("ace-themes");
   if (!sheet) {
@@ -177,7 +187,7 @@ function applyTheme(root: HTMLElement, attributes: Record<string, string | undef
     sheet.id = "ace-themes";
     document.head.append(sheet);
   }
-  if (sheet.textContent !== allThemesStylesheet) sheet.textContent = allThemesStylesheet;
+  if (sheet.textContent !== stylesheet) sheet.textContent = stylesheet;
   for (const [name, value] of Object.entries(attributes))
     if (value === undefined) root.removeAttribute(name);
     else if (root.getAttribute(name) !== value) root.setAttribute(name, value);

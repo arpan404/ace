@@ -1,3 +1,4 @@
+import { AccentPicker } from "./accent-picker.tsx";
 import { ThemeChooser } from "./theme-chooser.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
@@ -54,6 +55,9 @@ export function AppearanceSettings() {
           <div className="text-ui font-medium">{settingRow("appearance.theme").title}</div>
           <ThemeChooser />
         </div>
+        <SettingRow {...settingRow("appearance.accent")}>
+          <AccentPicker />
+        </SettingRow>
         <SettingRow
           {...settingRow("appearance.surfaces")}
           description={

@@ -1,5 +1,5 @@
 import { parseOpaqueColor, type Rgb } from "./colour.ts";
-import type { Palette, Scheme } from "./palettes.ts";
+import type { Base, Scheme } from "./types.ts";
 
 /*
  * Every surface text can sit on, as the browser composites it, so contrast checks hold where
@@ -22,15 +22,14 @@ export function over(top: Rgb, alpha: number, under: Rgb): Rgb {
   ];
 }
 
-/** The tint alphas in tokens.ts: blur glass, then the thinner liquid glass. */
-const glassAlpha: Record<Scheme, { blur: number; liquid: number }> = {
-  light: { blur: 0.64, liquid: 0.56 },
-  dark: { blur: 0.68, liquid: 0.62 },
-};
 /** The strongest ink wash under text: a selected row (`--fill-strong`). */
 const selectedInk: Record<Scheme, number> = { light: 0.07, dark: 0.08 };
 
-export function paletteSurfaces(palette: Palette, scheme: Scheme): Surface[] {
+/**
+ * `palette` needs no accent: the accent is fitted to these surfaces. Glass alphas are the
+ * theme's material (`--glass-tint` and `--glass-tint-liquid` in tokens.ts).
+ */
+export function paletteSurfaces(palette: Base, scheme: Scheme): Surface[] {
   const solid: Surface[] = [];
   const add = (name: string, value: string) => {
     const rgb = parseOpaqueColor(value);
@@ -44,7 +43,7 @@ export function paletteSurfaces(palette: Palette, scheme: Scheme): Surface[] {
 
   const glass = parseOpaqueColor(palette.s2);
   const under = solid.filter((surface) => surface.name === "page" || surface.name === "sidebar");
-  const alphas = glassAlpha[scheme];
+  const alphas = palette.material.glass;
   const glassy: Surface[] = glass
     ? under.flatMap((surface) => [
         { name: `glass over ${surface.name}`, rgb: over(glass, alphas.blur, surface.rgb) },

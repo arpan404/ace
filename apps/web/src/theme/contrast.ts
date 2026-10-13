@@ -1,5 +1,5 @@
 import { contrastRatio, parseOpaqueColor, worstContrast } from "./colour.ts";
-import type { Palette, Scheme } from "./palettes.ts";
+import type { Palette, PaletteColour, Scheme } from "./palettes.ts";
 import { paletteSurfaces } from "./surfaces.ts";
 import { projectTintCount, themeTokens } from "./tokens.ts";
 
@@ -12,7 +12,7 @@ export interface ContrastWarning {
 }
 
 /** Text that must read at AA (4.5:1) wherever it is drawn (`paletteSurfaces`). */
-const textChecks: readonly { key: keyof Palette; label: string }[] = [
+const textChecks: readonly { key: PaletteColour; label: string }[] = [
   { key: "t1", label: "Text" },
   { key: "t2", label: "Secondary text" },
   { key: "t3", label: "Quiet text" },
@@ -24,7 +24,7 @@ const textChecks: readonly { key: keyof Palette; label: string }[] = [
 ];
 
 /** Marks with no text of their own (dots, rings, fills) need 3:1 against the page. */
-const markChecks: readonly { key: keyof Palette; label: string }[] = [
+const markChecks: readonly { key: PaletteColour; label: string }[] = [
   { key: "faint", label: "Faint icons" },
   { key: "accent", label: "Accent" },
   { key: "working", label: "Working mark" },
@@ -34,7 +34,7 @@ const markChecks: readonly { key: keyof Palette; label: string }[] = [
 ];
 
 /** Labels on an accent fill, in each of its states. */
-const fillChecks: readonly { key: keyof Palette; label: string }[] = [
+const fillChecks: readonly { key: PaletteColour; label: string }[] = [
   { key: "accent", label: "Label on accent" },
   { key: "accentHover", label: "Label on hovered accent" },
   { key: "accentPressed", label: "Label on pressed accent" },

@@ -51,7 +51,7 @@ export function ThemeChooser() {
       role="radiogroup"
       aria-label="Theme"
       onKeyDown={onRadioKeys}
-      className="grid grid-cols-2 gap-2 @min-[560px]:grid-cols-4"
+      className="grid grid-cols-2 gap-2 @min-[480px]:grid-cols-3"
     >
       {themeIds.map((id) => {
         const checked = appearance.theme === id;
