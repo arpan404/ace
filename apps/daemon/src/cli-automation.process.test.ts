@@ -65,8 +65,13 @@ test("automation CLI retries one shared run and keeps it running across descenda
       (await ask({ type: "automation.inbox", requestId: "inbox", limit: 100 })).inbox?.runs.find(
         (entry) => entry.id === run.id,
       );
-    await expect.poll(async () => (await inbox())?.threadId).toBeDefined();
-    const parent = ThreadId.parse((await inbox())?.threadId);
+    // A run reports its thread only when it settles, so find the thread it admitted.
+    const admitted = () =>
+      f.daemon.store
+        .listThreads()
+        .find((thread) => thread.title === "Automation: CLI automation")?.id;
+    await expect.poll(admitted).toBeDefined();
+    const parent = ThreadId.parse(admitted());
     const spawn = await invoke(home, [
       "task",
       "spawn",
