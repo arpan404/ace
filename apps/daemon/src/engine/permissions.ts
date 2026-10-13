@@ -191,6 +191,17 @@ export class Permissions {
   effective(id: ThreadId): PermissionMode | null {
     return this.read(id).effective;
   }
+  /** Whether the thread runs in its provider's Full access mode (presented as such). */
+  private fullAccess(id: ThreadId): boolean {
+    const effective = this.read(id).effective;
+    if (effective === null) return false;
+    const thread = this.repo.store.getThread(id);
+    const provider = thread?.provider ?? this.repo.state(id)?.config.provider;
+    const offered =
+      (thread?.effectiveCapabilities ?? thread?.capabilities)?.permissionModes ??
+      (provider ? nativePermissionModes(provider) : []);
+    return offered.some((mode) => mode.id === effective && mode.presentation === "full-access");
+  }
   /** ace-owned Mac tools have their own manual consent, independent of the harness mode. */
   authority(_id: ThreadId): PermissionMode {
     return "ask";
@@ -419,7 +430,9 @@ export class Permissions {
       const target =
         interaction.request.kind === "approval" ? interaction.request.target : undefined;
       if (target?.origin !== "ace") continue;
-      const mode = "ask";
+      // A provider asking about ace's own tool in Full access answers itself; ace's consent
+      // for origins, apps and devices still asks inside the tool, in every mode.
+      const mode = this.fullAccess(state.threadId) ? "full-access" : "ask";
       if (this.repo.reserved(interaction.id)) continue;
       const previous = this.repo.store.atomic((db) =>
         db

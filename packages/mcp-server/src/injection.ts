@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { aceInstructions } from "./status.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
+import { destructiveAceTools } from "./agent-control.ts";
 import type { ProviderKind } from "@ace/protocol";
 
 export const AceMcpConnectionSchema = z.strictObject({
@@ -47,6 +48,14 @@ export function codexInjection(input: AceMcpConnection) {
           "X-Ace-Notifications": "stream",
         },
         tool_timeout_sec: maxToolTimeoutMs / 1000,
+        // Codex otherwise gates every ace tool it can't prove read-only and never remembers
+        // the answer. ace already asks for what needs a person (new browser origins, app
+        // control, evaluate, uploads) inside the tool, in every permission mode, so only the
+        // tools that overwrite work or commit spending keep Codex's own prompt.
+        default_tools_approval_mode: "approve",
+        tools: Object.fromEntries(
+          destructiveAceTools.map((tool) => [tool, { approval_mode: "prompt" }]),
+        ),
       },
     },
     developerInstructions: developerInstructions("codex"),

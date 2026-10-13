@@ -3,6 +3,7 @@ import { appendFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { list, obj, str } from "../native.ts";
+import { aceMcpApprovals } from "./mcp-approvals.ts";
 if (process.env["ACE_FAKE_RESUME"] === "ignore-term") process.on("SIGTERM", () => {});
 const args: string[] = [];
 const overrides = new Map<string, string>();
@@ -28,6 +29,8 @@ if (args.join(" ") !== "app-server") {
   process.exit(64);
 }
 const write = (data: unknown) => process.stdout.write(`${JSON.stringify(data)}\n`);
+const aceTools =
+  process.env["ACE_FAKE_RESUME"] === "ace-mcp-approvals" ? aceMcpApprovals(write) : undefined;
 const notify = (method: string, params: unknown) => write({ method, params });
 let appCatalogNotified = false;
 const apps: { id: string; name: string; description: string }[] = [
@@ -75,6 +78,7 @@ for await (const line of createInterface({ input: process.stdin })) {
   )
     nativePermissions = p["permissions"];
   const id = frame["id"];
+  if (!method && aceTools?.answer(id, frame["result"])) continue;
   if (!method && id === 100) {
     if (pendingKind === "shell-edit" && obj(frame["result"])["decision"] === "accept")
       appendFileSync("README.md", "QA approval test\n");
@@ -178,6 +182,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
     });
   } else if (method === "thread/start" || method === "thread/resume") {
+    aceTools?.configure(p["config"]);
     const config = obj(obj(p["config"])["mcp_servers.ace"]);
     notify("ace/connection", {
       aceConnection: {
@@ -252,6 +257,11 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
       model: "fake-model",
     });
+  } else if (method === "turn/start" && aceTools) {
+    const turnId = `ace-tools-${++policyTurn}`;
+    write({ id, result: { turn: { id: turnId } } });
+    notify("turn/started", { threadId: "native", turn: { id: turnId } });
+    void aceTools.run(turnId, str(obj(list(p["input"])[0])["text"]));
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
     if (process.env["ACE_FAKE_RESUME"] === "app-list-echo") {

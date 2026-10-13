@@ -3,6 +3,7 @@ import {
   AcpIdentity as importAcpIdentity,
 } from "@ace/protocol";
 import { backfillThreadTitles } from "./title-input.ts";
+import { liveAceCall } from "./ace-approvals.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
 import { RepositoryTransfers } from "./repository-transfers.ts";
@@ -771,14 +772,19 @@ export class Engine {
     raw: import("@ace/protocol").RawPayload[],
   ) {
     const state = this.repo.requireState(threadId);
+    const agent = state.rootKey ?? "root";
+    // ace's consent asked while one of its own tools runs: the answer reads on that tool's row.
+    const item =
+      request.kind === "approval" ? liveAceCall(state, agent, request.target?.tool) : undefined;
     this.actor(threadId).apply([
       {
         type: "interaction.opened",
-        agent: state.rootKey ?? "root",
+        agent,
         interaction: key,
         blocking: true,
         request,
         raw,
+        ...(item ? { item } : {}),
       },
     ]);
     const interaction = this.repo.requireState(threadId).interactions[key];

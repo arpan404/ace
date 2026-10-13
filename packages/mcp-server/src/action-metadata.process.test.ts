@@ -39,3 +39,24 @@ test("a read-only MCP lease can call transcript reads and receives accurate tool
     _meta: { "ace/timeoutMs": 300000, "ace/riskClass": "agent-execution" },
   });
 });
+
+test("providers see only tools that overwrite work or commit spending as destructive", async () => {
+  const h = await harness(cleanups);
+  agentControlToolkit({
+    async execute() {
+      return { ok: true, data: null };
+    },
+  }).register(h.registry);
+  const { client } = await h.connect(scope("root", ["thread_control", "automations"]));
+  const hints = new Map(
+    (await client.listTools()).tools.map((tool) => [tool.name, tool.annotations]),
+  );
+  expect(hints.get("ace_thread_merge")).toMatchObject({ destructiveHint: true });
+  expect(hints.get("ace_automation_manage")).toMatchObject({ destructiveHint: true });
+  expect(hints.get("ace_thread_rename")).toMatchObject({
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  });
+  expect(hints.get("ace_thread_read")).toMatchObject({ readOnlyHint: true, idempotentHint: true });
+});

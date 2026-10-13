@@ -1,6 +1,7 @@
 import type { InteractionResolution } from "@ace/protocol";
 import type { ServerRequest } from "@ace/provider-kit/jsonrpc";
 import { list, obj, str } from "./native.ts";
+import { mcpToolApprovalResult } from "./mcp-approval.ts";
 export function approvalResult(request: ServerRequest, resolution: InteractionResolution): unknown {
   const p = obj(request.params);
   if (request.method === "item/tool/requestUserInput" && resolution.kind === "question")
@@ -19,6 +20,7 @@ export function approvalResult(request: ServerRequest, resolution: InteractionRe
     };
   if (resolution.kind !== "approval")
     throw new Error("Resolution kind does not match the Codex interaction");
+  if (request.method === "mcpServer/elicitation/request") return mcpToolApprovalResult(resolution);
   if (request.method === "item/permissions/requestApproval")
     return {
       permissions: resolution.optionId === "accept" ? (p["permissions"] ?? {}) : {},

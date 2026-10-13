@@ -55,6 +55,7 @@ export { builtinToolCatalog, handoffToolCatalog, statusToolCatalog } from "./cat
 export {
   agentControlToolkit,
   agentControlToolCatalog,
+  destructiveAceTools,
   type AgentControlPort,
 } from "./agent-control.ts";
 

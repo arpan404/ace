@@ -4,6 +4,7 @@ import { ApprovalTarget } from "@ace/protocol";
 import type { Fact } from "@ace/core";
 import { decisions, obj, questions, raw, str, type Obj } from "./native.ts";
 import { toolDraft } from "./item.ts";
+import { mcpToolApproval } from "./mcp-approval.ts";
 
 export function openRequest(
   agent: string,
@@ -28,7 +29,7 @@ export function openRequest(
         method,
       ),
     });
-  const request = method.endsWith("requestUserInput")
+  const native = method.endsWith("requestUserInput")
     ? { kind: "question" as const, questions: questions(p["questions"], false) }
     : method === "mcpServer/elicitation/request"
       ? {
@@ -99,6 +100,9 @@ export function openRequest(
               ? decisions(["accept", "decline", "cancel"])
               : decisions(p["availableDecisions"]),
         };
+  // Codex's gate on an MCP tool call is a yes/no approval, carried as an elicitation.
+  const request =
+    (method === "mcpServer/elicitation/request" ? mcpToolApproval(p) : undefined) ?? native;
   facts.push({
     type: "interaction.opened",
     agent,

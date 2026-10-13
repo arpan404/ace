@@ -23,6 +23,8 @@ export type CallObserver = (
 export interface ToolDefinition<I extends z.ZodObject, O extends z.ZodObject> {
   name: string;
   riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"];
+  /** Deletes, overwrites or spends: the only ace tools a provider should gate itself. */
+  destructive?: boolean;
   description: string;
   input: I;
   output: O;
@@ -92,6 +94,7 @@ export class ToolRegistry {
       timeoutMs,
       output,
       definition.riskClass,
+      definition.destructive,
     );
     this.entries.set(name, {
       descriptor,
@@ -127,6 +130,7 @@ export class ToolRegistry {
       timeoutMs,
       undefined,
       definition.riskClass,
+      definition.destructive,
     );
     this.entries.set(name, {
       descriptor,
@@ -149,6 +153,7 @@ export class ToolRegistry {
     timeoutMs: number,
     output?: z.ZodObject,
     riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"],
+    destructive?: boolean,
   ): () => Tool {
     if (
       (name !== "delegate_task" &&
@@ -162,7 +167,8 @@ export class ToolRegistry {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > maxToolTimeoutMs)
       throw new Error("Invalid tool timeout");
     let built: Tool | undefined;
-    return () => (built ??= this.build(name, description, input, timeoutMs, output, riskClass));
+    return () =>
+      (built ??= this.build(name, description, input, timeoutMs, output, riskClass, destructive));
   }
   /**
    * Built from trusted definitions and Zod-generated JSON schemas, without loading the MCP SDK;
@@ -175,15 +181,19 @@ export class ToolRegistry {
     timeoutMs: number,
     output?: z.ZodObject,
     riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"],
+    destructive?: boolean,
   ): Tool {
     return {
       name,
       description,
+      // MCP reads a missing destructiveHint as true, so every hint is explicit. Opening or
+      // clicking a page reaches the open world without destroying anything.
       ...(riskClass
         ? {
             annotations: {
               readOnlyHint: riskClass === "read-only",
-              destructiveHint: riskClass === "external-effect",
+              destructiveHint: destructive === true,
+              idempotentHint: riskClass === "read-only",
               openWorldHint: riskClass === "external-effect",
             },
           }

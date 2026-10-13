@@ -94,7 +94,128 @@ test.each(["auto-review", "ask", "read-only"] as const)(
   },
 );
 
-test("ace delegation requires its own consent regardless of the provider native mode", async () => {
+/** Codex's gate on a running ace tool call: an approval with no item, naming ace's server. */
+function codexGate(tool: string, input: unknown): Fact[] {
+  return [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "call",
+      draft: {
+        type: "tool_call",
+        complete: false,
+        call: {
+          title: tool,
+          kind: "mcp",
+          status: "running",
+          detail: { kind: "mcp", server: "ace", tool, arguments: input },
+        },
+      },
+    },
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "gate",
+      blocking: true,
+      request: {
+        kind: "approval",
+        title: tool,
+        target: { tool, access: "unknown", input },
+        mcpServer: { name: "ace", source: "codex" },
+        options: [
+          { id: "accept", label: "Allow once", kind: "allow_once" },
+          { id: "accept_session", label: "Allow for this thread", kind: "allow_session" },
+          { id: "decline", label: "Deny", kind: "deny" },
+        ],
+      },
+    },
+  ];
+}
+const merge = { threadId: "child", requestId: "merge-1" };
+
+test("in Full access ace answers Codex's gate on its own destructive tool without asking", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      { on: "send", frames: [frames.frame(start, ...codexGate("ace_thread_merge", merge))] },
+      { on: "resolve", frames: [frames.frame(end)] },
+    ],
+    frames,
+    { permissionSettings: async () => ":danger-full-access" },
+  );
+  try {
+    const id = await h.create();
+    const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
+    expect(interaction).toMatchObject({
+      state: "resolved",
+      review: { decision: "approve", mode: "full-access" },
+      resolution: { optionId: "accept" },
+    });
+  } finally {
+    await h.close();
+  }
+});
+
+test("outside Full access Codex's gate on a destructive ace tool asks the person on that call's row", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [{ on: "send", frames: [frames.frame(start, ...codexGate("ace_thread_merge", merge))] }],
+    frames,
+    { permissionSettings: async () => ":workspace" },
+  );
+  try {
+    const id = await h.create();
+    const thread = h.store.snapshotThread(id);
+    const interaction = Object.values(thread.interactions)[0];
+    const call = Object.values(thread.items).find((item) => item.type === "tool_call");
+    expect(interaction).toMatchObject({
+      state: "pending",
+      toolCallId: call?.id,
+      review: { decision: "escalate", target: { tool: "ace_thread_merge", origin: "ace" } },
+    });
+  } finally {
+    await h.close();
+  }
+});
+
+test("ace's own consent asked during an ace tool call reads on that call", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      {
+        on: "send",
+        frames: [
+          frames.frame(
+            start,
+            ...codexGate("ace_browser_navigate", { url: "https://a.test" }).slice(0, 1),
+          ),
+        ],
+      },
+    ],
+    frames,
+  );
+  try {
+    const id = await h.create();
+    const opened = h.engine.openHostApproval(
+      id,
+      "origin",
+      {
+        kind: "approval",
+        title: "open https://a.test in the thread browser",
+        target: { tool: "ace_browser_navigate", access: "execute" },
+        options: [{ id: "allow_thread", label: "Allow for this thread", kind: "allow_session" }],
+      },
+      [],
+    );
+    const thread = h.store.snapshotThread(id);
+    const call = Object.values(thread.items).find((item) => item.type === "tool_call");
+    expect(h.store.getInteraction(opened)?.toolCallId).toBe(call?.id);
+  } finally {
+    await h.close();
+  }
+});
+
+test("ace delegation asks the person outside Full access", async () => {
   const frames = scriptFrames();
   const h = await harness(
     [
@@ -115,7 +236,7 @@ test("ace delegation requires its own consent regardless of the provider native 
       { on: "resolve", frames: [frames.frame(end)] },
     ],
     frames,
-    { permissionSettings: async () => ":danger-full-access" },
+    { permissionSettings: async () => ":workspace" },
   );
   try {
     const id = await h.create();

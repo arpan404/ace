@@ -1,6 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import type { Run } from "@ace/protocol";
 import {
+  approvalRecordLabel,
   ledgerOf,
   limitHoldShown,
   rootRunOf,
@@ -172,6 +173,10 @@ export function createBlockReader(
         return !agent || !isRunning(agent);
       },
       reviewedCall: (interactionId) => reader.interaction(interactionId)?.toolCallId,
+      approvalRecord: (interactionId) => {
+        const interaction = reader.interaction(interactionId);
+        return interaction && approvalRecordLabel(interaction);
+      },
       heldTurn,
       pausedTurns: paused,
       stoppedTail:
