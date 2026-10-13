@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import { protocol, session } from "electron";
-import { appOrigin, appScheme, contentSecurityPolicy, inlineScriptHashes } from "./csp.ts";
+import { appOrigin, appScheme, contentSecurityPolicy, packagedPolicy } from "./csp.ts";
 import type { DaemonNetwork } from "./daemon-network.ts";
 
 /** Covers fetches and worker sockets as well as the page. Browser views use other sessions. */
@@ -47,11 +47,7 @@ export async function serveRenderer(
   network?: DaemonNetwork,
 ) {
   const index = await readFile(join(directory, "index.html"), "utf8");
-  const policy = contentSecurityPolicy({
-    inlineScripts: await inlineScriptHashes(index),
-    daemonOrigins,
-    dynamicDaemons: network !== undefined,
-  });
+  const policy = packagedPolicy({ index, daemonOrigins, dynamicDaemons: network !== undefined });
   const root = normalize(directory + sep);
   protocol.handle(appScheme, async (request) => {
     const url = new URL(request.url);

@@ -127,6 +127,7 @@ existing components need no edits.
 | Modal backdrop            | `--scrim` (solid), `--scrim-glass` (over blur); modal panels `--glass-tint-modal` |
 | Floating material         | `--float-edge`, `--float-shadow` (= `--glass-shadow`), `--glass-*`, `--sliver`    |
 | Project badges            | `--project-1` … `--project-12`                                                    |
+| Chat visualization series | `--chart-1` … `--chart-6`                                                         |
 
 Tailwind utilities: `bg-surface-{0,1,2}`, `bg-fill`, `bg-fill-strong`, `bg-scrim`, `bg-tint`,
 `bg-tint-hover`, `bg-tint-pressed`, `text-tint-foreground`, `text-link`, and every shadcn name.

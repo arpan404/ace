@@ -1,6 +1,13 @@
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { test, expect } from "@playwright/test";
 import { visualizationUrl, visualizationWindow } from "@ace/html";
+import { visualizationScripts } from "@ace/html/scripts";
+
+// Visualization frames inherit the host CSP, so a host allows exactly the fixed bridges.
+const bridges = visualizationScripts
+  .map((source) => `'sha256-${createHash("sha256").update(source).digest("base64")}'`)
+  .join(" ");
 
 /** These browser behavior guards are deliberately left for merge-time execution. */
 test("static HTML does not execute authored scripts that access parents, navigate, open popups or send requests", async ({
@@ -11,7 +18,7 @@ test("static HTML does not execute authored scripts that access parents, navigat
     if (request.url !== "/" && request.url !== "/favicon.ico") requests.push(request.url ?? "");
     response.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; frame-src data:",
+      `default-src 'self'; script-src 'self' ${bridges}; style-src 'unsafe-inline'; frame-src data:`,
     );
     response.end("<!doctype html><html><body><h1>Private app</h1></body></html>");
   });

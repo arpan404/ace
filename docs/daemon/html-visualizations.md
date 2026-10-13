@@ -34,6 +34,14 @@ WebSocket, workers, forms and plugins through CSP. Each head starts with a DNS
 prefetch opt-out meta element before any author content. No frame has same-origin,
 popup, top-navigation, storage-access or download permissions.
 
+Chromium gives `data:` and `srcdoc` frames the embedder's CSP as well as their own.
+The two fixed bridge scripts therefore live in `@ace/html/scripts`, and the packaged
+desktop renderer's `script-src` allows exactly their hashes. Without them every
+visualization stays blank in the packaged app while working under the development
+CSP. Both nested documents declare the app's `color-scheme`. A frame whose scheme
+differs from its embedder's gets an opaque light canvas, which would put a white box
+behind a transparent page on the dark theme.
+
 Authored scripts and event handlers are removed on every render and export path.
 The guest CSP permits only the hash of the fixed resize bridge. Every client gets
 a static view, including browsers with Trusted Types. The preview's `static-view`

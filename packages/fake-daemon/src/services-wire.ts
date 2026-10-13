@@ -44,6 +44,8 @@ export interface ServicesSeed extends AutomationSeed {
   /** Seed the small PNG fixture for scoped client attachment reads. */
   notificationPublicKey?: string;
   attachmentImages?: { threadId: string; name?: string }[];
+  /** Text attachments with precomputed hashes, such as published HTML visualizations. */
+  attachmentTexts?: { threadId: string; sha256: string; text: string; name: string }[];
   plugins?: PluginSeed;
   /** Pull requests linked to existing threads, by thread id. */
   pullRequests?: Record<string, ForgePrStatus>;
@@ -114,6 +116,7 @@ export class FakeServicesWire {
     this.notificationPublicKey = seed.notificationPublicKey ?? null;
     for (const image of seed.attachmentImages ?? [])
       this.context.seedImage(image.threadId, image.name);
+    for (const text of seed.attachmentTexts ?? []) this.context.seedText(text.threadId, text);
     if (seed.settings) this.settings.seed(seed.settings);
     this.automations.seed(seed);
     if (seed.plugins) this.plugins.seed(seed.plugins);
