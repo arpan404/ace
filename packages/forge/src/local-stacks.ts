@@ -15,14 +15,22 @@ import {
   matchesLocalStack,
   matchesStackBranches,
   sameLocalStack,
-  stackPublicationUnavailable,
+  stackRebasedLocally,
 } from "./stack-plan.ts";
+import {
+  planStackPublication,
+  stackPublishResult,
+  type StackPublisher,
+  type StackPublishUpdate,
+} from "./stack-publish.ts";
 export class LocalStacks {
   readonly #runner: CommandRunner;
   readonly #command: string;
-  constructor(runner: CommandRunner, command = "gh") {
+  readonly #publish: StackPublisher | undefined;
+  constructor(runner: CommandRunner, command = "gh", publish?: StackPublisher) {
     this.#runner = runner;
     this.#command = command;
+    this.#publish = publish;
   }
   async read(signal: AbortSignal): Promise<ForgeLocalStack> {
     const response = await this.#runner({
@@ -75,9 +83,8 @@ export class LocalStacks {
       )
     )
       throw new ForgeError("conflict");
+    if (action === "push") return this.#push(expected, current, stack, signal, allowed, dispatch);
     if (!allowed()) throw new ForgeError("forbidden");
-    if (action === "push")
-      return { action, state: "push_partial", message: stackPublicationUnavailable };
     let response;
     try {
       response = await this.#runner({
@@ -116,6 +123,61 @@ export class LocalStacks {
         state: "aborted",
         message: "gh stack restored the local branches. No push was attempted.",
       };
-    return { action, state: "push_partial", message: stackPublicationUnavailable };
+    return { action, state: "push_partial", message: stackRebasedLocally };
   }
+  /** One atomic Git push; every layer is leased to the host revision reviewed before rebase. */
+  async #push(
+    reviewed: ForgeStackExpected,
+    local: ForgeLocalStack,
+    stack: ForgeStack,
+    signal: AbortSignal,
+    allowed: () => boolean,
+    dispatch: WriteDispatch,
+  ): Promise<ForgeStackOperation> {
+    if (!this.#publish) throw new ForgeError("unsupported");
+    const plan = planStackPublication(reviewed, local, stack);
+    if (!plan.ok) throw new ForgeError("conflict");
+    if (!allowed()) throw new ForgeError("forbidden");
+    let report;
+    try {
+      report = await this.#publish({
+        remote: "origin",
+        updates: plan.updates.map((update) => ({
+          ref: `refs/heads/${update.branch}`,
+          lease: update.lease,
+          target: update.target,
+        })),
+        signal,
+        beforeDispatch: () => {
+          dispatch.prepare();
+          dispatch.record();
+        },
+      });
+    } catch (error) {
+      if (!dispatch.dispatched) dispatch.reject();
+      throw error;
+    }
+    return publishOutcome(plan.updates, stackPublishResult(plan.updates, report));
+  }
+}
+
+function publishOutcome(
+  updates: readonly StackPublishUpdate[],
+  result: ReturnType<typeof stackPublishResult>,
+): ForgeStackOperation {
+  const layers = updates.map((update) => `#${update.number}`).join(", ");
+  if (result === "published")
+    return { action: "push", state: "rebased", message: `Published ${layers} to GitHub.` };
+  if (result === "refused")
+    return {
+      action: "push",
+      state: "failed",
+      message: `GitHub refused the push, or a layer changed after review. Nothing was published to ${layers}. Bring collaborator commits into the stack with gh stack, then rebase again.`,
+    };
+  return {
+    action: "push",
+    state: "uncertain",
+    message:
+      "Git did not confirm the push. Refresh the stack to compare GitHub with the published revisions. Publishing again is safe; leases stop any overwrite.",
+  };
 }

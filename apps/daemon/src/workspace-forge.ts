@@ -8,6 +8,7 @@ import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
 import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
+import { remotePushesTo } from "./workspace-push.ts";
 import {
   GitHubForge,
   ForgeError,
@@ -39,7 +40,8 @@ export class WorkspaceForge {
   private store: Store;
   private lifecycle: WorkspaceForgeLifecycle;
   private replyReceipts: ForgeReplyReceipts;
-  private git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>;
+  private git: Pick<GitService, "repositoryInfo"> &
+    Partial<Pick<GitService, "withWritingGuard" | "pushLeased">>;
   private issueLinks: WorkspaceIssueLinks;
   private issueActions: IssueActions;
   private reviews: WorkspaceForgeReviews;
@@ -55,7 +57,8 @@ export class WorkspaceForge {
   private sourceControl: import("./source-control.ts").SourceControl | undefined;
   constructor(
     store: Store,
-    git: Pick<GitService, "repositoryInfo"> & Partial<Pick<GitService, "withWritingGuard">>,
+    git: Pick<GitService, "repositoryInfo"> &
+      Partial<Pick<GitService, "withWritingGuard" | "pushLeased">>,
     now: () => number,
     runner: (cwd: string) => CommandRunner,
     sourceControl?: import("./source-control.ts").SourceControl,
@@ -93,10 +96,23 @@ export class WorkspaceForge {
       revision: identity?.revision,
     });
     let backend = this.backends.get(key);
+    const pushLeased = this.git.pushLeased?.bind(this.git);
     if (!backend)
       backend = new GitHubForge({
         repository,
         runner: identity?.runner ?? this.runner(cwd),
+        ...(pushLeased
+          ? {
+              publishStack: async (request) => {
+                const info = await this.git.repositoryInfo(cwd);
+                const remote = info.remotes.find((entry) => entry.name === request.remote);
+                const preferences = await this.sourceControl?.preferences();
+                if (!remotePushesTo(remote, repository, preferences))
+                  throw new ForgeError("conflict");
+                return pushLeased({ ...request, worktree: cwd });
+              },
+            }
+          : {}),
         now: this.now,
         replyReceipts: this.replyReceipts.scope(cwd, repository, identity?.account ?? ""),
       });

@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./stack-plan": "./src/stack-plan.ts",
+    "./stack-publish": "./src/stack-publish.ts",
     "./review-anchor": "./src/review-anchor.ts",
     "./review-comment-body": "./src/review-comment-body.ts",
     "./pr-reference": "./src/pr-reference.ts",

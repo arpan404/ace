@@ -200,7 +200,12 @@ test("no linked task leaves stack navigation available while remote writes requi
   await waitFor(() => expect(screen.getByRole("heading", { name: "UI" })).toBeTruthy());
 });
 
-test("a partially published rebase offers a reviewed push without restarting the rebase", async () => {
+test("a locally rebased stack reviews each layer's leased push before publishing it", async () => {
+  const rebased: Record<number, string> = {
+    41: "1".repeat(40),
+    42: "2".repeat(40),
+    43: "3".repeat(40),
+  };
   const value = ForgeStackWorkspace.parse({
     ...stack,
     localUnavailable: null,
@@ -209,8 +214,8 @@ test("a partially published rebase offers a reviewed push without restarting the
       currentBranch: "ui",
       branches: layers.map((layer) => ({
         name: layer.branch,
-        head: layer.headSha,
-        base: "d".repeat(40),
+        head: rebased[layer.number],
+        base: rebased[layer.number - 1] ?? "d".repeat(40),
         isCurrent: layer.number === 43,
         isMerged: false,
         isQueued: false,
@@ -221,22 +226,37 @@ test("a partially published rebase offers a reviewed push without restarting the
     operation: {
       action: "rebase",
       state: "push_partial",
-      message: "Some branches may have reached GitHub.",
+      message: "Local branches are rebased and not yet pushed.",
     },
   });
   const app = setup(value);
+  app.daemon.refuseCommands("forge_conflict", "forge.pr.stack.change");
   await app.open("/pull-requests?project=api&number=42");
   const section = await screen.findByRole("region", { name: "Pull request stack" });
-  await within(section).findByText(/push_partial: Some branches/);
+  await within(section).findByText(/push_partial: Local branches are rebased/);
   expect(
     within(section).getByRole<HTMLButtonElement>("button", { name: "Rebase local stack" }).disabled,
   ).toBe(true);
   expect(within(section).queryByRole("button", { name: "Continue local rebase" })).toBeNull();
+  const publish = within(section).getByRole<HTMLButtonElement>("button", {
+    name: "Publish stack",
+  });
+  await waitFor(() => expect(publish.disabled).toBe(false));
+  await userEvent.click(publish);
+  const confirmation = within(section).getByRole("group", { name: "Confirm stack action" });
   expect(
-    within(section).getByRole<HTMLButtonElement>("button", { name: "Retry stack push" }).disabled,
-  ).toBe(true);
-  expect(within(section).getByText(/Publication is disabled/)).toBeTruthy();
-  expect(within(section).queryByRole("group", { name: "Confirm stack action" })).toBeNull();
+    within(within(confirmation).getByRole("list", { name: "Layers to publish" }))
+      .getAllByRole("listitem")
+      .map((item) => item.textContent),
+  ).toEqual([
+    "#41 model aaaaaaa → 1111111",
+    "#42 api bbbbbbb → 2222222",
+    "#43 ui ccccccc → 3333333",
+  ]);
+  await userEvent.click(within(confirmation).getByRole("button", { name: "Confirm push" }));
+  expect(
+    await within(section).findByText(/The GitHub resource changed while reading/),
+  ).toBeTruthy();
 });
 
 test("repository lists group only host-confirmed layers and use host positions for navigation", async () => {

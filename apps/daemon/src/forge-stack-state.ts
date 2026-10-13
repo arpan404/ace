@@ -4,6 +4,42 @@ import type {
   ForgeStackLayer,
   ForgeStackOperation,
 } from "@ace/protocol";
+import { reconcileStackPublication, stackPublishUpdates } from "@ace/forge";
+
+/** Settle a recorded publication from GitHub's layer heads, never by repeating the push. */
+export function reconcileStackPush(
+  operation: ForgeStackOperation,
+  expected: ForgeStackExpected,
+  stack: ForgeStack,
+): ForgeStackOperation {
+  if (
+    operation.action !== "push" ||
+    !["uncertain", "push_partial"].includes(operation.state) ||
+    expected.id !== stack.id
+  )
+    return operation;
+  const result = reconcileStackPublication(stackPublishUpdates(expected), stack);
+  if (result === "published")
+    return {
+      ...operation,
+      state: "rebased",
+      message: "GitHub reports every layer at the published revision.",
+    };
+  if (result === "unpublished" && operation.state === "uncertain")
+    return {
+      ...operation,
+      state: "push_partial",
+      message:
+        "GitHub still has the reviewed revisions. Nothing was published; publish again when ready.",
+    };
+  if (result === "unknown" && operation.state === "push_partial")
+    return {
+      ...operation,
+      state: "uncertain",
+      message: "GitHub reports some layers at other revisions. Inspect them before publishing.",
+    };
+  return operation;
+}
 
 export function isIncompleteStackOperation(operation: ForgeStackOperation): boolean {
   return ["pending", "uncertain", "conflict", "push_partial"].includes(operation.state);

@@ -8,6 +8,7 @@ import { GitHubMergeState } from "./github-merge-state.ts";
 import { sameStack } from "./stack-plan.ts";
 import { GitHubStacks } from "./github-stacks.ts";
 import { LocalStacks } from "./local-stacks.ts";
+import type { StackPublisher } from "./stack-publish.ts";
 import { ForgeStackExpected } from "@ace/protocol/forge-stacks";
 import { GitHubReviews } from "./github-reviews.ts";
 import { GitHubBrowser } from "./github-browser.ts";
@@ -53,6 +54,8 @@ export class GitHubForge implements Forge, ForgeBrowser {
     command?: string;
     now: () => number;
     replyReceipts?: ReplyReceipts;
+    /** Publishes rebased stack layers with one atomic leased push in the task checkout. */
+    publishStack?: StackPublisher;
   }) {
     this.#replyReceipts = options.replyReceipts;
     this.repository = ForgeRepository.parse(options.repository);
@@ -62,7 +65,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     this.#api = new GhApi({ ...options, host: this.repository.host });
     this.#mergeState = new GitHubMergeState(this.#api, this.repository);
     this.#stacks = new GitHubStacks(this.#api, this.repository);
-    this.#localStacks = new LocalStacks(options.runner, options.command);
+    this.#localStacks = new LocalStacks(options.runner, options.command, options.publishStack);
     this.#browser = new GitHubBrowser(this.#api, this.repository);
     this.lifecycle = new GitHubLifecycle(this.#api, this.repository);
     this.reviews = new GitHubReviews(this.#api, (number) => this.#ref(number));

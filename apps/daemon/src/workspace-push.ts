@@ -1,8 +1,28 @@
 import { repositoryKey } from "@ace/forge";
 import type { GitService } from "@ace/git";
-import type { CommandPayload } from "@ace/protocol";
+import type { CommandPayload, ForgeRepository } from "@ace/protocol";
 import type { SourceControl } from "./source-control.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
+
+type Preferences = Parameters<typeof workspaceRepository>[1];
+
+/** Every push URL of `remote` must name the selected hosted repository. */
+export function remotePushesTo<Remote extends { pushUrls: readonly string[] }>(
+  remote: Remote | undefined,
+  repository: ForgeRepository,
+  preferences: Preferences,
+): remote is Remote {
+  return (
+    !!remote &&
+    remote.pushUrls.length > 0 &&
+    remote.pushUrls.every((url) => {
+      // Map the URL alone; which remote is selected was decided by the caller.
+      const name = preferences?.remote ?? "origin";
+      const pushed = workspaceRepository([{ name, fetchUrls: [url] }], preferences);
+      return !!pushed && repositoryKey(pushed) === repositoryKey(repository);
+    })
+  );
+}
 
 /** Validate the daemon's selected remote and keep the reviewed PR head pinned through push. */
 export async function pushWorkspace(
@@ -32,19 +52,7 @@ export async function pushWorkspace(
   const repository = workspaceRepository(info.remotes, preferences);
   if (!repository || repositoryKey(repository) !== repositoryKey(target.repository))
     throw new Error("repository_mismatch");
-  if (
-    !remote ||
-    !remote.pushUrls.length ||
-    remote.pushUrls.some((url) => {
-      const pushedRepository = workspaceRepository(
-        [{ name: input.remote, fetchUrls: [url] }],
-        preferences,
-      );
-      return (
-        !pushedRepository || repositoryKey(pushedRepository) !== repositoryKey(target.repository)
-      );
-    })
-  )
+  if (!remotePushesTo(remote, target.repository, preferences))
     throw new Error("repository_mismatch");
   await git.push({
     worktree: cwd,

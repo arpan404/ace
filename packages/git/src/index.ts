@@ -25,6 +25,7 @@ import {
 } from "./projects.ts";
 import { integrateRevision } from "./integration.ts";
 import { commitChanges, pushBranch, listBranches, switchBranch } from "./actions.ts";
+import { pushLeasedRefs, type LeasedPushOptions } from "./leased-push.ts";
 import { changedFiles, changeSummary } from "./changed-files.ts";
 import { deleteBranch, type BranchCleanup } from "./branch-cleanup.ts";
 import { GitCli } from "./cli.ts";
@@ -58,6 +59,12 @@ export { spawnGitProcess } from "./process-runtime.ts";
 export { repositoryScope } from "./mutation-leases.ts";
 export type * from "./types.ts";
 export type { MutationState } from "./mutation-state.ts";
+export type {
+  LeasedPushOptions,
+  LeasedPushRef,
+  LeasedPushResult,
+  LeasedRefUpdate,
+} from "./leased-push.ts";
 export type { CreateWorktreeOptions, WorktreeProgress } from "./worktrees.ts";
 export type { RevisionLineOptions } from "./revision-lines.ts";
 export type { BranchRefs, FetchBranchOptions, FetchPrHeadOptions } from "./remote-branches.ts";
@@ -207,6 +214,12 @@ export class GitService {
   push(options: PushOptions): Promise<void> {
     return this.repository.cli.withAuthorizedTransfer(options.worktree, () =>
       pushBranch(this.repository, options),
+    );
+  }
+  /** Move several branches in one atomic push, each leased to a caller-reviewed revision. */
+  pushLeased(options: LeasedPushOptions) {
+    return this.repository.cli.withAuthorizedTransfer(options.worktree, () =>
+      pushLeasedRefs(this.repository, options),
     );
   }
   switchBranch(options: {
