@@ -9,6 +9,7 @@ import {
   type ContentPart,
   type ExecutionSelection,
   type ForkPoint,
+  type PermissionMode,
   type ProviderKind,
 } from "@ace/protocol";
 import type { Fact } from "@ace/core";
@@ -230,13 +231,14 @@ export function transitionHarness(
     const value = Command.parse({ id: commandId, deviceId: "device", payload });
     return store.recordCommand(value.id, value.deviceId, () => engine.handler.handle(value, store));
   }
-  async function create() {
+  async function create(permissionMode?: PermissionMode) {
     const existing = new Set(store.listThreads().map((thread) => thread.id));
     const result = command({
       type: "thread.create",
       workspaceId: workspace,
       provider: "codex",
       model: "model-a",
+      ...(permissionMode ? { permissionMode } : {}),
       input: [{ type: "text", text: "source history" }],
     });
     if (!result.ok) throw new Error(result.error);
