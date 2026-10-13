@@ -107,10 +107,29 @@ export async function setup(
     downloadPolicy: () => true,
     onArtifact: (_thread, artifact) => {
       artifacts.push(artifact);
+      changed();
     },
     ...options,
   });
+  // Waits re-check facts on every state, download and artifact event, so a slow
+  // machine only delays them; nothing races a fixed polling deadline.
+  const checks = new Set<() => void>();
+  function changed() {
+    for (const check of checks) check();
+  }
+  const until = (read: () => boolean) =>
+    new Promise<void>((resolve) => {
+      const check = () => {
+        if (!read()) return;
+        checks.delete(check);
+        resolve();
+      };
+      checks.add(check);
+      check();
+    });
+  const stopDownloads = service.downloadProgress(changed);
   cleanups.push(async () => {
+    stopDownloads();
     slowComplete.resolve();
     await service.close();
     server.closeAllConnections();
@@ -118,6 +137,7 @@ export async function setup(
     await rm(home, { recursive: true, force: true });
   });
   await service.open({ threadId: "thread", workspaceId: "workspace", background: true });
+  service.subscribe("thread", "parity-observer", { send: () => true }, changed);
   const execute = (command: unknown) => service.execute("thread", command);
   await execute({ action: "navigate", url });
   // DOMContentLoaded does not wait for iframe documents; their commits invalidate refs.
@@ -128,6 +148,7 @@ export async function setup(
     url,
     home,
     artifacts,
+    until,
     writes: () => writes,
     finishSlow: () => slowComplete.resolve(),
     evaluate: (expression: string) => execute({ action: "evaluate", expression }),
