@@ -82,3 +82,36 @@ test("an error toast does not prevent the incoming request from focusing Deny", 
   const deny = screen.getByRole("button", { name: "Deny" });
   await waitFor(() => expect(document.activeElement).toBe(deny));
 });
+
+function Thread(props: { carded: boolean }) {
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => (root.current ? focusOpenRequest(root.current) : undefined), []);
+  return (
+    <div ref={root}>
+      <div role="feed" aria-label="Transcript">
+        <article aria-label="Question: Which screens should change?">
+          <button type="button">Show all 3 options</button>
+        </article>
+      </div>
+      {props.carded && (
+        <article aria-label="Which screens should change?">
+          <button type="button">Skip</button>
+        </article>
+      )}
+    </div>
+  );
+}
+
+const frame = () =>
+  act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+
+test("a request's record in the transcript never takes focus while its card loads", async () => {
+  const view = render(<Thread carded={false} />);
+  await frame();
+  await frame();
+  const transcript = screen.getByRole("feed", { name: "Transcript" });
+  expect(transcript.contains(document.activeElement)).toBe(false);
+  view.rerender(<Thread carded />);
+  const skip = screen.getByRole("button", { name: "Skip" });
+  await waitFor(() => expect(document.activeElement).toBe(skip));
+});
