@@ -19,7 +19,12 @@ await mkdir(dirname(options.indexPath), { recursive: true, mode: 0o700 });
 const file = await open(options.indexPath, "a", 0o600);
 await file.close();
 await chmod(options.indexPath, 0o600);
-const catalog = new Catalog(options.indexPath);
+const catalog = new Catalog(options.indexPath, {
+  now: Date.now,
+  snapshots: options.snapshot ? { policy: options.snapshot } : {},
+});
+// Nothing can own a snapshot before this worker starts: remove crash and restart leftovers.
+await catalog.snapshots.sweep();
 catalog.reconcile(options.instances);
 const archive = new Archive(catalog.db);
 let controller = new AbortController();

@@ -8,6 +8,8 @@ import type { StatementSync } from "node:sqlite";
 import { HistoryListRequest, HistoryListResponse, HistorySession } from "@ace/protocol/history";
 import { z } from "zod";
 import { ScanUpdates } from "./scan-updates.ts";
+import { SnapshotScratch, type SnapshotScratchOptions } from "./snapshot-scratch.ts";
+import { ReadBackoff } from "./read-backoff.ts";
 
 export const Source = z.object({
   summary: HistorySession,
@@ -22,15 +24,17 @@ export class Catalog {
   db: DatabaseSync;
   private reader: DatabaseSync;
   private readStatements = new Map<string, StatementSync>();
-  readonly scratchRoot: string;
+  /** Private provider-database snapshots; one at a time, swept when stale. */
+  readonly snapshots: SnapshotScratch;
+  readonly backoff: ReadBackoff;
   private statements = new Map<string, StatementSync>();
   readonly updates: ScanUpdates;
   private registryKey = "";
   private needsCleanup = true;
   private displaySummary: (json: string) => HistorySession = (json) =>
     HistorySession.parse(JSON.parse(json));
-  constructor(path: string) {
-    this.scratchRoot = dirname(path);
+  constructor(path: string, options: { now: () => number; snapshots?: SnapshotScratchOptions }) {
+    this.snapshots = new SnapshotScratch(dirname(path), options.snapshots);
     this.db = new DatabaseSync(path);
     this.db.exec(
       "PRAGMA journal_mode=WAL; PRAGMA cache_size=-1024; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256",
@@ -60,6 +64,7 @@ export class Catalog {
       );
     }
     this.updates = new ScanUpdates(this.db);
+    this.backoff = new ReadBackoff(this.db, options.now);
     this.reader = new DatabaseSync(path, { readOnly: true });
     this.reader.exec(
       "PRAGMA cache_size=-1024; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256",

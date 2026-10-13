@@ -8,12 +8,13 @@ import {
 import { copySqliteSnapshot, SnapshotChanged } from "./sqlite-snapshot.ts";
 import { pathToFileURL } from "node:url";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
-import { lstat, mkdtemp, rm, chmod } from "node:fs/promises";
+import { lstat, chmod } from "node:fs/promises";
 import { join } from "node:path";
-import { safeOpen, object, string, timestamp } from "@ace/native-session";
+import { safeOpen, fingerprint, object, string, timestamp } from "@ace/native-session";
 import { HistorySession } from "@ace/protocol/history";
 import type { ProviderHome } from "./contracts.ts";
 import { sourceId } from "./metadata.ts";
+import type { SnapshotScratch } from "./snapshot-scratch.ts";
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -24,16 +25,67 @@ async function exists(path: string): Promise<boolean> {
     throw error;
   }
 }
-/** SQLite readOnly still updates WAL read marks in the source -shm file.
- * Live homes therefore need a bounded private snapshot, never a source SQLite handle. */
+async function size(path: string): Promise<number | undefined> {
+  try {
+    return (await lstat(path)).size;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+export interface ProviderDbHandle {
+  db: DatabaseSync;
+  /** Throws SnapshotChanged when rows read so far may not form one committed state. */
+  verify(): Promise<void>;
+  close(): Promise<void>;
+}
+function handle(db: DatabaseSync, verify: () => Promise<void>, release?: () => Promise<void>) {
+  let closed: Promise<void> | undefined;
+  return {
+    db,
+    verify,
+    close: () => {
+      closed ??= (async () => {
+        try {
+          db.close();
+        } finally {
+          await release?.();
+        }
+      })();
+      return closed;
+    },
+  } satisfies ProviderDbHandle;
+}
+/** WAL mode is recorded in the header (bytes 18 and 19 are 2). Its database file only
+ * changes on checkpoint, so a fingerprint taken before and after a read fences it. */
+async function walMode(home: string, path: string): Promise<boolean> {
+  const file = await safeOpen(home, path);
+  try {
+    const header = Buffer.alloc(100);
+    const { bytesRead } = await file.read(header, 0, 100, 0);
+    return bytesRead === 100 && header[18] === 2 && header[19] === 2;
+  } finally {
+    await file.close();
+  }
+}
+/**
+ * SQLite readOnly still updates WAL read marks in the source -shm file, so live sources are
+ * never opened through SQLite with locking. Reads take the cheapest safe route:
+ * 1. A WAL-mode database whose WAL is absent or empty holds every commit in its main file.
+ *    It is read in place with immutable=1 (no locks, no -shm, no copy); verify() rejects the
+ *    read if a checkpoint changed the file meanwhile.
+ * 2. Otherwise a private snapshot is staged: the database is cloned copy-on-write where the
+ *    filesystem allows it, else streamed within the scratch cap and free-space margin.
+ */
 async function openProviderDbAttempt(
   instance: ProviderHome,
   path: string,
-  scratchRoot: string,
+  scratch: SnapshotScratch,
   signal: AbortSignal,
-) {
+): Promise<ProviderDbHandle> {
   const journal = await exists(`${path}-journal`);
-  const wal = await exists(`${path}-wal`);
+  const walBytes = await size(`${path}-wal`);
+  const wal = walBytes !== undefined;
   if (instance.offlineSnapshot && (wal || journal))
     throw new Error("Immutable snapshot has a WAL or journal");
   if (journal)
@@ -42,31 +94,37 @@ async function openProviderDbAttempt(
     const file = await safeOpen(instance.homeDir, path);
     await file.close();
     const db = new DatabaseSync(`${pathToFileURL(path).href}?immutable=1`, { readOnly: true });
-    return { db, close: async () => db.close() };
+    return handle(db, async () => {});
   }
-  const stage = await mkdtemp(join(scratchRoot, "sqlite-read-"));
-  const target = join(stage, "snapshot.sqlite");
+  if (!walBytes && (await walMode(instance.homeDir, path))) {
+    // Fingerprint first: a commit landing after the empty-WAL check reaches this file only
+    // through a checkpoint, which changes the fingerprint and fails verify().
+    const before = fingerprint(await lstat(path));
+    if (!(await size(`${path}-wal`)) && !(await exists(`${path}-journal`))) {
+      const db = new DatabaseSync(`${pathToFileURL(path).href}?immutable=1`, { readOnly: true });
+      return handle(db, async () => {
+        if (fingerprint(await lstat(path)) !== before || (await exists(`${path}-journal`)))
+          throw new SnapshotChanged();
+      });
+    }
+  }
+  const stage = await scratch.acquire(signal);
   try {
+    const target = join(stage.dir, "snapshot.sqlite");
     await copySqliteSnapshot(
       instance.homeDir,
       path,
       target,
       signal,
+      stage,
       wal ? path + "-wal" : undefined,
     );
     if (wal !== (await exists(path + "-wal")) || (await exists(path + "-journal")))
       throw new SnapshotChanged();
     await chmod(target, 0o600);
-    const db = new DatabaseSync(target, { readOnly: true });
-    return {
-      db,
-      close: async () => {
-        db.close();
-        await rm(stage, { recursive: true, force: true });
-      },
-    };
+    return handle(new DatabaseSync(target, { readOnly: true }), async () => {}, stage.release);
   } catch (error) {
-    await rm(stage, { recursive: true, force: true });
+    await stage.release();
     throw error;
   }
 }
@@ -74,13 +132,13 @@ async function openProviderDbAttempt(
 export async function openProviderDb(
   instance: ProviderHome,
   path: string,
-  scratchRoot: string,
+  scratch: SnapshotScratch,
   signal: AbortSignal,
-) {
+): Promise<ProviderDbHandle> {
   for (let attempt = 0; ; attempt++) {
     signal.throwIfAborted();
     try {
-      return await openProviderDbAttempt(instance, path, scratchRoot, signal);
+      return await openProviderDbAttempt(instance, path, scratch, signal);
     } catch (error) {
       if (!(error instanceof SnapshotChanged) || attempt >= 2) throw error;
     }
