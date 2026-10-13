@@ -30,19 +30,27 @@ class SettingWatch {
   private readonly client: ClientApi;
   private readonly key: SettingsKey;
   private readonly scope: SettingsScope;
-  private readonly onEmpty: () => void;
-  constructor(client: ClientApi, key: SettingsKey, scope: SettingsScope, onEmpty: () => void) {
+  private readonly owner: { active(watch: SettingWatch): void; empty(watch: SettingWatch): void };
+  constructor(
+    client: ClientApi,
+    key: SettingsKey,
+    scope: SettingsScope,
+    owner: { active(watch: SettingWatch): void; empty(watch: SettingWatch): void },
+  ) {
     this.client = client;
     this.key = key;
     this.scope = scope;
-    this.onEmpty = onEmpty;
+    this.owner = owner;
   }
   getFailed = (): boolean => this.failed;
   get = (): unknown => this.value;
   getLocal = (): unknown => this.localValue;
   getProvenance = (): SettingsProvenance | undefined => this.provenance;
   subscribe = (listener: () => void): (() => void) => {
-    if (!this.listeners.size) this.start();
+    if (!this.listeners.size) {
+      this.owner.active(this);
+      this.start();
+    }
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
@@ -74,7 +82,7 @@ class SettingWatch {
   }
   private stop() {
     for (const stop of this.stops.splice(0)) stop();
-    this.onEmpty();
+    this.owner.empty(this);
   }
 }
 
@@ -90,7 +98,16 @@ function watchFor(client: ClientApi, key: SettingsKey, scope: SettingsScope): Se
   let watch = byKey.get(id);
   if (!watch) {
     const map = byKey;
-    watch = new SettingWatch(client, key, scope, () => map.delete(id));
+    // A remount can stop one watch after its replacement was made: each keeps or leaves its own
+    // place only, so readers never churn through fresh, empty watches.
+    watch = new SettingWatch(client, key, scope, {
+      active: (started) => {
+        if (!map.has(id)) map.set(id, started);
+      },
+      empty: (stopped) => {
+        if (map.get(id) === stopped) map.delete(id);
+      },
+    });
     byKey.set(id, watch);
   }
   return watch;
