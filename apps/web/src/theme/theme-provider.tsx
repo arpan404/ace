@@ -18,6 +18,7 @@ import {
   transcriptSizes,
   type Appearance,
   type BootAppearance,
+  type Mode,
   type ResolvedAppearance,
   type SystemPreferences,
 } from "./appearance.ts";
@@ -33,6 +34,11 @@ export interface Environment {
   root?: HTMLElement | undefined;
   /** Which glass this browser can render (`glassEngine`); blur when unknown. */
   glassEngine?: GlassEngine | undefined;
+  /**
+   * The desktop window's colour behind the page: the theme's page colour in each scheme and the
+   * mode that picks between them, so its next launch (and every resize) starts in this theme.
+   */
+  windowBackground?: ((value: { mode: Mode; light: string; dark: string }) => void) | undefined;
 }
 
 interface ThemeValue {
@@ -129,6 +135,12 @@ export function ThemeProvider(props: { environment: Environment; children: React
     };
     writeJson(storage, bootAppearanceKey, boot);
   }, [storage, appearance]);
+
+  const { windowBackground } = props.environment;
+  useEffect(() => {
+    const palette = themes[appearance.theme];
+    windowBackground?.({ mode: appearance.mode, light: palette.light.s0, dark: palette.dark.s0 });
+  }, [windowBackground, appearance.theme, appearance.mode]);
 
   const update = useCallback(
     (next: Partial<Appearance>) => {

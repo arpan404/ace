@@ -11,6 +11,9 @@ import type { ReactNode } from "react";
 import { ToastProvider } from "@/components/ui/toast.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import { BootErrorBoundary } from "@/features/connect/index.ts";
+import { StartupScreen } from "@/features/startup/index.ts";
+import type { DesktopDaemon } from "@/boot/desktop.ts";
+import { StartupContext, type Startup } from "@/lib/startup/startup.tsx";
 import { LayoutProvider } from "@/lib/layout.tsx";
 import { MachinePoolProvider, MachinePoolFactoryProvider } from "@/lib/machine-pool.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
@@ -27,28 +30,40 @@ export function createQueryClient(): QueryClient {
 /**
  * Providers that do not need a daemon: theme, tooltips, toasts. Wraps the connection screen
  * too. Anything that throws below them shows `BootFailure`, never a blank page or the splash.
+ * With `startup`, the startup screen covers whatever renders below until the app has its first
+ * data; it lives here so it outlasts the swap from connecting to the app and cross-fades once.
  */
 export function AppFrame(props: {
   environment: Environment;
   /** Forget the stored daemon and start over at the connection screen (from `BootFailure`). */
   onConnectionSettings?: (() => void) | undefined;
+  startup?: Startup | undefined;
+  /** The desktop's daemon controls, for the startup screen's status and recovery. */
+  daemon?: DesktopDaemon | undefined;
   children: ReactNode;
 }) {
   return (
     // Outside the providers too: if theme, tooltips or toasts fail, this still says so.
     <BootErrorBoundary bare>
-      <ThemeProvider environment={props.environment}>
-        <TooltipProvider>
-          <ToastProvider>
-            <BootErrorBoundary onConnectionSettings={props.onConnectionSettings}>
-              <LocalBoundary label="update status" fallback={null}>
-                <DesktopUpdates />
-              </LocalBoundary>
-              {props.children}
-            </BootErrorBoundary>
-          </ToastProvider>
-        </TooltipProvider>
-      </ThemeProvider>
+      <StartupContext.Provider value={props.startup}>
+        <ThemeProvider environment={props.environment}>
+          <TooltipProvider>
+            <ToastProvider>
+              <BootErrorBoundary onConnectionSettings={props.onConnectionSettings}>
+                <LocalBoundary label="update status" fallback={null}>
+                  <DesktopUpdates />
+                </LocalBoundary>
+                {props.children}
+              </BootErrorBoundary>
+              {props.startup && (
+                <LocalBoundary label="the startup screen" fallback={null}>
+                  <StartupScreen daemon={props.daemon} />
+                </LocalBoundary>
+              )}
+            </ToastProvider>
+          </TooltipProvider>
+        </ThemeProvider>
+      </StartupContext.Provider>
     </BootErrorBoundary>
   );
 }

@@ -2,7 +2,7 @@ import { PastSessions } from "@/features/history/index.ts";
 import { ToolchainHints } from "@/features/diagnostics/index.ts";
 import { useClient } from "@ace/client-react";
 import { providerNames } from "@ace/ui-core";
-import { AceMark } from "@/components/ace-mark.tsx";
+import { AceLogo } from "@/components/ace-logo.tsx";
 import {
   FolderOpenIcon,
   TerminalIcon,
@@ -92,7 +92,7 @@ export function SetupScreen() {
           >
             <div className="grid size-12 shrink-0 place-items-center">
               {step === 0 ? (
-                <AceMark className="size-11" />
+                <AceLogo className="size-11" />
               ) : step === 1 ? (
                 <TerminalIcon aria-hidden size={36} />
               ) : step === 2 ? (

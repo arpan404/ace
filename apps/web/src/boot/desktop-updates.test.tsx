@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { AppFrame } from "@/app.tsx";
-import { StartingScreen } from "@/features/connect/index.ts";
+import { StartupPending } from "@/features/startup/index.ts";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -17,7 +17,7 @@ test("Check for Updates reports checking and failure before the connected shell 
   });
   render(
     <AppFrame environment={{}}>
-      <StartingScreen />
+      <StartupPending />
     </AppFrame>,
   );
   act(() => report?.({ state: "checking" }));

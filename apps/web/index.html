@@ -32,25 +32,18 @@
         html[data-first-visit] #boot {
           --background: #fdfdfd;
           --foreground: #191919;
-          --sidebar: #f6f6f6;
-          --border: #e2e2e2;
         }
       }
       /*
-       * The boot shell: sidebar rows and header painted before the app's script runs,
-       * in the theme replayed below (Graphite in the OS scheme on a first visit). The app fades it out over
-       * --motion-base once the real shell has painted (src/lib/boot-splash.ts).
+       * The first paint, before the app's script runs: the ace mark centred on the theme's
+       * background, in the theme replayed below (Graphite in the OS scheme on a first visit). The
+       * startup screen (src/features/startup) draws the same thing at the same place and removes
+       * this unseen, then cross-fades to the app once it has its first data. Never a skeleton.
        */
-      /* Tailwind's preflight isn't loaded yet: size like the real shell, borders and padding in. */
-      #boot,
-      #boot * {
-        box-sizing: border-box;
-      }
       #boot {
         position: fixed;
         inset: 0;
         z-index: 140;
-        display: flex;
         pointer-events: none;
         background: var(--background, #161616);
         transition: opacity var(--motion-base, 200ms) var(--ease-out, ease);
@@ -58,104 +51,33 @@
       #boot[data-leaving] {
         opacity: 0;
       }
-      #boot i {
-        display: block;
-        flex: none;
-        border-radius: 6px;
-        background: color-mix(in oklab, var(--foreground, #f0f0f0) 6%, transparent);
-        animation: boot-breathe 1.6s ease-in-out infinite;
-      }
-      /* Mirrors the shell: sidebar 280px, header 50px (src/features/shell). */
-      #boot .side {
-        width: 280px;
-        flex: none;
-        display: flex;
-        flex-direction: column;
-        background: var(--sidebar, #111111);
-        border-right: 1px solid var(--border, #303030);
-      }
-      #boot .top {
+      /* The window has no title bar; this strip moves it, as the startup screen's does. */
+      #boot .drag {
+        position: fixed;
+        inset: 0 0 auto;
         height: 50px;
-        display: flex;
-        align-items: center;
-        gap: 2px;
-        padding: 0 10px;
+        pointer-events: auto;
+        -webkit-app-region: drag;
       }
-      #boot .top .name {
-        width: 40px;
-        height: 14px;
-        margin-right: auto;
+      /* 44px, rounded like the app icon: the glyph in the page colour on the text colour. */
+      #boot .mark {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+        border-radius: 30%;
+        background: var(--foreground, #f0f0f0);
+        color: var(--background, #161616);
       }
-      #boot .top .quick {
-        width: 28px;
-        height: 28px;
-        border-radius: 10px;
-      }
-      #boot .nav-rows {
-        display: flex;
-        flex-direction: column;
-        gap: 9px;
-        padding: 6px 18px 14px;
-      }
-      #boot .nav-rows i {
-        width: 46%;
-        height: 14px;
-      }
-      #boot .rows {
-        display: flex;
-        flex-direction: column;
-        gap: 21px;
-        padding: 10px 18px;
-      }
-      #boot .rows i {
-        height: 10px;
-      }
-      #boot .foot {
-        margin-top: auto;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 14px 16px;
-      }
-      #boot .foot .avatar {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-      }
-      #boot .foot .who {
-        width: 90px;
-        height: 12px;
-        margin-right: auto;
-      }
-      #boot .foot .gear {
-        width: 20px;
-        height: 20px;
-      }
-      #boot .main {
-        flex: 1;
-        min-width: 0;
-        background: var(--background, #161616);
-      }
-      #boot .head {
-        height: 50px;
-        display: flex;
-        align-items: center;
-        gap: 2px;
-        padding: 0 12px;
-      }
-      #boot .head .nav {
-        width: 30px;
-        height: 30px;
-        border-radius: 10px;
-      }
-      #boot .head .title {
-        width: 220px;
-        height: 12px;
-        margin-left: 14px;
-      }
-      /* Shown by the watchdog below when nothing has replaced the splash in 15s. */
+      /* Shown under the mark when the boot itself fails or nothing replaces this in 15s. */
       #boot .stuck {
+        position: absolute;
+        inset: calc(50% + 44px) 0 auto;
+        margin: 0;
         padding: 0 24px;
+        text-align: center;
         font:
           13px/1.45 system-ui,
           sans-serif;
@@ -171,23 +93,6 @@
         text-decoration: underline;
         text-underline-offset: 3px;
         cursor: pointer;
-      }
-      /* The desktop's macOS traffic lights sit over the start of the sidebar's first row. */
-      :root[data-platform="darwin"]:not([data-fullscreen]) #boot .top {
-        padding-left: 80px;
-      }
-      @media (max-width: 47.99rem) {
-        #boot .side {
-          display: none;
-        }
-      }
-      @keyframes boot-breathe {
-        50% {
-          opacity: 0.45;
-        }
-      }
-      :root[data-reduce-motion] #boot i {
-        animation: none;
       }
     </style>
     <script>
@@ -254,7 +159,7 @@
         reload.addEventListener("click", () => location.reload());
         note.append(reload);
         boot.removeAttribute("aria-hidden");
-        boot.querySelector(".main")?.append(note);
+        boot.append(note);
       };
       addEventListener(
         "error",
@@ -270,36 +175,24 @@
   </head>
   <body>
     <div id="boot" aria-hidden="true">
-      <div class="side">
-        <div class="top"><i class="name"></i><i class="quick"></i><i class="quick"></i></div>
-        <div class="nav-rows"><i></i><i></i><i></i><i></i></div>
-        <div class="rows">
-          <i style="width: 52%"></i><i style="width: 86%"></i><i style="width: 44%"></i
-          ><i style="width: 70%"></i><i style="width: 34%"></i><i style="width: 62%"></i
-          ><i style="width: 80%"></i>
-        </div>
-        <div class="foot"><i class="avatar"></i><i class="who"></i><i class="gear"></i></div>
-      </div>
-      <div class="main">
-        <div class="head">
-          <i class="nav"></i><i class="nav"></i><i class="nav"></i><i class="title"></i>
-        </div>
-      </div>
+      <div class="drag"></div>
+      <svg class="mark" viewBox="0 0 20 20">
+        <path
+          fill="currentColor"
+          fill-rule="evenodd"
+          d="M9.3 4.6a5.1 5.1 0 1 1 0 10.2a5.1 5.1 0 1 1 0 -10.2ZM9.3 6.4a3.3 3.3 0 1 0 0 6.6a3.3 3.3 0 1 0 0 -6.6Z"
+        />
+        <path fill="currentColor" d="M12.7 14.8V5.5a0.9 0.9 0 0 1 1.8 0V14.8Z" />
+      </svg>
     </div>
     <div id="root"></div>
     <script>
-      // A boot that never gets as far as replacing the splash (a script that failed to load, a
-      // hang) says so after 15s instead of breathing forever. A screen that holds the splash on
-      // purpose (the desktop's "Starting ace…") marks it data-held and handles the wait itself.
+      // A boot that never gets as far as replacing the first paint (a script that failed to load,
+      // a hang) says so after 15s instead of waiting forever. The startup screen replaces it as
+      // soon as the app's script runs, and handles a slow start itself.
       setTimeout(() => {
         const boot = document.getElementById("boot");
-        if (
-          !boot ||
-          boot.hasAttribute("data-leaving") ||
-          boot.hasAttribute("data-held") ||
-          boot.querySelector(".stuck")
-        )
-          return;
+        if (!boot || boot.hasAttribute("data-leaving") || boot.querySelector(".stuck")) return;
         const note = document.createElement("p");
         note.className = "stuck";
         note.setAttribute("role", "status");
@@ -310,7 +203,7 @@
         reload.addEventListener("click", () => location.reload());
         note.append(reload);
         boot.removeAttribute("aria-hidden");
-        boot.querySelector(".main")?.append(note);
+        boot.append(note);
       }, 15000);
     </script>
     <script type="module" src="/src/main.tsx"></script>

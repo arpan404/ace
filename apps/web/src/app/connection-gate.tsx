@@ -2,8 +2,9 @@ import type { ClientApi, ClientError } from "@ace/client";
 import { bindTerminalEndDelivery } from "@/features/panels/index.ts";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { desktopDaemon, watchDesktopTarget } from "@/boot/desktop.ts";
-import { StartingScreen, ConnectionScreen } from "@/features/connect/index.ts";
+import { watchDesktopTarget } from "@/boot/desktop.ts";
+import { ConnectionScreen } from "@/features/connect/index.ts";
+import { StartupPending } from "@/features/startup/index.ts";
 import { deviceId } from "@/boot/device-id.ts";
 import {
   DaemonConnectionContext,
@@ -344,18 +345,25 @@ export function ConnectionGate(props: {
   );
 
   if (failure) throw failure.error;
-  // Connecting behind the boot splash: nothing to show until the daemon answers or doesn't.
-  const behindSplash = (status.kind === "connecting" || status.kind === "starting") && !state.shown;
+  // Connecting behind the startup screen: nothing of the gate's own until the daemon answers or
+  // doesn't. The desktop's own daemon reconnecting at boot stays there too ("Reconnecting…"),
+  // with Connect manually once it stalls, rather than dropping to the address form.
+  const behindSplash =
+    !state.shown &&
+    (status.kind === "connecting" ||
+      (status.kind === "unreachable" && props.desktop === true && props.handed !== undefined));
+  const manually = props.desktop ? edit : undefined;
   return (
     <DaemonConnectionContext.Provider value={connection}>
       {client && status.kind === "ready" ? (
         <Fragment key={client.key}>{props.children(client.client)}</Fragment>
       ) : status.kind === "starting" ? (
-        <StartingScreen daemon={desktopDaemon()} onConnectManually={edit} />
+        <StartupPending state="starting" onConnectManually={manually} />
       ) : behindSplash ? (
-        props.desktop ? (
-          <StartingScreen daemon={desktopDaemon()} onConnectManually={edit} />
-        ) : null
+        <StartupPending
+          state={status.kind === "unreachable" ? "reconnecting" : "connecting"}
+          onConnectManually={manually}
+        />
       ) : (
         <ConnectionScreen />
       )}
