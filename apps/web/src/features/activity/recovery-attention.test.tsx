@@ -89,7 +89,10 @@ test("a narrow Activity inbox shows held sends and opens their original thread",
   await user.click(await screen.findByRole("tab", { name: /^Needs you/ }));
   await user.click(await screen.findByRole("link", { name: "Check the saved message: Not sent" }));
   expect(await screen.findByRole("feed", { name: "Transcript" })).toBeTruthy();
-  expect(await screen.findByRole("list", { name: "Queued messages" })).toBeTruthy();
+  // The held send shows where it was written, with its way out, not in the composer strip.
+  const held = await screen.findByRole("region", { name: "Message not sent" });
+  expect(held.textContent).toContain("Please continue from this message");
+  expect(within(held).getByRole("button", { name: "Try again" })).toBeTruthy();
 });
 
 test("Needs you includes a locally failed send and an unavailable selection without queue holds", async () => {
