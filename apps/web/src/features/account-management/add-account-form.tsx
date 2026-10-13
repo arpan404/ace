@@ -3,7 +3,7 @@ import { accountBadge } from "@/components/ui/account-badge.ts";
 import { AccountBadgeChooser, accountBadgeProblem } from "@/components/ui/account-badge-field.tsx";
 import type { AccountBadgeColor, AccountBadgeIcon } from "@ace/protocol/accounts";
 import { useNavigate } from "@tanstack/react-router";
-import { serviceInfo } from "@ace/ui-core";
+import { apiKeyServiceLabel, serviceInfo } from "@ace/ui-core";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
 import { useId, useState, type FormEvent } from "react";
@@ -33,7 +33,8 @@ const apiServices = ApiKeyUpstream.options.map((value) => ({
 
 /**
  * The last row: Add account. It asks only for a name, adds the account and opens its sign-in
- * at once, so there is no separate page for it.
+ * at once, so there is no separate page for it. With an API key, the next step asks for the
+ * key, which ace hands to the provider CLI's own storage once.
  */
 export function AddAccountForm(props: { provider: ProviderKind; name: string; onClose(): void }) {
   const nameId = useId();
@@ -104,8 +105,9 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
         className="flex flex-col gap-2"
       >
         <p className="text-sm text-muted-foreground">
-          ace opens {props.name}'s own sign-in in your browser. Your password and tokens stay with{" "}
-          {props.name}; ace never sees them.
+          {method === "api_key"
+            ? `Next, paste your ${apiKeyServiceLabel(provider, provider === "opencode" ? upstream : undefined)} API key. ${props.name} stores it; ace hands it over once and never saves it.`
+            : `ace opens ${props.name}'s own sign-in in your browser. Your password and tokens stay with ${props.name}; ace never sees them.`}
         </p>
         <label htmlFor={nameId} className="text-sm">
           Name
@@ -155,7 +157,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
         )}
         <div className="flex flex-wrap items-center gap-2">
           <Button type="submit" variant="primary" disabled={!!accountBadgeProblem(badge)}>
-            Add and sign in
+            {method === "api_key" ? "Continue" : "Add and sign in"}
           </Button>
           <Button type="button" variant="ghost" onClick={() => props.onClose()}>
             Cancel

@@ -142,7 +142,7 @@ test("the add-account dialog cancels an API-key handoff without storing its inpu
   await userEvent.type(dialog.getByRole("textbox", { name: "Account name" }), "Research");
   await userEvent.click(dialog.getByRole("combobox", { name: "Sign-in method" }));
   await userEvent.click(await screen.findByRole("option", { name: "API key" }));
-  await userEvent.click(dialog.getByRole("button", { name: "Add and sign in" }));
+  await userEvent.click(dialog.getByRole("button", { name: "Continue" }));
   const field = await dialog.findByLabelText("OpenAI API key");
   await userEvent.type(field, "fake-key-that-must-be-cleared");
   await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
