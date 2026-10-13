@@ -52,7 +52,7 @@ It also runs in CI as part of `bun run test` (process project). Reports are writ
 
 Committed reports:
 
-- [`baseline.md`](baseline.md) / `baseline.json`: `main` at 888534473, before any change. The
+- [`baseline.md`](baseline.md) / `baseline.json`: `main` at 168d86901 (after #672), before any change. The
   read-only gate **failed** on `main`: a Codex thread in `:read-only` was still offered
   `screen_request_app`, because ace's MCP availability check compared the native selector with
   the literal `"read-only"`. The same PR fixes that (see below), so the gate passes from now on.

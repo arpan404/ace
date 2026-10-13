@@ -100,35 +100,32 @@ const delegateTwo: EvalTask = {
       { requestId: "fix-header", task: "Fix the header spacing", answer: "Header spacing fixed" },
       { requestId: "fix-footer", task: "Fix the footer links", answer: "Footer links fixed" },
     ];
-    const children = await agent.turn(() =>
-      Promise.all(
-        tasks.map(async (task) => {
-          const result = control(
-            await agent.call("delegate_task", {
-              requestId: task.requestId,
-              task: task.task,
-              role: "implementer",
-              provider,
-            }),
-          );
-          return record(result.data?.data)?.["threadId"];
-        }),
-      ),
-    );
-    const ids = children.filter((id): id is string => typeof id === "string");
-    if (ids.length !== tasks.length) return { metrics: agent.finish(false), note: "not started" };
-    const results = await agent.turn(async () => {
-      const waits = ids.map((threadId) => agent.call("ace_thread_wait", { threadId }));
+    // delegate_task's description: one batch with await "all" starts both and returns results.
+    const result = await agent.turn(async () => {
+      const call = agent.call("delegate_task", {
+        tasks: tasks.map((task) => ({
+          requestId: task.requestId,
+          task: task.task,
+          role: "implementer",
+          provider,
+        })),
+        await: "all",
+        timeoutSeconds: 120,
+      });
       // The children finish while the parent waits.
-      for (const [index, id] of ids.entries())
-        await world.complete(id as ThreadId, tasks[index]?.answer ?? "");
-      return Promise.all(waits);
+      await world.answerChildren(new Map(tasks.map((task) => [task.task, task.answer])));
+      return call;
     });
-    const texts = results.map((result) => JSON.stringify(control(result).data?.data ?? ""));
-    const success = tasks.every((task, index) => texts[index]?.includes(task.answer));
-    return { metrics: agent.finish(success), note: `${ids.length} children settled` };
+    const text = JSON.stringify(control(result).data?.data ?? "");
+    const success = !result.failed && tasks.every((task) => text.includes(task.answer));
+    return {
+      metrics: agent.finish(success),
+      note: success ? "both results collected" : clipNote(result.text),
+    };
   },
 };
+
+const clipNote = (text: string) => text.replace(/\s+/g, " ").slice(0, 160);
 
 const browserCheck: EvalTask = {
   id: "browser-check",
@@ -257,22 +254,35 @@ const childWaitingOnHuman: EvalTask = {
     const child = record(control(started).data?.data)?.["threadId"];
     if (typeof child !== "string") return { metrics: agent.finish(false), note: "not started" };
     await world.askHuman(child as ThreadId);
-    const [status, result] = await agent.turn(() =>
-      Promise.all([
-        agent.call("ace_agent_status", { threadId: child }),
-        agent.call("ace_agent_result", { threadId: child }),
-      ]),
+    // The documented way to collect a child: ace_wait. It must return early, naming the human
+    // wait, and never report the child done.
+    const waited = await agent.turn(() =>
+      agent.call("ace_wait", { threadIds: [child], timeoutSeconds: 5 }),
     );
-    const state = record(control(status).data?.data)?.["state"];
+    const wait = record(control(waited).data?.data);
+    const watched = z
+      .array(z.object({ threadId: z.string(), state: z.string() }))
+      .catch([])
+      .parse(wait?.["threads"])
+      .find((entry) => entry.threadId === child);
+    const result = await agent.turn(() => agent.call("ace_agent_result", { threadId: child }));
     const resultReady = control(result).data?.ok === true;
     const claimedDone = agent.calls.some(
       (call) =>
-        call.resultText.includes(child) && /"(result_available|completed)"/.test(call.resultText),
+        call.resultText.includes(child) &&
+        /"(result_available|completed|done)"/.test(call.resultText),
     );
     const stored = world.store.getThread(child as ThreadId)?.status.state;
     const success =
-      state === "waiting_on_human" && !resultReady && !claimedDone && stored !== "done";
-    return { metrics: agent.finish(success), note: `child state ${String(state)}` };
+      wait?.["status"] === "needs_you" &&
+      watched?.state === "needs_you" &&
+      !resultReady &&
+      !claimedDone &&
+      stored !== "done";
+    return {
+      metrics: agent.finish(success),
+      note: `wait ${String(wait?.["status"])}, child ${String(watched?.state)}`,
+    };
   },
 };
 

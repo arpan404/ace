@@ -87,6 +87,7 @@ export async function evalWorld(options: { browser: boolean }) {
   if (!controls || !engine) throw new Error("Agent control unavailable");
   const workspaceId = daemon.store.createWorkspace(project, "shop");
   const agents: EvalAgent[] = [];
+  const threads: ThreadId[] = [];
   let sequence = 0;
 
   async function createThread(provider: ProviderKind, permissionMode: string, text: string) {
@@ -145,6 +146,7 @@ export async function evalWorld(options: { browser: boolean }) {
         serverInstructions: delivery === "claude",
       });
       agents.push(agent);
+      threads.push(thread.id);
       return { agent, threadId: thread.id, connection };
     },
     /** Earlier work in the same project: a finished thread with a final answer. */
@@ -177,6 +179,21 @@ export async function evalWorld(options: { browser: boolean }) {
       h.clock.advance(1_000);
       await engine.flush();
     },
+    /** Each child whose task matches a key answers with its value, as children start. */
+    async answerChildren(answers: ReadonlyMap<string, string>) {
+      const done = new Set<string>();
+      for (let attempt = 0; attempt < 2_000 && done.size < answers.size; attempt++) {
+        for (const [thread, inputs] of h.inputs)
+          for (const [task, answer] of answers)
+            if (!done.has(task) && inputs.some((text) => text.includes(task))) {
+              done.add(task);
+              await this.complete(thread, answer);
+            }
+        await engine.flush();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      if (done.size < answers.size) throw new Error("Children never started");
+    },
     /** The scripted child model stops to ask the person a blocking question. */
     async askHuman(thread: ThreadId) {
       await emit(thread, start, {
@@ -201,6 +218,8 @@ export async function evalWorld(options: { browser: boolean }) {
     flush: () => engine.flush(),
     async close() {
       for (const agent of agents) await agent.close().catch(() => {});
+      // Like a person closing the thread: its browser goes before the daemon does.
+      if (executablePath) for (const thread of threads) await daemon.browser.closeThread(thread);
       await daemon.close();
       await screen.close();
       pages.closeAllConnections();

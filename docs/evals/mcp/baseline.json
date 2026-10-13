@@ -1,5 +1,5 @@
 {
-  "label": "baseline (main 888534473)",
+  "label": "baseline (main 168d86901)",
   "tasks": [
     {
       "id": "where-am-i",
@@ -12,8 +12,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 4,
-        "contextBytes": 59964,
-        "tokens": 14991
+        "contextBytes": 62138,
+        "tokens": 15535
       },
       "note": "all facts correct"
     },
@@ -23,15 +23,15 @@
       "gate": false,
       "metrics": {
         "success": true,
-        "aceCalls": 5,
+        "aceCalls": 2,
         "ownToolCalls": 0,
         "failedCalls": 0,
         "identicalRetries": 0,
-        "turns": 4,
-        "contextBytes": 58057,
-        "tokens": 14515
+        "turns": 3,
+        "contextBytes": 60161,
+        "tokens": 15041
       },
-      "note": "2 children settled"
+      "note": "both results collected"
     },
     {
       "id": "browser-check",
@@ -44,8 +44,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 4,
-        "contextBytes": 56569,
-        "tokens": 14143
+        "contextBytes": 58743,
+        "tokens": 14686
       },
       "note": "console error found, 500 found"
     },
@@ -60,8 +60,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 3,
-        "contextBytes": 60568,
-        "tokens": 15142
+        "contextBytes": 62742,
+        "tokens": 15686
       },
       "note": "outcome found"
     },
@@ -76,8 +76,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 3,
-        "contextBytes": 55682,
-        "tokens": 13921
+        "contextBytes": 57856,
+        "tokens": 14464
       },
       "note": "rendered"
     },
@@ -92,8 +92,8 @@
         "failedCalls": 12,
         "identicalRetries": 6,
         "turns": 13,
-        "contextBytes": 57932,
-        "tokens": 14483
+        "contextBytes": 60106,
+        "tokens": 15027
       },
       "note": "0/6 recovered on the second call"
     },
@@ -107,11 +107,11 @@
         "ownToolCalls": 0,
         "failedCalls": 1,
         "identicalRetries": 0,
-        "turns": 3,
-        "contextBytes": 55699,
-        "tokens": 13925
+        "turns": 4,
+        "contextBytes": 58098,
+        "tokens": 14525
       },
-      "note": "child state waiting_on_human"
+      "note": "wait needs_you, child needs_you"
     },
     {
       "id": "read-only-no-screen",
@@ -124,17 +124,17 @@
         "failedCalls": 1,
         "identicalRetries": 0,
         "turns": 2,
-        "contextBytes": 55233,
-        "tokens": 13809
+        "contextBytes": 57407,
+        "tokens": 14352
       },
       "note": "effective :read-only; control serves screen: true; read-only lists 1, attempted 1"
     }
   ],
   "catalogue": {
-    "tools": 83,
-    "toolsListBytes": 167835,
-    "descriptorBytes": 52087,
-    "outputSchemaBytes": 103012,
+    "tools": 81,
+    "toolsListBytes": 170781,
+    "descriptorBytes": 53885,
+    "outputSchemaBytes": 102683,
     "largestOutputSchemas": [
       {
         "name": "ace_read_handoff",
@@ -142,7 +142,7 @@
       },
       {
         "name": "ace_thread_info",
-        "bytes": 27597
+        "bytes": 27809
       },
       {
         "name": "ace_list_agents",
@@ -151,12 +151,12 @@
     ],
     "readOnlyWithoutHint": [],
     "instructionBytes": {
-      "claude": 3059,
-      "codex": 2534,
-      "opencode": 3170,
-      "cursor": 3060,
-      "pi": 2565,
-      "acp": 3060
+      "claude": 3435,
+      "codex": 2910,
+      "opencode": 3546,
+      "cursor": 3436,
+      "pi": 2941,
+      "acp": 3436
     }
   }
 }
