@@ -225,9 +225,12 @@ Keep glass cheap:
 
 Animate only `transform` and `opacity`. JS timers read `motionMs` from `@ace/ui-core`.
 
-`bun run check:ui` enforces the static motion policy: no CSS animation may run forever. The
-prototype's spinning working marker and shimmering "Working for…" line need the owner to amend
-that policy first. Until then, show working state statically.
+Only live-activity indicators run forever: the spinner, the working glyph's walk, the sidebar's
+dashed working mark, the startup mark's breath, the indeterminate progress sweep and Tailwind's
+`animate-pulse`. Each shows work happening right now and goes away when it ends. They move only
+transform or opacity, pause while the daemon is unreachable and hold still under reduced motion.
+`bun run check:ui` refuses any other `infinite` animation, and `apps/web/motion-css.test.ts`
+builds the stylesheet to check every animation it names has keyframes.
 
 **Reduce motion** is System, On or Off. `<html>` gets `data-reduce-motion` when the setting is
 On, or when it's System and the OS prefers reduced motion. Under it:

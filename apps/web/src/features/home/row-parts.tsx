@@ -79,7 +79,7 @@ export function PullRequest(props: { card: ThreadCard }) {
 /** A small glyph beside the status word: the colour is never the only clue. */
 const statusGlyphs: Partial<Record<Tone, IconGlyph>> = {
   done: CheckCircleIcon,
-  // Drawn still: the app doesn't spin marks, and the elapsed time beside it shows the motion.
+  // Turns slowly while the tree works (`.fx-spin-slow`); still under reduced motion.
   working: CircleDashedIcon,
   "needs-you": HandPalmIcon,
   failed: XCircleIcon,
@@ -98,7 +98,17 @@ export function RowStatus(props: { card: ThreadCard }) {
     <StatusLabel
       tone={tone}
       label={card.status.compact}
-      mark={glyph ? <Icon icon={glyph} size={13} className="text-(--tone)" /> : false}
+      mark={
+        glyph ? (
+          <Icon
+            icon={glyph}
+            size={13}
+            className={cn("text-(--tone)", tone === "working" && "fx-spin-slow")}
+          />
+        ) : (
+          false
+        )
+      }
       className="gap-1 text-xs font-normal"
     >
       {tone === "working" && <WorkingFor card={card} />}
