@@ -11,6 +11,8 @@ import { QueueStrip } from "./queue-strip.tsx";
 import { queuedCount } from "./queued.tsx";
 import { useQueuedPending } from "./queued-pending.ts";
 import { RequestStack } from "./request-stack.tsx";
+import { descendantKey } from "./descendant-card.tsx";
+import { useDescendantRequest } from "./descendant-request.ts";
 import { ConnectionStrip, PlanStrip, StripIndicators, type StripCounts } from "./strip-items.tsx";
 import { pickStrip, stripSlot, type StripFacts } from "./strip-slot.ts";
 import { StripSurface } from "./strip-surface.tsx";
@@ -38,7 +40,10 @@ export function ComposerStrip(props: {
 }) {
   const client = useClient();
   const daemon = useDaemonConnection();
-  const requests = useInteractions(props.threadId) ?? noRequests;
+  const own = useInteractions(props.threadId) ?? noRequests;
+  // A delegated child's request is answered here too, first: the person is in the parent.
+  const descendant = useDescendantRequest(props.threadId);
+  const requests = descendant ? [descendantKey(descendant), ...own] : own;
   const connection = useConnectionState();
   const all = useQueue(props.threadId);
   const allHeld = useHeldQueue(props.threadId, props.status, all);
@@ -97,7 +102,9 @@ export function ComposerStrip(props: {
         <Suspense fallback={null}>
           <RequestStack
             threadId={props.threadId}
-            ids={requests}
+            ids={own}
+            descendant={descendant}
+            queued={queued}
             target={props.requestTarget}
             onLeave={props.onLeave}
             indicators={indicators}

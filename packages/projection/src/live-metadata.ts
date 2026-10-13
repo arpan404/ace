@@ -25,6 +25,34 @@ function runningAgent(agent: Agent | undefined): number {
   );
 }
 
+/** A delegated child thread this agent summarises, while its tree waits on the person. */
+function askingChild(
+  agent: Agent | undefined,
+): { id: Agent["threadId"]; name?: string } | undefined {
+  if (!agent?.childThreadId || agent.status.state !== "blocked" || agent.status.on !== "human")
+    return undefined;
+  const name = (agent.name ?? agent.role)?.slice(0, titleLength);
+  return { id: agent.childThreadId, ...(name ? { name } : {}) };
+}
+
+/** `live.askingThreads` after `next` replaced `previous`; the same list when it says nothing new. */
+function askingThreads(
+  live: Live,
+  previous: Agent | undefined,
+  next: Agent,
+): Live["askingThreads"] {
+  const child = next.childThreadId ?? previous?.childThreadId;
+  if (!child) return live.askingThreads;
+  const entry = askingChild({ ...next, childThreadId: child });
+  if (entry) {
+    const current = live.askingThreads?.find((each) => each.id === entry.id);
+    return current && current.name === entry.name
+      ? live.askingThreads
+      : withEntry(live.askingThreads, entry);
+  }
+  return withoutEntry(live.askingThreads, child);
+}
+
 /** `list` with `entry` appended (replacing one with its id), keeping the newest `kept`. */
 function withEntry<T extends { id: string }>(list: readonly T[] | undefined, entry: T): T[] {
   return [...(list ?? []).filter((each) => each.id !== entry.id), entry].slice(-kept);
@@ -128,6 +156,7 @@ export function liveMetadata(
     );
     if (payload.agent.origin === "root" && payload.agent.model)
       live.model = boundedLiveModel(payload.agent.model);
+    put(live, "askingThreads", askingThreads(live, previousAgent, payload.agent));
   } else if (
     payload.type === "agent.updated" &&
     payload.agentId === thread.rootAgentId &&
@@ -175,10 +204,12 @@ export function liveMetadata(
       put(live, "waitingOn", facts.waitingOn);
       put(live, "step", facts.step);
     } else if (previousAgent) {
-      const change =
-        runningAgent({ ...previousAgent, status: payload.status }) - runningAgent(previousAgent);
-      if (!change) return undefined;
+      const next = { ...previousAgent, status: payload.status };
+      const change = runningAgent(next) - runningAgent(previousAgent);
+      const asking = askingThreads(live, previousAgent, next);
+      if (!change && asking === live.askingThreads) return undefined;
       live.runningSubagentCount = Math.max(0, (live.runningSubagentCount ?? 0) + change);
+      put(live, "askingThreads", asking);
     } else return undefined;
   } else return undefined;
   return {

@@ -55,7 +55,10 @@ keeps the thread working. Queued input waits for subagents, live tools and human
 not for background commands (a dev server, a watcher): once the provider's turn has ended the
 next queued message starts a new turn while those commands keep running and keep the thread
 from reading done. Closing a host gate (private browser, screen or browser approval) wakes the
-queue.
+queue. A delegated child counts as a subagent here: while it, or anything below it, waits on the
+person, the parent's queued messages wait too. The parent's live hints name that child
+(`live.askingThreads`), so clients show its request first in the parent's strip, answer it there,
+and say the queued message sends once the child is done rather than leaving it unexplained.
 
 Delivered sends retain a durable acknowledgement target until core accepts a fresh
 root run caused by user input, queue delivery or an unknown partial stream. Replayed native

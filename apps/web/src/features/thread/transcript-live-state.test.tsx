@@ -185,7 +185,7 @@ test("a turn that leaves a background shell running reads as running in backgrou
   expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
 });
 
-test("approval inside a subagent holds the parent in a needs-you state, with no timer", async () => {
+test("approval inside a subagent holds the parent in a needs-you state naming the subagent, with no timer", async () => {
   const { app, setTime } = await running([...initial(), ...child()]);
   act(() =>
     app.daemon.apply(id, [
@@ -207,13 +207,14 @@ test("approval inside a subagent holds the parent in a needs-you state, with no 
       },
     ]),
   );
-  expect(await screen.findAllByText("Waiting for your approval")).toHaveLength(1);
+  expect(await screen.findAllByText("Waiting for your approval · Auditor")).toHaveLength(1);
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
   expect(screen.queryByRole("status", { name: "Working" })).toBeNull();
   // The head names the wait, never Working, and no time runs while it lasts.
   const head = screen.getByRole("group", { name: "Turn in progress" });
   const waiting = head.textContent;
-  expect(waiting).toBe("Waiting for your approval");
+  // It names the subagent that asks.
+  expect(waiting).toBe("Waiting for your approval · Auditor");
   act(() => setTime(10 * 60_000));
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 1100));

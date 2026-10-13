@@ -21,6 +21,7 @@ import {
 } from "./status.ts";
 import { formatAge, formatShortClock } from "./time.ts";
 import {
+  childAskingLabel,
   describeLive,
   listTreeFacts,
   liveStatusText,
@@ -219,6 +220,7 @@ function compactStatus(
   // The transcript's live line reads the same rule, so the two never disagree.
   if (working) return "Working";
   if (fact?.kind === "watching") return `Background · ${fact.count}`;
+  if (fact?.kind === "child-asking") return childAskingLabel(fact.agent);
   if (fact?.kind === "asking") {
     if (fact.request === "approval") return "Approve";
     return fact.request === "plan_review" ? "Needs you" : "Answer";

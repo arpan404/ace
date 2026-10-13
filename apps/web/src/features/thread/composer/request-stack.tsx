@@ -11,6 +11,8 @@ import {
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { InteractionCard } from "../interactions/interaction-card.tsx";
 import { usePendingAnswer } from "../interactions/pending-answers.ts";
+import { DescendantCard, descendantKey } from "./descendant-card.tsx";
+import type { DescendantRequest } from "./descendant-request.ts";
 
 /** Typing in these never cycles the stack. */
 const typing = (target: EventTarget) =>
@@ -26,12 +28,19 @@ const typing = (target: EventTarget) =>
 export function RequestStack(props: {
   threadId: string;
   ids: readonly string[];
+  /** A delegated child's request, shown first and answered here (see `descendantKey`). */
+  descendant?: DescendantRequest | undefined;
+  /** Messages the person queued, which wait for the asking child (`DescendantNote`). */
+  queued?: number | undefined;
   target?: string | undefined;
   /** Put the caret back in the message. */
   onLeave(): void;
   /** The strip's other items, beside the pager. */
   indicators?: ReactNode;
 }) {
+  const { descendant } = props;
+  const descendantId = descendant ? descendantKey(descendant) : undefined;
+  const ids = descendantId ? [descendantId, ...props.ids] : props.ids;
   const [picked, setPicked] = useState<string>();
   const frame = useRef<HTMLDivElement>(null);
   const ownsFocus = useRef(false);
@@ -48,7 +57,7 @@ export function RequestStack(props: {
     [],
   );
   const targeted =
-    props.target !== undefined && props.ids.includes(props.target) ? props.target : undefined;
+    props.target !== undefined && ids.includes(props.target) ? props.target : undefined;
   const [seenTarget, setSeenTarget] = useState<string>();
   if (seenTarget !== targeted) {
     setSeenTarget(targeted);
@@ -57,10 +66,10 @@ export function RequestStack(props: {
   useEffect(() => {
     if (targeted && picked === targeted) frame.current?.focus();
   }, [targeted, picked]);
-  const count = props.ids.length;
+  const count = ids.length;
   // Stay on the request the person moved to while it is open; else the oldest.
-  const at = Math.max(0, picked === undefined ? 0 : props.ids.indexOf(picked));
-  const id = props.ids[at];
+  const at = Math.max(0, picked === undefined ? 0 : ids.indexOf(picked));
+  const id = ids[at];
   const pending = usePendingAnswer(id);
   useLayoutEffect(() => {
     if (!id || !ownsFocus.current) return;
@@ -71,7 +80,7 @@ export function RequestStack(props: {
   }, [id, pending, controlsRevision]);
   if (!id) return null;
   const go = (step: number) => {
-    setPicked(props.ids[(at + step + count) % count]);
+    setPicked(ids[(at + step + count) % count]);
     // The old card's focused button unmounts when paging; keep subsequent [ / ] reachable.
     frame.current?.focus({ preventScroll: true });
   };
@@ -95,23 +104,32 @@ export function RequestStack(props: {
         {count > 1 && <Pager at={at} count={count} go={go} />}
       </span>
     ) : undefined;
-  const content = (
-    <Suspense fallback={null}>
-      <InteractionCard
-        threadId={props.threadId}
-        interactionId={id}
-        frame="attached"
+  const onControlsChange = () => {
+    if (!frame.current?.contains(document.activeElement)) return;
+    // Question submission/reopening swaps article components. Hold focus outside them
+    // until the new controls commit, then move into the replacement article.
+    frame.current.focus({ preventScroll: true });
+    setControlsRevision((revision) => revision + 1);
+  };
+  const content =
+    descendant && id === descendantId ? (
+      <DescendantCard
+        request={descendant}
+        queued={props.queued ?? 0}
         aside={pager}
-        onControlsChange={() => {
-          if (!frame.current?.contains(document.activeElement)) return;
-          // Question submission/reopening swaps article components. Hold focus outside them
-          // until the new controls commit, then move into the replacement article.
-          frame.current.focus({ preventScroll: true });
-          setControlsRevision((revision) => revision + 1);
-        }}
+        onControlsChange={onControlsChange}
       />
-    </Suspense>
-  );
+    ) : (
+      <Suspense fallback={null}>
+        <InteractionCard
+          threadId={props.threadId}
+          interactionId={id}
+          frame="attached"
+          aside={pager}
+          onControlsChange={onControlsChange}
+        />
+      </Suspense>
+    );
   return (
     <div
       ref={frame}

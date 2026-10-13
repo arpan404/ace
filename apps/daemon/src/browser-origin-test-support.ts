@@ -17,6 +17,8 @@ import { startServer } from "./server.ts";
 import { BrowserClient } from "./browser-test-client.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
+/** Command ids stay unique across a restart over the same store, so answers aren't replayed. */
+let fixtures = 0;
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
@@ -26,6 +28,7 @@ export async function originFixture(
   headless = new FakeHeadless(),
   navigationClock?: import("@ace/browser").NavigationClock,
 ) {
+  const run = ++fixtures;
   const home = existingHome ?? (await mkdtemp(join(tmpdir(), "ace-origins-")));
   if (!existingHome) cleanup.push(() => rm(home, { recursive: true, force: true }));
   const store = new Store(join(home, "events.sqlite"));
@@ -158,7 +161,7 @@ export async function originFixture(
       }),
     resolve: (interaction: Interaction, optionId: string) => {
       const command = Command.parse({
-        id: `answer-${++id}`,
+        id: `answer-${run}-${++id}`,
         deviceId: "owner",
         payload: {
           type: "interaction.resolve",

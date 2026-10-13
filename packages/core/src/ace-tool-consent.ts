@@ -11,17 +11,18 @@ export interface RiskDecision {
   decision: "approve" | "deny" | "escalate";
   reason: string;
 }
-/** Cancellation rejects the current action when a provider offers no one-shot deny. */
+/**
+ * The option an automatic decision answers with. A refusal needs a one-shot deny: a provider's
+ * cancel is never a stand-in, because providers report it to the agent as the person cancelling
+ * (Codex: "user cancelled MCP tool call"). Without a deny the request goes to the person.
+ */
 export function permissionDecisionOption(
   request: InteractionRequest,
   decision: RiskDecision["decision"],
 ): ApprovalOption | undefined {
   if (request.kind !== "approval" || decision === "escalate") return undefined;
   if (decision === "approve") return request.options.find((choice) => choice.kind === "allow_once");
-  return (
-    request.options.find((choice) => choice.kind === "deny") ??
-    request.options.find((choice) => choice.kind === "cancel")
-  );
+  return request.options.find((choice) => choice.kind === "deny");
 }
 /** Boundary resolves symlinks and existing ancestors. Unknown paths can never earn approval. */
 export type PathRisk = "workspace-file" | "workspace" | "outside" | "secret" | "unknown";

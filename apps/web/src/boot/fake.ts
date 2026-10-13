@@ -2,6 +2,7 @@ import { seedComputerUse } from "./fake-computer-use.ts";
 import {
   FakeDaemon,
   ScenarioPlayer,
+  delegatedQuestion,
   devWorld,
   fakeTransport,
   hostFolders,
@@ -92,6 +93,10 @@ export function bootFake(): {
     new ScenarioPlayer(daemon, refusedDelegation(), { agoMs: 0 }).runUntilBlocked();
   // `?fakeWorld=interrupted-turn`: an OpenCode turn a restart interrupted, held for Resume.
   if (world === "interrupted-turn") seedInterruptedTurn(daemon);
+  // `?fakeWorld=child-question`: a Claude thread whose delegated Codex child asks the person.
+  if (world === "child-question")
+    for (const scenario of delegatedQuestion())
+      new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();
   // Playwright's screens stage failures and empty states before the app's first request.
   const setup = (globalThis as { aceFakeSetup?: (daemon: FakeDaemon) => void }).aceFakeSetup;
   setup?.(daemon);

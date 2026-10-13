@@ -2646,13 +2646,102 @@ Example:
 
 ```json
 {
-  "seq": 5,
+  "seq": 1,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "kind": "threads",
-    "seq": 5,
-    "threads": {}
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "interactions": {},
+    "itemOrder": [],
+    "items": {},
+    "kind": "thread",
+    "queue": {
+      "lastFailure": {
+        "code": "example",
+        "title": "example"
+      },
+      "paused": false,
+      "pendingCount": 4,
+      "reason": "uncertain",
+      "resumeAt": null,
+      "revision": 6
+    },
+    "runs": {},
+    "seq": 1,
+    "thread": {
+      "acpAgentId": "example",
+      "archivedAt": 5,
+      "autoSettleAt": 3,
+      "backend": "cursor-sdk",
+      "capabilities": {
+        "backgroundTaskControl": true,
+        "backgroundVisibility": "partial",
+        "fork": false,
+        "forkPoints": [],
+        "forkSubagents": false,
+        "imageInput": true,
+        "interruptCascades": true,
+        "planMode": false,
+        "resume": true,
+        "rewindFiles": true,
+        "steer": false,
+        "subagentTranscripts": true,
+        "tokenUsage": false
+      },
+      "createdAt": 1,
+      "delegatedBy": "example",
+      "effectiveCapabilities": {
+        "approvals": "interactive",
+        "backgroundTaskControl": true,
+        "backgroundVisibility": "partial",
+        "childFidelity": "placeholder",
+        "fork": true,
+        "forkPoints": [],
+        "imageInput": false,
+        "interruptCascades": true,
+        "launchOptions": [],
+        "permissionModes": [],
+        "permissions": {
+          "modes": [],
+          "nativeAutoReview": false,
+          "toolGate": false
+        },
+        "planMode": true,
+        "resume": true,
+        "rewindFiles": false,
+        "steer": true,
+        "subagentTranscripts": true,
+        "tokenUsage": true
+      },
+      "handoff": {
+        "bytes": 7,
+        "sourceThreadId": "example",
+        "truncated": false
+      },
+      "id": "example",
+      "instanceId": "example",
+      "pinned": true,
+      "provider": "claude",
+      "queue": {
+        "lastFailure": null,
+        "paused": true,
+        "reason": null,
+        "resumeAt": null,
+        "revision": 4
+      },
+      "snoozedUntil": 2,
+      "status": {
+        "state": "done"
+      },
+      "title": "example",
+      "titleSource": "agent",
+      "updatedAt": 9,
+      "workspaceId": "example"
+    },
+    "usage": {},
+    "usageSnapshots": {}
   }
 }
 ```
@@ -2673,7 +2762,7 @@ Example:
 
 ```json
 {
-  "afterSeq": 3,
+  "afterSeq": 7,
   "events": [],
   "subscriptionId": "example",
   "throughSeq": 8,
@@ -2696,9 +2785,9 @@ Example:
 
 ```json
 {
-  "afterSeq": 0,
+  "afterSeq": 3,
   "subscriptionId": "example",
-  "throughSeq": 7,
+  "throughSeq": 8,
   "type": "progress"
 }
 ```
@@ -2736,19 +2825,95 @@ Example:
 
 ```json
 {
+  "code": "example",
   "commandId": "example",
-  "ok": false,
-  "pr": {
-    "number": 7,
-    "repository": {
-      "forge": "gitlab",
-      "host": "EpX4xF4",
-      "name": "lQN-",
-      "owner": "sKLdm_/_s/0uNkK0btP"
+  "forgeLifecycle": {
+    "headSha": "6A6Edca80E14d78B6bc377fe37BCC2D24799baEc6",
+    "outcome": "pending"
+  },
+  "health": {
+    "activeSessions": 1,
+    "at": 0,
+    "eventLoop": {
+      "maxMs": 5,
+      "meanMs": 6,
+      "p99Ms": 6
+    },
+    "logs": {
+      "dropped": 5,
+      "failed": 7,
+      "queued": 3
+    },
+    "memory": {
+      "heapTotalBytes": 6,
+      "heapUsedBytes": 9,
+      "rssBytes": 6
+    },
+    "openHandles": 0,
+    "queues": {},
+    "sqlite": {
+      "pageBytes": null,
+      "walBytes": 6
     }
   },
-  "terminalId": "example",
-  "type": "commandResult"
+  "inspection": {
+    "git": {
+      "branch": "example",
+      "defaultBranch": "example",
+      "remotes": [],
+      "root": "example"
+    },
+    "gitUnavailable": "git_quarantined",
+    "path": "example"
+  },
+  "issue": {
+    "number": 5,
+    "repository": {
+      "forge": "gitlab",
+      "host": "tMtS-j2Ev",
+      "name": "6LJx4P",
+      "owner": "PlGFx/kqm_/e./AG7hp/w"
+    }
+  },
+  "ok": true,
+  "pr": {
+    "number": 10,
+    "repository": {
+      "forge": "github",
+      "host": "hpnHXktT",
+      "name": "E4H",
+      "owner": "T9pVQmLAsL/Tbw74/473Mx"
+    }
+  },
+  "publication": {
+    "error": null,
+    "input": {
+      "account": "N70fuOY",
+      "description": "example",
+      "host": "1.u6pvt27711r.0uqi.mr6skuvcha-al.mwgu3blxmg.9x284ng",
+      "name": "S",
+      "owner": "mFs",
+      "visibility": "private"
+    },
+    "phase": "origin_added",
+    "remote": null,
+    "updatedAt": 9,
+    "workspaceId": "example"
+  },
+  "stackOperation": {
+    "action": "merge",
+    "message": "example",
+    "state": "merged",
+    "uuid": "00000000-0000-0000-0000-000000000000"
+  },
+  "title": "example",
+  "type": "commandResult",
+  "workspace": {
+    "icon": "data:image/jpeg;base64,pIkt4JFKWd9Wn0vt1Qc8IsE7EtFJ7+vFHhi=",
+    "id": "example",
+    "name": "example",
+    "path": "example"
+  }
 }
 ```
 
@@ -2770,7 +2935,6 @@ Example:
 {
   "code": "example",
   "message": "example",
-  "retryable": true,
   "type": "error"
 }
 ```
@@ -2793,8 +2957,8 @@ Example:
 {
   "bytes": "example",
   "eof": true,
-  "nextOffset": 8,
-  "offset": 6,
+  "nextOffset": 3,
+  "offset": 5,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -2818,9 +2982,9 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 1,
+  "itemsBefore": null,
   "requestId": "example",
-  "seq": 2,
+  "seq": 0,
   "threadId": "example",
   "type": "items.page"
 }

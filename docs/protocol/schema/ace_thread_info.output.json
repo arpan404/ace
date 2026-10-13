@@ -1892,6 +1892,27 @@
               "maxItems": 8,
               "type": "array"
             },
+            "askingThreads": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 256,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "maxItems": 8,
+              "type": "array"
+            },
             "backgroundTaskCount": {
               "maximum": 9007199254740991,
               "minimum": 0,

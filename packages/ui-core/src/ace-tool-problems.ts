@@ -166,6 +166,12 @@ const browser: Record<string, Wording> = {
     title: `Scripts on ${site} need your approval`,
     hint: "Allow them when asked.",
   }),
+  evaluate_approval_timeout: (site) => ({
+    title: `Scripts on ${site} waited for your approval and timed out`,
+  }),
+  evaluate_approval_superseded: (site) => ({
+    title: `The request to run scripts on ${site} was replaced before you answered`,
+  }),
   approval_required: (site) => ({
     title: `${site} needs your approval`,
     hint: "Allow the site when asked.",
