@@ -249,9 +249,6 @@
           ],
           "type": "string"
         },
-        "threads.continueAfterRestart": {
-          "type": "boolean"
-        },
         "threads.followUpBehavior": {
           "enum": [
             "steer",

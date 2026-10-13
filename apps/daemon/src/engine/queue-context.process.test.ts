@@ -269,43 +269,6 @@ test("queue admission rejects overflow without removing or changing the accepted
   expect(queue.messages.at(-1)?.input).toEqual(text("queued 255"));
 });
 
-test("restart auto-continuation retries after capacity becomes available instead of stranding the next thread", async () => {
-  const frames = scriptFrames();
-  const h = await fixture([{ on: "send", frames: [frames.frame(start, task, end)] }], frames);
-  const first = await h.create();
-  expect(
-    h.command({
-      type: "thread.create",
-      workspaceId: h.workspace,
-      provider: "codex",
-      input: text("second"),
-    }).ok,
-  ).toBe(true);
-  await h.engine.flush();
-  const second = h.store.listThreads().find((thread) => thread.id !== first)?.id;
-  if (!second) throw new Error("Missing second thread");
-  const { replaceProvider } = await import("./recovery-test-support.ts");
-  const replacement = replaceProvider(h, frames, [
-    { on: "send", frames: [frames.frame(start, end)] },
-  ]);
-  const recovered = await restart(h, {
-    preferences: { continueAfterRestart: true },
-    limits: { maxActiveThreads: 1 },
-    idleMs: 0,
-  });
-  expect(sends(replacement)).toHaveLength(1);
-  expect(
-    [recovered.queue(first), recovered.queue(second)].filter((queue) => queue.resumeAt === 2000),
-  ).toHaveLength(1);
-  h.clock.advance(1000);
-  await recovered.flush();
-  h.clock.advance(2000);
-  await recovered.flush();
-  expect(sends(replacement)).toHaveLength(2);
-  expect(h.store.getThread(first)?.status.state).toBe("done");
-  expect(h.store.getThread(second)?.status.state).toBe("done");
-});
-
 test("a context limit produces a plain-language transcript notice with a useful next action", async () => {
   const frames = scriptFrames();
   const h = await fixture([{ on: "send", frames: [frames.frame(start, end)] }], frames, {

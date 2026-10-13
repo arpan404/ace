@@ -6,11 +6,10 @@ const daemon = await startDaemon({
   config: readConfig(),
   history: { instances: readHistoryInstances() },
   engine: {
-    // Includes automatic restart recovery: fail before opening any conversation session.
+    // Fail before opening any conversation session.
     sessionContext: async () => {
       throw new Error("Real smoke refuses provider conversation sessions");
     },
-    preferences: { continueAfterRestart: false },
   },
 });
 const token = (await readFile(daemon.tokenPath, "utf8")).trim();

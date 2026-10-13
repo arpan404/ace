@@ -12,7 +12,6 @@
     "host.icon",
     "projects.roots",
     "threads.followUpBehavior",
-    "threads.continueAfterRestart",
     "threads.limitPolicy",
     "providers.default",
     "providers.coder.provider",

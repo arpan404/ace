@@ -34,16 +34,13 @@ test("a switched-off General setting stays off after leaving the page and coming
   ).toBe("false");
 });
 
-test("follow-ups and restart recovery are stored on the daemon", async () => {
+test("follow-ups are stored on the daemon and nothing offers to continue work after a restart", async () => {
   const app = harness();
   await app.open("/settings/general");
   await pick("Messages sent while the agent works", "Steer");
-  await userEvent.click(
-    await screen.findByRole("switch", { name: "Continue threads after a restart" }),
-  );
+  expect(screen.queryByRole("switch", { name: /after a restart/i })).toBeNull();
   await waitFor(() => {
     expect(app.daemon.services.settings.get("threads.followUpBehavior")).toBe("steer");
-    expect(app.daemon.services.settings.get("threads.continueAfterRestart")).toBe(true);
   });
 
   await goTo("Keyboard");

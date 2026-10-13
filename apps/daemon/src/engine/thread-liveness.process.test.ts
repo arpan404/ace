@@ -18,7 +18,9 @@ test("a SIGKILLed provider expires its approval, reports its stop and permits pl
     await provider.kill();
     await h.engine.flush();
     const view = h.store.snapshotThread(id);
-    expect(view.thread.status.state).toBe("failed");
+    // The interrupted turn waits for the person's Resume rather than failing or continuing.
+    expect(view.thread.status).toEqual({ state: "waiting", on: "queue" });
+    expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "restart" });
     expect(Object.values(view.interactions)).toEqual([
       expect.objectContaining({ state: "expired" }),
     ]);
@@ -119,7 +121,11 @@ test("restart stops a thread that needed a person, says so, holds its queued mes
     expect(engine.queue(id).messages).toHaveLength(1);
     expect(h.contexts).toHaveLength(1);
     expect(Object.values(store.snapshotThread(id).items)).toContainEqual(
-      expect.objectContaining({ type: "notice", code: "agent_stopped" }),
+      expect.objectContaining({
+        type: "notice",
+        code: "restart_interrupted",
+        text: "Interrupted by a restart",
+      }),
     );
     server = await startServer({
       store,

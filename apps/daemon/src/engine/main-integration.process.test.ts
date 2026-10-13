@@ -153,7 +153,7 @@ test("restart holds interrupted provider work until explicit native resume witho
   expect(store.getThread(id)?.status.state).toBe("done");
 });
 
-test("a provider exit clears native queued work so a later send can resume", async () => {
+test("a provider exit with native queued work holds the thread until the person's send, which goes out alone", async () => {
   const frames = scriptFrames();
   const h = await harness(
     [
@@ -171,7 +171,8 @@ test("a provider exit clears native queued work so a later send can resume", asy
   if (!context) throw new Error("Missing session");
   context.onExit({ deliberate: false, message: "provider died" });
   await h.engine.flush();
-  expect(h.store.getThread(id)?.status.state).not.toBe("waiting");
+  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "queue" });
+  expect(resumed.commands.filter((entry) => entry.type === "send")).toHaveLength(0);
   h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });
   await h.engine.flush();
   expect(resumed.commands.filter((entry) => entry.type === "send")).toHaveLength(1);

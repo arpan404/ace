@@ -105,7 +105,7 @@ it("interrupt acknowledgement preserves work, and a no-op interrupt never settle
   await h.session.interrupt({ cascade: false });
   expect(h.projection.view.thread.status.state).toBe("working");
   await h.control("/test/state", { fault: { noopInterrupt: true } });
-  await expect(h.session.interrupt({ cascade: true })).rejects.toThrow("not accepted");
+  await expect(h.session.interrupt({ cascade: true })).rejects.toThrow("nothing running to stop");
   expect(h.projection.view.thread.status.state).toBe("working");
   await h.publish("session.execution.interrupted");
   expect(h.projection.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
@@ -382,12 +382,13 @@ it("newer child work, inbox and forms beat stale absent and idle recovery snapsh
   await recovered;
   expect(h.projection.view.thread.status.state).toBe("needs_you");
   expect(Object.values(h.projection.view.runs).some((r) => r.state === "active")).toBe(true);
-  expect(Object.values(h.projection.view.backgroundTasks).some((t) => t.status === "running")).toBe(
-    true,
-  );
   await h.publish("form.cancelled", { id: "new-form" });
   await h.publish("session.execution.succeeded");
   expect(h.projection.view.thread.status.state).toBe("waiting");
+  // The tool still running when the execution ended keeps the tree live.
+  expect(Object.values(h.projection.view.backgroundTasks).some((t) => t.status === "running")).toBe(
+    true,
+  );
 });
 
 it("sends wait behind recovery and an unowned root cannot keep that barrier open", async () => {

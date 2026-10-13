@@ -214,6 +214,7 @@ export class Engine {
         this.releaseDormant(id);
         this.wakeQueued();
       },
+      interrupted: (id) => this.recovery.holdInterrupted(id),
     });
     this.recovery = new Recovery(
       this.repo,

@@ -1,3 +1,4 @@
+import { StoppedPill } from "../long/stopped-pill.tsx";
 import { listenScrollIntent } from "./scroll-intent.ts";
 import type { ThreadReader } from "@ace/client";
 import type { HistoryPager } from "@ace/client-react";
@@ -708,6 +709,7 @@ export function Feed(props: FeedProps) {
             />
           </Suspense>
         )}
+        <StoppedPill threadId={threadId} raised={livePill.mounted} />
       </div>
     </LiveFramesContext>
   );

@@ -350,6 +350,10 @@ export class OpenCodeTranslator implements Translator {
     }
     if (type === "session.synthetic") {
       const meta = object(p.metadata);
+      // A synthetic message that lands inside a live execution (instructions OpenCode found
+      // mid-turn, a result the running step reads) is consumed by that execution. Only one that
+      // arrives while the session is idle starts another turn, so only it is a wake.
+      if (state.active.has(id)) return state.completion(meta, number(e.created, -1));
       state.triggers.set(
         id,
         meta.source === "subagent" ? "subagent_result" : "background_completion",

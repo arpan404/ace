@@ -241,9 +241,6 @@
       ],
       "type": "string"
     },
-    "threads.continueAfterRestart": {
-      "type": "boolean"
-    },
     "threads.followUpBehavior": {
       "enum": [
         "steer",
@@ -289,7 +286,6 @@
     "host.icon",
     "projects.roots",
     "threads.followUpBehavior",
-    "threads.continueAfterRestart",
     "threads.limitPolicy",
     "providers.default",
     "providers.coder.provider",

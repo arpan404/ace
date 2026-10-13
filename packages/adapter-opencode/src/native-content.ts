@@ -97,9 +97,11 @@ export function tool(state: NativeState, p: Data, type: string, evidence: unknow
       },
     },
   ];
-  // A running tool is work even if an execution terminal arrives before cleanup.
-  if (!complete) facts.push(...state.background(`work:${item}`, id, "other", item));
-  else facts.push(...state.finishBackground(`work:${item}`, failed ? "failed" : "completed"));
+  // A tool seen running after its execution ended (the terminal came first, or a resync found
+  // it) is held until it settles; a tool inside a live execution is the execution's own work.
+  if (!complete && !state.active.has(id)) facts.push(...state.toolTail(item, id));
+  else if (complete)
+    facts.push(...state.finishBackground(`work:${item}`, failed ? "failed" : "completed"));
   const child = string(meta.sessionID);
   if (name === "subagent" && child && !state.agents.has(child)) {
     if (state.childClaims.size >= 1024 && !state.childClaims.has(child))

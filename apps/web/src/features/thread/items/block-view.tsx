@@ -6,7 +6,7 @@ import { usageWarning } from "../lib/usage-warning.ts";
 import { DeferredEvent } from "./deferred-review.ts";
 import type { Block } from "../transcript/blocks.ts";
 import { TurnEnd } from "../transcript/turn-end.tsx";
-import { BackgroundTaskLine } from "./background-task-line.tsx";
+import { BackgroundTaskGroup, BackgroundTaskLine } from "./background-task-line.tsx";
 import { ChangedFiles } from "./changed-files.tsx";
 import { AssistantMessage } from "./messages.tsx";
 import { QuestionBlock } from "./question-block.tsx";
@@ -51,7 +51,11 @@ const BlockContent = memo(function BlockContent(props: {
     case "subagents":
       return <Subagents threadId={threadId} itemIds={block.itemIds} />;
     case "background":
-      return <BackgroundTaskLine threadId={threadId} itemId={block.itemId} taskId={block.taskId} />;
+      return block.taskIds.length > 1 ? (
+        <BackgroundTaskGroup threadId={threadId} itemIds={block.itemIds} taskIds={block.taskIds} />
+      ) : (
+        <BackgroundTaskLine threadId={threadId} itemId={block.itemId} taskId={block.taskId} />
+      );
     case "files":
       return <ChangedFiles threadId={threadId} itemIds={block.itemIds} />;
     case "question":

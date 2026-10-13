@@ -78,12 +78,6 @@ const entries = [
     keywords: ["queue", "steer", "follow up"],
   },
   {
-    id: "threads.continueAfterRestart",
-    page: "/settings/general",
-    title: "Continue threads after a restart",
-    keywords: ["resume", "reboot", "update"],
-  },
-  {
     id: "automations.enabled",
     page: "/settings/general",
     title: "Run automations",

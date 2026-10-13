@@ -437,6 +437,9 @@ export function engineHandler(
         }
         const admitted = recovery.admit(deliveryCommand, threadId);
         if (!admitted) return fail("queue_capacity_exceeded");
+        // The person's message is how a stopped or interrupted turn carries on: it releases
+        // that hold, drops ace's own "continue", and the queue sends in order with it last.
+        if (p.type === "thread.send") releaseInterruptedHold(repo, threadId, now());
         const heldSend = p.type === "thread.send" && repo.queue.get(threadId).paused;
         if (!heldSend && !repo.reserve(threadId)) return fail("engine_capacity_exceeded");
         const released = p.type === "thread.interrupt" ? repo.cancelPending(threadId, now()) : [];
@@ -469,4 +472,32 @@ export function engineHandler(
       });
     },
   };
+}
+
+/**
+ * A turn that stopped (the person's Stop, a restart or a provider exit) waits only for the
+ * person, and their next message is their go-ahead: it never queues behind the stop. The hold
+ * and any pending continuation are dropped, so ace sends no synthetic "continue", and what was
+ * already queued goes first, in order, with the new message last. Other holds (a limit, an
+ * uncertain delivery, a failed send, an unreconciled Cursor SDK checkpoint) keep it waiting.
+ */
+function releaseInterruptedHold(repo: EngineRepository, threadId: ThreadId, at: number): void {
+  const queue = repo.queue.get(threadId);
+  if (!queue.paused || queue.limited) return;
+  if (queue.reason !== "restart" && queue.reason !== "stopped") return;
+  if (repo.queue.hasUncertain(threadId) || repo.pending.recovering(threadId)) return;
+  // A Cursor SDK checkpoint must be reconciled by its own continuation before new input.
+  if (queue.reason === "restart" && repo.backend(threadId) === "cursor-sdk") return;
+  repo.pending.finishContinuation(threadId);
+  repo.queue.set(
+    threadId,
+    {
+      paused: false,
+      reason: null,
+      continuation: null,
+      trigger: null,
+      holdToken: queue.holdToken + 1,
+    },
+    at,
+  );
 }

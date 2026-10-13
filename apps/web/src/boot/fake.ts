@@ -6,6 +6,7 @@ import {
   fakeTransport,
   hostFolders,
   refusedDelegation,
+  seedInterruptedTurn,
   seedPanels,
   seedRealCatalogs,
   seedRealThreadState,
@@ -89,6 +90,8 @@ export function bootFake(): {
   // `?fakeWorld=refused-delegation`: an OpenCode thread whose Claude delegations were refused.
   if (world === "refused-delegation")
     new ScenarioPlayer(daemon, refusedDelegation(), { agoMs: 0 }).runUntilBlocked();
+  // `?fakeWorld=interrupted-turn`: an OpenCode turn a restart interrupted, held for Resume.
+  if (world === "interrupted-turn") seedInterruptedTurn(daemon);
   // Playwright's screens stage failures and empty states before the app's first request.
   const setup = (globalThis as { aceFakeSetup?: (daemon: FakeDaemon) => void }).aceFakeSetup;
   setup?.(daemon);

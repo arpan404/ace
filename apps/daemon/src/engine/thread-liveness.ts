@@ -91,7 +91,8 @@ export class ThreadLiveness {
       steering.isActive(id)
     )
       return;
-    reconcileStoppedThread(repo, id, this.ports.clock.now());
+    if (reconcileStoppedThread(repo, id, this.ports.clock.now()))
+      this.ports.recovery.holdInterrupted(id);
     actor?.syncQueue();
   }
   live(id: ThreadId): LiveWork {
@@ -195,18 +196,22 @@ export class ThreadLiveness {
   }
 }
 
-/** A thread with no running session: settle what its dead provider left behind. */
-export function reconcileStoppedThread(repo: EngineRepository, id: ThreadId, at: number): void {
+/**
+ * A thread with no running session: settle what its dead provider left behind. True when that
+ * interrupted work, so the caller holds the thread for the person.
+ */
+export function reconcileStoppedThread(repo: EngineRepository, id: ThreadId, at: number): boolean {
   const state = repo.state(id);
-  if (!state) return;
-  repo.store.atomic(() => {
-    if (!state.processExit && lostWork(state, 0, undefined, at)) {
+  if (!state) return false;
+  return repo.store.atomic(() => {
+    const interrupted = !state.processExit && lostWork(state, 0, undefined, at) !== undefined;
+    if (interrupted) {
       repo.apply(
         id,
         [
           { type: "process.exited", deliberate: false, message: "The agent stopped unexpectedly" },
           { type: "queue.changed", source: "provider", count: 0 },
-          unexpectedStopNotice(state.rootKey, at),
+          interruptedNotice(state.rootKey, at, "exit"),
         ],
         at,
       );
@@ -219,6 +224,7 @@ export function reconcileStoppedThread(repo: EngineRepository, id: ThreadId, at:
     const count = repo.queuedCount(id);
     if (state.queueSources.engine !== count)
       repo.apply(id, [{ type: "queue.changed", source: "engine", count }], at);
+    return interrupted;
   });
 }
 
@@ -247,8 +253,16 @@ export function retireThreadIntents(
   });
 }
 
-/** One transcript notice per unexpected stop, so a second stop is not folded into the first. */
-export function unexpectedStopNotice(agent: string | undefined, at: number): Fact {
+/**
+ * One transcript notice per interruption, so a second one is not folded into the first. A
+ * daemon restart reads "Interrupted by a restart"; a provider that died on its own reads as an
+ * unexpected stop. Either way the turn is held until the person resumes it.
+ */
+export function interruptedNotice(
+  agent: string | undefined,
+  at: number,
+  cause: "restart" | "exit",
+): Fact {
   return {
     type: "item.upsert",
     agent: agent ?? "root",
@@ -256,8 +270,8 @@ export function unexpectedStopNotice(agent: string | undefined, at: number): Fac
     draft: {
       type: "notice",
       level: "warning",
-      code: "agent_stopped",
-      text: "The agent stopped unexpectedly",
+      code: cause === "restart" ? "restart_interrupted" : "agent_stopped",
+      text: cause === "restart" ? "Interrupted by a restart" : "The agent stopped unexpectedly",
       complete: true,
     },
   };

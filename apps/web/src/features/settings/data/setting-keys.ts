@@ -39,7 +39,6 @@ export const settingKeys = {
   settleOnMerge: setting("threads.settleOnMerge", z.boolean(), true),
   settleOnClose: setting("threads.settleOnClose", z.boolean(), false),
   followUp: setting("threads.followUpBehavior", FollowUp, "queue"),
-  continueAfterRestart: setting("threads.continueAfterRestart", z.boolean(), false),
   automations: setting("automations.enabled", z.boolean(), false),
   keybindings: setting<Keybindings>("clients.keybindings", Keybindings, {}),
   limitPolicy: setting<LimitPolicy>("threads.limitPolicy", LimitPolicy, "manual"),

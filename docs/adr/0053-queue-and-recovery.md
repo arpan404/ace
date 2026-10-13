@@ -26,8 +26,9 @@ and no recovery/limit hold exists. Unsupported steering enters the ordered queue
 The commit before provider I/O is the claim boundary. Exactly-once external
 delivery cannot be promised across a crash. Unacknowledged claimed messages
 become uncertain and stay visible; they are never replayed automatically.
-Unclaimed messages keep their order and wait for explicit resume after restart
-unless `threads.continueAfterRestart` is enabled. A persisted continuation counts
+Unclaimed messages keep their order and wait for explicit resume after restart. ace
+never continues interrupted work by itself (the former `threads.continueAfterRestart`
+setting is gone); the person's Resume, or their next message, carries on. A persisted continuation counts
 as queued engine work even when no user messages remain; its thread waits on
 queue until resumed. Paginated reads use revision-checked command-ID cursors.
 New admissions are bounded; older stored input shapes remain readable.
@@ -40,7 +41,7 @@ continuation intent. Native resume is capability-gated. The next resumed input
 tells the agent which work died, with a `restart` run trigger. Recovery does not
 pretend that dead background work completed successfully. Graceful shutdown
 records this evidence before closing providers too, so updates and reboots use
-the same path. Auto-continuation never replays uncertain user delivery.
+the same path. Resume never replays uncertain user delivery.
 
 `limited` is derived from rate-limit facts, with human interaction and live-tree
 work retaining precedence under ADR 0004. It survives process exit independently

@@ -78,11 +78,6 @@ test.each(["existing", "cleaned worktree"])(
         git(repo, "add", "tracked.txt");
         git(repo, "commit", "-m", "Initial");
         git(repo, "worktree", "add", "-b", "clean", workspace);
-        // Even a global automatic-recovery preference must not reopen a removed checkout.
-        await writeFile(
-          join(home, "settings.json"),
-          JSON.stringify({ version: 2, settings: { "threads.continueAfterRestart": true } }),
-        );
       }
       const fixture = new DatabaseSync(join(home, "events.sqlite"));
       try {

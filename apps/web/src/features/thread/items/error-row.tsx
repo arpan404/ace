@@ -47,6 +47,8 @@ export function ErrorRow(props: {
   onRetry?: (() => void) | undefined;
   /** A retry is on its way: Retry waits. */
   retrying?: boolean | undefined;
+  /** How many identical failures in a row this one stands for: ×N past one. */
+  count?: number | undefined;
   className?: string | undefined;
 }) {
   const view = "text" in props.error ? describeProviderError(props.error) : props.error;
@@ -68,6 +70,14 @@ export function ErrorRow(props: {
       <div className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1">
         <WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
         <span className="font-medium text-foreground">{title}</span>
+        {(props.count ?? 1) > 1 && (
+          <span
+            aria-label={`${props.count} times`}
+            className="shrink-0 text-subtle-foreground tabular-nums"
+          >
+            ×{props.count}
+          </span>
+        )}
         {message && <span className="min-w-0 text-muted-foreground">· {message}</span>}
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {view.action === "change_model" && (

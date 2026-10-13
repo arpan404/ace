@@ -13,6 +13,7 @@ export { flakyCheckout } from "./scenarios/flaky-checkout.ts";
 export { delegatedDocs, delegatedDocsIds } from "./scenarios/delegated-docs.ts";
 export { failingSubagent } from "./scenarios/failing-subagent.ts";
 export { refusedDelegation } from "./scenarios/refused-delegation.ts";
+export { interruptedTurn, seedInterruptedTurn } from "./scenarios/interrupted-turn.ts";
 export {
   multiDayThread,
   multiDayShape,
