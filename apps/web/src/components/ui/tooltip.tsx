@@ -62,7 +62,13 @@ function Tip(props: {
 }) {
   const side = useContext(TooltipSide);
   return (
-    <TooltipPrimitive.Root disabled={props.disabled}>
+    <TooltipPrimitive.Root
+      disabled={props.disabled}
+      onOpenChange={(open, details) => {
+        if (open && behindOpenPopup(details.trigger ?? eventElement(details.event)))
+          details.cancel();
+      }}
+    >
       <TooltipPrimitive.Trigger render={props.children} closeOnClick />
       <TooltipContent side={props.side ?? side}>
         <div className="min-w-0 break-words">{props.label}</div>
@@ -74,6 +80,27 @@ function Tip(props: {
       </TooltipContent>
     </TooltipPrimitive.Root>
   );
+}
+
+/** Popups whose own controls may still describe themselves while they are open. */
+const popupContent = '[role="menu"], [role="listbox"], [role="dialog"], [data-slot="model-picker"]';
+
+function eventElement(event: Event | undefined): Element | undefined {
+  return event?.target instanceof Element ? event.target : undefined;
+}
+
+/**
+ * While a menu or popover is open, the controls behind it keep their tooltips to themselves
+ * (the Approvals tip never sits beside an open + menu); controls inside the popup still show
+ * theirs.
+ */
+function behindOpenPopup(trigger: Element | undefined): boolean {
+  if (!trigger || trigger.closest(popupContent)) return false;
+  // A Base UI trigger with its popup open, or a combobox showing its list (the composer's +).
+  const open = trigger.ownerDocument.querySelector(
+    '[data-popup-open], [aria-haspopup][aria-expanded="true"], [role="combobox"][aria-expanded="true"]',
+  );
+  return open !== null && open !== trigger && !open.contains(trigger);
 }
 
 const Tooltip = TooltipPrimitive.Root;

@@ -30,7 +30,8 @@ export function PickerRail({
     }
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
-    const usable = props.groups.filter((group) => !group.reason);
+    // Every tab is reachable: one that can't be used opens on why, not on another's models.
+    const usable = props.groups;
     const at = usable.findIndex((group) => group.id === props.selected);
     const next =
       usable[
@@ -70,12 +71,11 @@ export function PickerRail({
               data-tab={group.id}
               aria-label={group.name}
               aria-selected={activeTab}
-              aria-disabled={group.reason ? true : undefined}
               data-disabled={group.reason ? "" : undefined}
               aria-controls={`${props.listId}-pane`}
               tabIndex={props.selected === group.id ? 0 : -1}
               onClick={() => {
-                if (!group.reason) props.onSelect(group.id);
+                props.onSelect(group.id);
               }}
               className={tabButton}
             >

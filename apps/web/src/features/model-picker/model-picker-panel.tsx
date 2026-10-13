@@ -380,7 +380,9 @@ export function ModelPickerPanel(props: {
       data-slot="model-picker"
       onKeyDownCapture={onKeyDown}
       className="flex w-88 max-w-[calc(100vw-2rem)]"
-      style={{ maxHeight: `min(${panelHeight}px, var(--available-height, ${panelHeight}px))` }}
+      // One height for every rail: anchored above the chip, a shorter list would move its top
+      // edge (and the rail with it) each time another provider is picked.
+      style={{ height: `min(${panelHeight}px, var(--available-height, ${panelHeight}px))` }}
     >
       <PickerRail
         groups={railTabs}
@@ -481,6 +483,7 @@ export function ModelPickerPanel(props: {
           )}
           {!items.length &&
             !groups.some((group) => group.problems.length) &&
+            !(!mixed && selected?.reason) &&
             (loading ? (
               <LoadingRegion label="models" className="flex flex-col">
                 {[72, 56, 64, 48].map((width, at) => (
