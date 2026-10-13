@@ -39,7 +39,8 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
   checked?(rows: readonly Status[]): void;
   modelsAvailable?(provider: Status["provider"]): boolean;
   antigravity?(signal: AbortSignal): Promise<DiscoveryResult>;
-  cursorSdk?(signal: AbortSignal): Promise<DiscoveryResult>;
+  /** `observedRevision` is the account login revision current when auth was read. */
+  cursorSdk?(signal: AbortSignal): Promise<DiscoveryResult & { observedRevision?: string }>;
 }
 export interface ProviderStatusRuntime {
   now(): number;
@@ -93,6 +94,12 @@ export class ProviderStatuses {
     return {
       account,
       configuration,
+      // Everything but the login revision, which a probe's own observation can advance.
+      identity: JSON.stringify([
+        account?.instanceId,
+        configuration?.binaryPath,
+        configuration?.enabled !== false,
+      ]),
       key: JSON.stringify([
         account?.instanceId,
         configuration?.binaryPath,
@@ -174,7 +181,21 @@ export class ProviderStatuses {
       if (selections.get(row.provider)?.key !== this.selection(row).key)
         throw new Error("Provider selection changed");
     };
-    const probe = async (row: Status): Promise<DiscoveryResult | undefined> => {
+    // A probe that records the login it observed (bumping the revision) stays current: its
+    // result is accepted at that revision, but not after any later change.
+    const observed = (row: Status, revision: string | undefined) => {
+      const before = selections.get(row.provider);
+      const current = this.selection(row);
+      if (
+        revision !== undefined &&
+        before?.identity === current.identity &&
+        current.configuration?.revision === revision
+      )
+        selections.set(row.provider, current);
+    };
+    const probe = async (
+      row: Status,
+    ): Promise<(DiscoveryResult & { observedRevision?: string }) | undefined> => {
       const selection = selections.get(row.provider);
       const configuration = selection?.configuration;
       if (configuration?.enabled === false) return Promise.resolve(undefined);
@@ -216,11 +237,12 @@ export class ProviderStatuses {
     };
     const work = this.rows.map(async (row): Promise<Status> => {
       try {
-        const status = await probe(row);
+        const probed = await probe(row);
+        observed(row, probed?.observedRevision);
         assertSelection(row);
         const instanceId = selections.get(row.provider)?.account?.instanceId;
         const result: Status = {
-          ...providerStatusRow(row, status, this.runtime.now()),
+          ...providerStatusRow(row, probed && discovery(probed), this.runtime.now()),
           ...(instanceId ? { instanceId } : {}),
         };
         const versions =
@@ -287,4 +309,11 @@ export class ProviderStatuses {
     await this.flight;
     this.listeners.clear();
   }
+}
+
+function discovery({
+  observedRevision: _observed,
+  ...result
+}: DiscoveryResult & { observedRevision?: string }): DiscoveryResult {
+  return result;
 }
