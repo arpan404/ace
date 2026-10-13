@@ -64,9 +64,9 @@ export function windowOptions(options: {
   return base;
 }
 
-/** The window's colour before the page paints: the default theme's (Graphite) page colour. */
+/** The window's colour before the page paints: the default theme's (ace) page colour. */
 export function solidBackground(dark: boolean): string {
-  return dark ? "#161616" : "#fdfdfd";
+  return dark ? "#121212" : "#ffffff";
 }
 
 /** Windows: the colour of the caption buttons drawn over the page. */

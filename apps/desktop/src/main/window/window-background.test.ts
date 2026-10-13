@@ -15,8 +15,8 @@ test("the window starts in the page's theme colour for the scheme its mode picks
 });
 
 test("before the page has said, the window uses the default theme's colour", () => {
-  expect(windowBackground(undefined, true)).toBe("#161616");
-  expect(windowBackground(undefined, false)).toBe("#fdfdfd");
+  expect(windowBackground(undefined, true)).toBe("#121212");
+  expect(windowBackground(undefined, false)).toBe("#ffffff");
 });
 
 test("the colours the page reports outlive a restart", async () => {

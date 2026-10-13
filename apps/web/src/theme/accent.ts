@@ -4,7 +4,7 @@ import { themes, withAccent, type Palette, type Scheme, type ThemeId } from "./p
 /*
  * The accent picker's choices. An accent is laid over any theme: "theme" keeps the theme's own,
  * the curated colours and a custom one are fitted to the theme's surfaces (`accent-fit.ts`),
- * and Mono uses the theme's text colour.
+ * and Ink uses the theme's text colour (ace's own accent is its ink).
  */
 
 export const accentIds = [
@@ -15,14 +15,14 @@ export const accentIds = [
   "green",
   "amber",
   "rose",
-  "mono",
+  "ink",
   "custom",
 ] as const;
 export type AccentId = (typeof accentIds)[number];
 
 /** The curated colours, before fitting. Each sits clear of the status colours it neighbours. */
 export const curatedAccents: Record<
-  Exclude<AccentId, "theme" | "mono" | "custom">,
+  Exclude<AccentId, "theme" | "ink" | "custom">,
   { name: string; colour: string }
 > = {
   blue: { name: "Blue", colour: "#3D9BFF" },
@@ -36,7 +36,7 @@ export const curatedAccents: Record<
 export const accentNames: Record<AccentId, string> = {
   theme: "Theme",
   ...Object.fromEntries(Object.entries(curatedAccents).map(([id, { name }]) => [id, name])),
-  mono: "Mono",
+  ink: "Ink",
   custom: "Custom",
 } as Record<AccentId, string>;
 
@@ -55,7 +55,7 @@ export function accentColour(id: ThemeId, scheme: Scheme, choice: AccentChoice):
   switch (choice.accent) {
     case "theme":
       return theme.accent[scheme];
-    case "mono":
+    case "ink":
       return theme[scheme].t1;
     case "custom":
       return parseOpaqueColor(choice.customAccent) ? choice.customAccent : theme.accent[scheme];

@@ -10,6 +10,8 @@
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI",
     system-ui, sans-serif;
   --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  /* Transcript prose; each theme sets all three (Folio's prose is serif, Tty's is mono). */
+  --font-prose: var(--font-sans);
 
   /* Motion tokens live in motion.css. */
 

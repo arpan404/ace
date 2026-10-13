@@ -19,7 +19,7 @@ const swatch =
 const hexPattern = /^#[0-9a-f]{6}$/i;
 
 /**
- * The accent, laid over whichever theme is on: the theme's own, six curated colours, Mono (the
+ * The accent, laid over whichever theme is on: the theme's own, six curated colours, Ink (the
  * text colour) or a custom colour. Each swatch shows the colour as it will look, fitted to the
  * current theme and scheme.
  */

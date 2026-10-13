@@ -8,9 +8,9 @@
 export const screenThemes = [
   "light",
   "dark",
-  "dusk-dark",
-  "ember-dark",
-  "paper-light",
-  "tide-dark",
-  "mono-dark",
+  "folio-light",
+  "umbra-dark",
+  "signal-dark",
+  "tty-dark",
+  "harbor-light",
 ] as const;

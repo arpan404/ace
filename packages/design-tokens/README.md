@@ -1,7 +1,7 @@
 # Shared ace design tokens
 
 `tokens.json` is the source for Android and iOS themes. The values follow the approved
-mobile v2 mockup. Status marker colours match the light/dark `statusSets` in the web presets,
+mobile v2 mockup. Status marker colours match the light/dark status colours of the web default theme (ace),
 including unresponsive pink. A parity test compares all twelve values with the rendered
 web presets so CI catches drift. Colour describes daemon state; tokens never derive status.
 

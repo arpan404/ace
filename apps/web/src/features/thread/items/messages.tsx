@@ -40,7 +40,7 @@ export function AssistantMessage(props: {
   const text = answer.text;
   const name = agent && agent.origin !== "root" ? (agent.name ?? "Subagent") : undefined;
   return (
-    <div className="group/answer text-prose leading-[1.6] tracking-[-0.005em]">
+    <div className="group/answer font-prose text-prose leading-[1.6] tracking-[-0.005em]">
       <Prose
         text={text}
         thread={{

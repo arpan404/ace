@@ -20,7 +20,7 @@ export const rampSteps = [
 export type RampStep = (typeof rampSteps)[number];
 export type Ramp = Record<RampStep, string>;
 
-/** The accent tokens: derived from one colour by `deriveAccent`. */
+/** The accent tokens: a theme's own, or one colour fitted by `deriveAccent`. */
 export interface Accent {
   accent: string;
   accentHover: string;
@@ -41,6 +41,25 @@ export type StatusSet = {
   doneText: string;
 };
 
+/** Diff rows: opaque fills over the code background, and the gutter text on them. */
+export interface DiffSet {
+  diffAdd: string;
+  diffAddFg: string;
+  diffDel: string;
+  diffDelFg: string;
+}
+
+/** Code syntax colours. */
+export interface Syntax {
+  kw: string;
+  fn: string;
+  str: string;
+  num: string;
+  type: string;
+  com: string;
+  punc: string;
+}
+
 /**
  * How a theme's floating layers are made. `glass` is the tint's opacity over the page (blur,
  * then the thinner liquid tint), 1 for no glass at all; `focus` is how much of the accent the
@@ -51,7 +70,35 @@ export interface Material {
   focus: number;
 }
 
-export interface Palette extends Ramp, Accent, StatusSet {
+/** Font stacks: the interface, transcript prose and code. System fonts only. */
+export interface ThemeFonts {
+  ui: string;
+  prose: string;
+  mono: string;
+}
+
+/** One scheme of a theme as designed: every colour given, none derived. */
+export interface SchemeSource extends Ramp, StatusSet, DiffSet {
+  code: string;
+  accent: string;
+  accentHover: string;
+  accentFg: string;
+  accentText: string;
+  syntax: Syntax;
+}
+
+/** A theme as designed: `palettes.ts` turns it into a `ThemeDefinition`. */
+export interface ThemeSource {
+  name: string;
+  /** One line on the theme's character, for its swatch's accessible description. */
+  character: string;
+  fonts: ThemeFonts;
+  material: Record<Scheme, Material>;
+  light: SchemeSource;
+  dark: SchemeSource;
+}
+
+export interface Palette extends Ramp, Accent, StatusSet, DiffSet {
   /** The page; also `canvas`. */
   s0: string;
   /** Quiet raised fills: bubbles, cards, hunk headers; also `surface`. */
@@ -65,20 +112,21 @@ export interface Palette extends Ramp, Accent, StatusSet {
   code: string;
   /** "r g b" of the shadow tint. */
   shadow: string;
+  syntax: Syntax;
   material: Material;
 }
 /** The palette fields that hold a colour. */
-export type PaletteColour = Exclude<keyof Palette, "material">;
+export type PaletteColour = Exclude<keyof Palette, "material" | "syntax">;
 
 export interface ThemeDefinition {
   name: string;
-  /** One line on the theme's character, for its swatch's accessible description. */
   character: string;
-  /** The theme's own accent colour, before it is fitted to a scheme. */
+  fonts: ThemeFonts;
+  /** The theme's own accent colour in each scheme. */
   accent: Record<Scheme, string>;
   light: Palette;
   dark: Palette;
 }
 
-/** A palette before its accent: the ramp, statuses and material. */
+/** A palette before its accent: the ramp, statuses, code and material. */
 export type Base = Omit<Palette, keyof Accent>;

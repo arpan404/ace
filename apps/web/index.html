@@ -1,7 +1,7 @@
 <!doctype html>
 <html
   lang="en"
-  data-theme="graphite"
+  data-theme="ace"
   data-scheme="dark"
   data-surface="translucent"
   data-density="comfortable"
@@ -17,26 +17,26 @@
     <title>ace</title>
     <style>
       /*
-       * First visit only (no theme to replay): Graphite in the OS scheme until the theme stylesheet
+       * First visit only (no theme to replay): ace in the OS scheme until the theme stylesheet
        * loads, so a light OS never sees a dark first frame. The script below sets data-first-visit.
        */
       html {
-        background: #161616;
+        background: #121212;
         color-scheme: dark;
       }
       @media (prefers-color-scheme: light) {
         html[data-first-visit] {
-          background: #fdfdfd;
+          background: #ffffff;
           color-scheme: light;
         }
         html[data-first-visit] #boot {
-          --background: #fdfdfd;
-          --foreground: #191919;
+          --background: #ffffff;
+          --foreground: #111111;
         }
       }
       /*
        * The first paint, before the app's script runs: the ace mark centred on the theme's
-       * background, in the theme replayed below (Graphite in the OS scheme on a first visit). The
+       * background, in the theme replayed below (ace in the OS scheme on a first visit). The
        * startup screen (src/features/startup) draws the same thing at the same place and removes
        * this unseen, then cross-fades to the app once it has its first data. Never a skeleton.
        */
@@ -45,7 +45,7 @@
         inset: 0;
         z-index: 140;
         pointer-events: none;
-        background: var(--background, #161616);
+        background: var(--background, #121212);
         transition: opacity var(--motion-base, 200ms) var(--ease-out, ease);
       }
       #boot[data-leaving] {
@@ -69,7 +69,7 @@
         transform: translate(-50%, -50%);
         border-radius: 30%;
         background: var(--foreground, #f0f0f0);
-        color: var(--background, #161616);
+        color: var(--background, #121212);
       }
       /* Shown under the mark when the boot itself fails or nothing replaces this in 15s. */
       #boot .stuck {
@@ -122,7 +122,7 @@
             root.style.setProperty("--transcript-size", boot.transcriptPx + "px");
           root.style.background = "var(--background)";
         } else {
-          // Nothing to replay (a first visit, or storage denied): Graphite following the OS, as the
+          // Nothing to replay (a first visit, or storage denied): ace following the OS, as the
           // defaults will once the app loads.
           boot = {};
           root.setAttribute("data-first-visit", "");
