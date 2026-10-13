@@ -10,7 +10,7 @@ export type StatusReader = (caller: McpAttribution) => {
 };
 
 export const aceInstructions =
-  "ace tools for this thread. Websites and web apps, including localhost: ace_browser_*. screen_* (computer use) only for a native desktop app the person asked you to operate. Call ace_status for what is enabled.\nWhen you open or find a pull request for this thread's work, link it with ace_thread_link_pr.";
+  "ace tools add ace-specific actions next to your own tools. Read, create and edit files and run shell commands with your own workspace tools: ace has no file or shell tools, and no ace tool group, enabled or not, limits them. Websites and web apps, including localhost: ace_browser_*. screen_* (computer use) only for a native desktop app the person asked you to operate. Call ace_status for which ace tool groups are enabled.\nWhen you open or find a pull request for this thread's work, link it with ace_thread_link_pr.";
 
 export function createStatusRegistry(
   registry: ToolRegistry,
@@ -54,19 +54,11 @@ export function mcpStatusGroups(
         (permissionMode === "read-only" && (name === "screen" || name === "devices")
           ? "Read-only mode refuses this tool group."
           : undefined) ??
-        (!registered.has(name)
-          ? "No backend is configured for this tool group. Ask the person to configure this feature in ace."
-          : undefined) ??
+        (!registered.has(name) ? "This ace daemon is not running this tool group." : undefined) ??
         (!capabilities.includes(name)
-          ? "This provider session has no permission for this tool group. Ask the person to start a session with this group enabled."
+          ? "ace does not offer this tool group to this provider session."
           : undefined);
       return reason === undefined ? { name, enabled: true } : { name, enabled: false, reason };
     }),
-    {
-      name: "files",
-      enabled: false,
-      reason:
-        "Files are available through the provider's workspace tools and ace's file client; there is no standalone ace MCP files group.",
-    },
   ];
 }

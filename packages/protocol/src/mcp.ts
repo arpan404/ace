@@ -3,16 +3,17 @@ import { AgentId, ThreadId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 import { PermissionMode } from "./permissions.ts";
 
+/**
+ * Tool groups ace serves over MCP. Each one has registered tools. Files and shell belong to the
+ * provider's own workspace tools, so ace has no group for them.
+ */
 export const McpCapability = z.enum([
   "browser",
-  "preview",
-  "terminal",
   "notify",
   "agents",
   "thread_control",
   "automations",
   "projects",
-  "forge",
   "screen",
   "devices",
 ]);
@@ -154,11 +155,11 @@ export const McpStatus = z.strictObject({
   groups: z
     .array(
       z.strictObject({
-        name: z.enum(["thread", ...McpCapability.options, "files"]),
+        name: z.enum(["thread", ...McpCapability.options]),
         enabled: z.boolean(),
         reason: z.string().max(512).optional(),
       }),
     )
-    .max(McpCapability.options.length + 2),
+    .max(McpCapability.options.length + 1),
 });
 export type McpStatus = z.infer<typeof McpStatus>;

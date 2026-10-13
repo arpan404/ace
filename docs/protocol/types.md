@@ -12289,7 +12289,7 @@ Example:
 
 [JSON Schema](schema/McpCapability.json), input validation.
 
-Type: ["browser","preview","terminal","notify","agents","thread_control","automations","projects","forge","screen","devices"]. See JSON Schema for constraints.
+Type: ["browser","notify","agents","thread_control","automations","projects","screen","devices"]. See JSON Schema for constraints.
 
 Example:
 
@@ -12674,7 +12674,7 @@ Example:
 | sessionId | yes | string | {"minLength":1,"maxLength":256} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | agentId | yes | [AgentId.json](schema/AgentId.json) |  |
-| capabilities | yes | array | {"maxItems":11,"items":{"$ref":"https://ace.local/protocol/v1/McpCapability.json"}} |
+| capabilities | yes | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/McpCapability.json"}} |
 
 Example:
 
@@ -12819,7 +12819,7 @@ Example:
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | agentId | yes | [AgentId.json](schema/AgentId.json) |  |
 | permissionMode | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"},{"type":"null"}]} |
-| groups | yes | array | {"maxItems":13,"items":{"type":"object","properties":{"name":{"type":"string","enum":["thread","browser","preview","terminal","notify","agents","thread_control","automations","projects","forge","screen","devices","files"]},"enabled":{"type":"boolean"},"reason":{"type":"string","maxLength":512}},"required":["name","enabled"],"additionalProperties":false}} |
+| groups | yes | array | {"maxItems":9,"items":{"type":"object","properties":{"name":{"type":"string","enum":["thread","browser","notify","agents","thread_control","automations","projects","screen","devices"]},"enabled":{"type":"boolean"},"reason":{"type":"string","maxLength":512}},"required":["name","enabled"],"additionalProperties":false}} |
 
 Example:
 

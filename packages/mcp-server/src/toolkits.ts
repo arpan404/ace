@@ -7,11 +7,11 @@ export interface Toolkit {
 export interface AutomationAdapter<I, O> {
   execute(input: I, context: ToolContext): Promise<O>;
 }
-/** Browser/preview owners supply schemas and operations; no automation implementation lives here. */
+/** Browser owners supply schemas and operations; no automation implementation lives here. */
 export function registerAutomationTool<I extends z.ZodObject, O extends z.ZodObject>(
   registry: ToolRegistry,
   definition: Omit<ToolDefinition<I, O>, "run" | "capability"> & {
-    capability: "browser" | "preview";
+    capability: "browser";
   },
   adapter: AutomationAdapter<z.output<I>, z.input<O>>,
 ): void {
@@ -19,7 +19,4 @@ export function registerAutomationTool<I extends z.ZodObject, O extends z.ZodObj
 }
 export interface BrowserToolkit extends Toolkit {
   readonly capability: "browser";
-}
-export interface PreviewToolkit extends Toolkit {
-  readonly capability: "preview";
 }

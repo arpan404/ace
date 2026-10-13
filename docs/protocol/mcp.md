@@ -2298,7 +2298,7 @@ Example:
 
 ## ace_status
 
-Describe ace, this connection, enabled and disabled tool groups, and the effective permission mode. Also available as ace://status.
+Describe ace, this connection, which ace tool groups are enabled, and the thread's native permission mode. Groups cover only ace's own tools: use your own workspace tools for files and shell. Also available as ace://status.
 
 Required capability: none beyond session authentication. Timeout: 10000 ms.
 
@@ -2323,7 +2323,7 @@ Example:
 | threadId | yes | string | {"minLength":1} |
 | agentId | yes | string | {"minLength":1} |
 | permissionMode | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":4096},{"type":"null"}]} |
-| groups | yes | array | {"maxItems":13,"items":{"type":"object","properties":{"name":{"type":"string","enum":["thread","browser","preview","terminal","notify","agents","thread_control","automations","projects","forge","screen","devices","files"]},"enabled":{"type":"boolean"},"reason":{"type":"string","maxLength":512}},"required":["name","enabled"],"additionalProperties":false}} |
+| groups | yes | array | {"maxItems":9,"items":{"type":"object","properties":{"name":{"type":"string","enum":["thread","browser","notify","agents","thread_control","automations","projects","screen","devices"]},"enabled":{"type":"boolean"},"reason":{"type":"string","maxLength":512}},"required":["name","enabled"],"additionalProperties":false}} |
 
 Example:
 

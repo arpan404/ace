@@ -20,7 +20,6 @@ export {
   registerAutomationTool,
   type Toolkit,
   type BrowserToolkit,
-  type PreviewToolkit,
   type AutomationAdapter,
 } from "./toolkits.ts";
 export {
