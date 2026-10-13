@@ -1,11 +1,14 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, expect, onTestFinished, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { deltaE, parseOpaqueColor, rgbToOklch, type Rgb } from "@/theme/colour.ts";
 import { themes } from "@/theme/palettes.ts";
 
 const root = document.documentElement;
+const glassCss = readFileSync(join(import.meta.dirname, "../../styles/glass.css"), "utf8");
 afterEach(() => {
   for (const name of [
     "data-theme",
@@ -264,17 +267,102 @@ test("a custom accent takes a typed hex, and one on top of a status colour is mo
   expect(screen.getByText("Shifted to stay clear of status colours")).toBeTruthy();
 });
 
-test("Solid surfaces turn glass off, and the OS reducing transparency does the same", async () => {
-  const first = await harness({ matchMedia: system({}) }).open("/settings/appearance");
-  expect(root.getAttribute("data-surface")).toBe("translucent");
-  await settled();
-  await userEvent.click(screen.getByRole("button", { name: "Solid" }));
-  expect(root.getAttribute("data-surface")).toBe("solid");
-  first.unmount();
+/**
+ * The floating material as the browser cascades it (styles/glass.css), on a real menu-like layer.
+ * jsdom doesn't apply rules inside `@layer`, so the layer wrapper is lifted off.
+ */
+function floatingLayer() {
+  const style = document.createElement("style");
+  style.textContent = glassCss.replace(
+    /@layer components \{([\s\S]*)\}\s*(@keyframes[\s\S]*)$/,
+    "$1\n$2",
+  );
+  document.head.append(style);
+  const layer = document.createElement("div");
+  layer.className = "ace-floating";
+  document.body.append(layer);
+  onTestFinished(() => {
+    style.remove();
+    layer.remove();
+  });
+  return () => getComputedStyle(layer).getPropertyValue("backdrop-filter");
+}
 
+const slider = () => screen.getByRole("slider", { name: "Translucency" }) as HTMLInputElement;
+
+test("Translucency at Solid leaves floating layers with no backdrop filter at all", async () => {
+  await harness({ matchMedia: system({}) }).open("/settings/appearance");
+  const backdrop = floatingLayer();
+  expect(root.getAttribute("data-surface")).toBe("translucent");
+  expect(backdrop()).toMatch(/blur\(/);
+  await settled();
+
+  slider().focus();
+  await userEvent.keyboard("{Home}");
+  expect(slider().getAttribute("aria-valuetext")).toBe("Solid");
+  expect(root.getAttribute("data-surface")).toBe("solid");
+  expect(backdrop()).toMatch(/^(none)?$/);
+});
+
+test("arrow keys move the slider and the floating layers follow live, and it's kept", async () => {
+  const storage = memoryKeyValue();
+  await harness({ storage, matchMedia: system({}) }).open("/settings/appearance");
+  await settled();
+  // The default is the theme's own glass, the most translucent end.
+  expect(slider().getAttribute("aria-valuetext")).toBe("100%");
+  const tint = () => root.style.getPropertyValue("--glass-tint");
+  const blur = () => root.style.getPropertyValue("--glass-blur");
+  const before = { tint: tint(), blur: blur() };
+
+  slider().focus();
+  await userEvent.keyboard("{ArrowLeft}{ArrowLeft}{ArrowLeft}");
+  expect(slider().getAttribute("aria-valuetext")).toBe("70%");
+  expect(screen.getByText("70%")).toBeTruthy();
+  // A thicker tint and a softer blur, applied to the page at once.
+  expect(tint()).not.toBe(before.tint);
+  expect(Number.parseFloat(blur())).toBeLessThan(Number.parseFloat(before.blur));
+  expect(root.getAttribute("data-surface")).toBe("translucent");
+  await userEvent.keyboard("{ArrowRight}");
+  expect(slider().getAttribute("aria-valuetext")).toBe("80%");
+  expect(JSON.parse(storage.getItem("ace.appearance") ?? "{}").translucency).toBe(80);
+  // The next load boots with the same glass.
+  await waitFor(() => {
+    const boot = JSON.parse(storage.getItem("ace.boot-appearance") ?? "{}");
+    expect(boot).toMatchObject({ surface: "translucent", translucency: 80 });
+    expect(boot.css).toContain(`--glass-tint:${tint()}`);
+  });
+});
+
+test("Signal is always solid: the slider is disabled at Solid and says why", async () => {
+  await harness({ matchMedia: system({}) }).open("/settings/appearance");
+  await settled();
+  await userEvent.click(screen.getByRole("radio", { name: "Signal" }));
+  expect(root.getAttribute("data-surface")).toBe("solid");
+  expect(slider().disabled).toBe(true);
+  expect(slider().getAttribute("aria-valuetext")).toBe("Solid");
+  expect(screen.getByText("Signal is always solid")).toBeTruthy();
+  // The person's own setting is kept for the next theme with glass.
+  await userEvent.click(screen.getByRole("radio", { name: "Harbor" }));
+  expect(slider().disabled).toBe(false);
+  expect(slider().getAttribute("aria-valuetext")).toBe("100%");
+});
+
+test("the OS reducing transparency forces Solid, and the slider shows it", async () => {
   await harness({ matchMedia: system({ reducedTransparency: true }) }).open("/settings/appearance");
   expect(root.getAttribute("data-surface")).toBe("solid");
   expect(await screen.findByText("Solid while your system reduces transparency")).toBeTruthy();
+  expect(slider().disabled).toBe(true);
+  expect(slider().getAttribute("aria-valuetext")).toBe("Solid");
+});
+
+test("someone who chose Solid surfaces before the slider opens at Solid", async () => {
+  const storage = memoryKeyValue();
+  storage.setItem("ace.appearance", JSON.stringify({ theme: "umbra", surface: "solid" }));
+  await harness({ storage, matchMedia: system({}) }).open("/settings/appearance");
+  expect(root.getAttribute("data-surface")).toBe("solid");
+  await screen.findByRole("slider", { name: "Translucency" });
+  expect(slider().getAttribute("aria-valuetext")).toBe("Solid");
+  expect(slider().disabled).toBe(false);
 });
 
 test("Reduce motion follows the OS under System, and On or Off overrides it", async () => {

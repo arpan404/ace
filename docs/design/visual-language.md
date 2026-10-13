@@ -157,11 +157,20 @@ Static tokens (`tokens.css`):
 
 ## Surfaces
 
-Settings → Appearance → Surfaces is Translucent (the default) or Solid. `<html>` carries the
-resolved value as `data-surface`, which is `solid` in either of these cases:
+Settings → Appearance → Translucency is a slider in ten steps from Solid (0) to the theme's most
+translucent glass (100%, the default). The most translucent end is the AA-safe tint described
+under Glass, so no position can make text unreadable. Toward Solid the tint thickens to opaque
+and the blur and saturation fade with it (`glassVariables` in `theme/translucency.ts`). Dragging
+changes only `--glass-tint`, `--glass-blur` and `--glass-saturate` on `<html>`; liquid glass
+filters are kept.
 
-- the setting is Solid;
-- the OS reports `prefers-reduced-transparency: reduce`. Appearance then explains why.
+`<html>` carries the resolved value as `data-surface`, which is `solid` (no backdrop filter at
+all) in any of these cases:
+
+- the slider is at Solid;
+- the theme has no glass (Signal). The slider is disabled and says so;
+- the OS reports `prefers-reduced-transparency: reduce`. The slider is disabled at Solid and
+  says why.
 
 The sidebar, page and right panel are always opaque. Glass only appears on floating layers.
 
@@ -209,7 +218,8 @@ The material, in order:
    - Until its filter is ready, a layer shows the frosted backdrop only.
 3. The tint is `--glass-tint`: `--surface-2` at the thinnest opacity over which text and
    secondary text read at AA (4.5:1) and quiet hints at 3:1 over a white and a black backdrop,
-   selected rows included (`glassTintAlpha` in `theme/surfaces.ts`).
+   selected rows included (`glassTintAlpha` in `theme/surfaces.ts`). That is the slider's most
+   translucent end; every other position is thicker.
 4. The specular rim is `--glass-rim`: inset hairlines lit from above (a bright crescent along the
    top, a faint line all round, a weaker return at the bottom).
 5. The edge is `--glass-edge` and the shadow is `--float-shadow`.

@@ -15,7 +15,7 @@ export const folioFonts: ThemeFonts = { ui: sans, prose: serif, mono };
 export const ttyFonts: ThemeFonts = { ui: mono, prose: mono, mono };
 
 /**
- * Glass floating layers (when Surfaces is Translucent) with a backdrop of `light` and `dark`
+ * Glass floating layers (while Translucency is above Solid) with a backdrop of `light` and `dark`
  * frosting, and focus rings at 60% of the accent. Dark schemes blur a little more: dark glass
  * over bright content shows more of it.
  */

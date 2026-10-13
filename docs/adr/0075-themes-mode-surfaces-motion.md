@@ -58,6 +58,11 @@ These are replaced by the theme set and Surfaces:
 ### Surfaces
 
 - Surfaces is Translucent or Solid.
+  - Amended 2026-10-13: the owner asked for a slider instead. **Translucency** runs in ten steps
+    from Solid (0) to the theme's most translucent glass (100%, the default), whose tint is the
+    AA-safe floor below. Blur and saturation scale with it, and Solid has no backdrop filter.
+    Signal and reduced transparency show it disabled at Solid. A stored Solid became 0 and
+    Translucent became the default.
 - Translucent falls back to Solid while the OS reduces transparency.
 - `<html>` carries the resolved value as `data-surface`.
 - The sidebar, reading column and side panel are always opaque.

@@ -5,22 +5,19 @@ import { ThemeChooser } from "./theme-chooser.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
+import { Slider } from "@/components/ui/slider.tsx";
 import {
   TranscriptSize,
   themeHasGlass,
   transcriptSizes,
   type Density,
   type ReduceMotion,
-  type SurfaceSetting,
 } from "@/theme/appearance.ts";
 import { themes } from "@/theme/palettes.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
+import { snapTranslucency, translucencyMax, translucencyStep } from "@/theme/translucency.ts";
 import { settingRow, type SettingId } from "./settings-index.ts";
 
-const surfaceOptions: { value: SurfaceSetting; label: string }[] = [
-  { value: "translucent", label: "Translucent" },
-  { value: "solid", label: "Solid" },
-];
 const motionOptions: { value: ReduceMotion; label: string }[] = [
   { value: "system", label: "System" },
   { value: "on", label: "On" },
@@ -48,7 +45,43 @@ function PickerGroup(props: { id: SettingId; children: ReactNode }) {
   );
 }
 
-/** Mode, theme, surfaces, motion, density and transcript size. Every change applies at once. */
+/** "Solid" at 0, else the percentage of the theme's most translucent glass. */
+const translucencyText = (value: number) => (value === 0 ? "Solid" : `${value}%`);
+
+/**
+ * Translucency, from Solid to the theme's most translucent AA-safe glass. Floating layers follow
+ * it live while it's dragged. Where layers are always solid (Signal, or the OS reducing
+ * transparency) it shows Solid, disabled, and says why; the stored value is kept for later.
+ */
+function TranslucencyRow(props: {
+  forcedSolid: string | undefined;
+  value: number;
+  onValueChange(value: number): void;
+}) {
+  const value = props.forcedSolid ? 0 : props.value;
+  return (
+    <SettingRow {...settingRow("appearance.translucency")} description={props.forcedSolid}>
+      <Slider
+        label="Translucency"
+        min={0}
+        max={translucencyMax}
+        step={translucencyStep}
+        value={value}
+        disabled={props.forcedSolid !== undefined}
+        valueText={translucencyText}
+        onValueChange={(next) => props.onValueChange(snapTranslucency(next))}
+      />
+      <span
+        aria-hidden="true"
+        className="w-10 text-right text-xs text-muted-foreground tabular-nums"
+      >
+        {translucencyText(value)}
+      </span>
+    </SettingRow>
+  );
+}
+
+/** Mode, theme, translucency, motion, density and transcript size. Every change applies at once. */
 export function AppearanceSettings() {
   const { appearance, update, resolved, systemReducesTransparency } = useTheme();
   return (
@@ -63,25 +96,17 @@ export function AppearanceSettings() {
         <AccentPicker />
       </PickerGroup>
       <SettingSection label="Display" card scope="device">
-        <SettingRow
-          {...settingRow("appearance.surfaces")}
-          description={
-            appearance.surface !== "translucent"
-              ? undefined
-              : !themeHasGlass(appearance.theme, resolved.scheme)
-                ? `${themes[appearance.theme].name} is always solid`
-                : systemReducesTransparency
-                  ? "Solid while your system reduces transparency"
-                  : undefined
+        <TranslucencyRow
+          forcedSolid={
+            !themeHasGlass(appearance.theme, resolved.scheme)
+              ? `${themes[appearance.theme].name} is always solid`
+              : systemReducesTransparency
+                ? "Solid while your system reduces transparency"
+                : undefined
           }
-        >
-          <SegmentedControl
-            label="Surfaces"
-            value={appearance.surface}
-            options={surfaceOptions}
-            onValueChange={(surface) => update({ surface })}
-          />
-        </SettingRow>
+          value={appearance.translucency}
+          onValueChange={(translucency) => update({ translucency })}
+        />
         <SettingRow {...settingRow("appearance.reduceMotion")}>
           <SegmentedControl
             label="Reduce motion"

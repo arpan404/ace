@@ -146,10 +146,10 @@ const entries = [
     keywords: ["colour", "color", "accent", "highlight", "ink", "mono", "custom"],
   },
   {
-    id: "appearance.surfaces",
+    id: "appearance.translucency",
     page: "/settings/appearance",
-    title: "Surfaces",
-    keywords: ["glass", "translucent", "transparency", "solid", "blur"],
+    title: "Translucency",
+    keywords: ["glass", "translucent", "transparency", "solid", "blur", "surfaces"],
   },
   {
     id: "appearance.reduceMotion",

@@ -280,7 +280,7 @@ const browserInputs: Record<string, unknown[]> = {
     {
       mode: "dark",
       theme: "tide",
-      surface: "solid",
+      translucency: 40,
       reduceMotion: "on",
       density: "compact",
       transcriptSize: "large",
@@ -288,7 +288,7 @@ const browserInputs: Record<string, unknown[]> = {
     {
       mode: "dim",
       theme: "tokyo",
-      surface: 2,
+      translucency: "lots",
       reduceMotion: true,
       density: false,
       transcriptSize: null,

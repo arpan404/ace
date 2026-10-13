@@ -1,6 +1,6 @@
 /**
  * The surface of every control floating over the transcript (Jump to live, the jump bar, a
- * failed jump): a 32px pill on the floating material (`.ace-floating`: glass under Translucent,
+ * failed jump): a 32px pill on the floating material (`.ace-floating`: glass under Translucency,
  * solid under Solid), with the rim, edge and floating shadow. The glass tint keeps its label at
  * AA over any text or code moving under it.
  */

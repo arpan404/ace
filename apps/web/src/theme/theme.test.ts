@@ -155,15 +155,39 @@ test("System mode follows the OS's light or dark; Light and Dark ignore it", () 
   );
 });
 
-test("translucent surfaces fall back to solid while the OS reduces transparency", () => {
-  expect(resolveAppearance(defaultAppearance, os).surface).toBe("translucent");
-  expect(resolveAppearance(defaultAppearance, { ...os, reducedTransparency: true }).surface).toBe(
-    "solid",
-  );
-  expect(resolveAppearance({ ...defaultAppearance, surface: "solid" }, os).surface).toBe("solid");
+test("glass falls back to solid at translucency 0 and while the OS reduces transparency", () => {
+  expect(resolveAppearance(defaultAppearance, os)).toMatchObject({
+    surface: "translucent",
+    translucency: 100,
+  });
+  expect(resolveAppearance(defaultAppearance, { ...os, reducedTransparency: true })).toMatchObject({
+    surface: "solid",
+    translucency: 0,
+  });
+  expect(resolveAppearance({ ...defaultAppearance, translucency: 0 }, os).surface).toBe("solid");
+  expect(resolveAppearance({ ...defaultAppearance, translucency: 40 }, os)).toMatchObject({
+    surface: "translucent",
+    translucency: 40,
+  });
 });
 
-test("a theme whose layers are always solid resolves to solid even under Translucent", () => {
+/** The translucency loaded from a stored appearance of `value`. */
+function stored(value: object) {
+  const storage = memoryKeyValue();
+  storage.setItem("ace.appearance", JSON.stringify(value));
+  return loadAppearance(storage).translucency;
+}
+
+test("a stored Surfaces choice carries over to the slider: Solid is 0, Translucent the default", () => {
+  expect(stored({ theme: "umbra", surface: "solid" })).toBe(0);
+  expect(stored({ theme: "umbra", surface: "translucent" })).toBe(defaultAppearance.translucency);
+  expect(stored({ theme: "umbra" })).toBe(defaultAppearance.translucency);
+  // Once the slider has been set, its value wins over a leftover Surfaces field.
+  expect(stored({ surface: "solid", translucency: 60 })).toBe(60);
+  expect(stored({ translucency: 250 })).toBe(defaultAppearance.translucency);
+});
+
+test("a theme whose layers are always solid resolves to solid at any translucency", () => {
   const signal = { ...defaultAppearance, theme: "signal" as const };
   expect(resolveAppearance(signal, os).surface).toBe("solid");
   expect(resolveAppearance({ ...signal, mode: "dark" }, os).surface).toBe("solid");
@@ -193,7 +217,7 @@ test("a saved appearance keeps each valid choice, and a removed theme falls back
       theme: "graphite",
       accent: "violet",
       customAccent: "not a colour",
-      surface: "solid",
+      translucency: 30,
       reduceMotion: 1,
     }),
   );
@@ -202,7 +226,7 @@ test("a saved appearance keeps each valid choice, and a removed theme falls back
     theme: "ace",
     mode: "dark",
     accent: "violet",
-    surface: "solid",
+    translucency: 30,
   });
 });
 
