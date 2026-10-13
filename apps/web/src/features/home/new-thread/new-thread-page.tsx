@@ -63,6 +63,8 @@ import {
   usePreparationsChanged,
 } from "./preparations.ts";
 import { UnavailablePreparation } from "./unavailable-preparation.tsx";
+import { ReturnedStartNotice } from "./returned-start-notice.tsx";
+import { forgetReturnedStart, readReturnedStart } from "@/lib/returned-start.ts";
 import { discardPreparation } from "./discard-preparation.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { SignInNotice } from "@/features/sign-in/index.ts";
@@ -237,6 +239,12 @@ function PreparationPage(props: {
   const editedHere = useRef(false);
   const submitting = useRef(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  // Why the last start from here came back, until it is sent again or dismissed.
+  const [returned, setReturned] = useState(() => readReturnedStart(storage, draftKey));
+  const forgetReturned = () => {
+    forgetReturnedStart(storage, draftKey);
+    setReturned(undefined);
+  };
   const contentSaveRefused = useRef(false);
   const metadataSaveRefused = useRef(false);
   const page = useRef<HTMLDivElement>(null);
@@ -538,6 +546,7 @@ function PreparationPage(props: {
       return false;
     submitting.current = true;
     recoveryMayLeave.current = true;
+    forgetReturned();
     // ⌘N opens the project of the thread started last.
     saveChoices(storage, { ...loadChoices(storage), project });
     const submittedRevision = preparation(storage, props.host, draftKey)?.revision;
@@ -792,6 +801,21 @@ function PreparationPage(props: {
                         {error}
                       </p>
                     )}
+                    {returned && !error && (
+                      <ReturnedStartNotice
+                        reason={returned}
+                        worktree={resolved.mode === "worktree" && !props.pullRequest}
+                        onLocal={() => {
+                          choose({ mode: "local" });
+                          forgetReturned();
+                          toMessage();
+                        }}
+                        onDismiss={() => {
+                          forgetReturned();
+                          toMessage();
+                        }}
+                      />
+                    )}
                   </div>
                   {!(
                     admissionProblem ||
@@ -799,7 +823,8 @@ function PreparationPage(props: {
                     prSource.problem ||
                     saveFailed ||
                     preparationSaveFailed(storage, draftKey) ||
-                    error
+                    error ||
+                    returned
                   ) && (
                     <div data-environment="" className={composerEnvironmentRow}>
                       <Suspense fallback={null}>

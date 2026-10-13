@@ -28,8 +28,10 @@ import { Composer, type ComposerHandle } from "./composer/composer.tsx";
 import { ComposerDock } from "./composer/composer-dock.tsx";
 import { startedTitle } from "./composer/send-store.ts";
 import type { ThreadRef } from "./sources/index.ts";
+import { useSendActions } from "./items/failed-send.tsx";
 import { WorktreeCreationCard } from "./worktree/creation-card.tsx";
 import { useWorktreeCreation } from "./worktree/use-worktree-creation.ts";
+import { worktreeUnmade, worktreeUnmadeReason } from "./worktree/worktree-refusal.ts";
 
 /** What the new thread is doing before it exists: a worktree first, then its provider. */
 function startingLine(payload: PendingSend["payload"], accepted: boolean): TurnActivity {
@@ -48,8 +50,8 @@ function startingLine(payload: PendingSend["payload"], accepted: boolean): TurnA
  * Don't use worktree, and the composer stays available for drafting. When the daemon's receipt (or the
  * worktree's own report) names the thread and its first window has arrived, the route moves to
  * it in place; the transcript there opens on the same bubble. A refused start keeps the bubble
- * with the reason, Retry and Edit; a worktree that failed or was cancelled keeps its card with
- * Retry and Don't use worktree.
+ * with the reason, Retry and Edit; a cancelled worktree keeps its card with Retry and Don't use
+ * worktree. A start whose worktree couldn't be made goes back to New thread with its message.
  */
 export function PendingThreadView(props: {
   threadId: string;
@@ -88,6 +90,20 @@ export function PendingThreadView(props: {
   const title =
     startedTitle(commandId) ?? (payload ? provisionalTitle(payload.input) : "New thread");
   const failed = entry?.state === "failed" || intent?.state === "failed";
+  // A start refused because its worktree couldn't be made goes back to New thread: the
+  // person's message in its composer to edit and send again, the reason in its top strip. The
+  // message's own refusals keep Retry and Edit here; a cancel keeps its card.
+  const code = entry?.error ?? intent?.error;
+  const returning = isWorktreeCreate(payload) && failed && worktreeUnmade(code);
+  const { returnStart } = useSendActions(props.threadId);
+  const returned = useRef(false);
+  useEffect(() => {
+    if (!returning || !payload || returned.current) return;
+    returned.current = true;
+    void returnStart(commandId, payload, worktreeUnmadeReason(code, progress)).then((moved) => {
+      if (!moved) returned.current = false;
+    });
+  }, [returning, payload, progress, code, commandId, returnStart]);
   if (!entry && !intent && ready)
     return (
       <Screen title="New thread">
