@@ -72,7 +72,12 @@ export function GitGroup(props: {
             )}
             <RowCaret to="elsewhere" />
           </RowButton>
-          <PrLine git={git} workspaceId={props.thread.workspaceId} onClose={props.onClose} />
+          <PrLine
+            git={git}
+            threadId={props.thread.id}
+            workspaceId={props.thread.workspaceId}
+            onClose={props.onClose}
+          />
           {note && (
             <output className="mx-1 my-0.5 flex h-[26px] items-center gap-2 rounded-sm bg-accent/60 px-2 text-xs text-muted-foreground">
               <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-status-needs-you" />

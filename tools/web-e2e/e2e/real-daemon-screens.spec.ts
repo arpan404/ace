@@ -30,7 +30,7 @@ async function openThread(page: Page) {
 }
 
 test("Usage shows what the daemon's accounts service reports", async ({ page }) => {
-  await connect(page, "/accounts");
+  await connect(page, "/usage");
   await expect(page.getByRole("heading", { level: 1, name: "Usage", exact: true })).toBeVisible();
   const account = page.getByRole("article", { name: "Codex Your CLI login" });
   await expect(account.getByText("Not reported yet")).toBeVisible();

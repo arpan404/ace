@@ -187,7 +187,7 @@ export async function runTour(options: Tour) {
       ...new Set(elements.map((element) => element.getAttribute("href") ?? "")),
     ]);
   for (const path of providers) await step(`provider-${path.split("/").at(-1)}`, () => visit(path));
-  await step("usage-accounts", () => visit("/accounts"));
+  await step("usage-accounts", () => visit("/usage"));
   await step(
     "skills-cold-start",
     async () => {

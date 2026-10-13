@@ -10,6 +10,8 @@ export const threadWorkspace = defineWorkspace({
   label: "Thread panel",
   launcher: "new-tab",
   mobileAction: { label: "Summary", kind: "work" },
+  // A phone has no room for the panel beside the conversation: Changes opens over it from ⋯.
+  mobileTools: [{ label: "Changes", kind: "changes" }],
   initial: [
     { kind: "work", pinned: true },
     { kind: "changes", pinned: true },

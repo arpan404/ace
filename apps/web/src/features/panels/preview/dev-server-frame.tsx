@@ -64,7 +64,12 @@ function isBlank(frame: HTMLIFrameElement, url: string): boolean {
  * runs while there is no `src` yet (the preview is still signing in).
  */
 function useFrameLoad(url: string, src: string | undefined, load: string) {
-  const [state, setState] = useState<{ key: string; phase: FramePhase; failure?: BrowserFailure }>({
+  const [state, setState] = useState<{
+    key: string;
+    phase: FramePhase;
+    failure?: BrowserFailure;
+    unreachable?: boolean;
+  }>({
     key: "",
     phase: "loading",
   });
@@ -87,7 +92,7 @@ function useFrameLoad(url: string, src: string | undefined, load: string) {
       answered.current = ok;
       if (!ok) {
         clearTimeout(timer);
-        setState({ key, phase: "failed", failure: unreachable(url) });
+        setState({ key, phase: "failed", failure: unreachable(url), unreachable: true });
       } else if (loaded.current) {
         clearTimeout(timer);
         setState({ key, phase: frame.current && isBlank(frame.current, url) ? "blank" : "loaded" });
@@ -103,7 +108,13 @@ function useFrameLoad(url: string, src: string | undefined, load: string) {
     if (answered.current === true)
       setState({ key, phase: frame.current && isBlank(frame.current, url) ? "blank" : "loaded" });
   };
-  return { phase: current.phase, failure: current.failure, frame, onLoad };
+  return {
+    phase: current.phase,
+    failure: current.failure,
+    unreachable: state.key === key && !!state.unreachable,
+    frame,
+    onLoad,
+  };
 }
 
 /**
@@ -150,14 +161,20 @@ export function DevServerFrame(props: {
   onGatewayStatus?: ((status: PreviewGatewayStatus) => void) | undefined;
   onPhase(phase: FramePhase): void;
   onRetry(): void;
+  /** Nothing answered at `url`: the owner may offer something else instead of the failure. */
+  onUnreachable?: (() => void) | undefined;
 }) {
-  const { url, src, onPhase } = props;
+  const { url, src, onPhase, onUnreachable } = props;
   const loading = useFrameLoad(url, src, props.load);
   const { frame } = loading;
   useGatewayStatus(frame, url, props.onGatewayStatus);
   const failure = props.failure ?? loading.failure;
   const phase: FramePhase = props.failure ? "failed" : loading.phase;
   useEffect(() => onPhase(phase), [onPhase, phase]);
+  const silent = loading.unreachable && !props.failure;
+  useEffect(() => {
+    if (silent) onUnreachable?.();
+  }, [silent, onUnreachable]);
   return (
     <div className="relative min-h-0 flex-1 bg-background">
       {src !== undefined && (
@@ -203,9 +220,6 @@ export function DevServerFrame(props: {
     </div>
   );
 }
-
-/** Why a preview has no Back or Forward: its page's history stays inside the frame. */
-export const noHistory = "a preview's page history stays inside it; use the page's own links";
 
 /**
  * The address in this device's own browser. With `address`, what opens is asked for on the

@@ -17,7 +17,7 @@ async function connect(page: Page, path: string) {
 }
 
 test("Usage is read-only and directs account management to Providers", async ({ page }) => {
-  await connect(page, "/accounts");
+  await connect(page, "/usage");
   await expect(page.getByRole("heading", { level: 1, name: "Usage", exact: true })).toBeVisible();
   await expect(
     page.getByRole("button", { name: /Add account|Rename|Remove|Make default/ }),

@@ -134,6 +134,18 @@ test("on a phone the Summary opens in the panel sheet and Escape closes it", asy
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
+test("on a phone the thread's Changes open from ⋯ in a sheet over the whole screen", async () => {
+  windowWidth(390);
+  await openThread();
+  await userEvent.click(await moreActions(screen.getByRole("banner")));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Changes" }));
+  const sheet = await screen.findByRole("dialog", { name: "Thread panel" });
+  expect(within(sheet).getByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
+  expect(within(sheet).getByRole("button", { name: "Done" })).toBeTruthy();
+  await userEvent.click(within(sheet).getByRole("button", { name: "Done" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread panel" })).toBeNull());
+});
+
 test("in a wide window the header shows only its menu, the thread details icon and the panel toggle", async () => {
   windowWidth(1440);
   await openThread();

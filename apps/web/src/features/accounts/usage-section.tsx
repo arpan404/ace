@@ -208,7 +208,7 @@ export function UsageSection() {
     <section aria-labelledby="usage-title" className="mt-10">
       <div className="flex items-center gap-4">
         <h2 id="usage-title" className="min-w-0 flex-1 text-md font-medium">
-          Usage
+          Tokens and cost
         </h2>
         <SegmentedControl
           label="Range"

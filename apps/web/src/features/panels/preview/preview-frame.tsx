@@ -21,6 +21,8 @@ export function PreviewFrame(props: {
   attempt: number;
   onPhase(phase: FramePhase): void;
   onRetry(): void;
+  /** Nothing answered at the server's address (not a refusal or a slow page). */
+  onUnreachable?: (() => void) | undefined;
 }) {
   const { server } = props;
   const [again, setAgain] = useState({ attempt: props.attempt, count: 0 });
@@ -52,6 +54,7 @@ export function PreviewFrame(props: {
       onGatewayStatus={server.origin ? onGatewayStatus : undefined}
       onPhase={props.onPhase}
       onRetry={props.onRetry}
+      onUnreachable={props.onUnreachable}
     />
   );
 }

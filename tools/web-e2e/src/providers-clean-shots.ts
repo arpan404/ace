@@ -100,7 +100,7 @@ try {
         [0, "providers", "/settings/providers"],
         [1, "provider", "/settings/providers/codex"],
         [2, "add-account", "/settings/providers/codex"],
-        [3, "usage", "/accounts"],
+        [3, "usage", "/usage"],
       ] as const) {
         await page.goto(`${base}${route}`, { waitUntil: "domcontentloaded", timeout: 180_000 });
         if (index === 0)

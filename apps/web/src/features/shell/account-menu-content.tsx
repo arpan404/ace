@@ -58,10 +58,7 @@ export function AccountMenuContent() {
         </MenuItem>
       ))}
       <MenuSeparator />
-      <MenuItem
-        icon={<ChartBarIcon aria-hidden />}
-        onClick={() => void navigate({ to: "/accounts" })}
-      >
+      <MenuItem icon={<ChartBarIcon aria-hidden />} onClick={() => void navigate({ to: "/usage" })}>
         Usage
       </MenuItem>
       <MenuItem

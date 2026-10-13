@@ -43,8 +43,6 @@ async function dismissedOnDaemon(app: Harness) {
 
 async function toProject() {
   await userEvent.click(await screen.findByRole("button", { name: "Continue" }));
-  await screen.findByRole("heading", { name: "Check your tools" });
-  await userEvent.click(screen.getByRole("button", { name: "Continue" }));
   await screen.findByRole("heading", { name: "Choose your first project" });
 }
 
@@ -53,7 +51,6 @@ const progress = () => screen.findByRole("progressbar", { name: "Providers ready
 test("a first launch opens setup; signing in updates readiness, and Add a project opens the folder chooser", async () => {
   const app = firstRun();
   await app.open("/");
-  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   const cards = await screen.findByRole(
     "list",
     { name: "Providers on this computer" },
@@ -84,14 +81,13 @@ test("a first launch opens setup; signing in updates readiness, and Add a projec
   await toProject();
   await userEvent.click(screen.getByRole("button", { name: "Add a project" }));
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
-  expect(screen.getByRole("combobox", { name: "Search project sources" })).toBeTruthy();
+  expect(await screen.findByRole("combobox", { name: "Search folders" })).toBeTruthy();
   expect(await dismissedOnDaemon(app)).toBe(true);
 }, 30_000);
 
 test("Skip for now goes on to adding a project, and Home doesn't send this device back to setup", async () => {
   const app = firstRun();
   await app.open("/");
-  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   await screen.findByRole("list", { name: "Providers on this computer" }, { timeout: 10_000 });
   await userEvent.click(screen.getByRole("button", { name: "Skip for now" }));
   // The first run's next step: a project to work in.
@@ -111,7 +107,6 @@ test("a CLI that doesn't report its sign-in counts as ready once its upstreams l
   // upstreams (Pi doesn't report a sign-in), Codex's CLI login signed out with Personal available, Cursor expired.
   const app = harness({ onboarding: "pending" });
   await app.open("/");
-  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   const cards = await screen.findByRole(
     "list",
     { name: "Providers on this computer" },
@@ -144,7 +139,6 @@ test("an agent that isn't installed starts its official installer with one click
   app.daemon.services.installed.delete("codex");
   stage(app, "codex", { installed: false });
   await app.open("/setup");
-  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   const missing = await screen.findByRole("region", { name: "Not installed" }, { timeout: 10_000 });
   const codex = within(missing).getByRole("listitem", { name: "Codex" });
   await userEvent.click(within(codex).getByRole("button", { name: "Install" }));
@@ -154,12 +148,29 @@ test("an agent that isn't installed starts its official installer with one click
   expect((await progress()).getAttribute("aria-valuetext")).toMatch(/ of 4 ready$/);
 }, 30_000);
 
-test("setup welcomes a new user before showing ready providers", async () => {
+test("first launch is two steps and reaches the composer in four actions", async () => {
   const app = harness({ onboarding: "pending" });
+  app.daemon.projects.seedFolders("/home/dev", [{ path: "/home/dev/weather", git: true }]);
   await app.open("/");
-  expect(await screen.findByRole("heading", { name: "Welcome to ace" })).toBeTruthy();
-  expect(screen.queryByRole("heading", { name: "Connect your agents" })).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "Get started" }));
-  expect(await screen.findByRole("heading", { name: "Connect your agents" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
-});
+  // Setup opens on its first step: no welcome page before the agents.
+  expect(
+    await screen.findByRole("heading", { level: 2, name: "Connect your agents" }),
+  ).toBeTruthy();
+  expect(screen.getByRole("list", { name: "Step 1 of 2" })).toBeTruthy();
+  const skip = screen.getByRole("button", { name: "Skip for now" });
+  // 1. Continue, once an agent is ready.
+  const next = screen.getByRole<HTMLButtonElement>("button", { name: "Continue" });
+  await waitFor(() => expect(next.disabled).toBe(false));
+  await userEvent.click(next);
+  await screen.findByRole("heading", { level: 2, name: "Choose your first project" });
+  // Skip for now stays where it was.
+  expect(screen.getByRole("button", { name: "Skip for now" })).toBe(skip);
+  // 2. Add a project opens the folder browser itself.
+  await userEvent.click(screen.getByRole("button", { name: "Add a project" }));
+  const folders = await screen.findByRole("listbox", { name: "Folders" });
+  // 3. The folder, 4. Add it: New thread's composer is ready for the first prompt.
+  await userEvent.click(await within(folders).findByRole("option", { name: /^weather/ }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add weather" }));
+  expect(await screen.findByRole("button", { name: "Project: weather" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: /^Message$/ })).toBeTruthy();
+}, 30_000);

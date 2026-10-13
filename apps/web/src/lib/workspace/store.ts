@@ -48,6 +48,8 @@ export class WorkspaceStore {
   private readonly globalListeners = new Set<() => void>();
   private preferredSize: number;
   private focusedScope: string | undefined;
+  /** The scope focused most recently, kept after it loses focus (a thread switched away from). */
+  private lastFocused: string | undefined;
   /** A change was kept in memory only (a drag still moving); the next persist writes it. */
   private dirty = false;
   private readonly definitions = new Map<string, WorkspaceDefinition>();
@@ -95,6 +97,11 @@ export class WorkspaceStore {
     return this.definitions.get(scope);
   }
 
+  /** The scope has no panel of its own yet: never changed here, nor kept from before. */
+  untouched(scope: string): boolean {
+    return this.seeded.has(scope) || !this.scopes.has(scope);
+  }
+
   /**
    * Change a scope's workspace. `persist: false` while a drag is still moving (the drag's end
    * persists), so storage is written once per gesture.
@@ -140,8 +147,14 @@ export class WorkspaceStore {
     return this.focusedScope;
   }
 
+  /** The scope focused before this one, or the one still focused; undefined at first. */
+  get previous(): string | undefined {
+    return this.lastFocused;
+  }
+
   setFocused(scope: string | undefined): void {
     if (this.focusedScope === scope) return;
+    if (this.focusedScope !== undefined) this.lastFocused = this.focusedScope;
     this.focusedScope = scope;
     for (const listener of this.globalListeners) listener();
   }

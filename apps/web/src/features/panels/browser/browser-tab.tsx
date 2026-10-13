@@ -227,29 +227,21 @@ function Browser(props: TabViewProps) {
             back={{
               onClick: page.back,
               keys: "mod+[",
-              reason: !page.online
-                ? "ace is offline"
-                : page.canBack
-                  ? undefined
-                  : "no earlier page in this tab",
+              disabled: !page.online || !page.canBack,
             }}
             forward={{
               onClick: page.forward,
               keys: "mod+]",
-              reason: !page.online
-                ? "ace is offline"
-                : page.canForward
-                  ? undefined
-                  : "no later page in this tab",
+              disabled: !page.online || !page.canForward,
             }}
             reload={{
               onClick: page.reload,
               keys: "mod+r",
-              reason: !page.online ? "ace is offline" : shownUrl ? undefined : "open a page first",
+              disabled: !page.online || !shownUrl,
             }}
             stop={{
               onClick: () => void source.navigateHistory?.(threadId, "stop"),
-              reason: !page.heldAs ? "Take over to stop loading" : undefined,
+              disabled: !page.heldAs,
             }}
             loading={loading}
           />

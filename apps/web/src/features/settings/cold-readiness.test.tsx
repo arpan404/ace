@@ -73,7 +73,7 @@ test("Pi General permissions keeps the provider default when no selector is supp
 });
 
 test("Usage shows OpenCode's unreported limits quietly while another source needs attention", async () => {
-  await fixture().open("/accounts");
+  await fixture().open("/usage");
   await userEvent.click(await screen.findByText(/accounts without reported limits/));
   const row = await screen.findByRole("article", { name: "OpenCode Your CLI login" });
   expect(within(row).getByText("Not reported yet")).toBeTruthy();

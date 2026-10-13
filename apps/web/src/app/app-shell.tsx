@@ -8,6 +8,9 @@ import { DeleteConfirmationHost, MoveToProjectHost } from "@/features/organize/i
 import { CommandPalette } from "@/features/palette/index.ts";
 import { ProjectsHost, useProjectDialogs } from "@/features/projects/index.ts";
 import { ComputerUseIndicator } from "@/features/computer-use/index.ts";
+import { loadPullRequestTab } from "@/features/forge/index.ts";
+import { PullRequestViewProvider } from "@/features/panels/index.ts";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { ThreadsSidebar, useSeenWhileOpen } from "@/features/home/index.ts";
 import { SearchHost } from "@/features/search/index.ts";
 import { SignInHost } from "@/features/sign-in/index.ts";
@@ -15,6 +18,9 @@ import { AppSidebar, GlobalHotkeys, SidebarFrame, ShortcutHost } from "@/feature
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useStartupShell } from "@/lib/startup/startup.tsx";
 import { cn } from "@/lib/cn.ts";
+
+/** A pull request in a thread's side panel: the forge's view, loaded when one first shows. */
+const PullRequestTab = deferredComponent(() => loadPullRequestTab().then((m) => m.default));
 
 /**
  * Wallpaper, the one sidebar (the thread list, or Settings' pages) and the selected view.
@@ -57,7 +63,9 @@ export function AppShell() {
                 </LocalBoundary>
               }
             >
-              <Outlet />
+              <PullRequestViewProvider value={PullRequestTab.Component}>
+                <Outlet />
+              </PullRequestViewProvider>
             </SidebarFrame>
             <LocalBoundary label="the command palette" fallback={null}>
               <CommandPalette />

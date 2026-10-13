@@ -253,7 +253,6 @@ export function Feed(props: FeedProps) {
   const feed = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(!detached);
   const upwardIntent = useRef(false);
-  const [overflowing, setOverflowing] = useState(false);
   const glidingUntil = useRef(0);
   // Until this moment the view is where code put it (a restored place, a jump): its scroll
   // events are not the reader's and never page the window.
@@ -475,18 +474,6 @@ export function Feed(props: FeedProps) {
   useEffect(() => {
     if (!nav.searchOpen) setFlash(undefined);
   }, [nav.searchOpen]);
-  useLayoutEffect(() => {
-    const el = viewport.current;
-    if (!el) return;
-    const read = () => setOverflowing(el.scrollHeight > el.clientHeight + 1);
-    read();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(read);
-    observer.observe(el);
-    if (feed.current) observer.observe(feed.current);
-    return () => observer.disconnect();
-  }, [total]);
-
   const items = virtualizer.getVirtualItems();
   const firstVisible = items[0]?.index;
   const { hasOlder, loading, loadOlder } = pager;
@@ -551,7 +538,7 @@ export function Feed(props: FeedProps) {
       {/* The rows and the bars that float over their top (search, the jump bar). */}
       <div className="relative flex min-h-0 flex-1 flex-col">
         <Suspense fallback={null}>
-          <DeferredTurnRail.Component nav={nav} overflowing={overflowing} />
+          <DeferredTurnRail.Component nav={nav} />
         </Suspense>
         <div
           ref={viewport}

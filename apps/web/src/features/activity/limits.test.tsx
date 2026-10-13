@@ -57,7 +57,7 @@ function visibility(state: DocumentVisibilityState) {
 /** Claude Code · Work at its 5-hour limit, a moment before that window resets, on Usage. */
 async function workAtLimit(app: App) {
   report(app, "claude-work", { five_hour: [100, 1] });
-  await app.open("/accounts");
+  await app.open("/usage");
   const work = await screen.findByRole("article", { name: "Claude Code Work" });
   expect(within(work).getByText("Limit reached")).toBeTruthy();
 }
@@ -119,7 +119,7 @@ test("toasts say when an account nears its limit, reaches it and can work again"
   report(app, "claude-work", { five_hour: [60, 2 * hour] });
   // Commit the lazy limit notifier and its initial reading before changing the provider quota.
   await act(async () => {
-    await app.open("/accounts");
+    await app.open("/usage");
   });
   await screen.findByRole("article", { name: "Claude Code Work" });
 
@@ -145,7 +145,7 @@ test("with limit toasts turned off, an account reaching its limit stays quiet", 
   localStorage.setItem("ace.notifications.toasts", JSON.stringify({ limits: false }));
   const app = harness();
   report(app, "claude-work", { five_hour: [60, 2 * hour] });
-  await app.open("/accounts");
+  await app.open("/usage");
   await screen.findByRole("article", { name: "Claude Code Work" });
 
   report(app, "claude-work", { five_hour: [100, 2 * hour] });

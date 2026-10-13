@@ -1,6 +1,7 @@
 import { Navigate } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { loadComputerUseSettings } from "@/features/computer-use/index.ts";
+import { ToolchainHints } from "@/features/diagnostics/index.ts";
 const AdvancedSettings = lazy(() =>
   import("./advanced-page.tsx").then((module) => ({ default: module.AdvancedSettings })),
 );
@@ -142,6 +143,10 @@ export function ComputerUseSettingsScreen() {
       <Suspense fallback={null}>
         <ComputerUseSettings />
       </Suspense>
+      {/* The tools this computer has (Git, device toolchains), with how to get a missing one. */}
+      <div className="mt-8">
+        <ToolchainHints />
+      </div>
     </SettingsBody>
   );
 }

@@ -56,7 +56,6 @@ test.each(providers)(
   async (provider, name, method) => {
     const app = missing(provider, method);
     await app.open("/setup");
-    await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
     const item = () => screen.getByRole("listitem", { name });
     await userEvent.click(
       await within(await screen.findByRole("listitem", { name })).findByRole("button", {
@@ -155,7 +154,6 @@ test("a download-only distribution explains the platform limit and opens the off
   const app = missing("antigravity", "registry");
   app.daemon.services.providerInstalls.scenarios.antigravity = "download_only";
   await app.open("/setup");
-  await userEvent.click(await screen.findByRole("button", { name: "Get started" }));
   const row = await screen.findByRole("listitem", { name: "Antigravity" });
   await userEvent.click(await within(row).findByRole("button", { name: "Install" }));
   expect(

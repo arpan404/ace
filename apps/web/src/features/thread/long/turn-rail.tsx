@@ -6,7 +6,10 @@ import { useWatched, type ThreadNav } from "./nav.tsx";
 import { useTurnHead, useTurnSummary } from "./turn-index.ts";
 import { railOrdinals } from "./rail-ordinals.ts";
 
-export function TurnRail({ nav, overflowing }: { nav: ThreadNav; overflowing: boolean }) {
+/** Turns before the rail shows: a shorter thread is quicker to scroll than to outline. */
+const railTurns = 6;
+
+export function TurnRail({ nav }: { nav: ThreadNav }) {
   const head = useTurnHead(nav.threadId);
   const count = head?.count ?? 0;
   const current = useWatched(nav.currentTurn);
@@ -21,7 +24,7 @@ export function TurnRail({ nav, overflowing }: { nav: ThreadNav; overflowing: bo
       })),
     [count, reading],
   );
-  if (count < 2 || (!overflowing && count < 8)) return null;
+  if (count < railTurns) return null;
   return (
     <div className="absolute top-20 bottom-24 left-0 z-[6] grid place-items-center">
       <ConversationRail

@@ -4,7 +4,7 @@ import {
   SquareSplitHorizontalIcon,
   SquareSplitVerticalIcon,
 } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import type { KeymapId } from "@/lib/keymap.ts";
 import type { IconGlyph } from "@/components/icon.tsx";
 import { usePhone } from "@/lib/breakpoints.ts";
@@ -15,7 +15,7 @@ import type { ScopeWorkspace, WorkspaceActions } from "@/lib/workspace/index.ts"
 export interface PanelControlAction {
   icon: IconGlyph;
   label: string;
-  shortcut: KeymapId;
+  shortcut?: KeymapId | undefined;
   onClick(): void;
 }
 
@@ -31,17 +31,26 @@ export function PanelControls(props: {
   placement: "header" | "panel";
   dockable?: boolean | undefined;
   mobileAction: { label: string; onClick(): void };
+  /** Tools a phone's ⋯ opens directly, after the panel action. */
+  mobileTools?: readonly PanelControlAction[] | undefined;
   renderAction?: ((action: PanelControlAction) => ReactNode) | undefined;
 }) {
   const { workspace, actions } = props;
   const phone = usePhone();
-  if (props.renderAction)
-    return props.renderAction({
-      icon: SquareSplitHorizontalIcon,
-      label: props.mobileAction.label,
-      shortcut: "rightPanel",
-      onClick: props.mobileAction.onClick,
-    });
+  const render = props.renderAction;
+  if (render)
+    return (
+      <>
+        {render({
+          icon: SquareSplitHorizontalIcon,
+          label: props.mobileAction.label,
+          shortcut: "rightPanel",
+          onClick: props.mobileAction.onClick,
+        })}
+        {phone &&
+          props.mobileTools?.map((tool) => <Fragment key={tool.label}>{render(tool)}</Fragment>)}
+      </>
+    );
   return (
     <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
       {props.placement === "panel" && (

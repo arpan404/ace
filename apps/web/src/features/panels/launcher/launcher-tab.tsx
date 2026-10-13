@@ -14,8 +14,6 @@ import { Suggested } from "./suggested.tsx";
 import { ToolGrid } from "./tool-grid.tsx";
 import { useSuggested, type SuggestedSite } from "./use-suggested.ts";
 
-const fresh = "a new tab has no history";
-
 /** The Suggested row, once the panel services (the thread's dev servers) have loaded. */
 function SuggestedSites(props: {
   scope: string;
@@ -67,19 +65,14 @@ export function LauncherTab(props: TabViewProps) {
   return (
     <div className="@container flex h-full flex-col">
       <PageToolbar
-        nav={
-          <PageNav
-            back={{ reason: fresh }}
-            forward={{ reason: fresh }}
-            reload={{ reason: fresh }}
-          />
-        }
+        nav={<PageNav back={{}} forward={{}} reload={{}} />}
         address={
           <AddressBar
             url={undefined}
             known={known}
             loading={false}
             placeholder="Search or enter a URL"
+            autoFocus
             onGo={openAddress}
           />
         }

@@ -54,7 +54,7 @@ const main = () => within(screen.getByRole("main"));
 
 async function choose(select: string, option: string) {
   if (["Time zone", "Permissions", "If a run was missed"].includes(select)) {
-    const advanced = screen.getByText("Advanced", { exact: true });
+    const advanced = main().getByText("Advanced", { exact: true });
     if (!advanced.closest("details")?.open) await userEvent.click(advanced);
   }
   await userEvent.click(screen.getByRole("combobox", { name: select }));

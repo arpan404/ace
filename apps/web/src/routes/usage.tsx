@@ -3,10 +3,10 @@ import { AccountsPage } from "@/features/accounts/index.ts";
 import { ViewFrame } from "@/features/shell/index.ts";
 
 /**
- * Usage and accounts: accounts per provider, quota rings, usage over time and the scheduling
- * policy. Reached from the profile menu only; the sidebar keeps the thread list.
+ * Usage: accounts per provider, quota rings, usage over time and the scheduling policy. Reached
+ * from the profile menu and the palette; the sidebar keeps the thread list.
  */
-export const Route = createFileRoute("/accounts")({
+export const Route = createFileRoute("/usage")({
   component: () => (
     <ViewFrame label="Usage" place="threads">
       <AccountsPage />

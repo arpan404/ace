@@ -53,8 +53,6 @@ test("Setup keeps the history dialog and importing reachable away from new threa
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/setup");
-  await page.getByRole("button", { name: "Get started" }).click();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByText("Bring an existing conversation").click();
   await page.getByRole("combobox", { name: "Past sessions project" }).click();

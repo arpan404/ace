@@ -8,8 +8,8 @@ import { harness, memoryKeyValue } from "@/test/harness.tsx";
 configure({ asyncUtilTimeout: 10000 });
 
 const coldStart = "Cap cold-start replay at 200 events";
-/** The Preview tab, titled by the dev server it shows (the thread's web server on 5173). */
-const web = "web · :5173";
+/** A tool tab with a steady title: the thread's Logs (⌃⇧L). */
+const web = "Logs";
 /** The cold-start totals belong to the last completed turn. */
 const changes = "Changes";
 
@@ -47,21 +47,24 @@ test("the side panel starts on Summary, Changes and Files, and + opens a new tab
 
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   expect(selected(panel).textContent).toBe("New tab");
-  await launch(panel, "Preview");
+  await launch(panel, "Logs");
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
   expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "New tab", web]);
 });
 
-test("a thread's tabs stay with it: another thread doesn't inherit them, and they come back on return", async () => {
+test("a thread's tabs stay with it: the panel stays open on another thread's own tabs, and they come back on return", async () => {
   await openColdStart();
-  await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
+  await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
   const panel = await sidePanel();
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
 
   const threads = screen.getByRole("navigation", { name: "Threads" });
   await userEvent.click(within(threads).getByRole("link", { name: /Migrate settings schema/ }));
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
-  expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
+  // The panel is still there, with this thread's tabs: the other thread's Logs stay with it.
+  await waitFor(async () =>
+    expect(tabNames(await sidePanel())).toEqual(["Summary", changes, "Files"]),
+  );
 
   await userEvent.keyboard("{Meta>}[[{/Meta}");
   await screen.findByRole("heading", { level: 1, name: coldStart });
@@ -96,7 +99,7 @@ test("tabs survive a reload with the one that was showing", async () => {
 
 test("from the keyboard: arrows show the next tab, Alt+Shift+arrow reorders, Delete closes and focus moves on", async () => {
   await openColdStart();
-  await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
+  await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
   const panel = await sidePanel();
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
   await launch(panel, "Devices");
@@ -123,7 +126,7 @@ test("from the keyboard: arrows show the next tab, Alt+Shift+arrow reorders, Del
 
 test("dragging a tab onto another puts it beside that one", async () => {
   await openColdStart();
-  await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
+  await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
   const panel = await sidePanel();
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
   await launch(panel, "Devices");
@@ -160,7 +163,7 @@ test("a tool's shortcut shows it, and pressed again hides the panel", async () =
 
 test("hiding the side panel keeps its tabs, and the header then keeps only its toggle", async () => {
   await openColdStart();
-  await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
+  await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
   const panel = await sidePanel();
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
   // Off Apple platforms the side panel is Ctrl+Alt+B (Ctrl+Shift+B is the Browser there).
@@ -195,7 +198,7 @@ test("from the keyboard alone: Shift+F10 opens a tab's menu, which can open it i
 
 test("a closed tab comes back where it was with Reopen closed tab", async () => {
   await openColdStart();
-  await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
+  await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
   const panel = await sidePanel();
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
   await launch(panel, "Devices");

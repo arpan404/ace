@@ -80,7 +80,7 @@ test("a limited thread moves to another account and carries on", async ({ page }
 test("Usage keeps limited-thread counts in a tooltip without recovery controls", async ({
   page,
 }) => {
-  await page.goto("/accounts");
+  await page.goto("/usage");
   const team = page.getByRole("article", { name: "Codex Team" });
   await expect(team).toBeVisible();
   await expect(team.getByRole("button", { name: "Move running threads" })).toHaveCount(0);

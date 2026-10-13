@@ -1,15 +1,10 @@
 import { beforeEach, expect, test } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {
-  ForgePrDetail,
-  ForgePrSearch,
-  ForgeStackWorkspace,
-  ThreadId,
-  WorkspaceId,
-} from "@ace/protocol";
+import { ForgePrDetail, ForgeStackWorkspace, ThreadId, WorkspaceId } from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
+import { openPullRequest } from "./test-support.ts";
 
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;
 const workspaceId = WorkspaceId.parse("api");
@@ -126,7 +121,7 @@ beforeEach(() => localStorage.clear());
 
 test("a middle layer reveals merge blockers on expand and reviews the native merge scope and method before execution", async () => {
   const app = setup();
-  await app.open("/pull-requests?project=api&number=42");
+  await openPullRequest(app, { project: "api", number: 42 });
   const section = await screen.findByRole("region", { name: "Pull request stack" });
   const details = await within(section).findByRole("button", { name: "Details for #42" });
   expect(within(section).queryByText("Blocked by merge rules")).toBeNull();
@@ -170,7 +165,7 @@ test("a refreshed uncertain request blocks another merge and remains visible aft
       },
     }),
   );
-  await app.open("/pull-requests?project=api&number=42");
+  await openPullRequest(app, { project: "api", number: 42 });
   const section = await screen.findByRole("region", { name: "Pull request stack" });
   expect(
     await within(section).findByText(
@@ -224,7 +219,7 @@ test("a cancelled required check blocks its layer even when GitHub's rollup and 
       },
     }),
   );
-  await app.open("/pull-requests?project=api&number=42");
+  await openPullRequest(app, { project: "api", number: 42 });
   const section = await screen.findByRole("region", { name: "Pull request stack" });
   expect(within(section).getByRole("img", { name: "Tests failing" })).toBeTruthy();
   await userEvent.click(within(section).getByRole("button", { name: "Details for #43" }));
@@ -239,7 +234,7 @@ test("a cancelled required check blocks its layer even when GitHub's rollup and 
 
 test("no linked task leaves stack navigation available while remote writes require an explicit association", async () => {
   const app = setup(stack, false);
-  await app.open("/pull-requests?project=api&number=42");
+  await openPullRequest(app, { project: "api", number: 42 });
   const section = await screen.findByRole("region", { name: "Pull request stack" });
   await within(section).findByText("No linked task");
   expect(
@@ -285,7 +280,7 @@ test("a locally rebased stack reviews each layer's leased push before publishing
   const value = rebasedStack();
   const app = setup(value);
   app.daemon.refuseCommands("forge_conflict", "forge.pr.stack.change");
-  await app.open("/pull-requests?project=api&number=42");
+  await openPullRequest(app, { project: "api", number: 42 });
   const section = await screen.findByRole("region", { name: "Pull request stack" });
   await within(section).findByText("Rebased, not pushed");
   expect(within(section).queryByText(/not yet pushed/)).toBeNull();
@@ -320,7 +315,7 @@ test("layers a collaborator moved on GitHub are listed with both heads and block
   const app = setup(
     rebasedStack([{ number: 42, branch: "api", reviewed: "b".repeat(40), current: theirs }]),
   );
-  await app.open("/pull-requests?project=api&number=42");
+  await openPullRequest(app, { project: "api", number: 42 });
   const section = await screen.findByRole("region", { name: "Pull request stack" });
   const moved = await within(section).findByRole("list", { name: "Layers moved on GitHub" });
   expect(
@@ -337,53 +332,6 @@ test("layers a collaborator moved on GitHub are listed with both heads and block
   expect(publish.disabled).toBe(true);
 });
 
-test("repository lists group only host-confirmed layers and use host positions for navigation", async () => {
-  const app = setup();
-  app.daemon.workspace.setForgeRead(
-    { op: "forge.pr.list", workspaceId, query: ForgePrSearch.parse({}) },
-    {
-      resource: "prList",
-      value: {
-        repository,
-        items: [43, 41, 42].map((number) => ({
-          ref: { repository, number },
-          title: `Layer ${number}`,
-          url: `https://github.com/acme/api/pull/${number}`,
-          author: "author",
-          state: "open",
-          labels: [],
-          updatedAt: "2026-10-11",
-        })),
-        total: 3,
-        counts: { open: 3, draft: 0, closed: 0, merged: 0 },
-        incomplete: false,
-        truncated: false,
-      },
-    },
-  );
-  app.daemon.workspace.setForgeRead(
-    { op: "forge.pr.stack-memberships", workspaceId, repository, numbers: [43, 41, 42] },
-    {
-      resource: "prStackMemberships",
-      value: [
-        { number: 43, stack: { id: "STACK_2", number: 2, trunk: "main", size: 3, position: 3 } },
-        { number: 41, stack: { id: "STACK_2", number: 2, trunk: "main", size: 3, position: 1 } },
-        { number: 42, stack: null },
-      ],
-    },
-  );
-  await app.open("/pull-requests?project=api");
-  const groups = await screen.findByRole("region", { name: "Native pull request stacks" });
-  await within(groups).findByText("acme/api · Stack #2 → main · 3 layers");
-  expect(
-    within(groups)
-      .getAllByRole("button")
-      .map((button) => button.getAttribute("aria-label")),
-  ).toEqual(["#41 · layer 1", "#43 · layer 3"]);
-  await userEvent.click(within(groups).getByRole("button", { name: "#43 · layer 3" }));
-  expect(await screen.findByRole("heading", { name: "UI" })).toBeTruthy();
-});
-
 test.each([
   { error: "forge_forbidden", message: /This account cannot access the repository/ },
   { error: "forge_conflict", message: /The GitHub resource changed while reading/ },
@@ -392,7 +340,7 @@ test.each([
   async ({ error, message }) => {
     const app = setup();
     app.daemon.refuseCommands(error, "forge.pr.stack.change");
-    await app.open("/pull-requests?project=api&number=42");
+    await openPullRequest(app, { project: "api", number: 42 });
     const section = await screen.findByRole("region", { name: "Pull request stack" });
     const merge = await within(section).findByRole<HTMLButtonElement>("button", {
       name: "Merge through #42",

@@ -67,8 +67,6 @@ for (const { theme, width } of cases) {
     await shot(page, "17-computer-profile", suffix);
     await page.keyboard.press("Escape");
     await page.goto("/setup");
-    await page.getByRole("button", { name: "Get started" }).click();
-    await page.getByRole("button", { name: "Continue", exact: true }).click();
     await page.getByRole("button", { name: "Continue", exact: true }).click();
     await page.getByText("Bring an existing conversation").click();
     await page.getByRole("combobox", { name: "Past sessions project" }).click();

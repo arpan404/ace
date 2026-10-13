@@ -82,7 +82,7 @@ export default function LimitNotifier() {
         ...words(change, now),
         kind: `account-limit:${change.account.id}`,
         eventId: change.key,
-        actionProps: { children: "View usage", onClick: () => void go({ to: "/accounts" }) },
+        actionProps: { children: "View usage", onClick: () => void go({ to: "/usage" }) },
       });
     }
   }, [data, dataUpdatedAt]);

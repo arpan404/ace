@@ -163,33 +163,42 @@ test("a short transcript has no turn rail", async () => {
   expect(screen.queryByRole("navigation", { name: "Conversation turns" })).toBeNull();
 });
 
-test("an overflowing two-turn transcript shows navigation", async () => {
-  const { app, feed } = await open([
-    facts.endTurn("root"),
-    { type: "turn.started", agent: "root", nativeTurnId: "turn-2", trigger: "user" },
-    facts.message("root", "ask-2", "user", "Another request"),
-  ]);
+/** A transcript of `turns` finished turns, each a request and its end. */
+function turns(count: number): Fact[] {
+  const all: Fact[] = [facts.endTurn("root")];
+  for (let n = 2; n <= count; n++)
+    all.push(
+      { type: "turn.started", agent: "root", nativeTurnId: `turn-${n}`, trigger: "user" },
+      facts.message("root", `ask-${n}`, "user", `Request ${n}`),
+      { type: "turn.ended", agent: "root", nativeTurnId: `turn-${n}`, outcome: "completed" },
+    );
+  return all;
+}
+
+test("the turn rail waits for six turns, however long the transcript is", async () => {
+  const { app, feed } = await open(turns(5));
   const viewport = feed.closest<HTMLElement>("[data-virtual-viewport]");
   if (!viewport) throw new Error("Missing transcript viewport");
   Object.defineProperties(viewport, {
-    scrollHeight: { configurable: true, value: 2000 },
+    scrollHeight: { configurable: true, value: 4000 },
     clientHeight: { configurable: true, value: 600 },
   });
   act(() =>
     app.daemon.apply("hygiene", [facts.message("root", "reply", "assistant", "More output")]),
   );
+  await screen.findByText("More output");
+  expect(screen.queryByRole("navigation", { name: "Conversation turns" })).toBeNull();
+  act(() =>
+    app.daemon.apply("hygiene", [
+      { type: "turn.started", agent: "root", nativeTurnId: "turn-6", trigger: "user" },
+      facts.message("root", "ask-6", "user", "Request 6"),
+    ]),
+  );
   expect(await screen.findByRole("navigation", { name: "Conversation turns" })).toBeTruthy();
 });
 
 test("an eight-turn transcript has simple accessible turn names", async () => {
-  const extra: Fact[] = [facts.endTurn("root")];
-  for (let n = 2; n <= 8; n++)
-    extra.push(
-      { type: "turn.started", agent: "root", nativeTurnId: `turn-${n}`, trigger: "user" },
-      facts.message("root", `ask-${n}`, "user", `Request ${n}`),
-      { type: "turn.ended", agent: "root", nativeTurnId: `turn-${n}`, outcome: "completed" },
-    );
-  await open(extra);
+  await open(turns(8));
   const rail = await screen.findByRole("navigation", { name: "Conversation turns" });
   expect(within(rail).getByRole("button", { name: /^Turn 3$/ })).toBeTruthy();
   expect(within(rail).queryByRole("button", { name: "Turn 3: Turn 3" })).toBeNull();

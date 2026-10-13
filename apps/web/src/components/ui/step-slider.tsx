@@ -18,7 +18,14 @@ function tickStyle(index: number, count: number) {
 
 /** Moves the thumb and the fill together, quick and without overshoot past a stop. */
 const glide =
-  "transition-[left,width,scale] duration-(--motion-fast) ease-smooth motion-reduce:transition-none";
+  "transition-[transform,scale] duration-(--motion-fast) ease-smooth motion-reduce:transition-none";
+
+/**
+ * How far step `index` of `count` sits from the first, for a full-width layer of the track: its
+ * 100% is the track's width, so the move is a transform and never a layout change.
+ */
+const travel = (index: number, count: number) =>
+  `calc((100% - ${inset * 2}px) * ${count > 1 ? index / (count - 1) : 0})`;
 
 /**
  * A slider over a few named steps (Low · Medium · High): a pill track with a dot per
@@ -126,22 +133,27 @@ function StepSlider(props: {
         className="group relative h-5.5 w-full cursor-pointer touch-none rounded-full bg-secondary focus-ring-inset select-none data-disabled:cursor-default data-disabled:opacity-50 data-dragging:cursor-grabbing"
       >
         {selected && (
-          <span
-            aria-hidden
-            className={cn(
-              "absolute inset-y-0 left-0 overflow-hidden rounded-full bg-ring",
-              (props.deepReasoning || props.gradient) && "step-slider-deep",
-              glide,
-            )}
-            style={{ width: `calc(${at(value, count)} + ${inset}px)` }}
-          >
-            {props.deepReasoning && (
-              <span className="step-slider-convergence fx-flourish">
-                <span />
-                <span />
-                <span />
-              </span>
-            )}
+          // A full-width fill slid in from the left, clipped by the track: it ends past the thumb's
+          // centre by half the thumb, as wide as the old width-sized fill.
+          <span aria-hidden className="absolute inset-0 overflow-hidden rounded-full">
+            <span
+              className={cn(
+                "absolute inset-0 overflow-hidden rounded-full bg-ring",
+                (props.deepReasoning || props.gradient) && "step-slider-deep",
+                glide,
+              )}
+              style={{
+                transform: `translateX(calc(${travel(value, count)} + ${inset * 2}px - 100%))`,
+              }}
+            >
+              {props.deepReasoning && (
+                <span className="step-slider-convergence fx-flourish">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              )}
+            </span>
           </span>
         )}
         {props.steps.map((step, index) => (
@@ -161,19 +173,24 @@ function StepSlider(props: {
         {selected && (
           <span
             aria-hidden
-            className={cn(
-              "absolute top-1/2 size-6.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.3),0_0_0_0.5px_rgb(0_0_0/0.12)] group-data-dragging:scale-110",
-              props.quietFocus
-                ? "group-focus-visible:scale-110"
-                : "group-focus-visible:shadow-[0_0_0_2px_var(--popover),0_0_0_4px_var(--ring)]",
-              props.deepReasoning && "step-slider-glow",
-              glide,
-            )}
-            style={{ left: at(value, count) }}
+            className={cn("pointer-events-none absolute inset-0", glide)}
+            style={{ transform: `translateX(${travel(value, count)})` }}
           >
-            {props.deepReasoning && (
-              <AceMark className="step-slider-ace fx-flourish absolute inset-0 m-auto size-4 text-ring" />
-            )}
+            <span
+              className={cn(
+                "absolute top-1/2 size-6.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.3),0_0_0_0.5px_rgb(0_0_0/0.12)] group-data-dragging:scale-110",
+                props.quietFocus
+                  ? "group-focus-visible:scale-110"
+                  : "group-focus-visible:shadow-[0_0_0_2px_var(--popover),0_0_0_4px_var(--ring)]",
+                props.deepReasoning && "step-slider-glow",
+                "transition-[scale] duration-(--motion-fast) ease-smooth motion-reduce:transition-none",
+              )}
+              style={{ left: inset }}
+            >
+              {props.deepReasoning && (
+                <AceMark className="step-slider-ace fx-flourish absolute inset-0 m-auto size-4 text-ring" />
+              )}
+            </span>
           </span>
         )}
       </div>

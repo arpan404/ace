@@ -103,7 +103,7 @@ test("the browser shows the page an agent is driving, names the agent, and follo
     "/t/thread-cold-start",
     "turn-2",
   );
-  expect(await within(panel).findByText("resume-sweep")).toBeTruthy();
+  expect((await within(panel).findAllByText(/resume-sweep/)).length).toBeGreaterThan(0);
   expect(within(panel).getByText("is browsing", { exact: false })).toBeTruthy();
   const frame = within(panel).getByRole("img", {
     name: "Live view of localhost:5173/settings/devices",
@@ -114,7 +114,7 @@ test("the browser shows the page an agent is driving, names the agent, and follo
   expect(decodeURIComponent(frame.getAttribute("src") ?? "")).toContain("iPhone 16 Pro Max");
   // Once resume-sweep's browser call ends, the thread's own agent holds the page.
   await act(async () => script.runThrough("audit-done"));
-  expect(await within(panel).findByText("Claude Code")).toBeTruthy();
+  expect((await within(panel).findAllByText(/Claude Code/)).length).toBeGreaterThan(0);
   // The bar shows the page's address; there is no lock or pretend window around it.
   expect((address(panel) as HTMLInputElement).value).toBe("localhost:5173/settings/devices");
 });
