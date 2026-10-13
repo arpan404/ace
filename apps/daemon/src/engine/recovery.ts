@@ -137,6 +137,15 @@ export class Recovery {
   }
   /** Permanent host subtree stop discards continuation and fences pending resumes.
    * Ordinary interruption/pause retains these records. */
+  /** Cancelling a subtree discards resumable work but keeps a Stop's hold for the person. */
+  discardKeepingStop(id: ThreadId): void {
+    this.repo.store.atomic(() => {
+      const queue = this.repo.queue.get(id);
+      this.discard(id);
+      if (queue.paused && queue.reason === "stopped")
+        this.repo.queue.set(id, { paused: true, reason: "stopped" }, this.clock.now());
+    });
+  }
   discard(id: ThreadId): void {
     this.repo.store.atomic(() => {
       const queue = this.repo.queue.get(id);
