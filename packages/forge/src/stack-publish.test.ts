@@ -5,6 +5,7 @@ import {
   reconcileStackPublication,
   sameReviewedRevisions,
   stackPublishResult,
+  stackLayersMovedSinceReview,
   stackPublishUpdates,
 } from "./stack-publish.ts";
 
@@ -132,4 +133,35 @@ test("a refreshed request cannot replace the host revisions reviewed for the reb
     headSha: name === "api" ? "f".repeat(40) : reviewed[name],
   }));
   expect(sameReviewedRevisions(first, refreshed)).toBe(false);
+});
+
+test("a layer a collaborator pushed to after review is reported with its reviewed and current heads", () => {
+  const theirs = "f".repeat(40);
+  expect(
+    stackLayersMovedSinceReview(expected(local(rebased)), host({ ...reviewed, api: theirs })),
+  ).toEqual([{ number: 8, branch: "api", reviewed: reviewed.api, current: theirs }]);
+});
+
+test("layers at the reviewed or the published revision are not reported as moved", () => {
+  expect(stackLayersMovedSinceReview(expected(local(rebased)), host())).toEqual([]);
+  expect(
+    stackLayersMovedSinceReview(
+      expected(local(rebased)),
+      host({ ...reviewed, model: rebased.model, ui: rebased.ui }),
+    ),
+  ).toEqual([]);
+});
+
+test("a merged layer or a different stack reports no collaborator moves", () => {
+  const moved = host({ ...reviewed, api: "f".repeat(40) });
+  const merged = {
+    ...moved,
+    layers: moved.layers.map((layer) =>
+      layer.number === 8 ? { ...layer, state: "MERGED" } : layer,
+    ),
+  };
+  expect(stackLayersMovedSinceReview(expected(local(rebased)), merged)).toEqual([]);
+  expect(
+    stackLayersMovedSinceReview(expected(local(rebased)), { ...moved, id: "STACK_43" }),
+  ).toEqual([]);
 });

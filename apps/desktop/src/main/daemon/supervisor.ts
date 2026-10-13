@@ -1,3 +1,4 @@
+import { exitCodes } from "@ace/service/exit-codes";
 import type { DaemonStatus } from "../../shared/contract.ts";
 import type { LocalDaemon } from "./probe.ts";
 
@@ -38,7 +39,10 @@ export interface SupervisorOptions {
   healthFailures?: number;
   readyTimeoutMs?: number;
   stopGraceMs?: number;
-  /** Crashes in a row (without a stable run in between) before giving up. */
+  /**
+   * Restarts in a row (without a stable run in between) before giving up and waiting for
+   * the person to try again. With the default backoff, five give up after about 15 s.
+   */
   maxRestarts?: number;
   /** Running this long resets the crash count. */
   stableMs?: number;
@@ -61,6 +65,17 @@ export function startFailed(status: DaemonStatus): boolean {
 
 function failure(status: DaemonStatus): Error {
   return new Error(status.message ?? `The daemon is ${status.state}`);
+}
+
+/** What a daemon's exit code says about why it stopped, when it says anything. */
+function exitCause(code: number | null): DaemonStatus["cause"] {
+  return code === exitCodes["address-in-use"] ? "port-in-use" : undefined;
+}
+
+/** The status without the last exit's account, for a new attempt or a running daemon. */
+function fresh(status: DaemonStatus): DaemonStatus {
+  const { message: _message, cause: _cause, retry: _retry, ...rest } = status;
+  return rest;
 }
 
 /** A child this app spawned. `intentional` is set before any stop this app asks for. */
@@ -162,8 +177,7 @@ export class DaemonSupervisor {
     await this.transition(true, async (generation) => {
       this.crashes = 0;
       // A repair starts fresh: the last crash no longer describes what happens next.
-      const { message: _message, ...rest } = this.status;
-      this.status = rest;
+      this.status = fresh(this.status);
       await this.stopChild();
       await this.bringUp(generation);
     });
@@ -287,6 +301,7 @@ export class DaemonSupervisor {
   private couldNotStart(reason: string): void {
     this.daemon = undefined;
     this.ports.log("error", `The daemon could not start: ${reason}`);
+    this.status = fresh(this.status);
     this.update({ state: "failed", message: `The daemon could not start: ${reason}` });
   }
 
@@ -336,13 +351,22 @@ export class DaemonSupervisor {
       this.crashes = 0;
     this.runningSince = 0;
     const reason = `The daemon exited (${signal ?? `code ${code}`})`;
+    const cause = exitCause(code);
+    this.status = fresh(this.status);
+    if (cause) this.status.cause = cause;
     if (this.crashes >= this.options.maxRestarts) {
+      this.ports.log("error", `${reason}; gave up after ${this.crashes} restarts`);
       this.update({ state: "failed", message: `${reason}. Restart it or run diagnostics.` });
       return;
     }
     const delay = restartDelay(this.crashes++);
     this.ports.log("warn", `${reason}; restarting in ${delay} ms`);
-    this.update({ state: "restarting", restarts: this.status.restarts + 1, message: reason });
+    this.update({
+      state: "restarting",
+      restarts: this.status.restarts + 1,
+      message: reason,
+      retry: { attempt: this.crashes, of: this.options.maxRestarts },
+    });
     this.cancelTimer = this.ports.timers.set(delay, () => {
       this.cancelTimer = undefined;
       void this.start();
@@ -401,9 +425,8 @@ export class DaemonSupervisor {
       return;
     this.daemon = daemon;
     this.runningSince = this.ports.now();
-    const { message: _message, ...rest } = this.status;
     this.status = {
-      ...rest,
+      ...fresh(this.status),
       state: "running",
       source,
       url: daemon.url,

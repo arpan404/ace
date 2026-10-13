@@ -60,27 +60,26 @@ function RepositoryStackGroups(props: {
     <>
       {!query.isError &&
         [...groups.entries()].map(([id, stack]) => (
-          <div key={id} className="space-y-2 border-l border-border pl-3 text-sm">
-            <p>
-              {props.repository.owner}/{props.repository.name}
-            </p>
-            <p>
-              Native stack #{stack.number} → {stack.trunk} · {stack.size} layers
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {stack.layers
-                .toSorted((a, b) => a.position - b.position)
-                .map((layer) => (
-                  <Button
-                    key={layer.number}
-                    onClick={() =>
-                      props.onOpen({ repository: props.repository, number: layer.number })
-                    }
-                  >
-                    #{layer.number} · layer {layer.position}
-                  </Button>
-                ))}
-            </div>
+          <div key={id} className="flex flex-wrap items-center gap-1.5 text-ui">
+            <span className="text-muted-foreground">
+              {`${props.repository.owner}/${props.repository.name} · Stack #${stack.number} → ${stack.trunk} · ${stack.size} layers`}
+            </span>
+            {stack.layers
+              .toSorted((a, b) => a.position - b.position)
+              .map((layer) => (
+                <Button
+                  key={layer.number}
+                  size="sm"
+                  variant="ghost"
+                  aria-label={`#${layer.number} · layer ${layer.position}`}
+                  onClick={() =>
+                    props.onOpen({ repository: props.repository, number: layer.number })
+                  }
+                >
+                  <span className="text-subtle-foreground tabular-nums">{layer.position}</span>#
+                  {layer.number}
+                </Button>
+              ))}
           </div>
         ))}
     </>

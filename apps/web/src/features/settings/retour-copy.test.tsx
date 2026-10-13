@@ -52,7 +52,7 @@ test("an inline account login uses the same provider and account wording as a di
   await userEvent.type(form.getByRole("textbox", { name: "Account name" }), "Work2");
   await userEvent.click(form.getByRole("combobox", { name: "Sign-in method" }));
   await userEvent.click(await screen.findByRole("option", { name: "API key" }));
-  await userEvent.click(form.getByRole("button", { name: "Add and sign in" }));
+  await userEvent.click(form.getByRole("button", { name: "Continue" }));
   await userEvent.type(await screen.findByLabelText("OpenAI API key"), "synthetic-copy-key");
   await userEvent.click(screen.getByRole("button", { name: "Use key" }));
   expect(await screen.findByText("Signed in to Codex · Work2")).toBeTruthy();

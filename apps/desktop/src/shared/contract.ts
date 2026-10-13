@@ -48,6 +48,10 @@ export const DaemonStatus = z.object({
   restarts: z.number().int().min(0),
   paused: z.boolean(),
   message: z.string().max(2000).optional(),
+  /** Why the daemon this app started last exited, when the daemon said so by its exit code. */
+  cause: z.enum(["port-in-use"]).optional(),
+  /** Set while the supervisor restarts a crashed daemon on its own: which try, of how many. */
+  retry: z.object({ attempt: z.number().int().min(1), of: z.number().int().min(1) }).optional(),
 });
 export type DaemonStatus = z.infer<typeof DaemonStatus>;
 

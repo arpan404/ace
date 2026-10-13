@@ -11,7 +11,7 @@ import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 
-export type SearchKind = "thread" | "message" | "tool_call" | "artifact";
+export type SearchKind = "thread" | "message" | "tool_call" | "artifact" | "html";
 export interface SearchHit {
   threadId: string;
   threadTitle: string;
@@ -24,7 +24,7 @@ export interface SearchHit {
   snippet: { text: string; highlights: readonly { start: number; end: number }[] };
 }
 
-const shownKinds: SearchKind[] = ["thread", "message", "tool_call", "artifact"];
+const shownKinds: SearchKind[] = ["thread", "message", "tool_call", "artifact", "html"];
 const kinds = new Set<string>(shownKinds);
 const shown = (hit: { kind: string }): hit is { kind: SearchKind } => kinds.has(hit.kind);
 

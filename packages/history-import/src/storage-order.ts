@@ -1,19 +1,21 @@
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
-import { mkdtemp, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { object, timestamp, readHeadTail, walkFiles } from "@ace/native-session";
 import type { ProviderHome } from "./contracts.ts";
+import type { SnapshotScratch } from "./snapshot-scratch.ts";
 
 type Entry = { at: number; id: string; path: string; value: unknown; bytes: number };
 /** Directory enumeration order is not transcript order. Sort on disk, not in a history-sized array. */
 async function* ordered(
   entries: AsyncIterable<Entry>,
-  scratchRoot: string,
+  scratch: SnapshotScratch,
   signal: AbortSignal,
 ): AsyncGenerator<{ path: string; value: unknown; bytes: number }> {
-  const stage = await mkdtemp(join(scratchRoot, "storage-order-"));
-  const db = new DatabaseSync(join(stage, "order.sqlite"));
+  const stage = await scratch.workDir("storage-order");
+  let db: DatabaseSync | undefined;
   try {
+    db = new DatabaseSync(join(stage, "order.sqlite"));
     db.exec(
       "PRAGMA cache_size=-2048;CREATE TABLE entries(at INTEGER NOT NULL,id TEXT NOT NULL,path TEXT PRIMARY KEY,value TEXT NOT NULL,bytes INTEGER NOT NULL);BEGIN",
     );
@@ -34,14 +36,17 @@ async function* ordered(
       };
     }
   } finally {
-    db.close();
-    await rm(stage, { recursive: true, force: true });
+    try {
+      db?.close();
+    } finally {
+      await rm(stage, { recursive: true, force: true });
+    }
   }
 }
 export function orderedMessages(
   instance: ProviderHome,
   root: string,
-  scratchRoot: string,
+  scratch: SnapshotScratch,
   signal: AbortSignal,
 ) {
   const entries = async function* (): AsyncGenerator<Entry> {
@@ -61,11 +66,11 @@ export function orderedMessages(
       };
     }
   };
-  return ordered(entries(), scratchRoot, signal);
+  return ordered(entries(), scratch, signal);
 }
 export async function* orderedParts(
   root: string,
-  scratchRoot: string,
+  scratch: SnapshotScratch,
   signal: AbortSignal,
 ): AsyncGenerator<string> {
   const iterator = walkFiles(root, signal);
@@ -90,7 +95,7 @@ export async function* orderedParts(
       for await (const path of iterator)
         yield { at: 0, id: basename(path), path, value: null, bytes: 0 };
     };
-    for await (const row of ordered(entries(), scratchRoot, signal)) yield row.path;
+    for await (const row of ordered(entries(), scratch, signal)) yield row.path;
   } finally {
     await iterator.return(undefined);
   }

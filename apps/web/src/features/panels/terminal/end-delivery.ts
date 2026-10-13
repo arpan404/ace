@@ -27,6 +27,7 @@ interface Delivery {
   delay: number;
 }
 const keyOf = (end: TerminalEnd) => `${end.threadId}\u0000${end.terminalId}`;
+const unrecoverable = new Set<ClientError["code"]>(["protocol", "auth", "storage"]);
 
 /** Close delivery is scoped to authenticated host identity, never to an App or a lazy chunk. */
 export function createTerminalEndDelivery(schedule: Schedule, journal: TerminalEndJournal) {
@@ -179,8 +180,13 @@ export function createTerminalEndDelivery(schedule: Schedule, journal: TerminalE
           delivery.identifying = false;
           identify(delivery, reply.identity.hostId);
         },
-        () => {
+        (error: unknown) => {
           delivery.identifying = false;
+          // Retrying cannot fix a reply this client can't read or a refused credential.
+          if (error instanceof ClientError && unrecoverable.has(error.code)) {
+            delivery.identity.reject(error);
+            return;
+          }
           if (!usable(delivery)) return;
           delivery.retry = schedule(() => {
             delivery.retry = undefined;
@@ -204,6 +210,8 @@ export function createTerminalEndDelivery(schedule: Schedule, journal: TerminalE
         retry: undefined,
         delay: 250,
       };
+      // A binder that stops waiting must not leave an unhandled rejection behind.
+      delivery.identity.promise.catch(() => {});
       clients.set(client, delivery);
     }
     const current = delivery;
@@ -219,6 +227,7 @@ export function createTerminalEndDelivery(schedule: Schedule, journal: TerminalE
     }
     let released = false;
     return {
+      /** The authenticated host id; rejects with the ClientError when it can never be read. */
       identified: current.identity.promise,
       release() {
         if (released) return;

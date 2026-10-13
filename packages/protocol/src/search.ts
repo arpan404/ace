@@ -12,6 +12,7 @@ export const SearchKind = z.enum([
   "delegation.started",
   "delegation.settled",
   "artifact",
+  "html",
 ]);
 export const SearchState = z.enum([
   "new",
@@ -32,7 +33,7 @@ export const SearchFilters = z
     status: SearchState.optional(),
     agentId: AgentId.optional(),
     kind: SearchKind.optional(),
-    kinds: z.array(SearchKind).min(1).max(9).optional(),
+    kinds: z.array(SearchKind).min(1).max(10).optional(),
   })
   .refine((f) => f.after === undefined || f.before === undefined || f.after <= f.before)
   .meta({ "x-ace-constraint": "after must be <= before when both timestamps are present." });

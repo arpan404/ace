@@ -1,4 +1,4 @@
-import type { ClientApi, ClientError } from "@ace/client";
+import { ClientError, type ClientApi } from "@ace/client";
 import { bindTerminalEndDelivery } from "@/features/panels/index.ts";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -23,6 +23,8 @@ import { handoffFromFragment, type Handoff } from "@/boot/fragment-handoff.ts";
 
 /** How long a first attempt may take before the screen says it can't reach the daemon. */
 export const firstAttemptMs = 6_000;
+/** How long a welcomed client may take to identify its host before the screen reports it. */
+export const identityMs = 10_000;
 
 type Schedule = (delayMs: number, run: () => void) => () => void;
 const timers: Schedule = (delayMs, run) => {
@@ -213,10 +215,40 @@ export function ConnectionGate(props: {
       const follow = () => {
         const now = states.getSnapshot();
         if (now === "ready") {
+          if (!welcomed) {
+            // The app opens only once the host is identified. A reply this client can't read,
+            // or no identity in time, is a failure with Try again rather than an endless splash.
+            let identified = false;
+            const stopWaiting = schedule(identityMs, () => {
+              if (identified || replaced) return;
+              refuse(
+                new ClientError(
+                  "timeout",
+                  `ace answered but didn't say which machine it is within ${identityMs / 1000}s.`,
+                ),
+              );
+            });
+            stops.push(stopWaiting);
+            terminalCloses.identified.then(
+              () => {
+                identified = true;
+                stopWaiting();
+                if (!replaced && next.state === "ready") progress({ kind: "ready" });
+              },
+              (error: unknown) => {
+                stopWaiting();
+                if (!identified && !replaced)
+                  refuse(error instanceof ClientError ? error : undefined);
+              },
+            );
+          } else
+            void terminalCloses.identified.then(
+              () => {
+                if (!replaced && next.state === "ready") progress({ kind: "ready" });
+              },
+              () => {},
+            );
           welcomed = true;
-          void terminalCloses.identified.then(() => {
-            if (!replaced && next.state === "ready") progress({ kind: "ready" });
-          });
         } else if (!welcomed && now === "starting") {
           progress({ kind: "starting" });
         } else if (now === "fatal") {

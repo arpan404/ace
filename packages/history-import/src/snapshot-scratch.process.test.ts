@@ -150,6 +150,20 @@ test("a snapshot sweeps stages of dead processes but keeps a live process's stag
   expect(await f.stages()).toEqual(["sqlite-read-222-live"]);
 });
 
+test("a snapshot taken mid-import keeps that import's own work directories", async () => {
+  const f = await fixture({ wal: true });
+  const scratch = new SnapshotScratch(f.scratchRoot, { clone: noClone, freeSpace: plenty });
+  const plan = await scratch.workDir("history-plan");
+  const order = await scratch.workDir("storage-order");
+  const handle = await openProviderDb(f.instance, f.path, scratch, new AbortController().signal);
+  await handle.close();
+  expect((await stat(plan)).isDirectory()).toBe(true);
+  expect((await stat(order)).isDirectory()).toBe(true);
+  // Once the worker restarts, nothing of this process is live any more.
+  await scratch.sweep();
+  expect(await readdir(f.scratchRoot)).toEqual([]);
+});
+
 test("a quiescent WAL database is read in place without any scratch copy", async () => {
   const f = await fixture({ wal: true });
   f.writer.close(); // The last connection checkpoints and removes the WAL.

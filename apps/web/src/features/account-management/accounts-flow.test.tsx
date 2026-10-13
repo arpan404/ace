@@ -30,7 +30,7 @@ test("the provider name opens its accounts and cancelling a new API-key form lea
   await userEvent.click(await within(form).findByRole("combobox", { name: "Sign-in method" }));
   await userEvent.click(await screen.findByRole("option", { name: "API key" }));
   await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Client key");
-  await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
+  await userEvent.click(within(form).getByRole("button", { name: "Continue" }));
   await screen.findByLabelText("OpenAI API key");
   await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(screen.queryByLabelText("OpenAI API key")).toBeNull());
@@ -148,6 +148,31 @@ test("the API service picker names its known marks and connects the selected Ope
   expect(within(service).getByRole("img", { name: "OpenRouter" })).toBeTruthy();
   await userEvent.click(service);
   await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Router work");
-  await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
+  expect(within(form).queryByRole("button", { name: "Add and sign in" })).toBeNull();
+  await userEvent.click(within(form).getByRole("button", { name: "Continue" }));
   expect(await screen.findByLabelText("OpenRouter API key")).toBeTruthy();
+});
+
+test("choosing API key describes the key hand-off instead of a browser sign-in", async () => {
+  const app = harness();
+  await app.open("/settings/providers/opencode");
+  const accounts = await screen.findByRole("list", { name: "OpenCode accounts" });
+  await userEvent.click(within(accounts).getByRole("button", { name: "Add account" }));
+  const form = await screen.findByRole("form", { name: "Add account" });
+  expect(within(form).getByText(/opens OpenCode's own sign-in in your browser/)).toBeTruthy();
+  expect(within(form).getByRole("button", { name: "Add and sign in" })).toBeTruthy();
+  await userEvent.click(await within(form).findByRole("combobox", { name: "Sign-in method" }));
+  await userEvent.click(await screen.findByRole("option", { name: "API key" }));
+  await userEvent.click(await within(form).findByRole("combobox", { name: "API service" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Anthropic" }));
+  expect(within(form).queryByText(/in your browser/)).toBeNull();
+  expect(
+    within(form).getByText(
+      "Next, paste your Anthropic API key. OpenCode stores it; ace hands it over once and never saves it.",
+    ),
+  ).toBeTruthy();
+  expect(within(form).queryByRole("button", { name: "Add and sign in" })).toBeNull();
+  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Keyed");
+  await userEvent.click(within(form).getByRole("button", { name: "Continue" }));
+  expect(await screen.findByLabelText("Anthropic API key")).toBeTruthy();
 });

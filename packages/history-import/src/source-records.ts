@@ -37,7 +37,7 @@ export async function* sourceRecords(
     for await (const header of orderedMessages(
       instance,
       join(instance.homeDir, "storage/message", source.summary.nativeId),
-      scratch.root,
+      scratch,
       signal,
     )) {
       const messagePath = header.path;
@@ -49,7 +49,7 @@ export async function* sourceRecords(
       };
       for await (const part of orderedParts(
         join(instance.homeDir, "storage/part", basename(messagePath, ".json")),
-        scratch.root,
+        scratch,
         signal,
       )) {
         for await (const record of readJsonLines(instance.homeDir, part, signal)) {

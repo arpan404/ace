@@ -10,7 +10,9 @@ import type { Plugin } from "vite";
  * does; the `z.email()`-style functions are untouched and stay tree-shaken as usual.
  *
  * Calling one of these on a schema in code the browser loads throws at once, usually while the
- * module builds its schemas. Remove the name from this list to bring the method back.
+ * module builds its schemas. `src/test/zod-methods.test.ts` loads every worker module, including
+ * the ones workers load on demand, with these methods stripped, so such a call fails that test
+ * rather than a production chunk. Remove the name from this list to bring the method back.
  */
 export const droppedZodMethods: Readonly<Record<string, readonly string[]>> = {
   ZodType: [

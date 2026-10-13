@@ -41,6 +41,15 @@ export function reconcileStackPush(
   return operation;
 }
 
+/** A local rebase waiting to be published, or a publication GitHub refused or never confirmed. */
+export function awaitsPublication(operation: ForgeStackOperation): boolean {
+  return (
+    operation.action !== "merge" &&
+    (operation.state === "push_partial" ||
+      (operation.action === "push" && ["failed", "uncertain"].includes(operation.state)))
+  );
+}
+
 export function isIncompleteStackOperation(operation: ForgeStackOperation): boolean {
   return ["pending", "uncertain", "conflict", "push_partial"].includes(operation.state);
 }

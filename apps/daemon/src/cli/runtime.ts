@@ -37,7 +37,9 @@ export async function runtimeCommand(args: Args, config: Config) {
       : {}),
     history: { instances: readHistoryInstances() },
   }).catch((error: unknown) => {
-    throw new CliFailure("failed", error instanceof Error ? error.message : "Daemon start failed");
+    const message = error instanceof Error ? error.message : "Daemon start failed";
+    // Its own exit code, so whatever started the daemon can name the port conflict.
+    throw new CliFailure(addressInUse(error) ? "address-in-use" : "failed", message);
   });
   if (!daemon) return;
   try {
@@ -59,4 +61,13 @@ export async function runtimeCommand(args: Args, config: Config) {
         }
       : `ace daemon: ${daemon.url}\nToken file: ${daemon.tokenPath}${daemon.remoteUrl ? `\nRemote: ${daemon.remoteUrl}\nPublic-key SHA-256: ${daemon.fingerprint}` : ""}`,
   );
+}
+
+/** Node's listen error for a port another process holds, however the startup wrapped it. */
+function addressInUse(error: unknown): boolean {
+  for (let cause = error, depth = 0; cause instanceof Error && depth < 5; depth++) {
+    if (Reflect.get(cause, "code") === "EADDRINUSE") return true;
+    cause = cause.cause;
+  }
+  return false;
 }

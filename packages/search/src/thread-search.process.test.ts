@@ -428,3 +428,24 @@ test("a selective multi-term cursor keeps its anchor when live appends change te
     query("earlyword lateword", { limit: 1, cursor: page.cursor }).hits.map((hit) => hit.itemId),
   ).toEqual([second.id]);
 });
+
+test("search within a thread finds a published visualization by its title", () => {
+  const visualization = Item.parse({
+    id: randomUUID(),
+    agentId: agent,
+    createdAt: 30,
+    complete: true,
+    type: "html",
+    visualization: {
+      title: "Dependency graph overview",
+      document: {
+        sha256: "b".repeat(64),
+        bytes: 1024,
+        mimeType: "text/plain",
+        name: "visualization.html",
+      },
+    },
+  });
+  log.append([{ type: "item.created", item: visualization }]);
+  expect(query("dependency graph").hits.map((hit) => hit.itemId)).toEqual([visualization.id]);
+});

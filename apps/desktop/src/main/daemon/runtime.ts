@@ -143,6 +143,11 @@ export class DaemonRuntime {
     await this.supervisor?.start();
   }
 
+  /** The login shell's PATH, asked once per launch. */
+  loginPath(): Promise<string> {
+    return this.path;
+  }
+
   current(): DaemonStatus {
     return this.status;
   }

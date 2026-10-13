@@ -120,7 +120,7 @@ try {
       await accountForm.getByRole("textbox").fill("Work2");
       await accountForm.getByRole("combobox", { name: "Sign-in method", exact: true }).click();
       await page.getByRole("option", { name: "API key", exact: true }).click();
-      await accountForm.getByRole("button", { name: "Add and sign in", exact: true }).click();
+      await accountForm.getByRole("button", { name: "Continue", exact: true }).click();
       await page.getByLabel("OpenAI API key", { exact: true }).fill("fake-copy-key");
       await page.getByRole("button", { name: "Use key", exact: true }).click();
       await expect(page.getByText("Signed in to Codex · Work2", { exact: true })).toBeVisible();

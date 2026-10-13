@@ -2,12 +2,15 @@ import type {
   ForgeLocalStack,
   ForgeStack,
   ForgeStackExpected,
+  ForgeStackMovedLayer,
   ForgeStackOperation,
 } from "@ace/protocol/forge-stacks";
 import { matchesStackBranches, sameStack } from "./stack-plan.ts";
 
 /** One layer to publish: move `branch` from the revision reviewed before rebase to `target`. */
 export type StackPublishUpdate = { number: number; branch: string; lease: string; target: string };
+/** A layer GitHub moved after review: its reviewed head and the head GitHub reports now. */
+export type StackLayerMove = ForgeStackMovedLayer;
 export type StackPublishPlan =
   | { ok: true; updates: StackPublishUpdate[] }
   | { ok: false; reason: "membership" | "moved" | "unrestacked" | "unchanged" };
@@ -98,6 +101,41 @@ export function reconcileStackPublication(
   if (updates.every((update, index) => heads[index] === update.target)) return "published";
   if (updates.every((update, index) => heads[index] === update.lease)) return "unpublished";
   return "unknown";
+}
+
+/**
+ * Active layers GitHub moved away from the revision reviewed before the rebase, to anything
+ * other than the rebased revision this stack publishes. These carry commits the local rebase
+ * does not contain, so a leased publication refuses them until they are brought in.
+ */
+export function stackLayersMovedSinceReview(
+  reviewed: ForgeStackExpected,
+  stack: ForgeStack,
+): StackLayerMove[] {
+  if (reviewed.id !== stack.id) return [];
+  const targets = new Map(
+    (reviewed.local?.branches ?? []).flatMap((branch) =>
+      branch.pr ? [[branch.pr.number, branch.head] as const] : [],
+    ),
+  );
+  const moves: StackLayerMove[] = [];
+  for (const layer of reviewed.layers) {
+    const current = stack.layers.find((entry) => entry.number === layer.number);
+    if (
+      !current ||
+      current.state === "MERGED" ||
+      current.headSha === layer.headSha ||
+      current.headSha === targets.get(layer.number)
+    )
+      continue;
+    moves.push({
+      number: layer.number,
+      branch: current.branch,
+      reviewed: layer.headSha,
+      current: current.headSha,
+    });
+  }
+  return moves;
 }
 
 /** Continuing or publishing a rebase keeps the host revisions reviewed when it started. */

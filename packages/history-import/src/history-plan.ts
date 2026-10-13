@@ -1,5 +1,5 @@
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
-import { mkdtemp, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { object, string } from "@ace/native-session";
@@ -24,13 +24,17 @@ export async function prepareHistory(
       callItem: (_id: string): string | undefined => undefined,
       close: async () => {},
     };
-  const dir = await mkdtemp(join(scratch.root, "history-plan-"));
-  const db = new DatabaseSync(join(dir, "plan.sqlite"));
+  const dir = await scratch.workDir("history-plan");
+  let db: DatabaseSync | undefined;
   const close = async () => {
-    db.close();
-    await rm(dir, { recursive: true, force: true });
+    try {
+      db?.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   };
   try {
+    db = new DatabaseSync(join(dir, "plan.sqlite"));
     db.exec(
       "PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF; CREATE TABLE ancestry(ordinal INTEGER PRIMARY KEY,uuid TEXT UNIQUE,parent TEXT,selected INTEGER); CREATE TABLE results(id TEXT,ordinal INTEGER,data TEXT,PRIMARY KEY(id,ordinal)); CREATE TABLE calls(id TEXT PRIMARY KEY,item TEXT); BEGIN",
     );

@@ -73,7 +73,7 @@
         ],
         "type": "object"
       },
-      "maxItems": 20,
+      "maxItems": 100,
       "type": "array"
     },
     "reviewDecision": {

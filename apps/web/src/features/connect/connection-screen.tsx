@@ -88,7 +88,11 @@ export function ConnectionScreen() {
             token={connection.token}
             pairedDeviceId={connection.pairedDeviceId}
             remembered={connection.remembered}
-            submitLabel="Connect"
+            submitLabel={
+              status.kind === "editing" && status.problem && status.problem !== "auth"
+                ? "Try again"
+                : "Connect"
+            }
             onSubmit={connection.connect}
             readOnly={trying}
             wide

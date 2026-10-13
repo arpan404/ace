@@ -49,6 +49,10 @@ export interface DesktopDaemonStatus {
   state: string;
   paused?: boolean;
   message?: string | undefined;
+  /** Why the desktop's own daemon last exited, when its exit code said so. */
+  cause?: "port-in-use" | undefined;
+  /** Set while the desktop restarts its crashed daemon on its own. */
+  retry?: { attempt: number; of: number } | undefined;
 }
 
 /** One check of `ace doctor --json`: what the "Run diagnostics" button shows. */
@@ -160,10 +164,16 @@ async function desktopStatus(scope: object): Promise<DesktopDaemonStatus | undef
 function parseStatus(value: unknown): DesktopDaemonStatus | undefined {
   const status = record(value);
   if (!status || typeof status.state !== "string") return undefined;
+  const retry = record(status.retry);
   return {
     state: status.state,
     paused: status.paused === true,
     message: typeof status.message === "string" ? status.message : undefined,
+    cause: status.cause === "port-in-use" ? status.cause : undefined,
+    retry:
+      typeof retry?.attempt === "number" && typeof retry.of === "number"
+        ? { attempt: retry.attempt, of: retry.of }
+        : undefined,
   };
 }
 

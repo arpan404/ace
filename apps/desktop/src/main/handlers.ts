@@ -6,6 +6,7 @@ import type {
   NativeAppearance,
   WindowBackground,
 } from "../shared/contract.ts";
+import type { DoctorReport } from "../shared/onboarding.ts";
 import type { Background } from "./background.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { Handlers } from "./ipc.ts";
@@ -41,6 +42,8 @@ export function createHandlers(options: {
   updateKeymap?(bindings: Record<string, string>): void;
   /** Opens the daemon's logs in the file manager; false when there is nothing to show. */
   showLogs(): Promise<boolean>;
+  /** Problems the app found itself (the `ace` command), listed after the doctor's checks. */
+  desktopChecks(): DoctorReport["checks"];
   /** The page's theme colours, for the window behind it (now and from the next launch). */
   setWindowBackground(value: WindowBackground): void;
 }): Handlers {
@@ -78,7 +81,10 @@ export function createHandlers(options: {
     },
     "daemon.status": () => runtime.current(),
     "daemon.restart": () => runtime.restart(),
-    "daemon.diagnose": () => runtime.diagnose(),
+    "daemon.diagnose": async () => {
+      const report = await runtime.diagnose();
+      return { ...report, checks: [...report.checks, ...options.desktopChecks()].slice(0, 64) };
+    },
     "daemon.showLogs": () => options.showLogs(),
     "daemon.pause": (paused) => runtime.pause(paused),
     "onboarding.providers": () => runtime.providers(),
