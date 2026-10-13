@@ -356,6 +356,9 @@ export async function executeBrowserCommand(
       const bytes = await page.screenshot("png");
       context.read();
       await writeFile(path, bytes, { mode: 0o600 });
+      // A person's capture is kept like a recording; agents read theirs as tool images.
+      if (actor.kind === "human")
+        await context.options.artifact({ path, mimeType: "image/png", bytes: bytes.byteLength });
       return { path, mimeType: "image/png" };
     }
     case "logs":
