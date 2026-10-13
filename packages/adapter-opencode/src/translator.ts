@@ -63,10 +63,7 @@ export class OpenCodeTranslator implements Translator {
       if (data.type === "ancestry.pending")
         return state.background(string(data.id), state.rootNative, "other");
       if (data.type === "ancestry.settled")
-        return [
-          ...state.settleProbed(),
-          ...state.finishBackground(string(data.id), "completed"),
-        ];
+        return [...state.settleProbed(), ...state.finishBackground(string(data.id), "completed")];
       if (data.type === "started") return [{ type: "process.started" }];
       if (data.type === "exited") {
         state.pending.clear();
