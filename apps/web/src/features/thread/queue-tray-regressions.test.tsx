@@ -86,7 +86,7 @@ test.each(["save", "take back"])(
     const app = harness();
     app.play(replayCursor()).runThrough("finding");
     await app.open(`/t/${threadId}`);
-    const composer = await screen.findByRole("combobox", { name: "Message" });
+    await screen.findByRole("combobox", { name: "Message" });
     await act(async () => {
       for (let index = 0; index < 17; index++)
         await app.client.command(

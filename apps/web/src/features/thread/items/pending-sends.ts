@@ -124,10 +124,7 @@ export function useStaged(threadId: string): readonly StagedSend[] {
   );
   const admitted = useThread(
     threadId,
-    [
-      "thread",
-      ...here.map((send): ThreadKey => `item:${inputItemId(send.commandId)}`),
-    ],
+    ["thread", ...here.map((send): ThreadKey => `item:${inputItemId(send.commandId)}`)],
     readAdmitted,
     sameAdmitted,
   );

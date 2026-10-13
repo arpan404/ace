@@ -32,12 +32,7 @@ import {
 } from "./deferred-parts.tsx";
 import { DeferredComposerStrip } from "./deferred-cards.ts";
 import { UsageNotice } from "./usage-notice.tsx";
-import {
-  runsOn,
-  changedTurnOptions,
-  selectionIdentity,
-  type PendingTurn,
-} from "./execution.ts";
+import { runsOn, changedTurnOptions, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
 
 /** The send pipeline's code: fetched when a composer mounts, so the first Enter never waits on it. */

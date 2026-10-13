@@ -608,7 +608,7 @@ test.each([17, 33, 257])(
         count > 16
           ? await screen.findByRole("button", { name: "Load more queued messages" })
           : undefined;
-      for (let shown = 16; more && shown < count; shown += 16) await userEvent.click(more);
+      if (more) for (let shown = 16; shown < count; shown += 16) await userEvent.click(more);
       const last = await within(screen.getByRole("list", { name: "Queued messages" })).findByText(
         lastInput,
       );
