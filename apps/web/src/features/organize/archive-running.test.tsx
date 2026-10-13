@@ -58,16 +58,21 @@ test("⇧⌘A on a working thread asks first, and Archive, keep running leaves i
 test("Stop & archive stops the whole tree and its commands, then archives", async () => {
   const { of } = await open("/t/thread-replay-cursor", working);
   await archiveKey();
-  await userEvent.click(screen.getByRole("button", { name: "Stop & archive" }));
+  const stop = screen.getByRole("button", { name: "Stop & archive" });
+  expect(stop.dataset.variant).toBe("danger");
+  await userEvent.click(stop);
   await waitFor(() => expect(of("thread.archive")).toHaveLength(1));
   expect(of("thread.interrupt")).toEqual([expect.objectContaining({ cascade: true })]);
   expect(of("background_task.stop").length).toBeGreaterThan(0);
 });
 
-test("Cancel archives nothing and stays on the thread", async () => {
+test("focus starts on Cancel, so Enter archives nothing and stays on the thread", async () => {
   const { history, of } = await open("/t/thread-replay-cursor", working);
   await archiveKey();
-  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" })),
+  );
+  await userEvent.keyboard("{Enter}");
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Archive a running thread?" })).toBeNull(),
   );

@@ -11,12 +11,15 @@ const buttonVariants = cva(
   ],
   {
     /*
-     * Three variants, by job (docs/design/visual-language.md):
+     * Four variants, by job (docs/design/visual-language.md):
      * - primary: the one action a surface exists for (Allow once, Run now, Take over, Save).
      * - secondary: any other labelled action, outlined so it reads as a button at rest
      *   (Stop, Cancel beside a primary, filters, Preview beside a field).
      * - ghost: actions inside dense chrome (toolbars, menus' footers, row hovers).
-     * `tone="danger"` colours a ghost or secondary for destructive actions.
+     * - danger: the confirming action of a destructive confirmation (Delete, Remove, Revoke,
+     *   Discard), a solid fill in the theme's failed hue (theme/danger.ts). Cancel sits before it.
+     * `tone="danger"` colours a ghost or secondary that opens such a confirmation, or a
+     * destructive row action; never the confirming button itself.
      */
     variants: {
       variant: {
@@ -26,6 +29,7 @@ const buttonVariants = cva(
           "bg-transparent text-foreground shadow-[inset_0_0_0_1px_var(--border)] hover:bg-accent aria-expanded:bg-accent",
         ghost:
           "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground",
+        danger: "bg-danger text-danger-foreground hover:bg-danger-hover active:bg-danger-pressed",
       },
       tone: {
         default: "",
@@ -51,6 +55,7 @@ function Button({
   return (
     <ButtonPrimitive
       data-slot="button"
+      data-variant={variant ?? "secondary"}
       className={cn(buttonVariants({ variant, tone, size }), className)}
       {...props}
     />

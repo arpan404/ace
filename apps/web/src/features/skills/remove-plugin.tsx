@@ -122,8 +122,7 @@ export function RemovePluginDialog(props: {
             Cancel
           </Button>
           <Button
-            variant="ghost"
-            tone="danger"
+            variant="danger"
             onClick={() => {
               props.onOpenChange(false);
               remove(plugin);

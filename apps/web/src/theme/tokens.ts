@@ -1,4 +1,5 @@
 import { oklchToHex } from "./colour.ts";
+import { dangerFill } from "./danger.ts";
 import { rampSteps, sharedStatus, type Palette, type Scheme } from "./palettes.ts";
 
 /*
@@ -81,6 +82,7 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     ? "inset 0 1px 0 0 rgb(255 255 255 / 0.95), inset 0 0 0 1px rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(255 255 255 / 0.3)"
     : "inset 0 1px 0 0 rgb(255 255 255 / 0.16), inset 0 0 0 1px rgb(255 255 255 / 0.06), inset 0 -1px 0 0 rgb(255 255 255 / 0.04)";
   const glass = p.material.glass;
+  const danger = dangerFill(p.failed);
   return {
     // The neutral ramp, by step (`--neutral-1` canvas … `--neutral-12` text).
     ...neutralRamp(p),
@@ -135,6 +137,12 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     "--ring-foreground": p.accentFg,
     "--ring-text": p.accentText,
     "--focus": `color-mix(in srgb, ${p.accent} ${p.material.focus}%, transparent)`,
+
+    // The danger fill: the solid button that confirms a destructive action, and its label.
+    "--danger": danger.fill,
+    "--danger-hover": danger.hover,
+    "--danger-pressed": danger.pressed,
+    "--danger-foreground": danger.foreground,
 
     // Status hues (dots, rings) and the same hue as readable words.
     "--status-working": p.working,

@@ -367,12 +367,17 @@ paints ace in the OS scheme. Reloading in any theme or mode never flashes the wr
 
 One component per job. Before drawing something new, use these.
 
-- **Buttons** (`components/ui/button.tsx`), three variants:
+- **Buttons** (`components/ui/button.tsx`), four variants:
   - `primary`: the one action a surface exists for (Allow once, Run now, Take over, Save).
   - `secondary`: any other labelled action. It is outlined, so it reads as a button at rest
     (Stop, Cancel beside a primary, Preview beside a field).
   - `ghost`: actions inside dense chrome (toolbars, row hovers, dialog Cancel).
-  - `tone="danger"` colours a ghost or secondary button for destructive actions.
+  - `danger`: the confirming action of a destructive confirmation (Delete, Stop and delete,
+    Remove project, Revoke, Discard, Stop & archive). A solid fill in the theme's failed hue
+    with a white label at AA (`theme/danger.ts`). The footer reads Cancel, then the danger
+    action, right-aligned, and focus starts on Cancel with a quiet hairline ring.
+  - `tone="danger"` colours a ghost or secondary button that opens a destructive confirmation,
+    or a destructive row action. Destructive menu items stay red text.
   - Icon-only actions use `IconButton`. There are no pill or black buttons, and no text links
     used as buttons.
 - **Separators** (`components/ui/rules.ts`), all on `--border`:

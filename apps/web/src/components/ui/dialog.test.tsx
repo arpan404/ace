@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { expect, test, vi } from "vitest";
@@ -65,4 +65,46 @@ test("the submit shortcut does nothing while the primary button is disabled", as
   await userEvent.click(await screen.findByRole("textbox", { name: "Title" }));
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   expect(onSave).not.toHaveBeenCalled();
+});
+
+test("a destructive confirmation opens on Cancel, ahead of its other controls, so Enter deletes nothing", async () => {
+  const onDelete = vi.fn();
+  render(
+    <Dialog open>
+      <DialogContent>
+        <DialogTitle>Delete 3 files?</DialogTitle>
+        <a href="#files">Show the files</a>
+        <DialogFooter>
+          <Button variant="ghost">Cancel</Button>
+          <Button variant="danger" onClick={onDelete}>
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>,
+  );
+  const dialog = await screen.findByRole("dialog", { name: "Delete 3 files?" });
+  const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+  await waitFor(() => expect(document.activeElement).toBe(cancel));
+  expect(within(dialog).getByRole("button", { name: "Delete" }).dataset.variant).toBe("danger");
+
+  await userEvent.keyboard("{Enter}");
+  expect(onDelete).not.toHaveBeenCalled();
+});
+
+test("a dialog without a danger action keeps its usual first focus", async () => {
+  render(
+    <Dialog open>
+      <DialogContent>
+        <DialogTitle>Rename</DialogTitle>
+        <input aria-label="Title" />
+        <DialogFooter>
+          <Button variant="ghost">Cancel</Button>
+          <Button variant="primary">Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>,
+  );
+  const title = await screen.findByRole("textbox", { name: "Title" });
+  await waitFor(() => expect(document.activeElement).toBe(title));
 });

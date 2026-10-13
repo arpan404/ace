@@ -12,6 +12,7 @@ import {
   type RefObject,
   type ReactNode,
 } from "react";
+import { markAutoFocused } from "@/lib/auto-focus.ts";
 import { cn } from "@/lib/cn.ts";
 import { matchesChord } from "@/lib/hotkeys.ts";
 import { parseChord } from "@/lib/keymap.ts";
@@ -93,6 +94,23 @@ function FocusHold() {
   return <span ref={marker} hidden />;
 }
 
+/** How the dialog was opened (mouse, touch, pen, keyboard), as Base UI reports it. */
+type OpenType = Parameters<
+  Extract<DialogPrimitive.Popup.Props["initialFocus"], (...args: never[]) => unknown>
+>[0];
+
+/**
+ * The safe answer of a destructive confirmation: the first enabled button of a footer that holds
+ * a danger button (Cancel, Keep editing), when it isn't the danger button itself.
+ */
+function safeAnswer(popup: HTMLElement): HTMLElement | undefined {
+  const footer = popup
+    .querySelector('[data-slot="dialog-footer"] [data-variant="danger"]')
+    ?.closest<HTMLElement>('[data-slot="dialog-footer"]');
+  const first = footer?.querySelector<HTMLElement>("button:not([disabled])");
+  return first && first.dataset.variant !== "danger" ? first : undefined;
+}
+
 /**
  * Modal card. Base UI traps focus; on close it returns to whatever had focus when the dialog
  * opened, so dialogs opened by a shortcut or from a menu behave like triggered ones. The card
@@ -103,6 +121,7 @@ function DialogContent({
   children,
   showCloseButton = true,
   size = "sm",
+  initialFocus,
   finalFocus,
   ...props
 }: DialogPrimitive.Popup.Props & {
@@ -110,17 +129,38 @@ function DialogContent({
   size?: keyof typeof sizes;
 }) {
   const openerRef = useRef<HTMLElement | null>(null);
+  const popupRef = useRef<HTMLDivElement | null>(null);
   // Back to the opener while it's still on the page, else where Base UI would put it.
   const returnFocus = useCallback(() => {
     const element = openerRef.current;
     return element?.isConnected ? element : true;
   }, []);
+  /*
+   * Where focus starts: the caller's choice, else a destructive confirmation's Cancel (the safe
+   * answer), else Base UI's default. An element focused this way shows the quiet ring until the
+   * person presses a key: the dialog put it there, they didn't.
+   */
+  const openFocus = useCallback(
+    (type: OpenType) => {
+      const target =
+        typeof initialFocus === "function"
+          ? initialFocus(type)
+          : typeof initialFocus === "object"
+            ? (initialFocus.current ?? true)
+            : (initialFocus ?? (popupRef.current && safeAnswer(popupRef.current)) ?? true);
+      if (target instanceof HTMLElement) markAutoFocused(target);
+      return target;
+    },
+    [initialFocus],
+  );
   return (
     <DialogPrimitive.Portal>
       <DialogOverlay />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         data-size={size}
+        ref={popupRef}
+        initialFocus={openFocus}
         finalFocus={finalFocus ?? returnFocus}
         className={cn(
           layers.modal,
@@ -177,7 +217,8 @@ function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
 const submitChord = parseChord("mod+enter");
 
 /**
- * Ghost "Cancel" first, then one primary or danger action. `submitHint`: ⌘↵ anywhere in the
+ * Ghost "Cancel" first, then one primary or danger action, right-aligned. A footer with a danger
+ * button opens with focus on its Cancel (`DialogContent`). `submitHint`: ⌘↵ anywhere in the
  * dialog presses the last button, which shows the hint.
  */
 function DialogFooter({

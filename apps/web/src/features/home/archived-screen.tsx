@@ -82,8 +82,7 @@ export function ArchivedScreen() {
                 Cancel
               </Button>
               <Button
-                variant="ghost"
-                tone="danger"
+                variant="danger"
                 onClick={() => {
                   actions.deleteArchived(deleting);
                   setDeleting(undefined);

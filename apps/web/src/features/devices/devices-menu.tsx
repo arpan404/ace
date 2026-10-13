@@ -125,8 +125,7 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
             </Button>
             <Button
               type="button"
-              variant="ghost"
-              tone="danger"
+              variant="danger"
               onClick={() => {
                 setConfirm(false);
                 devices.enable(false);

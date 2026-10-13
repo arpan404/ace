@@ -10,7 +10,8 @@ import type { ArchiveRequest } from "./delete-confirmation.ts";
 
 /**
  * Archiving a thread that still works or waits on the person: archiving alone leaves its agents
- * and commands running out of sight, so the person chooses. Stop & archive is the default.
+ * and commands running out of sight, so the person chooses. Stop & archive ends work, so it is the
+ * danger action and focus starts on Cancel.
  */
 export function ArchiveDialog(props: { request: ArchiveRequest; onClose(): void }) {
   const { request } = props;
@@ -37,7 +38,7 @@ export function ArchiveDialog(props: { request: ArchiveRequest; onClose(): void 
           <Button variant="secondary" onClick={choose(request.archive)}>
             Archive, keep running
           </Button>
-          <Button variant="primary" onClick={choose(request.stopAndArchive)}>
+          <Button variant="danger" onClick={choose(request.stopAndArchive)}>
             Stop &amp; archive
           </Button>
         </DialogFooter>

@@ -107,8 +107,7 @@ function RevokeDialog(props: { device: Device | undefined; onDone(): void }) {
             Cancel
           </Button>
           <Button
-            variant="ghost"
-            tone="danger"
+            variant="danger"
             disabled={revoke.isPending}
             onClick={() => device && revoke.mutate(device)}
           >

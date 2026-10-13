@@ -118,7 +118,7 @@ function ResetAll() {
           <Button variant="ghost" disabled={running} onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button variant="ghost" tone="danger" disabled={running} onClick={() => void reset()}>
+          <Button variant="danger" disabled={running} onClick={() => void reset()}>
             {running ? "Resetting…" : "Reset settings"}
           </Button>
         </DialogFooter>

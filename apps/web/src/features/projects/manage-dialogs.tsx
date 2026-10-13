@@ -124,16 +124,11 @@ export function RemoveProjectDialog(props: {
         )}
         <Footer>
           {refusedRunning ? (
-            <Button variant="ghost" tone="danger" disabled={busy} onClick={() => void remove(true)}>
+            <Button variant="danger" disabled={busy} onClick={() => void remove(true)}>
               {busy ? "Removing…" : "Archive threads and remove"}
             </Button>
           ) : (
-            <Button
-              variant="ghost"
-              tone="danger"
-              disabled={busy || !project}
-              onClick={() => void remove(false)}
-            >
+            <Button variant="danger" disabled={busy || !project} onClick={() => void remove(false)}>
               {busy ? "Removing…" : "Remove project"}
             </Button>
           )}

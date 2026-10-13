@@ -514,7 +514,7 @@ function DiscardDialog(props: { open: boolean; onKeep(): void; onDiscard(): void
           <Button ref={keep} variant="ghost" onClick={props.onKeep}>
             Keep editing
           </Button>
-          <Button variant="ghost" tone="danger" onClick={props.onDiscard}>
+          <Button variant="danger" onClick={props.onDiscard}>
             Discard
           </Button>
         </DialogFooter>

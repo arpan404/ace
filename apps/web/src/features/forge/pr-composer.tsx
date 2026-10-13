@@ -129,8 +129,8 @@ export function PrComposer(props: {
               <div className="flex flex-wrap justify-end gap-2">
                 {selected === "comment" && props.extensions?.closeWithComment && (
                   <Button
-                    variant="ghost"
-                    tone="danger"
+                    variant={closing ? "danger" : "ghost"}
+                    tone={closing ? "default" : "danger"}
                     disabled={disabled}
                     onClick={() => (closing ? void send(true) : setClosing(true))}
                   >

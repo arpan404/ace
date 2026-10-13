@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { useRef, type ReactElement } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Popover,
@@ -25,25 +25,23 @@ export interface StopConfirmProps {
  * popover stays out of the first paint while Stop itself draws eagerly.
  */
 export function StopConfirm(props: StopConfirmProps) {
+  // Cancel first, the safe answer, as in every destructive confirmation.
+  const cancel = useRef<HTMLButtonElement>(null);
   return (
     <Popover open={props.open} onOpenChange={props.onOpenChange}>
       <Tip label={props.label}>
         <PopoverTrigger render={props.trigger} />
       </Tip>
-      <PopoverContent align="end" className="w-[260px]">
+      <PopoverContent align="end" className="w-[260px]" initialFocus={cancel}>
         <PopoverTitle className="text-ui font-medium">{props.label}?</PopoverTitle>
         <PopoverDescription className="mt-1 text-sm text-muted-foreground">
           Their work so far stays in the thread.
         </PopoverDescription>
         <div className="mt-3 flex justify-end gap-2">
-          <PopoverClose render={<Button size="sm" variant="ghost" />}>Cancel</PopoverClose>
-          <Button
-            size="sm"
-            variant="ghost"
-            tone="danger"
-            disabled={props.stopping}
-            onClick={props.onStop}
-          >
+          <PopoverClose ref={cancel} render={<Button size="sm" variant="ghost" />}>
+            Cancel
+          </PopoverClose>
+          <Button size="sm" variant="danger" disabled={props.stopping} onClick={props.onStop}>
             Stop all
           </Button>
         </div>

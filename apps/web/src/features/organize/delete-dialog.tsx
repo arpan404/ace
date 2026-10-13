@@ -27,8 +27,7 @@ export function DeleteDialog(props: { request: DeleteRequest; onClose(): void })
             Cancel
           </Button>
           <Button
-            variant="ghost"
-            tone="danger"
+            variant="danger"
             onClick={() => {
               props.onClose();
               request.confirm();
