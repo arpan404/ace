@@ -24,12 +24,6 @@ interface FrameValue {
   bodyClaimed: boolean;
   /** A view's list takes the sidebar's body until the returned release is called. */
   claimBody(): () => void;
-  /**
-   * The sidebar toggle moves between the sidebar and the header as the sidebar shows or hides:
-   * a toggle pressed with focus on it passes focus to the one that takes its place.
-   */
-  passToggleFocus(): void;
-  takeToggleFocus(): boolean;
 }
 const noop = () => {};
 const FrameContext = createContext<FrameValue>({
@@ -42,24 +36,8 @@ const FrameContext = createContext<FrameValue>({
   setBody: noop,
   bodyClaimed: false,
   claimBody: () => noop,
-  passToggleFocus: noop,
-  takeToggleFocus: () => false,
 });
 export const useViewFrame = () => useContext(FrameContext);
-/** One toggle pressed with focus on it, waiting for the toggle that takes its place. */
-function toggleFocusHandoff() {
-  let pending = false;
-  return {
-    passToggleFocus: () => {
-      pending = true;
-    },
-    takeToggleFocus: () => {
-      const pass = pending;
-      pending = false;
-      return pass;
-    },
-  };
-}
 
 /** The sheet is lazy so the desktop shell does not eagerly load a dialog. */
 const SidebarSheet = lazy(() =>
@@ -81,7 +59,6 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
   const [sheetOpen, setSheetOpen] = useState(false);
   const [body, setBody] = useState<HTMLElement | null>(null);
   const [claims, setClaims] = useState(0);
-  const [{ passToggleFocus, takeToggleFocus }] = useState(toggleFocusHandoff);
   // Counted, so one view's list leaving after the next one's arrives doesn't free the body.
   const claimBody = useCallback(() => {
     setClaims((count) => count + 1);
@@ -115,22 +92,8 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
       setBody,
       bodyClaimed: claims > 0,
       claimBody,
-      passToggleFocus,
-      takeToggleFocus,
     }),
-    [
-      shown,
-      wide,
-      yielded,
-      body,
-      claims,
-      claimBody,
-      passToggleFocus,
-      takeToggleFocus,
-      setSidebarOpen,
-      hideRightPanel,
-      setup,
-    ],
+    [shown, wide, yielded, body, claims, claimBody, setSidebarOpen, hideRightPanel, setup],
   );
   // ⌘\ shows or hides the sidebar where it is: the sheet on a narrow window (leaving the wide
   // window's remembered choice alone), the sidebar beside the content elsewhere.

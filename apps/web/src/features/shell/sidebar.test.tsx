@@ -11,7 +11,7 @@ const button = (name: string | RegExp) => screen.getByRole("button", { name });
 const list = (name: string) => screen.queryByRole("complementary", { name });
 /** The sidebar's own links and buttons: "ace ▾", Search, New thread and the places. */
 const appNav = () => screen.getByRole("navigation", { name: "App" });
-/** The view's header: back, forward and the sidebar toggle at its far left while it's hidden. */
+/** The view's header: back, forward and the sidebar toggle at its far left. */
 const header = () => within(screen.getByRole("banner"));
 
 function workbenchApp(storage = memoryKeyValue()) {
@@ -55,10 +55,14 @@ test("Settings hides app navigation and returns through Back to app", async () =
     expect(within(appNav()).queryByRole("link", { name })).toBeNull();
     expect(within(appNav()).queryByRole("button", { name })).toBeNull();
   }
-  expect(screen.getByRole("navigation", { name: "Settings pages" })).toBeTruthy();
+  const pages = screen.getByRole("navigation", { name: "Settings pages" });
   expect(list("Threads")).toBeNull();
+  // Back to app sits at the sidebar's foot, after the pages, where the profile sits elsewhere.
+  const back = screen.getByRole("link", { name: "Back to app" });
+  expect(pages.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(appNav().contains(back)).toBe(false);
 
-  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await userEvent.click(back);
   await title("New thread");
   expect(screen.queryByRole("link", { name: "Back to app" })).toBeNull();
   expect(within(appNav()).queryByRole("link", { name: "Automations" })).toBeNull();
@@ -160,7 +164,7 @@ test("⌘\\ hides the sidebar, and the choice survives a reload", async () => {
   expect(await screen.findByRole("complementary", { name: "Threads" })).toBeTruthy();
 });
 
-test("back, forward and the sidebar toggle sit atop the sidebar while it shows, and at the header's far left once it hides", async () => {
+test("back, forward and the sidebar toggle lead the header whether the sidebar shows or not", async () => {
   const app = harness();
   app.play(longHistory(2)).runUntilBlocked();
   await app.open("/new");
@@ -169,29 +173,37 @@ test("back, forward and the sidebar toggle sit atop the sidebar while it shows, 
   await userEvent.click(within(threads).getByRole("link", { name: /Document the router/ }));
   await title("Document the router");
 
-  for (const name of ["Back", "Forward", "Hide sidebar"]) {
-    expect(within(appNav()).getByRole("button", { name })).toBeTruthy();
-    expect(header().queryByRole("button", { name })).toBeNull();
-  }
-  expect(header().queryByRole("button", { name: "Show sidebar" })).toBeNull();
+  // Sidebar shown: the header leads with them, and the sidebar's top keeps only ace and Search.
+  const leading = (toggle: string) =>
+    expect(header().getAllByRole("button").slice(0, 3)).toEqual([
+      header().getByRole("button", { name: "Back" }),
+      header().getByRole("button", { name: "Forward" }),
+      header().getByRole("button", { name: toggle }),
+    ]);
+  leading("Hide sidebar");
+  for (const name of ["Back", "Forward", "Hide sidebar"])
+    expect(within(appNav()).queryByRole("button", { name })).toBeNull();
+  expect(within(appNav()).getByRole("button", { name: "Search" })).toBeTruthy();
 
-  await userEvent.keyboard("{Meta>}\\{/Meta}");
+  await userEvent.click(header().getByRole("button", { name: "Back" }));
+  await title("New thread");
+  await userEvent.click(header().getByRole("button", { name: "Forward" }));
+  await title("Document the router");
+
+  // Sidebar hidden: the same three, the toggle now offering to show it.
+  await userEvent.click(header().getByRole("button", { name: "Hide sidebar" }));
   await waitFor(() => expect(list("Threads")).toBeNull());
   expect(screen.queryByRole("navigation", { name: "App" })).toBeNull();
-  const back = header().getByRole("button", { name: "Back" });
-  const forward = header().getByRole("button", { name: "Forward" });
-  const show = header().getByRole("button", { name: "Show sidebar" });
-  expect(header().getAllByRole("button").slice(0, 3)).toEqual([back, forward, show]);
+  leading("Show sidebar");
 
-  await userEvent.click(back);
+  await userEvent.click(header().getByRole("button", { name: "Back" }));
   await title("New thread");
   await userEvent.click(header().getByRole("button", { name: "Forward" }));
   await title("Document the router");
 
   await userEvent.click(header().getByRole("button", { name: "Show sidebar" }));
   expect(await screen.findByRole("complementary", { name: "Threads" })).toBeTruthy();
-  expect(within(appNav()).getByRole("button", { name: "Hide sidebar" })).toBeTruthy();
-  expect(header().queryByRole("button", { name: "Back" })).toBeNull();
+  leading("Hide sidebar");
 });
 
 test("with no project yet, the sidebar, ⌘N and the palette all lead to Add project", async () => {

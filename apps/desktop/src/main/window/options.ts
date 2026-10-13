@@ -77,9 +77,11 @@ export function titleBarSymbolColor(dark: boolean): string {
 /**
  * macOS: the traffic lights span x 16–68 at the top of the window, over the start of the sidebar's
  * top row, which drags the window. Every first control starts at x ≥ 80, 12 px clear of them: the
- * sidebar's title after them, the header's first controls after them with the sidebar hidden (the
- * full-view strip, the side panel's `header-nav`, 4 px further in to make up its narrower padding),
- * and on a narrow window (the sidebar in a sheet) the header clears them from the window's edge.
+ * sidebar's wordmark after them, the header's back, forward and sidebar toggle (`header-nav`)
+ * after them with the sidebar hidden (the full-view strip, the side panel's `header-nav`, 4 px
+ * further in to make up its narrower padding), and on a narrow window (the sidebar in a sheet)
+ * the header clears them from the window's edge. With the sidebar shown, the header starts past
+ * it and needs no room.
  * Full screen hides the lights, so none of this applies there; the preload marks
  * `<html data-fullscreen>`.
  */

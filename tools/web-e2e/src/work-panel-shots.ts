@@ -57,10 +57,10 @@ try {
     await expect(page.locator("header [data-work-card-toggle]")).toHaveCount(0);
     await expect(
       page.getByRole("banner").getByRole("button", { name: "Back", exact: true }),
-    ).toHaveCount(0);
+    ).toHaveCount(1);
     await expect(
       page.getByRole("banner").getByRole("button", { name: "Forward", exact: true }),
-    ).toHaveCount(0);
+    ).toHaveCount(1);
     await expect(work.getByText(/The thread settles when|subagents are still running/)).toHaveCount(
       0,
     );
