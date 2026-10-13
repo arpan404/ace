@@ -68,7 +68,7 @@ export function SettledRow(props: { threadId: string; leaving?: boolean | undefi
             draggable={false}
             className={cn(
               row,
-              "outline-none focus-ring-inset group-hover/row:pr-16 group-focus-within/row:pr-16",
+              "outline-none focus-ring-inset focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset group-hover/row:pr-16 group-focus-within/row:pr-16",
               current ? "bg-foreground/8" : "hover:bg-accent",
             )}
           >
@@ -87,6 +87,7 @@ export function SettledRow(props: { threadId: string; leaving?: boolean | undefi
                 size="sm"
                 label={`${unsettle.label} ${card.title}`}
                 tip={unsettle.label}
+                tabIndex={-1}
                 onClick={unsettle.run}
               />
             )}

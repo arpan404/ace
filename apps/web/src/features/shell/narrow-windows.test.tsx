@@ -320,13 +320,13 @@ test("the sheet closes when its link to the page already open is tapped", async 
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 });
 
-test("Search in the sheet opens the search dialog in the sheet's place", async () => {
+test("Search in the sheet opens the launcher in the sheet's place", async () => {
   windowWidth(390);
   await openThread();
   // On a phone the header's way to the list is "Back to threads" (#126).
   await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
   await userEvent.click(within(sheet).getByRole("button", { name: "Search" }));
-  expect(await screen.findByRole("dialog", { name: "Search" })).toBeTruthy();
+  expect(await screen.findByRole("dialog", { name: "Command palette" })).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 });

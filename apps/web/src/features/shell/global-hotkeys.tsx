@@ -20,8 +20,8 @@ export function GlobalHotkeys(props: {
   const layout = useLayout();
   const noProjects = useNoProjects() && props.onAddProject !== undefined;
   useHotkey(keymap.shortcuts.keys, () => layout.setShortcutsOpen(!layout.shortcutsOpen));
+  // ⌘K and ⇧⌘K: the one launcher (search, threads and commands).
   useHotkey(keymap.palette.keys, () => layout.setPaletteOpen(!layout.paletteOpen));
-  useHotkey(keymap.search.keys, () => (layout.search ? layout.closeSearch() : layout.openSearch()));
   useHotkey(keymap.newThread.keys, () =>
     noProjects ? props.onAddProject?.() : void navigate({ to: "/new" }),
   );

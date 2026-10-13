@@ -77,7 +77,11 @@ function arrange(
     for (const group of groups) {
       if (group.value === "Threads") {
         if (allThreads) out.push(group);
-      } else if (group.value === "This thread" || group.value === "Selected threads")
+      } else if (
+        group.value === "This thread" ||
+        group.value === "Selected threads" ||
+        group.value === "Agent"
+      )
         out.push(group);
       // Recently opened threads sit right after what acts on this thread.
       if (group.value === "This thread" && recentRows.length)
@@ -98,7 +102,7 @@ function arrange(
         q,
         {
           label: item.label,
-          extra: [item.detail, item.more].filter(Boolean).join(" "),
+          extra: [item.detail, item.more, item.keywords].filter(Boolean).join(" "),
           command: !isThread(item) && item.icon !== "project",
           openedAt: opened.get(item.id),
         },

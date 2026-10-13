@@ -4,3 +4,5 @@ export { HomeEmptyScreen } from "./home-empty-screen.tsx";
 export { ThreadsSidebar } from "./home-sidebar-lazy.tsx";
 export { NewThreadPage } from "./new-thread/new-thread-page.tsx";
 export { useSeenWhileOpen } from "./use-seen-while-open.ts";
+/** Moving between threads by keyboard (⌥⌘↓ ↑, ⌥⌘J), and the same steps for the palette. */
+export { ThreadStepKeys, useThreadSteps } from "./thread-steps.tsx";

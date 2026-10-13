@@ -301,20 +301,6 @@ test("the project filter narrows Home to one project and is remembered", async (
   await waitFor(() => expect(order()).toHaveLength(2));
 });
 
-test("Tab walks a task link, its actions, then the next task", async () => {
-  await openHome(workbenchApp());
-  const [first, second] = within(threads()).getAllByRole("link");
-  if (!first || !second) throw new Error("expected two rows");
-  first.focus();
-  // The first row waits on an approval, so it has no Settle: Snooze, then the menu.
-  await userEvent.tab();
-  expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Snooze /);
-  await userEvent.tab();
-  expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Actions for /);
-  await userEvent.tab();
-  expect(document.activeElement).toBe(second);
-});
-
 test("a row's name and tooltip give its whole branch, including main", async () => {
   const app = harness();
   app.daemon.createThread({

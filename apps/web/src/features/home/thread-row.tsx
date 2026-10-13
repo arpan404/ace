@@ -134,7 +134,8 @@ export function ThreadRow(props: {
                 className={cn(
                   row,
                   height,
-                  "group/link focus-ring-inset",
+                  // A keyboard-focused row draws the focus colour all round, plainly visible in the list.
+                  "group/link focus-ring-inset focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                   // The open thread takes the fill every list shares for its current row (Settings,
                   // Skills, Automations); a picked one keeps its fill under the pointer.
                   current ? "bg-foreground/8" : selected ? "bg-sidebar-accent" : "hover:bg-accent",

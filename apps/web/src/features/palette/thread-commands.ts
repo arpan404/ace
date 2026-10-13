@@ -26,6 +26,7 @@ import {
   useThreadMover,
   threadActions,
 } from "@/features/organize/index.ts";
+import { focusComposerSoon } from "@/lib/focus-composer.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { keymap } from "@/lib/keymap.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -80,6 +81,11 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
       close();
       action();
     };
+    // Into the thread with the caret in its message box, ready to type.
+    const openThread = (threadId: string) => {
+      void navigate({ to: "/t/$threadId", params: { threadId } });
+      focusComposerSoon();
+    };
     const threads = [
       ...order.pinned,
       ...order.active,
@@ -97,7 +103,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
           detail: projectName(entry.workspaceId),
           ...(branch ? { more: branch } : {}),
           icon: "thread",
-          run: run(() => void navigate({ to: "/t/$threadId", params: { threadId: id } })),
+          run: run(() => openThread(id)),
         },
       ];
     });
@@ -111,7 +117,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
         label: hit.threadTitle,
         detail: projectName(hit.workspaceId),
         icon: "thread",
-        run: run(() => void navigate({ to: "/t/$threadId", params: { threadId: hit.threadId } })),
+        run: run(() => openThread(hit.threadId)),
       });
     }
     const projects = directory.projects.map((project): PaletteCommand => ({

@@ -56,6 +56,26 @@ async function openFolder(made: ReturnType<typeof harness>) {
   return box();
 }
 
+test("Add project keeps focus: Tab cycles inside it and focus pulled behind it comes back", async () => {
+  const made = firstRun();
+  await made.open("/settings");
+  await screen.findByRole("heading", { level: 1 });
+  await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
+  const card = await dialog();
+  const search = await screen.findByRole("combobox", { name: "Search project sources" });
+  await waitFor(() => expect(document.activeElement).toBe(search));
+  // The sources are a list the search box steps through, not a Tab stop each.
+  for (let press = 0; press < 6; press++) {
+    await userEvent.tab();
+    expect(card.contains(document.activeElement)).toBe(true);
+  }
+  // Something behind the modal taking focus (a request card arriving, a row restoring) is undone.
+  const behind = screen.getAllByRole("link", { hidden: true }).find((link) => !card.contains(link));
+  if (!behind) throw new Error("Nothing focusable behind the dialog");
+  behind.focus();
+  await waitFor(() => expect(card.contains(document.activeElement)).toBe(true));
+});
+
 test("the first run offers one Add project entry in each area, and a searched folder opens with Enter", async () => {
   const made = firstRun();
   await made.open("/");

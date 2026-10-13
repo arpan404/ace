@@ -29,6 +29,8 @@ export interface ModelControlView {
   placeholder: string;
   unavailable?: string | undefined;
   pickerRequest?: number | undefined;
+  /** Each increment opens the popover on Tune (the effort slider), as `pickerRequest` the list. */
+  tuneRequest?: number | undefined;
   /** The chip's accessible name and tooltip. */
   ariaLabel: string;
   tip: string;

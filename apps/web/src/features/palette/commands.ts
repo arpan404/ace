@@ -6,6 +6,8 @@ import {
   GitBranchIcon,
   GitDiffIcon,
   GlobeIcon,
+  MoonIcon,
+  SunIcon,
   NotePencilIcon,
   PlusSquareIcon,
   ScrollIcon,
@@ -36,6 +38,7 @@ import {
 import { useLayout } from "@/lib/layout.tsx";
 import { themeIds, themes } from "@/theme/palettes.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
+import { useLiveCommands } from "./live-commands.ts";
 import { useThreadCommands } from "./thread-commands.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
 
@@ -46,6 +49,7 @@ type Destination = View["to"] | "/setup" | "/new" | "/usage" | "/archived" | "/s
 /** The order groups show in with an empty query: what's at hand first, the long lists after. */
 const groupOrder = [
   "Selected threads",
+  "Agent",
   "This thread",
   "Create",
   "Go to",
@@ -84,6 +88,7 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
   // The showing tab's commands (pin, close others, reopen): PN-05, PN-19.
   const tabCommands = useWorkspaceCommands();
   const threadGroups = useThreadCommands(close, query);
+  const liveGroups = useLiveCommands(close);
   const projects = useProjectDialogs();
   const directory = useProjectDirectory();
   const { openSearch } = useLayout();
@@ -142,7 +147,6 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
           {
             id: "go-search",
             label: "Search all threads",
-            keys: keymap.search.keys,
             icon: "view",
             run: run(() => openSearch()),
           },
@@ -245,6 +249,20 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
         value: "Theme",
         items: [
           {
+            id: "mode-dark",
+            label: "Dark mode",
+            keywords: "theme appearance night",
+            icon: MoonIcon,
+            run: run(() => update({ mode: "dark" })),
+          },
+          {
+            id: "mode-light",
+            label: "Light mode",
+            keywords: "theme appearance day",
+            icon: SunIcon,
+            run: run(() => update({ mode: "light" })),
+          },
+          {
             id: "theme-toggle",
             label: "Toggle light and dark",
             icon: "theme",
@@ -293,9 +311,9 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
   ]);
   return useMemo(
     () =>
-      [...threadGroups, ...staticGroups]
+      [...liveGroups, ...threadGroups, ...staticGroups]
         .filter((group) => group.items.length > 0)
         .toSorted((a, b) => orderOf(a) - orderOf(b)),
-    [threadGroups, staticGroups],
+    [liveGroups, threadGroups, staticGroups],
   );
 }

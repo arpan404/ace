@@ -132,6 +132,7 @@ export function ThreadModelControl(props: {
   busy: boolean;
   next: NextTurn;
   pickerRequest?: number;
+  tuneRequest?: number;
 }) {
   const meta = useThreadMeta(props.thread.id);
   const toast = useThreadToast(props.thread.id);
@@ -255,6 +256,7 @@ export function ThreadModelControl(props: {
   const view: ModelControlView = {
     unavailable: unavailable && unavailableModelNotice(unavailable),
     pickerRequest: props.pickerRequest,
+    tuneRequest: props.tuneRequest,
     provider: target?.provider,
     label: target?.model,
     accountLabel:

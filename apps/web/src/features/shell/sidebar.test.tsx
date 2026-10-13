@@ -138,19 +138,19 @@ test("the profile menu closes on Escape and gives focus back to the profile", as
   expect(document.activeElement).toBe(button(/^You, account/));
 });
 
-test("Search in the sidebar opens the search dialog over the current screen", async () => {
+test("Search in the sidebar opens the launcher over the current screen", async () => {
   await harness().open("/new");
   await title("New thread");
   await userEvent.click(within(appNav()).getByRole("button", { name: "Search" }));
-  const dialog = await screen.findByRole("dialog", { name: "Search" });
+  const dialog = await screen.findByRole("dialog", { name: "Command palette" });
   // Focus lands in its field, ready to type.
   await waitFor(() =>
-    expect(within(dialog).getByRole("combobox", { name: "Search every thread" })).toBe(
+    expect(within(dialog).getByRole("combobox", { name: "Search commands" })).toBe(
       document.activeElement,
     ),
   );
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull());
   expect(screen.getByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
 });
 

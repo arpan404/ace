@@ -3,6 +3,7 @@ import { ThreadId } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { openSearchSheet } from "@/test/open-search.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 async function history() {
   const storage = memoryKeyValue();
@@ -56,15 +57,7 @@ test("Search finds an older settled thread outside the window and opens it throu
   try {
     await waitFor(() => expect(lease.store.ids).toHaveLength(20));
     expect(lease.store.thread("thread-bump-codex")).toBeUndefined();
-    await userEvent.click(
-      within(screen.getByRole("navigation", { name: "App" })).getByRole("button", {
-        name: "Search",
-      }),
-    );
-    await userEvent.type(
-      await screen.findByRole("combobox", { name: "Search every thread" }),
-      "Bump Codex app-server",
-    );
+    await userEvent.type(await openSearchSheet(), "Bump Codex app-server");
     const result = await screen.findByRole("option", { name: /Bump/ });
     await userEvent.click(result);
     await screen.findByRole("heading", { name: "Bump Codex app-server to 0.48" });

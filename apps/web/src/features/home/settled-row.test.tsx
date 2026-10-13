@@ -53,10 +53,11 @@ test("a settled thread is one line of project badge and title, without branch, t
   expect(link.getAttribute("aria-label")).toContain("Codex");
 });
 
-test("focus moves from a settled row to Unsettle, which brings the thread back to the list", async () => {
+test("→ moves from a settled row to Unsettle, which brings the thread back to the list", async () => {
   const { app, link } = await openSettled();
   link.focus();
-  await userEvent.tab();
+  // The row's actions sit out of the Tab order (the list is one stop); → reaches them.
+  await userEvent.keyboard("{ArrowRight}");
   const unsettle = screen.getByRole("button", { name: `Unsettle ${title}` });
   expect(document.activeElement).toBe(unsettle);
   await userEvent.keyboard("{Enter}");

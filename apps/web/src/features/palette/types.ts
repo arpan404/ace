@@ -8,6 +8,8 @@ export interface PaletteCommand {
   detail?: string;
   /** Shown after the detail only on the highlighted row (a thread's branch). Also searched. */
   more?: string;
+  /** Other words that find it, never shown ("approve" for Allow once). */
+  keywords?: string;
   /** Keymap notation (a keymap default follows the user's rebinding), shown at the right. */
   keys?: string;
   /** A named glyph, or any icon (the thread menu's own). */

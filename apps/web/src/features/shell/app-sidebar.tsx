@@ -50,7 +50,7 @@ export function AppSidebar(props: {
   threads: ReactNode;
 }) {
   const { sheet, setBody, bodyClaimed, hideSidebar } = useViewFrame();
-  const { openSearch } = useLayout();
+  const { setPaletteOpen } = useLayout();
   const current = useRouterState({ select: (state) => activeView(state.location.pathname) });
   const section = current === "settings" || current === "automations" || current === "skills";
   const back = useBackToApp(section);
@@ -75,14 +75,14 @@ export function AppSidebar(props: {
           <span className="flex-1" />
           {/* Settings, Automations and Skills search their own lists. */}
           {!section && (
-            <Tip label="Search" shortcut="search">
+            <Tip label="Search" shortcut="palette">
               <button
                 type="button"
                 aria-label="Search"
                 aria-haspopup="dialog"
                 onClick={() => {
                   leaveSheet();
-                  openSearch();
+                  setPaletteOpen(true);
                 }}
                 className={quick}
               >

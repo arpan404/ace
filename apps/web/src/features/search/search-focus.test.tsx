@@ -3,6 +3,7 @@ import { ServerMessage } from "@ace/protocol";
 import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, onTestFinished, test, vi } from "vitest";
+import { openSearchSheet } from "@/test/open-search.ts";
 import { harness } from "@/test/harness.tsx";
 
 test("Search keeps keyboard control when the new-thread composer finishes loading behind it", async () => {
@@ -28,9 +29,7 @@ test("Search keeps keyboard control when the new-thread composer finishes loadin
   });
   await app.open("/new");
   await screen.findByRole("heading", { level: 1, name: "New thread" });
-  await userEvent.click(
-    within(screen.getByRole("navigation", { name: "App" })).getByRole("button", { name: "Search" }),
-  );
+  await openSearchSheet();
   const dialog = await screen.findByRole("dialog", { name: "Search" });
   const field = within(dialog).getByRole("combobox", { name: "Search every thread" });
   await userEvent.type(field, "retry budget");

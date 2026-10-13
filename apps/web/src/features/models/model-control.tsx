@@ -46,9 +46,14 @@ export function ModelControl(props: {
   };
   const [dismissedRequest, dismissRequest] = useState(0);
   const requested = (view.pickerRequest ?? 0) > dismissedRequest;
+  const [dismissedTune, dismissTune] = useState(0);
+  const tuneRequested = (view.tuneRequest ?? 0) > dismissedTune;
   const changeOpen = (next: boolean) => {
     setOpen(next);
-    if (!next) dismissRequest(view.pickerRequest ?? 0);
+    if (!next) {
+      dismissRequest(view.pickerRequest ?? 0);
+      dismissTune(view.tuneRequest ?? 0);
+    }
   };
   const switching = view.switching;
   const tip = [
@@ -59,7 +64,7 @@ export function ModelControl(props: {
   ]
     .filter(Boolean)
     .join(" · ");
-  const showing = open || requested;
+  const showing = open || requested || tuneRequested;
   // Escape closes the popover wherever focus is, including after a pick swaps the picker for
   // Tune and the focused row goes away.
   const close = useEffectEvent(() => changeOpen(false));
@@ -154,7 +159,7 @@ export function ModelControl(props: {
           <DeferredModelPopover.Component
             view={view}
             actions={props.actions}
-            initialPane={requested ? "picker" : pane}
+            initialPane={requested ? "picker" : tuneRequested ? "tune" : pane}
             onClose={() => changeOpen(false)}
           />
         </Suspense>
