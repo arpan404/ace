@@ -228,9 +228,18 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                   <Transcript threadId={id} />
                 </div>
                 <TargetJump target={props.target} pending={requests ?? []} />
-                <Suspense fallback={null}>
-                  <ThreadBrowser threadId={id} />
-                </Suspense>
+                {/* A page's question floats just above the composer, on its column: nothing
+                    renders below the composer. */}
+                <div
+                  className="pointer-events-none relative z-20 col-start-1 row-start-1 self-end pb-[calc(var(--composer-clearance,0px)+8px)]"
+                  style={{ paddingInline: "var(--transcript-gutter)" }}
+                >
+                  <div className={readingColumn}>
+                    <Suspense fallback={null}>
+                      <ThreadBrowser threadId={id} />
+                    </Suspense>
+                  </div>
+                </div>
                 {thread && (
                   <DelegateBottom thread={meta}>
                     <ThreadComposer

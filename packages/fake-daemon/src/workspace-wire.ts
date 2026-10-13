@@ -15,7 +15,7 @@ import {
 import { synthesizedStatus } from "./catalog/git-status.ts";
 import { scriptOutput } from "./catalog/scripts.ts";
 import { FakeForgeWire } from "./forge-wire.ts";
-import { FakeIssueWire } from "./issue-wire.ts";
+import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { fakeBranchRefs } from "./worktree-base.ts";
 import type { FakeServiceContext } from "./service-context.ts";
@@ -162,7 +162,8 @@ export class FakeWorkspaceWire {
       });
     }
     if (op.op.startsWith("forge.")) {
-      const data = this.issues.read(op) ?? this.forgeReads.get(JSON.stringify(op));
+      const data =
+        this.issues.read(op) ?? this.forgeReads.get(JSON.stringify(op)) ?? emptyIssueList(op);
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
