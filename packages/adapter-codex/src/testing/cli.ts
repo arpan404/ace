@@ -30,6 +30,9 @@ if (args.join(" ") !== "app-server") {
 const write = (data: unknown) => process.stdout.write(`${JSON.stringify(data)}\n`);
 const notify = (method: string, params: unknown) => write({ method, params });
 let appCatalogNotified = false;
+const apps: { id: string; name: string; description: string }[] = [
+  { id: "calendar", name: "Calendar", description: "Read calendars" },
+];
 const item = (threadId: string, turnId: string, data: unknown, complete = true) =>
   notify(complete ? "item/completed" : "item/started", { threadId, turnId, item: data });
 const message = (text: string, id = "proof") =>
@@ -98,6 +101,10 @@ for await (const line of createInterface({ input: process.stdin })) {
       notify("app/list/updated", { data });
     }
     respond({ data, nextCursor: null });
+  } else if (method === "app/list" && process.env["ACE_FAKE_RESUME"] === "app-list-echo") {
+    // Codex 0.162 broadcasts app/list/updated after serving every app/list call.
+    respond({ data: apps, nextCursor: null });
+    notify("app/list/updated", { data: apps });
   } else if (method === "mcpServerStatus/list") {
     respond({
       data: [...mcpServers].map(([name, runtimeStatus]) => ({ name, runtimeStatus })),
@@ -247,6 +254,17 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (process.env["ACE_FAKE_RESUME"] === "app-list-echo") {
+      if (text === "connect drive") {
+        apps.push({ id: "drive", name: "Drive", description: "Read files" });
+        notify("app/list/updated", { data: apps });
+      }
+      respond({ turn: { id: "turn" } });
+      active.set("native", "turn");
+      notify("turn/started", { threadId: "native", turn: { id: "turn" } });
+      end();
+      continue;
+    }
     if (
       ["complete-before-ack", "missing-start-ack"].includes(process.env["ACE_FAKE_RESUME"] ?? "")
     ) {

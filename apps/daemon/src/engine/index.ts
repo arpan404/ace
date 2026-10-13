@@ -38,6 +38,13 @@ import { IntentWorkers } from "./workers.ts";
 import { engineHandler } from "./handler.ts";
 import { AdapterRegistry } from "./registry.ts";
 import { EngineRepository, type IntentHeader } from "./repository.ts";
+import {
+  defaultProviderIdleMs,
+  providerProcessState,
+  releaseRequest,
+  releasedThread,
+  type ProviderProcess,
+} from "./provider-release.ts";
 export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
@@ -108,6 +115,7 @@ export class Engine {
   private report: (error: unknown) => void;
   private diagnostic: EngineOptions["onProviderDiagnostic"];
   private actors = new Map<ThreadId, ThreadActor>();
+  private stopReleaseWatch: () => void;
   private workspaceChanges = new Map<ThreadId, Promise<void>>();
   private readonly repositoryTransfers: RepositoryTransfers;
   private sends: IntentWorkers;
@@ -175,7 +183,7 @@ export class Engine {
     this.selectInstance = options.selectInstance;
     this.registry = options.registry ?? new AdapterRegistry();
     this.batchScheduler = options.batchScheduler ?? systemClock;
-    this.idleMs = options.idleMs ?? 30 * 60_000;
+    this.idleMs = options.idleMs ?? defaultProviderIdleMs;
     const silenceMs = options.silenceMs ?? 60_000;
     if (!Number.isSafeInteger(this.idleMs) || this.idleMs < 0) throw new Error("Invalid idleMs");
     if (!Number.isSafeInteger(silenceMs) || silenceMs < 0) throw new Error("Invalid silenceMs");
@@ -268,6 +276,13 @@ export class Engine {
       recovery: this.recovery,
       actor: (id) => this.actors.get(id),
       updateChild: (parent, child) => this.updateChild(parent, child),
+    });
+    // Settling or archiving releases a done thread's warm provider without the idle wait.
+    this.stopReleaseWatch = store.subscribe((events) => {
+      for (const event of events) {
+        const request = releaseRequest(event.payload);
+        if (request) this.requestRelease(event.threadId, request);
+      }
     });
     this.repo.observe = (state, facts, events, at) => {
       this.repo.permissions.observe(state, events, at, () => this.wake(state.threadId));
@@ -379,6 +394,7 @@ export class Engine {
         this.diagnostic,
         (retired, generation) => this.delivery.expire(retired, generation),
       );
+      actor.releaseRequested = releasedThread(this.repo.store.getThread(id));
       actor.generation = Math.max(
         this.repo.pending.latestGeneration(id),
         this.repo.interactions.latestGeneration(id),
@@ -651,6 +667,36 @@ export class Engine {
       queues["engine.queuedSends"] += this.repo.queuedCount(actor.id);
     }
     return { activeSessions, queues };
+  }
+  /** Live provider processes per thread, for `ace status`; bounded by live actors. */
+  providerProcesses(): ProviderProcess[] {
+    const processes: ProviderProcess[] = [];
+    for (const actor of this.actors.values()) {
+      const state = providerProcessState({
+        session: Boolean(actor.session),
+        closing: this.sessions.isClosing(actor.id),
+        idleSince: actor.idleSince,
+        idleDue: actor.idleDue,
+      });
+      const provider = this.repo.state(actor.id)?.config.provider;
+      if (!state || !provider) continue;
+      const releaseAt = actor.releaseAt();
+      processes.push({
+        threadId: actor.id,
+        provider,
+        state,
+        ...(actor.idleSince === undefined ? {} : { idleSince: actor.idleSince }),
+        ...(state === "idle-warm" && releaseAt !== undefined ? { releaseAt } : {}),
+      });
+    }
+    return processes;
+  }
+  private requestRelease(id: ThreadId, request: "release" | "withdraw"): void {
+    const actor = this.actors.get(id);
+    if (!actor || this.closing) return;
+    actor.releaseRequested = request === "release";
+    // A done tree gets a due deadline now; live work keeps none until it settles.
+    actor.schedule();
   }
   bindHostInteractions(
     handler: (command: Command) => import("@ace/protocol").CommandResult | undefined,
@@ -1192,6 +1238,7 @@ export class Engine {
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
+      this.stopReleaseWatch();
       this.flushDepth++;
       await Promise.allSettled(this.workspaceChanges.values());
       await this.readyPromise;

@@ -68,8 +68,10 @@ A second device gets `already_resolved` while the first answer is in flight. Ech
 keep the winning device and answer. A failed valid answer retains its reservation because
 provider delivery may be uncertain.
 
-One timer covers the earliest core, translator or idle deadline. It ticks translator and core. Sessions
-close after 30 minutes of done by default. Resume supplies the saved native id and applies
+One timer covers the earliest core, translator or idle deadline. It ticks translator and core. Sessions close after 5 minutes of done by default (`idleMs`; the daemon reads
+`ACE_PROVIDER_IDLE_SECONDS`). Settling or archiving a done thread releases its session on the next tick;
+a thread with any live agent, background task or human request is never done, so it is never released.
+`providerProcesses()` lists each live session as busy, idle-warm or releasing for `ace status`. Resume supplies the saved native id and applies
 `process.started`. Shutdown drains frames received before close and frames emitted while
 closing before fencing intake. Retired generations are checked before decoding or accounting
 frames and again when folding. A failed open drains its accepted prefix, retires only its owned

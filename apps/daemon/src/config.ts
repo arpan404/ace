@@ -37,6 +37,8 @@ const Environment = z.object({
   ACE_RELAY_URL: z.url().optional(),
   ACE_ADVERTISE_HOST: z.string().optional(),
   ACE_WEB_ORIGINS: WebOrigins.optional(),
+  /** Seconds a done thread keeps its provider process warm before releasing it (default 300). */
+  ACE_PROVIDER_IDLE_SECONDS: z.coerce.number().int().nonnegative().max(86_400).optional(),
   /** Overrides the saved `storage.retentionDays` while set. */
   ACE_RETENTION_DAYS: z.coerce.number().pipe(RetentionDays).optional(),
   /** Overrides the saved `logs.maxBytes` while set. Accepts `1g`, `512m` or plain bytes. */
@@ -70,6 +72,8 @@ export interface Config {
   /** Origins of web apps served elsewhere that may manage devices with the token (ACE_WEB_ORIGINS). */
   webOrigins?: readonly string[];
   logLevel: LogLevel;
+  /** How long a done thread keeps its provider process warm (ACE_PROVIDER_IDLE_SECONDS). */
+  providerIdleMs?: number;
   /**
    * Settings pinned by environment variables. They win over saved settings (the same
    * convention as ACE_LISTEN); saved values apply again once the variable is unset.
@@ -116,6 +120,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
     ...(settings.ACE_ADVERTISE_HOST ? { advertiseHost: settings.ACE_ADVERTISE_HOST } : {}),
     ...(settings.ACE_WEB_ORIGINS ? { webOrigins: settings.ACE_WEB_ORIGINS } : {}),
     logLevel: settings.ACE_LOG_LEVEL,
+    ...(settings.ACE_PROVIDER_IDLE_SECONDS === undefined
+      ? {}
+      : { providerIdleMs: settings.ACE_PROVIDER_IDLE_SECONDS * 1000 }),
     settingsOverrides: {
       ...(settings.ACE_RETENTION_DAYS !== undefined
         ? { "storage.retentionDays": settings.ACE_RETENTION_DAYS }

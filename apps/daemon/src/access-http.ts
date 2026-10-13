@@ -48,6 +48,8 @@ export interface AccessHttpOptions {
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
   ready?: () => boolean;
   remoteStatus?: () => import("@ace/protocol").RemoteAccessStatus;
+  /** Live provider processes per thread and whether each is busy, idle-warm or releasing. */
+  providerProcesses?: () => readonly import("./engine/provider-release.ts").ProviderProcess[];
 }
 export function accessHttp({
   shutdown,
@@ -61,6 +63,7 @@ export function accessHttp({
   serviceStatus,
   ready = () => true,
   remoteStatus,
+  providerProcesses,
 }: AccessHttpOptions) {
   return (request: IncomingMessage, response: ServerResponse) => {
     void (async () => {
@@ -107,6 +110,7 @@ export function accessHttp({
             remote: pairing() ?? null,
             ...(remoteStatus ? { remoteAccess: remoteStatus() } : {}),
             ...(serviceStatus ? { services: serviceStatus() } : {}),
+            ...(providerProcesses ? { providers: providerProcesses() } : {}),
           };
         else if (path === "/v1/stop" && request.method === "POST" && shutdown) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
