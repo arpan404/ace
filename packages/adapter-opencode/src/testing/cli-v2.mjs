@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Local boundary double. It never executes model prompts or provider tools.
 import { createServer } from "node:http";
+import { openApiDocument, requiredRoutes } from "../contract.ts";
 const args = process.argv.slice(2);
 const freeModels =
   process.env.ACE_TEST_FREE_MODELS === "1"
@@ -17,8 +18,10 @@ const freeModels =
         cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
       }))
     : [];
+// "release-X" keeps the version itself out of the env values that diagnostics redact.
+const release = process.env.ACE_TEST_RELEASE?.replace(/^release-/, "");
 if (args.includes("--version")) {
-  console.log(`opencode v${process.env.ACE_TEST_OPENCODE_VERSION ?? "2.0.22"}`);
+  console.log(`opencode v${process.env.ACE_TEST_OPENCODE_VERSION ?? release ?? "2.0.22"}`);
   process.exit(0);
 }
 if (args[0] === "auth") {
@@ -72,30 +75,6 @@ let fault = {},
   beforeRead,
   held,
   heldPrompt;
-const operations = [
-  "server.info",
-  "event.subscribe",
-  "session.create",
-  "session.get",
-  "session.switchModel",
-  "session.list",
-  "session.active",
-  "session.prompt",
-  "session.interrupt",
-  "session.message.list",
-  "session.permission.list",
-  "session.permission.reply",
-  "session.form.list",
-  "session.form.reply",
-  "session.form.cancel",
-  "session.inbox.list",
-  "shell.list",
-  "shell.get",
-  "shell.remove",
-  "model.list",
-  "model.default",
-  "command.list",
-];
 const publish = (type, data, directory = "/one", extra = {}) => {
   const e = {
     id: `event-${++eventID}`,
@@ -284,18 +263,20 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, { "content-type": "text/html" }).end("<html>secret</html>");
       return;
     }
-    json({ version: process.env.ACE_TEST_SERVER_VERSION ?? "2.0.22", pid: process.pid });
+    json({
+      version: process.env.ACE_TEST_SERVER_VERSION ?? release ?? "2.0.22",
+      pid: process.pid,
+    });
     return;
   }
   if (path === "/openapi.json") {
-    json({
-      openapi: "3.1.0",
-      paths: Object.fromEntries(
-        operations
-          .filter((op) => op !== process.env.ACE_TEST_MISSING_OPERATION)
-          .map((operationId, i) => [`/api/${i}`, { get: { operationId } }]),
-      ),
-    });
+    const routes = { ...requiredRoutes };
+    delete routes[process.env.ACE_TEST_MISSING_OPERATION ?? ""];
+    // "drop <operationId>" or "move <operationId>" models a changed upstream contract.
+    const [change, operation = ""] = (process.env.ACE_TEST_CONTRACT_CHANGE ?? "").split(" ");
+    if (change === "drop") delete routes[operation];
+    if (change === "move" && routes[operation]) routes[operation] = `POST /api/v3/${operation}`;
+    json(openApiDocument(routes));
     return;
   }
   if (path === "/api/event") {

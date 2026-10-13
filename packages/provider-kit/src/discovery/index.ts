@@ -2,6 +2,7 @@ import { findOpenCodeExecutable } from "./opencode-executable.ts";
 export { findOpenCodeExecutable } from "./opencode-executable.ts";
 import { findExecutable } from "./executable.ts";
 export { findExecutable, isPackageRunner, scriptExecutablePaths } from "./executable.ts";
+export { piMinimumVersion, piVersionRefusal, piVersionSupported } from "./pi-version.ts";
 import { z } from "zod";
 import { probeOutput } from "../process.ts";
 import {

@@ -8,7 +8,7 @@ import { privateMcpConfig, AceMcpConnectionSchema } from "@ace/mcp-server";
 import { fileURLToPath } from "node:url";
 import type { ProviderSession, SessionContext, Frame } from "@ace/engine-api";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
-import type { DiscoveryResult } from "@ace/provider-kit/discovery";
+import { piVersionRefusal, type DiscoveryResult } from "@ace/provider-kit/discovery";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { readJsonLines } from "@ace/provider-kit/jsonl";
 import { PiRpc } from "./rpc.ts";
@@ -57,7 +57,7 @@ export async function openPiSession(
       signal: ctx.signal,
     }));
   if (!cli.path || !piProfile(cli).supported)
-    throw new Error(`Pi ${cli.version ?? "unknown"} unsupported; audited version is 0.85.1`);
+    throw new Error(piVersionRefusal(cli.version));
   const referenceDir = sessionReferenceDirectory(options.sessionReferenceDir);
   const resume = ctx.resume
     ? await loadSessionReference(referenceDir, ctx.resume.nativeSessionId)

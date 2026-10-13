@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { discoverPi } from "./pi.ts";
+import { piVersionSupported } from "./pi-version.ts";
 import type { DiscoveryOptions } from "./index.ts";
 import type { DiscoveryResult } from "./types.ts";
 import { probeOutput } from "../process.ts";
@@ -42,7 +43,7 @@ export async function discoverPiStatus(
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
       return { ...result, error: "Pi settings or readiness probe unavailable" };
   }
-  if (result.version !== "0.85.1" && result.version !== "1.1.0")
+  if (!piVersionSupported(result.version))
     return { ...result, error: "Pi auth status is unsupported for this version" };
   const providers = [
     ...new Set([...(provider ? [provider] : []), "openai-codex", "anthropic", "github-copilot"]),

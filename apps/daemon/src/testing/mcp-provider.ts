@@ -2,6 +2,7 @@
 import { readPrivateMcpConfig } from "@ace/mcp-server";
 import { validateNativeMcpConfig, shellExposesBearer } from "./provider-mcp-config.ts";
 import { z } from "zod";
+import { openApiDocument } from "@ace/adapter-opencode/contract";
 import { availability } from "./provider-mcp-availability.ts";
 import { proof } from "./provider-mcp-proof.ts";
 import { createInterface } from "node:readline";
@@ -53,28 +54,6 @@ if (provider === "opencode") {
   let config: z.infer<typeof HttpServer> | undefined;
   let mcpProof: string | undefined;
   const userServers = new Map<string, string>();
-  const operations = [
-    "server.info",
-    "event.subscribe",
-    "session.create",
-    "session.get",
-    "session.switchModel",
-    "session.list",
-    "session.active",
-    "session.prompt",
-    "session.interrupt",
-    "session.message.list",
-    "session.permission.list",
-    "session.permission.reply",
-    "session.form.list",
-    "session.form.reply",
-    "session.form.cancel",
-    "session.inbox.list",
-    "shell.list",
-    "shell.get",
-    "shell.remove",
-    "model.list",
-  ];
   if (!args.includes("--stdio") || !process.env["OPENCODE_PASSWORD"])
     throw new Error("Missing v2 owned server options");
   const streams = new Set<import("node:http").ServerResponse>();
@@ -165,12 +144,7 @@ if (provider === "opencode") {
       return;
     } else if (path === "/api/info") result = { version: "2.0.22", pid: process.pid };
     else if (path === "/openapi.json")
-      result = {
-        openapi: "3.1.0",
-        paths: Object.fromEntries(
-          operations.map((operationId, i) => [`/api/${i}`, { get: { operationId } }]),
-        ),
-      };
+      result = openApiDocument();
     else if (path === "/api/session" && req.method === "POST") {
       let body = "";
       for await (const chunk of req) {

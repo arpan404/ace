@@ -1,7 +1,7 @@
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import type { Capabilities } from "@ace/protocol";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
-import { version } from "./boundaries.ts";
+import { version } from "./contract.ts";
 export const supportedVersion = version;
 export function capabilities(cli: DiscoveryResult): Capabilities {
   const supported = cli.installed && version(cli.version);

@@ -52,7 +52,10 @@ export async function setup(extra: ServerOptions = {}, observeFrame?: (frame: Fr
       }
     observeFrame?.(frame);
   };
-  const version = extra.discovery?.env?.ACE_TEST_OPENCODE_VERSION ?? "2.0.22";
+  const env = extra.discovery?.env;
+  // "release-X" keeps the version itself out of the env values that diagnostics redact.
+  const version =
+    env?.ACE_TEST_OPENCODE_VERSION ?? env?.ACE_TEST_RELEASE?.replace(/^release-/, "") ?? "2.0.22";
   const network = extra.runtime?.fetch ?? fetch;
   const options: ServerOptions = {
     ...extra,
