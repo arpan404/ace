@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { visualizationScripts } from "@ace/html/scripts";
+
 /** The custom scheme the packaged renderer is served from (`app://ace/…`). */
 export const appScheme = "app";
 export const appOrigin = `${appScheme}://ace`;
@@ -73,15 +76,32 @@ export function contentSecurityPolicy(options: {
     .join("; ");
 }
 
+function scriptHash(source: string): string {
+  return `sha256-${createHash("sha256").update(source).digest("base64")}`;
+}
+
 /** Hashes for every inline `<script>` in an HTML document, for `script-src`. */
-export async function inlineScriptHashes(html: string): Promise<string[]> {
-  const { createHash } = await import("node:crypto");
-  return [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(
-    (match) =>
-      `sha256-${createHash("sha256")
-        .update(match[1] ?? "")
-        .digest("base64")}`,
+export function inlineScriptHashes(html: string): string[] {
+  return [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((match) =>
+    scriptHash(match[1] ?? ""),
   );
+}
+
+/**
+ * The packaged renderer's policy. Chat visualizations are `data:` and `srcdoc` frames, which
+ * inherit this CSP, so their two fixed bridge scripts are allowed by hash. Authored scripts
+ * are stripped before rendering and stay blocked.
+ */
+export function packagedPolicy(options: {
+  index: string;
+  daemonOrigins: readonly string[];
+  dynamicDaemons: boolean;
+}): string {
+  return contentSecurityPolicy({
+    inlineScripts: [...inlineScriptHashes(options.index), ...visualizationScripts.map(scriptHash)],
+    daemonOrigins: options.daemonOrigins,
+    dynamicDaemons: options.dynamicDaemons,
+  });
 }
 
 /**

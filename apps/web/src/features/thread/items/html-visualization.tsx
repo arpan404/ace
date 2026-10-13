@@ -22,9 +22,13 @@ import { HtmlFrame } from "./html-frame.tsx";
 
 function readTheme(): HtmlTheme {
   const style = getComputedStyle(document.documentElement);
-  return Object.fromEntries(
-    themeProperties.map((name) => [name, style.getPropertyValue(`--${name}`).trim()]),
-  );
+  const scheme = style.colorScheme.trim();
+  return {
+    ...Object.fromEntries(
+      themeProperties.map((name) => [name, style.getPropertyValue(`--${name}`).trim()]),
+    ),
+    ...(scheme === "dark" || scheme === "light" ? { colorScheme: scheme } : {}),
+  };
 }
 function useHtmlTheme() {
   const [theme, setTheme] = useState(readTheme);

@@ -12,6 +12,7 @@ import { homeList } from "./home-list.ts";
 import { multiDayDemo } from "./multi-day-demo.ts";
 import { longHistory } from "./long-history.ts";
 import { replayCursor } from "./replay-cursor.ts";
+import { visualization } from "./visualization.ts";
 
 /** One thread of the development world and how it is played. */
 export interface WorldThread {
@@ -54,6 +55,8 @@ export function devWorld(): WorldThread[] {
     ...delegatedDocs().map((scenario) => ({ scenario, agoMs: 3 * 60 * minute })),
     // Agents using ace's own tools: computer use, the browser and a simulator.
     ...aceTools().map((scenario) => ({ scenario, agoMs: 20 * minute })),
+    // A published HTML visualization (ace_html_render) above the agent's reply.
+    { scenario: visualization(), agoMs: 25 * minute },
     // The exhausted Codex Team account's threads, stopped at its limit (Usage & accounts).
     ...teamAtLimit().map((scenario) => ({ scenario, agoMs: 40 * minute })),
   ]);

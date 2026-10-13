@@ -50,6 +50,18 @@ export class FakeContextWire {
       ...imageMetadata(bytes, name),
     });
   }
+  /** Seeds text bytes under a precomputed hash, the way the daemon stores a published visual. */
+  seedText(threadId: string, document: { sha256: string; text: string; name: string }): void {
+    if (!this.context.thread(threadId)) return;
+    const bytes = new TextEncoder().encode(document.text);
+    this.blobs.set(document.sha256, bytes);
+    this.references(threadId).set(document.sha256, {
+      sha256: document.sha256,
+      bytes: bytes.length,
+      name: document.name,
+      mimeType: "text/plain",
+    });
+  }
   private counter = 0;
   private blobs = new Map<string, Uint8Array>();
   messageAttachments(thread: string, hashes: readonly string[]): Attachment[] {

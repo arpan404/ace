@@ -132,6 +132,7 @@
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/diagnostics": "workspace:*",
+        "@ace/html": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/service": "workspace:*",
         "@ace/ui-core": "workspace:*",

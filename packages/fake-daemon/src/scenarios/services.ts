@@ -1,5 +1,6 @@
 import { savedTranscripts } from "../catalog/history.ts";
 import { aceToolThreadIds } from "./ace-tool-results.ts";
+import { fixtureVisualization } from "./visualization.ts";
 import { automationList, automationRuns } from "../catalog/automations.ts";
 import { pluginCatalog } from "../catalog/plugins.ts";
 import { pullRequests } from "../catalog/pull-requests.ts";
@@ -13,6 +14,14 @@ import type { ServicesSeed } from "../services-wire.ts";
 export function workbenchServices(now: number, timeZone = "UTC"): ServicesSeed {
   return {
     attachmentImages: aceToolThreadIds.map((threadId) => ({ threadId, name: "screen.png" })),
+    attachmentTexts: [
+      {
+        threadId: fixtureVisualization.threadId,
+        sha256: fixtureVisualization.sha256,
+        text: fixtureVisualization.html,
+        name: "visualization.html",
+      },
+    ],
     historyTranscripts: savedTranscripts,
     history: (["claude", "codex", "opencode"] as const).map((provider, index) => ({
       id: `relay-${provider}`,
